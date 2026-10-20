@@ -68,13 +68,10 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
             listening: false,
         }
     );
-    until("the closing link", || {
-        call_link(&desk, &persona).is_some_and(|link| link["state"] == "closed")
+    until("the detached thread", || {
+        call_link(&desk, &persona).is_some_and(|link| link["state"] == "parked")
     })
     .await;
-    let link = call_link(&desk, &persona).unwrap();
-    assert_eq!(link["end"], "idle");
-    assert_eq!(link["outcome"], "Went quiet");
 }
 
 #[tokio::test]

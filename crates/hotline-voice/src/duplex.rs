@@ -12,7 +12,6 @@ use super::front_tools::FrontTools;
 use super::realtime::{
     Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession, RealtimeTool,
 };
-use super::record::Digest;
 use super::settings::FrontProvider;
 use super::*;
 use hotline_contract::Persona;
@@ -29,8 +28,6 @@ const CHUNK_LIMIT: usize = 32 * 1024;
 /// A paid front is charged for its minutes as they pass, so a spent budget
 /// ends the call within one of them.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
-/// A longer call posts a summary to the DM this often, as well as at hang-up.
-const SUMMARY_EVERY: Duration = Duration::from_secs(300);
 
 /// A front call's side of the sound. Held by the call, dropped with it.
 pub(super) struct Front {
@@ -342,9 +339,16 @@ impl Calls {
                 let Ok(reach) = room.front_reach(persona) else {
                     return;
                 };
+                let Some(thread) = lock(&self.calls)
+                    .iter()
+                    .find(|call| call.id == id)
+                    .and_then(|call| call.thread.clone())
+                else {
+                    return;
+                };
                 let opened = tokio::select! {
                     () = cancel.cancelled() => return,
-                    opened = FrontTools::open(self.room.clone(), &id, &persona.id, reach) => opened,
+                    opened = FrontTools::open(self.room.clone(), &thread, &persona.id, reach) => opened,
                 };
                 Some(Arc::new(opened))
             }
@@ -389,16 +393,10 @@ impl Calls {
             }
         };
         let since = Instant::now();
-        let mut kept = Kept {
-            teammate: persona.as_ref().map(|persona| persona.id.clone()),
-            ..Kept::default()
-        };
+        let mut kept = Kept::default();
         let ended = self
             .carry_front(&id, realtime.as_ref(), session, bridge, &cancel, &mut kept)
             .await;
-        if let Some(persona) = &persona {
-            self.post_summary(&persona.id, &id, &mut kept.digest, kept.unanswered.as_ref());
-        }
         let rest = since.elapsed().as_secs_f64() % SPEND_EVERY.as_secs_f64();
         let _ = self.front_spend(realtime.as_ref(), rest);
         match ended {
@@ -423,11 +421,7 @@ impl Calls {
         cancel: &CancellationToken,
         kept: &mut Kept,
     ) -> FrontEnd {
-        let Kept {
-            unanswered,
-            digest,
-            teammate,
-        } = kept;
+        let Kept { unanswered } = kept;
         let RealtimeSession { input, mut events } = session;
         let connected = self.change(id, |call| {
             call.front
@@ -447,20 +441,10 @@ impl Calls {
         *unanswered = None;
         let mut minutes =
             tokio::time::interval_at(tokio::time::Instant::now() + SPEND_EVERY, SPEND_EVERY);
-        let mut summaries =
-            tokio::time::interval_at(tokio::time::Instant::now() + SUMMARY_EVERY, SUMMARY_EVERY);
         let (answered_tx, mut answered) = mpsc::unbounded_channel::<Delegated>();
         loop {
             let event = tokio::select! {
                 () = cancel.cancelled() => return FrontEnd::Call,
-                _ = summaries.tick() => {
-                    if let Some(teammate) = teammate.as_deref() {
-                        // What is unanswered is still being answered; it is
-                        // left open only when the call ends on it.
-                        self.post_summary(teammate, id, digest, None);
-                    }
-                    continue;
-                }
                 _ = minutes.tick() => {
                     if !self.front_connected(realtime) {
                         return FrontEnd::Lost;
@@ -480,11 +464,10 @@ impl Calls {
                 Some(delegated) = answered.recv() => {
                     match delegated {
                         Delegated::Answer { call_id, text } => {
-                            digest.looked_up();
                             let _ = input.tool_result(&call_id, &text, true).await;
                         }
                         Delegated::HandOff { call_id, arguments } => {
-                            hand_over(&mut bridge, unanswered, digest, &input, &call_id, &arguments)
+                            hand_over(&mut bridge, unanswered, &input, &call_id, &arguments)
                                 .await;
                         }
                     }
@@ -513,7 +496,6 @@ impl Calls {
                     })
                 }
                 RealtimeEvent::Heard(text) => {
-                    digest.asked(&text);
                     *unanswered =
                         worth_following_up(&text).then(|| (text.clone(), bridge.next_seq()));
                     let seq = heard;
@@ -535,7 +517,6 @@ impl Calls {
                     replies += 1;
                     if !text.trim().is_empty() {
                         self.front_said(id, &text);
-                        digest.answered(&text);
                         *unanswered = None;
                     }
                     self.change(id, |call| {
@@ -553,7 +534,6 @@ impl Calls {
                     name,
                     arguments,
                 } if let Some(tools) = bridge.desk_tools().filter(|tools| tools.has(&name)) => {
-                    digest.looked_up();
                     // Run beside the call, so a slow tool does not hold the
                     // front's speech. The model speaks once it has the result.
                     let input = input.clone();
@@ -597,15 +577,7 @@ impl Calls {
                     arguments,
                 } => {
                     if name == crate::realtime::SEND_TO_TEAMMATE {
-                        hand_over(
-                            &mut bridge,
-                            unanswered,
-                            digest,
-                            &input,
-                            &call_id,
-                            &arguments,
-                        )
-                        .await;
+                        hand_over(&mut bridge, unanswered, &input, &call_id, &arguments).await;
                     } else {
                         let (output, reply) = bridge.tool_call(&name, &arguments);
                         let _ = input.tool_result(&call_id, &output, reply).await;
@@ -621,26 +593,6 @@ impl Calls {
             if seen.is_err() {
                 return FrontEnd::Call;
             }
-        }
-    }
-
-    /// Posts what the call has done since its last post to the teammate's DM
-    /// as one summary, or nothing when nothing happened. The turns of the
-    /// call are not posted: its thread keeps them.
-    fn post_summary(
-        &self,
-        persona_id: &str,
-        id: &str,
-        digest: &mut Digest,
-        unanswered: Option<&(String, u32)>,
-    ) {
-        let open = unanswered.map(|(words, _)| words.as_str());
-        let (Some(summary), Some(room)) = (digest.summary(open), self.live_room()) else {
-            return;
-        };
-        let posted = room.post(persona_id, &hotline_contract::ThreadId::call(id), &summary);
-        if let Err(error) = posted {
-            eprintln!("[voice] the call's summary could not be posted: {error}");
         }
     }
 
@@ -674,10 +626,6 @@ struct Kept {
     /// What the person last asked that nothing has answered yet, neither
     /// handed to the teammate nor replied to in full by the front.
     unanswered: Option<(String, u32)>,
-    /// What the call has done since its last summary to the DM.
-    digest: Digest,
-    /// The teammate a direct call is with, which gets the summaries.
-    teammate: Option<String>,
 }
 
 /// The words a `send_to_teammate` call carried.
@@ -686,7 +634,6 @@ struct Kept {
 async fn hand_over(
     bridge: &mut front::Front,
     unanswered: &mut Option<(String, u32)>,
-    digest: &mut Digest,
     input: &RealtimeInput,
     call_id: &str,
     arguments: &str,
@@ -694,16 +641,8 @@ async fn hand_over(
     let (output, reply) = bridge.tool_call(crate::realtime::SEND_TO_TEAMMATE, arguments);
     if !reply {
         *unanswered = None;
-        digest.handed(&handed_words(arguments));
     }
     let _ = input.tool_result(call_id, &output, reply).await;
-}
-
-fn handed_words(arguments: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(arguments)
-        .ok()
-        .and_then(|arguments| arguments["words"].as_str().map(str::to_string))
-        .unwrap_or_default()
 }
 
 /// Whether words left unanswered when a call ended are worth answering in

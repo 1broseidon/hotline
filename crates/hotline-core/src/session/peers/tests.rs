@@ -1331,6 +1331,7 @@ mod receipts {
             ring: None,
             receipt: None,
             spoken: None,
+            silent: None,
             from: None,
             scheduled: None,
         }

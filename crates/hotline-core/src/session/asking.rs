@@ -188,7 +188,8 @@ impl Room {
         let hours = hours.unwrap_or(ASK_HOURS).clamp(1, ASK_MAX_HOURS);
         let ts = now_ms();
         let action_id = new_id();
-        let work = (home.kind == ThreadKind::Side).then_some(home.key.as_str());
+        let work =
+            matches!(home.kind, ThreadKind::Side | ThreadKind::Call).then_some(home.key.as_str());
         self.link_handoff_human(work, &action_id)?;
         self.write_home(
             persona_id,
@@ -358,7 +359,7 @@ impl Room {
         let text = note.unwrap_or_default();
         let from = DeliveryFrom::new(&home, Some(action_id.to_string()));
         match home.kind {
-            ThreadKind::Side => {
+            ThreadKind::Side | ThreadKind::Call => {
                 let handoff = self.handoff_awaiting(persona_id, action_id).map(|request| {
                     turns::HandoffLine {
                         request,

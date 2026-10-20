@@ -3,7 +3,7 @@
 - Status: Accepted by George, 2026-10-19 (task-215). Slices 1 to 4 are
   built (task-216, task-217, task-219, task-218), §7's jobs on their own
   threads (task-220), and §0's clone model for subagents and jobs
-  (task-221); the voice slices are not yet.
+  (task-221); slice 5 (task-223) now attaches Legacy voice to the shared work-thread occupant; live-front delegation remains for slice 6.
 - Date: 2026-10-19
 - Builds on: [ADR 0001](0001-threads-are-a-primitive.md), whose runtime
   this finishes for pairs and calls

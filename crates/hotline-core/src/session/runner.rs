@@ -367,6 +367,7 @@ impl Room {
                     driver: agent.driver.as_ref(),
                 },
                 Line {
+                    voice: None,
                     text: timed(now_ms(), &handed(&spec.brief.task)),
                     attachments: Vec::new(),
                     handoff: None,

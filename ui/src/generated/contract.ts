@@ -258,7 +258,7 @@ export type Client = "desktop" | "phone";
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, 
+export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, thread?: ThreadId, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, 
 /**
  * `front` asks for a voice front. The answer is in the reply's
  * `front`; a desk that cannot or will not run one leaves it out.
@@ -480,7 +480,7 @@ about: string, };
  * answers when it answers one. It is a field of the delivery, so the turn that
  * takes it never has to read an id to find out.
  */
-export type DeliveryFrom = { 
+export type DeliveryFrom = { title?: string, 
 /**
  * The thread's key: see [`ThreadId`].
  */
@@ -1056,7 +1056,7 @@ export type PolicyMode = "all" | "none" | "some";
  * going on. Only messages count — a teammate's last tool call is Hotline's
  * business, not a line of conversation.
  */
-export type Preview = { from: Side, text: string, at: number, };
+export type Preview = { posted?: boolean, from: Side, text: string, at: number, };
 
 /**
  * What `process.output` answers: the whole command, and the latest of what
@@ -1917,6 +1917,10 @@ ring?: RingIntent, receipt?: Receipt,
  * shows `text`, which stands alone.
  */
 spoken?: string, 
+/**
+ * Posted while the person was on the call; kept without an unread or notification.
+ */
+silent?: boolean, 
 /**
  * A post from one of the teammate's other threads (a call, a work
  * thread): where it was said. A client draws "From the call" from

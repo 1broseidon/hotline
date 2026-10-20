@@ -221,8 +221,8 @@ describe("what a person can do in a thread", () => {
 		expect(powersOf("side", "closed")).toEqual({ ...read, resume: true });
 	});
 
-	test("is only reading in a pair, a run and a call", () => {
-		for (const kind of ["pair", "run", "call", "dm"] as const) {
+	test("is only reading in a pair and a run", () => {
+		for (const kind of ["pair", "run", "dm"] as const) {
 			for (const state of ["live", "parked", "closed"] as const) expect(powersOf(kind, state)).toEqual(read);
 		}
 	});

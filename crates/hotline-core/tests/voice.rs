@@ -150,7 +150,12 @@ async fn provider_seeing(reply: &'static str) -> (String, Arc<std::sync::Mutex<V
         let requests = requests.clone();
         async move {
         if let Ok(request) = serde_json::from_slice::<Value>(&body) {
+            let streaming = request["stream"] == true;
             requests.lock().unwrap().push(request);
+            if !streaming {
+                let note = json!({"title":"Scheduler repair", "note":CALL_NOTE}).to_string();
+                return ([("Content-Type", "application/json")], json!({"id":"note", "object":"chat.completion", "created":1, "model":"test", "choices":[{"index":0,"message":{"role":"assistant","content":note},"finish_reason":"stop"}]}).to_string());
+            }
         }
         let delta = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":reply},"finish_reason":null}]});
         let done = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}});
@@ -162,6 +167,24 @@ async fn provider_seeing(reply: &'static str) -> (String, Arc<std::sync::Mutex<V
         axum::serve(listener, app).await.unwrap();
     });
     (url, seen)
+}
+
+const CALL_NOTE: &str =
+    "Scheduler repair: We fixed the zebracrossing bug in the scheduler. The PR checks passed.";
+
+/// The note's clock starts once the record has drained the hang-up.
+async fn closing_note_due(log: &hotline_core::log::Log, call: &str) {
+    let stream = hotline_core::log::StreamId::Call(call.into());
+    common::until("the voice has detached", || {
+        log.load(&stream).iter().any(|event| {
+            event["kind"] == "notice"
+                && event["text"] == "Voice disconnected. This thread stays open."
+        })
+    })
+    .await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(31)).await;
+    tokio::time::resume();
 }
 
 /// The teammate's reply on a call to it, as its agent wrote it: the version

@@ -340,20 +340,6 @@ async fn one_reply(
     (said, clips)
 }
 
-fn said_on(desk: &crate::desk::Desk, id: &str) -> Vec<(String, String)> {
-    desk.log
-        .load(&StreamId::Call(id.into()))
-        .into_iter()
-        .filter(|event| matches!(event["kind"].as_str(), Some("user" | "agent")))
-        .map(|event| {
-            (
-                event["kind"].as_str().unwrap().to_string(),
-                event["text"].as_str().unwrap().to_string(),
-            )
-        })
-        .collect()
-}
-
 fn call_link(desk: &crate::desk::Desk, persona: &str) -> Option<Value> {
     desk.log
         .load(&StreamId::Tape(persona.into()))

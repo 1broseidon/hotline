@@ -44,6 +44,7 @@ pub(crate) mod generate;
 mod job_thread;
 pub(crate) mod jobs;
 pub(crate) use hotline_room::tool_ledger as ledger;
+mod calls;
 mod lifecycle;
 mod links;
 mod narration;
@@ -583,6 +584,7 @@ pub struct Room {
     /// The turns in flight that `post_to_chat` may post from, by thread, and
     /// whether each has (`session/post.rs`).
     posting: Mutex<HashMap<ThreadId, post::Posting>>,
+    call_closings: Mutex<HashMap<ThreadId, String>>,
     /// The job threads the room holds: each job's queue, and its agent while
     /// it has one (`session/job_thread.rs`). Made at a job's first firing and
     /// dropped when it ends.
@@ -739,6 +741,7 @@ impl Room {
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             drawing: Mutex::new(HashSet::new()),
             posting: Mutex::new(HashMap::new()),
+            call_closings: Mutex::new(HashMap::new()),
             job_threads: Mutex::new(HashMap::new()),
             subagents: Mutex::new(HashMap::new()),
             deltas: broadcast::channel(BROADCAST_DEPTH).0,

@@ -1,3 +1,4 @@
+import { startCall } from "../voice/call";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
 import { chordKeys } from "../chords";
@@ -483,6 +484,9 @@ function ThreadView({
 					{turning && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 					<span className="truncate">{title}</span>
 				</h2>
+                {(id.kind === "side" || id.kind === "call") && !closed && opener === undefined && (
+                    <button type="button" className="control btn-quiet px-2 text-sm" title="Call this thread" onClick={() => void startCall(undefined, { personaId: self.id, name: self.name, thread: id }).catch(refuse)}>Call</button>
+                )}
 				{powers.resume && (
 					<button type="button" className="control btn-quiet px-2 text-sm" data-autofocus title="Resume this thread" onClick={resumeIt}>
 						Continue

@@ -310,7 +310,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             POST_TO_CHAT,
-            "Post one message to the person's chat with you, your main conversation, from wherever you are working: a work thread, a thread with a colleague, a job's thread. It lands as your own message, marked with where it came from, and notifies them, so write it as the message to them: what you found or made and what they need to do, not a note about posting. One post a turn: put everything in it. In the main conversation your reply is already the chat, so it is refused there. On a quiet job's firing (its line begins `quiet`) nobody reads your words but this: post only if something needs their attention. Set `wake` only when your main conversation has to act on this, not only the person to know (the build broke under work it is doing); it is handed the post and answers the person itself. Without it, your main conversation hears of the post with the person's next message. Your own chat only, at most 2,000 characters.",
+            "Post one message to the person's chat with you, your main conversation, from wherever you are working: a work thread, a thread with a colleague, a job's thread. It lands as your own message, marked with where it came from, and notifies them, so name what it is about and make it understandable to someone who was not on the call. Write it as the message to them: what you found or made and what they need to do, not a note about posting. One post a turn: put everything in it. In the main conversation your reply is already the chat, so it is refused there. On a quiet job's firing (its line begins `quiet`) nobody reads your words but this: post only if something needs their attention. Set `wake` only when your main conversation has to act on this, not only the person to know (the build broke under work it is doing); it is handed the post and answers the person itself. Without it, your main conversation hears of the post with the person's next message. Your own chat only, at most 2,000 characters.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -588,6 +588,12 @@ impl TeammateTools {
         self.work = Some(thread_id);
         self.subagents = false;
         self
+    }
+
+    pub(crate) fn for_call(self, thread: ThreadId) -> Self {
+        let mut tools = self.for_work(thread.key.clone());
+        tools.thread = thread;
+        tools
     }
 
     pub(crate) fn in_work(&self) -> bool {

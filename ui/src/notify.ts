@@ -1,6 +1,6 @@
 /**
  * Desktop toasts for the two moments that earn one: a turn ending, and a
- * teammate blocked.
+ * teammate blocked, plus a post from another thread.
  *
  * The judgement lives here, not in the shell, because the roster view already
  * carries the session edge and the last line, and a toast about the screen
@@ -16,10 +16,11 @@ import type { RosterEntry } from "./wire";
 
 /** Last state seen per desk and teammate, so a transition can be recognised as one. */
 const lastState = new Map<string, SessionState>();
+const lastPost = new Map<string, number | undefined>();
 
 /**
  * A roster fold just arrived. Notify only on thinking → ready or thinking →
- * error, and only when you are not looking at it: the window is unfocused,
+ * error, or a new thread post, and only when you are not looking at it: the window is unfocused,
  * or the desk is not the one on screen. A snapshot, a teammate that was never
  * thinking, and a desk you are looking at are all silent.
  * A teammate that blocked also bounces the dock once: a finished turn can
@@ -39,8 +40,10 @@ export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: 
 		const state = shownState(entry.session);
 		const previous = lastState.get(key);
 		lastState.set(key, state);
-		if (previous !== "thinking") continue;
-		if (state !== "ready" && state !== "error") continue;
+		const posted = lastPost.has(key) && entry.preview?.posted === true && lastPost.get(key) !== entry.latest;
+		lastPost.set(key, entry.latest);
+		if (!posted && previous !== "thinking") continue;
+		if (!posted && state !== "ready" && state !== "error") continue;
 		// Focus means the desk on screen is being looked at; a desk off screen
 		// is not, however focused the window is.
 		if (desk.name === undefined && document.hasFocus()) continue;
@@ -54,6 +57,7 @@ export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: 
 	}
 	for (const key of lastState.keys()) {
 		if (key.startsWith(scope) && !live.has(key)) lastState.delete(key);
+		if (key.startsWith(scope) && !live.has(key)) lastPost.delete(key);
 	}
 }
 

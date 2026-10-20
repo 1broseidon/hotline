@@ -23,9 +23,6 @@ use crate::contract::{
 };
 use std::sync::Arc;
 
-/// How many posts from elsewhere ride on the next line of a live session.
-const MAX_PENDING_POSTS: usize = 6;
-
 /// The most one post to the chat may say; a longer account is a thread's to
 /// keep, and the post can point at it.
 pub(crate) const POST_CHARS: usize = 2_000;
@@ -247,7 +244,12 @@ impl Room {
             ring: None,
             receipt: None,
             spoken: None,
-            from: elsewhere.then(|| DeliveryFrom::new(from, None)),
+            silent: self.on_the_call(from).then_some(true),
+            from: elsewhere.then(|| {
+                let mut source = DeliveryFrom::new(from, None);
+                source.title = self.link_of(from).map(|link| link.title);
+                source
+            }),
             scheduled: post.scheduled,
         };
         let event = serde_json::to_value(&event).map_err(|error| error.to_string())?;
@@ -263,8 +265,6 @@ impl Room {
             let origin = posted_from(&event).unwrap_or_default();
             let mut posts = lock(&session.pending_posts);
             posts.push(format!("{origin}: {said}"));
-            let excess = posts.len().saturating_sub(MAX_PENDING_POSTS);
-            posts.drain(..excess);
         }
         if !self.on_the_call(from) {
             let name = self
@@ -276,11 +276,10 @@ impl Room {
     }
 
     /// Whether `thread` is a call the person is on now.
-    fn on_the_call(&self, thread: &ThreadId) -> bool {
-        thread.kind == ThreadKind::Call
-            && lock(&self.voice)
-                .upgrade()
-                .is_some_and(|voice| voice.is_up(&thread.key))
+    pub(super) fn on_the_call(&self, thread: &ThreadId) -> bool {
+        lock(&self.voice)
+            .upgrade()
+            .is_some_and(|voice| voice.thread_is_up(thread))
     }
 }
 
@@ -306,7 +305,8 @@ pub(super) fn posted_from(event: &serde_json::Value) -> Option<String> {
         return Some(format!("From your scheduled job \"{}\"", run.name));
     }
     let from = serde_json::from_value::<DeliveryFrom>(field("from")).ok()?;
-    Some(
+    Some(format!(
+        "{} (thread {}:{})",
         match from.kind {
             ThreadKind::Dm => return None,
             ThreadKind::Call => "From your call",
@@ -314,7 +314,8 @@ pub(super) fn posted_from(event: &serde_json::Value) -> Option<String> {
             ThreadKind::Pair => "From your thread with a colleague",
             ThreadKind::Run => "From your subagent",
             ThreadKind::Job => "From your job",
-        }
-        .to_string(),
-    )
+        },
+        from.kind.name(),
+        from.thread
+    ))
 }

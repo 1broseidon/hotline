@@ -382,7 +382,8 @@ async fn a_file_from_a_work_thread_is_posted_to_the_chat() {
     assert_eq!(
         said(&tape(&room, "ada")),
         vec![Said::Agent(
-            "(From your work thread) The report\n[file: report.pdf]".to_string()
+            "(From your work thread (thread side:side-1)) The report\n[file: report.pdf]"
+                .to_string()
         )]
     );
 }

@@ -310,6 +310,7 @@ struct Input {
 
 #[doc(hidden)]
 pub struct Call {
+    thread: Option<hotline_contract::ThreadId>,
     id: String,
     output: String,
     pub target: Option<String>,
@@ -603,6 +604,28 @@ impl Calls {
     }
 
     /// Whether the call `id` is still going: the person is on it.
+    pub fn thread_origin(&self, thread: &hotline_contract::ThreadId) -> Option<Origin> {
+        let calls = lock(&self.calls);
+        let call = calls.iter().rev().find(|call| {
+            call.thread.as_ref() == Some(thread)
+                && call.state != VoiceState::Ended
+                && call.front.is_none()
+        })?;
+        Some(Origin {
+            call_id: call.id.clone(),
+            seq: call.seq.unwrap_or_default(),
+            direct: true,
+            front: false,
+            ended: false,
+        })
+    }
+
+    pub fn thread_is_up(&self, thread: &hotline_contract::ThreadId) -> bool {
+        lock(&self.calls)
+            .iter()
+            .any(|call| call.thread.as_ref() == Some(thread) && call.state != VoiceState::Ended)
+    }
+
     pub fn is_up(&self, id: &str) -> bool {
         lock(&self.calls)
             .iter()
@@ -867,7 +890,9 @@ impl Calls {
     pub fn on_call(&self, persona: &str) -> Option<Origin> {
         let calls = lock(&self.calls);
         let call = calls.iter().rev().find(|call| {
-            call.state != VoiceState::Ended && call.target.as_deref() == Some(persona)
+            call.state != VoiceState::Ended
+                && call.front.is_some()
+                && call.target.as_deref() == Some(persona)
         })?;
         Some(Origin {
             call_id: call.id.clone(),

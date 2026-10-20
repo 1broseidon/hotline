@@ -36,6 +36,7 @@ type Sessions = Arc<Mutex<HashMap<String, Desk>>>;
 async fn main() {
     let sessions: Sessions = Arc::default();
     let opened = sessions.clone();
+    let histories: Arc<Mutex<HashMap<String, Vec<String>>>> = Arc::default();
     let transport = ByteStreams::new(
         tokio::io::stdout().compat_write(),
         tokio::io::stdin().compat(),
@@ -69,6 +70,7 @@ async fn main() {
             move |request: PromptRequest,
                   responder: Responder<PromptResponse>,
                   cx: ConnectionTo<Client>| {
+                let histories = histories.clone();
                 let desk = sessions
                     .lock()
                     .unwrap()
@@ -90,6 +92,24 @@ async fn main() {
                     // to stay free to carry the session's other messages.
                     cx.spawn(async move {
                         let reply = answer(&said, desk).await;
+                        if let Some(path) = said
+                            .lines()
+                            .find_map(|line| line.trim().strip_prefix("WAIT_FOR "))
+                        {
+                            while !std::path::Path::new(path).exists() {
+                                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                            }
+                        }
+                        let reply = {
+                            let mut histories = histories.lock().unwrap();
+                            let history = histories.entry(session.0.to_string()).or_default();
+                            history.push(said.clone());
+                            if said.contains("ECHO_HISTORY") {
+                                history.join("\n")
+                            } else {
+                                reply
+                            }
+                        };
                         replying.send_notification(SessionNotification::new(
                             session,
                             SessionUpdate::AgentMessageChunk(ContentChunk::new(

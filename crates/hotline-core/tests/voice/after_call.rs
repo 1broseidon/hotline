@@ -197,6 +197,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .await["ok"],
         true
     );
+    closing_note_due(&desk.log, &call).await;
     common::until("the call's summary is posted", || {
         desk.log.load(&tape).iter().any(is_call_post)
     })
@@ -209,8 +210,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .collect();
     assert_eq!(summaries.len(), 1, "{summaries:?}");
     let text = summaries[0]["text"].as_str().unwrap();
-    assert!(text.starts_with("You asked"), "{text}");
-    assert!(text.contains("what did we fix on the scheduler?"), "{text}");
+    assert_eq!(text, CALL_NOTE);
     assert!(text.contains(answered), "{text}");
     assert!(
         !text.contains("search_thread") && !text.contains("working session"),

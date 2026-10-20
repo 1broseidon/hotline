@@ -30,6 +30,8 @@ pub enum Command {
     VoiceCallStart {
         call_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<ThreadId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         persona_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stream_audio: Option<bool>,

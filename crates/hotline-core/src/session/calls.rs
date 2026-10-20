@@ -1,0 +1,209 @@
+//! Voice attaches to a working thread; its agent outlives the microphone.
+use super::{Post, Room, lock, new_id};
+use crate::contract::{End, ThreadId, ThreadKind};
+use crate::log::StreamId;
+use crate::thread::{Link, ThreadState};
+use serde_json::{Value, json};
+use std::time::Duration;
+
+const SUMMARY_CURSOR: &str = "call-closing-note";
+
+impl Room {
+    pub(crate) fn validate_call_thread(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+    ) -> Result<(), String> {
+        if !matches!(thread.kind, ThreadKind::Call | ThreadKind::Side) {
+            return Err("Call a work thread or an earlier call.".into());
+        }
+        match self.link_of(thread) {
+            Some(link) if link.persona_id.as_deref() != Some(persona) => {
+                Err("That thread belongs to another teammate.".into())
+            }
+            Some(link) if matches!(link.state, ThreadState::Closed(_)) => {
+                Err("Continue that thread before calling it.".into())
+            }
+            Some(link) if link.opener.is_some() => {
+                Err("That thread was handed over by a teammate.".into())
+            }
+            None => Err("There is no such thread.".into()),
+            _ => Ok(()),
+        }
+    }
+
+    pub(crate) fn call_began(&self, thread: &ThreadId, persona: &str, ts: i64) {
+        lock(&self.call_closings).remove(thread);
+        if self.link_of(thread).is_some() {
+            return;
+        }
+        self.write_link(&Link {
+            id: Link::fresh_id(thread),
+            ts,
+            thread: thread.clone(),
+            persona_id: Some(persona.into()),
+            title: "Call".into(),
+            state: ThreadState::Live,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: None,
+            elapsed_ms: None,
+            opener: None,
+        });
+    }
+
+    pub(crate) fn call_spoken(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        id: &str,
+        spoken: &str,
+    ) -> bool {
+        let Some(stream) = StreamId::of_thread(thread) else {
+            return false;
+        };
+        let Some(mut event) = self
+            .log
+            .load(&stream)
+            .into_iter()
+            .find(|event| event["kind"] == "agent" && event["id"] == id)
+        else {
+            return false;
+        };
+        event["spoken"] = json!(spoken);
+        self.threads().write(thread, persona, &event);
+        true
+    }
+
+    pub(crate) fn call_said(&self, thread: &ThreadId, persona: &str, line: &Value) {
+        self.threads().write(thread, persona, line);
+    }
+
+    pub(super) fn attached_voice(&self, thread: &ThreadId) -> Option<crate::voice::Origin> {
+        lock(&self.voice)
+            .upgrade()
+            .and_then(|voice| voice.thread_origin(thread))
+    }
+
+    pub(crate) fn call_ended(
+        &self,
+        thread: &ThreadId,
+        persona: &str,
+        _end: End,
+        _outcome: &str,
+        _ts: i64,
+    ) {
+        let Some(room) = self.this() else { return };
+        let ticket = new_id();
+        lock(&self.call_closings).insert(thread.clone(), ticket.clone());
+        let thread = thread.clone();
+        let persona = persona.to_string();
+        let due = tokio::time::Instant::now() + Duration::from_secs(30);
+        self.threads().write(&thread, &persona, &json!({"kind":"notice", "id":new_id(), "ts":super::now_ms(), "level":"info", "text":"Voice disconnected. This thread stays open."}));
+        tokio::spawn(async move {
+            tokio::time::sleep_until(due).await;
+            loop {
+                if lock(&room.call_closings).get(&thread) != Some(&ticket) {
+                    return;
+                }
+                if room.on_the_call(&thread) {
+                    return;
+                }
+                if room
+                    .sides
+                    .get(&thread.key)
+                    .is_some_and(|live| live.working())
+                {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+                let Some(stream) = StreamId::of_thread(&thread) else {
+                    return;
+                };
+                let all = room.log.load(&stream);
+                let after = all
+                    .iter()
+                    .rposition(|event| {
+                        event["id"]
+                            .as_str()
+                            .is_some_and(|id| id.starts_with(SUMMARY_CURSOR))
+                    })
+                    .map_or(0, |at| at + 1);
+                let slice: Vec<_> = all
+                    .into_iter()
+                    .skip(after)
+                    .filter(crate::store::chapters::is_message)
+                    .collect();
+                let through = slice.last().map(|event| event["id"].clone());
+                if !slice.is_empty() {
+                    let Ok(persona_view) = room.persona(&persona) else {
+                        return;
+                    };
+                    let note = room.call_note(&persona_view, &slice).await.unwrap_or_else(|| super::chapters::Note {
+                        title: room.link_of(&thread).map_or_else(|| "Call".into(), |link| link.title),
+                        note: "The call ended, but I could not prepare its summary. Open this thread for the conversation and finished work.".into(),
+                        status: crate::contract::ChapterStatus::InProgress,
+                        tags: Vec::new(),
+                    });
+                    let _admission = room.sides.waking.lock().await;
+                    let current = lock(&room.call_closings).get(&thread) == Some(&ticket);
+                    if !current || room.on_the_call(&thread) {
+                        return;
+                    }
+                    if room
+                        .sides
+                        .get(&thread.key)
+                        .is_some_and(|live| live.working())
+                        || room
+                            .log
+                            .load(&stream)
+                            .iter()
+                            .rev()
+                            .find(|event| crate::store::chapters::is_message(event))
+                            .map(|event| event["id"].clone())
+                            != through
+                    {
+                        continue;
+                    }
+                    if room
+                        .post(&persona, &thread, Post::words(&note.note))
+                        .is_err()
+                    {
+                        return;
+                    }
+                    room.threads().write(&thread, &persona, &json!({"kind":"notice", "id":format!("{SUMMARY_CURSOR}:{}", new_id()), "ts":super::now_ms(), "level":"info", "text":note.note.clone()}));
+                    room.park_after_call(&thread, Some(note));
+                    lock(&room.call_closings).remove(&thread);
+                    return;
+                }
+                let _admission = room.sides.waking.lock().await;
+                let current = lock(&room.call_closings).get(&thread) == Some(&ticket);
+                if !current || room.on_the_call(&thread) {
+                    return;
+                }
+                if room.work_thread_working(&thread) {
+                    continue;
+                }
+                room.park_after_call(&thread, None);
+                lock(&room.call_closings).remove(&thread);
+                return;
+            }
+        });
+    }
+    fn park_after_call(&self, thread: &ThreadId, note: Option<super::chapters::Note>) {
+        self.end_thread(thread, super::sides::Ending::Park);
+        if let Some(mut link) = self.link_of(thread)
+            && !matches!(link.state, ThreadState::Closed(_))
+        {
+            link.state = ThreadState::Parked;
+            if let Some(note) = note {
+                if thread.kind == ThreadKind::Call {
+                    link.title = note.title;
+                }
+                link.note = Some(note.note);
+            }
+            self.write_link(&link);
+        }
+    }
+}

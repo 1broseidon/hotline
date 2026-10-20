@@ -24,17 +24,21 @@ pub trait CallRoom: Send + Sync {
     /// The local engine's directory, without opening provider credentials.
     fn speech_root(&self) -> &std::path::Path;
     fn connected(&self) -> Connected;
-    fn call_began(&self, call: &str, persona: &str, ts: i64);
-    fn call_said(&self, call: &str, persona: &str, line: &Value);
-    fn call_ended(&self, call: &str, persona: &str, end: End, outcome: &str, ts: i64);
+    fn call_began(&self, call: &ThreadId, persona: &str, ts: i64);
+    fn call_said(&self, call: &ThreadId, persona: &str, line: &Value);
+    fn call_ended(&self, call: &ThreadId, persona: &str, end: End, outcome: &str, ts: i64);
+    fn validate_call_thread(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
+    async fn call_prompt(&self, persona: &str, thread: &ThreadId, text: &str)
+    -> Result<(), String>;
     fn post(&self, persona: &str, thread: &ThreadId, text: &str) -> Result<(), String>;
-    /// S5 replaces DM startup with the call thread's queue.
+    /// S6 replaces the live front's DM startup with the thread queue.
     async fn start(&self, persona: &str) -> Result<(), String>;
-    /// S5 moves heard lines from the DM to the call thread's queue.
+    /// S6 moves live-front delegations from the DM to the thread queue.
     async fn prompt(&self, persona: &str, text: &str) -> Result<(), String>;
-    /// S5 reads the call thread's agent instead of the DM session.
+    /// The live front still observes its delegated DM turn until S6.
     fn info(&self, persona: &str) -> Option<SessionInfo>;
-    /// S5 keeps the spoken version on the call thread instead of rewriting the DM.
+    /// Keeps a Legacy reply's spoken version on its own thread.
+    fn call_spoken(&self, persona: &str, thread: &ThreadId, event: &str, spoken: &str) -> bool;
     fn voice_spoken(&self, persona: &str, event: &str, spoken: &str) -> bool;
     /// task-203 removes the desk dispatcher tape when desk calls reach the lead.
     fn voice_record(&self, kind: &str, text: &str) -> Result<String, String>;

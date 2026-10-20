@@ -552,10 +552,8 @@ async fn each_firing_is_a_turn_on_the_jobs_thread_parked_between_and_started_fro
     );
     for posted in desk.chat() {
         assert_eq!(posted["text"], "The crane is steady.");
-        assert_eq!(
-            posted["from"],
-            json!({"thread": "crane-loop", "kind": "job"})
-        );
+        assert_eq!(posted["from"]["thread"], "crane-loop");
+        assert_eq!(posted["from"]["kind"], "job");
         assert_eq!(posted["scheduled"]["jobId"], "crane-loop");
     }
 
@@ -650,7 +648,8 @@ async fn a_job_the_person_cancels_ends_with_a_final_post() {
         chat[0]["text"],
         "Cancelled. Where it stood: Watching the crane: steady."
     );
-    assert_eq!(chat[0]["from"], json!({"thread": "watch", "kind": "job"}));
+    assert_eq!(chat[0]["from"]["thread"], "watch");
+    assert_eq!(chat[0]["from"]["kind"], "job");
     assert_eq!(desk.state("watch").as_deref(), Some("closed"));
     let listed = desk.listing().await;
     assert!(listed[0]["endedAt"].is_i64(), "{listed:?}");
@@ -701,7 +700,8 @@ async fn a_job_that_runs_out_of_its_count_ends_with_a_final_post() {
     let chat = desk.chat();
     assert_eq!(chat.len(), 1, "a quiet job posts only its end: {chat:#?}");
     assert_eq!(chat[0]["text"], "Counted the files.");
-    assert_eq!(chat[0]["from"], json!({"thread": "count", "kind": "job"}));
+    assert_eq!(chat[0]["from"]["thread"], "count");
+    assert_eq!(chat[0]["from"]["kind"], "job");
     assert_eq!(chat[0]["scheduled"]["jobId"], "count");
     let listed = desk.listing().await;
     assert!(listed[0]["endedAt"].is_i64(), "{listed:?}");
@@ -817,7 +817,8 @@ async fn a_stopped_firing_ends_its_turn_and_the_next_one_still_runs() {
         "the stopped firing reported nothing: {chat:#?}"
     );
     assert_eq!(chat[0]["text"], "Crane checked.");
-    assert_eq!(chat[0]["from"], json!({"thread": "crane", "kind": "job"}));
+    assert_eq!(chat[0]["from"]["thread"], "crane");
+    assert_eq!(chat[0]["from"]["kind"], "job");
 }
 
 /// A job that meets its goal ends itself: its report is its final post, and
@@ -947,10 +948,8 @@ async fn a_schedule_written_before_the_upgrade_fires_on_its_job_thread() {
         posted["text"],
         "The crane is down: the winch cable snapped."
     );
-    assert_eq!(
-        posted["from"],
-        json!({"thread": "before-the-upgrade", "kind": "job"})
-    );
+    assert_eq!(posted["from"]["thread"], "before-the-upgrade");
+    assert_eq!(posted["from"]["kind"], "job");
     assert_eq!(posted["scheduled"]["quiet"], true);
     until("its turn is on its own thread", || {
         let kinds = desk.kinds("before-the-upgrade");
@@ -1005,7 +1004,8 @@ async fn a_quiet_job_is_heard_only_when_it_posts() {
     );
     assert_eq!(posted["scheduled"]["jobId"], second.as_str());
     assert_eq!(posted["scheduled"]["quiet"], true);
-    assert_eq!(posted["from"], json!({"thread": second, "kind": "job"}));
+    assert_eq!(posted["from"]["thread"], second);
+    assert_eq!(posted["from"]["kind"], "job");
     let chat = desk.chat();
     assert_eq!(chat.len(), 1, "nothing else reached the chat: {chat:#?}");
 }

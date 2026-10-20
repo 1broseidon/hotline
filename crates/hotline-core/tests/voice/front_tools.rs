@@ -119,7 +119,7 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     assert_eq!(sent["event"]["text"], "the scheduler fix is in");
     assert_eq!(
         sent["event"]["from"],
-        json!({"thread": call, "kind": "call"}),
+        json!({"thread": call, "kind": "call", "title":"Call"}),
         "{sent}"
     );
 
@@ -255,7 +255,7 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
     let mut desk = front_desk(true, 64).await;
     let root = desk.root.path().to_path_buf();
     let socket = &mut desk.socket;
-    let (provider, _requests) = provider_seeing("The checks passed.").await;
+    let (provider, requests) = provider_seeing("The checks passed.").await;
     let saved = answer(socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
     assert_eq!(saved["ok"], true);
     let persona = answer(socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.to_str().unwrap()}}})).await["result"]["id"]
@@ -339,6 +339,7 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
         .await["ok"],
         true
     );
+    closing_note_due(&desk.log, &call).await;
     common::until("the call posts to the conversation", || {
         desk.log.load(&tape).iter().any(is_call_post)
     })
@@ -350,11 +351,15 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
     let summaries: Vec<&Value> = dm.iter().filter(|v| is_call_post(v)).collect();
     assert_eq!(summaries.len(), 1, "{dm:?}");
     let text = summaries[0]["text"].as_str().unwrap();
-    assert!(text.starts_with("You asked"), "{text}");
-    assert!(text.contains("hello there, can you hear me"), "{text}");
+    assert_eq!(text, CALL_NOTE);
     assert!(
-        text.contains(&format!("I'm still working on this: \"{handoff}\"")),
-        "{text}"
+        requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| request["stream"] != true
+                && request.to_string().contains(handoff)
+                && request.to_string().contains("Loud and clear."))
     );
     for said in ["Loud and clear.", "On it.", "Anytime."] {
         assert!(
@@ -452,7 +457,7 @@ async fn one_call_proves_the_whole_front() {
     };
 
     // A lookup: answered desk-side, nothing handed on.
-    let answered = "We fixed the zebracrossing bug.";
+    let answered = "We fixed the zebracrossing bug in the scheduler.";
     speak("what did we fix?", answered).await;
     call_tool("s1", "search_thread", json!({"query":"zebracrossing"})).await;
     let Asked::ToolResult { output, .. } = next_asked(&mut desk.asked).await else {
@@ -504,6 +509,7 @@ async fn one_call_proves_the_whole_front() {
         .await["ok"],
         true
     );
+    closing_note_due(&desk.log, &call).await;
     common::until("the post and the call's summary", || {
         let added = desk.log.load(&tape).split_off(turns);
         added.iter().filter(|v| is_call_post(v)).count() >= 2
@@ -521,11 +527,8 @@ async fn one_call_proves_the_whole_front() {
     assert_eq!(posts.len(), 2, "the post and one summary: {added:?}");
     assert_eq!(posts[0], "the scheduler fix is in");
     let summary = posts[1];
-    assert!(summary.starts_with("You asked"), "{summary}");
-    assert!(
-        summary.contains("what did we fix?") && summary.contains(answered),
-        "{summary}"
-    );
+    assert_eq!(summary, CALL_NOTE);
+    assert!(summary.contains(answered), "{summary}");
     for tool in ["search_thread", "send_to_teammate", "post_to_chat"] {
         assert!(!summary.contains(tool), "{summary}");
     }

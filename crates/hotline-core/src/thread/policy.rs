@@ -100,8 +100,6 @@ pub enum Idle {
     /// The agent is let go of after this many milliseconds with nobody
     /// speaking, and the thread stays open.
     Park(i64),
-    /// The thread ends this long after anyone last spoke.
-    Close(i64, End),
     /// Idle does not end it: it lasts as long as the work it is for.
     Never,
 }
@@ -215,14 +213,9 @@ impl Policy {
                 restart: Restart::Park,
                 ..Self::asked_of_the_person()
             },
-            // A call signals a card and never answers it, and a run has no
-            // one to answer: both expire what they raise. A call has no agent
-            // of its own yet, and a run starts fresh and is never reopened.
             ThreadKind::Call => Self {
-                idle: Idle::Close(QUIET_MS, End::Idle),
-                restart: Restart::Close(End::Stopped),
-                closing_note: true,
-                ..Self::unattended(Tools::None, Lease::Same)
+                idle: Idle::Park(30_000),
+                ..Self::of(ThreadKind::Side)
             },
             // A run and a job are clones of the home agent (ADR 0008 §0): the
             // home thread's lease, scoped so letting go of the clone revokes

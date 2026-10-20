@@ -30,13 +30,13 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T12:02:47.323Z"
+updatedAt: "2026-10-20T12:04:00.044Z"
 contract:
   status: ready
   deliverables:
     - type: file
       path: Cargo.toml
-      description: rig = "=0.45.0", rust-version 1.97.1
+      description: rig pinned at version =0.45.0, rust-version 1.97.1
     - type: file
       path: crates/hotline-core/src/providers/rig_login.rs
       description: LoginDirStore TokenStore over today's login dirs, per-credential lock and registry
@@ -48,7 +48,8 @@ contract:
       description: credential storage under Rig 0.45
   validation:
     commands:
-      - grep -q 'rig = "=0.45.0"' Cargo.toml
+      - grep -qE '^rig = \{ version = "=0\.45\.0"' Cargo.toml
+      - grep -A1 '^name = "rig-core"$' Cargo.lock | grep -q 'version = "0.45.0"'
       - grep -q 'rust-version = "1.97.1"' Cargo.toml
       - "! grep -rn 'every_input_token\\|cache_beside_input' crates/hotline-core/src"
       - make check
@@ -63,7 +64,7 @@ contract:
     - Old Copilot login files removed only after copilot.json is written
     - Do not adopt Rig's resumable runs or committed-history streaming for the turn loop
   metrics:
-    readyAt: "2026-10-20T12:02:47.323Z"
+    readyAt: "2026-10-20T12:04:00.044Z"
 ---
 
 ## Description

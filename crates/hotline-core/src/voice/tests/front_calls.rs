@@ -18,10 +18,7 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
     let calls = desk.parts().voice.unwrap();
     let persona = mack(&desk).await;
     assert!(!calls.status().direct_available, "nothing is connected");
-    let (login, _dir) = calls
-        .vault
-        .begin_login(realtime::live::PROVIDER_ID)
-        .unwrap();
+    let (login, _dir) = calls.vault.begin_login().unwrap();
     calls
         .vault
         .finish_login(&login, realtime::live::PROVIDER_ID, "ChatGPT")

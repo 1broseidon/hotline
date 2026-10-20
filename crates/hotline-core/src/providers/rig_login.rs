@@ -1,15 +1,18 @@
-//! ChatGPT and GitHub Copilot sign-ins, kept where Hotline has always kept
-//! them: in the credential's login directory under the vault.
+//! ChatGPT and GitHub Copilot sign-ins, kept in the OS credential store
+//! behind a reference file in the credential's login directory.
 //!
 //! Rig signs in, refreshes and reads the tokens. [`LoginDirStore`] is the
-//! store it does that through, so a login made before Rig 0.45 is the same
-//! login after it. [`chatgpt`] and [`copilot`] hand every caller of one
-//! credential (turns, voice, image generation, discovery) the same
-//! authenticator, which shares one refresh and one in-memory token among
-//! them; the store's per-credential lock covers any other authenticator over
-//! the same directory, such as a sign-in. A rotated refresh token is spent
-//! once.
+//! store it does that through: each record is a [`CredentialFile`] of the
+//! vault that holds the directory, so a sign-in made before Rig 0.45, kept
+//! there in plain text, moves into the keychain the first time it is read
+//! and is the same sign-in after it. [`chatgpt`] and [`copilot`] hand every
+//! caller of one credential (turns, voice, image generation, discovery) the
+//! same authenticator, which shares one refresh and one in-memory token
+//! among them; the store's per-credential lock covers any other
+//! authenticator over the same directory, such as a sign-in. A rotated
+//! refresh token is spent once.
 
+use crate::credentials::{CredentialFile, CredentialFiles};
 use rig::error::BoxError;
 use rig::http_client::ReqwestClient;
 use rig::providers::chatgpt::auth::{
@@ -24,7 +27,8 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use tokio::sync::Mutex as AsyncMutex;
 
 /// ChatGPT's record: the file Rig 0.42 wrote, whose fields Rig's record
-/// still has, so it is read as it stands.
+/// still has, so the plain text it holds moves into the keychain as it
+/// stands.
 pub(crate) const CHATGPT_RECORD: &str = "auth.json";
 /// Copilot's one record: the GitHub token and the Copilot API token beside it.
 pub(crate) const COPILOT_RECORD: &str = "copilot.json";
@@ -32,6 +36,22 @@ pub(crate) const COPILOT_RECORD: &str = "copilot.json";
 /// token it was exchanged for. Read once, into [`COPILOT_RECORD`].
 const LEGACY_GITHUB_TOKEN: &str = "access-token";
 const LEGACY_API_KEY: &str = "api-key.json";
+
+/// The credential files of every open vault, by the directory its logins
+/// are made in. A login is named to its callers by its directory alone
+/// (`ProviderAuth::Login`), and the vault that made it is the one whose
+/// store holds its tokens: a desk on the file store keeps them there, not
+/// in the keychain.
+static VAULTS: LazyLock<Mutex<HashMap<PathBuf, CredentialFiles>>> = LazyLock::new(Mutex::default);
+
+/// Keeps the records of every login directory in `logins` in `files`. The
+/// vault says so when it opens.
+pub(crate) fn keep_logins_in(logins: PathBuf, files: CredentialFiles) {
+    VAULTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(logins, files);
+}
 
 /// Rig's records for one login directory: the key Rig names a record by
 /// picks its file there.
@@ -44,6 +64,23 @@ impl LoginDirStore {
         Self {
             dir: dir.to_path_buf(),
         }
+    }
+
+    /// The record kept in the file `name`, in the store of the vault that
+    /// holds this directory. A directory no open vault holds, which only a
+    /// test makes, is kept in the process's own store.
+    fn file(&self, name: &str) -> CredentialFile {
+        let held = self.dir.parent().and_then(|logins| {
+            VAULTS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(logins)
+                .cloned()
+        });
+        held.unwrap_or_else(|| {
+            CredentialFiles::new(self.dir.clone(), crate::vault::default_store())
+        })
+        .file(self.dir.join(name))
     }
 
     /// The file the record Rig names `key` is kept in.
@@ -59,15 +96,17 @@ impl LoginDirStore {
 impl TokenStore for LoginDirStore {
     fn load<'a>(&'a self, key: &'a str) -> WasmBoxedFuture<'a, Result<Option<String>, BoxError>> {
         Box::pin(async move {
-            let path = self.dir.join(Self::record(key)?);
-            if key == copilot::PROVIDER_NAME {
-                migrate_copilot(&self.dir)?;
-            }
-            match crate::vault::read_model_file(&path) {
-                Ok(bytes) => Ok(Some(String::from_utf8(bytes)?)),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(error) => Err(error.into()),
-            }
+            let record = self.file(Self::record(key)?);
+            let copilot = key == copilot::PROVIDER_NAME;
+            let dir = self.dir.clone();
+            let bytes = blocking(move || {
+                if copilot {
+                    migrate_copilot(&dir, &record)?;
+                }
+                record.read()
+            })
+            .await?;
+            Ok(bytes.map(String::from_utf8).transpose()?)
         })
     }
 
@@ -77,15 +116,16 @@ impl TokenStore for LoginDirStore {
         record: &'a str,
     ) -> WasmBoxedFuture<'a, Result<(), BoxError>> {
         Box::pin(async move {
-            crate::vault::write_beside_login(&self.dir, Self::record(key)?, record.as_bytes())?;
-            Ok(())
+            let file = self.file(Self::record(key)?);
+            let bytes = record.as_bytes().to_vec();
+            blocking(move || file.write(&bytes)).await
         })
     }
 
     fn delete<'a>(&'a self, key: &'a str) -> WasmBoxedFuture<'a, Result<(), BoxError>> {
         Box::pin(async move {
-            remove_if_present(&self.dir.join(Self::record(key)?))?;
-            Ok(())
+            let file = self.file(Self::record(key)?);
+            blocking(move || file.delete()).await
         })
     }
 
@@ -112,17 +152,26 @@ fn record_lock(path: &Path) -> Arc<AsyncMutex<()>> {
         .clone()
 }
 
-/// Moves a Rig 0.42 Copilot sign-in into [`COPILOT_RECORD`]: the GitHub
-/// token from `access-token`, and the API token record `api-key.json` holds
-/// beside it, field for field. The old files are removed only once the new
-/// record is on disk, so a failed write leaves the sign-in where it was. A
-/// directory with a record already, or with no token in either old file,
-/// has nothing to move.
-fn migrate_copilot(dir: &Path) -> io::Result<()> {
-    if dir.join(COPILOT_RECORD).symlink_metadata().is_ok() {
+/// A keychain call off the async workers: one can wait on the person
+/// unlocking the keychain or allowing Hotline into it.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> io::Result<T> + Send + 'static,
+) -> Result<T, BoxError> {
+    Ok(tokio::task::spawn_blocking(work).await??)
+}
+
+/// Moves a Rig 0.42 Copilot sign-in into `record`, in the keychain: the
+/// GitHub token from `access-token`, and the API token record
+/// `api-key.json` holds beside it, field for field. The old files are
+/// removed only once the record is written, so a keychain that refuses the
+/// write leaves the sign-in where it was. A directory with a record already
+/// (a plain-text `copilot.json` moves on its own first read), or with no token in
+/// either old file, has nothing to move.
+fn migrate_copilot(dir: &Path, record: &CredentialFile) -> io::Result<()> {
+    if record.path().symlink_metadata().is_ok() {
         return Ok(());
     }
-    let mut record = match crate::vault::read_model_file(&dir.join(LEGACY_API_KEY)) {
+    let mut fields = match crate::vault::read_model_file(&dir.join(LEGACY_API_KEY)) {
         Ok(bytes) => serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&bytes)
             .unwrap_or_default(),
         Err(error) if error.kind() == io::ErrorKind::NotFound => serde_json::Map::new(),
@@ -135,17 +184,16 @@ fn migrate_copilot(dir: &Path) -> io::Result<()> {
         Err(error) => return Err(error),
     };
     if let Some(token) = github_token {
-        record.insert("github_token".into(), token.into());
+        fields.insert("github_token".into(), token.into());
     }
-    let api_token = record
+    let api_token = fields
         .get("token")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|token| !token.trim().is_empty());
-    if !api_token && !record.contains_key("github_token") {
+    if !api_token && !fields.contains_key("github_token") {
         return Ok(());
     }
-    let body = serde_json::to_vec(&record).map_err(io::Error::other)?;
-    crate::vault::write_beside_login(dir, COPILOT_RECORD, &body)?;
+    record.write(&serde_json::to_vec(&fields).map_err(io::Error::other)?)?;
     remove_if_present(&dir.join(LEGACY_GITHUB_TOKEN))?;
     remove_if_present(&dir.join(LEGACY_API_KEY))
 }

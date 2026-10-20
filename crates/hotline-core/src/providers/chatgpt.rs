@@ -130,12 +130,16 @@ pub(crate) fn model(
 
 /// The login's live token, refreshed first when it has expired. With no
 /// sign-in in the record this fails, naming the sign-in, and never starts
-/// one.
+/// one. A keychain that would not give the record up says so instead:
+/// signing in again would meet the same keychain.
 pub(crate) async fn refreshed_auth(token_dir: &Path) -> Result<AuthRecord, String> {
     let context = super::rig_login::chatgpt(token_dir)
         .auth_context(&super::rig_login::http())
         .await
-        .map_err(|_| "The ChatGPT sign-in could not be refreshed. Sign in again.".to_string())?;
+        .map_err(|error| match error {
+            rig::providers::chatgpt::auth::AuthError::Store(_) => error.to_string(),
+            _ => "The ChatGPT sign-in could not be refreshed. Sign in again.".to_string(),
+        })?;
     let token = context.api_key.expose();
     if token.trim().is_empty() {
         return Err("ChatGPT sign-in required. Sign in again under Settings → Providers.".into());

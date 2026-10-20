@@ -690,7 +690,7 @@ impl RoomHandle for Desk {
             .map_or_else(|| wiring.id.to_string(), |entry| entry.name.clone());
         let (id, token_dir) = self
             .vault
-            .begin_login(provider_id)
+            .begin_login()
             .map_err(|error| error.to_string())?;
         let tokens = self.vault.login_tokens(&id);
         let cancel = CancellationToken::new();

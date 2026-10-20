@@ -124,4 +124,12 @@ describe("a refusal in settings is a few words, with the detail behind a disclos
 		await expectDisclosed("Couldn't try again", "The connection to Hotline dropped.");
 		expect(button("Try again").disabled).toBe(false);
 	});
+
+	test("a keychain failure can be retried after unlocking", async () => {
+		let attempts = 0;
+		const failure = JSON.stringify({ hotlineFailure: { kind: "keychain", title: "Keychain locked", summary: "Unlock your keychain, then send another message.", details: "token store failed" } });
+		await mount(<ErrorCard text={failure} onRunAgain={async () => { attempts += 1; }} />);
+		await click("Try again");
+		expect(attempts).toBe(1);
+	});
 });

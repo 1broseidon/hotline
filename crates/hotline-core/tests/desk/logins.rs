@@ -1,6 +1,51 @@
 use super::*;
 
 #[tokio::test]
+async fn rig_vault_deleting_a_login_over_the_wire_removes_its_chunks() {
+    use hotline_core::credentials::{CredentialFiles, MemoryStore};
+    let root = tempfile::tempdir().unwrap();
+    let memory = Arc::new(MemoryStore::default());
+    let log = hotline_core::log::Log::open(root.path());
+    let vault =
+        hotline_core::vault::Vault::open_with_store(root.path(), log, memory.clone()).unwrap();
+    let files = CredentialFiles::new(root.path().into(), memory.clone());
+    let mut logins = Vec::new();
+    for (provider, record) in [
+        ("openai-codex", "auth.json"),
+        ("github-copilot", "copilot.json"),
+    ] {
+        let (id, dir) = vault.begin_login().unwrap();
+        files
+            .file(dir.join(record))
+            .write(
+                json!({"token": "private-token".repeat(500)})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
+        vault.finish_login(&id, provider, provider).unwrap();
+        logins.push((id, dir));
+    }
+    drop(vault);
+    let login_keys: Vec<_> = memory.0.lock().unwrap().keys().cloned().collect();
+    let desk = hotline_core::desk::Desk::open_with_store(root.path(), memory.clone()).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
+    let port = door.port();
+    let running = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    assert!(memory.0.lock().unwrap().len() > 2);
+    for (id, dir) in logins {
+        let deleted = client.call("credential.delete", json!({"id":id})).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+        assert!(!dir.exists());
+    }
+    let kept = memory.0.lock().unwrap();
+    assert!(login_keys.iter().all(|key| !kept.contains_key(key)));
+    running.abort();
+}
+
+#[tokio::test]
 async fn legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history() {
     let root = scratch("legacy-mcp-redaction");
     let log = hotline_core::log::Log::open(&root);
@@ -65,7 +110,7 @@ async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
     let vault = common::open_vault(&root, log).unwrap();
     // A completed fake login is written before the core starts, like an
     // imported credential. The wire must never expose this private half.
-    let (id, dir) = vault.begin_login("xai").unwrap();
+    let (id, dir) = vault.begin_login().unwrap();
     std::fs::write(dir.join("auth.json"), json!({"access_token":"private-grok-access", "refresh_token":"private-grok-refresh", "refresh_at":u64::MAX}).to_string()).unwrap();
     vault.finish_login(&id, "xai", "SuperGrok").unwrap();
     drop(vault);

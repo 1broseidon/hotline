@@ -760,7 +760,7 @@ async fn native_connection_metadata_and_account_restrictions_survive_reopening_o
     let router = vault
         .create("openrouter", "Router key", "private-router-key")
         .unwrap();
-    let (copilot_id, copilot_dir) = vault.begin_login("github-copilot").unwrap();
+    let (copilot_id, copilot_dir) = vault.begin_login().unwrap();
     vault
         .finish_login(&copilot_id, "github-copilot", "Copilot")
         .unwrap();

@@ -1,7 +1,7 @@
 ---
 id: task-237
 title: "S7: cleanups 0.45 makes possible"
-column: todo
+column: in-progress
 position: 9
 priority: low
 tags:
@@ -17,9 +17,9 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:31:35.128Z"
+updatedAt: "2026-10-20T13:31:43.244Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/providers/copilot.rs
@@ -37,6 +37,8 @@ contract:
     - Do not touch voice/dispatcher.rs, providers/rig_login.rs or docs/plans/rig-0.45-migration.md
   metrics:
     readyAt: "2026-10-20T12:03:23.766Z"
+    pickedUpAt: "2026-10-20T13:31:43.244Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

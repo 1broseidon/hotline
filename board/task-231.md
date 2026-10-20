@@ -1,8 +1,8 @@
 ---
 id: task-231
 title: "S1: straight to Rig 0.45 in one jump, with Hotline's own TokenStore over today's login dirs (no one signed out)"
-column: todo
-position: 3
+column: in-progress
+position: 0
 priority: high
 tags:
   - rig
@@ -30,7 +30,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T12:29:17.497Z"
+updatedAt: "2026-10-20T12:29:25.126Z"
 contract:
   status: ready
   deliverables:

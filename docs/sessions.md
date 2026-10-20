@@ -1878,7 +1878,15 @@ DM, its prompt as written, stamped with the job, with no thread and no agent.
 has ended): their line is a turn like a firing's, on the same agent, and a
 fresh agent is told where the job stands first. What the job answers is its
 next note, so "skip the next check" reaches the next firing. `thread.cancel`
-stops its turn in flight; `thread.close` cancels the job.
+stops its turn in flight, a firing's or the person's, and drops what waited
+behind it: that turn posts no report, the thread gets a notice that it was
+stopped, and the job keeps its schedule. `thread.close` cancels the job. The
+roster row's `workingJobs` says which jobs have a turn running, so the
+window offers Stop only then; the Jobs group's row and the job's thread
+header both offer Stop and Cancel, and the header says what a narrowed job
+runs without (`without` on the schedules view). A companion phone may do
+neither, as it may not `schedule.cancel`. A card the job raises pushes with
+the job's thread as `data.thread`, so a tap can open it.
 
 Before ADR 0008 §7 a firing was a turn of the DM, and a quiet one demoted the
 teammate's words to thinking for the length of its turn. A schedule written

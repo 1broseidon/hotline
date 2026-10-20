@@ -197,9 +197,9 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
-| `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange |
+| `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs) |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none |
-| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`) |
+| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
@@ -768,7 +768,9 @@ posted to the chat when it fires and no work done. A one-shot cannot carry
 `every`; a loop cannot carry `when`. The job is an event on the room stream;
 each firing is a turn on the job's own thread, `{"kind": "job", "key": id}`,
 which `thread.prompt` speaks in, `thread.cancel` stops and `thread.close`
-cancels; the clock that fires it is [sessions.md](sessions.md#jobs).
+cancels. A stopped turn posts no report and its thread says it was stopped;
+the job fires again at its next time. The clock that fires it is
+[sessions.md](sessions.md#jobs).
 
 The desk's `schedule.create` is an operator instruction and writes
 `operatorCreated: true`; callers do not supply that field. These jobs may
@@ -916,7 +918,8 @@ refused in a sentence, never silently:
 may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 `mobile.prompt`, as before), `thread.answer` in anything but a pair
-(`peers.answer_permission` is the owner's and the desk's), `thread.page` and `{"threadId": …}`
+(`peers.answer_permission` is the owner's and the desk's), neither
+`thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
 pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
@@ -974,8 +977,9 @@ changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 reads as done: the reply is in the conversation and the composer is as it is
 between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
 `subagents` lists the runs still going, oldest first, and `sides` the work
-threads live, `{sideId, title, startedAt, working}`, oldest first; each is
-absent when there are none. A phone that declared `lean` is sent each row
+threads live, `{sideId, title, startedAt, working}`, oldest first, and
+`workingJobs` the ids of the jobs with a turn running, which is when a job
+can be stopped; each is absent when there are none. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
@@ -1126,8 +1130,10 @@ line. A card goes the moment it is asked. Nothing goes while the desk's
 window says the person is at it (`desk.looking`, below). Every push is `mutableContent`, so the
 phone's notification service may rewrite it as the teammate's own message.
 `data` always names `desktopId` and `personaId`. A card raised in one of the
-teammate's side threads also names it as `data.sideId`, and is answered with
-`side.answer_permission`, not the teammate's. A card that waits on the
+teammate's other threads (a work thread, a pair, a job) also names it as
+`data.thread`, `{kind, key}`, so a tap opens that thread rather than the
+conversation; one in a side thread names it as `data.sideId` too, and is
+answered with `side.answer_permission`, not the teammate's. A card that waits on the
 person also names its kind as `categoryId` and its request as
 `data.requestId`, which is the id the answer names:
 

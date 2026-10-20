@@ -1221,7 +1221,13 @@ subagents?: Array<RunningSubagent>,
  * Side threads this teammate has live, oldest first. Absent when there
  * are none.
  */
-sides?: Array<RunningSide>, session: SessionInfo, };
+sides?: Array<RunningSide>, 
+/**
+ * The jobs of this teammate with a turn running right now, by id: a
+ * firing, or a line the person said in the job's thread. Absent when
+ * there are none.
+ */
+workingJobs?: Array<string>, session: SessionInfo, };
 
 /**
  * A side thread still live, as its teammate's roster row lists it.
@@ -1269,7 +1275,9 @@ export type RuntimeState = "ready" | "not_installed" | "not_running" | "not_resp
  * `lastPost` is what it last posted to the chat. A job that has fired for
  * the last time, been cancelled or met its goal is still listed, with
  * `endedAt`, because its thread stays readable; `schedule.cancel` on an
- * ended job takes it off the list.
+ * ended job takes it off the list. `without` is what the teammate left out
+ * of the job's permission set when it made it, so a person can see a job
+ * is a narrowed clone; it is read here, and decided on the job.
  */
 export type ScheduleEntry = { id: string, personaId: string, name: string, kind: ScheduleKind, 
 /**
@@ -1285,7 +1293,7 @@ quiet?: boolean,
  * Present and true for a plain reminder, which posts its prompt and
  * does no work.
  */
-reminder?: boolean, lastPost?: JobPost, endedAt?: number, };
+reminder?: boolean, lastPost?: JobPost, endedAt?: number, without?: Array<Ability>, };
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.

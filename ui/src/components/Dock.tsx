@@ -24,6 +24,7 @@ import {
 	threadDot,
 	threadOwnerId,
 	withLinks,
+	withoutWords,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
 import { firstLine, nextText } from "../room";
@@ -100,13 +101,23 @@ export function Dock({
 			<aside ref={root} className="dock" aria-label="Threads">
 				{at === null && <DockBand onClose={onClose} />}
 				{at === null ? (
-					<ThreadList teammate={teammate} rows={rows} jobs={jobs} loaded={list !== undefined} nameOf={nameOf} opened={opened} onOpen={(open) => onState({ open })} />
+					<ThreadList
+						teammate={teammate}
+						rows={rows}
+						jobs={jobs}
+						workingJobs={entry?.workingJobs ?? []}
+						loaded={list !== undefined}
+						nameOf={nameOf}
+						opened={opened}
+						onOpen={(open) => onState({ open })}
+					/>
 				) : (
 					teammate !== null && (
 						<ThreadView
 							key={`${at.thread.kind}:${at.thread.key}`}
 							open={at}
 							row={rows.find((row) => sameThread(row.thread, at.thread))}
+							job={at.thread.kind === "job" ? jobs.find((one) => one.id === at.thread.key) : undefined}
 							teammate={teammate}
 							nameOf={nameOf}
 							people={people}
@@ -128,6 +139,7 @@ export function Dock({
 function workingNow(entry: RosterEntry, open: ThreadRef): boolean {
 	if (open.thread.kind === "side") return entry.sides?.find((side) => side.sideId === open.thread.key)?.working ?? false;
 	if (open.thread.kind === "run") return entry.subagents?.some((run) => run.runId === open.thread.key) ?? false;
+	if (open.thread.kind === "job") return entry.workingJobs?.includes(open.thread.key) ?? false;
 	return false;
 }
 
@@ -180,6 +192,8 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 		(entry?.sides ?? []).map((side) => `${side.sideId}:${side.working ? 1 : 0}`).join(",") +
 		"|" +
 		(entry?.subagents ?? []).map((run) => run.runId).join(",") +
+		"|" +
+		(entry?.workingJobs ?? []).join(",") +
 		(entry?.waiting === true ? "|waiting" : "");
 	// biome-ignore lint/correctness/useExhaustiveDependencies: signature and revision are what say the threads changed.
 	useEffect(() => {
@@ -232,6 +246,7 @@ function ThreadList({
 	teammate,
 	rows,
 	jobs,
+	workingJobs,
 	loaded,
 	nameOf,
 	opened,
@@ -240,6 +255,8 @@ function ThreadList({
 	teammate: { id: string; name: string; avatarHash?: string | undefined } | null;
 	rows: ThreadSummary[];
 	jobs: ScheduleEntry[];
+	/** The jobs with a turn running, as the roster says. */
+	workingJobs: string[];
 	loaded: boolean;
 	nameOf(personaId: string): string | undefined;
 	/** The row a thread was last opened from. */
@@ -250,6 +267,7 @@ function ThreadList({
 	const idOf = (row: ThreadSummary) => `${row.thread.kind}:${row.thread.key}`;
 	const { open, closed } = groupThreads(rows);
 	const jobList = jobRows(jobs);
+	const [refused, setRefused] = useState<string | null>(null);
 	const [folded, setFolded] = useState(() => !closed.some((row) => idOf(row) === opened.current));
 	// Relative times age while the list is open.
 	const [now, setNow] = useState(() => Date.now());
@@ -293,7 +311,7 @@ function ThreadList({
 	const job = (one: ScheduleEntry) => {
 		const id = `job:${one.id}`;
 		const ended = one.endedAt !== undefined;
-		const running = rows.some((thread) => thread.thread.kind === "job" && thread.thread.key === one.id && thread.working);
+		const running = !ended && workingJobs.includes(one.id);
 		const when = ended ? `Ended ${relativeTime(one.endedAt ?? now, now)}` : `Next ${nextText(one.nextAt, now)}`;
 		const post = one.lastPost === undefined ? "No post yet" : `Posted ${relativeTime(one.lastPost.at, now)}: ${firstLine(one.lastPost.text)}`;
 		return (
@@ -311,12 +329,13 @@ function ThreadList({
 				>
 					<span aria-hidden="true" className={`dock-dot ${running ? "beat" : ""}`} data-state={ended ? "closed" : running ? "running" : "idle"} />
 					<span className="min-w-0 flex-1">
-						<span className="block h-[18px] truncate font-medium text-ink">{one.name}</span>
+						{/* Clear of Stop and Cancel, which sit over the name's end. */}
+						<span className={`block h-[18px] truncate font-medium text-ink ${ended ? "pr-8" : running ? "pr-32" : "pr-16"}`}>{one.name}</span>
 						<span className="block h-4 truncate text-sm text-ink-3">{when}</span>
 						<span className="block h-4 truncate text-sm text-ink-3">{post}</span>
 					</span>
 				</button>
-				{ended && (
+				{ended ? (
 					<button
 						type="button"
 						className="control btn-icon absolute right-1 top-1"
@@ -326,6 +345,10 @@ function ThreadList({
 					>
 						<CloseIcon />
 					</button>
+				) : (
+					<span className="absolute right-1 top-1 flex">
+						<JobActions job={one} running={running} onSaid={setRefused} />
+					</span>
 				)}
 			</div>
 		);
@@ -346,6 +369,7 @@ function ThreadList({
 						{jobList.length > 0 && (
 							<div className={open.length > 0 ? "mt-2" : ""}>
 								<h3 className="px-2 py-1 text-sm text-ink-3">Jobs</h3>
+								{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
 								{jobList.map(job)}
 							</div>
 						)}
@@ -398,11 +422,13 @@ export function HandoffNote({ handoff }: { handoff: NonNullable<ThreadRef["hando
  * parked one says so: saying something in it brings its agent back. Archive
  * ends it; once closed the page is the thread, read-only, with a Continue where
  * the composer was. A pair, a subagent's run and a call are read, not spoken
- * in: a run is told its task once and reports once.
+ * in: a run is told its task once and reports once. A job's thread is spoken
+ * in until the job ends, and its header can stop a turn or end the job.
  */
 function ThreadView({
 	open,
 	row,
+	job,
 	teammate,
 	nameOf,
 	people,
@@ -416,6 +442,8 @@ function ThreadView({
 	open: ThreadRef;
 	/** What the list knows of it: its state and its title. */
 	row: ThreadSummary | undefined;
+	/** The job this thread is, as the schedules view says, when it is one's. */
+	job: ScheduleEntry | undefined;
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
 	nameOf(personaId: string): string | undefined;
 	people: ReadonlyMap<string, Person>;
@@ -430,7 +458,8 @@ function ThreadView({
 }) {
 	const id = open.thread;
 	const { events, streaming, more, earlier, prompt, cancel, close, resume } = useThread(id);
-	const state = row?.state ?? "live";
+	// A job ends on the schedules view before the list is read again.
+	const state = job?.endedAt !== undefined ? "closed" : (row?.state ?? "live");
 	// A teammate's handoff is the two teammates' work, read along and steered through whoever handed it over.
 	const opener = openerOf(row);
 	// Opened from the pane of whoever handed it over, a handoff is still the receiver's: its lines and its bar name them.
@@ -506,11 +535,22 @@ function ThreadView({
 						Stop
 					</button>
 				)}
+				{job !== undefined && !closed && (
+					<JobActions
+						job={job}
+						running={turning}
+						onSaid={(said) => {
+							setRefused(said);
+							if (said === null) onChanged();
+						}}
+					/>
+				)}
 				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
 			</Band>
 			{from !== "" && opener === undefined && <p className="dock-note selectable">{from}</p>}
+			{withoutWords(job?.without) !== "" && <p className="dock-note selectable">{withoutWords(job?.without)}</p>}
 			{open.handoff !== undefined && <HandoffNote handoff={open.handoff} />}
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript
@@ -559,6 +599,41 @@ function ThreadView({
 				closed && row?.outcome !== undefined && row.outcome !== "" && <p className="dock-note selectable">{row.outcome}</p>
 			)}
 		</section>
+	);
+}
+
+/**
+ * What the person can do to a job that has not ended, wherever it is shown:
+ * Stop the turn running in its thread, a firing or their own line, which
+ * leaves the job its schedule; and Cancel the job, which ends it with its
+ * final post. Each answers `onSaid` once the desk has: `null` when it was
+ * done, else the desk's refusal.
+ */
+export function JobActions({ job, running, onSaid }: { job: ScheduleEntry; running: boolean; onSaid(refused: string | null): void }) {
+	const [busy, setBusy] = useState(false);
+	const thread: ThreadId = { kind: "job", key: job.id };
+	const run = (command: "thread.cancel" | "thread.close") => {
+		if (busy) return;
+		setBusy(true);
+		void wire
+			.command(command, { thread })
+			.then(
+				() => onSaid(null),
+				(error: unknown) => onSaid(error instanceof Error ? error.message : String(error)),
+			)
+			.finally(() => setBusy(false));
+	};
+	return (
+		<>
+			{running && (
+				<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this run" aria-label={`Stop ${job.name}`} disabled={busy} onClick={() => run("thread.cancel")}>
+					Stop
+				</button>
+			)}
+			<button type="button" className="control btn-quiet px-2 text-sm" title="End this job" aria-label={`Cancel ${job.name}`} disabled={busy} onClick={() => run("thread.close")}>
+				Cancel
+			</button>
+		</>
 	);
 }
 

@@ -206,7 +206,7 @@ impl Room {
             },
         );
         self.push.notify_in(
-            work,
+            Some(home),
             &self.needs_you(persona_id),
             &reason,
             persona_id,

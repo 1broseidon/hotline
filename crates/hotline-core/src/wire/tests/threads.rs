@@ -500,8 +500,15 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
     ] {
         assert!(!Seat::Phone.permits(&prompt(kind)), "{kind:?}");
     }
-    // Closing a job cancels it, and a phone may not cancel a schedule.
+    // Closing a job cancels it, and stopping its firing is the same owner's
+    // call: a phone may do neither, as it may not cancel a schedule.
     assert!(!Seat::Phone.permits(&Command::ThreadClose {
+        thread: thread(ThreadKind::Job),
+    }));
+    assert!(!Seat::Phone.permits(&Command::ThreadCancel {
+        thread: thread(ThreadKind::Job),
+    }));
+    assert!(Seat::Desk.permits(&Command::ThreadCancel {
         thread: thread(ThreadKind::Job),
     }));
     // `peers.answer_permission` is the owner's, so a pair's card is.

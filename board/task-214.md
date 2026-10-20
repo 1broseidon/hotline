@@ -1,7 +1,7 @@
 ---
 id: task-214
 title: "S0: the calls live in hotline-voice; hotline-core keeps only the room's side"
-column: backlog
+column: in-progress
 position: 43
 priority: high
 tags:
@@ -12,9 +12,9 @@ relatedFiles:
   - crates/hotline-core/src/voice
 parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
-updatedAt: "2026-10-20T21:07:48.457Z"
+updatedAt: "2026-10-20T21:08:06.183Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-voice/src
@@ -45,6 +45,8 @@ contract:
     - Run cargo test, make check and make precheck in the foreground and to completion before ending the turn
   metrics:
     readyAt: "2026-10-19T17:22:11.362Z"
+    pickedUpAt: "2026-10-20T21:08:06.183Z"
+    reworkCount: 0
 dispatch:
   agent: codex
   model: gpt-6-astra

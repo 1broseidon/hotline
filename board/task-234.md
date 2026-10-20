@@ -19,7 +19,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:44.693Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:37:08.263Z"
+updatedAt: "2026-10-20T13:37:09.319Z"
 contract:
   status: in_progress
   deliverables:
@@ -54,7 +54,12 @@ dispatch:
   by: cli
   at: "2026-10-20T13:37:08.139Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-20T13:37:09.319Z"
 ---
 
 ## Description

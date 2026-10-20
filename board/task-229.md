@@ -1,8 +1,8 @@
 ---
 id: task-229
 title: A skipped slot doesn't count toward a loop's firing count
-column: todo
-position: 1
+column: in-progress
+position: 0
 priority: medium
 tags:
   - jobs
@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/tests/schedule.rs
 createdAt: "2026-10-20T02:04:25.300Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-20T02:04:27.936Z"
+updatedAt: "2026-10-20T02:04:35.334Z"
 dispatch:
   agent: claude
   model: opus

@@ -1,7 +1,7 @@
 ---
 id: task-238
 title: "S8: the whole on 0.45 — a 0.42 profile upgrades end to end over the wire"
-column: todo
+column: in-progress
 position: 7
 priority: high
 tags:
@@ -18,7 +18,7 @@ dependsOn:
   - task-236
   - task-237
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-core/tests/rig_upgrade.rs
@@ -43,8 +43,10 @@ contract:
     - rig_pin_ assertions and expected values unchanged
   metrics:
     readyAt: "2026-10-20T12:04:00.313Z"
+    pickedUpAt: "2026-10-20T14:02:08.955Z"
+    reworkCount: 0
 createdAt: "2026-10-20T12:04:00.326Z"
-updatedAt: "2026-10-20T14:01:46.267Z"
+updatedAt: "2026-10-20T14:02:08.955Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

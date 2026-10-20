@@ -20,7 +20,7 @@ dependsOn:
   - task-202
   - task-205
   - task-227
-updatedAt: "2026-10-20T00:13:08.777Z"
+updatedAt: "2026-10-20T00:13:10.030Z"
 contract:
   status: ready
   deliverables:
@@ -37,6 +37,13 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-19T20:03:15.032Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-20T00:13:09.901Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

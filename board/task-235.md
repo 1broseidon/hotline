@@ -1,8 +1,8 @@
 ---
 id: task-235
 title: "S5: sign-out revokes at the provider; a revoked login stops serving at once"
-column: todo
-position: 7
+column: backlog
+position: 44
 priority: low
 tags:
   - rig
@@ -14,7 +14,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
-updatedAt: "2026-10-20T06:51:48.535Z"
+updatedAt: "2026-10-20T12:00:10.357Z"
 ---
 
 ## Description

@@ -289,3 +289,6 @@ async fn state_of(client: &mut Client, persona: &str, thread: &Value) -> String 
         .unwrap()
         .to_owned()
 }
+
+#[path = "threads/together.rs"]
+mod together;

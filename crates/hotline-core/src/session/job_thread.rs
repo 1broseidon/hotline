@@ -895,6 +895,49 @@ impl Room {
         )
     }
 
+    /// What came back to a job and was written to its thread, but whose turn
+    /// had not begun when the last process stopped: the queue it waited in
+    /// died with that process, so it is handed over again, once. A job that
+    /// has ended since can hear nothing more, so what it was owed goes to its
+    /// teammate's DM instead.
+    pub(super) async fn resume_job_deliveries(self: &Arc<Self>) {
+        for job in room::all_jobs(&self.log) {
+            let unread: Vec<(String, DeliveryCause, Option<DeliveryFrom>, String)> = self
+                .log
+                .load(&StreamId::Job(job.id.clone()))
+                .into_iter()
+                .filter(|event| event["kind"] == "delivery" && event["receipt"] != "read")
+                .filter_map(|event| match serde_json::from_value(event) {
+                    Ok(TranscriptEvent::Delivery {
+                        id,
+                        cause,
+                        from,
+                        text,
+                        ..
+                    }) => Some((id, cause, from, text)),
+                    _ => None,
+                })
+                .collect();
+            for (id, cause, from, text) in unread {
+                let handed = match from {
+                    Some(from) if job.ended_at.is_none() => {
+                        self.deliver_into_job(&job.id, &id, cause, from, text)
+                    }
+                    _ => {
+                        self.deliver_identified(&job.persona_id, &id, cause, text)
+                            .await
+                    }
+                };
+                if let Err(error) = handed {
+                    eprintln!(
+                        "[restart] what came back to job {} was not handed over: {error}",
+                        job.id
+                    );
+                }
+            }
+        }
+    }
+
     /// The human-action cards raised in this teammate's jobs, with the
     /// thread each is on.
     pub(super) fn cards_in_jobs(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {

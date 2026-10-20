@@ -21,7 +21,8 @@
 //! meanwhile read is skipped, exactly as the queue would have skipped it.
 //!
 //! Only the person's lines are kept. A delivery from another teammate is
-//! already durable on the tape and reconciled at start; a nudge is Hotline's
+//! already durable on the tape and reconciled at start, and one to a job is
+//! on its thread and handed over again at start; a nudge is Hotline's
 //! own words for a moment that has passed. None of this is exactly-once: a
 //! process killed outright keeps what was written and nothing more.
 

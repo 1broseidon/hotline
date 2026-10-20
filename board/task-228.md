@@ -14,7 +14,15 @@ relatedFiles:
   - ui/src
 createdAt: "2026-10-20T01:18:02.586Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-20T01:18:03.019Z"
+updatedAt: "2026-10-20T01:18:04.325Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: cli
+  at: "2026-10-20T01:18:04.202Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

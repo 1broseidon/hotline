@@ -150,7 +150,7 @@ impl std::ops::AddAssign for Tokens {
         self.total = self.total.saturating_add(other.total);
         self.cache_read = self.cache_read.saturating_add(other.cache_read);
         self.cache_write = self.cache_write.saturating_add(other.cache_write);
-        self.reported |= other.reported;
+        self.reported = self.reported || other.reported;
     }
 }
 

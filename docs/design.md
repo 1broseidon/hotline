@@ -357,7 +357,8 @@ chapter's note asks for nothing, because a cache write costs more than a plain
 read that nothing follows. Anthropic reports cached input beside its input
 tokens rather than inside them, so a round's usage is counted whole before it
 meets the context threshold or the turn's record, which keeps cache reads and
-writes as counts of their own.
+writes as counts of their own. That count is `pricing::Tokens::of`, the one
+place Rig's usage is read, so turns and the call assistant meter it alike.
 
 An ACP prompt failure never automatically reissues that prompt. The next operator
 message replaces the failed child only after the old process exits, opens a fresh

@@ -18,7 +18,31 @@ relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
 parentId: epic-22
 createdAt: "2026-10-20T06:51:42.743Z"
-updatedAt: "2026-10-20T12:02:25.036Z"
+updatedAt: "2026-10-20T12:02:25.364Z"
+contract:
+  status: ready
+  deliverables:
+    - type: docs
+      path: docs/plans/rig-0.45-migration.md
+      description: the research report, with the 2026-10-20 one-jump note at the top
+    - type: test
+      path: crates/hotline-core/src/driver/rig
+      description: rig_pin_* tests pinning usage, cache markers, per-round system prompt, Copilot string content, Ollama think, Failure::classify
+  validation:
+    commands:
+      - test -f docs/plans/rig-0.45-migration.md
+      - grep -q 'rig = "0.42.0"' Cargo.toml
+      - make check
+      - make precheck
+      - git diff --exit-code HEAD -- ui/src/generated/contract.ts
+      - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_pin_')" -ge 6
+  constraints:
+    - "No Rig version change: Cargo.toml keeps rig = \"0.42.0\""
+    - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
+    - Pins assert on HTTP request bodies and Hotline counters, not Rig types
+  metrics:
+    readyAt: "2026-10-20T12:02:25.364Z"
 ---
 
 ## Description

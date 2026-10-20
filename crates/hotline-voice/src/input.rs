@@ -204,7 +204,7 @@ impl Calls {
             return true;
         }
         if speech.id().provider_id == local::PROVIDER_ID {
-            return local::chosen(self.log.root(), Some(&speech.id().model_id)).is_some();
+            return local::chosen(self.room.speech_root(), Some(&speech.id().model_id)).is_some();
         }
         self.login_connected(&speech.id().provider_id, speech.is_subscription())
     }

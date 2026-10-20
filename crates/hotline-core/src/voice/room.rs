@@ -46,6 +46,9 @@ impl CallRoom for RoomSide {
             _keep_alive: Some(room),
         }))
     }
+    fn speech_root(&self) -> &std::path::Path {
+        self.vault.root()
+    }
     fn connected(&self) -> hotline_voice::speech::Connected {
         super::connected::connected(&self.vault)
     }

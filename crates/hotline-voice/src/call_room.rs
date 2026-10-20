@@ -21,6 +21,8 @@ pub fn prompt_client() -> Option<hotline_contract::Client> {
 pub trait CallRoom: Send + Sync {
     /// Hold the live room for one operation; calls themselves do not own it.
     fn upgrade(&self) -> Option<Arc<dyn CallRoom>>;
+    /// The local engine's directory, without opening provider credentials.
+    fn speech_root(&self) -> &std::path::Path;
     fn connected(&self) -> Connected;
     fn call_began(&self, call: &str, persona: &str, ts: i64);
     fn call_said(&self, call: &str, persona: &str, line: &Value);

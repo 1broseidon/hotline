@@ -521,7 +521,7 @@ impl Calls {
     ) -> Arc<Self> {
         Arc::new(Self {
             ledger,
-            installs: Installs::new(room.connected().root.as_path(), models),
+            installs: Installs::new(room.speech_root(), models),
             replies: replies::Replies::open(log.root()),
             log,
             room,
@@ -572,8 +572,8 @@ impl Calls {
             .as_ref()
             .filter(|pick| pick.provider_id == local::PROVIDER_ID)
             .and_then(|pick| pick.model_id.as_deref());
-        let model = local::chosen(self.log.root(), picked)
-            .or_else(|| local::chosen(self.log.root(), None))
+        let model = local::chosen(self.room.speech_root(), picked)
+            .or_else(|| local::chosen(self.room.speech_root(), None))
             .ok_or("Download a speech model in Settings › Providers for the desk to hear you.")?;
         let words = speech::listens_for(&self.room.connected(), &settings);
         local::Local::new(model)

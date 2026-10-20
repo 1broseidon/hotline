@@ -1,7 +1,7 @@
 ---
 id: task-228
 title: "0.41 QA fixes: a job that ends by its count posts its closing note; the Jobs row's countdown ticks; the skip says the real time"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -14,7 +14,7 @@ relatedFiles:
   - ui/src
 createdAt: "2026-10-20T01:18:02.586Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-20T01:18:18.857Z"
+updatedAt: "2026-10-20T01:32:09.182Z"
 dispatch:
   agent: claude
   model: opus

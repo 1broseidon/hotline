@@ -1,8 +1,6 @@
 ---
 id: task-242
 title: "S5 follow-up: a parked call's typed turns stay in its thread, a long reply at hang-up posts as a summary, and untitled posts read \"From the call\""
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -23,10 +21,13 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T23:06:05.653Z"
+    ended: "2026-10-20T23:20:19.494Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-20T23:20:08.443Z"
+updatedAt: "2026-10-20T23:20:19.494Z"
 decisions:
   - decision-5
+completedAt: "2026-10-20T23:20:19.107Z"
 ---
 
 ## Description
@@ -48,3 +49,4 @@ Proved by desk-harness tests, one per line, on both drivers, named for the scena
 - 2026-10-20T23:09:50.706Z: [codex] Traced the leak to Told::write posting every segment whenever a call thread was disconnected. Replacing it with one completed-turn post, marked synchronously at detach (so delayed call-log writes cannot catch a later typed turn); long replies use the existing no-tool chapter summariser with a bounded fallback. Added both-driver desk scenarios and source-link UI proof.
 - 2026-10-20T23:15:59.536Z: [codex] Committed 1101d335 on dispatch/task-242. Eighteen call-thread desk scenarios pass on both drivers, including five new proofs; 466 UI tests pass with a working Open the call source-link test. Full make check and make precheck are running; formatting, contract generation, dependency/Python/UI gates and native clippy have passed. No task-242 behavior left unwired; live-front delegation remains the existing S6 follow-up.
 - 2026-10-20T23:20:08.183Z: [codex] Ready for review on dispatch/task-242: 1101d335 and 9ad502dd, worktree clean. Only the turn in flight at synchronous detach posts once; long written replies become bounded subject-first summaries with Open the call linking to full text, and failed summaries never paste the reply. Parked turns stay on their thread; untitled posts read From the call, including legacy placeholders. Five new desk scenarios run on both drivers (18 total), plus UI source-link proof. make check and all eight make precheck legs passed on the final branch. Nothing in task-242 left unwired; live-front delegation remains the existing S6 follow-up.
+- 2026-10-20T23:20:18.480Z: Landed on release/0.42.0

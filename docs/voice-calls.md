@@ -51,6 +51,21 @@ timing measures the end of capture to playback start. Provider and device
 latency still require live measurement; tests establish ordering and
 cancellation rather than claiming a particular latency reduction.
 
+## Call assistant metering
+
+The call assistant's model calls spend the Chat budget. Before each completion
+dispatch, one hook reserves an estimate of the complete request and output
+ceiling, keyed by Rig's `EffectId`; a budget refusal prevents that dispatch.
+The same hook handles unary and streamed replies. Each outcome settles only
+its own reservation to reported token cost, including attempts rejected and
+retried within a turn: the provider bills both attempts.
+
+A provider failure, missing usage, all-zero usage, or a stream dropped before
+its outcome keeps the estimate charged, since the request may have been billed.
+Tool dispatches do not reserve model spend. A reported cost above the budget
+is recorded in full and the paid reply remains available; the next completion
+dispatch is refused, whether in this turn or a later request.
+
 ## Verification and rollout
 
 Headless wire/session tests cover desk compatibility, target validation,

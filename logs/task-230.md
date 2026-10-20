@@ -1,8 +1,6 @@
 ---
 id: task-230
 title: "S0: narrow Hotline's Rig seam and pin today's behaviour (still on 0.42)"
-column: in-progress
-position: 2
 priority: high
 tags:
   - rig
@@ -18,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
 parentId: epic-22
 createdAt: "2026-10-20T06:51:42.743Z"
-updatedAt: "2026-10-20T12:22:40.059Z"
+updatedAt: "2026-10-20T12:28:43.080Z"
 contract:
   status: in_progress
   deliverables:
@@ -60,6 +58,7 @@ dispatch:
     at: "2026-10-20T12:04:17.136Z"
     ended: "2026-10-20T12:22:40.059Z"
     outcome: review
+completedAt: "2026-10-20T12:28:43.080Z"
 ---
 
 ## Description
@@ -70,3 +69,6 @@ Report §6 S0. No dependency bump: Rig stays 0.42.0 and Cargo.lock's rig entry i
 3. Behaviour-pinning tests that must survive the bump. Name every one with the prefix `rig_pin_` so later slices can find them. Pin at the HTTP wire (request bodies captured by a local stub server) and on Hotline's own counters, never on Rig types, so S1 can keep their assertions and expected values byte-for-byte and change at most how a fixture is built. At least: Anthropic usage totals with cache reads/writes (cache tokens priced once, budgets and the context threshold unchanged); request-body snapshots for cache markers (Anthropic `cache_control`, OpenRouter `anthropic/`); the system prompt present in every round's request body of a multi-round turn; Copilot chat assistant content sent as a string; Ollama `think` reaching `/api/chat`; the `Failure::classify` table on real recorded error shapes.
 
 contract.ts stays byte-identical.
+
+## Log
+- 2026-10-20T12:28:42.710Z: Landed on release/0.42.0

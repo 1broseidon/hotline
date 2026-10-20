@@ -30,7 +30,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T12:04:00.044Z"
+updatedAt: "2026-10-20T12:29:15.883Z"
 contract:
   status: ready
   deliverables:
@@ -65,6 +65,14 @@ contract:
     - Do not adopt Rig's resumable runs or committed-history streaming for the turn loop
   metrics:
     readyAt: "2026-10-20T12:04:00.044Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: xhigh
+  by: lead
+  at: "2026-10-20T12:29:15.759Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

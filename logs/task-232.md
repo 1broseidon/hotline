@@ -1,8 +1,6 @@
 ---
 id: task-232
 title: "S2: Rig 0.44 — constructors, assistant messages, typed options, request-level caching"
-column: todo
-position: 4
 priority: high
 tags:
   - rig
@@ -13,7 +11,8 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.722Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T06:51:47.095Z"
+updatedAt: "2026-10-20T11:59:57.582Z"
+completedAt: "2026-10-20T11:59:57.582Z"
 ---
 
 ## Description

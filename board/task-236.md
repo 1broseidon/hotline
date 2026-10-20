@@ -16,7 +16,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.659Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T12:03:23.226Z"
+updatedAt: "2026-10-20T13:31:12.115Z"
 contract:
   status: ready
   deliverables:
@@ -45,3 +45,5 @@ contract:
 Report §6 S6 and §5 (docs/plans/rig-0.45-migration.md). Builds on S1's minimal voice port in `voice/dispatcher.rs`. Replace `Meter`/`StreamMeter` with one hook: `on_dispatch` reserves (deny when over budget), `on_outcome` settles by `EffectId`; remove the single reservation slot. Record the metering rule in docs/voice-calls.md or docs/design.md, wherever voice budgets are described today.
 
 Tests, prefixed `voice_meter_`: a provider error keeps its reservation; a retried turn settles both attempts; a stream dropped mid-reply stays charged; a budget refusal lands on the next dispatch. Do not edit docs/plans/rig-0.45-migration.md (the closing task does).
+
+What S1 (task-231) left you, as landed on release/0.42.0: one `Meter` reserves in `on_completion_call` and settles in `on_outcome`, for streamed and unary runs; a failed completion keeps its reservation. The Anthropic cache fold is gone (`Tokens::of` takes no provider); an all-zero usage still counts as unreported (0.45's `is_reported` treats Some(0) as reported), so meters keep their reservations as on 0.42 — keep that rule. Every request accepts unknown finish reasons (decision-3). Touch only the voice dispatcher, its tests and the voice docs: S4 (rig_login.rs, vault.rs, failure.rs) and S7 (outgoing.rs, copilot.rs, compat.rs, build.rs, turn.rs) run alongside.

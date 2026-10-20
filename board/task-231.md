@@ -30,7 +30,40 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T12:02:47.049Z"
+updatedAt: "2026-10-20T12:02:47.323Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: Cargo.toml
+      description: rig = "=0.45.0", rust-version 1.97.1
+    - type: file
+      path: crates/hotline-core/src/providers/rig_login.rs
+      description: LoginDirStore TokenStore over today's login dirs, per-credential lock and registry
+    - type: test
+      path: crates/hotline-core
+      description: rig_login_* tests (Copilot dir migration, ChatGPT auth.json unchanged, single refresh-token spend)
+    - type: docs
+      path: docs/security.md
+      description: credential storage under Rig 0.45
+  validation:
+    commands:
+      - grep -q 'rig = "=0.45.0"' Cargo.toml
+      - grep -q 'rust-version = "1.97.1"' Cargo.toml
+      - "! grep -rn 'every_input_token\\|cache_beside_input' crates/hotline-core/src"
+      - make check
+      - make precheck
+      - git diff --exit-code HEAD -- ui/src/generated/contract.ts
+      - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_pin_')" -ge 6
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_login_')" -ge 3
+  constraints:
+    - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
+    - S0's rig_pin_ assertions and expected values unchanged
+    - Old Copilot login files removed only after copilot.json is written
+    - Do not adopt Rig's resumable runs or committed-history streaming for the turn loop
+  metrics:
+    readyAt: "2026-10-20T12:02:47.323Z"
 ---
 
 ## Description

@@ -1867,7 +1867,9 @@ a notice saying it was skipped, how long the one before had been running
 (in whole units, so a minute and a second is `1m`), and what interval would
 fit, half as long again as the work has taken and at least twice the one it
 had. A job skipped
-twice in a row posts that to the person, once.
+twice in a row posts that to the person, once. A skipped slot is not a
+firing: a loop's count is of firings that ran, so a loop of three whose
+firings each overrun a slot still runs three.
 
 **It ends** when the person cancels it, `schedule.cancel` or
 `cancel_schedule` from the DM: its turn in flight is stopped, and its final

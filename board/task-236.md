@@ -1,7 +1,7 @@
 ---
 id: task-236
 title: "S6: voice metering keyed by dispatch id (Rig 0.45's exactly-once outcome hook)"
-column: in-progress
+column: review
 position: 8
 priority: medium
 tags:
@@ -16,9 +16,9 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.659Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:37:33.656Z"
+updatedAt: "2026-10-20T13:53:48.129Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/dispatcher.rs
@@ -41,6 +41,8 @@ contract:
     readyAt: "2026-10-20T12:03:23.226Z"
     pickedUpAt: "2026-10-20T13:37:33.656Z"
     reworkCount: 1
+    deliveredAt: "2026-10-20T13:53:48.129Z"
+    duration: 974
 dispatch:
   agent: codex
   model: gpt-6-astra

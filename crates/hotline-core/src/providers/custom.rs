@@ -1,5 +1,5 @@
-//! OpenAI-compatible connections use Rig's native request and streaming code,
-//! over a transport that repairs loose Responses frames ([`super::compat`]).
+//! OpenAI-compatible connections use Rig's native request and streaming code.
+//! Rig reads loose Responses frames directly, without a repair transport.
 
 use crate::contract::CustomProviderDraft;
 use rig::providers::openai::wire::{Auth, Dialect};
@@ -69,7 +69,7 @@ pub(crate) fn client(base_url: &str, key: Option<&str>, route: Route) -> Result<
         .map_err(|_| "Could not prepare the custom connection.".to_string())?;
     Ok(config(&base_url, key)
         .with_route(route)
-        .connect(super::compat::Http::new(http)))
+        .connect(rig::http_client::ReqwestClient::from(http)))
 }
 
 pub(crate) async fn discover(base_url: &str, key: Option<&str>) -> Result<Vec<String>, String> {

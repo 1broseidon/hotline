@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { ScheduleEntry } from "../src/generated/contract";
 import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { JobActions } = await import("../src/components/Dock");
+const { JobActions, JobRow } = await import("../src/components/Dock");
 const { wire } = await import("../src/wire");
 
 const sweep = { id: "sweep", personaId: "ada", name: "Sweep the inbox", kind: "loop", prompt: "Sweep the inbox", nextAt: 0 } as ScheduleEntry;
@@ -75,5 +75,20 @@ describe("a job's Stop and Cancel", () => {
 		const said = await show(true);
 		await press("Stop Sweep the inbox");
 		expect(said).toEqual(["That job has no turn running."]);
+	});
+});
+
+describe("a job's row in the Jobs group", () => {
+	test("counts down to its next run each second", async () => {
+		jest.useFakeTimers();
+		try {
+			const job = { ...sweep, nextAt: Date.now() + 51_000 };
+			await act(async () => root.render(<JobRow job={job} running={false} opened={{ current: null }} onOpen={() => {}} onSaid={() => {}} />));
+			expect(container.textContent).toContain("Next in 51s");
+			await act(async () => jest.advanceTimersByTime(19_000));
+			expect(container.textContent).toContain("Next in 32s");
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 });

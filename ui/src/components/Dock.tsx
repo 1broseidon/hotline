@@ -308,52 +308,6 @@ function ThreadList({
 		);
 	};
 
-	const job = (one: ScheduleEntry) => {
-		const id = `job:${one.id}`;
-		const ended = one.endedAt !== undefined;
-		const running = !ended && workingJobs.includes(one.id);
-		const when = ended ? `Ended ${relativeTime(one.endedAt ?? now, now)}` : `Next ${nextText(one.nextAt, now)}`;
-		const post = one.lastPost === undefined ? "No post yet" : `Posted ${relativeTime(one.lastPost.at, now)}: ${firstLine(one.lastPost.text)}`;
-		return (
-			<div key={id} className="relative">
-				<button
-					type="button"
-					className="rail-row dock-row"
-					data-thread={id}
-					data-restore={opened.current === id || undefined}
-					aria-label={`${one.name}, ${ended ? "ended" : running ? "running" : when}`}
-					onClick={() => {
-						opened.current = id;
-						onOpen({ thread: { kind: "job", key: one.id }, title: one.name });
-					}}
-				>
-					<span aria-hidden="true" className={`dock-dot ${running ? "beat" : ""}`} data-state={ended ? "closed" : running ? "running" : "idle"} />
-					<span className="min-w-0 flex-1">
-						{/* Clear of Stop and Cancel, which sit over the name's end. */}
-						<span className={`block h-[18px] truncate font-medium text-ink ${ended ? "pr-8" : running ? "pr-32" : "pr-16"}`}>{one.name}</span>
-						<span className="block h-4 truncate text-sm text-ink-3">{when}</span>
-						<span className="block h-4 truncate text-sm text-ink-3">{post}</span>
-					</span>
-				</button>
-				{ended ? (
-					<button
-						type="button"
-						className="control btn-icon absolute right-1 top-1"
-						title="Remove"
-						aria-label={`Remove ${one.name}`}
-						onClick={() => void wire.command("schedule.cancel", { id: one.id }).catch(() => {})}
-					>
-						<CloseIcon />
-					</button>
-				) : (
-					<span className="absolute right-1 top-1 flex">
-						<JobActions job={one} running={running} onSaid={setRefused} />
-					</span>
-				)}
-			</div>
-		);
-	};
-
 	return (
 		<Scroll>
 			<div ref={root} className="px-2 pb-3">
@@ -370,7 +324,16 @@ function ThreadList({
 							<div className={open.length > 0 ? "mt-2" : ""}>
 								<h3 className="px-2 py-1 text-sm text-ink-3">Jobs</h3>
 								{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
-								{jobList.map(job)}
+								{jobList.map((one) => (
+									<JobRow
+										key={one.id}
+										job={one}
+										running={one.endedAt === undefined && workingJobs.includes(one.id)}
+										opened={opened}
+										onOpen={onOpen}
+										onSaid={setRefused}
+									/>
+								))}
 							</div>
 						)}
 						{closed.length > 0 && (
@@ -599,6 +562,72 @@ function ThreadView({
 				closed && row?.outcome !== undefined && row.outcome !== "" && <p className="dock-note selectable">{row.outcome}</p>
 			)}
 		</section>
+	);
+}
+
+/**
+ * A job in the list: when it runs next, counted down each second as the
+ * conversation's header counts it, and what it last posted.
+ */
+export function JobRow({
+	job,
+	running,
+	opened,
+	onOpen,
+	onSaid,
+}: {
+	job: ScheduleEntry;
+	running: boolean;
+	opened: RefObject<string | null>;
+	onOpen(open: ThreadRef): void;
+	onSaid(refused: string | null): void;
+}) {
+	const ended = job.endedAt !== undefined;
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const tick = window.setInterval(() => setNow(Date.now()), ended ? 30_000 : 1_000);
+		return () => window.clearInterval(tick);
+	}, [ended]);
+	const id = `job:${job.id}`;
+	const when = ended ? `Ended ${relativeTime(job.endedAt ?? now, now)}` : `Next ${nextText(job.nextAt, now)}`;
+	const post = job.lastPost === undefined ? "No post yet" : `Posted ${relativeTime(job.lastPost.at, now)}: ${firstLine(job.lastPost.text)}`;
+	return (
+		<div className="relative">
+			<button
+				type="button"
+				className="rail-row dock-row"
+				data-thread={id}
+				data-restore={opened.current === id || undefined}
+				aria-label={`${job.name}, ${ended ? "ended" : running ? "running" : when}`}
+				onClick={() => {
+					opened.current = id;
+					onOpen({ thread: { kind: "job", key: job.id }, title: job.name });
+				}}
+			>
+				<span aria-hidden="true" className={`dock-dot ${running ? "beat" : ""}`} data-state={ended ? "closed" : running ? "running" : "idle"} />
+				<span className="min-w-0 flex-1">
+					{/* Clear of Stop and Cancel, which sit over the name's end. */}
+					<span className={`block h-[18px] truncate font-medium text-ink ${ended ? "pr-8" : running ? "pr-32" : "pr-16"}`}>{job.name}</span>
+					<span className="block h-4 truncate text-sm text-ink-3">{when}</span>
+					<span className="block h-4 truncate text-sm text-ink-3">{post}</span>
+				</span>
+			</button>
+			{ended ? (
+				<button
+					type="button"
+					className="control btn-icon absolute right-1 top-1"
+					title="Remove"
+					aria-label={`Remove ${job.name}`}
+					onClick={() => void wire.command("schedule.cancel", { id: job.id }).catch(() => {})}
+				>
+					<CloseIcon />
+				</button>
+			) : (
+				<span className="absolute right-1 top-1 flex">
+					<JobActions job={job} running={running} onSaid={onSaid} />
+				</span>
+			)}
+		</div>
 	);
 }
 

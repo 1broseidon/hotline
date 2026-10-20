@@ -670,6 +670,58 @@ async fn a_job_the_person_cancels_ends_with_a_final_post() {
     assert_eq!(job["end"], "person", "{job}");
 }
 
+/// A loop that runs out of its count ends with a final post of what came of
+/// it, whatever its report policy, as an end the person or the job made does:
+/// its last firing is told it is the last, so it says what came of the job
+/// rather than trying to end a job that ends after it anyway.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_job_that_runs_out_of_its_count_ends_with_a_final_post() {
+    let mut desk = seeded(|ada| {
+        let mut job = looping("count", ada, 1_500, "SAY Counted the files.");
+        job["quiet"] = json!(true);
+        job["times"] = json!(3);
+        vec![job]
+    })
+    .await;
+    until("the job has ended", || {
+        desk.state("count").as_deref() == Some("closed")
+    })
+    .await;
+    let heard = desk.heard("Counted the files.");
+    assert_eq!(heard.len(), 3, "{heard:#?}");
+    for earlier in &heard[..2] {
+        assert!(!earlier.contains("last run"), "{earlier}");
+    }
+    assert!(
+        heard[2].contains("This is the job's last run: it ends after this turn, so do not end it with `cancel_schedule`."),
+        "{}",
+        heard[2]
+    );
+
+    let chat = desk.chat();
+    assert_eq!(chat.len(), 1, "a quiet job posts only its end: {chat:#?}");
+    assert_eq!(chat[0]["text"], "Counted the files.");
+    assert_eq!(chat[0]["from"], json!({"thread": "count", "kind": "job"}));
+    assert_eq!(chat[0]["scheduled"]["jobId"], "count");
+    let listed = desk.listing().await;
+    assert!(listed[0]["endedAt"].is_i64(), "{listed:?}");
+    assert_eq!(listed[0]["lastPost"]["text"], "Counted the files.");
+
+    let threads = desk
+        .client
+        .call("thread.list", json!({"personaId": desk.persona_id}))
+        .await;
+    let job = threads["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|thread| thread["thread"] == json!({"kind": "job", "key": "count"}))
+        .cloned()
+        .unwrap_or_else(|| panic!("the job's thread is listed: {threads}"));
+    assert_eq!(job["end"], "done", "{job}");
+    assert_eq!(job["outcome"], "Counted the files.", "{job}");
+}
+
 /// The person stops a firing that is running: that turn ends, posts no
 /// report, and its thread says it was stopped; the job keeps its schedule,
 /// and its next firing runs and reports as any other.

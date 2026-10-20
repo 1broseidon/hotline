@@ -1863,8 +1863,10 @@ protocol" a line in the job's thread rather than in the chat.
 
 **An overlapping firing is skipped.** A firing that comes due while the one
 before is still running, or waits behind it, is not queued: the thread gets
-a notice saying it was skipped and what interval would fit, half as long
-again as the work has taken and at least twice the one it had. A job skipped
+a notice saying it was skipped, how long the one before had been running
+(in whole units, so a minute and a second is `1m`), and what interval would
+fit, half as long again as the work has taken and at least twice the one it
+had. A job skipped
 twice in a row posts that to the person, once.
 
 **It ends** when the person cancels it, `schedule.cancel` or
@@ -1872,9 +1874,12 @@ twice in a row posts that to the person, once.
 post says where it stood, from its note (none when it never ran). A job that
 meets its goal ends itself from its own thread with `cancel_schedule` and a
 `report`, which is its final post; the turn it ends in finishes. A one-shot,
-or a loop whose count or date runs out, ends after its last firing. Either
-way the record gains `endedAt`, the thread's link is closed, and the thread
-stays readable.
+or a loop whose count or date runs out, ends after its last firing, and that
+firing's line says it is the last, so the job does not try to end what ends
+anyway. A loop's last words are its final post whatever its report policy
+(where it stood, when the person stopped that turn); a one-shot's one report
+follows its policy. Either way the record gains `endedAt`, the thread's link
+is closed with what came of it, and the thread stays readable.
 
 **A plain reminder** (`reminder`) does no work: it fires as one post to the
 DM, its prompt as written, stamped with the job, with no thread and no agent.

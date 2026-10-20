@@ -73,3 +73,4 @@ From S1 (task-231), for the doc and checklist. S1's manual checks: Anthropic key
 
 ## Log
 - 2026-10-20T13:37:06.997Z: [claude] George, 2026-10-20 08:35: goes to Codex on gpt-6-astra. Run make check in the foreground and wait for it, commit before ending your turn, merge release/0.42.0 into the branch and re-run make check before saying done.
+- 2026-10-20T14:02:15.039Z: [codex] Picked up S8 on dispatch/task-238. Inspecting the landed slice fixtures and real-wire harness before adding upgrade proofs; will run foreground make check, merge release/0.42.0, and rerun checks before handoff.

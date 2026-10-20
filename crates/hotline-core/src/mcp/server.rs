@@ -1083,11 +1083,10 @@ impl TeammateTools {
                     room.schedule_done(id, report.unwrap_or_default())?;
                     return Ok(json!({ "ended": true, "note": "The job has ended and your report is posted. Finish this turn; it is the job's last." }).to_string());
                 }
-                if report.is_some() {
-                    return Err(
-                        "A `report` is how a job ends itself, from its own thread.".to_string()
-                    );
-                }
+                // Anywhere else a `report` is not the job's to give, but it
+                // is no reason to refuse: the tool's one schema offers it to
+                // every caller, and a model refused for it retries the same
+                // call. The job is cancelled and ends with where it stood.
                 if let Some(job) = crate::room::all_jobs(room.log())
                     .iter()
                     .find(|job| job.id == id)
@@ -2280,6 +2279,34 @@ mod tests {
             .unwrap()
             .to_string();
         let answered = through_rig(&tools(&room), CANCEL_SCHEDULE, json!({ "id": id })).await;
+        assert_eq!(
+            serde_json::from_str::<Value>(&answered).unwrap(),
+            json!({ "cancelled": true })
+        );
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
+    }
+
+    /// Outside the job's own thread a `report` is set aside, not refused: a
+    /// model that fills in every field it is offered still cancels the job.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancel_schedule_with_a_report_from_elsewhere_still_cancels() {
+        let room = room_with_a_conversation("cancel-report");
+        let created = through_rig(
+            &tools(&room),
+            LOOP,
+            json!({ "every": "5m", "prompt": "sweep" }),
+        )
+        .await;
+        let id = serde_json::from_str::<Value>(&created).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let answered = through_rig(
+            &tools(&room),
+            CANCEL_SCHEDULE,
+            json!({ "id": id, "report": "No longer needed." }),
+        )
+        .await;
         assert_eq!(
             serde_json::from_str::<Value>(&answered).unwrap(),
             json!({ "cancelled": true })

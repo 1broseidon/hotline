@@ -1,8 +1,8 @@
 ---
 id: task-242
 title: "S5 follow-up: a parked call's typed turns stay in its thread, a long reply at hang-up posts as a summary, and untitled posts read \"From the call\""
-column: backlog
-position: 45
+column: in-progress
+position: 0
 priority: high
 tags:
   - voice
@@ -24,7 +24,7 @@ dispatch:
     pid: 94104
     at: "2026-10-20T23:06:05.653Z"
 assignee: codex
-updatedAt: "2026-10-20T23:06:05.653Z"
+updatedAt: "2026-10-20T23:06:27.281Z"
 ---
 
 ## Description

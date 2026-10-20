@@ -1,8 +1,6 @@
 ---
 id: task-222
 title: 0.41 lands together, and Pork Chop's QA on the Linux QA computer before George's
-column: review
-position: 18
 priority: high
 tags:
   - qa
@@ -20,7 +18,7 @@ dependsOn:
   - task-202
   - task-205
   - task-227
-updatedAt: "2026-10-20T00:33:41.573Z"
+updatedAt: "2026-10-20T00:36:29.774Z"
 contract:
   status: done
   deliverables:
@@ -55,6 +53,7 @@ dispatch:
     at: "2026-10-20T00:13:11.844Z"
     ended: "2026-10-20T00:33:41.573Z"
     outcome: review
+completedAt: "2026-10-20T00:36:29.774Z"
 ---
 
 ## Description
@@ -72,3 +71,4 @@ How to work: run make check in the foreground with a generous timeout and wait f
 - 2026-10-19T23:20:47.352Z: [claude] Lead, from task-220's handoff: a job's overrun count and its told-once flag live in memory (lost on restart), and goal/until/times can be set only by the loop tool, not schedule.create on the wire. Check both against the epic's done in the harness and QA; fix or file. The search rebuild missing job threads is task-221's.
 - 2026-10-19T23:29:42.504Z: [claude] Lead, from task-226's handoff: a running job's row has no Cancel (cancel stays in Schedules), there is no Archive on a job thread, and there is no Stop on a job's turn. In QA, check that a person can cancel a running job and stop a runaway firing from the desk. If they can't, fix it or file it.
 - 2026-10-20T00:33:32.926Z: [claude] Done on dispatch/task-222 (c39228db; release/0.41.0 already in it; make check, make verify and make precheck pass, contract validated). Harness tests/threads/together.rs (2 tests over the wire): Ada on Hotline Agent and Bob on ACP: loud DM post refused on both drivers; a quiet ACP job, a work thread (file + post), a pair each land in the chat stamped from their thread; a subagent finds the DM with search_thread and is refused post_to_chat. Then a restart desk seeded with a stalling loop (skip with "would fit", next firing from its note, cancel's final post) and two jobs with an unheard request_human answer on their threads. Seam 1 fixed: Room::resume_job_deliveries (job_thread.rs, called at room start after resume_pending) re-hands a job's unread deliveries via deliver_into_job, or to the DM via deliver_identified if the job ended; the harness fails without it. Seam 2: chose not to add `without` to wire schedule.create (no window or phone sends it); design.md says why the person narrows through the teammate's grants or the agent. Docs: design.md, sessions.md, threads.md (Job restart cell), security.md (Clones enforcement + matrix row cites the new tests), CHANGELOG Unreleased (0.41's thread layer, jobs, clones, and a 'Not yet wired' section: no Hotline run started for ACP teammates yet / ACP harness subagents mirrored / phone ignores data.thread). Not done here: CI dispatch of ci.yml and workspace-isolation.yml on release/0.41.0 (needs the branch landed; I don't push), and Pork Chop's hands-on QA, which waits for this to land; the checklist is in epic-20's log. Not re-checked: task-220's in-memory overrun count/told-once flag still resets on restart (unchanged; at worst the person is told once more after a restart).
+- 2026-10-20T00:36:29.410Z: Landed on release/0.41.0

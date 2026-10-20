@@ -8,6 +8,7 @@ tags:
   - rig
 assignee: claude
 relatedFiles:
+  - crates/hotline-core/src/providers/outgoing.rs
   - crates/hotline-core/src/providers/copilot.rs
   - crates/hotline-core/src/providers/compat.rs
   - crates/hotline-core/src/driver/rig/build.rs
@@ -16,7 +17,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T12:03:23.766Z"
+updatedAt: "2026-10-20T13:31:12.369Z"
 contract:
   status: ready
   deliverables:
@@ -39,4 +40,6 @@ contract:
 ---
 
 ## Description
-Report §6 S7 (docs/plans/rig-0.45-migration.md). Cleanups 0.45 makes possible, each proved by S0's `rig_pin_` snapshots staying unchanged: delete Copilot's `ChatBody` if the Copilot string-content pin passes without it; Copilot `/responses` via `with_route(Route::Responses)` on the shared dialect; `compat.rs` probe on `Value`. Optional, only if it makes the code smaller and the pins stay green: typed `.reasoning(Effort)` with `OnUnsupported::Ignore` replacing `effort_params` (check Gemini's `thinkingLevel` casing, report §7.9); a `pairing::validate` debug assert before each request. Say in your final note which optional items you took and why. Do not touch `voice/dispatcher.rs` (S6) or `providers/rig_login.rs` (S4); do not edit docs/plans/rig-0.45-migration.md (the closing task does).
+Report §6 S7 (docs/plans/rig-0.45-migration.md). Cleanups 0.45 makes possible, each proved by S0's `rig_pin_` snapshots staying unchanged: delete Copilot's chat-text flatten if the Copilot string-content pin passes without it; Copilot `/responses` via `with_route(Route::Responses)` on the shared dialect; the remaining `compat.rs` repairs, deleted where 0.45 makes them unnecessary. Optional, only if it makes the code smaller and the pins stay green: typed `.reasoning(Effort)` with `OnUnsupported::Ignore` replacing `effort_params` (check Gemini's `thinkingLevel` casing, report §7.9); a `pairing::validate` debug assert before each request. Say in your final note which optional items you took and why. Do not touch `voice/dispatcher.rs` (S6), `providers/rig_login.rs`, `vault.rs` or `driver/failure.rs` (S4); do not edit docs/plans/rig-0.45-migration.md (the closing task does).
+
+What S1 (task-231) changed, as landed on release/0.42.0: model requests for ChatGPT and Copilot now go through `providers/outgoing.rs` `Outgoing`, which calls `auth_context` per request; Copilot's chat-text flatten (formerly `ChatBody` in copilot.rs) now lives there as its body mend, so that is where to delete it. The compat.rs decode probe is already deleted (0.45 reads Responses frames as JSON); its repairs stay for you to judge. OpenRouter: 0.45's request `.cache(Short)` puts the marker only at the top level, but S0's pin wants it on Claude's system prompt, so `build::openrouter_model` also marks the prompt through `Outgoing::mended` — leave both unless the pin holds with one. Turn tests run on Rig's MockScript wire through a channel-fed Transport, which joins adjacent user messages and renders tool calls as text: compare parts or read the turn's kept history.

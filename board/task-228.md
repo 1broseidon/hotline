@@ -25,3 +25,6 @@ Found in Pork Chop's 0.41 QA on the Linux QA computer (2026-10-20 01:05-01:20, r
 3. The overlap skip says "Skipped the Tue 01:13 run: the one before it was still going after 2m" on a 1-minute job, one minute after the firing began. Say the time the earlier firing had actually been running, and keep the suggested interval ("Every 2m would fit the time this takes") as it is.
 
 Tests: a harness test for 1 (count end posts a closing note; the last firing's context says it is the last); a UI test for 2; a unit test for 3's wording.
+
+## Log
+- 2026-10-20T01:18:03.479Z: [claude] For the agent: run make check in the foreground and wait for it, commit before ending your turn, and merge release/0.41.0 into the branch and re-run make check before saying done (a landing's check stops after 15 minutes).

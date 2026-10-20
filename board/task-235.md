@@ -1,8 +1,8 @@
 ---
 id: task-235
 title: "S5: sign-out revokes at the provider; a revoked login stops serving at once"
-column: backlog
-position: 44
+column: todo
+position: 2
 priority: low
 tags:
   - rig
@@ -19,7 +19,7 @@ createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
   - task-237
-updatedAt: "2026-10-20T13:31:12.630Z"
+updatedAt: "2026-10-20T14:46:13.705Z"
 contract:
   status: ready
   deliverables:

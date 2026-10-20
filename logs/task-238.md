@@ -1,8 +1,6 @@
 ---
 id: task-238
 title: "S8: the whole on 0.45 — a 0.42 profile upgrades end to end over the wire"
-column: review
-position: 7
 priority: high
 tags:
   - rig
@@ -48,7 +46,7 @@ contract:
     deliveredAt: "2026-10-20T14:21:43.475Z"
     duration: 1175
 createdAt: "2026-10-20T12:04:00.326Z"
-updatedAt: "2026-10-20T14:21:43.475Z"
+updatedAt: "2026-10-20T14:24:47.062Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -61,9 +59,12 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T14:01:46.267Z"
+    ended: "2026-10-20T14:24:47.062Z"
+    outcome: done
 assignee: codex
 decisions:
   - decision-4
+completedAt: "2026-10-20T14:24:46.679Z"
 ---
 
 ## Description
@@ -81,3 +82,4 @@ From S1 (task-231), for the doc and checklist. S1's manual checks: Anthropic key
 - 2026-10-20T14:10:58.163Z: [codex] Four real-wire rig_upgrade_ proofs pass: 0.42 ChatGPT plus both Copilot routes migrate to MemoryStore, cache usage/pricing and per-round system prompt match S0, cached context recovers, voice completion settles and truncated stream stays charged. Full desk tool definitions exceed S0's tiny context window, so that wire proof scales its usage/limits tenfold; original pins unchanged. Added dev-only credential-scoped loopback origins; updated landed migration record/checklist and stale design vault wording. Running full gates next.
 - 2026-10-20T14:16:41.080Z: [codex] Committed 3d08b0c3 on dispatch/task-238 after foreground make check passed. Requested merge of release/0.42.0 reports already up to date. Running post-merge make check, make verify and make precheck; generated contract and S0 pin assertions remain unchanged. No shipping seam defect found; test-only origins and docs are wired, with real-provider/macOS checks explicitly left to George's checklist.
 - 2026-10-20T14:21:43.230Z: [codex] Ready for review on dispatch/task-238 at 3d08b0c3, clean worktree. Four rig_upgrade_ real-wire tests pass; foreground make check passed before and after the requested release/0.42.0 merge (already up to date), make verify passed, and make precheck passed all 8 legs including Windows/isolated UI. Both contract.ts comparisons and unchanged S0 pins verified; shipping app graph excludes test-support. Migration record/checklist updated, downgrade note confirmed. No shipping reach/grant changes or runtime seam defect found; fixture origins are dev-only, per credential and loopback. Nothing left unwired. Next: human reviews/merges, then George runs the real-provider/macOS keychain checklist; existing cached-token/revocation limitations remain as documented by S4.
+- 2026-10-20T14:24:46.312Z: Landed on release/0.42.0

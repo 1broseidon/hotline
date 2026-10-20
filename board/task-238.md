@@ -44,14 +44,19 @@ contract:
   metrics:
     readyAt: "2026-10-20T12:04:00.313Z"
 createdAt: "2026-10-20T12:04:00.326Z"
-updatedAt: "2026-10-20T13:37:09.068Z"
+updatedAt: "2026-10-20T14:01:46.267Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
   by: cli
   at: "2026-10-20T13:37:08.942Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-20T14:01:46.267Z"
 assignee: codex
 ---
 

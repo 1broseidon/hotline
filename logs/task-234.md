@@ -1,8 +1,6 @@
 ---
 id: task-234
 title: "S4: ChatGPT and Copilot tokens move into the vault (keychain)"
-column: review
-position: 6
 priority: medium
 tags:
   - rig
@@ -19,7 +17,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:44.693Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:54:13.117Z"
+updatedAt: "2026-10-20T14:01:45.094Z"
 contract:
   status: delivered
   deliverables:
@@ -62,6 +60,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T13:37:09.319Z"
+    ended: "2026-10-20T14:01:45.094Z"
+    outcome: done
+completedAt: "2026-10-20T14:01:44.712Z"
 ---
 
 ## Description
@@ -78,3 +79,4 @@ What S1 (task-231) left you, as landed on release/0.42.0: `LoginDirStore` reads 
 - 2026-10-20T13:50:21.097Z: [codex] Committed ee581532 on dispatch/task-234 after make check passed. git merge release/0.42.0 reports already up to date; required second foreground make check is running. Fixed two inherited wire tests still expecting begin_login to pre-create auth.json. All 8 rig_vault_* and existing rig_login_* tests passed; no generated contract or excluded-file changes.
 - 2026-10-20T13:52:15.472Z: [codex] Review/PR security body: Default—existing ChatGPT and both Copilot layouts migrate lazily into the vault backend, verified before plaintext is replaced; keychain failure preserves plaintext and refuses use; --store file remains explicitly selected. Grant source—the person's device sign-in. Enforcement—LoginDirStore uses CredentialFile on spawn_blocking with the shared per-record lock; Vault registers the backend and abandon/delete removes both records' chunks; failure classification preserves AuthError::Store through HTTP wrapping and offers unlock/retry. Tests—8 rig_vault_* tests on MemoryStore/failing wrapper, real-wire credential.delete, existing rig_login_* refresh/sign-in tests, UI retry test; make check passed before and after the requested release merge (already up to date). Residual risk—unused/failed legacy migrations retain plaintext, file backend stays plaintext, cached tokens remain usable until expiry, and deletion does not revoke at the provider. No S4 wiring left outstanding; cache invalidation/provider revocation remains the existing limitation. George before release: upgrade a real signed-in macOS profile, verify auth.json/copilot.json references and Keychain entries, exercise both providers and locked-keychain recovery. Precheck is running.
 - 2026-10-20T13:54:12.837Z: [codex] Delivered implementation on dispatch/task-234, commit ee581532, clean worktree. Validation complete: make check passed before and after merging release/0.42.0 (already up to date); make precheck passed all 8 legs including Windows and isolated UI tests; cargo test --workspace -- --list reports 8 rig_vault_ and 11 rig_pin_ tests; both required generated-contract diffs are empty. Next: human review/merge, then George's real macOS keychain upgrade/recovery check before release. Security/PR body and residual risks are recorded above; nothing left unwired for S4.
+- 2026-10-20T14:01:44.348Z: Landed on release/0.42.0

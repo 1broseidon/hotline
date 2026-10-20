@@ -214,9 +214,8 @@ impl Threads<'_> {
     }
 
     fn push(&self, persona_id: &str, thread: &ThreadId, card: &Card) {
-        let side_id = (thread.kind == ThreadKind::Side).then_some(thread.key.as_str());
         self.room.push.notify_in(
-            side_id,
+            Some(thread),
             &self.room.needs_you(persona_id),
             &card.title,
             persona_id,

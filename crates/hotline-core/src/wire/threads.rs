@@ -377,9 +377,11 @@ fn summarize(
             .peer_threads(&persona_id)
             .iter()
             .any(|pair| pair.thread_key == thread.id.key && pair.working_persona_id.is_some()),
-        // A job's link is live while its agent is up, which is while it
-        // works and for a little after a turn the person started.
-        ThreadKind::Run | ThreadKind::Job => state == LinkState::Live,
+        ThreadKind::Job => room
+            .working_jobs(&persona_id)
+            .iter()
+            .any(|job| *job == thread.id.key),
+        ThreadKind::Run => state == LinkState::Live,
         ThreadKind::Call => false,
     };
 

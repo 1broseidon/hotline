@@ -32,6 +32,9 @@
 //! - **The person can talk to it.** A line said in the thread is a turn like
 //!   a firing's, on the same agent, and what the job says back shapes the
 //!   note its next firing starts from.
+//! - **The person can stop a turn.** The firing or line running ends, posts
+//!   no report, and the thread says it was stopped; the job keeps its
+//!   schedule.
 //!
 //! **A clone of the home agent** (ADR 0008 §0). Its agent is the teammate on
 //! the model its home session is on, with the home thread's permission set,
@@ -116,6 +119,9 @@ pub(super) struct LiveJob {
     /// The person cancelled the job: nothing more of the turn in flight is
     /// written, and no line is taken.
     stopped: AtomicBool,
+    /// The person stopped the turn in flight and the job goes on: the turn
+    /// posts no report, and its thread says it was stopped.
+    halted: AtomicBool,
     /// The job ended itself on its goal: the turn in flight finishes, and
     /// its report is not posted, since the end was.
     done: AtomicBool,
@@ -328,6 +334,10 @@ impl Occupant for LiveJob {
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut JobTurn) -> Driven {
         let thread = Occupant::thread(&**self);
         let line = held.line.take().expect("a turn is taken once");
+        // Stopped while its agent was starting: there is nothing to drive.
+        if self.halted.load(Ordering::SeqCst) {
+            return Driven::default();
+        }
         let (driver, reach) = lock(&self.up)
             .as_ref()
             .map(|up| (up.driver.clone(), up.reach))
@@ -359,9 +369,18 @@ impl Occupant for LiveJob {
             room.threads()
                 .expire_asked(&Occupant::thread(&**self), &self.persona_id);
         }
+        let halted = self.halted.swap(false, Ordering::SeqCst);
+        if halted {
+            self.notice(
+                room,
+                NoticeLevel::Info,
+                "Stopped. The job keeps its schedule and runs again at its next time.".to_string(),
+            );
+        }
         let done = self.done.load(Ordering::SeqCst);
         if let Some(firing) = &held.firing
             && !done
+            && !halted
             && !driven.posted
             && firing.quiet != Some(true)
             && let Some(report) = report_of(&driven)
@@ -397,6 +416,8 @@ impl Occupant for LiveJob {
 
     fn rest(self: &Arc<Self>, room: &Arc<Room>) {
         lock(&self.turns).running = false;
+        // A stop that landed after the last turn's end has no turn to stop.
+        self.halted.store(false, Ordering::SeqCst);
         let _ = room.info_changes.send(room.info(&self.persona_id));
     }
 }
@@ -582,6 +603,7 @@ impl Room {
                     overruns: Mutex::new(Overruns::default()),
                     last_used: Mutex::new(now_ms()),
                     stopped: AtomicBool::new(false),
+                    halted: AtomicBool::new(false),
                     done: AtomicBool::new(false),
                 })
             })
@@ -942,14 +964,28 @@ impl Room {
         Ok(())
     }
 
-    /// Stops the turn in flight in a job's thread. The job goes on firing.
+    /// Stops the turn in flight in a job's thread, a firing's or the
+    /// person's, and drops what waited behind it. The job goes on firing:
+    /// its next time is the one it already had.
     pub fn cancel_job_turn(&self, job_id: &str) -> Result<(), String> {
         let live = lock(&self.job_threads)
             .get(job_id)
             .cloned()
+            .filter(|live| lock(&live.turns).running)
             .ok_or_else(|| "That job has no turn running.".to_string())?;
+        live.halted.store(true, Ordering::SeqCst);
         live.interrupt();
         Ok(())
+    }
+
+    /// The jobs of this teammate with a turn running, by id, for its roster
+    /// row.
+    pub fn working_jobs(&self, persona_id: &str) -> Vec<String> {
+        lock(&self.job_threads)
+            .values()
+            .filter(|live| live.persona_id == persona_id && lock(&live.turns).running)
+            .map(|live| live.job_id.clone())
+            .collect()
     }
 
     /// A job has ended: the person cancelled it, or it met its goal and said

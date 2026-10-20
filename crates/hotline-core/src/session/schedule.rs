@@ -278,6 +278,7 @@ pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
         reminder: job.reminder,
         last_post: job.last_post,
         ended_at: job.ended_at,
+        without: job.without,
     }
 }
 

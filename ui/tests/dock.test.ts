@@ -24,6 +24,7 @@ import {
 	threadDot,
 	threadOwnerId,
 	withLinks,
+	withoutWords,
 } from "../src/dock";
 
 const thread = (key: string, kind: ThreadSummary["thread"]["kind"] = "side", extra: Partial<ThreadSummary> = {}): ThreadSummary => ({
@@ -284,5 +285,14 @@ describe("the Jobs group", () => {
 
 	test("is not in the thread list's own groups", () => {
 		expect(groupThreads([thread("j", "job")])).toEqual({ open: [], closed: [] });
+	});
+
+	test("says what a narrowed job runs without, and nothing for a whole clone", () => {
+		expect(withoutWords(undefined)).toBe("");
+		expect(withoutWords([])).toBe("");
+		expect(withoutWords(["computer"])).toBe("Runs without the computer.");
+		expect(withoutWords(["computer", "folders", "mcp_servers"])).toBe(
+			"Runs without the computer, folders outside its working directory and MCP servers.",
+		);
 	});
 });

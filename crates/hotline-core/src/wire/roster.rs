@@ -371,6 +371,7 @@ fn roster_entry(
         lead: lead == Some(persona.id.as_str()),
         subagents: room.subagents(&persona.id),
         sides: room.sides(&persona.id),
+        working_jobs: room.working_jobs(&persona.id),
         session,
         preview,
         latest,

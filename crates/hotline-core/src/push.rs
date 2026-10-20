@@ -19,7 +19,7 @@
 //! open already has every tape live, and its own notification handler
 //! hides the banner for the conversation on its screen.
 
-use crate::contract::PermissionOption;
+use crate::contract::{PermissionOption, ThreadId, ThreadKind};
 use crate::remote;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -78,12 +78,14 @@ impl Push {
         self.notify_in(None, title, body, persona_id, waiting);
     }
 
-    /// [`Self::notify`] for a card raised in one of the teammate's side
-    /// threads: the push also names the thread as `data.sideId`, because the
-    /// answer is `side.answer_permission` and not the teammate's.
+    /// [`Self::notify`] for a card raised in one of the teammate's other
+    /// threads: the push also names the thread as `data.thread`, so a tap
+    /// opens that thread and not the teammate's conversation, and a side
+    /// thread's as `data.sideId` too, because its permission's answer is
+    /// `side.answer_permission` and not the teammate's.
     pub fn notify_in(
         &self,
-        side_id: Option<&str>,
+        thread: Option<&ThreadId>,
         title: &str,
         body: &str,
         persona_id: &str,
@@ -107,7 +109,7 @@ impl Push {
                     &body,
                     &targets.desktop_id,
                     persona_id,
-                    side_id,
+                    thread,
                     waiting.as_ref(),
                 )
             })
@@ -181,12 +183,15 @@ fn message(
     body: &str,
     desktop_id: &str,
     persona_id: &str,
-    side_id: Option<&str>,
+    thread: Option<&ThreadId>,
     waiting: Option<&Waiting>,
 ) -> Value {
     let mut data = json!({ "desktopId": desktop_id, "personaId": persona_id });
-    if let Some(side_id) = side_id {
-        data["sideId"] = json!(side_id);
+    if let Some(thread) = thread.filter(|thread| thread.kind != ThreadKind::Dm) {
+        data["thread"] = json!(thread);
+        if thread.kind == ThreadKind::Side {
+            data["sideId"] = json!(thread.key);
+        }
     }
     let mut message = json!({
         "to": token,
@@ -237,7 +242,7 @@ pub fn glance(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{AT_THE_DESK, Push, Waiting, glance, message, now_ms};
-    use crate::contract::PermissionOption;
+    use crate::contract::{PermissionOption, ThreadId};
     use serde_json::json;
 
     #[test]
@@ -370,10 +375,45 @@ mod tests {
             "Run it?",
             "desk-1",
             "frankie",
-            Some("side-3"),
+            Some(&ThreadId::side("side-3")),
             Some(&waiting),
         );
         assert_eq!(push["data"]["sideId"], "side-3");
+        assert_eq!(
+            push["data"]["thread"],
+            json!({"kind": "side", "key": "side-3"})
+        );
         assert_eq!(push["data"]["requestId"], "req-9");
+    }
+
+    #[test]
+    fn a_card_from_a_job_names_the_jobs_thread_so_a_tap_opens_it() {
+        let human = Waiting::Human {
+            action_id: "act-4".to_string(),
+        };
+        let push = message(
+            "tok",
+            "Frankie needs you",
+            "Sign in?",
+            "desk-1",
+            "frankie",
+            Some(&ThreadId::job("sweep")),
+            Some(&human),
+        );
+        assert_eq!(
+            push["data"]["thread"],
+            json!({"kind": "job", "key": "sweep"})
+        );
+        assert!(push["data"].get("sideId").is_none(), "{push}");
+        let home = message(
+            "tok",
+            "Frankie needs you",
+            "Sign in?",
+            "desk-1",
+            "frankie",
+            Some(&ThreadId::dm("frankie")),
+            Some(&human),
+        );
+        assert!(home["data"].get("thread").is_none(), "{home}");
     }
 }

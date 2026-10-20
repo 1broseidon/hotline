@@ -216,8 +216,8 @@ fn federation_command(command: &Command) -> bool {
 /// with the same thing under the older name: the person speaks to a teammate
 /// from the phone through `mobile.prompt`, so `thread.prompt` is for a work
 /// thread only; a card in a pair is the owner's to answer, as
-/// `peers.answer_permission` is; a job is cancelled only where
-/// `schedule.cancel` is run; and a thread it could not subscribe to it
+/// `peers.answer_permission` is; a job is cancelled, and its firing stopped,
+/// only where `schedule.cancel` is run; and a thread it could not subscribe to it
 /// cannot page. `thread.list` leaves out what it could not read, and pairs for
 /// the same reason `peers.list` is refused.
 fn phone_thread_command(command: &Command) -> bool {
@@ -225,13 +225,14 @@ fn phone_thread_command(command: &Command) -> bool {
         Command::ThreadPrompt { thread, .. } => thread.kind == ThreadKind::Side,
         Command::ThreadAnswer { thread, .. } => thread.kind != ThreadKind::Pair,
         // Closing a job cancels it, which `schedule.cancel` never let a
-        // companion do.
-        Command::ThreadClose { thread } => thread.kind != ThreadKind::Job,
+        // companion do, and stopping its firing is the same owner's call.
+        Command::ThreadClose { thread } | Command::ThreadCancel { thread } => {
+            thread.kind != ThreadKind::Job
+        }
         Command::ThreadPage { thread, .. } => phone_may_read(thread),
         Command::ClientHello { .. }
         | Command::ThreadList { .. }
         | Command::ThreadOpen { .. }
-        | Command::ThreadCancel { .. }
         | Command::ThreadPark { .. }
         | Command::ThreadContinue { .. } => true,
         _ => false,

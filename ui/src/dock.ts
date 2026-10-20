@@ -1,4 +1,4 @@
-import type { LinkState, ScheduleEntry, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { Ability, LinkState, ScheduleEntry, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import { sideTitle } from "./links";
 
 /**
@@ -231,4 +231,22 @@ export function jobRows(entries: ScheduleEntry[]): ScheduleEntry[] {
 	const running = jobs.filter((entry) => entry.endedAt === undefined).sort((a, b) => a.nextAt - b.nextAt);
 	const ended = jobs.filter((entry) => entry.endedAt !== undefined).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 	return [...running, ...ended];
+}
+
+const LEFT_OUT: Record<Ability, string> = {
+	computer: "the computer",
+	folders: "folders outside its working directory",
+	mcp_servers: "MCP servers",
+};
+
+/**
+ * What a job runs without, as a sentence: the parts of its teammate's
+ * permission set it was made without, so a narrowed clone reads as one. None
+ * left out is no sentence.
+ */
+export function withoutWords(without: Ability[] | undefined): string {
+	const names = (without ?? []).map((ability) => LEFT_OUT[ability]);
+	if (names.length === 0) return "";
+	const last = names.pop();
+	return `Runs without ${names.length === 0 ? last : `${names.join(", ")} and ${last}`}.`;
 }

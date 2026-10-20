@@ -124,7 +124,9 @@ pub enum Target {
 /// `lastPost` is what it last posted to the chat. A job that has fired for
 /// the last time, been cancelled or met its goal is still listed, with
 /// `endedAt`, because its thread stays readable; `schedule.cancel` on an
-/// ended job takes it off the list.
+/// ended job takes it off the list. `without` is what the teammate left out
+/// of the job's permission set when it made it, so a person can see a job
+/// is a narrowed clone; it is read here, and decided on the job.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -152,6 +154,8 @@ pub struct ScheduleEntry {
     pub last_post: Option<JobPost>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub without: Option<Vec<Ability>>,
 }
 
 /// The views the core maintains. One so far.
@@ -215,6 +219,12 @@ pub struct RosterEntry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<RunningSide>>", optional)]
     pub sides: Vec<RunningSide>,
+    /// The jobs of this teammate with a turn running right now, by id: a
+    /// firing, or a line the person said in the job's thread. Absent when
+    /// there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub working_jobs: Vec<String>,
     pub session: SessionInfo,
 }
 

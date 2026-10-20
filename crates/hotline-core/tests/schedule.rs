@@ -670,6 +670,66 @@ async fn a_job_the_person_cancels_ends_with_a_final_post() {
     assert_eq!(job["end"], "person", "{job}");
 }
 
+/// The person stops a firing that is running: that turn ends, posts no
+/// report, and its thread says it was stopped; the job keeps its schedule,
+/// and its next firing runs and reports as any other.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_firing_ends_its_turn_and_the_next_one_still_runs() {
+    let mut desk =
+        seeded(|ada| vec![looping("crane", ada, 5_000, "STALL SAY Crane checked.")]).await;
+    until("the first firing reached the model", || {
+        desk.heard("Crane checked.").len() == 1
+    })
+    .await;
+    let thread = json!({"kind": "job", "key": "crane"});
+    let threads = desk
+        .client
+        .call("thread.list", json!({"personaId": desk.persona_id}))
+        .await;
+    let listed = threads["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|one| one["thread"] == thread)
+        .cloned()
+        .unwrap_or_else(|| panic!("the job's thread is listed: {threads}"));
+    assert_eq!(listed["working"], true, "{listed}");
+
+    let stopped = desk
+        .client
+        .call("thread.cancel", json!({"thread": thread}))
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    until("the thread says the firing was stopped", || {
+        desk.thread("crane").iter().any(|event| {
+            event["kind"] == "notice"
+                && event["text"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("Stopped."))
+        })
+    })
+    .await;
+    assert!(
+        desk.job("crane")["endedAt"].is_null(),
+        "{}",
+        desk.job("crane")
+    );
+
+    until("the next firing ran and reported", || {
+        !desk.chat().is_empty()
+    })
+    .await;
+    assert_eq!(desk.heard("Crane checked.").len(), 2);
+    let chat = desk.chat();
+    assert_eq!(
+        chat.len(),
+        1,
+        "the stopped firing reported nothing: {chat:#?}"
+    );
+    assert_eq!(chat[0]["text"], "Crane checked.");
+    assert_eq!(chat[0]["from"], json!({"thread": "crane", "kind": "job"}));
+}
+
 /// A job that meets its goal ends itself: its report is its final post, and
 /// it is ended.
 #[tokio::test(flavor = "multi_thread")]

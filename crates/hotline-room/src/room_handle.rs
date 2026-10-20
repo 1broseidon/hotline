@@ -226,6 +226,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// The jobs of this teammate with a turn running, by id, for the roster
+    /// row.
+    fn working_jobs(&self, _persona_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Whether one of this teammate's threads other than its DM has a card
     /// waiting on the person, for the roster row.
     fn threads_waiting(&self, _persona_id: &str) -> bool {

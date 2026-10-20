@@ -18,7 +18,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
 parentId: epic-22
 createdAt: "2026-10-20T06:51:42.743Z"
-updatedAt: "2026-10-20T12:02:25.364Z"
+updatedAt: "2026-10-20T12:03:59.783Z"
 contract:
   status: ready
   deliverables:
@@ -31,18 +31,18 @@ contract:
   validation:
     commands:
       - test -f docs/plans/rig-0.45-migration.md
-      - grep -q 'rig = "0.42.0"' Cargo.toml
+      - grep -qE '^rig = \{ version = "0\.42\.0"' Cargo.toml
       - make check
       - make precheck
       - git diff --exit-code HEAD -- ui/src/generated/contract.ts
       - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
       - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_pin_')" -ge 6
   constraints:
-    - "No Rig version change: Cargo.toml keeps rig = \"0.42.0\""
+    - "No Rig version change: Cargo.toml keeps rig at version 0.42.0"
     - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
     - Pins assert on HTTP request bodies and Hotline counters, not Rig types
   metrics:
-    readyAt: "2026-10-20T12:02:25.364Z"
+    readyAt: "2026-10-20T12:03:59.783Z"
 ---
 
 ## Description

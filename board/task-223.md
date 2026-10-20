@@ -1,7 +1,7 @@
 ---
 id: task-223
 title: "S5: a call is a thread: hang-up detaches, it goes on as text, a call starts on any thread, one closing note"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -15,7 +15,7 @@ parentId: epic-21
 createdAt: "2026-10-19T20:00:06.937Z"
 dependsOn:
   - task-214
-updatedAt: "2026-10-20T22:09:31.262Z"
+updatedAt: "2026-10-20T22:47:02.753Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

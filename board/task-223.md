@@ -46,3 +46,6 @@ Done when:
 - Every post from a call names what it is about and reads right to someone who wasn't on the call. The post_to_chat description and the closing-note summariser's prompt both say so.
 
 Proved by desk-harness tests, one per line above, on both drivers (Hotline Agent and an ACP teammate), named for the scenario they prove.
+
+## Log
+- 2026-10-20T22:13:48.369Z: [codex] Implementation underway on dispatch/task-223: sharing the work-thread occupant for Call policy and queue/restoration, routing Legacy input to the thread, and replacing front Digest/periodic summaries with a delayed room closing note. Live-front work delegation remains the S6 path. Validating build and lifecycle races next.

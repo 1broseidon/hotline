@@ -1,8 +1,6 @@
 ---
 id: task-235
 title: "S5: sign-out revokes at the provider; a revoked login stops serving at once"
-column: review
-position: 2
 priority: low
 tags:
   - rig
@@ -19,7 +17,7 @@ createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
   - task-237
-updatedAt: "2026-10-20T15:07:19.291Z"
+updatedAt: "2026-10-20T15:09:32.654Z"
 contract:
   status: delivered
   deliverables:
@@ -54,6 +52,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T14:46:17.245Z"
+    ended: "2026-10-20T15:09:32.654Z"
+    outcome: done
+completedAt: "2026-10-20T15:09:32.262Z"
 ---
 
 ## Description
@@ -69,3 +70,4 @@ What S1 (task-231) left you: the authenticator registry (`rig_login::chatgpt(dir
 - 2026-10-20T15:03:32.957Z: [codex] Committed 3bb68e93 on dispatch/task-235. Requested git merge release/0.42.0 reports already up to date. Post-merge make check is running; precheck follows. No wire types or migration-report edits.
 - 2026-10-20T15:05:23.388Z: [codex] Post-merge make check passed. Precheck has passed fmt, lockfile, workflow lint, security citations, generated contract and clippy; Windows compilation is running, then isolated UI tests. Both required contract.ts comparisons remain empty.
 - 2026-10-20T15:07:19.020Z: [codex] Delivered implementation on dispatch/task-235, commit 3bb68e93; clean worktree. ChatGPT delete locally revokes first, calls Rig sign_out best effort with a ten-second bound, and still deletes on provider failure; each stored token is revoked once. Guarded CredentialSource covers existing S1 consumers, evicts and forgets ChatGPT/drops Copilot caches on revoke/delete/abandon, checks liveness before/after refresh, and serializes local token writes with removal. Copilot offers Revoke at GitHub. Default/grant source: existing device sign-ins and owner-only credential commands, no new authority. Enforcement: real desk/wire handler, guarded signing transport and token store. Tests: four rig_revoke_ tests (retained transport, fresh lookup/cache invalidation, refresh overlap, successful/failing stub revoke via wire); make check passed before and after requested release/0.42.0 merge (already up to date), make precheck all eight legs passed, shipping core check passed, both contract.ts comparisons empty. Residual risk: already-dispatched requests may finish, failed/timed-out provider revoke can leave tokens usable outside Hotline, and Copilot provider access requires manual GitHub revocation. No wiring left outstanding. Migration report intentionally untouched; reviewer can merge, closing task updates it.
+- 2026-10-20T15:09:31.885Z: Landed on release/0.42.0

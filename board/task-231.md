@@ -30,7 +30,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T12:29:15.883Z"
+updatedAt: "2026-10-20T12:29:17.497Z"
 contract:
   status: ready
   deliverables:
@@ -72,7 +72,12 @@ dispatch:
   by: lead
   at: "2026-10-20T12:29:15.759Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-20T12:29:17.497Z"
 ---
 
 ## Description

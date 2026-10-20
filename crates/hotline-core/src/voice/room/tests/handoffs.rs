@@ -177,7 +177,7 @@ async fn holding_while_narration_finishes_does_not_publish_a_delivery() {
     calls.start(&id, desk.clone()).unwrap();
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     let (cancel, speech) = calls
-        .change(&id, |c| Ok((c.cancel.clone(), c.deliveries.child_token())))
+        .test_change(&id, |c| Ok((c.cancel.clone(), c.deliveries.child_token())))
         .unwrap();
     let context = Context::new(
         desk.log.clone(),
@@ -260,7 +260,7 @@ async fn narration_budget_denial_ends_the_call_without_paid_fallback_speech() {
     .await;
     assert!(lock(&fake.spoken).is_empty());
     assert!(
-        calls.ledger.ready(&[Kind::Tts, Kind::Dispatcher]).is_ok(),
+        calls.budget().ready(&[Kind::Tts, Kind::Dispatcher]).is_ok(),
         "a refused reservation need not have spent the remainder"
     );
 }
@@ -271,7 +271,7 @@ async fn a_queued_startup_failure_reaches_the_phone_after_hold_or_hangup() {
         let fake = Arc::new(Fake::default());
         let (_root, desk, calls) = desk(with_fake(fake.clone()));
         std::fs::write(desk.log.root().join("remote.json"), json!({"desktopId":"desk", "host":"desk.local", "enabled":true, "grants":[{"device":{"id":"phone","name":"Phone","pairedAt":0,"publicKey":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},"push":{"token":"ExponentPushToken[phone]","platform":"ios"}}]}).to_string()).unwrap();
-        let room = calls.room.upgrade().unwrap();
+        let room = desk.test_room();
         let id = Uuid::new_v4().to_string();
         calls.start(&id, desk).unwrap();
         let (_, mut rx) = calls.subscribe(&id).unwrap();

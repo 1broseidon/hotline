@@ -49,8 +49,8 @@ async fn a_free_call_is_never_ended_by_a_spent_budget() {
         if corrupt {
             std::fs::write(desk.log.root().join("voice-ledger.json"), "not json").unwrap();
         } else {
-            calls.ledger.charge(Kind::Tts, 5.0);
-            calls.ledger.charge(Kind::Dispatcher, 5.0);
+            calls.budget().charge(Kind::Tts, 5.0);
+            calls.budget().charge(Kind::Dispatcher, 5.0);
         }
         assert!(calls.status().available, "corrupt {corrupt}");
         let id = Uuid::new_v4().to_string();
@@ -62,7 +62,7 @@ async fn a_free_call_is_never_ended_by_a_spent_budget() {
         assert!(!lock(&fake.spoken).is_empty());
         assert!(
             calls
-                .change(&id, |call| Ok(call.state != VoiceState::Ended))
+                .test_change(&id, |call| Ok(call.state != VoiceState::Ended))
                 .unwrap(),
             "corrupt {corrupt}"
         );
@@ -80,7 +80,7 @@ async fn a_paid_call_is_refused_naming_the_budget_that_is_spent() {
         &desk,
         json!({"voice": {"dayUsd": 1}, "chat": {"monthUsd": 1}}),
     );
-    calls.ledger.charge(Kind::Tts, 1.0);
+    calls.budget().charge(Kind::Tts, 1.0);
     let error = calls
         .start(&Uuid::new_v4().to_string(), desk.clone())
         .unwrap_err();
@@ -89,7 +89,7 @@ async fn a_paid_call_is_refused_naming_the_budget_that_is_spent() {
         "The Voice budget for today is spent. Raise it in Settings › Budgets."
     );
     spending(&desk, json!({"chat": {"monthUsd": 1}}));
-    calls.ledger.charge(Kind::Dispatcher, 1.0);
+    calls.budget().charge(Kind::Dispatcher, 1.0);
     let error = calls.start(&Uuid::new_v4().to_string(), desk).unwrap_err();
     assert_eq!(
         error,
@@ -124,7 +124,7 @@ async fn text_input_keeps_budget_gating_before_dispatch() {
         .unwrap();
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     // A cent spent, then the caps lowered to nothing: today's budget is gone.
-    calls.ledger.charge(Kind::Dispatcher, 0.01);
+    calls.budget().charge(Kind::Dispatcher, 0.01);
     desk.log
         .append(
             &StreamId::Room,
@@ -181,7 +181,7 @@ async fn a_failed_subscription_never_uses_a_paid_speech_fallback() {
         })
         .await;
         assert!(lock(&paid.spoken).is_empty());
-        assert_eq!(calls.ledger.spent().unwrap().day.total(), 0.0);
+        assert_eq!(calls.budget().spent().unwrap().day.total(), 0.0);
         calls.end(&id).unwrap();
     }
 }
@@ -210,7 +210,7 @@ async fn whole_clip_fallback_cannot_use_a_disconnected_subscription_login() {
     });
     assert!(
         calls
-            .synthesize(&speech, "Test.")
+            .test_synthesize(&speech, "Test.")
             .await
             .unwrap_err()
             .contains("no longer connected")

@@ -6,8 +6,8 @@ use super::record::Speaker;
 use super::settings::{self, VoiceSettings};
 use super::speech::{self, Clip};
 use super::{Call, CallSpeech, Calls, MAX_AUDIO, Origin, Reply, Work, lock, spoken};
-use crate::contract::{VoiceEvent, VoiceState};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use hotline_contract::{VoiceEvent, VoiceState};
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -418,7 +418,7 @@ pub(super) fn begin_answer(call: &mut Call, event: &str) -> Option<mpsc::Unbound
 }
 
 /// Whether a teammate's reply on a desk call can be said as written.
-pub(super) fn speech_ready(text: &str) -> bool {
+pub fn speech_ready(text: &str) -> bool {
     let text = text.trim();
     !text.is_empty()
         && text.chars().count() <= 320
@@ -427,7 +427,7 @@ pub(super) fn speech_ready(text: &str) -> bool {
         && spoken::speech_text(text) == text
 }
 
-pub(super) fn goodbye(text: &str) -> bool {
+pub fn goodbye(text: &str) -> bool {
     static PUNCTUATION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"[\p{P}&&[^,-]]").expect("fixed punctuation regex")
     });
@@ -449,9 +449,9 @@ pub(super) fn goodbye(text: &str) -> bool {
 
 /// The desk's settings with a teammate's own voice, when the desk still
 /// speaks with the provider and model that voice was picked from.
-pub(super) fn own_voice(
+pub fn own_voice(
     settings: &VoiceSettings,
-    voice: &crate::contract::PersonaVoice,
+    voice: &hotline_contract::PersonaVoice,
     speaking: &speech::SpeechId,
 ) -> Option<VoiceSettings> {
     (speaking.provider_id == voice.provider_id

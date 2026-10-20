@@ -1,6 +1,6 @@
 //! What a direct call keeps of itself: the call as a thread.
 //!
-//! A call with a teammate is a thread (see [`crate::thread`]) whose parent is
+//! A call with a teammate is a thread (as kept by the room) whose parent is
 //! the teammate's DM. Its lines are on `calls/<id>.jsonl`, found by
 //! `search_thread`, and one `link` line on the DM stands for it. A call that has
 //! ended is read back as any other thread is.
@@ -15,11 +15,14 @@
 //! heard and the voice's are what the front said; the teammate's tape holds
 //! only what was handed to it and what it answered.
 
-use crate::contract::End;
-use crate::contract::VoiceEndReason;
-use crate::session::{Room, now_ms};
+use crate::call_room::CallRoom;
+use hotline_contract::End;
+use hotline_contract::VoiceEndReason;
+fn now_ms() -> i64 {
+    chrono::Local::now().timestamp_millis()
+}
 use serde_json::{Value, json};
-use std::sync::Weak;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Who said a line on the call.
@@ -52,7 +55,7 @@ pub(super) struct Record {
 impl Record {
     /// Opens the call's thread under `persona_id`'s DM and starts its writer.
     /// The link is the first thing written.
-    pub(super) fn open(room: Weak<Room>, call_id: &str, persona_id: &str) -> Self {
+    pub(super) fn open(room: Arc<dyn CallRoom>, call_id: &str, persona_id: &str) -> Self {
         let (sender, mut entries) = mpsc::unbounded_channel();
         let _ = sender.send(Entry::Began { ts: now_ms() });
         let call_id = call_id.to_string();

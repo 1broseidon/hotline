@@ -108,8 +108,7 @@ impl Desk {
         Desk {
             voice: crate::voice::Calls::new(
                 log.clone(),
-                vault.clone(),
-                Arc::downgrade(&room),
+                crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault.clone()),
                 None,
             ),
             log,
@@ -223,8 +222,7 @@ impl Desk {
         }));
         let voice = crate::voice::Calls::with_models(
             log.clone(),
-            vault.clone(),
-            Arc::downgrade(&room),
+            crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault.clone()),
             services,
             models,
             budget,
@@ -1358,6 +1356,16 @@ async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, S
 }
 
 #[cfg(test)]
+impl Desk {
+    pub(crate) fn test_room(&self) -> Arc<Room> {
+        self.room.clone()
+    }
+    pub(crate) fn test_vault(&self) -> Arc<Vault> {
+        self.vault.clone()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::Desk;
     use crate::contract::SkillPolicy;
@@ -1565,8 +1573,7 @@ mod tests {
         let desk = Desk {
             voice: crate::voice::Calls::new(
                 log.clone(),
-                vault.clone(),
-                Arc::downgrade(&room),
+                crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault.clone()),
                 None,
             ),
             log: log.clone(),

@@ -1153,6 +1153,85 @@ for the numbers to say the front end is still the bottleneck; it is 15.3 s
 of the library's 24.6 s, and the decision is not this step's: epic-19 goes
 on to the calls (task-213, task-214), not to `remote`.
 
+### The calls, moved first (S0, task-214)
+
+George moved this ahead of ADR 0008's voice slices on 2026-10-20. The calls
+now live beside their engines in `hotline-voice`; the core keeps only
+`voice/room.rs` and its dispatcher factory and real-room tests, plus
+`voice/connected.rs`. This is a move of the current behavior, including the
+desk dispatcher, DM prompts, front tools and digests the later slices replace.
+
+`hotline-voice::call_room::CallRoom` is the single room interface. Recording
+opens, appends to and closes a call thread; posting reaches the chat. The
+room sends spoken deltas, completed replies, turn ends and cards to `Calls`,
+as before. The temporary DM startup, prompting, model reporting and spoken
+rewrite methods name S5; front reach names S6; dispatcher commands,
+scheduling and model selection name task-203. The shared call-assistant
+model builder and meter name S6/task-203. The existing engine connection
+snapshot remains the vault's input to voice.
+
+The adapter preserves weak ownership of the room: upgrading it holds the
+room across one operation, including startup and prompting, then releases
+it. Without that hold, dropping the desk between those awaits would cancel
+work that previously retained the room. Front tools still call the core's
+real `TeammateTools` handlers under the same capability lease and the MCP
+client under that lease. Their definitions and callable handler cross as
+values, not another trait. The wire's origin and client task-local scopes
+move with calls and are shared by the core's command handlers. No wire type,
+reach, grant, event or tape layout changes.
+
+Tests that need the real room stay on its side of the boundary, with their
+assertions intact; voice's `test-support` feature supplies setup/inspection
+and the shorter unit-test waits. Pure front, prompt, record and reply-count
+tests move with their implementation. The external voice, local-speech,
+process and desk harness assertions are unchanged.
+
+Every moved file (the dispatcher has its real-room tests split off):
+
+| Before | After |
+|---|---|
+| `crates/hotline-core/src/voice.rs` | `crates/hotline-voice/src/lib.rs` |
+| `crates/hotline-core/src/voice/assets/README.md` | `crates/hotline-voice/src/assets/README.md` |
+| `crates/hotline-core/src/voice/assets/budget.wav` | `crates/hotline-voice/src/assets/budget.wav` |
+| `crates/hotline-core/src/voice/assets/error.wav` | `crates/hotline-voice/src/assets/error.wav` |
+| `crates/hotline-core/src/voice/assets/goodbye.wav` | `crates/hotline-voice/src/assets/goodbye.wav` |
+| `crates/hotline-core/src/voice/assets/retry.wav` | `crates/hotline-voice/src/assets/retry.wav` |
+| `crates/hotline-core/src/voice/call.rs` | `crates/hotline-voice/src/call.rs` |
+| `crates/hotline-core/src/voice/dispatcher.rs` | `crates/hotline-voice/src/dispatcher.rs` |
+| `crates/hotline-core/src/voice/dispatcher/meter.rs` | `crates/hotline-voice/src/dispatcher/meter.rs` |
+| `crates/hotline-core/src/voice/dispatcher/meter/tests.rs` | `crates/hotline-core/src/voice/room/meter.rs` |
+| `crates/hotline-core/src/voice/duplex.rs` | `crates/hotline-voice/src/duplex.rs` |
+| `crates/hotline-core/src/voice/front.rs` | `crates/hotline-voice/src/front.rs` |
+| `crates/hotline-core/src/voice/front_prompt.rs` | `crates/hotline-voice/src/front_prompt.rs` |
+| `crates/hotline-core/src/voice/front_tools.rs` | `crates/hotline-voice/src/front_tools.rs` |
+| `crates/hotline-core/src/voice/input.rs` | `crates/hotline-voice/src/input.rs` |
+| `crates/hotline-core/src/voice/record.rs` | `crates/hotline-voice/src/record.rs` |
+| `crates/hotline-core/src/voice/replies.rs` | `crates/hotline-voice/src/replies.rs` |
+| `crates/hotline-core/src/voice/synthesis.rs` | `crates/hotline-voice/src/synthesis.rs` |
+| `crates/hotline-core/src/voice/tests.rs` | `crates/hotline-core/src/voice/room/tests.rs` |
+| `crates/hotline-core/src/voice/tests/budgets.rs` | `crates/hotline-core/src/voice/room/tests/budgets.rs` |
+| `crates/hotline-core/src/voice/tests/clips.rs` | `crates/hotline-core/src/voice/room/tests/clips.rs` |
+| `crates/hotline-core/src/voice/tests/desk_calls.rs` | `crates/hotline-core/src/voice/room/tests/desk_calls.rs` |
+| `crates/hotline-core/src/voice/tests/direct.rs` | `crates/hotline-core/src/voice/room/tests/direct.rs` |
+| `crates/hotline-core/src/voice/tests/failures.rs` | `crates/hotline-core/src/voice/room/tests/failures.rs` |
+| `crates/hotline-core/src/voice/tests/front_calls.rs` | `crates/hotline-core/src/voice/room/tests/front_calls.rs` |
+| `crates/hotline-core/src/voice/tests/handoffs.rs` | `crates/hotline-core/src/voice/room/tests/handoffs.rs` |
+| `crates/hotline-core/src/voice/tests/streaming.rs` | `crates/hotline-core/src/voice/room/tests/streaming.rs` |
+| `crates/hotline-core/src/voice/tests/text.rs` | `crates/hotline-core/src/voice/room/tests/text.rs` |
+| `crates/hotline-core/src/voice/turn.rs` | `crates/hotline-voice/src/turn.rs` |
+| `crates/hotline-core/src/voice/dispatcher.rs (real-room tests)` | `crates/hotline-core/src/voice/room/dispatcher.rs` |
+
+The unused `voice::speech`, `voice::realtime`,
+`voice::front::SEND_TO_TEAMMATE` and `models::is_custom` re-exports are gone;
+so are the now-unused `voice::front`, `voice::front_prompt` and
+`voice::CALLS_OFF`. Remaining core voice re-exports have callers:
+`Calls`, `CallRequest`, `Origin`, `Services`, `TAPE_ID`,
+`LISTEN_WHILE_THINKING`, `VOICE_FRONT`, `dispatcher`, `ledger`, `metering`,
+`settings` and `spoken`. The test-only `voice::tests` alias is used by the
+session's voice tests. `wire::commands` re-exports `VOICE_COMMAND`,
+`CALL_ORIGIN` and `PROMPT_CLIENT` because the wire and session still set/read
+those scopes; they are now defined once in `hotline-voice::call_room`.
+
 ### The re-exports
 
 The five crates' re-exports are about 870 references in the core's source,

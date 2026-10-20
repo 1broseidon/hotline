@@ -9,13 +9,14 @@ use axum::{
 };
 use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
 use common::{ANSWER, Client};
+use hotline_core::voice::room::dispatcher as ProviderDispatcher;
 use hotline_core::{
     credentials::{CredentialFiles, MemoryStore},
     desk::Desk,
     log::Log,
     provider_fixture::Origin,
     vault::Vault,
-    voice::{Services, dispatcher::ProviderDispatcher},
+    voice::Services,
     wire::Door,
 };
 use hotline_voice::speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet};

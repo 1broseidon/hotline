@@ -117,12 +117,13 @@ lints, dependencies) are in [docs/standards.md](docs/standards.md).
   spend) stands on the contract, the support, the store and web search;
   `hotline-mcp` (the MCP client: servers, grants, connections, OAuth
   sign-in) on the contract, the support, the tools and the room, with the
-  vault's part handed in by the core; `hotline-voice` (the speech and
-  realtime engines) on the contract, the support and the room, with what
-  the vault keeps for it handed in the same way; `hotline-core` stands on
+  vault's part handed in by the core; `hotline-voice` (calls, speech and
+  realtime engines) on the contract,
+  the support, the store, the room, the tools and MCP client, with sessions
+  and vault reads behind the call-room interface; `hotline-core` stands on
   all eight and re-exports them under their old module names, so
   `crate::paths`, `crate::store::search`, `crate::room`, `crate::tools`,
-  `crate::websearch`, `crate::mcp::McpServer` and `crate::voice::speech`
+  `crate::websearch`, `crate::mcp::McpServer` and `crate::voice::Calls`
   still hold in the core.
 - **A capability change follows `docs/security.md`.** Anything that alters
   what a teammate can reach — a tool, a tool origin, a grant, a driver path —

@@ -1,7 +1,10 @@
-use super::*;
 use crate::log::StreamId;
+use crate::{contract::ModelCost, vault::Vault};
 use futures_util::StreamExt;
+use hotline_voice::metering::Budget;
+use hotline_voice::test_support::Meter;
 use rig::agent::MultiTurnStreamItem;
+use rig::agent::hook::AgentHook;
 use rig::agent::hook::{ModelTurnAction, ModelTurnFinished};
 use rig::completion::{ToolDefinition, Usage};
 use rig::message::ToolName;
@@ -9,6 +12,10 @@ use rig::streaming::{Item, StreamEvent};
 use rig::test_utils::{MockCompletionModel, MockStreamEvent, MockTurn};
 use rig::tool::{DynamicTool, ToolOutput};
 use serde_json::json;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// A dollar for each million tokens either way, so a cost reads as tokens.
 const PRICE: ModelCost = ModelCost {
@@ -61,7 +68,7 @@ impl Fixture {
             self.ledger.clone(),
             PRICE,
             OUTPUT_LIMIT,
-            self.vault.clone(),
+            super::RoomSide::new(std::sync::Weak::new(), self.vault.clone()),
             self.provider.clone(),
         )
     }
@@ -287,3 +294,6 @@ async fn voice_meter_a_budget_refusal_lands_on_the_next_dispatch() {
     assert_eq!(model.request_count(), 1, "refused before it went out");
     near(fixture.spent(), usd(10_000, 10));
 }
+
+use hotline_voice::test_support::TOOL_OVERHEAD_BYTES;
+use rig::{agent::hook::HookContext, completion::CompletionRequest};

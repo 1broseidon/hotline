@@ -10,7 +10,7 @@
 //! stopping a call.
 
 use super::spoken::Path;
-use crate::contract::VoiceReplies;
+use hotline_contract::VoiceReplies;
 use std::io::Write;
 use std::path::{Path as FilePath, PathBuf};
 use std::sync::Mutex;

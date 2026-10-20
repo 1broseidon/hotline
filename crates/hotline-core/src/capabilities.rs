@@ -12,10 +12,11 @@ use crate::imagegen;
 use crate::log::Log;
 use crate::vault::Vault;
 use crate::voice::connected;
-use crate::voice::dispatcher::{ProviderDispatcher, is_chat};
 use crate::voice::ledger::Spent;
 use crate::voice::metering::Budget;
+use crate::voice::room::dispatcher as ProviderDispatcher;
 use crate::voice::settings::{Choice, VoiceSettings};
+use hotline_voice::dispatcher::is_chat;
 use serde_json::{Map, Value};
 use std::sync::Arc;
 

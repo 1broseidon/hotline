@@ -44,7 +44,7 @@ pub fn resolve_output(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechO
 /// The connected providers in the order the owner connected them, one each:
 /// a credential's place is the first one not revoked, and its auth is the
 /// vault's for that provider.
-fn connected(vault: &Vault) -> Connected {
+pub(crate) fn connected(vault: &Vault) -> Connected {
     let auth = vault.provider_auth();
     let mut seen = HashSet::new();
     let providers = vault

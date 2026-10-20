@@ -36,7 +36,7 @@ async fn a_desk_calls_streamed_answer_is_one_line_on_its_tape() {
 #[tokio::test]
 async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_not() {
     let (_root, desk, calls, id, persona, _rx, _fake) = direct_call().await;
-    let room = calls.room.upgrade().unwrap();
+    let room = desk.test_room();
     let mut looked_again = std::collections::HashMap::new();
     until("the link", || call_link(&desk, &persona).is_some()).await;
 
@@ -128,7 +128,7 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
 
 #[test]
 fn only_a_question_or_a_request_is_answered_after_the_call() {
-    use super::duplex::worth_following_up;
+    use hotline_voice::test_support::worth_following_up;
     assert!(worth_following_up("what's left on the release checklist?"));
     assert!(worth_following_up("Is it green?"));
     assert!(worth_following_up(

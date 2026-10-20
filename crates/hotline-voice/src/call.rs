@@ -4,10 +4,10 @@ use super::dispatcher::Context;
 use super::duplex::Front;
 use super::record::Record;
 use super::{CALLS_OFF, Call, CallSpeech, Calls, THINKING_AGAIN, lock, paid_kinds};
-use crate::contract::{
+use hotline_contract::{
     VoiceCall, VoiceCallMode, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceState,
 };
-use crate::wire::RoomHandle;
+use hotline_room::room_handle::RoomHandle;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
@@ -82,7 +82,7 @@ impl Calls {
             return Err(CALLS_OFF.into());
         }
         if let Some(target) = &target
-            && !crate::room::roster(&self.log)
+            && !hotline_room::room::roster(&self.log)
                 .iter()
                 .any(|persona| &persona.id == target)
         {
@@ -172,14 +172,12 @@ impl Calls {
             let id = id.to_string();
             let context = Context::new(self.log.clone(), room, self.clone(), cancel);
             // What the person says on this call carries the app they called from.
-            let client = crate::wire::commands::prompt_client();
+            let client = crate::call_room::prompt_client();
             tokio::spawn(async move {
                 let run = this.run(id, context, rx);
                 match client {
                     Some(client) => {
-                        crate::wire::commands::PROMPT_CLIENT
-                            .scope(client, run)
-                            .await;
+                        crate::call_room::PROMPT_CLIENT.scope(client, run).await;
                     }
                     None => run.await,
                 }
@@ -245,7 +243,7 @@ impl Calls {
     }
 
     /// A revoked or disconnected owner may not leave a paid dispatcher running.
-    pub(crate) fn bind_connection(self: &Arc<Self>, id: String, cancel: CancellationToken) {
+    pub fn bind_connection(self: &Arc<Self>, id: String, cancel: CancellationToken) {
         let this = Arc::downgrade(self);
         let call_cancel = lock(&self.calls)
             .iter_mut()

@@ -398,9 +398,13 @@ line on it, take the agent's spoken stream back, post to the chat, and be
 told of a card. That is a handful of methods, and the reach George's test
 counts against (`front_reach`, `start` and `prompt` into the DM,
 `call_posted`, `voice_spoken`, and the dispatcher's command table) is what
-slices 5 to 7 delete or reshape. task-214 should move the calls after slice
-6, not before: moving the fronts into `hotline-voice` and then reshaping
-them there is two changes where one would do.
+slices 5 to 7 delete or reshape. George reversed the order on 2026-10-20: task-214 (S0) moves the calls
+first, before the voice slices. The runtime now lives in `hotline-voice`;
+`hotline-core::voice::room` implements its single `CallRoom` interface and
+`voice::connected` reads the vault for the engines. The interface keeps the
+operations today's calls still need, explicitly marked S5, S6 or task-203
+where those slices remove or reshape them. This move changes ownership,
+not call behavior; the later slices still change the call's thread and reach.
 
 ### 6. Migration
 

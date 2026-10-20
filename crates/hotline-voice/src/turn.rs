@@ -12,7 +12,7 @@ use super::{
     BUDGET_LINE, Calls, Delivery, ERROR_LINE, MAX_FAILURES, Origin, RETRY_LINE, REWRITE_WAIT,
     Reply, TranscriptSource, Work, lock, realtime, spoken,
 };
-use crate::contract::{VoiceEndReason, VoiceEvent, VoiceState};
+use hotline_contract::{VoiceEndReason, VoiceEvent, VoiceState};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -385,7 +385,7 @@ impl Calls {
         context: &Context,
         speech_cancel: &CancellationToken,
     ) -> Result<(), String> {
-        let room = self.room.upgrade().ok_or("The desk has closed.")?;
+        let room = self.live_room().ok_or("The desk has closed.")?;
         let seq = origin.seq;
         // Room owns session startup/reuse, revocable grants, steering and tape.
         // Once accepted, this work is independent of the call's speech token.
@@ -400,9 +400,9 @@ impl Calls {
         if context.cancel.is_cancelled() || speech_cancel.is_cancelled() {
             return Ok(());
         }
-        let prompt = crate::wire::commands::VOICE_COMMAND.scope(
+        let prompt = crate::call_room::VOICE_COMMAND.scope(
             (),
-            crate::wire::commands::CALL_ORIGIN.scope(origin, room.prompt(target, text, None, None)),
+            crate::call_room::CALL_ORIGIN.scope(origin, room.prompt(target, text)),
         );
         // Chapter/start gates can still wait before the instruction is
         // accepted. Cancellation stops that wait, not an accepted turn.
@@ -448,7 +448,7 @@ impl Calls {
         }
     }
 
-    pub(super) async fn narrate(
+    pub async fn narrate(
         &self,
         id: &str,
         context: &Context,
@@ -643,7 +643,9 @@ impl Calls {
         let (persona, event, spoken) = (persona.to_string(), event.to_string(), spoken.to_string());
         tokio::spawn(async move {
             for _ in 0..20 {
-                let Some(room) = room.upgrade() else { return };
+                let Some(room) = room.upgrade() else {
+                    return;
+                };
                 if room.voice_spoken(&persona, &event, &spoken) {
                     return;
                 }
@@ -674,13 +676,13 @@ impl Calls {
     /// name them: `hotline/` and the model for Hotline Agent, `acp/` and the
     /// adapter for an ACP agent, then the model its session reports, if any.
     pub(super) fn writer(&self, persona_id: &str) -> String {
-        let persona = crate::room::roster(&self.log)
+        let persona = hotline_room::room::roster(&self.log)
             .into_iter()
             .find(|persona| persona.id == persona_id);
         let reported = self
-            .room
-            .upgrade()
-            .and_then(|room| room.info(persona_id).current_model_id);
+            .live_room()
+            .and_then(|room| room.info(persona_id))
+            .and_then(|info| info.current_model_id);
         let model = reported
             .or_else(|| {
                 persona
@@ -689,7 +691,7 @@ impl Calls {
             })
             .filter(|model| !model.is_empty());
         let agent = match persona.map(|persona| persona.backend_id) {
-            Some(backend) if backend == crate::driver::HOTLINE_BACKEND_ID => backend,
+            Some(backend) if backend == "hotline" => backend,
             Some(backend) => format!("acp/{backend}"),
             None => "unknown".to_string(),
         };
@@ -775,8 +777,7 @@ impl Calls {
     }
 
     pub(super) fn record(&self, kind: &str, text: &str) -> Result<String, String> {
-        self.room
-            .upgrade()
+        self.live_room()
             .ok_or("The desk has closed.")?
             .voice_record(kind, text)
     }

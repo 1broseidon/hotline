@@ -7,8 +7,8 @@ use super::speech::local;
 use super::speech::{self, Clip, SpeechOutput};
 use super::synthesis::own_voice;
 use super::{CallSpeech, Calls, FRONT_LINE, Input, MAX_AUDIO, TranscriptSource, Work, realtime};
-use crate::contract::{VoiceInputMode, VoiceState};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use hotline_contract::{VoiceInputMode, VoiceState};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -166,17 +166,17 @@ impl Calls {
         }
         let resolve = |settings: &VoiceSettings| match input_mode {
             VoiceInputMode::Audio => {
-                super::connected::resolve(&self.vault, settings).map(CallSpeech::audio)
+                speech::resolve(&self.room.connected(), settings).map(CallSpeech::audio)
             }
             VoiceInputMode::Text => {
-                super::connected::resolve_output(&self.vault, settings).map(CallSpeech::output)
+                speech::resolve_output(&self.room.connected(), settings).map(CallSpeech::output)
             }
         };
         let settings = self.settings();
         let desk = resolve(&settings)?;
         let own = target
             .and_then(|target| {
-                crate::room::roster(&self.log)
+                hotline_room::room::roster(&self.log)
                     .into_iter()
                     .find(|persona| persona.id == target)
             })
@@ -204,7 +204,7 @@ impl Calls {
             return true;
         }
         if speech.id().provider_id == local::PROVIDER_ID {
-            return local::chosen(self.vault.root(), Some(&speech.id().model_id)).is_some();
+            return local::chosen(self.log.root(), Some(&speech.id().model_id)).is_some();
         }
         self.login_connected(&speech.id().provider_id, speech.is_subscription())
     }
@@ -212,16 +212,17 @@ impl Calls {
     /// Whether the key, or the Grok login, a provider was resolved with is
     /// still in the vault.
     pub(super) fn login_connected(&self, provider_id: &str, subscription: bool) -> bool {
-        let auth = self.vault.provider_auth();
+        let auth: std::collections::HashMap<_, _> =
+            self.room.connected().providers.into_iter().collect();
         if provider_id == realtime::live::PROVIDER_ID {
             matches!(
                 auth.get(provider_id),
-                Some(crate::session::ProviderAuth::Login { .. })
+                Some(hotline_room::provider_auth::ProviderAuth::Login { .. })
             )
         } else if subscription {
             matches!(
                 auth.get("xai"),
-                Some(crate::session::ProviderAuth::StoredLogin { .. })
+                Some(hotline_room::provider_auth::ProviderAuth::StoredLogin { .. })
             )
         } else {
             auth.contains_key(provider_id)
@@ -359,7 +360,7 @@ impl Calls {
     }
 }
 
-pub(super) fn validate_audio(mime: &str, bytes: &[u8], duration: u32) -> Result<u32, String> {
+pub fn validate_audio(mime: &str, bytes: &[u8], duration: u32) -> Result<u32, String> {
     if mime == "audio/mp4" {
         if bytes.len() < 12 || &bytes[4..8] != b"ftyp" {
             return Err("Send an AAC clip in an MP4 container.".into());

@@ -28,8 +28,7 @@ async fn short_voice_handoff_replies_keep_their_text_without_an_extra_model() {
     );
     let calls = crate::voice::Calls::new(
         room.log.clone(),
-        vault,
-        Arc::downgrade(&room),
+        crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault),
         Some(crate::voice::tests::with_fake(fake.clone())),
     );
     room.set_voice(&calls);
@@ -99,8 +98,7 @@ async fn a_long_reply_is_summarised_for_its_push_only_when_a_voice_handoff_asked
     );
     let calls = crate::voice::Calls::new(
         room.log.clone(),
-        vault,
-        Arc::downgrade(&room),
+        crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault),
         Some(crate::voice::tests::with_fake(fake.clone())),
     );
     room.set_voice(&calls);
@@ -181,8 +179,7 @@ async fn a_direct_call_speaks_committed_acknowledgements_and_hangup_keeps_work_r
     );
     let calls = crate::voice::Calls::new(
         room.log.clone(),
-        vault,
-        Arc::downgrade(&room),
+        crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault),
         Some(crate::voice::tests::with_fake(fake.clone())),
     );
     room.set_voice(&calls);
@@ -318,8 +315,7 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
     );
     let calls = crate::voice::Calls::new(
         room.log.clone(),
-        vault,
-        Arc::downgrade(&room),
+        crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault),
         Some(crate::voice::tests::with_fake(fake.clone())),
     );
     room.set_voice(&calls);

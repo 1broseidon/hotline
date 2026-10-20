@@ -15,7 +15,7 @@
 
 use super::Calls;
 use super::front_tools::FrontTools;
-use crate::contract::{VoiceEvent, VoiceState};
+use hotline_contract::{VoiceEvent, VoiceState};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-10-20
+
 ### Added
 
 - A desk has a team lead: one teammate that leads the rest, marked with a
@@ -41,6 +43,27 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and it can search the chat it came from. A job's question to you, and a
   colleague's answer to it, come back to the job's thread, after a restart
   too, or to the chat once the job has ended.
+
+### Changed
+
+- `hotline-core` is split by area into its own workspace crates, so each
+  part has boundaries the compiler enforces and its own tests: the wire and
+  tape types (`hotline-contract`), small shared utilities
+  (`hotline-support`), the tape, log and search index (`hotline-store`),
+  the shell and workspace tools (`hotline-tools`), web search
+  (`hotline-websearch`), the room's plain pieces (`hotline-room`), the MCP
+  client (`hotline-mcp`) and the speech and realtime engines
+  (`hotline-voice`). Nothing a user sees changes; ADR 0007 records the plan,
+  the measurements and what is next.
+- ADR 0008 sets the next design: every teammate is one agent with arms
+  (work threads, subagents, jobs, calls, pairs), every arm reaches the chat
+  through one door, and voice changes how you talk to a teammate, never who
+  does the work.
+
+### Fixed
+
+- Cancelling a job from the chat works when the agent also passes a report;
+  it used to refuse, and the agent retried the same call.
 
 ### Not yet wired
 

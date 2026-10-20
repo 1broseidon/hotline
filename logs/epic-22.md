@@ -2,8 +2,6 @@
 id: epic-22
 title: "Rig 0.42 → 0.45: one version at a time, then sign-ins in the vault (0.42)"
 type: epic
-column: todo
-position: 1
 priority: high
 tags:
   - rig
@@ -12,7 +10,8 @@ tags:
 assignee: claude
 createdAt: "2026-10-20T06:51:41.804Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-20T13:36:46.876Z"
+updatedAt: "2026-10-20T21:05:57.766Z"
+completedAt: "2026-10-20T21:05:57.766Z"
 ---
 
 ## Description
@@ -38,3 +37,15 @@ Open for George: adopt ChatGPT's browser sign-in (PKCE on 127.0.0.1:1455) now th
 - 2026-10-20T19:18:41.500Z: [claude] QA 2026-10-20: Copilot Sonnet tool round fixed (2ee29f13); Copilot Codex/GPT uniqueItems 400 fixed (05414150, a 0.41 bug); model picker Chosen + All on/off (17c125c1); ChatGPT sign-out removes the login; Anthropic turn OK (George). CI green at 17c125c1. Left: Grok Voice call on the Mac.
 - 2026-10-20T19:53:04.343Z: [claude] QA 2026-10-20: George tested voice from phone and desk: works. 0.42 QA complete; cut waits on George's read of the voice scenario deck.
 - 2026-10-20T21:05:50.735Z: [claude] Closed 2026-10-20 on George's say-so. S7 re-landed and re-QA'd; also on release/0.42.0: RUSTSEC-2026-0381/0382/0383 (rustls-webpki 0.103.16, webpki-roots 1.0.10) and vite 8.2.4 (GHSA-698v-4r3x-3vcv), which today's advisories made make check fail on. CI dispatched at b941ff88.
+
+## Child Tasks
+Summary: 9/9 children completed.
+- task-230: S0: narrow Hotline's Rig seam and pin today's behaviour (still on 0.42) (completed)
+- task-231: S1: straight to Rig 0.45 in one jump, with Hotline's own TokenStore over today's login dirs (no one signed out) (completed)
+- task-232: S2: Rig 0.44 — constructors, assistant messages, typed options, request-level caching (completed)
+- task-233: S3: Rig 0.45 with Hotline's own TokenStore over today's login dirs (no one signed out) (completed)
+- task-234: S4: ChatGPT and Copilot tokens move into the vault (keychain) (completed)
+- task-235: S5: sign-out revokes at the provider; a revoked login stops serving at once (completed)
+- task-236: S6: voice metering keyed by dispatch id (Rig 0.45's exactly-once outcome hook) (completed)
+- task-237: S7: cleanups 0.45 makes possible (completed)
+- task-238: S8: the whole on 0.45 — a 0.42 profile upgrades end to end over the wire (completed)

@@ -76,3 +76,4 @@ Done when:
 
 ## Log
 - 2026-10-19T20:00:10.807Z: [claude] Re-homed to epic-21 (0.42): after slice 6, the calls move into hotline-voice. task-213's sizing is done by ADR 0008 §5 (open and close a call thread, queue a heard line, take the spoken stream back, post to the chat, be told of a card); task-213 is closed into this.
+- 2026-10-20T21:10:56.312Z: [codex] Picked up contract on dispatch/task-214. Audited call dependencies: temporary seam must preserve core provider construction, command scopes/origins, leased front tools and recording callbacks; no behavioral changes intended. Removing obsolete compatibility re-exports first.

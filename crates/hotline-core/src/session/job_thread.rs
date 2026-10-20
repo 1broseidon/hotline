@@ -711,10 +711,10 @@ impl Room {
     }
 
     /// Hands a firing of `job` to its thread, or skips it while the firing
-    /// before is still running. The firing's prompt is written to the thread
-    /// as it is, stamped with the job; the agent hears it framed, with where
-    /// the job stood.
-    pub(super) fn fire_job(self: &Arc<Self>, job: &ScheduledJob) -> Result<(), String> {
+    /// before is still running, and says whether it ran. The firing's prompt
+    /// is written to the thread as it is, stamped with the job; the agent
+    /// hears it framed, with where the job stood.
+    pub(super) fn fire_job(self: &Arc<Self>, job: &ScheduledJob) -> Result<bool, String> {
         let live = self.live_job(job);
         let run = run_of(job);
         let now = now_ms();
@@ -725,7 +725,7 @@ impl Room {
             .any(|line| line.firing.is_some());
         if busy_since.is_some() || firing_waits {
             self.skip_firing(&live, job, &run, busy_since.map(|since| now - since));
-            return Ok(());
+            return Ok(false);
         }
         let standing = standing(&self.log.load(&StreamId::Job(job.id.clone())));
         let last = schedule::fires_last(job, now);
@@ -758,6 +758,7 @@ impl Room {
                 last,
             },
         )
+        .map(|()| true)
     }
 
     /// A firing due while the one before is still running: said on the

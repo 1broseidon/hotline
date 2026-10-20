@@ -381,7 +381,8 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
 /// Fires one due job: a reminder is posted, any other job's firing is handed
 /// to its thread. Neither waits for the work, so a loop counts its next
 /// interval from when this firing started, and one still running when the
-/// next is due is what its thread skips.
+/// next is due is what its thread skips. A skipped slot is not a firing, so
+/// it does not count toward the loop's count.
 fn fire(room: &Arc<Room>, job: ScheduledJob) {
     let Ok(_working) = room.working() else {
         return;
@@ -399,16 +400,15 @@ fn fire(room: &Arc<Room>, job: ScheduledJob) {
     if !scheduled_job_allowed(&room.log, &current.persona_id, &current.id) {
         return;
     }
-    let fired = if current.reminder == Some(true) {
-        room.remind(&current)
+    let ran = if current.reminder == Some(true) {
+        room.remind(&current).map(|()| true)
     } else {
         room.fire_job(&current)
     };
-    if let Err(error) = fired {
-        retry(room, &current, &error);
-        return;
+    match ran {
+        Ok(ran) => finish(room, &current.id, ran),
+        Err(error) => retry(room, &current, &error),
     }
-    finish(room, &current.id);
 }
 
 fn write_or_log(result: Result<(), String>) {
@@ -451,8 +451,10 @@ fn tombstone_if_live(room: &Room, job_id: &str) {
 ///
 /// A one-shot has fired its last, and so has a loop whose count runs out or
 /// whose next firing would fall after its end: each is ended rather than
-/// deleted, because its thread stays readable.
-fn finish(room: &Room, job_id: &str) {
+/// deleted, because its thread stays readable. A slot that was skipped, not
+/// `ran`, moves the loop to its next slot without spending its count, so only
+/// its end date can end it.
+fn finish(room: &Room, job_id: &str, ran: bool) {
     let _mutations = lock(&room.schedule_mutations);
     let Some(mut next) = room::schedules(&room.log)
         .into_iter()
@@ -461,12 +463,19 @@ fn finish(room: &Room, job_id: &str) {
         return;
     };
     let now = now_ms();
-    if fires_last(&next, now) {
+    let ends = if ran {
+        fires_last(&next, now)
+    } else {
+        next_after_end(&next, now)
+    };
+    if ends {
         next.ended_at = Some(now);
     }
     if next.kind == ScheduleKind::Loop {
         next.next_at = now.saturating_add(next.every.unwrap_or(MIN_LOOP));
-        next.times = next.times.map(|times| times.saturating_sub(1));
+        if ran {
+            next.times = next.times.map(|times| times.saturating_sub(1));
+        }
     }
     write_or_log(room::append_schedule(&room.log, &next));
 }
@@ -476,11 +485,14 @@ fn finish(room: &Room, job_id: &str) {
 pub(super) fn fires_last(job: &ScheduledJob, now: i64) -> bool {
     match job.kind {
         ScheduleKind::Schedule => true,
-        ScheduleKind::Loop => {
-            let next_at = now.saturating_add(job.every.unwrap_or(MIN_LOOP));
-            matches!(job.times, Some(0 | 1)) || job.until.is_some_and(|until| next_at > until)
-        }
+        ScheduleKind::Loop => matches!(job.times, Some(0 | 1)) || next_after_end(job, now),
     }
+}
+
+/// Whether a loop's next slot after `now` would fall after its end date.
+fn next_after_end(job: &ScheduledJob, now: i64) -> bool {
+    let next_at = now.saturating_add(job.every.unwrap_or(MIN_LOOP));
+    job.until.is_some_and(|until| next_at > until)
 }
 
 impl Room {

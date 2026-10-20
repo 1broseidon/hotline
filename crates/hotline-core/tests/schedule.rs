@@ -722,6 +722,44 @@ async fn a_job_that_runs_out_of_its_count_ends_with_a_final_post() {
     assert_eq!(job["outcome"], "Counted the files.", "{job}");
 }
 
+/// A skipped slot is not a firing: a loop of three whose firings each run
+/// past the next slot still runs three, and the third is told it is the last.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skipped_slot_does_not_count_toward_a_loops_count() {
+    let mut desk = seeded(|ada| {
+        let mut job = looping("overrun", ada, 2_500, "STALL SAY Posted the time.");
+        job["quiet"] = json!(true);
+        job["times"] = json!(3);
+        vec![job]
+    })
+    .await;
+    until("the job has ended", || {
+        desk.state("overrun").as_deref() == Some("closed")
+    })
+    .await;
+    let skips = desk
+        .thread("overrun")
+        .iter()
+        .filter(|event| {
+            event["kind"] == "notice"
+                && event["text"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("Skipped the"))
+        })
+        .count();
+    assert!(skips >= 1, "a firing overran a slot");
+    let heard = desk.heard("Posted the time.");
+    assert_eq!(heard.len(), 3, "{heard:#?}");
+    for earlier in &heard[..2] {
+        assert!(!earlier.contains("last run"), "{earlier}");
+    }
+    assert!(
+        heard[2].contains("This is the job's last run"),
+        "{}",
+        heard[2]
+    );
+}
+
 /// The person stops a firing that is running: that turn ends, posts no
 /// report, and its thread says it was stopped; the job keeps its schedule,
 /// and its next firing runs and reports as any other.

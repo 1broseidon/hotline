@@ -1,8 +1,6 @@
 ---
 id: task-231
 title: "S1: straight to Rig 0.45 in one jump, with Hotline's own TokenStore over today's login dirs (no one signed out)"
-column: review
-position: 0
 priority: high
 tags:
   - rig
@@ -30,7 +28,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T13:28:01.568Z"
+updatedAt: "2026-10-20T13:30:20.176Z"
 contract:
   status: delivered
   deliverables:
@@ -86,6 +84,7 @@ dispatch:
     outcome: review
 decisions:
   - decision-3
+completedAt: "2026-10-20T13:30:20.176Z"
 ---
 
 ## Description
@@ -109,3 +108,4 @@ Proof: every `rig_pin_` test from S0 passes with its assertions and expected val
 - 2026-10-20T13:27:49.392Z: [claude] Left for later slices (unwired here): S4 keychain storage for these records and an AuthError::Store 'unlock your keychain' message; S5 ChatGPT sign_out on delete, plus registry eviction/forget() on revoke or delete (the registry never evicts; a revoked or deleted login's in-memory token lives until expiry, though nothing asks for it); S6 voice metering by dispatch id (minimal port here: one Meter reserves in on_completion_call and settles in on_outcome for streamed and unary runs; a failed completion keeps its reservation); S7 delete Copilot's flatten if the pin holds without it, the compat repairs, typed reasoning options.
 - 2026-10-20T13:27:51.905Z: [claude] Manual provider checks for George before release (one turn each on real credentials): Anthropic key (2nd round shows cache_read > 0); OpenAI key; ChatGPT on an existing 0.42 sign-in (no re-sign-in) plus image generation and a GPT-Live call; Copilot on an existing 0.42 sign-in, chat route and a Responses-only model (copilot.json appears, access-token and api-key.json are gone); OpenRouter anthropic/ (cached) and openai/; Gemini with an effort; Ollama local with an effort (think); a custom server on Responses and on Chat; xAI subscription and xAI key; z.ai; a voice call's metering against 0.42 numbers; fresh ChatGPT and Copilot device sign-ins.
 - 2026-10-20T13:27:53.828Z: [claude] For the PR body (docs/security.md 'ChatGPT and Copilot sign-ins' + new matrix row): default, signed-in users stay signed in and records stay 0600 plaintext in vault/logins/<id>/; grant source, the person's device sign-in; enforcement, the core signs each request (Outgoing) with a per-credential shared authenticator, a per-record lock, and a store that refuses unknown keys; tests, rig_login_* x4, vault a_copilot_login_precreates_the_record_rig_will_write, and the two turns-without-a-login tests; residual risk, plaintext files, a revoked login's in-memory token until expiry, no provider-side revocation yet.
+- 2026-10-20T13:30:19.800Z: Landed on release/0.42.0

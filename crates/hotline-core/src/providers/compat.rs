@@ -1,28 +1,31 @@
 //! The transport under custom OpenAI-compatible connections. Compatible
 //! servers speak the Responses API more loosely than OpenAI: an output item
 //! without an id, `created_at` as a float, `instructions` echoed back as input
-//! items, an empty `error` object. Each of those makes Rig's strict decode drop
-//! the whole turn, so this transport repairs Responses frames to the shape Rig
-//! reads before Rig sees them. Chat Completions traffic passes through as is.
+//! items, an empty `error` object. Each of those made Rig's strict decode drop
+//! the whole turn before Rig 0.45, which reads the frames as JSON. This
+//! transport still repairs Responses frames to the shape OpenAI sends before
+//! Rig sees them, so a turn never rests on how loosely a server writes. Chat
+//! Completions traffic passes through as is.
 
 use bytes::Bytes;
 use futures_util::StreamExt;
 use rig::http_client::{
-    self, HttpClientExt, LazyBody, MultipartForm, StreamingResponse, sse::BoxedStream,
+    self, BoxedStream, HttpClientExt, LazyBody, MultipartForm, ReqwestClient, StreamingResponse,
 };
-use rig::providers::openai::responses_api::streaming::StreamingCompletionChunk;
 use serde_json::{Map, Value};
 use std::collections::{BTreeSet, HashSet};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Http {
-    inner: reqwest::Client,
+    inner: ReqwestClient,
 }
 
 impl Http {
     pub(crate) fn new(inner: reqwest::Client) -> Self {
-        Self { inner }
+        Self {
+            inner: ReqwestClient::from(inner),
+        }
     }
 }
 
@@ -177,56 +180,16 @@ impl Frames {
         };
         let mut fixed = BTreeSet::new();
         repair_event(&mut event, &mut self.next, &mut fixed);
-        let repaired = if fixed.is_empty() {
-            None
-        } else {
-            Some(serde_json::to_vec(&event).ok()?)
-        };
-        let kind = event
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let frame = repaired.as_deref().unwrap_or(data);
-        if read_by_rig(kind)
-            && let Err(error) = serde_json::from_slice::<StreamingCompletionChunk>(frame)
-        {
-            note_unreadable(&self.host, kind, &error, frame);
+        if fixed.is_empty() {
+            return None;
         }
-        let repaired = repaired?;
+        let repaired = serde_json::to_vec(&event).ok()?;
         note_repairs(&self.host, &fixed);
         let mut out = b"data: ".to_vec();
         out.extend_from_slice(&repaired);
         out.extend_from_slice(ending);
         Some(out)
     }
-}
-
-/// The event types Rig decodes strictly; anything else it skips as unknown.
-fn read_by_rig(kind: &str) -> bool {
-    matches!(
-        kind,
-        "response.created"
-            | "response.in_progress"
-            | "response.completed"
-            | "response.failed"
-            | "response.incomplete"
-            | "response.output_item.added"
-            | "response.output_item.done"
-            | "response.content_part.added"
-            | "response.content_part.done"
-            | "response.output_text.delta"
-            | "response.output_text.done"
-            | "response.refusal.delta"
-            | "response.refusal.done"
-            | "response.function_call_arguments.delta"
-            | "response.function_call_arguments.done"
-            | "response.reasoning_summary_part.added"
-            | "response.reasoning_summary_part.done"
-            | "response.reasoning_summary_text.delta"
-            | "response.reasoning_summary_text.done"
-            | "response.reasoning_text.delta"
-            | "response.reasoning_text.done"
-    )
 }
 
 pub(crate) fn repair_event(
@@ -392,18 +355,6 @@ fn note_repairs(host: &str, fixed: &BTreeSet<&'static str>) {
     }
 }
 
-/// A frame still unreadable after repair ends the turn in Rig. Log it once
-/// per server and event type, so the next gap can be closed from the log.
-fn note_unreadable(host: &str, kind: &str, error: &serde_json::Error, frame: &[u8]) {
-    if first_time(format!("unreadable {host} {kind}")) {
-        let frame = String::from_utf8_lossy(frame)
-            .chars()
-            .take(800)
-            .collect::<String>();
-        eprintln!("[custom] {host} sent a {kind} frame Hotline cannot read ({error}): {frame}");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,8 +368,46 @@ mod tests {
         Value::Object(event)
     }
 
+    /// Whether `event` is in the shape OpenAI sends in every field the
+    /// repairs mend: what a compatible server's frame looks like when it
+    /// reaches Rig.
     fn readable(event: Value) -> bool {
-        serde_json::from_value::<StreamingCompletionChunk>(event).is_ok()
+        let item = |item: &Value| match item["type"].as_str() {
+            Some("message") => {
+                item["id"].is_string() && item["status"].is_string() && item["content"].is_array()
+            }
+            Some("reasoning") => item["id"].is_string() && item["summary"].is_array(),
+            Some("function_call") => item["status"].is_string() && !item["arguments"].is_null(),
+            _ => true,
+        };
+        let null_or = |value: &Value, shaped: bool| value.is_null() || shaped;
+        let response = |response: &Value| {
+            let error = &response["error"];
+            let details = &response["incomplete_details"];
+            response["object"].is_string()
+                && response["created_at"].is_u64()
+                && null_or(
+                    &response["instructions"],
+                    response["instructions"].is_string(),
+                )
+                && null_or(
+                    error,
+                    error["code"].is_string() && error["message"].is_string(),
+                )
+                && null_or(details, details["reason"].is_string())
+                && response["tools"].as_array().is_none_or(|tools| {
+                    tools.iter().all(|tool| {
+                        tool.get("name") != Some(&Value::Null)
+                            && tool.get("description") != Some(&Value::Null)
+                    })
+                })
+                && response["output"]
+                    .as_array()
+                    .is_none_or(|output| output.iter().all(item))
+        };
+        event["sequence_number"].is_u64()
+            && event.get("response").is_none_or(response)
+            && event.get("item").is_none_or(item)
     }
 
     fn response() -> Value {

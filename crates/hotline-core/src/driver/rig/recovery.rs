@@ -33,8 +33,8 @@ pub(super) fn fresh(history: &[Message], output_dir: &Path) -> Vec<Message> {
     for message in history {
         match message {
             Message::System { content } => facts.push(format!("System context: {content}")),
-            Message::Assistant { content, .. } => {
-                for item in content {
+            Message::Assistant(turn) => {
+                for item in &turn.content {
                     match item {
                         AssistantContent::Text(text) => {
                             facts.push(format!("Assistant: {}", text.text));
@@ -42,7 +42,9 @@ pub(super) fn fresh(history: &[Message], output_dir: &Path) -> Vec<Message> {
                         AssistantContent::ToolCall(call) => {
                             facts.push(format!(
                                 "Accepted tool call {}: {} {}. Its result follows; if absent, execution is uncertain and must not be repeated automatically.",
-                                call.id, call.function.name, call.function.arguments,
+                                call.id,
+                                call.function.name,
+                                call.function.raw_arguments(),
                             ));
                         }
                         AssistantContent::Image(_) => {
@@ -51,7 +53,9 @@ pub(super) fn fresh(history: &[Message], output_dir: &Path) -> Vec<Message> {
                                     .into(),
                             );
                         }
-                        AssistantContent::Reasoning(_) => {}
+                        // Reasoning and provider-only items are the model's
+                        // own working, not facts the next provider can use.
+                        _ => {}
                     }
                 }
             }
@@ -121,15 +125,15 @@ pub(super) fn context_threshold(limit: Option<u64>, output: Option<u64>) -> Opti
 pub(super) fn estimated_tokens(
     history: &[Message],
     preamble: &str,
-    tools: &[rig::completion::ToolDefinition],
+    tools: &[Arc<rig::completion::ToolDefinition>],
 ) -> u64 {
     let mut bytes = preamble.len() + serde_json::to_vec(tools).map_or(0, |bytes| bytes.len());
     let mut image_tokens = 0;
     for message in history {
         match message {
             Message::System { content } => bytes += content.len(),
-            Message::Assistant { content, .. } => {
-                for item in content {
+            Message::Assistant(turn) => {
+                for item in &turn.content {
                     if matches!(item, AssistantContent::Image(_)) {
                         image_tokens += 4096;
                     } else {
@@ -163,8 +167,7 @@ pub(super) fn estimated_tokens(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig::message::{Reasoning, ReasoningContent, ToolCall, ToolFunction};
-    use rig::providers::{anthropic, gemini, openai};
+    use rig::message::{AssistantMessage, ToolCall, ToolFunction, ToolName};
 
     #[test]
     fn a_custom_protocol_change_invalidates_the_origin_even_with_the_same_model_id() {
@@ -185,84 +188,18 @@ mod tests {
         assert_ne!(responses, Origin::of("custom/coder", &keys));
     }
 
-    fn responses(message: Message) -> Value {
-        let items: Vec<openai::responses_api::InputItem> = message.try_into().unwrap();
-        serde_json::to_value(items).unwrap()
-    }
-
-    fn anthropic(message: Message) -> Value {
-        serde_json::to_value(anthropic::completion::Message::try_from(message).unwrap()).unwrap()
-    }
-
-    fn gemini(message: Message) -> Value {
-        serde_json::to_value(
-            gemini::completion::gemini_api_types::Content::try_from(message).unwrap(),
-        )
-        .unwrap()
-    }
-
-    fn assistant(content: Vec<AssistantContent>) -> Message {
-        Message::Assistant { id: None, content }
-    }
-
-    #[test]
-    fn same_provider_serialization_preserves_encrypted_state_and_signatures() {
-        // A colon is not a universal invalidity rule. Only a provider refusal
-        // abandons this state, through fresh(), rather than clearing its id.
-        for id in ["rs_valid", "vendor:opaque:reasoning"] {
-            let message = assistant(vec![AssistantContent::Reasoning(Reasoning {
-                id: Some(id.into()),
-                content: vec![ReasoningContent::Encrypted("encrypted-state".into())],
-            })]);
-            let wire = responses(message);
-            assert_eq!(wire[0]["id"], id);
-            assert_eq!(wire[0]["encrypted_content"], "encrypted-state");
-        }
-        let signed = assistant(vec![AssistantContent::Reasoning(
-            Reasoning::new_with_signature("private reasoning", Some("signed-thinking".into())),
-        )]);
-        assert_eq!(
-            anthropic(signed.clone())["content"][0]["signature"],
-            "signed-thinking"
-        );
-        assert_eq!(
-            gemini(signed)["parts"][0]["thoughtSignature"],
-            "signed-thinking"
-        );
-
-        let mut call = ToolCall::from_wire(
-            "call_1",
-            ToolFunction {
-                name: "write_file".into(),
-                arguments: serde_json::json!({"path":"note.txt"}),
-            },
-        );
-        call.signature = Some("signed-call".into());
-        let reply = Message::User {
-            content: vec![UserContent::ToolResult(rig::message::ToolResult {
-                call: call.id.clone(),
-                provider: call.provider.clone(),
-                name: call.function.name.clone(),
-                content: vec![ToolResultContent::text("written once")],
-            })],
+    /// What the model reads of a fresh continuation: the one message's text.
+    fn read(repaired: &[Message]) -> String {
+        let [Message::User { content }] = repaired else {
+            panic!("a fresh continuation is one operator-side message: {repaired:?}");
         };
-        let message = assistant(vec![AssistantContent::ToolCall(call)]);
-        assert_eq!(
-            responses(message.clone())[0]["call_id"],
-            responses(reply.clone())[0]["call_id"]
-        );
-        assert_eq!(
-            anthropic(message.clone())["content"][0]["id"],
-            anthropic(reply.clone())["content"][0]["tool_use_id"]
-        );
-        assert_eq!(
-            gemini(message.clone())["parts"][0]["thoughtSignature"],
-            "signed-call"
-        );
-        assert_eq!(
-            gemini(message)["parts"][0]["functionCall"]["id"],
-            gemini(reply)["parts"][0]["functionResponse"]["id"]
-        );
+        content
+            .iter()
+            .map(|part| match part {
+                UserContent::Text(text) => text.text.clone(),
+                other => panic!("a fresh continuation is text alone: {other:?}"),
+            })
+            .collect()
     }
 
     #[test]
@@ -270,60 +207,44 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let call = ToolCall::from_wire(
             "call_1",
-            ToolFunction {
-                name: "write_file".into(),
-                arguments: serde_json::json!({"path":"note.txt"}),
-            },
+            ToolFunction::new(
+                ToolName::new("write_file").unwrap(),
+                serde_json::json!({"path":"note.txt"}),
+            ),
         );
         let kinds = [
-            AssistantContent::Reasoning(Reasoning {
-                id: Some("rs_foreign".into()),
-                content: vec![ReasoningContent::Encrypted("opaque-encrypted".into())],
-            }),
-            AssistantContent::Reasoning(Reasoning::new_with_signature(
-                "hidden-reasoning",
-                Some("opaque-signature".into()),
-            )),
+            AssistantContent::reasoning("").with_native(serde_json::json!({
+                "type": "reasoning", "id": "rs_foreign", "encrypted_content": "opaque-encrypted"
+            })),
+            AssistantContent::reasoning("hidden-reasoning").with_native(serde_json::json!({
+                "type": "thinking", "thinking": "hidden-reasoning", "signature": "opaque-signature"
+            })),
             AssistantContent::ToolCall(call.clone()),
             AssistantContent::Image(Image {
                 data: DocumentSourceKind::Base64("opaque-pixels".into()),
                 media_type: Some(ImageMediaType::JPEG),
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
         ];
         for kind in kinds {
             let history = vec![
                 Message::user("Inspect /photos/example.jpg exactly once"),
-                assistant(vec![kind]),
-                Message::User {
-                    content: vec![UserContent::ToolResult(rig::message::ToolResult {
-                        call: call.id.clone(),
-                        provider: call.provider.clone(),
-                        name: call.function.name.clone(),
-                        content: vec![ToolResultContent::text("written once; do not repeat")],
-                    })],
-                },
+                Message::Assistant(AssistantMessage::new(vec![kind])),
+                Message::tool_results(vec![
+                    call.result(vec![ToolResultContent::text("written once; do not repeat")]),
+                ]),
             ];
-            let repaired = fresh(&history, root.path());
-            for wire in [
-                responses(repaired[0].clone()),
-                anthropic(repaired[0].clone()),
-                gemini(repaired[0].clone()),
-            ] {
-                let text = wire.to_string();
-                assert!(text.contains("written once"));
-                assert!(text.contains("/photos/example.jpg"));
-                assert_eq!(
-                    text.matches("Inspect /photos/example.jpg exactly once")
-                        .count(),
-                    1
-                );
-                assert!(!text.contains("opaque-"));
-                assert!(!text.contains("hidden-reasoning"));
-                assert!(!text.contains("tool_use_id"));
-                assert!(!text.contains("function_call_output"));
-            }
+            let text = read(&fresh(&history, root.path()));
+            assert!(text.contains("written once"));
+            assert!(text.contains("/photos/example.jpg"));
+            assert_eq!(
+                text.matches("Inspect /photos/example.jpg exactly once")
+                    .count(),
+                1
+            );
+            assert!(!text.contains("opaque-"));
+            assert!(!text.contains("hidden-reasoning"));
         }
     }
 }

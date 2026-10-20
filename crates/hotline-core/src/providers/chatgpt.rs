@@ -1,5 +1,7 @@
-//! ChatGPT's model list, read from the same endpoint the Codex CLI reads.
-//! Rig signs in and refreshes the token; this module only lists models.
+//! ChatGPT's model list, read from the same endpoint the Codex CLI reads, and
+//! the login's live token for the requests Rig does not build. Rig signs in
+//! and refreshes the token, through the login's shared authenticator
+//! ([`super::rig_login`]).
 
 use super::discovery::{self, DiscoveryHttp, ListedModel};
 use bytes::Bytes;
@@ -17,7 +19,7 @@ const CLIENT_VERSION_FLOOR: &str = "0.159.0";
 /// How long `codex --version` may take before the floor is used instead.
 const VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-#[derive(Deserialize)]
+/// A live ChatGPT sign-in: the access token and the account it belongs to.
 pub(crate) struct AuthRecord {
     pub(crate) access_token: Option<String>,
     pub(crate) account_id: Option<String>,
@@ -106,29 +108,42 @@ pub(crate) async fn list_models_at(
     listing(&body)
 }
 
+/// `model` on the ChatGPT login in `token_dir`. Rig's ChatGPT dialect writes
+/// the request; the transport signs it with the login's live token and
+/// account as it goes.
+pub(crate) fn model(
+    token_dir: &Path,
+    model: &str,
+) -> Result<rig::DynModel<rig::operation::Completion>, String> {
+    let transport = super::outgoing::Outgoing::signed(
+        super::rig_login::Login::ChatGpt(super::rig_login::chatgpt(token_dir)),
+        std::convert::identity,
+    )?;
+    Ok(
+        rig::providers::openai::OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "")
+            .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
+            .connect(transport)
+            .completion(model)
+            .erase(),
+    )
+}
+
+/// The login's live token, refreshed first when it has expired. With no
+/// sign-in in the record this fails, naming the sign-in, and never starts
+/// one.
 pub(crate) async fn refreshed_auth(token_dir: &Path) -> Result<AuthRecord, String> {
-    let auth_file = token_dir.join("auth.json");
-    rig::providers::chatgpt::Client::builder()
-        .oauth()
-        .auth_file(&auth_file)
-        .allow_device_flow(false)
-        .build()
-        .map_err(|_| "Could not prepare model discovery.".to_string())?
-        .authorize()
+    let context = super::rig_login::chatgpt(token_dir)
+        .auth_context(&super::rig_login::http())
         .await
         .map_err(|_| "The ChatGPT sign-in could not be refreshed. Sign in again.".to_string())?;
-    let record: AuthRecord = crate::vault::read_model_file(&auth_file)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .ok_or("The ChatGPT sign-in could not be read. Sign in again.")?;
-    if record
-        .access_token
-        .as_ref()
-        .is_none_or(|token| token.trim().is_empty())
-    {
+    let token = context.api_key.expose();
+    if token.trim().is_empty() {
         return Err("ChatGPT sign-in required. Sign in again under Settings → Providers.".into());
     }
-    Ok(record)
+    Ok(AuthRecord {
+        access_token: Some(token.to_string()),
+        account_id: context.account_id,
+    })
 }
 
 /// The models a ChatGPT sign-in offers: listed ones only, since the backend

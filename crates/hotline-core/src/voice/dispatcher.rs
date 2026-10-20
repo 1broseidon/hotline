@@ -19,11 +19,12 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::agent::hook::{
-    AgentHook, CompletionCall, CompletionCallAction, CompletionResponse, HookContext,
-    ModelTurnAction, ModelTurnFinished, ObservationAction,
+    AgentHook, CompletionCallAction, CompletionCallEvent, HookContext, OutcomeAction, OutcomeEvent,
 };
-use rig::completion::{Prompt, Usage};
-use rig::streaming::{StreamedAssistantContent, StreamingPrompt};
+use rig::completion::Usage;
+use rig::effect::EffectKind;
+use rig::message::ToolName;
+use rig::streaming::{Item, StreamEvent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -374,11 +375,11 @@ impl ProviderDispatcher {
         .build();
         let (meter, denied) = self.meter(ledger, preamble, tool_count, ANSWER_TOKENS);
         let mut stream = agent
-            .stream_prompt(prompt)
+            .prompt(prompt)
             .max_turns(4)
             .tool_concurrency(1)
-            .add_hook(StreamMeter(meter))
-            .await;
+            .add_hook(meter)
+            .stream();
         let mut pending = String::new();
         let mut total = 0usize;
         let mut completed = false;
@@ -394,14 +395,16 @@ impl ProviderDispatcher {
                 item,
                 MultiTurnStreamItem::CompletionCall(_) | MultiTurnStreamItem::FinalResponse(_)
             );
-            if let MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text)) =
-                &item
+            if let MultiTurnStreamItem::StreamAssistantItem(Item::Event(StreamEvent::Text {
+                text,
+                ..
+            })) = &item
             {
-                total += text.text.len();
+                total += text.len();
                 if total > 32_000 {
                     return Err("The dispatcher response is too long.".into());
                 }
-                pending.push_str(&text.text);
+                pending.push_str(text);
             }
             if matches!(item, MultiTurnStreamItem::ModelTurnRetried { .. }) {
                 return Err("The dispatcher revised its answer; please repeat the request.".into());
@@ -442,7 +445,7 @@ impl ProviderDispatcher {
         .build();
         let (meter, denied) = self.meter(ledger, preamble, 0, NARRATION_TOKENS);
         let result = agent.prompt(prompt).max_turns(1).add_hook(meter).await;
-        result.map_err(|error| {
+        result.map(|response| response.output()).map_err(|error| {
             if denied.load(Ordering::SeqCst) {
                 BUDGET_ERROR.to_string()
             } else {
@@ -633,9 +636,11 @@ fn speed_family(model: &str) -> u8 {
 }
 
 /// Meters one request on the voice budget. Each model call reserves an
-/// estimate before it goes out; its response settles that reservation to the
+/// estimate before it goes out; its outcome settles that reservation to the
 /// actual cost. A call that fails, is cancelled, or comes back without usage
-/// keeps its reservation, because the provider may have billed it.
+/// keeps its reservation, because the provider may have billed it. Rig
+/// reports every model call's outcome once, streamed or not, so one hook
+/// meters both.
 #[derive(Clone)]
 struct Meter {
     ledger: Arc<Budget>,
@@ -666,7 +671,7 @@ impl Meter {
     /// charged, or the cost left too little budget for another call.
     fn settle(&self, usage: Usage) -> Result<(), &'static str> {
         let reservation = super::lock(&self.reservation).take();
-        let tokens = Tokens::of(&usage, &self.provider);
+        let tokens = Tokens::of(&usage);
         if !tokens.reported {
             return Err("The provider did not report usage for the voice budget.");
         }
@@ -686,7 +691,7 @@ impl AgentHook for Meter {
     async fn on_completion_call(
         &self,
         _: &HookContext,
-        event: CompletionCall<'_>,
+        event: CompletionCallEvent<'_>,
     ) -> CompletionCallAction {
         if !self.vault.provider_auth().contains_key(&self.provider) {
             return CompletionCallAction::stop("The dispatcher provider has been disconnected.");
@@ -706,38 +711,19 @@ impl AgentHook for Meter {
         }
     }
 
-    async fn on_completion_response(
-        &self,
-        _: &HookContext,
-        event: CompletionResponse<'_>,
-    ) -> ObservationAction {
-        match self.settle(event.usage) {
-            Ok(()) => ObservationAction::Continue,
-            Err(reason) => ObservationAction::stop(reason),
+    async fn on_outcome(&self, _: &HookContext, event: OutcomeEvent<'_>) -> OutcomeAction {
+        if let Some(response) = event.completion() {
+            return match self.settle(response.usage) {
+                Ok(()) => OutcomeAction::Proceed,
+                Err(reason) => OutcomeAction::stop(reason),
+            };
         }
-    }
-}
-
-// A streamed run reports a call's usage when its turn finishes, which it
-// does for every call; the response-finish event skips tool-only turns.
-struct StreamMeter(Meter);
-impl AgentHook for StreamMeter {
-    async fn on_completion_call(
-        &self,
-        ctx: &HookContext,
-        event: CompletionCall<'_>,
-    ) -> CompletionCallAction {
-        self.0.on_completion_call(ctx, event).await
-    }
-    async fn on_model_turn_finished(
-        &self,
-        _: &HookContext,
-        event: ModelTurnFinished<'_>,
-    ) -> ModelTurnAction {
-        match self.0.settle(event.usage) {
-            Ok(()) => ModelTurnAction::Continue,
-            Err(reason) => ModelTurnAction::Stop(reason.into()),
+        // A model call that failed or was abandoned keeps what it reserved,
+        // charged, because the provider may have billed it.
+        if matches!(event.kind, EffectKind::Completion { .. }) {
+            super::lock(&self.reservation).take();
         }
+        OutcomeAction::Proceed
     }
 }
 
@@ -786,7 +772,7 @@ impl Dispatcher for ProviderDispatcher {
             .tool_concurrency(1)
             .add_hook(meter)
             .await;
-        result.map_err(|error| {
+        result.map(|response| response.output()).map_err(|error| {
             if denied.load(Ordering::SeqCst) {
                 BUDGET_ERROR.to_string()
             } else {
@@ -836,7 +822,7 @@ impl Dispatcher for ProviderDispatcher {
             .max_turns(DELEGATED_TURNS)
             .add_hook(meter)
             .await;
-        result.map_err(|error| {
+        result.map(|response| response.output()).map_err(|error| {
             if denied.load(Ordering::SeqCst) {
                 BUDGET_ERROR.to_string()
             } else {
@@ -935,10 +921,10 @@ fn hand_off(handed: Arc<Mutex<Option<String>>>) -> DynamicTool {
         .find(|tool| tool.name == super::front::SEND_TO_TEAMMATE)
         .expect("the front's own tools hold send_to_teammate");
     DynamicTool::new(
-        tool.name,
+        ToolName::new(tool.name).expect("a desk tool is named by Hotline"),
         tool.description,
         tool.parameters,
-        move |_, arguments| {
+        move |arguments| {
             let handed = handed.clone();
             Box::pin(async move {
                 let words = arguments["words"].as_str().map_or("", str::trim);
@@ -984,12 +970,12 @@ fn untrusted(value: &Value) -> String {
 
 fn tools(context: Context) -> Vec<DynamicTool> {
     vec![DynamicTool::new(
-        "desk_command",
+        ToolName::new("desk_command").expect("a fixed tool name is not empty"),
         "Read a conversation or schedules, hand a text task to a teammate, or manage a schedule. params is a JSON object encoded as a string. session.prompt: {personaId,text,replyTo:null,attachments:null}; tape.page: {personaId,before:'',limit:20} for the latest conversation; schedule.list: {}; schedule.create: {personaId,kind:'schedule',when:<unix milliseconds>,prompt}; schedule.cancel: {id}.",
         json!({"type":"object","properties":{
             "command":{"type":"string","enum":["session.prompt","tape.page","schedule.list","schedule.create","schedule.cancel"]},
             "params":{"type":"string"}},"required":["command","params"],"additionalProperties":false}),
-        move |_, args| {
+        move |args| {
             let context = context.clone();
             Box::pin(async move {
                 let arguments: Value = args;
@@ -1068,15 +1054,15 @@ mod tests {
         );
     }
 
+    /// Usage as Rig reports it: `input` counts every input token, what was
+    /// read from the cache and written to it included.
     fn usage(input: u64, output: u64, read: u64, written: u64, total: u64) -> Usage {
-        Usage {
-            input_tokens: input,
-            output_tokens: output,
-            total_tokens: total,
-            cached_input_tokens: read,
-            cache_creation_input_tokens: written,
-            ..Usage::new()
-        }
+        Usage::new()
+            .input_tokens(input)
+            .output_tokens(output)
+            .total_tokens(total)
+            .cached_input_tokens(read)
+            .cache_creation_input_tokens(written)
     }
 
     fn near(actual: f64, expected: f64) {
@@ -1087,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_cache_tokens_are_priced_beside_input() {
+    fn anthropic_cache_tokens_are_priced_once_at_their_rates() {
         let haiku = ModelCost {
             input: 0.1,
             output: 0.5,
@@ -1095,9 +1081,9 @@ mod tests {
             cache_write: Some(0.125),
         };
         // 1,000 fresh, 4,000 read and 2,000 written input tokens; 300 out.
-        let used = usage(1_000, 300, 4_000, 2_000, 7_300);
+        let used = usage(7_000, 300, 4_000, 2_000, 7_300);
         near(
-            cost(&haiku, &Tokens::of(&used, "anthropic")),
+            cost(&haiku, &Tokens::of(&used)),
             (1_000.0 * 0.1 + 4_000.0 * 0.01 + 2_000.0 * 0.125 + 300.0 * 0.5) / 1e6,
         );
     }
@@ -1113,7 +1099,7 @@ mod tests {
         // 5,000 prompt tokens, 3,000 of them read from the cache.
         let used = usage(5_000, 200, 3_000, 0, 5_200);
         near(
-            cost(&price, &Tokens::of(&used, "openai")),
+            cost(&price, &Tokens::of(&used)),
             (2_000.0 * 1.0 + 3_000.0 * 0.1 + 200.0 * 4.0) / 1e6,
         );
     }
@@ -1129,7 +1115,7 @@ mod tests {
         // Gemini counts thoughts in the total and not in the candidates.
         let used = usage(1_000, 100, 0, 0, 1_600);
         near(
-            cost(&price, &Tokens::of(&used, "openai")),
+            cost(&price, &Tokens::of(&used)),
             (1_000.0 + 600.0 * 4.0) / 1e6,
         );
     }
@@ -1142,9 +1128,9 @@ mod tests {
             cache_read: None,
             cache_write: None,
         };
-        let used = usage(0, 0, 1_000, 1_000, 2_000);
+        let used = usage(2_000, 0, 1_000, 1_000, 2_000);
         near(
-            cost(&price, &Tokens::of(&used, "anthropic")),
+            cost(&price, &Tokens::of(&used)),
             (1_000.0 * 2.0 + 1_000.0 * 2.5) / 1e6,
         );
     }
@@ -1241,10 +1227,10 @@ mod tests {
         let ledger = Arc::new(Budget::open(desk.log.clone()));
         let search = || {
             vec![DynamicTool::new(
-                "search_thread",
+                ToolName::new("search_thread").unwrap(),
                 "Search the conversation.",
                 json!({"type":"object","properties":{"query":{"type":"string"}}}),
-                |_, _| {
+                |_| {
                     Box::pin(async {
                         Ok(ToolOutput::text(
                             "We fixed the zebracrossing scheduler bug.",

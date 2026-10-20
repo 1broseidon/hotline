@@ -1,46 +1,98 @@
 use super::*;
 use crate::contract::TokenUsage;
-use rig::completion::{CompletionError, CompletionResponse};
-use rig::streaming::{
-    RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamingCompletionResponse,
-};
+use rig::ProviderError;
+use rig::completion::Usage;
+use rig::driver::{Exchange, Opened, Opening, Transport};
+use rig::test_utils::{MockFrame, MockScript, MockStreamEvent, mock_final};
 use std::collections::VecDeque;
 use std::time::Duration;
 
-type Chunks = mpsc::Receiver<Result<RawStreamingChoice, CompletionError>>;
+type Chunks = mpsc::Receiver<Result<MockStreamEvent, ProviderError>>;
 
+/// Rig's scripted completion wire, on a runtime each test feeds by hand: a
+/// request is recorded, then answered with the next stream the test opened,
+/// one event at a time as the test sends them. A `None` stream never answers.
+/// As over HTTP, nothing is sent until the reply is first read.
+#[derive(Clone)]
 struct ScriptModel {
     requests: mpsc::UnboundedSender<CompletionRequest>,
-    streams: Mutex<VecDeque<Option<Chunks>>>,
+    streams: Arc<Mutex<VecDeque<Option<Chunks>>>>,
 }
 
-impl CompletionModel for ScriptModel {
-    async fn completion(
-        &self,
-        _request: CompletionRequest,
-    ) -> Result<CompletionResponse, CompletionError> {
-        unreachable!("the shared loop uses streaming")
-    }
-
-    async fn stream(
-        &self,
-        request: CompletionRequest,
-    ) -> Result<StreamingCompletionResponse, CompletionError> {
-        self.requests.send(request).unwrap();
-        let next = lock(&self.streams)
-            .pop_front()
-            .expect("unexpected model request");
-        let Some(chunks) = next else {
-            return std::future::pending().await;
-        };
-        Ok(StreamingCompletionResponse::stream(
-            "scripted",
-            Box::pin(futures_util::stream::unfold(
+impl Transport<MockScript> for ScriptModel {
+    fn send(&self, request: CompletionRequest, _: Exchange) -> Opening<MockFrame> {
+        let this = self.clone();
+        Opening::new(async move {
+            this.requests.send(request).unwrap();
+            let next = lock(&this.streams)
+                .pop_front()
+                .expect("unexpected model request");
+            let Some(chunks) = next else {
+                return std::future::pending().await;
+            };
+            Ok(Opened::new(futures_util::stream::unfold(
                 chunks,
-                |mut chunks| async move { chunks.recv().await.map(|item| (item, chunks)) },
-            )),
-        ))
+                |mut chunks| async move {
+                    let item = chunks.recv().await?;
+                    Some((item.map(MockFrame::Event), chunks))
+                },
+            )))
+        })
     }
+}
+
+/// One part of what was said, with who said it.
+#[derive(Debug, PartialEq)]
+enum Said {
+    User(UserContent),
+    Assistant(AssistantContent),
+}
+
+/// What was said in a request after its system prompt, one entry per part:
+/// a wire joins adjacent user messages, so a turn's messages are compared by
+/// what each said and who said it, not by how they were grouped.
+fn said(request: &CompletionRequest) -> Vec<Said> {
+    let messages: Vec<Message> = request
+        .chat_history
+        .iter()
+        .map(|message| Message::clone(message))
+        .collect();
+    assert!(
+        matches!(messages.first(), Some(Message::System { .. })),
+        "every round leads with the system prompt"
+    );
+    parts(&messages[1..])
+}
+
+/// `messages` one part at a time, with who said each.
+fn parts(messages: &[Message]) -> Vec<Said> {
+    let mut said = Vec::new();
+    for message in messages {
+        match message {
+            Message::System { .. } => panic!("the system prompt leads, and only once"),
+            Message::User { content } => said.extend(content.iter().cloned().map(Said::User)),
+            Message::Assistant(turn) => {
+                said.extend(turn.content.iter().cloned().map(Said::Assistant));
+            }
+        }
+    }
+    said
+}
+
+/// The model a test's turn runs on: requests go to `requests`, and each is
+/// answered by the next of `streams`.
+fn scripted(
+    requests: mpsc::UnboundedSender<CompletionRequest>,
+    streams: impl IntoIterator<Item = Option<Chunks>>,
+) -> DynModel<Completion> {
+    rig::Model::new(
+        MockScript::default(),
+        ScriptModel {
+            requests,
+            streams: Arc::new(Mutex::new(streams.into_iter().collect())),
+        },
+    )
+    .erase()
 }
 
 fn fixture() -> (Turn, Template) {
@@ -66,8 +118,7 @@ fn fixture() -> (Turn, Template) {
     };
     let template = Template {
         tools: Vec::new(),
-        max_tokens: None,
-        additional_params: None,
+        settings: RequestSettings::default(),
     };
     (turn, template)
 }
@@ -79,15 +130,14 @@ async fn receive<T>(receiver: &mut mpsc::UnboundedReceiver<T>) -> T {
         .unwrap()
 }
 
-async fn answer(sender: mpsc::Sender<Result<RawStreamingChoice, CompletionError>>) {
+async fn answer(sender: mpsc::Sender<Result<MockStreamEvent, ProviderError>>) {
     sender
-        .send(Ok(RawStreamingChoice::Message("the new direction".into())))
+        .send(Ok(MockStreamEvent::Text("the new direction".into())))
         .await
         .unwrap();
     sender
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
         ))))
         .await
         .unwrap();
@@ -127,10 +177,7 @@ async fn a_paid_round_is_charged_exactly_what_its_usage_cost() {
     turn.meter = Some(metered(&budget));
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (chunks, stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(stream)])),
-    };
+    let model = scripted(seen, [Some(stream)]);
     let (updates, _receiver) = mpsc::channel(64);
     let reserved = budget.clone();
     let task = tokio::spawn(async move {
@@ -144,21 +191,17 @@ async fn a_paid_round_is_charged_exactly_what_its_usage_cost() {
         "{estimate}"
     );
     chunks
-        .send(Ok(RawStreamingChoice::Message("done".into())))
+        .send(Ok(MockStreamEvent::Text("done".into())))
         .await
         .unwrap();
     // 1,000 tokens in, 400 of them read from the cache; 200 out.
-    let usage = rig::completion::Usage {
-        input_tokens: 1_000,
-        output_tokens: 200,
-        total_tokens: 1_200,
-        cached_input_tokens: 400,
-        ..rig::completion::Usage::new()
-    };
+    let usage = Usage::new()
+        .input_tokens(1_000)
+        .output_tokens(200)
+        .total_tokens(1_200)
+        .cached_input_tokens(400);
     chunks
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted", usage,
-        ))))
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(usage))))
         .await
         .unwrap();
     drop(chunks);
@@ -178,10 +221,7 @@ async fn a_spent_chat_budget_refuses_the_turn_before_any_request() {
     let (mut turn, request) = fixture();
     turn.meter = Some(metered(&budget));
     let (seen, mut requests) = mpsc::unbounded_channel();
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::new()),
-    };
+    let model = scripted(seen, []);
     let (updates, _receiver) = mpsc::channel(64);
     let failure = run(&model, request, &ToolSet::default(), &turn, &updates, None)
         .await
@@ -252,10 +292,7 @@ async fn a_turn_on_a_sign_in_runs_whatever_the_chat_budget_says() {
     );
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (chunks, stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(stream)])),
-    };
+    let model = scripted(seen, [Some(stream)]);
     let (updates, _receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(&model, request, &ToolSet::default(), &turn, &updates, None).await
@@ -272,10 +309,7 @@ async fn input_interrupts_a_request_before_the_first_stream_exists() {
     let steering = turn.steering.clone();
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (chunks, stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([None, Some(stream)])),
-    };
+    let model = scripted(seen, [None, Some(stream)]);
     let (updates, mut receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(&model, request, &ToolSet::default(), &turn, &updates, None).await
@@ -285,12 +319,12 @@ async fn input_interrupts_a_request_before_the_first_stream_exists() {
     assert!(steering.admit(Message::user("keep the scope small")));
     let next = receive(&mut requests).await;
     assert_eq!(
-        next.chat_history,
-        vec![
+        said(&next),
+        parts(&[
             Message::user("first request"),
             Message::user("actually, do the other thing"),
             Message::user("keep the scope small")
-        ]
+        ])
     );
     answer(chunks).await;
     task.await.unwrap().unwrap();
@@ -313,22 +347,18 @@ async fn partial_calls_are_dropped_and_never_replayed_or_executed() {
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (old, old_stream) = mpsc::channel(8);
     let (new, new_stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(old_stream), Some(new_stream)])),
-    };
+    let model = scripted(seen, [Some(old_stream), Some(new_stream)]);
     let (updates, mut receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(&model, request, &ToolSet::default(), &turn, &updates, None).await
     });
     receive(&mut requests).await;
-    old.send(Ok(RawStreamingChoice::ToolCallDelta {
-        id: "partial".into(),
-        content: rig::streaming::ToolCallDeltaContent::Name("shell".into()),
-    }))
+    old.send(Ok(MockStreamEvent::tool_call_name_delta(
+        "partial", "shell",
+    )))
     .await
     .unwrap();
-    old.send(Ok(RawStreamingChoice::Message("unfinished".into())))
+    old.send(Ok(MockStreamEvent::Text("unfinished".into())))
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(3), receiver.recv())
@@ -338,13 +368,13 @@ async fn partial_calls_are_dropped_and_never_replayed_or_executed() {
     let next = receive(&mut requests).await;
     assert!(old.is_closed(), "the old provider stream is dropped");
     assert_eq!(
-        next.chat_history,
-        vec![
+        said(&next),
+        parts(&[
             Message::user("first request"),
             Message::assistant("unfinished"),
             Message::user(KEPT),
             Message::user("change direction")
-        ]
+        ])
     );
     answer(new).await;
     task.await.unwrap().unwrap();
@@ -367,7 +397,7 @@ async fn on_a_strict_route_an_unused_argument_is_null_and_the_tool_never_sees_it
     let (called, mut calls) = mpsc::unbounded_channel();
     let mut tools = ToolSet::default();
     tools.add_dynamic_tool(DynamicTool::new(
-        "fill",
+        rig::message::ToolName::new("fill").unwrap(),
         "Fill a field with text or a secret",
         json!({
             "type": "object",
@@ -378,19 +408,16 @@ async fn on_a_strict_route_an_unused_argument_is_null_and_the_tool_never_sees_it
             },
             "required": ["selector"]
         }),
-        move |_context, arguments| {
+        move |arguments| {
             called.send(arguments).unwrap();
             Box::pin(async { Ok(ToolOutput::text("filled")) })
         },
     ));
-    request.tools = tools.get_tool_definitions();
+    request.tools = tools.tool_definitions();
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (first, first_stream) = mpsc::channel(8);
     let (last, last_stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(first_stream), Some(last_stream)])),
-    };
+    let model = scripted(seen, [Some(first_stream), Some(last_stream)]);
     let (updates, _receiver) = mpsc::channel(64);
     let task =
         tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
@@ -400,17 +427,16 @@ async fn on_a_strict_route_an_unused_argument_is_null_and_the_tool_never_sees_it
     assert_eq!(schema["text"]["type"], json!(["string", "null"]));
     assert_eq!(schema["secret"]["type"], json!(["string", "null"]));
     first
-        .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+        .send(Ok(MockStreamEvent::tool_call(
             "fill",
-            "fill".into(),
+            "fill",
             json!({"selector": "#password", "text": null, "secret": "github"}),
-        ))))
+        )))
         .await
         .unwrap();
     first
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
         ))))
         .await
         .unwrap();
@@ -428,22 +454,20 @@ async fn on_a_strict_route_an_unused_argument_is_null_and_the_tool_never_sees_it
 async fn steering_keeps_a_running_tools_result_and_skips_its_unstarted_siblings() {
     let (turn, request) = fixture();
     let steering = turn.steering.clone();
+    let kept = turn.history.clone();
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (old, old_stream) = mpsc::channel(8);
     let (new, new_stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(old_stream), Some(new_stream)])),
-    };
+    let model = scripted(seen, [Some(old_stream), Some(new_stream)]);
     let (started, mut starts) = mpsc::unbounded_channel();
     let release = Arc::new(Notify::new());
     let gate = release.clone();
     let mut tools = ToolSet::default();
     tools.add_dynamic_tool(DynamicTool::new(
-        "slow",
+        rig::message::ToolName::new("slow").unwrap(),
         "A synchronous tool with an observable effect",
         serde_json::json!({"type": "object"}),
-        move |_context, _arguments| {
+        move |_arguments| {
             let started = started.clone();
             let gate = gate.clone();
             Box::pin(async move {
@@ -458,17 +482,16 @@ async fn steering_keeps_a_running_tools_result_and_skips_its_unstarted_siblings(
         tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
     receive(&mut requests).await;
     for id in ["first", "second"] {
-        old.send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+        old.send(Ok(MockStreamEvent::tool_call(
             id,
-            "slow".into(),
+            "slow",
             serde_json::json!({}),
-        ))))
+        )))
         .await
         .unwrap();
     }
-    old.send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-        "scripted",
-        rig::completion::Usage::default(),
+    old.send(Ok(MockStreamEvent::FinalResponse(mock_final(
+        Usage::default(),
     ))))
     .await
     .unwrap();
@@ -477,37 +500,35 @@ async fn steering_keeps_a_running_tools_result_and_skips_its_unstarted_siblings(
     assert!(steering.admit(Message::user("change direction")));
     assert!(requests.try_recv().is_err());
     release.notify_one();
-    let next = receive(&mut requests).await;
+    receive(&mut requests).await;
     assert!(starts.try_recv().is_err(), "the second call never started");
-    let history = &next.chat_history;
-    assert_eq!(history.len(), 5);
-    assert_eq!(history[4], Message::user("change direction"));
-    let Message::Assistant { content, .. } = &history[1] else {
-        panic!("the completed tool calls are retained");
-    };
-    for (call, message) in content.iter().zip(&history[2..4]) {
-        let AssistantContent::ToolCall(call) = call else {
-            panic!("expected a tool call");
+    // What the next request was written from: the request, the two calls,
+    // their two results, the new direction.
+    let history = parts(&kept.lock().await);
+    assert_eq!(history.len(), 6, "{history:?}");
+    assert_eq!(
+        history[5],
+        Said::User(UserContent::text("change direction"))
+    );
+    let mut results = Vec::new();
+    for (call, result) in history[1..3].iter().zip(&history[3..5]) {
+        let Said::Assistant(AssistantContent::ToolCall(call)) = call else {
+            panic!("the completed tool calls are retained: {call:?}");
         };
-        let Message::User { content } = message else {
-            panic!("expected its result");
-        };
-        let UserContent::ToolResult(result) = &content[0] else {
-            panic!("expected its result");
+        let Said::User(UserContent::ToolResult(result)) = result else {
+            panic!("expected its result: {result:?}");
         };
         assert_eq!(call.id, result.call);
-        assert_eq!(call.provider, result.provider);
+        results.push(
+            result
+                .content
+                .iter()
+                .filter_map(rig::message::ToolResultContent::as_text)
+                .collect::<String>(),
+        );
     }
-    assert!(
-        serde_json::to_string(&history[2])
-            .unwrap()
-            .contains("the first effect completed")
-    );
-    assert!(
-        serde_json::to_string(&history[3])
-            .unwrap()
-            .contains("Not executed")
-    );
+    assert!(results[0].contains("the first effect completed"));
+    assert!(results[1].contains("Not executed"));
     answer(new).await;
     task.await.unwrap().unwrap();
 }
@@ -550,35 +571,30 @@ async fn tool_then_silence(tools: ToolSet) -> Vec<Update> {
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (first, stream_one) = mpsc::channel(8);
     let (second, stream_two) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(stream_one), Some(stream_two)])),
-    };
+    let model = scripted(seen, [Some(stream_one), Some(stream_two)]);
     let (updates, mut receiver) = mpsc::channel(64);
     let task =
         tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
     receive(&mut requests).await;
     first
-        .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+        .send(Ok(MockStreamEvent::tool_call(
             "react-1",
-            "react".into(),
+            "react",
             serde_json::json!({ "emoji": "👍" }),
-        ))))
+        )))
         .await
         .unwrap();
     first
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
         ))))
         .await
         .unwrap();
     drop(first);
     receive(&mut requests).await;
     second
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
         ))))
         .await
         .unwrap();
@@ -644,27 +660,24 @@ async fn a_truncated_response_never_dispatches_its_tools() {
     let history = turn.history.clone();
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (chunks, stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(stream)])),
-    };
+    let model = scripted(seen, [Some(stream)]);
     let (updates, mut receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(&model, request, &ToolSet::default(), &turn, &updates, None).await
     });
     receive(&mut requests).await;
     chunks
-        .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+        .send(Ok(MockStreamEvent::tool_call(
             "truncated",
-            "shell".into(),
+            "shell",
             serde_json::json!({}),
-        ))))
+        )))
         .await
         .unwrap();
-    let mut terminal = StreamFinal::new("scripted", rig::completion::Usage::default());
-    terminal.finish_reason = Some(rig::completion::FinishReason::Length);
+    let mut terminal = mock_final(Usage::default());
+    terminal.reason = Some(FinishReason::Length);
     chunks
-        .send(Ok(RawStreamingChoice::FinalResponse(terminal)))
+        .send(Ok(MockStreamEvent::FinalResponse(terminal)))
         .await
         .unwrap();
     drop(chunks);
@@ -697,14 +710,10 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
     let (first, first_stream) = mpsc::channel(8);
     let (second, second_stream) = mpsc::channel(8);
     let (third, third_stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([
-            Some(first_stream),
-            Some(second_stream),
-            Some(third_stream),
-        ])),
-    };
+    let model = scripted(
+        seen,
+        [Some(first_stream), Some(second_stream), Some(third_stream)],
+    );
     let (updates, mut receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(
@@ -718,31 +727,21 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
         .await
     });
     tokio::spawn(async move { while receiver.recv().await.is_some() {} });
-    let call = |id: &str, name: &str, arguments: Value| {
-        Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-            id,
-            name.into(),
-            arguments,
-        )))
-    };
-    let done = || {
-        Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
-        )))
-    };
+    let call =
+        |id: &str, name: &str, arguments: Value| MockStreamEvent::tool_call(id, name, arguments);
+    let done = || MockStreamEvent::FinalResponse(mock_final(Usage::default()));
     // Compiling on stderr, then its error; tests on stdout, then their summary.
     let build = r"for i in $(seq 30000); do printf '\033[32m   Compiling\033[0m crate-%05d v1.0.0\n' $i; done >&2; printf 'error[E0308]: mismatched types\n' >&2; for i in $(seq 2000); do printf 'test case_%04d ... ok\n' $i; done; printf 'test result: FAILED. 1999 passed; 1 failed\n'; exit 101";
     receive(&mut requests).await;
     first
-        .send(call(
+        .send(Ok(call(
             "build",
             "shell",
             serde_json::json!({"command": build}),
-        ))
+        )))
         .await
         .unwrap();
-    first.send(done()).await.unwrap();
+    first.send(Ok(done())).await.unwrap();
     drop(first);
     let receipt = serde_json::to_string(&receive(&mut requests).await.chat_history).unwrap();
     let job_id = receipt
@@ -752,14 +751,14 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
         .expect("the receipt names the job")
         .to_owned();
     second
-        .send(call(
+        .send(Ok(call(
             "wait",
             "wait_jobs",
             serde_json::json!({"job_ids": [job_id]}),
-        ))
+        )))
         .await
         .unwrap();
-    second.send(done()).await.unwrap();
+    second.send(Ok(done())).await.unwrap();
     drop(second);
     let last = receive(&mut requests).await;
     answer(third).await;
@@ -767,11 +766,11 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
 
     let mut job = None;
     let mut waited = None;
-    for message in &last.chat_history {
-        let Message::User { content } = message else {
+    for part in said(&last) {
+        let Said::User(content) = part else {
             continue;
         };
-        for content in content {
+        {
             match content {
                 UserContent::Text(text) => {
                     if let Some(data) = text.text.strip_prefix(
@@ -781,7 +780,7 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
                         job = Some(serde_json::from_str::<Value>(data).unwrap());
                     }
                 }
-                UserContent::ToolResult(result) if result.call == "wait" => {
+                UserContent::ToolResult(result) if result.call.wire() == "wait" => {
                     let Some(rig::message::ToolResultContent::Text(text)) = result.content.first()
                     else {
                         panic!("wait_jobs answers in text");
@@ -848,14 +847,10 @@ async fn check_job_lifetime(fail_inference: bool) {
     let (first, first_stream) = mpsc::channel(8);
     let (second, second_stream) = mpsc::channel(8);
     let (third, third_stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([
-            Some(first_stream),
-            Some(second_stream),
-            Some(third_stream),
-        ])),
-    };
+    let model = scripted(
+        seen,
+        [Some(first_stream), Some(second_stream), Some(third_stream)],
+    );
     let (updates, mut receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(
@@ -870,13 +865,12 @@ async fn check_job_lifetime(fail_inference: bool) {
     });
     let request = receive(&mut requests).await;
     assert!(request.tools.iter().any(|tool| tool.name == "cancel_job"));
-    first.send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-        "owned_shell", "shell".into(), serde_json::json!({"command":"echo started; while true; do echo x >> heartbeat; sleep 0.05; done & wait"})
-    )))).await.unwrap();
+    first.send(Ok(MockStreamEvent::tool_call(
+        "owned_shell", "shell", serde_json::json!({"command":"echo started; while true; do echo x >> heartbeat; sleep 0.05; done & wait"})
+    ))).await.unwrap();
     first
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
         ))))
         .await
         .unwrap();
@@ -893,7 +887,7 @@ async fn check_job_lifetime(fail_inference: bool) {
     let mut observed = Vec::new();
     if fail_inference {
         second
-            .send(Err(CompletionError::ProviderResponse(
+            .send(Err(ProviderError::ProviderResponse(
                 rig::ProviderResponseError::new(
                     http::StatusCode::TOO_MANY_REQUESTS,
                     r#"{"error":{"code":"insufficient_quota"}}"#,
@@ -1014,10 +1008,7 @@ async fn a_transient_failure_after_tools_retries_only_the_inference() {
     let (first, a) = mpsc::channel(8);
     let (second, b) = mpsc::channel(8);
     let (third, c) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(a), Some(b), Some(c)])),
-    };
+    let model = scripted(seen, [Some(a), Some(b), Some(c)]);
     let mut tools = ToolSet::default();
     tools.add_tool(Nod);
     let (updates, mut receiver) = mpsc::channel(64);
@@ -1025,38 +1016,39 @@ async fn a_transient_failure_after_tools_retries_only_the_inference() {
         tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
     receive(&mut requests).await;
     first
-        .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+        .send(Ok(MockStreamEvent::tool_call(
             "done-once",
-            "react".into(),
+            "react",
             serde_json::json!({"emoji":"👍"}),
-        ))))
+        )))
         .await
         .unwrap();
     first
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
         ))))
         .await
         .unwrap();
     drop(first);
     let before = receive(&mut requests).await;
     second
-        .send(Ok(RawStreamingChoice::Message("partial response".into())))
+        .send(Ok(MockStreamEvent::Text("partial response".into())))
         .await
         .unwrap();
     second
-        .send(Err(CompletionError::ProviderResponse(
+        .send(Err(ProviderError::ProviderResponse(
             rig::ProviderResponseError::new(http::StatusCode::SERVICE_UNAVAILABLE, "busy"),
         )))
         .await
         .unwrap();
     drop(second);
     let retry = receive(&mut requests).await;
-    let mut expected = before.chat_history.clone();
-    expected.push(Message::assistant("partial response"));
-    expected.push(Message::user(KEPT));
-    assert_eq!(retry.chat_history, expected);
+    let mut expected = said(&before);
+    expected.extend(parts(&[
+        Message::assistant("partial response"),
+        Message::user(KEPT),
+    ]));
+    assert_eq!(said(&retry), expected);
     answer(third).await;
     task.await.unwrap().unwrap();
     let mut calls = 0;
@@ -1080,10 +1072,7 @@ async fn a_report_shown_before_the_stream_dropped_is_remembered_on_retry() {
     let (first, a) = mpsc::channel(8);
     let (second, b) = mpsc::channel(8);
     let (third, c) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(a), Some(b), Some(c)])),
-    };
+    let model = scripted(seen, [Some(a), Some(b), Some(c)]);
     let mut tools = ToolSet::default();
     tools.add_tool(Nod);
     let (updates, mut receiver) = mpsc::channel(64);
@@ -1091,32 +1080,31 @@ async fn a_report_shown_before_the_stream_dropped_is_remembered_on_retry() {
         tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
     receive(&mut requests).await;
     first
-        .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+        .send(Ok(MockStreamEvent::tool_call(
             "schedule-1",
-            "react".into(),
+            "react",
             serde_json::json!({"emoji":"👍"}),
-        ))))
+        )))
         .await
         .unwrap();
     first
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::default(),
         ))))
         .await
         .unwrap();
     drop(first);
     receive(&mut requests).await;
     second
-        .send(Ok(RawStreamingChoice::Message("Today — Mon 5 Oct".into())))
+        .send(Ok(MockStreamEvent::Text("Today — Mon 5 Oct".into())))
         .await
         .unwrap();
     drop(second);
     let retry = receive(&mut requests).await;
-    let tail = &retry.chat_history[retry.chat_history.len() - 2..];
+    let retried = said(&retry);
     assert_eq!(
-        tail,
-        [Message::assistant("Today — Mon 5 Oct"), Message::user(KEPT)]
+        retried[retried.len() - 2..],
+        parts(&[Message::assistant("Today — Mon 5 Oct"), Message::user(KEPT)])
     );
     answer(third).await;
     task.await.unwrap().unwrap();
@@ -1142,17 +1130,14 @@ async fn stop_during_backoff_is_terminal() {
     let stop = turn.stop.clone();
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (first, stream) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(stream)])),
-    };
+    let model = scripted(seen, [Some(stream)]);
     let (updates, _receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(&model, request, &ToolSet::default(), &turn, &updates, None).await
     });
     receive(&mut requests).await;
     first
-        .send(Err(CompletionError::ProviderResponse(
+        .send(Err(ProviderError::ProviderResponse(
             rig::ProviderResponseError::new(http::StatusCode::TOO_MANY_REQUESTS, "rate limit"),
         )))
         .await
@@ -1175,29 +1160,27 @@ async fn stop_during_backoff_is_terminal() {
 async fn a_failed_repair_stays_repaired_for_the_next_operator_message() {
     let (turn, request) = fixture();
     let history = turn.history.clone();
-    history.lock().await.push(Message::Assistant {
-        id: None,
-        content: vec![AssistantContent::Reasoning(rig::message::Reasoning {
-            id: Some("bad:reasoning:item".into()),
-            content: vec![rig::message::ReasoningContent::Encrypted(
-                "opaque-state".into(),
-            )],
-        })],
-    });
+    history
+        .lock()
+        .await
+        .push(Message::Assistant(rig::message::AssistantMessage::new(
+            vec![AssistantContent::reasoning("").with_native(json!({
+                "type": "reasoning",
+                "id": "bad:reasoning:item",
+                "encrypted_content": "opaque-state",
+            }))],
+        )));
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (first, a) = mpsc::channel(8);
     let (second, b) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
-    };
+    let model = scripted(seen, [Some(a), Some(b)]);
     let (updates, mut receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(&model, request, &ToolSet::default(), &turn, &updates, None).await
     });
     receive(&mut requests).await;
     first
-        .send(Err(CompletionError::ProviderResponse(
+        .send(Err(ProviderError::ProviderResponse(
             rig::ProviderResponseError::new(
                 http::StatusCode::BAD_REQUEST,
                 "Invalid encrypted reasoning item",
@@ -1212,7 +1195,7 @@ async fn a_failed_repair_stays_repaired_for_the_next_operator_message() {
     assert!(!text.contains("bad:reasoning:item"));
     assert_eq!(text.matches("first request").count(), 1);
     second
-        .send(Err(CompletionError::ProviderResponse(
+        .send(Err(ProviderError::ProviderResponse(
             rig::ProviderResponseError::new(
                 http::StatusCode::BAD_REQUEST,
                 "invalid effort setting",
@@ -1222,7 +1205,7 @@ async fn a_failed_repair_stays_repaired_for_the_next_operator_message() {
         .unwrap();
     drop(second);
     assert_eq!(task.await.unwrap().unwrap_err().kind, Kind::Configuration);
-    assert_eq!(*history.lock().await, repaired.chat_history);
+    assert_eq!(parts(&history.lock().await), said(&repaired));
     let mut notices = 0;
     while let Some(update) = receiver.recv().await {
         if matches!(update, Update::Notice { .. }) {
@@ -1239,17 +1222,14 @@ async fn steering_during_backoff_is_consumed_once_without_waiting_for_the_delay(
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (first, a) = mpsc::channel(8);
     let (second, b) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
-    };
+    let model = scripted(seen, [Some(a), Some(b)]);
     let (updates, _receiver) = mpsc::channel(64);
     let task = tokio::spawn(async move {
         run(&model, request, &ToolSet::default(), &turn, &updates, None).await
     });
     receive(&mut requests).await;
     first
-        .send(Err(CompletionError::ProviderResponse(
+        .send(Err(ProviderError::ProviderResponse(
             rig::ProviderResponseError::new(
                 http::StatusCode::TOO_MANY_REQUESTS,
                 r#"{"retry_after_seconds":30}"#,
@@ -1275,12 +1255,10 @@ async fn steering_during_backoff_is_consumed_once_without_waiting_for_the_delay(
 async fn context_rotation_waits_for_the_session_handoff_before_requesting_again() {
     let recorded = hand_off_a_full_context(
         "test/model",
-        rig::completion::Usage {
-            input_tokens: 17_000,
-            output_tokens: 100,
-            total_tokens: 17_100,
-            ..Default::default()
-        },
+        Usage::new()
+            .input_tokens(17_000)
+            .output_tokens(100)
+            .total_tokens(17_100),
     )
     .await;
     assert_eq!(recorded.input_tokens, Some(17_010));
@@ -1290,21 +1268,19 @@ async fn context_rotation_waits_for_the_session_handoff_before_requesting_again(
     );
 }
 
-/// Claude counts what it read from its prompt cache, and what it wrote
-/// there, beside its input. A context that came mostly from the cache is
+/// Rig counts what Claude read from its prompt cache, and what it wrote
+/// there, inside its input. A context that came mostly from the cache is
 /// just as full, and the turn's record says how much of it was cached.
 #[tokio::test]
 async fn a_context_claude_read_from_its_cache_is_just_as_full() {
     let recorded = hand_off_a_full_context(
         "anthropic/claude-test",
-        rig::completion::Usage {
-            input_tokens: 40,
-            cached_input_tokens: 16_000,
-            cache_creation_input_tokens: 960,
-            output_tokens: 100,
-            total_tokens: 17_100,
-            ..Default::default()
-        },
+        Usage::new()
+            .input_tokens(17_000)
+            .cached_input_tokens(16_000)
+            .cache_creation_input_tokens(960)
+            .output_tokens(100)
+            .total_tokens(17_100),
     )
     .await;
     assert_eq!(recorded.input_tokens, Some(17_010));
@@ -1324,10 +1300,7 @@ async fn hand_off_a_full_context(model_id: &str, usage: rig::completion::Usage) 
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (first, a) = mpsc::channel(8);
     let (second, b) = mpsc::channel(8);
-    let model = ScriptModel {
-        requests: seen,
-        streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
-    };
+    let model = scripted(seen, [Some(a), Some(b)]);
     let (updates, mut receiver) = mpsc::channel(64);
     let mut tools = ToolSet::default();
     tools.add_tool(Nod);
@@ -1335,17 +1308,15 @@ async fn hand_off_a_full_context(model_id: &str, usage: rig::completion::Usage) 
         tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
     receive(&mut requests).await;
     first
-        .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+        .send(Ok(MockStreamEvent::tool_call(
             "done-once",
-            "react".into(),
+            "react",
             serde_json::json!({"emoji":"👍"}),
-        ))))
+        )))
         .await
         .unwrap();
     first
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted", usage,
-        ))))
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(usage))))
         .await
         .unwrap();
     drop(first);
@@ -1366,18 +1337,15 @@ async fn hand_off_a_full_context(model_id: &str, usage: rig::completion::Usage) 
     assert!(rendered.contains("done-once"));
     assert!(rendered.contains("Fresh continuation"));
     second
-        .send(Ok(RawStreamingChoice::Message("the new direction".into())))
+        .send(Ok(MockStreamEvent::Text("the new direction".into())))
         .await
         .unwrap();
     second
-        .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage {
-                input_tokens: 10,
-                output_tokens: 5,
-                total_tokens: 15,
-                ..Default::default()
-            },
+        .send(Ok(MockStreamEvent::FinalResponse(mock_final(
+            Usage::new()
+                .input_tokens(10)
+                .output_tokens(5)
+                .total_tokens(15),
         ))))
         .await
         .unwrap();

@@ -1,9 +1,19 @@
 use super::build::{effort_params, openrouter_model};
 use super::*;
 use crate::contract::Reach;
-use rig::providers::{anthropic, openrouter};
+use rig::providers::anthropic;
+use rig::providers::openai::{OpenAIConfig, wire};
 use rig::tool::{Tool, ToolContext};
 use serde_json::json;
+
+/// A tool set of `tools`, as a turn registers them.
+fn tool_set(tools: impl IntoIterator<Item = DynamicTool>) -> rig::tool::ToolSet {
+    let mut set = rig::tool::ToolSet::default();
+    for tool in tools {
+        set.add_dynamic_tool(tool);
+    }
+    set
+}
 
 fn choice(id: &str) -> ConfigChoice {
     ConfigChoice {
@@ -40,7 +50,6 @@ fn saved_model_and_room_preference_survive_missing_or_filtered_choices() {
 #[tokio::test]
 async fn native_anthropic_requests_use_live_limits_or_a_conservative_unknown_budget() {
     use axum::{Router, body::Bytes, routing::post};
-    use rig::client::CompletionClient;
     use serde_json::json;
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let app = Router::new().route("/v1/messages", post(move |body: Bytes| {
@@ -55,11 +64,9 @@ async fn native_anthropic_requests_use_live_limits_or_a_conservative_unknown_bud
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    let client = anthropic::Client::builder()
-        .api_key("test-only-key")
-        .base_url(&url)
-        .build()
-        .unwrap();
+    let client = anthropic::AnthropicConfig::new("test-only-key")
+        .with_base_url(&url)
+        .client();
     let keys = HashMap::from([("anthropic".into(), ProviderAuth::ApiKey("test-key".into()))]);
     let known = models::catalog().providers["anthropic"]
         .models
@@ -72,12 +79,11 @@ async fn native_anthropic_requests_use_live_limits_or_a_conservative_unknown_bud
         (known.as_str(), Some(1234), 1234),
     ] {
         let model_id = format!("anthropic/{id}");
-        let agent = agent_builder(&keys, &model_id, None, live_limit, Reuse::Once)
-            .await
-            .unwrap()
-            .build()
-            .with_model(client.completion_model(id));
-        assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
+        let settings = request_settings(&keys, &model_id, None, live_limit, Reuse::Once).unwrap();
+        let agent = settings
+            .on_agent(rig::agent::AgentBuilder::new(client.completion(id)))
+            .build();
+        assert_eq!(agent.prompt("hello").await.unwrap().output(), "ok");
         let request = rx.recv().await.unwrap();
         assert_eq!(request["model"], id);
         assert_eq!(request["max_tokens"], expected);
@@ -135,20 +141,17 @@ async fn claude_on_openrouter_is_asked_to_cache_and_other_models_are_left_alone(
         }),
     )
     .await;
-    let client = openrouter::Client::builder()
-        .api_key("test-only-key")
-        .base_url(&url)
-        .build()
-        .unwrap();
+    let config = OpenAIConfig::with_key(&wire::OPENROUTER, "test-only-key").with_base_url(&url);
     for (model, reuse, cached) in [
         ("anthropic/claude-test", Reuse::Rounds, true),
         ("anthropic/claude-test", Reuse::Once, false),
         ("openai/gpt-test", Reuse::Rounds, false),
     ] {
-        let agent = rig::agent::AgentBuilder::new(openrouter_model(&client, model, reuse))
-            .preamble("You are Ada.")
-            .build();
-        assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
+        let agent =
+            rig::agent::AgentBuilder::new(openrouter_model(config.clone(), model, reuse).unwrap())
+                .preamble("You are Ada.")
+                .build();
+        assert_eq!(agent.prompt("hello").await.unwrap().output(), "ok");
         let request = requests.recv().await.unwrap();
         let preamble = &request["messages"][0];
         assert_eq!(preamble["role"], "system", "{request}");
@@ -530,13 +533,12 @@ async fn a_chatgpt_turn_without_a_login_refuses_instead_of_starting_one() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Same proof for Copilot: an empty access-token and a `{}` api-key
-/// record, with the device flow disallowed, fails locally.
+/// Same proof for Copilot: a `{}` record, with the device flow disallowed,
+/// fails locally.
 #[tokio::test]
 async fn a_copilot_turn_without_a_login_refuses_instead_of_starting_one() {
     let dir = login_scratch("copilot");
-    std::fs::write(dir.join("access-token"), "").unwrap();
-    std::fs::write(dir.join("api-key.json"), "{}").unwrap();
+    std::fs::write(dir.join(crate::providers::rig_login::COPILOT_RECORD), "{}").unwrap();
     let keys = HashMap::from([(
         "github-copilot".to_string(),
         ProviderAuth::Login {
@@ -575,7 +577,6 @@ async fn a_responses_only_copilot_model_takes_the_responses_route() {
         http::HeaderMap,
         routing::{get, post},
     };
-    use rig::completion::CompletionModel;
     use serde_json::json;
     let (tx, mut rx) = tokio::sync::mpsc::channel(16);
     let responses = tx.clone();
@@ -680,43 +681,40 @@ async fn a_responses_only_copilot_model_takes_the_responses_route() {
     assert_eq!(path, "/chat/completions");
     assert_eq!(body["model"], "claude-sonnet-5");
 
-    let (_, params) =
-        request_settings(&keys, "github-copilot/grok-4.6", Some("high"), None).unwrap();
-    assert_eq!(params, Some(json!({"reasoning": {"effort": "high"}})));
-    let (_, params) =
-        request_settings(&keys, "github-copilot/claude-sonnet-5", Some("high"), None).unwrap();
-    assert_eq!(params, Some(json!({"reasoning_effort": "high"})));
-    let (_, params) =
-        request_settings(&keys, "github-copilot/gpt-5.3-codex", Some("high"), None).unwrap();
-    assert_eq!(params, Some(json!({"reasoning": {"effort": "high"}})));
+    let effort = |model: &str| {
+        request_settings(&keys, model, Some("high"), None, Reuse::Rounds)
+            .unwrap()
+            .additional_params
+    };
+    assert_eq!(
+        effort("github-copilot/grok-4.6"),
+        Some(json!({"reasoning": {"effort": "high"}}))
+    );
+    assert_eq!(
+        effort("github-copilot/claude-sonnet-5"),
+        Some(json!({"reasoning_effort": "high"}))
+    );
+    assert_eq!(
+        effort("github-copilot/gpt-5.3-codex"),
+        Some(json!({"reasoning": {"effort": "high"}}))
+    );
 
     // Tools on the Responses route are strict, as on Rig's own route.
-    let agent = agent_builder(&keys, "github-copilot/grok-4.6", None, None, Reuse::Rounds)
+    let model = completion_model(&keys, "github-copilot/grok-4.6", Reuse::Rounds)
         .await
-        .unwrap()
-        .build();
-    let request = rig::completion::CompletionRequest {
-        preamble: None,
-        tools: vec![rig::completion::ToolDefinition {
-            name: "read_file".into(),
-            description: "Read a file".into(),
-            parameters: json!({
+        .unwrap();
+    let request = rig::completion::CompletionRequest::new("read it").tool(
+        rig::completion::ToolDefinition::new(
+            rig::message::ToolName::new("read_file").unwrap(),
+            "Read a file",
+            json!({
                 "type": "object",
                 "properties": {"path": {"type": "string"}},
                 "required": ["path"]
             }),
-        }],
-        max_tokens: None,
-        additional_params: None,
-        model: None,
-        chat_history: vec![rig::message::Message::user("read it")],
-        documents: Vec::new(),
-        temperature: None,
-        tool_choice: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    };
-    agent.model_handle().completion(request).await.unwrap();
+        ),
+    );
+    model.call(request).await.unwrap();
     let (path, _, body) = rx.recv().await.unwrap();
     assert_eq!(path, "/responses");
     assert_eq!(body["tools"][0]["name"], "read_file");
@@ -776,7 +774,6 @@ fn echo_command() -> String {
 #[tokio::test]
 async fn a_dead_mcp_transport_fails_the_call_and_nothing_else() {
     use crate::mcp::{McpServer, McpTransport};
-    use rig::tool::ToolSet;
 
     let connected = mcp::connect(
         "mcp-notice-turn",
@@ -795,7 +792,7 @@ async fn a_dead_mcp_transport_fails_the_call_and_nothing_else() {
     assert!(connected.failed.is_empty(), "{:?}", connected.failed);
     let tool = connected.tools[0].clone();
     let name = tool.name.clone();
-    let set = ToolSet::from_dynamic_tools(vec![mcp_dynamic(tool)]);
+    let set = tool_set([mcp_dynamic(tool)]);
     let first = set
         .execute(
             &name,
@@ -822,7 +819,6 @@ async fn a_dead_mcp_transport_fails_the_call_and_nothing_else() {
 #[tokio::test]
 async fn a_granted_tool_is_read_and_called_through_the_fixed_pair() {
     use crate::mcp::{McpServer, McpTransport};
-    use rig::tool::ToolSet;
 
     let connected = mcp::connect(
         "mcp-granted-pair",
@@ -844,9 +840,7 @@ async fn a_granted_tool_is_read_and_called_through_the_fixed_pair() {
     let name = echo[0].name.clone();
 
     // The list the model sees does not depend on what is granted.
-    let definitions = |tools: Vec<mcp::McpTool>| {
-        ToolSet::from_dynamic_tools(granted::tools(tools).into()).get_tool_definitions()
-    };
+    let definitions = |tools: Vec<mcp::McpTool>| tool_set(granted::tools(tools)).tool_definitions();
     assert_eq!(definitions(echo.clone()), definitions(Vec::new()));
     let index = granted::index(&echo);
     assert!(
@@ -855,7 +849,7 @@ async fn a_granted_tool_is_read_and_called_through_the_fixed_pair() {
     );
     assert_eq!(granted::index(&[]), "");
 
-    let set = ToolSet::from_dynamic_tools(granted::tools(echo).into());
+    let set = tool_set(granted::tools(echo));
     let schema = set
         .execute(
             granted::SCHEMA,

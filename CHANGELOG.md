@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- Hotline Agent runs on Rig 0.45. A ChatGPT or GitHub Copilot sign-in made
+  before stays signed in: Copilot's is moved once into a single record
+  beside the login, and turns, calls, images and model lists now share one
+  refresh of a sign-in instead of each refreshing it on its own. A tool that
+  failed is marked as failed in what the model is sent, and a provider's
+  unfamiliar reason for ending a reply no longer fails it.
+
 ## [0.41.0] - 2026-10-20
 
 ### Added

@@ -6,7 +6,7 @@ members = ["crates/hotline-contract", "crates/hotline-support", "crates/hotline-
 version = "0.41.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.95"
+rust-version = "1.97.1"
 
 # Lint levels, read by every crate through `[lints] workspace = true`. Clippy
 # keeps its defaults; each pedantic or restriction lint here was chosen one by
@@ -86,7 +86,7 @@ used_underscore_binding = "warn"
 [workspace.dependencies]
 # Without `derive`: nothing here uses Rig's derive macros, and they bring a
 # proc-macro crate into every build.
-rig = { version = "0.42.0", default-features = false, features = ["agent", "reqwest", "rustls"] }
+rig = { version = "=0.45.0", default-features = false, features = ["agent", "reqwest", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 # `preserve_order`: an event read from a tape and written back keeps the key
 # order it was written with, so a compaction never rewrites a line into

@@ -5,13 +5,14 @@
 //! fixture is built (a client pointed at the stub, a request to refuse); see
 //! `docs/plans/rig-0.45-migration.md`.
 
-use super::super::build::anthropic_model;
+use super::super::build::{RequestSettings, anthropic_model};
 use super::*;
 use axum::Router;
 use axum::body::Bytes;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
-use rig::completion::CompletionModel;
+use rig::DynModel;
+use rig::operation::Completion;
 use rig::providers::{gemini, openai};
 use std::collections::VecDeque;
 use std::fmt::Write;
@@ -151,24 +152,28 @@ fn turn_on(
 /// The one tool the scripted turns call. It answers at once.
 fn note_tool() -> DynamicTool {
     DynamicTool::new(
-        "note",
+        rig::message::ToolName::new("note").unwrap(),
         "Write a note down.",
         json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}),
-        |_context, _arguments| Box::pin(async { Ok(ToolOutput::text("noted")) }),
+        |_arguments| Box::pin(async { Ok(ToolOutput::text("noted")) }),
     )
 }
 
 /// `turn` run on `model` with only [`note_tool`], as [`Turn::run`] runs one
 /// on a model it built: what the person was shown, and how it ended.
-async fn run_on(model: &impl CompletionModel, turn: &Turn) -> (Result<(), Failure>, Vec<Update>) {
+async fn run_on(model: &DynModel<Completion>, turn: &Turn) -> (Result<(), Failure>, Vec<Update>) {
     let mut tools = rig::tool::ToolSet::default();
     tools.add_dynamic_tool(note_tool());
-    let (max_tokens, additional_params) =
-        request_settings(&turn.keys, &turn.model, turn.effort.as_deref(), None).unwrap();
     let template = turn::Template {
-        tools: tools.get_tool_definitions(),
-        max_tokens,
-        additional_params,
+        tools: tools.tool_definitions(),
+        settings: request_settings(
+            &turn.keys,
+            &turn.model,
+            turn.effort.as_deref(),
+            None,
+            Reuse::Rounds,
+        )
+        .unwrap(),
     };
     let (sender, mut receiver) = mpsc::channel(1024);
     let result = turn::run(model, template, &tools, turn, &sender, None).await;
@@ -197,13 +202,11 @@ fn api_key(provider: &str) -> HashMap<String, ProviderAuth> {
 
 // ---- Claude over the API --------------------------------------------------
 
-fn claude_at(url: &str, reuse: Reuse) -> rig::providers::anthropic::completion::CompletionModel {
-    let client = anthropic::Client::builder()
-        .api_key("test-only-key")
-        .base_url(url)
-        .build()
-        .unwrap();
-    anthropic_model(&client, "claude-test", reuse)
+fn claude_at(url: &str, reuse: Reuse) -> DynModel<Completion> {
+    let client = anthropic::AnthropicConfig::new("test-only-key")
+        .with_base_url(url)
+        .client();
+    anthropic_model(&client, "claude-test", reuse).erase()
 }
 
 /// Claude's stream of one response: `blocks` between the message's start
@@ -361,9 +364,11 @@ async fn rig_pin_claude_cache_reads_fill_the_context_threshold() {
     let mut tools = rig::tool::ToolSet::default();
     tools.add_dynamic_tool(note_tool());
     let template = turn::Template {
-        tools: tools.get_tool_definitions(),
-        max_tokens: Some(64),
-        additional_params: None,
+        tools: tools.tool_definitions(),
+        settings: RequestSettings {
+            max_tokens: Some(64),
+            ..request_settings(&turn.keys, &turn.model, None, None, Reuse::Rounds).unwrap()
+        },
     };
     let (sender, mut receiver) = mpsc::channel(1024);
     let handed_off = async {
@@ -439,11 +444,184 @@ async fn rig_pin_claude_cache_markers_on_a_turn_and_none_on_a_single_answer() {
         .preamble(PREAMBLE)
         .max_tokens(64)
         .build();
-    assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
+    assert_eq!(agent.prompt("hello").await.unwrap().output(), "ok");
     let (_, body) = once.bodies().pop().unwrap();
     assert!(
         !body.to_string().contains("cache_control"),
         "a single answer asks for no cache: {body}"
+    );
+}
+
+// ---- Native state on the same provider ----------------------------------
+
+/// The parts of the request a turn's second round sent that say what the
+/// model did in its first: its reasoning, its call and the call's result.
+async fn second_round(
+    model: &DynModel<Completion>,
+    provider: &str,
+    model_id: &str,
+    stub: &mut Stub,
+) -> Value {
+    let scratch = tempfile::tempdir().unwrap();
+    let mut turn = turn_on(
+        api_key(provider),
+        model_id,
+        vec![Message::user("Note hi.")],
+        scratch.path(),
+    );
+    turn.effort = Some("high".into());
+    let (result, _) = run_on(model, &turn).await;
+    result.unwrap();
+    let bodies = stub.bodies();
+    assert_eq!(bodies.len(), 2);
+    bodies[1].1.clone()
+}
+
+/// Claude's thinking goes back to Claude with its signature, in front of
+/// the call it made, and the call's id is the one its result answers.
+#[tokio::test]
+async fn rig_pin_claude_thinking_goes_back_signed_with_its_call() {
+    let thinking = vec![
+        json!({"type": "content_block_start", "index": 0, "content_block":
+            {"type": "thinking", "thinking": "", "signature": ""}}),
+        json!({"type": "content_block_delta", "index": 0, "delta":
+            {"type": "thinking_delta", "thinking": "I will note it."}}),
+        json!({"type": "content_block_delta", "index": 0, "delta":
+            {"type": "signature_delta", "signature": "signed-thinking"}}),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({"type": "content_block_start", "index": 1, "content_block":
+            {"type": "tool_use", "id": "toolu_pin", "name": "note", "input": {}}}),
+        json!({"type": "content_block_delta", "index": 1, "delta":
+            {"type": "input_json_delta", "partial_json": "{\"text\":\"hi\"}"}}),
+        json!({"type": "content_block_stop", "index": 1}),
+    ];
+    let usage = json!({"input_tokens": 3, "output_tokens": 7});
+    let mut stub = Stub::serve(vec![
+        claude_stream(&thinking, "tool_use", usage.clone()),
+        claude_stream(&claude_text("Noted."), "end_turn", usage),
+    ])
+    .await;
+    let model = claude_at(&stub.url, Reuse::Rounds);
+    let body = second_round(&model, "anthropic", "anthropic/claude-test", &mut stub).await;
+    let messages = body["messages"].as_array().unwrap();
+    let said = &messages[1]["content"];
+    assert_eq!(said[0]["type"], "thinking", "{body}");
+    assert_eq!(said[0]["thinking"], "I will note it.", "{body}");
+    assert_eq!(said[0]["signature"], "signed-thinking", "{body}");
+    assert_eq!(said[1]["type"], "tool_use", "{body}");
+    assert_eq!(said[1]["id"], "toolu_pin", "{body}");
+    assert_eq!(
+        messages[2]["content"][0]["tool_use_id"], "toolu_pin",
+        "{body}"
+    );
+}
+
+/// OpenAI's reasoning goes back to OpenAI as the item it came as, its id and
+/// encrypted state whole, and the call's id is the one its result answers.
+#[tokio::test]
+async fn rig_pin_openai_reasoning_goes_back_whole_with_its_call() {
+    let reasoning = json!({"type": "reasoning", "id": "rs_pin",
+        "summary": [{"type": "summary_text", "text": "Noting it."}],
+        "encrypted_content": "encrypted-state"});
+    let call = json!({"type": "function_call", "id": "fc_pin", "call_id": "call_pin",
+        "name": "note", "arguments": "{\"text\":\"hi\"}", "status": "completed"});
+    let message = json!({"type": "message", "id": "msg_pin", "role": "assistant",
+        "status": "completed",
+        "content": [{"type": "output_text", "text": "Noted.", "annotations": []}]});
+    let response = |status: &str, output: Value| {
+        json!({"id": "resp_pin", "object": "response", "created_at": 1, "status": status,
+            "model": "gpt-test", "output": output,
+            "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}})
+    };
+    let round = |items: Vec<Value>| {
+        let mut all = vec![json!({"type": "response.created", "sequence_number": 0,
+            "response": response("in_progress", json!([]))})];
+        for (index, item) in items.iter().enumerate() {
+            all.push(json!({"type": "response.output_item.done",
+                "sequence_number": index + 1, "output_index": index, "item": item}));
+        }
+        all.push(
+            json!({"type": "response.completed", "sequence_number": items.len() + 1,
+            "response": response("completed", json!(items))}),
+        );
+        events(true, &all)
+    };
+    let mut stub = Stub::serve(vec![round(vec![reasoning, call]), round(vec![message])]).await;
+    let model = openai::OpenAIConfig::new("test-only-key")
+        .with_base_url(&stub.url)
+        .client()
+        .completion("gpt-test")
+        .erase();
+    let body = second_round(&model, "openai", "openai/gpt-test", &mut stub).await;
+    let input = body["input"].as_array().unwrap();
+    let item = |kind: &str| {
+        input
+            .iter()
+            .find(|item| item["type"] == kind)
+            .unwrap_or_else(|| panic!("no {kind} in {body}"))
+    };
+    assert_eq!(item("reasoning")["id"], "rs_pin", "{body}");
+    assert_eq!(
+        item("reasoning")["encrypted_content"],
+        "encrypted-state",
+        "{body}"
+    );
+    assert_eq!(item("function_call")["call_id"], "call_pin", "{body}");
+    assert_eq!(
+        item("function_call_output")["call_id"],
+        "call_pin",
+        "{body}"
+    );
+}
+
+/// Gemini's signature on the call it made goes back with that call, beside
+/// the call's result. Signatures are base64, as Gemini sends them.
+#[tokio::test]
+async fn rig_pin_gemini_signatures_go_back_with_the_call() {
+    let chunk = |parts: Value| {
+        json!({"candidates": [{"content": {"role": "model", "parts": parts},
+            "finishReason": "STOP", "index": 0}],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5,
+                "totalTokenCount": 15}})
+    };
+    let sse = |chunk: Value| Answer {
+        status: StatusCode::OK,
+        content_type: "text/event-stream",
+        retry_after: None,
+        body: format!("data: {chunk}\n\n"),
+    };
+    let mut stub = Stub::serve(vec![
+        sse(chunk(json!([
+            {"text": "Noting it.", "thought": true, "thoughtSignature": "c2lnbmVkLXRob3VnaHQ="},
+            {"functionCall": {"name": "note", "args": {"text": "hi"}},
+                "thoughtSignature": "c2lnbmVkLWNhbGw="}
+        ]))),
+        sse(chunk(json!([{"text": "Noted."}]))),
+    ])
+    .await;
+    let model = gemini::GeminiConfig::new("test-only-key")
+        .with_base_url(&stub.url)
+        .client()
+        .completion("gemini-test")
+        .erase();
+    let body = second_round(&model, "google", "google/gemini-test", &mut stub).await;
+    let parts: Vec<&Value> = body["contents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|content| content["parts"].as_array().unwrap())
+        .collect();
+    let call = parts
+        .iter()
+        .find(|part| part.get("functionCall").is_some())
+        .unwrap_or_else(|| panic!("no call in {body}"));
+    assert_eq!(call["functionCall"]["name"], "note", "{body}");
+    assert_eq!(call["thoughtSignature"], "c2lnbmVkLWNhbGw=", "{body}");
+    assert!(
+        parts
+            .iter()
+            .any(|part| part["functionResponse"]["name"] == "note"),
+        "{body}"
     );
 }
 
@@ -471,18 +649,16 @@ async fn rig_pin_openrouter_marks_claudes_system_prompt_and_no_other_models() {
     let scratch = tempfile::tempdir().unwrap();
     for (model, marked) in [("anthropic/claude-test", true), ("openai/gpt-test", false)] {
         let mut stub = Stub::serve(vec![chat_reply("ok")]).await;
-        let client = openrouter::Client::builder()
-            .api_key("test-only-key")
-            .base_url(&stub.url)
-            .build()
-            .unwrap();
+        let config = openai::OpenAIConfig::with_key(&openai::wire::OPENROUTER, "test-only-key")
+            .with_base_url(&stub.url);
         let turn = turn_on(
             api_key("openrouter"),
             &format!("openrouter/{model}"),
             vec![Message::user("hello")],
             scratch.path(),
         );
-        let (result, _) = run_on(&openrouter_model(&client, model, Reuse::Rounds), &turn).await;
+        let routed = openrouter_model(config, model, Reuse::Rounds).unwrap();
+        let (result, _) = run_on(&routed, &turn).await;
         result.unwrap();
         let (path, body) = stub.bodies().pop().unwrap();
         assert_eq!(path, "/chat/completions");
@@ -713,43 +889,31 @@ async fn rig_pin_ollama_effort_reaches_api_chat_as_think() {
 /// provider sends it. The shapes are the providers' own error bodies.
 #[tokio::test]
 async fn rig_pin_provider_refusals_classify_as_before() {
-    let anthropic = |url: &str| -> rig::agent::ModelHandle {
-        rig::agent::ModelHandle::new(claude_at(url, Reuse::Rounds))
+    let anthropic = |url: &str| -> DynModel<Completion> { claude_at(url, Reuse::Rounds) };
+    let openai = |url: &str| -> DynModel<Completion> {
+        openai::OpenAIConfig::new("test-only-key")
+            .with_base_url(url)
+            .client()
+            .completion("gpt-test")
+            .erase()
     };
-    let openai = |url: &str| -> rig::agent::ModelHandle {
-        use rig::client::CompletionClient;
-        rig::agent::ModelHandle::new(
-            openai::Client::builder()
-                .api_key("test-only-key")
-                .base_url(url)
-                .build()
-                .unwrap()
-                .completion_model("gpt-test"),
-        )
-    };
-    let openrouter = |url: &str| -> rig::agent::ModelHandle {
-        rig::agent::ModelHandle::new(openrouter_model(
-            &openrouter::Client::builder()
-                .api_key("test-only-key")
-                .base_url(url)
-                .build()
-                .unwrap(),
+    let openrouter = |url: &str| -> DynModel<Completion> {
+        openrouter_model(
+            openai::OpenAIConfig::with_key(&openai::wire::OPENROUTER, "test-only-key")
+                .with_base_url(url),
             "anthropic/claude-test",
             Reuse::Rounds,
-        ))
-    };
-    let gemini = |url: &str| -> rig::agent::ModelHandle {
-        use rig::client::CompletionClient;
-        rig::agent::ModelHandle::new(
-            gemini::Client::builder()
-                .api_key("test-only-key")
-                .base_url(url)
-                .build()
-                .unwrap()
-                .completion_model("gemini-test"),
         )
+        .unwrap()
     };
-    type Route = fn(&str) -> rig::agent::ModelHandle;
+    let gemini = |url: &str| -> DynModel<Completion> {
+        gemini::GeminiConfig::new("test-only-key")
+            .with_base_url(url)
+            .client()
+            .completion("gemini-test")
+            .erase()
+    };
+    type Route = fn(&str) -> DynModel<Completion>;
     /// What a route answered and how Hotline reads it: the case, the route, the
     /// status, `retry-after`, the body; the kind and the retry it reads.
     type Case = (
@@ -820,13 +984,11 @@ async fn rig_pin_provider_refusals_classify_as_before() {
 
 /// The failure a turn's streamed request on `model` ends in, whether the
 /// request is refused or its stream is.
-async fn refused(model: &rig::agent::ModelHandle) -> Failure {
-    let request = model
-        .completion_request("hello")
-        .preamble(PREAMBLE.into())
-        .max_tokens(64)
-        .build();
-    match model.stream(request).await {
+async fn refused(model: &DynModel<Completion>) -> Failure {
+    let request = rig::completion::CompletionRequest::new("hello")
+        .preamble(PREAMBLE)
+        .max_tokens(64);
+    match model.stream(request) {
         Err(error) => Failure::provider(error, "request"),
         Ok(mut stream) => loop {
             match stream.next().await {

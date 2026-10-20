@@ -147,7 +147,8 @@ file folded by id, exactly the tape's model:
 The roster is a fold over `room`. Settings are a fold over `room`. A delete
 is a tombstone event. Secrets are never events: Hotline-owned provider and MCP values live in the
 operating system credential store; the vault files hold opaque references.
-Rig-owned ChatGPT and Copilot OAuth caches remain permission-restricted files.
+ChatGPT and Copilot sign-ins remain permission-restricted files in their login
+directories, which Rig reads and writes through Hotline's own token store.
 The log holds only credential metadata. Replication, when it returns, is shipping a stream's
 bytes, which the tape's segment model already does.
 
@@ -348,17 +349,37 @@ boundary once. A continuation that still cannot fit fails explicitly. ACP owns
 its own internal request loop and context management; Hotline does not interrupt an
 opaque child turn using a guessed token count.
 
+The loop writes each round's request itself (`turn::round_request`), so a
+turn sends the same settings an agent's answer would (`build::RequestSettings`:
+the output ceiling, the effort, the cache it asks for). Rig keeps the system
+prompt as a request's first message, and the loop rebuilds each round's
+conversation from its history, so the prompt is put back on every round
+rather than carried from the first.
+
 Claude over the API caches nothing unless a request asks, and every round of a
 turn resends the tools, the preamble and the history. A turn therefore asks: the
-tools and the preamble carry cache markers, and a top-level breakpoint moves
-forward with the conversation. Claude through OpenRouter gets the preamble's
-marker, which is the one OpenRouter passes on. A one-shot answer such as a
-chapter's note asks for nothing, because a cache write costs more than a plain
-read that nothing follows. Anthropic reports cached input beside its input
-tokens rather than inside them, so a round's usage is counted whole before it
-meets the context threshold or the turn's record, which keeps cache reads and
-writes as counts of their own. That count is `pricing::Tokens::of`, the one
-place Rig's usage is read, so turns and the call assistant meter it alike.
+tools and the preamble carry cache markers, and the request's cache is a
+top-level breakpoint that moves forward with the conversation. Claude through
+OpenRouter gets that request-level marker and, on its way out, one on the
+preamble, which OpenRouter passes on (`build::openrouter_model`). A one-shot
+answer such as a chapter's note asks for nothing, because a cache write costs
+more than a plain read that nothing follows. Rig counts every provider's cache
+reads and writes inside its input tokens, Anthropic's included, so a round's
+usage is already whole when it meets the context threshold or the turn's
+record, which keeps cache reads and writes as counts of their own; adding
+Anthropic's again would price each cached token twice and fill the context
+early. That count is `pricing::Tokens::of`, the one place Rig's usage is read,
+so turns and the call assistant meter it alike. A response counted at no
+tokens at all reported nothing, and keeps what it reserved.
+
+Every Hotline request accepts a finish reason Rig does not know as an ordinary
+stop. Rig 0.44 began failing a reply whose finish reason was outside its list,
+and marking it never to be sent again. A gateway that passes its upstream's own
+reason through would then fail a spoken answer that arrived whole, and a
+turn's reply would drop out of every later request while the results of its
+tool calls stayed in. Hotline ended a reply on any reason it was not told was
+a truncation or a filter before, and still does: a length or content-filter
+finish, or a reply the provider says failed, runs none of its tool calls.
 
 An ACP prompt failure never automatically reissues that prompt. The next operator
 message replaces the failed child only after the old process exits, opens a fresh
@@ -513,8 +534,19 @@ screens exist and how they behave, and a component is lifted from it only
 where that is cheaper than writing it. Bun and Node exist only as the UI's
 build tools; nothing runs on them.
 
-Providers use Rig's native clients for inference. Rig also owns ChatGPT and
-Copilot login and refresh. OpenRouter offers pasted keys and browser PKCE
+Providers use Rig's native clients for inference. Rig also signs ChatGPT and
+Copilot in and refreshes them, through Hotline's own token store over each
+login's directory (`providers/rig_login.rs`): ChatGPT's record is the
+`auth.json` it has always been, and Copilot's is `copilot.json`, into which a
+login made before Rig 0.45 is moved once from its `access-token` and
+`api-key.json`, those removed only after the new record is written. One
+authenticator per credential serves turns, voice, image generation and
+discovery, sharing one refresh and one in-memory token, and the store locks
+each record file, never a provider, for any other authenticator over it (a
+sign-in), so a rotated refresh token is spent once and a Copilot device flow
+waiting on a person holds only its own login. Their models go through a
+transport (`providers/outgoing.rs`) that signs each request with the live
+token as it leaves. OpenRouter offers pasted keys and browser PKCE
 sign-in; Hotline exchanges the code for a private API key and hands that key to
 Rig's OpenRouter client. Ollama Local takes a server URL, while Ollama Cloud
 takes an API key for `https://ollama.com`. Both use Rig's Ollama client for
@@ -534,12 +566,13 @@ separate API-key connections using Rig's native Z.ai endpoints.
 Custom OpenAI-compatible connections have stable, separate provider ids, a
 name, base URL, optional key, API choice, and an editable model list. Rig's
 native OpenAI Responses and Chat Completions clients own inference and model
-discovery. A small Rig provider builder makes bearer authentication optional.
-Inference runs over a thin transport (`providers/compat.rs`) that repairs
-Responses frames compatible servers send more loosely than OpenAI (missing
-sequence numbers or item ids and statuses, a float `created_at`, echoed
-`instructions` items, an empty `error`) before Rig's strict decode reads them,
-and logs once any frame it still cannot read. Keys are privately bound to the exact
+discovery, on a dialect of the connection's own that makes bearer
+authentication optional and keeps Rig's catalogue of OpenAI's models from
+describing a model that only shares an id with one of them. Inference runs
+over a thin transport (`providers/compat.rs`) that repairs Responses frames
+compatible servers send more loosely than OpenAI (missing sequence numbers or
+item ids and statuses, a float `created_at`, echoed `instructions` items, an
+empty `error`) before Rig reads them. Keys are privately bound to the exact
 endpoint, so editing a URL requires explicitly supplying or removing its key.
 Discovery fills the form without changing a saved connection until Save.
 Provider discovery supplies current model IDs wherever Rig has a supported

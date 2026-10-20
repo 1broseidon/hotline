@@ -131,8 +131,9 @@ decision for George, not a bug fix.
   native store, and a desk started on the other store refuses the room
   instead of starting empty. There is no encryption layer of its own: a key
   handed in by systemd (`LoadCredentialEncrypted=`) would protect only these
-  files, while the ChatGPT and Copilot login tokens Rig keeps in
-  `vault/logins/` are already plain owner-only files. What protects all of
+  files, while the ChatGPT and Copilot login tokens Rig reads and writes
+  through Hotline's store in `vault/logins/` are already plain owner-only
+  files (see [ChatGPT and Copilot sign-ins](#chatgpt-and-copilot-sign-ins)). What protects all of
   them is the service account and the disk. Root on the machine, or a copy
   of its disk, snapshots or backups, reads every one: encrypt the volume and
   its backups (`docs/serve.md`).
@@ -325,8 +326,8 @@ The adapter rechecks the caller's lease after authentication refresh and
 immediately before dispatch, so stopping the teammate during refresh sends
 neither prompt nor references. Refresh timeouts report a retryable delay,
 not an invalid login.
-`imagegen::tests` proves the JSON request and account headers against localhost,
-login rereads and safe refusals; resolver tests prove subscriptions first and
+`imagegen::tests` proves the JSON request and the login's token and account
+headers against localhost, and safe refusals; resolver tests prove subscriptions first and
 no paid fallback. `session::generate::tests` proves subscription output and
 unchanged dollar accounting even with disabled or exhausted budgets.
 `imagegen::chatgpt::tests` covers revocation during refresh with a local HTTP
@@ -347,6 +348,44 @@ durably reserved estimate. Generated files
 and chat copies share the existing retention policy; no automatic cleanup
 is added. Voice will use the same spending interface when its branch is
 integrated; it is not charged by this image-only branch yet.
+
+## ChatGPT and Copilot sign-ins
+
+Rig reads and writes a ChatGPT or GitHub Copilot sign-in only through a token
+store the host hands it. Hotline's (`providers/rig_login.rs`) keeps each
+sign-in where it has always been: the credential's own login directory,
+`vault/logins/<id>/` (0700), its record one 0600 file written whole, a
+temporary file renamed over it and the directory synced.
+
+- **Default.** A person signed in stays signed in. ChatGPT's record is
+  `auth.json`, read as Rig 0.42 left it. Copilot's two files, `access-token`
+  (the GitHub token) and `api-key.json` (the Copilot token it was exchanged
+  for), are moved once into `copilot.json`, field for field, and removed
+  only after that is on disk; a write that fails leaves them for the next
+  read. A new login starts with its record as `{}`. No token is in the room
+  stream, on the wire, in a contract type or a failure card, and the
+  transport that signs a request prints none in its `Debug`.
+- **Grant source.** The person's own sign-in, by device code on the desk, as
+  before. A teammate is never handed a token: its model requests are signed
+  by the core as they leave (`providers/outgoing.rs`), each with the
+  login's live token, to the origin Rig addresses for that provider, with
+  redirects disabled.
+- **Enforcement points.** One authenticator per login directory
+  (`rig_login::chatgpt`, `rig_login::copilot`) serves turns, voice, image
+  generation and discovery, and never starts a sign-in. Its clients share
+  one refresh and one in-memory token; the store locks each record file for
+  any other authenticator over the same login (the sign-in's), so a rotated
+  refresh token is spent once. The lock is per credential, never per
+  provider, so a Copilot device flow waiting up to fifteen minutes on the
+  person holds only its own login. The store answers for its two records
+  and refuses any other key.
+- **Tests.** The sign-ins row of the [regression matrix](#the-regression-matrix).
+- **Residual risk.** The records are plaintext owner-only files, as they
+  were; they are not yet in the operating system's credential store. A
+  revoked or deleted login's live token stays in its authenticator's memory
+  until it expires (up to an hour), though nothing asks for it once the
+  login is no longer a connection. Deleting a ChatGPT login removes its
+  files but does not yet revoke its tokens at OpenAI.
 
 ## Operator actions are not agent capabilities
 
@@ -672,6 +711,7 @@ extend; when a change adds a boundary, it adds a row.
 | Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice/direct.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/tests/text.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`; `voice/tests/budgets.rs` `text_input_keeps_budget_gating_before_dispatch` | — |
 | The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests/owner_handler.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `hotline-voice/src/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Running processes: a command still running when the teammate replies ends the turn at once and outlives it; a later turn is told of it and stops it; one that ends on its own wakes the teammate once, and on a live call the front says that turn's reply; a session stop and a grant change kill it; a fifth command is refused naming the four; a process is never waited on and a stop asked for wakes nobody, taking its whole process group; a call goes listening at the reply and is given no progress line while a process runs | `tests/processes.rs` `running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it`, `running_process_that_ends_on_its_own_wakes_the_teammate_once`, `running_process_dies_with_its_stopped_session`, `running_process_dies_when_its_grant_is_revoked`; `running_process_serve_open_and_stop_end_to_end`; `tests/voice/processes.rs` `running_process_that_ends_during_a_call_is_said_on_the_call`, `running_process_a_server_started_on_a_call_leaves_the_call_listening`; `session/jobs.rs` `running_process_a_fifth_command_is_refused_naming_the_four`, `running_process_is_inspected_and_cancelled_later_but_never_waited_on`, `running_process_that_ends_before_its_route_moves_still_wakes_once`; `tests/processes.rs` `process_chip_a_process_is_on_the_session_until_the_person_stops_it`, `process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it`, `process_chip_output_is_the_latest_of_what_it_wrote`; `wire/tests/seats.rs` `process_chip_only_the_desk_and_the_owner_reach_a_process` | Unix |
+| ChatGPT and Copilot sign-ins stay where they were and are spent once: a Rig 0.42 Copilot login moves into `copilot.json` and is served without an exchange, its old files removed only after the write; a Rig 0.42 ChatGPT `auth.json` is read unchanged; clients refreshing one login at once spend its refresh token once; a new Copilot login starts with only its private record; a turn without a sign-in names it instead of starting one | `providers/rig_login/tests.rs` `rig_login_a_0_42_copilot_dir_migrates_to_copilot_json_and_stays_signed_in`, `rig_login_a_failed_copilot_write_keeps_the_0_42_files`, `rig_login_a_0_42_chatgpt_auth_json_loads_unchanged`, `rig_login_two_clients_refreshing_at_once_spend_the_refresh_token_once`; `vault.rs` `a_copilot_login_precreates_the_record_rig_will_write`; `driver/rig/tests.rs` `a_chatgpt_turn_without_a_login_refuses_instead_of_starting_one`, `a_copilot_turn_without_a_login_refuses_instead_of_starting_one` | the failed write: Unix |
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk/workspace.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
 | Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `hotline-tools/src/workspace/tests.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `hotline-tools/src/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `hotline-tools/src/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp/tests/session_new.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/tests.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests/preamble.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `hotline-tools/src/workspace/tests.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |

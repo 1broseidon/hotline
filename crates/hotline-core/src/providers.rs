@@ -6,6 +6,8 @@ pub(crate) mod compat;
 pub(crate) mod copilot;
 pub(crate) mod custom;
 pub(crate) mod discovery;
+pub(crate) mod outgoing;
+pub(crate) mod rig_login;
 pub(crate) mod xai;
 
 use crate::credentials::CredentialFile;
@@ -35,19 +37,17 @@ pub(crate) fn ollama_url(input: &str) -> Result<String, String> {
     Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
-pub(crate) fn ollama_client(base_url: &str, key: &str) -> Result<ollama::Client, String> {
+pub(crate) fn ollama_client(base_url: &str, key: &str) -> Result<ollama::Ollama, String> {
     let http = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         // Credentials must never follow a redirect to another server.
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| error.to_string())?;
-    ollama::Client::builder()
-        .api_key(key)
-        .base_url(base_url)
-        .http_client(http)
-        .build()
-        .map_err(|error| error.to_string())
+    Ok(ollama::OllamaConfig::new()
+        .with_base_url(base_url)
+        .with_api_key(key)
+        .connect(rig::http_client::ReqwestClient::from(http)))
 }
 
 pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<String>, String> {

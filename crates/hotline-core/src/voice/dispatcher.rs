@@ -12,7 +12,7 @@ use super::{
 };
 use crate::contract::{Command, ModelCost, ScheduleKind, VoiceModel};
 use crate::log::{Log, StreamId};
-use crate::pricing::{billed, cost, listed_price};
+use crate::pricing::{Tokens, billed, cost, listed_price};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
@@ -473,8 +473,6 @@ impl ProviderDispatcher {
                 price: self.price.clone(),
                 fixed_bytes: preamble.len().saturating_add(tools * TOOL_BYTES),
                 output_limit,
-                cache_beside_input: crate::models::wiring(&provider)
-                    .is_some_and(|wiring| wiring.client == crate::models::Client::Anthropic),
                 reservation: Arc::new(Mutex::new(None)),
                 denied: denied.clone(),
                 vault: self.vault.clone(),
@@ -647,9 +645,6 @@ struct Meter {
     fixed_bytes: usize,
     /// The output ceiling the request was built with.
     output_limit: u64,
-    /// Whether the provider reports cache reads and writes beside
-    /// `input_tokens` (Anthropic) rather than inside it.
-    cache_beside_input: bool,
     /// The model call in flight's reservation, until its response settles it.
     reservation: Arc<Mutex<Option<Reservation>>>,
     denied: Arc<AtomicBool>,
@@ -671,10 +666,11 @@ impl Meter {
     /// charged, or the cost left too little budget for another call.
     fn settle(&self, usage: Usage) -> Result<(), &'static str> {
         let reservation = super::lock(&self.reservation).take();
-        if usage.total_tokens == 0 && usage.input_tokens == 0 && usage.output_tokens == 0 {
+        let tokens = Tokens::of(&usage, &self.provider);
+        if !tokens.reported {
             return Err("The provider did not report usage for the voice budget.");
         }
-        let actual = cost(&self.price, &usage, self.cache_beside_input);
+        let actual = cost(&self.price, &tokens);
         let settled = match reservation {
             Some(reservation) => self.ledger.settle(reservation, actual),
             None => self.ledger.spend(Kind::Dispatcher, actual),
@@ -1101,7 +1097,7 @@ mod tests {
         // 1,000 fresh, 4,000 read and 2,000 written input tokens; 300 out.
         let used = usage(1_000, 300, 4_000, 2_000, 7_300);
         near(
-            cost(&haiku, &used, true),
+            cost(&haiku, &Tokens::of(&used, "anthropic")),
             (1_000.0 * 0.1 + 4_000.0 * 0.01 + 2_000.0 * 0.125 + 300.0 * 0.5) / 1e6,
         );
     }
@@ -1117,7 +1113,7 @@ mod tests {
         // 5,000 prompt tokens, 3,000 of them read from the cache.
         let used = usage(5_000, 200, 3_000, 0, 5_200);
         near(
-            cost(&price, &used, false),
+            cost(&price, &Tokens::of(&used, "openai")),
             (2_000.0 * 1.0 + 3_000.0 * 0.1 + 200.0 * 4.0) / 1e6,
         );
     }
@@ -1132,7 +1128,10 @@ mod tests {
         };
         // Gemini counts thoughts in the total and not in the candidates.
         let used = usage(1_000, 100, 0, 0, 1_600);
-        near(cost(&price, &used, false), (1_000.0 + 600.0 * 4.0) / 1e6);
+        near(
+            cost(&price, &Tokens::of(&used, "openai")),
+            (1_000.0 + 600.0 * 4.0) / 1e6,
+        );
     }
 
     #[test]
@@ -1145,7 +1144,7 @@ mod tests {
         };
         let used = usage(0, 0, 1_000, 1_000, 2_000);
         near(
-            cost(&price, &used, true),
+            cost(&price, &Tokens::of(&used, "anthropic")),
             (1_000.0 * 2.0 + 1_000.0 * 2.5) / 1e6,
         );
     }
@@ -1163,7 +1162,6 @@ mod tests {
             },
             fixed_bytes: 3_000,
             output_limit: 512,
-            cache_beside_input: true,
             reservation: Arc::default(),
             denied: Arc::default(),
             vault,

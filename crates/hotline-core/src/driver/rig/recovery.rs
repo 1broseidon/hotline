@@ -120,10 +120,10 @@ pub(super) fn context_threshold(limit: Option<u64>, output: Option<u64>) -> Opti
 
 pub(super) fn estimated_tokens(
     history: &[Message],
-    template: &rig::completion::CompletionRequest,
+    preamble: &str,
+    tools: &[rig::completion::ToolDefinition],
 ) -> u64 {
-    let mut bytes = template.preamble.as_ref().map_or(0, String::len)
-        + serde_json::to_vec(&template.tools).map_or(0, |bytes| bytes.len());
+    let mut bytes = preamble.len() + serde_json::to_vec(tools).map_or(0, |bytes| bytes.len());
     let mut image_tokens = 0;
     for message in history {
         match message {

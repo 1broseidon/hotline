@@ -1,4 +1,4 @@
-use super::build::{anthropic_model, effort_params, openrouter_model};
+use super::build::{effort_params, openrouter_model};
 use super::*;
 use crate::contract::Reach;
 use rig::providers::{anthropic, openrouter};
@@ -122,83 +122,6 @@ async fn provider_at(
         axum::serve(listener, app).await.unwrap();
     });
     (url, rx, server)
-}
-
-fn claude_answer(usage: serde_json::Value) -> serde_json::Value {
-    serde_json::json!({"id":"msg_test", "type":"message", "role":"assistant", "model":"claude-test", "content":[{"type":"text","text":"ok"}], "stop_reason":"end_turn", "stop_sequence":null, "usage":usage})
-}
-
-#[tokio::test]
-async fn a_turn_asks_claude_to_cache_and_a_single_answer_does_not() {
-    let (url, mut requests, server) = provider_at(
-        "/v1/messages",
-        claude_answer(serde_json::json!({"input_tokens":2,"output_tokens":1})),
-    )
-    .await;
-    let client = anthropic::Client::builder()
-        .api_key("test-only-key")
-        .base_url(&url)
-        .build()
-        .unwrap();
-    for (reuse, cached) in [(Reuse::Rounds, true), (Reuse::Once, false)] {
-        let agent = rig::agent::AgentBuilder::new(anthropic_model(&client, "claude-test", reuse))
-            .preamble("You are Ada.")
-            .max_tokens(64)
-            .build();
-        assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
-        let request = requests.recv().await.unwrap();
-        assert_eq!(
-            request.get("cache_control").is_some(),
-            cached,
-            "the breakpoint that moves with the conversation, {reuse:?}: {request}"
-        );
-        assert_eq!(
-            request["system"][0].get("cache_control").is_some(),
-            cached,
-            "the preamble's own marker, {reuse:?}: {request}"
-        );
-    }
-    server.abort();
-}
-
-#[tokio::test]
-async fn what_claude_reads_from_its_cache_counts_as_input() {
-    let (url, _requests, server) = provider_at(
-        "/v1/messages",
-        claude_answer(serde_json::json!({
-            "input_tokens": 5,
-            "cache_read_input_tokens": 1000,
-            "cache_creation_input_tokens": 200,
-            "output_tokens": 7
-        })),
-    )
-    .await;
-    let client = anthropic::Client::builder()
-        .api_key("test-only-key")
-        .base_url(&url)
-        .build()
-        .unwrap();
-    let response = anthropic_model(&client, "claude-test", Reuse::Rounds)
-        .completion_request("hello")
-        .max_tokens(64)
-        .send()
-        .await
-        .unwrap();
-    let usage = turn::every_input_token(response.usage, "anthropic/claude-test");
-    assert_eq!(
-        (
-            usage.input_tokens,
-            usage.cached_input_tokens,
-            usage.cache_creation_input_tokens
-        ),
-        (1205, 1000, 200)
-    );
-    assert_eq!(
-        turn::every_input_token(response.usage, "openai/gpt-test").input_tokens,
-        5,
-        "a provider that counts cached input inside its input is taken as it reports"
-    );
-    server.abort();
 }
 
 #[tokio::test]
@@ -1294,3 +1217,5 @@ async fn a_computer_server_writes_its_eight_tools_on_the_ledger_under_origin_com
     drop(connected);
     served.abort();
 }
+
+mod pins;

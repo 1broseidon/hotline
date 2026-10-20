@@ -1,10 +1,12 @@
-//! Building the Rig agent for one turn: the model on its provider's client, the
-//! reasoning effort each client takes, and the request settings a provider needs.
+//! Building the Rig model for one turn, and the agent for one answer: the
+//! model on its provider's client, the reasoning effort each client takes,
+//! and the request settings a provider needs.
 
 use super::text;
 use crate::contract::SessionConfig;
 use crate::models::{self, Client};
 use crate::session::ProviderAuth;
+use rig::agent::{AgentBuilder, ModelHandle};
 use rig::prelude::*;
 use rig::providers::{
     anthropic, chatgpt, deepseek, gemini, groq, mistral, openai, openrouter, xai, zai,
@@ -104,14 +106,34 @@ pub(super) fn openrouter_model(
     }
 }
 
-/// The builder for one model on the provider whose credential the desk holds.
+/// An agent for one model on the provider whose credential the desk holds,
+/// with the output ceiling and effort its requests carry.
 pub(super) async fn agent_builder(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     effort: Option<&str>,
     output_limit: Option<u64>,
     reuse: Reuse,
-) -> Result<rig::agent::AgentBuilder, String> {
+) -> Result<AgentBuilder, String> {
+    let builder = AgentBuilder::from_model_handle(completion_model(keys, model_id, reuse).await?);
+    let (ceiling, params) = request_settings(keys, model_id, effort, output_limit)?;
+    let builder = match ceiling {
+        Some(ceiling) => builder.max_tokens(ceiling),
+        None => builder,
+    };
+    Ok(match params {
+        Some(params) => builder.additional_params(params),
+        None => builder,
+    })
+}
+
+/// One model on the provider whose credential the desk holds. A turn sends
+/// its own requests to it; an agent wraps it for a single answer.
+pub(super) async fn completion_model(
+    keys: &HashMap<String, ProviderAuth>,
+    model_id: &str,
+    reuse: Reuse,
+) -> Result<ModelHandle, String> {
     let (provider, model) = model_id
         .split_once('/')
         .ok_or_else(|| format!("{model_id} is not a provider/model id"))?;
@@ -120,7 +142,7 @@ pub(super) async fn agent_builder(
         .ok_or_else(|| format!("No connection for {provider} is available on this desk."))?;
     let wiring = models::wiring(provider)
         .ok_or_else(|| format!("{provider} is not a provider Hotline Agent can use"))?;
-    let builder = match (wiring.client, held) {
+    let model = match (wiring.client, held) {
         (_, ProviderAuth::Unavailable(error)) => return Err(error.clone()),
         (
             Client::CustomOpenAi,
@@ -133,32 +155,36 @@ pub(super) async fn agent_builder(
         ) => {
             let client = crate::providers::custom::client(base_url, api_key.as_deref())?;
             match config.api {
-                crate::contract::OpenAiApi::Responses => client.agent(model),
+                crate::contract::OpenAiApi::Responses => {
+                    ModelHandle::new(client.completion_model(model))
+                }
                 crate::contract::OpenAiApi::ChatCompletions => {
-                    client.completions_api().agent(model)
+                    ModelHandle::new(client.completions_api().completion_model(model))
                 }
             }
         }
         (Client::CustomOpenAi, _) | (_, ProviderAuth::Custom { .. }) => {
             return Err("This model needs its saved custom connection.".into());
         }
-        (Client::ChatGpt, ProviderAuth::Login { token_dir }) => chatgpt::Client::builder()
-            .oauth()
-            .auth_file(token_dir.join("auth.json"))
-            .allow_device_flow(false)
-            .build()
-            .map_err(text)?
-            .agent(model),
+        (Client::ChatGpt, ProviderAuth::Login { token_dir }) => ModelHandle::new(
+            chatgpt::Client::builder()
+                .oauth()
+                .auth_file(token_dir.join("auth.json"))
+                .allow_device_flow(false)
+                .build()
+                .map_err(text)?
+                .completion_model(model),
+        ),
         (Client::Copilot, ProviderAuth::Login { token_dir }) => {
             crate::providers::copilot::ensure_endpoints(token_dir).await;
             if crate::providers::copilot::wants_responses(token_dir, model) {
-                crate::providers::copilot::responses_agent(token_dir, model).await?
+                crate::providers::copilot::responses_model(token_dir, model).await?
             } else {
-                crate::providers::copilot::chat_agent(token_dir, model)?
+                crate::providers::copilot::chat_model(token_dir, model)?
             }
         }
         (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => {
-            rig::agent::AgentBuilder::new(openrouter_model(
+            ModelHandle::new(openrouter_model(
                 &openrouter::Client::new(&crate::providers::openrouter_key(tokens)?)
                     .map_err(text)?,
                 model,
@@ -166,14 +192,15 @@ pub(super) async fn agent_builder(
             ))
         }
         (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
-            crate::providers::xai::client(tokens)?.agent(model)
+            ModelHandle::new(crate::providers::xai::client(tokens)?.completion_model(model))
         }
         (Client::Ollama, ProviderAuth::Local { base_url }) => {
-            crate::providers::ollama_client(base_url, "")?.agent(model)
+            ModelHandle::new(crate::providers::ollama_client(base_url, "")?.completion_model(model))
         }
-        (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => {
-            crate::providers::ollama_client(crate::providers::OLLAMA_CLOUD_URL, key)?.agent(model)
-        }
+        (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            crate::providers::ollama_client(crate::providers::OLLAMA_CLOUD_URL, key)?
+                .completion_model(model),
+        ),
         (_, ProviderAuth::Local { .. }) | (Client::Ollama, ProviderAuth::ApiKey(_)) => {
             return Err(format!("{provider} has an incompatible connection method."));
         }
@@ -183,52 +210,62 @@ pub(super) async fn agent_builder(
         (_, ProviderAuth::Login { .. } | ProviderAuth::StoredLogin { .. }) => {
             return Err(format!("{provider} needs a key, not a sign-in."));
         }
-        (Client::Anthropic, ProviderAuth::ApiKey(key)) => rig::agent::AgentBuilder::new(
-            anthropic_model(&anthropic::Client::new(key).map_err(text)?, model, reuse),
+        (Client::Anthropic, ProviderAuth::ApiKey(key)) => ModelHandle::new(anthropic_model(
+            &anthropic::Client::new(key).map_err(text)?,
+            model,
+            reuse,
+        )),
+        (Client::OpenAi, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            openai::Client::new(key)
+                .map_err(text)?
+                .completion_model(model),
         ),
-        (Client::OpenAi, ProviderAuth::ApiKey(key)) => {
-            openai::Client::new(key).map_err(text)?.agent(model)
-        }
-        (Client::OpenRouter, ProviderAuth::ApiKey(key)) => rig::agent::AgentBuilder::new(
-            openrouter_model(&openrouter::Client::new(key).map_err(text)?, model, reuse),
+        (Client::OpenRouter, ProviderAuth::ApiKey(key)) => ModelHandle::new(openrouter_model(
+            &openrouter::Client::new(key).map_err(text)?,
+            model,
+            reuse,
+        )),
+        (Client::Gemini, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            gemini::Client::new(key)
+                .map_err(text)?
+                .completion_model(model),
         ),
-        (Client::Gemini, ProviderAuth::ApiKey(key)) => {
-            gemini::Client::new(key).map_err(text)?.agent(model)
-        }
         (Client::XAi, ProviderAuth::ApiKey(key)) => {
-            xai::Client::new(key).map_err(text)?.agent(model)
+            ModelHandle::new(xai::Client::new(key).map_err(text)?.completion_model(model))
         }
-        (Client::Groq, ProviderAuth::ApiKey(key)) => {
-            groq::Client::new(key).map_err(text)?.agent(model)
-        }
-        (Client::DeepSeek, ProviderAuth::ApiKey(key)) => {
-            deepseek::Client::new(key).map_err(text)?.agent(model)
-        }
-        (Client::Mistral, ProviderAuth::ApiKey(key)) => {
-            mistral::Client::new(key).map_err(text)?.agent(model)
-        }
-        (Client::Zai, ProviderAuth::ApiKey(key)) => zai::Client::builder()
-            .api_key(key)
-            .general()
-            .build()
-            .map_err(text)?
-            .agent(model),
-        (Client::ZaiCoding, ProviderAuth::ApiKey(key)) => zai::Client::builder()
-            .api_key(key)
-            .coding()
-            .build()
-            .map_err(text)?
-            .agent(model),
+        (Client::Groq, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            groq::Client::new(key)
+                .map_err(text)?
+                .completion_model(model),
+        ),
+        (Client::DeepSeek, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            deepseek::Client::new(key)
+                .map_err(text)?
+                .completion_model(model),
+        ),
+        (Client::Mistral, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            mistral::Client::new(key)
+                .map_err(text)?
+                .completion_model(model),
+        ),
+        (Client::Zai, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            zai::Client::builder()
+                .api_key(key)
+                .general()
+                .build()
+                .map_err(text)?
+                .completion_model(model),
+        ),
+        (Client::ZaiCoding, ProviderAuth::ApiKey(key)) => ModelHandle::new(
+            zai::Client::builder()
+                .api_key(key)
+                .coding()
+                .build()
+                .map_err(text)?
+                .completion_model(model),
+        ),
     };
-    let (ceiling, params) = request_settings(keys, model_id, effort, output_limit)?;
-    let builder = match ceiling {
-        Some(ceiling) => builder.max_tokens(ceiling),
-        None => builder,
-    };
-    Ok(match params {
-        Some(params) => builder.additional_params(params),
-        None => builder,
-    })
+    Ok(model)
 }
 
 /// Whether a Copilot model goes over `/responses` from here: the account's

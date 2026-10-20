@@ -1,4 +1,5 @@
 use super::*;
+use crate::contract::TokenUsage;
 use rig::completion::{CompletionError, CompletionResponse};
 use rig::streaming::{
     RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamingCompletionResponse,
@@ -42,7 +43,7 @@ impl CompletionModel for ScriptModel {
     }
 }
 
-fn fixture() -> (Turn, CompletionRequest) {
+fn fixture() -> (Turn, Template) {
     let turn = Turn {
         keys: HashMap::new(),
         model: "test/model".into(),
@@ -63,20 +64,12 @@ fn fixture() -> (Turn, CompletionRequest) {
         meter: None,
         processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
     };
-    let request = CompletionRequest {
-        model: None,
-        preamble: Some(turn.preamble.clone()),
-        chat_history: Vec::new(),
-        documents: Vec::new(),
+    let template = Template {
         tools: Vec::new(),
-        temperature: None,
         max_tokens: None,
-        tool_choice: None,
         additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
     };
-    (turn, request)
+    (turn, template)
 }
 
 async fn receive<T>(receiver: &mut mpsc::UnboundedReceiver<T>) -> T {

@@ -260,13 +260,11 @@ pub(crate) fn wants_responses(token_dir: &Path, model: &str) -> bool {
 
 // ---- The chat-completions route ------------------------------------------
 
-/// An agent on Rig's own Copilot chat route, over [`ChatBody`].
-pub(crate) fn chat_agent(
-    token_dir: &Path,
-    model: &str,
-) -> Result<rig::agent::AgentBuilder, String> {
-    use rig::client::AgentClientExt;
-    Ok(copilot::Client::builder()
+/// A model on Rig's own Copilot chat route, over [`ChatBody`].
+pub(crate) fn chat_model(token_dir: &Path, model: &str) -> Result<rig::agent::ModelHandle, String> {
+    use rig::client::CompletionClient;
+    Ok(rig::agent::ModelHandle::new(
+        copilot::Client::builder()
         .http_client(ChatBody::default())
         .oauth()
         .token_dir(token_dir)
@@ -276,7 +274,8 @@ pub(crate) fn chat_agent(
             "Could not prepare the GitHub Copilot sign-in. Sign in again under Settings → Providers."
                 .to_string()
         })?
-        .agent(model))
+        .completion_model(model),
+    ))
 }
 
 /// Rig's HTTP client with one change to what it sends: an assistant
@@ -373,17 +372,16 @@ impl HttpClientExt for ChatBody {
 
 // ---- The Responses route -------------------------------------------------
 
-/// An agent on Copilot's `/responses` for this model. Tools are marked
-/// strict, as Rig's own Copilot Responses route marks them, because
-/// Copilot's Responses endpoint calls tools reliably only with strict
-/// schemas.
-pub(crate) async fn responses_agent(
+/// A model on Copilot's `/responses`. Tools are marked strict, as Rig's own
+/// Copilot Responses route marks them, because Copilot's Responses endpoint
+/// calls tools reliably only with strict schemas.
+pub(crate) async fn responses_model(
     token_dir: &Path,
     model: &str,
-) -> Result<rig::agent::AgentBuilder, String> {
+) -> Result<rig::agent::ModelHandle, String> {
     let session = session(token_dir).await?;
     let client = responses_client(token_dir, &session)?;
-    Ok(rig::agent::AgentBuilder::new(
+    Ok(rig::agent::ModelHandle::new(
         openai::responses_api::ResponsesCompletionModel::<Transport>::new(client, model)
             .with_strict_tools(),
     ))

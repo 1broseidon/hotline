@@ -184,17 +184,13 @@ async fn what_claude_reads_from_its_cache_counts_as_input() {
         .send()
         .await
         .unwrap();
-    let usage = turn::every_input_token(response.usage, "anthropic/claude-test");
+    let tokens = crate::pricing::Tokens::of(&response.usage, "anthropic");
     assert_eq!(
-        (
-            usage.input_tokens,
-            usage.cached_input_tokens,
-            usage.cache_creation_input_tokens
-        ),
+        (tokens.input, tokens.cache_read, tokens.cache_write),
         (1205, 1000, 200)
     );
     assert_eq!(
-        turn::every_input_token(response.usage, "openai/gpt-test").input_tokens,
+        crate::pricing::Tokens::of(&response.usage, "openai").input,
         5,
         "a provider that counts cached input inside its input is taken as it reports"
     );

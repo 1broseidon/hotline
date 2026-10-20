@@ -1,7 +1,7 @@
 ---
 id: task-230
 title: "S0: narrow Hotline's Rig seam and pin today's behaviour (still on 0.42)"
-column: todo
+column: in-progress
 position: 2
 priority: high
 tags:
@@ -18,9 +18,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
 parentId: epic-22
 createdAt: "2026-10-20T06:51:42.743Z"
-updatedAt: "2026-10-20T12:04:17.136Z"
+updatedAt: "2026-10-20T12:04:24.639Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/plans/rig-0.45-migration.md
@@ -43,6 +43,8 @@ contract:
     - Pins assert on HTTP request bodies and Hotline counters, not Rig types
   metrics:
     readyAt: "2026-10-20T12:03:59.783Z"
+    pickedUpAt: "2026-10-20T12:04:24.639Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

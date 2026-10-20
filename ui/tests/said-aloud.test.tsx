@@ -6,6 +6,7 @@ import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
+const { AgentSay } = await import("../src/components/transcript/Bubbles");
 const { Transcript, SaidAloud } = await import("../src/components/Transcript");
 
 const reply: Extract<TranscriptEvent, { kind: "agent" }> = {
@@ -45,6 +46,8 @@ describe("a post from another thread", () => {
 		const posted = { kind: "agent", id: "p1", ts: 2, text: "the scheduler fix is in" } as const;
 		const fromCall = transcript([{ ...posted, from: { thread: "c1", kind: "call" } }]);
 		expect(fromCall).toContain("From the call");
+		expect(transcript([{ ...posted, from: { thread: "c1", kind: "call", title: "Call" } }])).toContain("From the call");
+		expect(transcript([{ ...posted, from: { thread: "c1", kind: "call", title: "Harbour plan" } }])).toContain("From Harbour plan");
 		expect(fromCall.indexOf("From the call")).toBeLessThan(fromCall.indexOf("speech said-them"));
 		const scheduled = { jobId: "j1", kind: "loop", name: "Crane check", operatorCreated: true, quiet: true } as const;
 		expect(transcript([{ ...posted, scheduled }])).toContain("From a scheduled job");
@@ -70,6 +73,17 @@ describe("the transcript line", () => {
 	afterEach(async () => {
 		await act(async () => root.unmount());
 		await teardown();
+	});
+
+	test("Open the call opens the full source thread of a summary", async () => {
+		const opened: unknown[] = [];
+		await act(async () => root.render(<AgentSay personaId="ada" event={{ kind: "agent", id: "summary", ts: 2, text: "Eddystone history: four towers guarded the reef.", from: { kind: "call", thread: "eddystone" } }} run={{ top: true, bottom: true }} reactions={undefined} onOpenThread={(thread) => opened.push(thread)} />));
+		const button = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Open the call") as HTMLButtonElement;
+		expect(button).toBeDefined();
+		await act(async () => button.click());
+		expect(opened).toEqual([{ thread: { kind: "call", key: "eddystone" } }]);
+		expect(container.textContent).toContain("From the call");
+		expect(container.textContent).not.toContain("From Call");
 	});
 
 	test("is one line until pressed, then the whole of what was said, and folds again", async () => {

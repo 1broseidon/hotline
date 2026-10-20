@@ -81,7 +81,13 @@ fn model(request: &Value) -> String {
             chunk(json!({}), Some("tool_calls")),
         ]);
     }
-    let words = if text_of(&messages[asked_at]).contains("ECHO_HISTORY") {
+    let said = text_of(&messages[asked_at]);
+    let words = if let Some(reply) = said
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("REPLY_JSON "))
+    {
+        serde_json::from_str::<String>(reply).expect("REPLY_JSON is a JSON string")
+    } else if said.contains("ECHO_HISTORY") {
         messages.iter().map(text_of).collect::<Vec<_>>().join("\n")
     } else if asked.is_empty() {
         "On it.".to_string()
@@ -122,7 +128,11 @@ async fn open() -> Desk {
                 let request: Value = serde_json::from_slice(&body).unwrap_or_default();
                 captured.lock().unwrap().push(request.clone());
                 if request["stream"] != true {
-                    let note = json!({"title":"Harbour plan", "note":"Harbour plan: agreed on the beacon repair."}).to_string();
+                    let note = if request.to_string().contains("Summarise this finished reply") {
+                        if request.to_string().contains("REFUSE_REPLY_SUMMARY") { json!({"note":"too long ".repeat(200)}) } else { json!({"note":"Eddystone lighthouse history: the account covers the successive towers and how each design improved resistance to the sea."}) }
+                    } else {
+                        json!({"title":"Harbour plan", "note":"Harbour plan: agreed on the beacon repair."})
+                    }.to_string();
                     return ([("Content-Type", "application/json")], json!({"id":"note","object":"chat.completion","created":1,"model":"vendor/coder","choices":[{"index":0,"message":{"role":"assistant","content":note},"finish_reason":"stop"}]}).to_string());
                 }
                 let messages = request["messages"].as_array().unwrap();
@@ -809,5 +819,170 @@ async fn answering_a_card_after_hang_up_wakes_the_same_call_thread() {
                     .as_str()
                     .is_some_and(|text| text.contains("BEACON_APPROVED"))
         }));
+    }
+}
+
+#[tokio::test]
+async fn picking_it_back_up_keeps_typed_turns_in_the_parked_calls_thread() {
+    for driver in [Driver::HotlineAgent, Driver::Acp] {
+        let mut desk = open().await;
+        let (ada, tape) = desk.teammate("Ada", driver, false).await;
+        let (call, thread, sub) = desk.call_on(&ada, None).await;
+        desk.say(&call, 1, "Harbour plan").await;
+        desk.finished(sub).await;
+        assert_eq!(desk.chat(&ada), [] as [Value; 0]);
+        desk.hang_up(&call, sub).await;
+        desk.advance(31).await;
+        desk.closing(tape).await;
+        desk.event(sub, |event| {
+            event["kind"] == "link" && event["state"] == "parked"
+        })
+        .await;
+        let before = desk.chat(&ada);
+        desk.type_in(&thread, "Make the lighthouse poem rhyme. Include https://example.com and a | table. ECHO_HISTORY").await;
+        desk.finished(sub).await;
+        assert_eq!(desk.chat(&ada), before);
+        assert!(desk.stream(&thread).iter().any(|event| {
+            event["kind"] == "agent"
+                && event["text"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("Make the lighthouse poem rhyme"))
+        }));
+        let (next, _, next_sub) = desk.call_on(&ada, Some(thread.clone())).await;
+        desk.say(&next, 1, "ECHO_HISTORY https://example.com | beacon")
+            .await;
+        desk.finished(next_sub).await;
+        assert_eq!(desk.chat(&ada), before);
+        desk.hang_up(&next, next_sub).await;
+    }
+}
+
+#[tokio::test]
+async fn hanging_up_during_a_long_reply_posts_one_subject_summary_and_keeps_the_full_text() {
+    long_reply_after_hang_up(false).await;
+}
+
+#[tokio::test]
+async fn hanging_up_with_an_unusable_summary_never_pastes_the_long_reply() {
+    long_reply_after_hang_up(true).await;
+}
+
+async fn long_reply_after_hang_up(refuse_summary: bool) {
+    for driver in [Driver::HotlineAgent, Driver::Acp] {
+        let mut desk = open().await;
+        let (ada, tape) = desk.teammate("Ada", driver, false).await;
+        let (call, thread, sub) = desk.call_on(&ada, None).await;
+        let gate = desk.root.path().join("release-history");
+        let marker = if refuse_summary {
+            "REFUSE_REPLY_SUMMARY"
+        } else {
+            ""
+        };
+        let history = (1..=5)
+            .map(|part| {
+                format!(
+                    "Eddystone history paragraph {part}: {}",
+                    "The lighthouse protected ships from the dangerous rocks off the coast. "
+                        .repeat(5)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        desk.say(&call, 1, &format!("CALL request_human {{\"reason\":\"History approval\"}}\nWAIT_FOR {}\nREPLY_JSON {}", gate.display(), serde_json::to_string(&format!("<spoken>The account is ready.</spoken><written>{history} {marker}</written>")).unwrap())).await;
+        desk.event(sub, |event| event["kind"] == "human_action")
+            .await;
+        desk.hang_up(&call, sub).await;
+        std::fs::write(gate, "finish").unwrap();
+        let post = desk.reply(tape).await;
+        desk.finished(sub).await;
+        assert_eq!(desk.chat(&ada).len(), 1);
+        assert_eq!(post["from"]["kind"], "call");
+        assert_eq!(post["from"]["thread"], thread["key"]);
+        let text = post["text"].as_str().unwrap();
+        if refuse_summary {
+            assert!(text.contains("could not prepare its short summary"));
+        } else {
+            assert!(text.starts_with("Eddystone lighthouse history:"));
+        }
+        assert!(text.len() < 600);
+        assert!(!text.contains("Eddystone history paragraph"));
+        let full = desk
+            .stream(&thread)
+            .iter()
+            .filter(|event| event["kind"] == "agent")
+            .filter_map(|event| event["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for part in 1..=5 {
+            assert!(
+                full.contains(&format!("Eddystone history paragraph {part}:")),
+                "{full}"
+            );
+        }
+        let requests = desk.requests.lock().unwrap();
+        let summary = requests
+            .iter()
+            .find(|request| {
+                request
+                    .to_string()
+                    .contains("Summarise this finished reply")
+            })
+            .unwrap()
+            .to_string();
+        assert!(summary.contains("paragraph 5:"));
+    }
+}
+
+#[tokio::test]
+async fn an_untitled_calls_post_uses_the_call_label_instead_of_a_placeholder_title() {
+    for driver in [Driver::HotlineAgent, Driver::Acp] {
+        let mut desk = open().await;
+        let (ada, _) = desk.teammate("Ada", driver, false).await;
+        let (call, thread, sub) = desk.call_on(&ada, None).await;
+        desk.say(
+            &call,
+            1,
+            "CALL post_to_chat {\"text\":\"The beacon plan is ready.\"}",
+        )
+        .await;
+        desk.finished(sub).await;
+        let posts = desk.chat(&ada);
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0]["from"]["kind"], "call");
+        assert_eq!(posts[0]["from"]["thread"], thread["key"]);
+        assert!(posts[0]["from"]["title"].is_null());
+        desk.hang_up(&call, sub).await;
+    }
+}
+
+#[tokio::test]
+async fn hanging_up_catches_a_typed_turn_already_running_when_voice_attached() {
+    for driver in [Driver::HotlineAgent, Driver::Acp] {
+        let mut desk = open().await;
+        let (ada, tape) = desk.teammate("Ada", driver, false).await;
+        let gate = desk.root.path().join("release-typed-reply");
+        let reply = "Eddystone history is ready.\n\nThe account covers four successive towers.";
+        let opened = desk.client.call("thread.open", json!({"personaId":ada,"text":format!("CALL request_human {{\"reason\":\"History approval\"}}\nWAIT_FOR {}\nREPLY_JSON {}", gate.display(), serde_json::to_string(reply).unwrap())})).await;
+        assert_eq!(opened["ok"], true);
+        let thread = opened["result"]["thread"].clone();
+        let work_sub = desk.client.subscribe(json!({"threadId":thread})).await;
+        desk.event(work_sub, |event| event["kind"] == "human_action")
+            .await;
+        let (call, _, sub) = desk.call_on(&ada, Some(thread.clone())).await;
+        desk.hang_up(&call, sub).await;
+        std::fs::write(gate, "finish").unwrap();
+        let post = desk.reply(tape).await;
+        desk.finished(sub).await;
+        assert_eq!(post["text"], reply);
+        assert_eq!(desk.chat(&ada).len(), 1);
+        assert_eq!(post["from"]["thread"], thread["key"]);
+        assert!(
+            !desk
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request["stream"] != true)
+        );
     }
 }

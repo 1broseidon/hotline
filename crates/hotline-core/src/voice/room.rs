@@ -62,6 +62,11 @@ impl CallRoom for RoomSide {
             room.call_said(call, persona, line);
         }
     }
+    fn call_detached(&self, call: &ThreadId) {
+        if let Ok(room) = self.room() {
+            room.call_detached(call);
+        }
+    }
     fn call_ended(&self, call: &ThreadId, persona: &str, end: End, outcome: &str, ts: i64) {
         if let Ok(room) = self.room() {
             room.call_ended(call, persona, end, outcome, ts);

@@ -86,6 +86,11 @@ room posts a closing note after 30 seconds and an idle queue, then parks the
 open thread. There are no periodic summaries or front Digest. Calling a work
 thread or a previous call passes `thread` to `voice.call_start`; its context
 and agent are reused. Live-front work delegation remains unchanged for S6.
-The source-thread title labels posts; posts and closing notes open that
-thread, and replying to a post routes there. Silent posts made during the
+Only the turn running at hang-up automatically posts its completed written
+reply, as one message. Over 900 characters or three paragraphs, that post
+is a short subject-first summary; a failed summariser leaves a bounded
+notice instead. Open the call leads to the full reply. Later turns stay on
+the thread unless they explicitly post.
+The source-thread title labels posts (untitled calls say “From the call”);
+posts and closing notes open that thread, and replying to a post routes there. Silent posts made during the
 call never become unread later; posts after hang-up notify as replies do.

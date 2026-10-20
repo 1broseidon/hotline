@@ -119,7 +119,7 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     assert_eq!(sent["event"]["text"], "the scheduler fix is in");
     assert_eq!(
         sent["event"]["from"],
-        json!({"thread": call, "kind": "call", "title":"Call"}),
+        json!({"thread": call, "kind": "call"}),
         "{sent}"
     );
 

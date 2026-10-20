@@ -18,7 +18,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
 parentId: epic-22
 createdAt: "2026-10-20T06:51:42.743Z"
-updatedAt: "2026-10-20T12:04:14.718Z"
+updatedAt: "2026-10-20T12:04:17.136Z"
 contract:
   status: ready
   deliverables:
@@ -50,7 +50,12 @@ dispatch:
   by: lead
   at: "2026-10-20T12:04:14.586Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-20T12:04:17.136Z"
 ---
 
 ## Description

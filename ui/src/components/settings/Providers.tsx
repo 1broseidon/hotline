@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { openLink } from "../../native";
 import type { CapabilityOptions, CatalogModel, Credential, Provider } from "../../generated/contract";
 import { ChevronRightIcon, PlusIcon } from "../../icons";
 import { useModelsRevision, useRawSetting } from "../../room";
@@ -397,10 +398,16 @@ function ProviderPage({
 							<span className="flex min-w-0 flex-1 flex-col">
 								<span className="welcome-card-title">{name}</span>
 								<span className="truncate text-sm text-ink-2">
-									{credential.revoked ? (oauth ? "Signed out. The login no longer works." : local ? "Disconnected." : "The key no longer works.") : how}
+									{credential.revoked ? (oauth ? "Signed out of Hotline." : local ? "Disconnected." : "The key no longer works.") : how}
 								</span>
 							</span>
 						</div>
+						{oauth && providerId === "github-copilot" && (
+							<p className="text-sm text-ink-2">
+								Sign out removes this login from Hotline. To revoke GitHub access too, use{" "}
+								<button type="button" className="control btn-quiet" onClick={() => void openLink("https://github.com/settings/applications").catch((error: unknown) => setRefusal(String(error)))}>Revoke at GitHub</button>.
+							</p>
+						)}
 						<div className="flex flex-wrap items-center justify-end gap-2">
 							{credential.revoked && (oauth || custom) ? (
 								<button type="button" className="control btn btn-primary" disabled={busy} onClick={onSignIn}>

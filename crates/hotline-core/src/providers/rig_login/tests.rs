@@ -1,5 +1,6 @@
 use super::*;
 
+mod revoke;
 mod vault;
 use axum::{Router, routing::get, routing::post};
 use base64::Engine;
@@ -327,14 +328,13 @@ async fn rig_login_two_clients_refreshing_at_once_spend_the_refresh_token_once()
         false,
     );
     let http = auth.http();
-    let contexts = futures_util::future::join_all([
+    let contexts = tokio::join!(
         turn.auth_context(&http),
         voice.auth_context(&http),
         sign_in.auth_context(&http),
-    ])
-    .await;
+    );
     assert_eq!(auth.refreshes.load(Ordering::SeqCst), 1, "refreshed once");
-    for context in contexts {
+    for context in <[_; 3]>::from(contexts) {
         let context = context.unwrap();
         assert!(context.api_key.expose().ends_with(".access-2"));
         assert_eq!(context.account_id.as_deref(), Some("account-1"));

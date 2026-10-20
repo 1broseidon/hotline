@@ -14,7 +14,7 @@
 
 use crate::credentials::{CredentialFile, CredentialFiles};
 use rig::error::BoxError;
-use rig::http_client::ReqwestClient;
+use rig::http_client::{HttpClientExt, ReqwestClient};
 use rig::providers::chatgpt::auth::{
     AuthContext, DeviceCodeHandler, DeviceCodePrompt, StoreLock, TokenStore,
 };
@@ -42,15 +42,16 @@ const LEGACY_API_KEY: &str = "api-key.json";
 /// (`ProviderAuth::Login`), and the vault that made it is the one whose
 /// store holds its tokens: a desk on the file store keeps them there, not
 /// in the keychain.
-static VAULTS: LazyLock<Mutex<HashMap<PathBuf, CredentialFiles>>> = LazyLock::new(Mutex::default);
+static VAULTS: LazyLock<Mutex<HashMap<PathBuf, (CredentialFiles, crate::log::Log)>>> =
+    LazyLock::new(Mutex::default);
 
 /// Keeps the records of every login directory in `logins` in `files`. The
 /// vault says so when it opens.
-pub(crate) fn keep_logins_in(logins: PathBuf, files: CredentialFiles) {
+pub(crate) fn keep_logins_in(logins: PathBuf, files: CredentialFiles, log: crate::log::Log) {
     VAULTS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .insert(logins, files);
+        .insert(logins, (files, log));
 }
 
 /// Rig's records for one login directory: the key Rig names a record by
@@ -75,7 +76,7 @@ impl LoginDirStore {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .get(logins)
-                .cloned()
+                .map(|(files, _)| files.clone())
         });
         held.unwrap_or_else(|| {
             CredentialFiles::new(self.dir.clone(), crate::vault::default_store())
@@ -100,6 +101,8 @@ impl TokenStore for LoginDirStore {
             let copilot = key == copilot::PROVIDER_NAME;
             let dir = self.dir.clone();
             let bytes = blocking(move || {
+                let lock = login_lock(&dir);
+                let _writing = lock.lock().unwrap_or_else(PoisonError::into_inner);
                 if copilot {
                     migrate_copilot(&dir, &record)?;
                 }
@@ -118,7 +121,14 @@ impl TokenStore for LoginDirStore {
         Box::pin(async move {
             let file = self.file(Self::record(key)?);
             let bytes = record.as_bytes().to_vec();
-            blocking(move || file.write(&bytes)).await
+            let dir = self.dir.clone();
+            blocking(move || {
+                let lock = login_lock(&dir);
+                let _writing = lock.lock().unwrap_or_else(PoisonError::into_inner);
+                live(&dir).map_err(io::Error::other)?;
+                file.write(&bytes)
+            })
+            .await
         })
     }
 
@@ -138,6 +148,19 @@ impl TokenStore for LoginDirStore {
             Ok(StoreLock::new(lock.lock_owned().await))
         })
     }
+}
+
+/// Serialize the local write with revoke/delete. Rig's async record lock
+/// spans network refresh; this lock only spans disk/keychain work, so a
+/// revoked refresh cannot recreate a record after local deletion.
+pub(crate) fn login_lock(dir: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = LazyLock::new(Mutex::default);
+    LOCKS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(dir.to_path_buf())
+        .or_default()
+        .clone()
 }
 
 /// The lock every store over the record at `path` takes.
@@ -210,44 +233,93 @@ pub(crate) fn http() -> ReqwestClient {
     ReqwestClient::default()
 }
 
-/// The ChatGPT authenticator for the login in `dir`, shared by everything
-/// that uses that login. It never starts a sign-in: with no usable tokens
-/// it fails, naming the sign-in.
-pub(crate) fn chatgpt(dir: &Path) -> chatgpt::auth::Authenticator {
-    static SHARED: LazyLock<Mutex<HashMap<PathBuf, chatgpt::auth::Authenticator>>> =
-        LazyLock::new(Mutex::default);
+static SHARED: LazyLock<Mutex<HashMap<PathBuf, Login>>> = LazyLock::new(Mutex::default);
+
+/// The shared, revocable credential used by every caller of this login.
+pub(crate) fn chatgpt(dir: &Path) -> Login {
+    shared(dir, || {
+        Authenticator::ChatGpt(chatgpt::auth::Authenticator::new(
+            chatgpt::auth::AuthSource::OAuth,
+            LoginDirStore::new(dir),
+            DeviceCodeHandler::default(),
+            false,
+        ))
+    })
+}
+
+pub(crate) fn copilot(dir: &Path) -> Login {
+    shared(dir, || {
+        Authenticator::Copilot(copilot::auth::Authenticator::new(
+            copilot::auth::AuthSource::OAuth,
+            LoginDirStore::new(dir),
+            DeviceCodeHandler::default(),
+            false,
+        ))
+    })
+}
+
+fn shared(dir: &Path, make: impl FnOnce() -> Authenticator) -> Login {
     SHARED
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .entry(dir.to_path_buf())
-        .or_insert_with(|| {
-            chatgpt::auth::Authenticator::new(
-                chatgpt::auth::AuthSource::OAuth,
-                LoginDirStore::new(dir),
-                DeviceCodeHandler::default(),
-                false,
-            )
+        .or_insert_with(|| Login {
+            dir: dir.to_path_buf(),
+            auth: Arc::new(Mutex::new(Some(make()))),
         })
         .clone()
 }
 
-/// The Copilot authenticator for the login in `dir`, shared the same way.
-pub(crate) fn copilot(dir: &Path) -> copilot::auth::Authenticator {
-    static SHARED: LazyLock<Mutex<HashMap<PathBuf, copilot::auth::Authenticator>>> =
-        LazyLock::new(Mutex::default);
-    SHARED
+/// Retained transports lose their authenticator as well as the registry.
+/// Rig exposes forget for ChatGPT; Copilot's cache dies with its last clone.
+pub(crate) fn forget(dir: &Path) {
+    if let Some(login) = SHARED
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .entry(dir.to_path_buf())
-        .or_insert_with(|| {
-            copilot::auth::Authenticator::new(
-                copilot::auth::AuthSource::OAuth,
-                LoginDirStore::new(dir),
-                DeviceCodeHandler::default(),
-                false,
-            )
-        })
-        .clone()
+        .remove(dir)
+        && let Some(Authenticator::ChatGpt(auth)) = login
+            .auth
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    {
+        auth.forget();
+    }
+}
+
+/// Check the room too: a new registry entry must not revive a revoked row.
+#[expect(
+    clippy::result_large_err,
+    reason = "Rig authentication errors stay typed for failure classification"
+)]
+fn live(dir: &Path) -> Result<(), chatgpt::auth::AuthError> {
+    let log = dir.parent().and_then(|parent| {
+        VAULTS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(parent)
+            .map(|(_, log)| log.clone())
+    });
+    let revoked = if let Some(log) = log {
+        let id = dir.file_name().and_then(|name| name.to_str());
+        log.try_load(&crate::log::StreamId::Room)
+            .map_err(|error| chatgpt::auth::AuthError::Store(error.into()))?
+            .iter()
+            .any(|row| {
+                row["kind"] == "credential"
+                    && row["id"].as_str() == id
+                    && (row["revoked"] == true || row["deleted"] == true)
+            })
+    } else {
+        false
+    };
+    if revoked || !dir.is_dir() {
+        Err(chatgpt::auth::AuthError::Message(
+            "This sign-in is no longer live. Sign in again under Settings → Providers.".into(),
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 /// Signs the new login in `dir` in to ChatGPT with a device code, which
@@ -257,8 +329,10 @@ pub(crate) async fn chatgpt_sign_in(
     dir: &Path,
     show: impl Fn(DeviceCodePrompt) + Send + Sync + 'static,
 ) -> Result<AuthContext, String> {
-    chatgpt(dir)
-        .with_device_code_handler(DeviceCodeHandler::new(show))
+    let Authenticator::ChatGpt(auth) = chatgpt(dir).authenticator()? else {
+        unreachable!("ChatGPT sign-in uses a ChatGPT authenticator")
+    };
+    auth.with_device_code_handler(DeviceCodeHandler::new(show))
         .sign_in_with_device_code(&http())
         .await
         .map_err(|error| error.to_string())
@@ -284,22 +358,69 @@ pub(crate) async fn copilot_sign_in(
 
 /// One login's shared authenticator, whichever provider it signs in to.
 #[derive(Clone)]
-pub(crate) enum Login {
+enum Authenticator {
     ChatGpt(chatgpt::auth::Authenticator),
     Copilot(copilot::auth::Authenticator),
 }
 
+/// A retained client checks both the current room record and its own
+/// invalidation before and after a refresh, so deletion during a refresh
+/// cannot sign the next request with the token that just came back.
+#[derive(Clone)]
+pub(crate) struct Login {
+    dir: PathBuf,
+    auth: Arc<Mutex<Option<Authenticator>>>,
+}
+
 impl Login {
-    /// The login's live token, refreshed first when it has expired, or why
-    /// there is none.
+    fn authenticator(&self) -> Result<Authenticator, String> {
+        self.auth
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .ok_or_else(|| "This sign-in is no longer live.".into())
+    }
+
+    #[expect(
+        clippy::result_large_err,
+        reason = "CredentialSource returns Rig authentication errors unchanged"
+    )]
+    pub(crate) async fn auth_context<H: HttpClientExt>(
+        &self,
+        http: &H,
+    ) -> Result<AuthContext, chatgpt::auth::AuthError> {
+        live(&self.dir)?;
+        let auth = self
+            .authenticator()
+            .map_err(chatgpt::auth::AuthError::Message)?;
+        let context = match auth {
+            Authenticator::ChatGpt(auth) => auth.auth_context(http).await,
+            Authenticator::Copilot(auth) => auth.auth_context(http).await,
+        }?;
+        live(&self.dir)?;
+        self.authenticator()
+            .map_err(chatgpt::auth::AuthError::Message)?;
+        Ok(context)
+    }
+
     pub(crate) async fn context(&self) -> Result<AuthContext, String> {
-        match self {
-            Self::ChatGpt(auth) => auth.auth_context(&http()).await,
-            Self::Copilot(auth) => auth.auth_context(&http()).await,
-        }
-        .map_err(|error| error.to_string())
+        use rig::client::signed_in::CredentialSource;
+        CredentialSource::auth_context(self, &rig::http_client::DynHttpClient::new(http()))
+            .await
+            .map_err(|error| error.to_string())
     }
 }
+
+impl rig::client::signed_in::CredentialSource for Login {
+    async fn auth_context(
+        &self,
+        http: &rig::http_client::DynHttpClient,
+    ) -> Result<AuthContext, chatgpt::auth::AuthError> {
+        self.auth_context(http).await
+    }
+}
+
+pub(crate) mod revoke;
 
 #[cfg(test)]
 mod tests;

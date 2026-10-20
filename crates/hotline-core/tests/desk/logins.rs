@@ -318,3 +318,75 @@ async fn cancelling_openrouter_login_closes_callback_and_discards_pending_creden
         json!([])
     );
 }
+
+/// The real wire handler must remove the login even when OpenAI refuses
+/// revocation. Each stored token is presented once, and a repeated delete
+/// cannot spend it again.
+#[tokio::test]
+async fn rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails() {
+    use axum::{Router, body::Bytes, http::StatusCode, routing::post};
+    use hotline_core::{credentials::MemoryStore, provider_fixture::Origin};
+    use std::sync::Mutex;
+    for status in [StatusCode::OK, StatusCode::INTERNAL_SERVER_ERROR] {
+        let root = tempfile::tempdir().unwrap();
+        let memory = Arc::new(MemoryStore::default());
+        let log = hotline_core::log::Log::open(root.path());
+        let vault =
+            hotline_core::vault::Vault::open_with_store(root.path(), log, memory.clone()).unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
+        std::fs::write(
+            dir.join("auth.json"),
+            json!({
+                "refresh_token":"refresh-revoke", "access_token":"access-revoke",
+                "expires_at":i64::MAX
+            })
+            .to_string(),
+        )
+        .unwrap();
+        vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let app = Router::new().route(
+            "/api/accounts/oauth/revoke",
+            post(move |body: Bytes| {
+                let form: std::collections::HashMap<String, String> =
+                    url::form_urlencoded::parse(&body).into_owned().collect();
+                seen.lock()
+                    .unwrap()
+                    .push((form["token"].clone(), form["token_type_hint"].clone()));
+                async move { status }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let _fixture = Origin::new(dir.to_string_lossy(), &origin);
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        drop(vault);
+        let desk = hotline_core::desk::Desk::open_with_store(root.path(), memory).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
+        let port = door.port();
+        let running = tokio::spawn(door.run());
+        let mut client = Client::connect(port, TOKEN).await;
+        let deleted = client.call("credential.delete", json!({"id":id})).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+        assert!(!dir.exists());
+        assert_eq!(
+            client.call("credential.list", json!({})).await["result"],
+            json!([])
+        );
+        assert_eq!(
+            client.call("credential.delete", json!({"id":id})).await["ok"],
+            false
+        );
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                ("refresh-revoke".into(), "refresh_token".into()),
+                ("access-revoke".into(), "access_token".into()),
+            ]
+        );
+        running.abort();
+        server.abort();
+    }
+}

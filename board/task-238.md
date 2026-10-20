@@ -46,7 +46,7 @@ contract:
     pickedUpAt: "2026-10-20T14:02:08.955Z"
     reworkCount: 0
 createdAt: "2026-10-20T12:04:00.326Z"
-updatedAt: "2026-10-20T14:02:08.955Z"
+updatedAt: "2026-10-20T14:13:25.123Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -60,6 +60,8 @@ dispatch:
     pid: 94104
     at: "2026-10-20T14:01:46.267Z"
 assignee: codex
+decisions:
+  - decision-4
 ---
 
 ## Description

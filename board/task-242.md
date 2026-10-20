@@ -46,3 +46,4 @@ Proved by desk-harness tests, one per line, on both drivers, named for the scena
 
 ## Log
 - 2026-10-20T23:09:50.706Z: [codex] Traced the leak to Told::write posting every segment whenever a call thread was disconnected. Replacing it with one completed-turn post, marked synchronously at detach (so delayed call-log writes cannot catch a later typed turn); long replies use the existing no-tool chapter summariser with a bounded fallback. Added both-driver desk scenarios and source-link UI proof.
+- 2026-10-20T23:15:59.536Z: [codex] Committed 1101d335 on dispatch/task-242. Eighteen call-thread desk scenarios pass on both drivers, including five new proofs; 466 UI tests pass with a working Open the call source-link test. Full make check and make precheck are running; formatting, contract generation, dependency/Python/UI gates and native clippy have passed. No task-242 behavior left unwired; live-front delegation remains the existing S6 follow-up.

@@ -1,7 +1,7 @@
 ---
 id: task-235
 title: "S5: sign-out revokes at the provider; a revoked login stops serving at once"
-column: todo
+column: in-progress
 position: 2
 priority: low
 tags:
@@ -19,9 +19,9 @@ createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
   - task-237
-updatedAt: "2026-10-20T14:46:17.245Z"
+updatedAt: "2026-10-20T14:46:38.518Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-core
@@ -38,6 +38,8 @@ contract:
     - Delete always removes the local credential, even when provider revoke fails
   metrics:
     readyAt: "2026-10-20T12:03:24.303Z"
+    pickedUpAt: "2026-10-20T14:46:38.518Z"
+    reworkCount: 0
 dispatch:
   agent: codex
   model: gpt-6-astra

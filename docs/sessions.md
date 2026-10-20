@@ -1828,7 +1828,12 @@ the home thread's tools but the chapter moves, `react`, `open_link`,
 `schedule` and `loop`: a `request_human` card it raises is on its own
 thread, and the person's answer, like a colleague's answer to its
 `message_teammate`, comes back to it there as a turn while the job lives
-(after it ends, to the DM). Its authority is a child of the teammate's, made
+(after it ends, to the DM). What came back is written on the thread before
+it is queued, so one the last process had not handed over yet is handed
+over at start (`Room::resume_job_deliveries`), or to the DM if the job has
+ended since. The person's `schedule.create` takes no `without`: a job
+narrower than its teammate is the teammate's to make (design.md says why).
+Its authority is a child of the teammate's, made
 with the agent and revoked when it is let go of.
 
 **Parked between firings.** Once a firing's turn is over and nothing waits

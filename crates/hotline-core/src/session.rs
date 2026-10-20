@@ -764,11 +764,13 @@ impl Room {
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
         // What the person said that was still waiting when the last desk
-        // stopped is handed on once, now that the room is up.
+        // stopped, and what came back to a job that had not heard it yet, is
+        // handed on once, now that the room is up.
         let resuming = Arc::downgrade(&room);
         tokio::spawn(async move {
             if let Some(room) = resuming.upgrade() {
                 room.resume_pending().await;
+                room.resume_job_deliveries().await;
             }
         });
         follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));

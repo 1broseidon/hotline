@@ -16,6 +16,39 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   its pane) and choose Make team lead. With two or more teammates and no
   lead, the window asks you to pick one and suggests whoever has been on
   the team longest.
+- Every thread reaches the chat the same way. A work thread, a pair, a job
+  and a teammate on any agent (Hotline Agent or ACP) can post one message a
+  turn to the chat with `post_to_chat`, and each post says where it came
+  from. A work thread can ask its teammate to act on what it posted. The
+  chat's own turn and a subagent may not post: the chat is already where
+  the first talks, and the second reports to whoever asked.
+- A file or image a teammate sends from a work thread, a pair or a job lands
+  in the chat, stamped with that thread; the thread keeps a line saying it
+  was sent. A quiet job's file is its one post for the turn.
+- Jobs run on threads of their own. Each scheduled job and loop has a
+  thread, listed in the new Jobs group with its next run and its last post,
+  and every firing is a turn there, never in the chat. A loop starts each
+  firing from a short note of where it stood, not its whole history, so it
+  stays small for days. A firing due while the last one is still running is
+  skipped, and the thread says what interval would fit; a job that keeps
+  overrunning tells you once. A quiet job posts only what is worth it. You
+  can talk to a job in its thread, Stop a firing that is running (it posts
+  nothing and the next firing still runs), and Cancel it from its row or its
+  thread; a cancelled job posts where it stood.
+- A subagent or a job is the teammate itself with one focus: the same
+  model, permissions and computer as the chat it came from, less anything
+  its teammate left out for the task (a job's thread says "Runs without …"),
+  and it can search the chat it came from. A job's question to you, and a
+  colleague's answer to it, come back to the job's thread, after a restart
+  too, or to the chat once the job has ended.
+
+### Not yet wired
+
+- Nothing starts a subagent for a teammate on an ACP agent yet (a call's
+  work tool will, in a later release), and an ACP agent's own subagents are
+  still shown as they were.
+- A job's push notification names its thread, but the phone app does not
+  read it yet, so tapping it still opens the teammate.
 
 ## [0.40.0] - 2026-10-19
 

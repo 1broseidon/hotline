@@ -98,6 +98,15 @@ These come over as ideas and, where the code was already Rust, as code.
   permission set and computer under a lease derived from the home thread's,
   narrowed only by what the home agent leaves out (`without`), starting from
   the brief and reaching back with `search_thread` and `list_chapters`.
+  `schedule.create` on the wire takes no `without`: a job the person makes
+  runs as their teammate, with the reach they already granted it, so the
+  person narrows a teammate by changing its grants, or asks it to make the
+  job narrower, and the Jobs group shows "Runs without …" either way. A
+  wire field with no window or phone to send it would be a second door to
+  the same rule with nothing behind it. What came back to a job (a card's
+  answer, a colleague's reply) is written on its thread before it is
+  queued, so a restart hands it over again, or to the DM once the job has
+  ended.
 - **One conversation, no machinery in it.** The tape holds what the person
   and the teammate said and did. The room does not narrate its own work: a
   computer downloading, joining or updating, a provider switch, a retry, a

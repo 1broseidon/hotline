@@ -1,8 +1,6 @@
 ---
 id: task-237
 title: "S7: cleanups 0.45 makes possible"
-column: review
-position: 9
 priority: low
 tags:
   - rig
@@ -17,7 +15,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:49:29.545Z"
+updatedAt: "2026-10-20T13:52:00.823Z"
 contract:
   status: delivered
   deliverables:
@@ -53,6 +51,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T13:37:13.904Z"
+    ended: "2026-10-20T13:52:00.823Z"
+    outcome: done
+completedAt: "2026-10-20T13:52:00.317Z"
 ---
 
 ## Description
@@ -66,3 +67,4 @@ What S1 (task-231) changed, as landed on release/0.42.0: model requests for Chat
 - 2026-10-20T13:39:05.341Z: [codex] All 12 rig_pin_ tests pass (11 original assertions unchanged plus loose custom Responses two-round regression). Kept prior flatten deletion; Copilot shared DIALECT with_route(Responses) already landed in S1. Removed compat repairs: Rig JSON readers tolerate absent ids/status/sequence, null summaries/arguments, float timestamps, echoed instructions and loose metadata. OpenRouter markers retained. Optional typed reasoning skipped: Gemini uses correct thinkingLevel/lowercase but model support gating changes current raw effort behavior; pairing assert skipped because it removes no code. make check running foreground.
 - 2026-10-20T13:45:06.371Z: [codex] Full make check passed after rustfmt corrected the inherited test formatting. Committing compat cleanup alongside the earlier Copilot flatten removal; requested merge of release/0.42.0 reports already up to date. Running make check again after merge, then precheck.
 - 2026-10-20T13:49:29.080Z: [codex] Delivered on dispatch/task-237: e775f2f1 removes Copilot chat flatten; 6c69ae37 deletes compat.rs and uses native Reqwest transport, with a two-round loose Responses regression. Copilot shared-dialect with_route(Responses) was already wired by S1; nothing left unwired. All 12 rig_pin_ tests pass, original assertions/expected values unchanged. make check passed before and after the requested release/0.42.0 merge (already up to date); make precheck passed all 8 legs including Windows and isolated UI tests. Workspace test listing confirms 12 pins; both required contract.ts comparisons pass; working tree clean. Optional items: neither taken—typed reasoning adds mapping/support-gating differences (Gemini thinkingLevel spelling and lowercase values verified in Rig 0.45 source); pairing debug assert removes no code. OpenRouter cache markers retained. Reviewer can land this branch; closing task should update migration report, which was intentionally untouched.
+- 2026-10-20T13:51:59.802Z: Landed on release/0.42.0

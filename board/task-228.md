@@ -13,6 +13,8 @@ relatedFiles:
   - crates/hotline-core/src/session
   - ui/src
 createdAt: "2026-10-20T01:18:02.586Z"
+landsOn: release/0.41.0
+updatedAt: "2026-10-20T01:18:03.019Z"
 ---
 
 ## Description

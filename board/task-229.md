@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/tests/schedule.rs
 createdAt: "2026-10-20T02:04:25.300Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-20T02:04:27.120Z"
+updatedAt: "2026-10-20T02:04:27.936Z"
 dispatch:
   agent: claude
   model: opus
@@ -23,7 +23,12 @@ dispatch:
   by: cli
   at: "2026-10-20T02:04:26.987Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-20T02:04:27.936Z"
 ---
 
 ## Description

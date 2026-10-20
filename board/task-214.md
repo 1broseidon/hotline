@@ -1,7 +1,7 @@
 ---
 id: task-214
 title: "S0: the calls live in hotline-voice; hotline-core keeps only the room's side"
-column: in-progress
+column: review
 position: 43
 priority: high
 tags:
@@ -12,9 +12,9 @@ relatedFiles:
   - crates/hotline-core/src/voice
 parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
-updatedAt: "2026-10-20T21:08:06.183Z"
+updatedAt: "2026-10-20T22:01:30.964Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-voice/src
@@ -47,6 +47,8 @@ contract:
     readyAt: "2026-10-19T17:22:11.362Z"
     pickedUpAt: "2026-10-20T21:08:06.183Z"
     reworkCount: 0
+    deliveredAt: "2026-10-20T22:01:30.964Z"
+    duration: 3205
 dispatch:
   agent: codex
   model: gpt-6-astra

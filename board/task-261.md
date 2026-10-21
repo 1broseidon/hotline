@@ -1,8 +1,8 @@
 ---
 id: task-261
 title: "Your name: a Settings field, and the agent can store it when you tell it, with your approval"
-column: in-progress
-position: 0
+column: review
+position: 1
 priority: medium
 tags:
   - voice
@@ -22,7 +22,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T19:59:40.694Z"
 assignee: codex
-updatedAt: "2026-10-21T20:04:16.290Z"
+updatedAt: "2026-10-21T20:20:22.703Z"
 decisions:
   - decision-29
 ---

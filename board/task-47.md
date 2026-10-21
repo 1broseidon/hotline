@@ -14,14 +14,19 @@ relatedFiles:
   - crates/hotline-core/src/session/sides.rs
 parentId: epic-5
 createdAt: "2026-10-12T04:20:49.480Z"
-updatedAt: "2026-10-21T10:49:57.015Z"
+updatedAt: "2026-10-21T10:49:58.658Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
   by: cli
   at: "2026-10-21T10:49:56.887Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-21T10:49:58.658Z"
 assignee: codex
 ---
 

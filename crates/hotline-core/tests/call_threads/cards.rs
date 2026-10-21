@@ -92,28 +92,25 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
                 desk.log.load(&StreamId::Tape(ada.clone())).iter().any(|e| {
                     e["id"] == card["id"]
                         && e["status"] == status
-                        && e["note"]
-                            .as_str()
-                            .is_some_and(|s| s.contains(&format!("From call {call}")))
+                        && e["note"] == "Answered by voice on the call."
                 })
             })
             .await;
-            let notices: Vec<_> = desk
-                .log
-                .load(&StreamId::Tape(ada.clone()))
-                .into_iter()
-                .filter(|e| {
-                    e["id"] == format!("call-answer:{call}:{}", card["actionId"].as_str().unwrap())
-                })
-                .collect();
-            assert_eq!(notices.len(), 1);
-            let text = notices[0]["text"].as_str().unwrap();
-            assert!(text.starts_with(if seq == 1 {
-                "Answered on the call: Yes — "
-            } else {
-                "Answered on the call: No — "
+            // The settled card is the record: no second line repeats it, and
+            // nothing the person reads names the call's id.
+            let tape = desk.log.load(&StreamId::Tape(ada.clone()));
+            assert!(!tape.iter().any(|e| {
+                e["kind"] == "notice"
+                    && e["text"]
+                        .as_str()
+                        .is_some_and(|s| s.starts_with("Answered on the call"))
             }));
-            assert!(!text.contains(call.as_str()));
+            assert!(
+                !tape
+                    .iter()
+                    .filter(|e| e["id"] == card["id"])
+                    .any(|e| e.to_string().contains(&format!("From call {call}")))
+            );
             crate::common::until("the answer continuation ends", || {
                 desk.log
                     .load(&StreamId::Tape(ada.clone()))
@@ -157,11 +154,9 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
         })
         .await;
         assert!(desk.log.load(&StreamId::Tape(ada.clone())).iter().any(|e| {
-            e["kind"] == "notice"
-                && e["text"].as_str().is_some_and(|s| {
-                    s.starts_with("Answered on the call: Yes — ")
-                        && s.contains("Is the harbour north of town?")
-                })
+            e["id"] == own_card["id"]
+                && e["status"] == "done"
+                && e["note"] == "Answered by voice on the call."
         }));
         let settled = desk
             .log

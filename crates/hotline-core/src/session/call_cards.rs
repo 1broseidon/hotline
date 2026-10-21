@@ -100,7 +100,6 @@ impl Room {
         if card.kind == "human_action" {
             let Some((
                 TranscriptEvent::HumanAction {
-                    reason,
                     question: Some(true),
                     status: HumanActionStatus::Pending,
                     expires_at,
@@ -127,17 +126,16 @@ impl Room {
                 } else {
                     HumanAnswer::Declined
                 },
-                Some(format!(
-                    "From call {call}: {}. Informational answer only; no operation is authorized.",
-                    if yes { "Yes" } else { "No" }
-                )),
+                // The settled card in the home chat is the record; its status
+                // carries the yes or no, and the person reads this note.
+                Some("Answered by voice on the call.".into()),
             )?;
-            return self.record_call_answer(card, call, yes, &reason);
+            return Ok(());
         }
         if card.kind != "permission" || !self.peers.voice_approval(&card.persona, &card.request) {
             return Err("This card needs the desk; voice cannot answer it.".into());
         }
-        let Some(TranscriptEvent::Permission { title, .. }) =
+        let Some(TranscriptEvent::Permission { .. }) =
             self.permission_card(&card.persona, &card.request)
         else {
             return Err("The approval card is no longer available.".into());
@@ -152,27 +150,7 @@ impl Room {
             },
         )
         .await?;
-        self.record_call_answer(card, call, yes, &title)
-    }
-
-    fn record_call_answer(
-        &self,
-        card: &Card,
-        call: &str,
-        yes: bool,
-        summary: &str,
-    ) -> Result<(), String> {
-        self.try_write_value(
-            &card.persona,
-            &serde_json::json!({
-                "kind": "notice", "id": format!("call-answer:{call}:{}", card.request),
-                "ts": now_ms(), "level": "info",
-                // The person reads this; the call is in the id, not the words.
-                "text": format!("Answered on the call: {} — {summary}",
-                    if yes { "Yes" } else { "No" }),
-            }),
-        )
-        .map_err(|error| format!("The answer's record could not be saved: {error}"))
+        Ok(())
     }
 }
 

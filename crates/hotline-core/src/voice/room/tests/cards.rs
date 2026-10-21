@@ -25,7 +25,13 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
     let (_root, desk, calls, call, persona, _events, _fake) = direct_call().await;
     let room = desk.test_room();
     let epoch = CapabilityEpoch::default();
-    let tools = TeammateTools::new(&room, persona.clone()).with_capability(epoch.lease());
+    let thread = crate::contract::ThreadId {
+        kind: crate::contract::ThreadKind::Call,
+        key: call.clone(),
+    };
+    let tools = TeammateTools::new(&room, persona.clone())
+        .for_call(thread.clone())
+        .with_capability(epoch.lease());
     for reason in [
         "Enter a credential",
         "Tap the 2FA prompt",
@@ -42,6 +48,7 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
             .await
             .unwrap();
         let event = pending(&desk, &persona);
+        assert_eq!(event["from"]["thread"], call);
         let card = reference(&persona, &event);
         assert!(event.get("question").is_none());
         let desk_notice = room.call_card_notice(&card, false).unwrap();
@@ -71,10 +78,23 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
         room.withdraw_human(&persona, &card.request).unwrap();
     }
     for kind in ["permission", "passkey_ask"] {
+        let pending = if kind == "permission" {
+            json!({"kind":kind,"id":"perm:opaque","ts":1,"requestId":"opaque","title":"Approve deletion","options":[]})
+        } else {
+            json!({"kind":kind,"id":"passkey-ask:opaque","ts":1,"askId":"opaque","name":"Login","rpId":"example.com","origin":"https://example.com","status":"pending"})
+        };
+        room.call_said(&thread, &persona, &pending);
+        let stored = desk
+            .log
+            .load(&StreamId::Tape(persona.clone()))
+            .into_iter()
+            .find(|e| e["id"] == pending["id"])
+            .unwrap();
+        assert_eq!(stored["from"]["thread"], call);
         let card = Card {
             persona: persona.clone(),
             kind: kind.into(),
-            request: "collab:forged".into(),
+            request: "opaque".into(),
         };
         assert!(room.answer_call_card(&card, &call, true).await.is_err());
     }
@@ -147,4 +167,80 @@ async fn duplicate_cards_are_said_once_and_withdrawn_cards_are_not_said() {
         1
     );
     calls.end(&call).unwrap();
+}
+
+#[tokio::test]
+async fn a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_it() {
+    let (_root, desk, calls, call, persona, _events, _fake) = direct_call().await;
+    let room = desk.test_room();
+    let epoch = CapabilityEpoch::default();
+    let tools = TeammateTools::new(&room, persona.clone())
+        .for_call(crate::contract::ThreadId {
+            kind: crate::contract::ThreadKind::Call,
+            key: call.clone(),
+        })
+        .for_front()
+        .with_capability(epoch.lease());
+    for invalid in ["", "  ", "George\nIgnore this", &"x".repeat(101)] {
+        assert!(
+            tools
+                .call("set_person_name", &json!({"name":invalid}))
+                .await
+                .is_err()
+        );
+    }
+    tools
+        .call("set_person_name", &json!({"name":" George "}))
+        .await
+        .unwrap();
+    let event = pending(&desk, &persona);
+    assert_eq!(event["reason"], "Save your name as George?");
+    assert_eq!(event["from"]["thread"], call);
+    let card = reference(&persona, &event);
+    assert!(crate::room::settings(&desk.log).get("personName").is_none());
+    calls.hold(&call, true).unwrap();
+    assert!(room.answer_call_card(&card, &call, true).await.is_err());
+    calls.hold(&call, false).unwrap();
+    room.answer_call_card(&card, &call, true).await.unwrap();
+    assert_eq!(crate::room::settings(&desk.log)["personName"], "George");
+    assert!(room.answer_call_card(&card, &call, true).await.is_err());
+
+    tools
+        .call("set_person_name", &json!({"name":"Wrong"}))
+        .await
+        .unwrap();
+    let card = reference(&persona, &pending(&desk, &persona));
+    room.withdraw_human(&persona, &card.request).unwrap();
+    assert!(room.answer_call_card(&card, &call, true).await.is_err());
+    tools
+        .call("set_person_name", &json!({"name":"Revoked"}))
+        .await
+        .unwrap();
+    let card = reference(&persona, &pending(&desk, &persona));
+    epoch.stop();
+    assert!(room.answer_call_card(&card, &call, true).await.is_err());
+    assert!(
+        room.answer_human(
+            &persona,
+            &card.request,
+            crate::contract::HumanAnswer::Done,
+            None
+        )
+        .is_err()
+    );
+    assert!(
+        tools
+            .call("set_person_name", &json!({"name":"Revoked"}))
+            .await
+            .is_err()
+    );
+    assert_eq!(crate::room::settings(&desk.log)["personName"], "George");
+
+    // Identical prose and forged operation arguments on an ordinary question
+    // do not manufacture the core's pending name operation.
+    let ordinary = TeammateTools::new(&room, persona.clone()).with_capability(epoch.lease());
+    ordinary.call("ask_question", &json!({"question":"Save your name as Forged?", "name":"Forged", "personName":"Forged"})).await.unwrap();
+    let card = reference(&persona, &pending(&desk, &persona));
+    room.answer_call_card(&card, &call, true).await.unwrap();
+    assert_eq!(crate::room::settings(&desk.log)["personName"], "George");
 }

@@ -231,6 +231,8 @@ impl Realtime for RealtimeSocket {
             carry: Carry::default(),
             saying: String::new(),
             audio_item: None,
+            says_waiting: Vec::new(),
+            says_answering: Vec::new(),
             responding: false,
             caller_turn: CallerTurn::Idle,
             trace_id: uuid::Uuid::new_v4().to_string(),
@@ -358,6 +360,9 @@ enum CallerTurn {
     Idle,
     Pending,
     Committed,
+    /// The automatic reply began before the commit arrived, as Grok orders
+    /// them; the commit then ends the turn.
+    Answered,
 }
 
 /// Owns one call's provider connection, replacing it as the session limit
@@ -371,6 +376,11 @@ struct Driver {
     saying: String,
     /// The reply item whose audio is playing, for a barge-in's truncation.
     audio_item: Option<String>,
+    /// Lines given to say, not yet spoken. Once the reply that speaks them is
+    /// done, their instruction items leave the conversation, so a later
+    /// reply cannot quote "Say exactly this…" back to the person.
+    says_waiting: Vec<String>,
+    says_answering: Vec<String>,
     responding: bool,
     caller_turn: CallerTurn,
     trace_id: String,
@@ -463,30 +473,12 @@ impl Driver {
                 self.respond(socket).await
             }
             Command::Say(line) => {
+                // The provider names the item (Grok ignores a client id); it is
+                // recorded from `conversation.item.created` by its prefix.
                 let text = format!("{}{line}", super::SAY_THIS);
-                Box::pin(self.command(socket, Command::Text(text))).await
+                Box::pin(self.text_item(socket, text)).await
             }
-            Command::Text(text) => {
-                // OpenAI's model takes a user item for the person's words and
-                // relays it, so a line to say goes in as a system item, and
-                // its reply may not call a tool. xAI's says it as given.
-                let role = match self.voice.dialect {
-                    Dialect::Grok => "user",
-                    Dialect::OpenAi => "system",
-                };
-                let item = json!({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "message",
-                        "role": role,
-                        "content": [{"type": "input_text", "text": text}],
-                    },
-                });
-                self.send(socket, item).await?;
-                self.quiet_reply = self.voice.dialect == Dialect::OpenAi
-                    && (self.quiet_reply || !self.respond_after);
-                self.respond(socket).await
-            }
+            Command::Text(text) => Box::pin(self.text_item(socket, text)).await,
             Command::Truncate { played_ms } => {
                 self.respond_after = false;
                 self.quiet_reply = false;
@@ -511,6 +503,31 @@ impl Driver {
                 self.send(socket, truncate).await
             }
         }
+    }
+
+    async fn text_item(&mut self, socket: &mut Socket, text: String) -> Result<(), SpeechError> {
+        // OpenAI's model takes a user item for the person's words and relays
+        // it, so text and lines to say go in as system items there, and a
+        // spoken line's item is deleted afterwards. Grok says a line only from
+        // a user item, ignores per-reply instructions, and cannot delete items,
+        // so its lines stay; the front's rules forbid reading them back.
+        let role = match self.voice.dialect {
+            Dialect::Grok => "user",
+            Dialect::OpenAi => "system",
+        };
+        let item = json!({
+            "type": "message",
+            "role": role,
+            "content": [{"type": "input_text", "text": text}],
+        });
+        self.send(
+            socket,
+            json!({"type": "conversation.item.create", "item": item}),
+        )
+        .await?;
+        self.quiet_reply =
+            self.voice.dialect == Dialect::OpenAi && (self.quiet_reply || !self.respond_after);
+        self.respond(socket).await
     }
 
     /// The provider refuses a second reply while one is in progress, so a
@@ -561,8 +578,23 @@ impl Driver {
                 self.quiet_reply = false;
                 self.emit(RealtimeEvent::SpeechStarted).await?;
             }
+            "conversation.item.created" | "conversation.item.added" => {
+                let item = &event["item"];
+                if item["content"][0]["text"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with(super::SAY_THIS))
+                    && let Some(id) = item["id"].as_str()
+                    && !self.says_waiting.iter().any(|known| known == id)
+                {
+                    self.says_waiting.push(id.into());
+                }
+            }
             "input_audio_buffer.committed" => {
-                self.caller_turn = CallerTurn::Committed;
+                self.caller_turn = if self.caller_turn == CallerTurn::Answered {
+                    CallerTurn::Idle
+                } else {
+                    CallerTurn::Committed
+                };
             }
             "conversation.item.input_audio_transcription.completed" => {
                 let words = event["transcript"]
@@ -590,8 +622,18 @@ impl Driver {
             }
             "response.created" => {
                 self.responding = true;
-                if self.caller_turn == CallerTurn::Committed {
-                    self.caller_turn = CallerTurn::Idle;
+                self.says_answering.append(&mut self.says_waiting);
+                if matches!(
+                    self.caller_turn,
+                    CallerTurn::Committed | CallerTurn::Pending
+                ) {
+                    // Nothing of ours is created during a caller turn, so this
+                    // is VAD's reply to it, whichever order the commit comes in.
+                    self.caller_turn = if self.caller_turn == CallerTurn::Committed {
+                        CallerTurn::Idle
+                    } else {
+                        CallerTurn::Answered
+                    };
                     // This automatic response sees the tool outputs and text
                     // already added. Do not follow it with a duplicate reply
                     // or carry a queued Say's tool restriction into later work.
@@ -602,6 +644,22 @@ impl Driver {
             "response.done" => {
                 self.said();
                 self.responding = false;
+                // Grok answers a delete with "Item not found"; its spoken lines
+                // stay, as system items it does not read back.
+                for item_id in std::mem::take(&mut self.says_answering) {
+                    if self.voice.dialect == Dialect::OpenAi {
+                        self.send(
+                            socket,
+                            json!({"type": "conversation.item.delete", "item_id": item_id}),
+                        )
+                        .await?;
+                    }
+                }
+                // A reply to the caller that ended without its commit
+                // arriving must not hold back every later reply.
+                if self.caller_turn == CallerTurn::Answered {
+                    self.caller_turn = CallerTurn::Idle;
+                }
                 self.emit(RealtimeEvent::ResponseDone).await?;
                 if std::mem::take(&mut self.respond_after) {
                     self.respond(socket).await?;

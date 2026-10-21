@@ -138,6 +138,7 @@ async fn collaboration_rechecks_reach_after_discovery() {
                 &room.capability_lease("ada"),
                 &room.capability_lease("bob"),
                 false,
+                None,
             )
             .await
         })
@@ -1354,6 +1355,7 @@ mod receipts {
             tool_kind: None,
             status: ToolStatus::Completed,
             locations: None,
+            files: None,
             output: None,
         }
     }

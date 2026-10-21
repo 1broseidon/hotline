@@ -183,7 +183,7 @@ async fn closing_note_due(log: &hotline_core::log::Log, call: &str) {
     })
     .await;
     tokio::time::pause();
-    tokio::time::advance(Duration::from_secs(31)).await;
+    tokio::time::advance(Duration::from_secs(121)).await;
     tokio::time::resume();
 }
 

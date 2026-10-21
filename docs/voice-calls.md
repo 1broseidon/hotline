@@ -82,9 +82,15 @@ The acceptance set remains [the scenario deck](design/voice-scenarios.html).
 The [scenario pass record](design/voice-scenario-pass.md) maps every scenario
 to scripted evidence and retains each device requirement for Pork Chop and
 George. Physical phone behavior is not established by desktop tests.
-Files explicitly sent by the clone reach chat; files only written to disk
-are not automatically attached. That QA finding is task-253, awaiting George’s
-policy decision.
+The core delivers files from successful write/edit tool records on the call's
+own work turn, whether or not the clone calls `send_file`. Up to three files
+are individual attachments; larger batches are one compact list with each
+file's name, created/edited status, size and Open/Save actions. Explicit sends
+on that turn join the same batch, and an explicit send and the same turn’s automatic result
+are not repeated. A later correction delivers the updated file. No directory scan or path inferred from prose is used.
+Shell commands and tools without explicit file-change records cannot supply
+automatic attachments. Scripted real-core tests cover both drivers; real-provider
+and physical-device QA remain separate from that evidence.
 
 Headless wire/session tests cover desk compatibility, target validation,
 owner/companion boundaries, stream bounds, commit/cancellation and reply
@@ -100,12 +106,16 @@ call after rollout.
 
 
 Legacy call threads (S5) detach on hang-up without cancelling the agent. The
-room posts a closing note after 30 seconds and an idle queue, then parks the
-open thread. There are no periodic summaries or front Digest. Calling a work
+room posts a closing note after two minutes and idle queues, then parks the
+open threads. Calls close together to the same teammate share this note and
+its links to every source thread. Picking up cancels the pending note.
+There are no periodic summaries or front Digest. Calling a work
 thread or a previous call passes `thread` to `voice.call_start`; its context
 and agent are reused. Live-front work uses that same occupant and steers it without starting another clone.
-Only the turn running at hang-up automatically posts its completed written
-reply, as one message. Over 900 characters or three paragraphs, that post
+Only the turn running at hang-up may automatically post its completed written
+reply, as one message, and only if this call has not already delivered a
+result or file to chat. Otherwise the closing note covers the late reply.
+Over 900 characters or three paragraphs, that post
 is a short subject-first summary; a failed summariser leaves a bounded
 notice instead. Open the call leads to the full reply. Later turns stay on
 the thread unless they explicitly post.
@@ -152,12 +162,22 @@ again, and settled cards leave both the queue and the call pane. Phone push
 for the card is suppressed while an active matching call carries it; held
 and disconnected calls keep the ordinary push path.
 
+A card raised on a call thread is written to the teammate's home tape with
+`from.kind = call`, the call thread key and its title. The same id is kept on
+the call stream as a linked status line; the window opens the home card from
+that line and opens the call from the home card's “From the call” stamp.
+Home-chat answers and voice answers settle both views, but the answer's
+continuation still goes to the agent on the original call thread. Pushes
+outside an active call point to the home chat, including driver permissions.
+
 The core announces a collaboration approval with its session-only scope,
-or an `ask_question` informational yes/no question. Only the next finalized
-caller yes/no answers the announced card; other words clear that association.
-The model has no answer tool. The answer is kept on the card and/or in a
-chat notice naming the call, and a question's continuation stays on its
-original thread. Existing action cards, passkeys and opaque driver approvals
+or an `ask_question` yes/no question, which is also the card a teammate uses
+to ask approval of its own plan (George, 2026-10-21: an approval card asked
+for on a call must be answerable there). Only the next finalized caller
+yes/no answers the announced card; other words clear that association. The
+model has no answer tool. The answer is kept on the card ("Answered by voice
+on the call: yes."), and a question's continuation stays on its original
+thread; a tap with no note still tells that thread whether it was yes or no. Existing action cards, passkeys and opaque driver approvals
 are announced as needing the desk and cannot be answered by voice. A spoken
 yes to one is refused without settling it or handing that yes off as work.
 The wire's optional `card.resolved` removes answered or withdrawn cards from

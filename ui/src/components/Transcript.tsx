@@ -550,6 +550,28 @@ const Row = memo(function Row({
 	const run: Run = { top, bottom };
 	const own = event.kind === "user" || event.kind === "agent" ? event.reactions : undefined;
 	const worn = reactions === undefined ? own : [...(own ?? []), ...reactions];
+	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask") && event.from?.kind === "call") {
+		const origin = event.from;
+		const settled = event.kind === "permission" ? event.decision !== undefined : event.status !== "pending";
+		const label = event.kind === "permission" ? event.title : event.kind === "human_action" ? event.reason : event.name;
+		if (thread.kind === "call") return (
+			<button type="button" className="rule-line rule-line-plain"
+				onClick={() => onOpenThread?.({ thread: { kind: "dm", key: personaId }, eventId: event.id })}>
+				{settled ? "Settled" : "Needs you"}: {label} · Open card in home chat
+			</button>
+		);
+		return (
+			<div>
+				<button type="button" className="said-name"
+					onClick={() => onOpenThread?.({ thread: { kind: "call", key: origin.thread }, ...(origin.title ? { title: origin.title } : {}) })}>
+					From the call{origin.title ? ` · ${origin.title}` : ""}
+				</button>
+				{event.kind === "permission" && <Permission thread={thread} event={event} />}
+				{event.kind === "human_action" && <HumanAction thread={thread} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />}
+				{event.kind === "passkey_ask" && <PasskeyAskCard personaId={personaId} event={event} />}
+			</div>
+		);
+	}
 	switch (event.kind) {
 		case "user":
 			if (thread.kind === "call") return <>
@@ -734,6 +756,7 @@ const Row = memo(function Row({
 
 /** What opens a thread from a line: the thread, and what the line knew about it. */
 export type ThreadRef = {
+	eventId?: string;
 	thread: ThreadId;
 	/** What a link called it. */
 	title?: string;

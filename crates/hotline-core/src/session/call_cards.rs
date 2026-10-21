@@ -1,5 +1,5 @@
 //! Voice never infers authority from a card's title or a model's choice.
-//! Only the core's live collaboration wait may grant a session approval.
+//! Core-owned name cards and live collaboration waits carry bounded authority.
 
 use super::*;
 use hotline_voice::cards::{Card, Notice};
@@ -21,7 +21,7 @@ impl Room {
             && expires_at.is_none_or(|expires| expires > now_ms())
             && lock(&self.voice_questions)
                 .get(&card.request)
-                .is_some_and(CapabilityLease::is_current)
+                .is_some_and(|question| question.capability.is_current())
         {
             return Some(Notice {
                 text: if first_person {
@@ -100,7 +100,6 @@ impl Room {
         if card.kind == "human_action" {
             let Some((
                 TranscriptEvent::HumanAction {
-                    reason,
                     question: Some(true),
                     status: HumanActionStatus::Pending,
                     expires_at,
@@ -116,7 +115,7 @@ impl Room {
             }
             let capability = lock(&self.voice_questions)
                 .get(&card.request)
-                .cloned()
+                .map(|question| question.capability.clone())
                 .ok_or("This question no longer has a live session.")?;
             capability.check()?;
             self.answer_human(
@@ -127,17 +126,20 @@ impl Room {
                 } else {
                     HumanAnswer::Declined
                 },
+                // The settled card in the home chat is the record. The person
+                // reads this note, and the agent's delivery carries only the
+                // note, so it must say which answer was given.
                 Some(format!(
-                    "From call {call}: {}. Informational answer only; no operation is authorized.",
-                    if yes { "Yes" } else { "No" }
+                    "Answered by voice on the call: {}.",
+                    if yes { "yes" } else { "no" }
                 )),
             )?;
-            return self.record_call_answer(card, call, yes, &reason);
+            return Ok(());
         }
         if card.kind != "permission" || !self.peers.voice_approval(&card.persona, &card.request) {
             return Err("This card needs the desk; voice cannot answer it.".into());
         }
-        let Some(TranscriptEvent::Permission { title, .. }) =
+        let Some(TranscriptEvent::Permission { .. }) =
             self.permission_card(&card.persona, &card.request)
         else {
             return Err("The approval card is no longer available.".into());
@@ -152,26 +154,37 @@ impl Room {
             },
         )
         .await?;
-        self.record_call_answer(card, call, yes, &title)
+        Ok(())
     }
+}
 
-    fn record_call_answer(
+/// Only cards carry a mirrored status, never arbitrary model output.
+pub(super) fn is_card(event: &Value) -> bool {
+    matches!(
+        event["kind"].as_str(),
+        Some("permission" | "human_action" | "passkey_ask")
+    )
+}
+
+impl Room {
+    /// Preserve the trusted origin when a typed handler supersedes a card.
+    pub(super) fn card_with_origin<'a>(
         &self,
-        card: &Card,
-        call: &str,
-        yes: bool,
-        summary: &str,
-    ) -> Result<(), String> {
-        self.try_write_value(
-            &card.persona,
-            &serde_json::json!({
-                "kind": "notice", "id": format!("call-answer:{call}:{}", card.request),
-                "ts": now_ms(), "level": "info",
-                // The person reads this; the call is in the id, not the words.
-                "text": format!("Answered on the call: {} — {summary}",
-                    if yes { "Yes" } else { "No" }),
-            }),
-        )
-        .map_err(|error| format!("The answer's record could not be saved: {error}"))
+        persona: &str,
+        event: &'a Value,
+    ) -> std::borrow::Cow<'a, Value> {
+        if is_card(event)
+            && event["from"].is_null()
+            && let Some(old) = self
+                .tape(persona)
+                .into_iter()
+                .find(|old| old["id"] == event["id"])
+            && !old["from"].is_null()
+        {
+            let mut stamped = event.clone();
+            stamped["from"] = old["from"].clone();
+            return std::borrow::Cow::Owned(stamped);
+        }
+        std::borrow::Cow::Borrowed(event)
     }
 }

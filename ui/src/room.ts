@@ -150,6 +150,7 @@ const pickModelsRevision = (state: RoomState) => state.modelsRevision;
 
 /** The room's settings over their defaults. */
 export function useRoomSettings(): {
+	personName: string;
 	chapterIdleHours: number;
 	defaultBackendId: string;
 	defaultModelId: string | null;
@@ -165,6 +166,7 @@ export function useRoomSettings(): {
 	const mcpServers = useMemo(() => listSetting(events.get("mcpServers")), [events]);
 
 	return {
+		personName: stringSetting(events.get("personName"), ""),
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),

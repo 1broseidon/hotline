@@ -321,6 +321,7 @@ impl Occupant for LiveSide {
         room.threads()
             .turn(
                 Seat {
+                    capability: Some(&self.capability),
                     thread: &thread,
                     persona_id: &self.persona_id,
                     driver: driver.as_ref(),
@@ -1045,6 +1046,7 @@ impl Room {
         side.say(
             self,
             &TranscriptEvent::Permission {
+                from: None,
                 id,
                 ts: now_ms(),
                 request_id,

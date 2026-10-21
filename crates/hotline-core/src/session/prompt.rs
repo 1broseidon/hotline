@@ -118,7 +118,7 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    text: text.to_string(),
+                    text: self.with_person_name(text),
                     attachments: attachments.clone().unwrap_or_default(),
                     steer: !crate::wire::commands::from_voice(),
                     said: None,
@@ -639,6 +639,12 @@ pub(super) fn event_of(
                 }],
             }
         }
+        Update::ToolFiles { call_id, files } => {
+            if let Some(pending) = in_flight.get_mut(&call_id) {
+                pending.files = Some(files);
+            }
+            Vec::new()
+        }
         Update::ToolCall {
             call_id,
             title,
@@ -646,6 +652,7 @@ pub(super) fn event_of(
         } => {
             let pending = PendingTool {
                 ts: now_ms(),
+                files: None,
                 title,
                 kind,
             };
@@ -687,6 +694,7 @@ pub(super) fn event_of(
             title,
             options,
         } => vec![TranscriptEvent::Permission {
+            from: None,
             // The card is superseded by this id when it is answered, so the
             // decision lands on the line already drawn rather than adding a
             // second one below it.
@@ -720,6 +728,7 @@ pub(super) struct PendingTool {
     ts: i64,
     title: String,
     pub(super) kind: String,
+    files: Option<Vec<crate::contract::ChangedFile>>,
 }
 
 impl PendingTool {
@@ -737,6 +746,7 @@ impl PendingTool {
             tool_kind: Some(self.kind.clone()),
             status,
             locations: None,
+            files: self.files.clone(),
             output: output.map(|output| vec![output]),
         }
     }

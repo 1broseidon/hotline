@@ -37,6 +37,10 @@ export type AgentKind = "hotline" | "acp";
  */
 export type Attachment = { 
 /**
+ * Whether call work created this file (false means edited).
+ */
+created?: boolean, 
+/**
  * Images can be inlined for an agent that takes them, and are drawn in
  * the conversation when a teammate sends one; files are linked.
  */
@@ -225,6 +229,11 @@ export type CatalogModel = { id: string, name: string, releaseDate: string, enab
  * An exact provider/model match exists in the bundled metadata.
  */
 metadataKnown: boolean, contextLimit: number | null, outputLimit: number | null, reasoning: boolean | null, attachment: boolean | null, efforts: Array<string> | null, cost: ModelCost | null, };
+
+/**
+ * A successful file mutation reported by the work's own tool.
+ */
+export type ChangedFile = { path: string, created: boolean, };
 
 /**
  * What ended a chapter.
@@ -480,7 +489,11 @@ about: string, };
  * answers when it answers one. It is a field of the delivery, so the turn that
  * takes it never has to read an id to find out.
  */
-export type DeliveryFrom = { title?: string, 
+export type DeliveryFrom = { 
+/**
+ * All source threads of a combined call note. Older readers use `thread`.
+ */
+sources?: Array<ThreadId>, title?: string, 
 /**
  * The thread's key: see [`ThreadId`].
  */
@@ -1936,11 +1949,19 @@ from?: DeliveryFrom,
 /**
  * A post from a scheduled run: which job it came from.
  */
-scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
+scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, } | { "kind": "permission", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
 /**
  * How long the pull took, once it is done.
  */
-elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", id: string, ts: number, actionId: string, reason: string, 
+elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, actionId: string, reason: string, 
 /**
  * An informational yes/no question. It never approves an operation.
  * Older cards are actions and remain desk-only.
@@ -1969,10 +1990,15 @@ delivers?: boolean,
 expiresAt?: number, 
 /**
  * The work thread the card was raised in, when it was raised in one:
- * the card is on that thread's stream and not on the tape, and the
- * answer goes back to that thread's agent. Absent on the tape's own.
+ * answer goes back to that thread's agent. Call cards live on the
+ * home tape with a mirrored status on the call; other work cards
+ * stay on their thread. Absent on the tape's own cards.
  */
-thread?: string, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
+thread?: string, } | { "kind": "passkey_ask", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, askId: string, 
 /**
  * The name the passkey is stored under once made.
  */

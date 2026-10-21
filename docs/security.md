@@ -1968,12 +1968,14 @@ narrator leaves the written result available without a new spoken pointer.
   collaboration wait can accept yes for this session or no; voice never
   grants standing collaboration. `ask_question` creates an informational
   yes/no card under the requesting session's capability lease. Its answer
-  conveys information, not permission for an operation. `request_human`,
+  conveys information, not permission for an operation. A core-owned
+  `set_person_name` card can also accept yes/no by voice, solely to save its
+  bound preferred name (see below). `request_human`,
   passkeys and opaque driver permissions remain desk-only, including requests
   involving credentials, 2FA, screens, payments and deletions. Older cards
   have no question marker; after restart no saved marker recreates a lease.
 - **Enforcement:** `session/call_cards.rs` checks the actual card, live call,
-  owner, pending status, expiry and question lease, or the core's actual
+  owner, pending status, expiry and question lease (including a name card), or the core's actual
   collaboration wait and both participant leases. The normal card handler
   then settles it once. A `question` or `voice` argument cannot promote an
   action card. The voice front has no answer tool or wire command access:
@@ -1983,12 +1985,19 @@ narrator leaves the written result available without a new spoken pointer.
   `voice.input_state`; provider onset events do the same for live calls.
   A changed grant or stopped requesting session revokes question authority;
   withdrawal and a desk answer remove the queued/active card. Answers leave
-  a record in the teammate's chat identifying the call.
+  a record in the teammate's chat identifying the call. Call-thread cards
+  are stored in that home chat with a core-stamped `from` origin and mirrored
+  by id to the call transcript. Home answers route to the original wait or
+  driver; moving the card grants no voice permission. Home-session cleanup
+  cannot expire a call driver's pending card.
 - **Proof:** `tests/call_threads/cards.rs`
   `legacy_answers_a_question_once_and_records_yes_and_no_from_the_call`,
   `live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`, and
-  `spoken_collaboration_approval_is_only_for_this_session` drive the real
+  `spoken_collaboration_approval_is_only_for_this_session`, and
+  `a_home_answer_settles_the_call_question_and_removes_its_voice_notice` drive the real
   wire and handlers, with both drivers and the three live provider seams.
+  `session/threads.rs` `a_call_permission_is_pushed_and_answered_in_home_chat`
+  proves driver settlement and home notification routing without a live call.
   `voice/room/tests/cards.rs`
   `the_card_handler_refuses_actions_forged_questions_and_stale_authority`
   proves the five desk-action categories, forged flags, wrong owner, held
@@ -2006,3 +2015,71 @@ narrator leaves the written result available without a new spoken pointer.
   one. Driver approvals need trusted operation metadata before their voice
   support can expand. Live providers generate the spoken announcement;
   physical playback/echo and microphone timing still need the device pass.
+
+
+## Files produced by call work
+
+- **Default and grant source:** successful write/edit records on a call's own
+  turn are automatically delivered to that teammate's home chat. Explicit sends
+  join the batch. This adds no model tool, filesystem grant or destination.
+- **Enforcement:** `session/call_files.rs` reads only the recorded paths through
+  `files::from_workspace` and checks the call's scoped capability lease before
+  reads, storage and posting. Failed tools supply no automatic result. A stopped
+  or revoked call cannot regain authority from a saved record. File readback
+  selects the stored copy by message id and index; separate indexed directories
+  prevent equal basenames from colliding. Other documents open as inert text
+  or binary previews through `file.read`; the native image/PDF-only opener
+  remains unchanged and markup is never executed.
+- **Proof:** `tests/call_threads/files.rs`
+  `call_files_are_delivered_once_and_large_batches_are_one_openable_card` covers
+  both real drivers over the wire, one/three/six files, explicit sends, empty
+  work, unrelated workspace files and readback of every indexed result.
+  `session/tests/sent_files.rs`
+  `automatic_call_files_keep_the_call_lease_reach_and_work_boundary`
+  exercises the real publishing handler with allowed files, an outside path,
+  revoked authority, later corrections and separate calls.
+- **Residual risk:** ACP reports its own mutations, as it reports tool results;
+  those reports do not widen Hotline's read reach. Tools without explicit file
+  metadata (including shell commands) do not produce automatic attachments.
+  The file is read when the turn finishes, so another authorized writer can
+  change it before capture. Real-provider and physical-device behavior still
+  requires the separate call QA pass.
+
+
+## Saving the person's name
+
+- **Default and grant source:** `personName` is absent until the person saves
+  it in Settings → General or approves a `set_person_name` card. The shared
+  tool is available to both drivers and the live front, under their session
+  lease; subagent runs and colleague threads cannot ask. Each proposal, including a change, asks
+  “Save your name as George?” with the proposed name. The person's desk answer
+  or finalized yes on the matching active call grants only that write.
+- **Enforcement:** `TeammateTools::call` checks the lease and dispatches only
+  the name argument. `Room::ask_person_name` validates a nonempty name of at
+  most 100 characters, with no control characters, and binds it and the lease
+  to a core-generated approval id before publishing the card. `answer_later`
+  serializes settlement with withdrawal and expiry; `settle_person_name`
+  rechecks the pending operation, lease and expiry and appends only the
+  `personName` setting on approval. Decline writes no setting. Duplicate,
+  wrong-owner, expired, withdrawn and revoked answers cannot save a name.
+  A restart loses the operation authority; the persisted card cannot restore
+  it. Ordinary question text and extra tool arguments cannot authorize a
+  setting change. Settings uses the same name normalization and may clear it.
+- **Proof:** `tests/call_threads/person_name.rs`
+  `a_name_is_saved_only_by_its_approved_card_on_both_drivers` drives proposals,
+  decline, approve, repeated approval, change and revocation through both real
+  drivers and the wire, and checks the current Settings name reaches home.
+  `a_live_call_saves_a_name_only_after_spoken_yes` covers yes/no across all
+  three live provider seams. `voice/room/tests/cards.rs`
+  `a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_it`
+  covers the front handler, held calls, withdrawal, revocation, validation and
+  forged operation arguments. `session/tests/cards.rs`
+  `a_name_approval_cannot_survive_expiry_or_room_restart` proves expiry,
+  wrong-owner refusal and restart refusal. `ui/tests/person-name.test.tsx`
+  proves the General field's read, write, clear and room-update round trip.
+- **Residual risk:** the model proposes the spelling and speech recognition
+  can mishear approval; voice does not authenticate the speaker. The trusted
+  card displays the exact bounded name to be stored. Approval is specific to
+  that proposal, but two separately approved proposals can overwrite each
+  other in settlement order. The saved name is prompt data, not instructions;
+  no name proposal can write another setting or create a standing grant.

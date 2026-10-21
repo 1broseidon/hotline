@@ -690,7 +690,8 @@ async fn a_quiet_legacy_turn_gets_progress_until_it_ends_or_is_interrupted() {
             |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
         )
         .await;
-        for _ in 0..2 {
+        let mut progress = Vec::new();
+        for _ in 0..3 {
             // The test build refreshes Thinking every 100ms. Drain those
             // snapshots while moving time, without losing the feedback.
             for _ in 0..19 {
@@ -702,8 +703,11 @@ async fn a_quiet_legacy_turn_gets_progress_until_it_ends_or_is_interrupted() {
             }
             tokio::time::advance(Duration::from_secs(1)).await;
             let (said, _) = one_reply(&mut rx).await;
-            assert_eq!(said[0].1, "I'm still working on that.");
+            assert_eq!(said.len(), 1);
+            progress.push(said[0].1.clone());
         }
+        assert!(progress.windows(2).all(|pair| pair[0] != pair[1]));
+        assert!(progress.iter().any(|line| line != &progress[0]));
         if interrupt {
             calls.hold(&id, true).unwrap();
         } else {
@@ -711,7 +715,7 @@ async fn a_quiet_legacy_turn_gets_progress_until_it_ends_or_is_interrupted() {
         }
         tokio::time::advance(Duration::from_secs(60)).await;
         tokio::task::yield_now().await;
-        assert_eq!(lock(&fake.spoken).len(), 2);
+        assert_eq!(lock(&fake.spoken).len(), 3);
         calls.end(&id).unwrap();
     }
 }

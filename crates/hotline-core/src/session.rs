@@ -35,6 +35,7 @@ mod agent;
 mod asking;
 pub(crate) mod avatar;
 mod call_cards;
+mod call_files;
 mod chapters;
 mod computer;
 mod dm;
@@ -51,6 +52,7 @@ mod links;
 mod narration;
 mod pacing;
 mod peers;
+mod person_name;
 mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
@@ -583,7 +585,7 @@ pub struct Room {
     /// The turns in flight that `post_to_chat` may post from, by thread, and
     /// whether each has (`session/post.rs`).
     posting: Mutex<HashMap<ThreadId, post::Posting>>,
-    call_closings: Mutex<HashMap<ThreadId, String>>,
+    call_closings: Mutex<HashMap<String, calls::CallClosing>>,
     /// The job threads the room holds: each job's queue, and its agent while
     /// it has one (`session/job_thread.rs`). Made at a job's first firing and
     /// dropped when it ends.
@@ -607,7 +609,7 @@ pub struct Room {
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
     human_waits: Mutex<HashMap<String, HumanWait>>,
-    voice_questions: Mutex<HashMap<String, CapabilityLease>>,
+    voice_questions: Mutex<HashMap<String, asking::Question>>,
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
     answering_later: Mutex<()>,
@@ -1161,8 +1163,21 @@ impl Room {
         if crate::linked::is_linked(persona_id) {
             return Ok(());
         }
+        let stamped = self.card_with_origin(persona_id, event);
+        let event = stamped.as_ref();
         self.log
             .append(&StreamId::Tape(persona_id.to_string()), event)?;
+        if call_cards::is_card(event)
+            && event["from"]["kind"] == "call"
+            && let Some(key) = event["from"]["thread"].as_str()
+        {
+            let thread = ThreadId {
+                kind: crate::contract::ThreadKind::Call,
+                key: key.to_string(),
+            };
+            let stream = StreamId::of_thread(&thread).expect("a call has a stream");
+            self.log.append(&stream, event)?;
+        }
         self.index(persona_id, event);
         if persona_id != "voice-dispatcher"
             && let Some(voice) = lock(&self.voice).upgrade()

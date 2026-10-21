@@ -97,10 +97,15 @@ pub enum TranscriptEvent {
         status: ToolStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         locations: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        files: Option<Vec<ChangedFile>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         output: Option<Vec<ToolOutput>>,
     },
     Permission {
+        /// The call that raised this card in the home chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
         id: String,
         ts: i64,
         request_id: String,
@@ -150,6 +155,9 @@ pub enum TranscriptEvent {
     /// 2FA tap, a CAPTCHA — usually on its computer. Pending renders a card
     /// with the way in; any other status is the card's afterlife.
     HumanAction {
+        /// The call that raised this card in the home chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
         id: String,
         ts: i64,
         action_id: String,
@@ -178,8 +186,9 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expires_at: Option<i64>,
         /// The work thread the card was raised in, when it was raised in one:
-        /// the card is on that thread's stream and not on the tape, and the
-        /// answer goes back to that thread's agent. Absent on the tape's own.
+        /// answer goes back to that thread's agent. Call cards live on the
+        /// home tape with a mirrored status on the call; other work cards
+        /// stay on their thread. Absent on the tape's own cards.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<String>,
     },
@@ -188,6 +197,9 @@ pub enum TranscriptEvent {
     /// browser until the person answers here. Pending renders the card
     /// with Approve and Deny; any other status is the card's afterlife.
     PasskeyAsk {
+        /// The call that raised this card in the home chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
         id: String,
         ts: i64,
         ask_id: String,
@@ -446,6 +458,9 @@ pub enum TranscriptEvent {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct Attachment {
+    /// Whether call work created this file (false means edited).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<bool>,
     /// Images can be inlined for an agent that takes them, and are drawn in
     /// the conversation when a teammate sends one; files are linked.
     pub kind: AttachmentKind,
@@ -467,6 +482,15 @@ pub struct Attachment {
     /// a screenshot shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+}
+
+/// A successful file mutation reported by the work's own tool.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct ChangedFile {
+    pub path: String,
+    pub created: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -575,6 +599,9 @@ pub enum DeliveryCause {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct DeliveryFrom {
+    /// All source threads of a combined call note. Older readers use `thread`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<Vec<ThreadId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// The thread's key: see [`ThreadId`].
@@ -588,6 +615,7 @@ impl DeliveryFrom {
     pub fn new(thread: &ThreadId, request: Option<String>) -> Self {
         Self {
             title: None,
+            sources: None,
             thread: thread.key.clone(),
             kind: thread.kind,
             request,

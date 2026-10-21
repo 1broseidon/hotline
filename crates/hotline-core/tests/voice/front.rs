@@ -459,11 +459,12 @@ async fn a_front_call_works_on_its_thread_and_says_its_spoken_line() {
             "search_thread",
             "read_thread",
             "list_chapters",
+            "set_person_name",
             "list_teammates",
             "list_schedules",
             "web_search"
         ],
-        "the bridge's two, the teammate's desk-side reads and the post to the chat"
+        "the bridge's two, the teammate's desk-side reads and the name proposal"
     );
     assert_eq!(config.voice, "rex", "the teammate's own voice");
 
@@ -1175,4 +1176,61 @@ async fn a_wire_drop_resumes_the_same_live_call_and_announces_it() {
     )
     .await;
     assert_eq!(ended["ok"], true);
+}
+
+/// A client that barges on every caller turn (the phone does, on each
+/// frontStop) reports 0 ms played once the reply has finished. Nothing was
+/// cut, so the call records no interruption the model would believe.
+/// Scenario: Interrupting.
+#[tokio::test]
+async fn a_barge_after_a_finished_reply_records_no_cut() {
+    let mut desk = front_desk(true, 64).await;
+    let socket = &mut desk.socket;
+    let persona = answer(socket, 1, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":desk.root.path().to_str().unwrap()}}})).await["result"]["id"].as_str().unwrap().to_string();
+    let call = Uuid::new_v4().to_string();
+    let started = answer(socket, 2, json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}})).await;
+    assert_eq!(started["ok"], true, "{started}");
+    send(socket, json!({"id":3,"sub":{"call":call}})).await;
+    frame_where(socket, |f| f["sub"] == 3 && f["snapshot"].is_array()).await;
+    common::until("the front opens", || {
+        desk.front.config.lock().unwrap().is_some()
+    })
+    .await;
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("Good morning.".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::Audio(vec![1; 480])))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::ResponseDone))
+        .await
+        .unwrap();
+    frame_where(socket, |f| {
+        f["event"]["type"] == "said" && f["event"]["text"] == "Good morning."
+    })
+    .await;
+    let barged = answer(
+        socket,
+        4,
+        json!({"cmd":"voice.front_barge","params":{"callId":call,"playedMs":0}}),
+    )
+    .await;
+    assert_eq!(barged["ok"], true);
+    desk.events
+        .send(Ok(RealtimeEvent::Heard("Time for some QA.".into())))
+        .await
+        .unwrap();
+    frame_where(socket, |f| f["event"]["type"] == "heard").await;
+    let stream = hotline_core::log::StreamId::Call(call.clone());
+    assert!(
+        !desk
+            .log
+            .load(&stream)
+            .iter()
+            .any(|line| line["interrupted"] == true),
+        "a finished line was recorded as cut"
+    );
 }

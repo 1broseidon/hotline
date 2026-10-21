@@ -168,6 +168,7 @@ async fn claude_on_openrouter_is_asked_to_cache_and_other_models_are_left_alone(
 fn attachments_reach_this_agent_as_paths_under_the_message() {
     use crate::contract::AttachmentKind;
     let attachment = Attachment {
+        created: None,
         kind: AttachmentKind::File,
         name: "note.txt".to_string(),
         path: "/tmp/note.txt".to_string(),
@@ -193,6 +194,7 @@ fn an_attached_image_reaches_the_model_as_pixels_and_as_a_path() {
     let png = dir.path().join("shot.png");
     image::RgbImage::new(8, 8).save(&png).unwrap();
     let image = |path: &Path| Attachment {
+        created: None,
         kind: AttachmentKind::Image,
         name: "shot.png".to_string(),
         path: path.to_string_lossy().into_owned(),

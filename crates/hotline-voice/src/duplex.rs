@@ -274,14 +274,22 @@ impl Calls {
                 .input
                 .clone()
                 .ok_or("The front is still connecting.")?;
+            // A client that barges on every caller turn reports nothing played
+            // once the reply has finished: there is nothing to cut.
+            if played_ms == 0 && !front.responding {
+                return Ok(None);
+            }
             front.interrupted = front.responding;
             call.cut_speech(Some(played_ms));
             call.activity = Instant::now();
             if call.state == VoiceState::Speaking {
                 call.state(call.resting(), None);
             }
-            Ok(input)
+            Ok(Some(input))
         })?;
+        let Some(input) = input else {
+            return Ok(());
+        };
         input
             .truncate(played_ms)
             .await

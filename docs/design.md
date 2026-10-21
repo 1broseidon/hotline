@@ -691,15 +691,24 @@ thread owned by the selected teammate. Both use the work-thread occupant,
 lease, tools and checkpoint restoration, on Hotline Agent and ACP. Spoken
 lines never enter the home DM. Hang-up detaches speech and leaves accepted
 work running; only the turn in flight at hang-up posts its completed reply
-as one chat message. Replies over 900 characters or three paragraphs post
+as one chat message, and only if this call has not already delivered a result
+or file to chat. Otherwise the closing note accounts for its late reply.
+Replies over 900 characters or three paragraphs post
 a short subject-first summary, with the full text kept on the call thread;
 if summarising fails, a short notice points there instead. Later typed turns
 stay on the thread unless they explicitly post. Calls and work threads
 can be continued by text and called again.
 
-Thirty seconds after hang-up, once the queue is idle, the chapter summariser
-writes one subject-first account of the discussion, decisions and finished
-work. It is posted with a link to the source thread, then the thread parks.
+Two minutes after hang-up (`CALL_CLOSING_DELAY`), once all the run's queues
+are idle, the chapter summariser writes one subject-first account of the
+discussion, decisions and finished work. A new call to the same teammate
+invalidates the pending note, including one being generated, and retains its
+source threads for the next note. One post links every source thread through
+optional `from.sources`; older readers still use `from.thread`. Each source
+then parks. These additive fields leave tape segments and the importer unchanged.
+The summary receives the results already delivered to chat. Interrupted speech
+or clipped model context is never evidence of a missing written result; a note
+claiming a result was cut off is replaced with a factual pointer to the results.
 A notice in the thread marks the covered interval by log position, so a later
 note includes only new work even when timestamps tie. New input during the
 summary causes it to be retried before publication; queue admission and final
@@ -777,8 +786,9 @@ the core sends one soft, wordless WAV on the ordinary clip wire, to desk and
 phone alike. Only an audio clip suppresses that cue, not text awaiting TTS.
 There is no repeating client chime or stock opening acknowledgement. While a
 teammate is still working, twenty seconds without audio queues a short core-owned
-“I'm still working on that.” line in the same speech queue as its answer. It
-claims no result or specific tool activity. The queue checks the turn again;
+first-person line in the same speech queue as its answer. Neutral lines rotate
+without consecutive repeats; they claim no result, impending completion or
+specific tool activity. The queue checks the turn again;
 finished, interrupted, held or superseded turns cannot start that line.
 Interruption cancels queued speech as before. Live work that has no spoken
 version can still be rewritten before the live model says it.
@@ -1138,7 +1148,12 @@ sending a phone push. The caller's finalized yes/no, not a model tool,
 answers the last announced card and leaves a chat record from the call.
 The handler allows core-owned collaboration approvals for this session only
 and informational `ask_question` cards under the requesting session's live
-lease. An informational answer never grants an operation. Existing action
+lease. `set_person_name` adds one core-owned operation: the proposed name
+and lease are bound to its card before publication, and only approval writes
+`personName`. Settings → General also reads and writes it as **Your name**.
+The home agent receives the current name with each prompt; live voice reads
+it when the call opens and hears the name card's answer during the call.
+An informational answer never grants an operation. Existing action
 cards, passkeys and opaque driver approvals stay at the desk: their words
 cannot establish that an action is safe for voice. This includes credentials,
 2FA, screen interaction, payment and deletion. Replayed cards without their
@@ -1146,6 +1161,32 @@ live authority cannot regain it from a saved marker.
 
 `human_action.question` is an optional additive field; absence means an
 ordinary action, and the tape segment layout and importer are unchanged.
-The card is still answered or withdrawn on its original thread. The call
+Call-thread cards live in the home chat, stamped `from` the call with its
+title and thread key. This optional additive field on permission,
+human-action and passkey cards leaves older tapes and the importer unchanged.
+The call stream keeps the same id as a linked status line; settlement updates
+both views. Answers from the home chat still reach the original call agent,
+and the voice handler keeps exactly the same authority checks. The call
 queue keeps request identities across provider reconnection and removes
 settled cards; interrupted generation is still not proof of what was heard.
+
+
+### Files produced by call work reach the home chat
+
+The core collects successful write/edit records from the call's own work turn.
+Hotline Agent preserves its workspace mutation's path and created/edited status;
+ACP preserves diff paths and creation status (location-only edit reports count
+as edited). The optional `files` field on a tool event and `created` field on an
+attachment are additive; existing tapes, segment layout and importer are unchanged.
+The core reads through the existing workspace reach under the call's revocable
+lease. It never scans directories or infers paths from the conversation or shell
+commands. Missing, oversized or inaccessible files leave a warning on the call.
+
+At work completion, explicit `send_file` calls join the recorded mutations in
+one batch. Each file is delivered once per work result, stamped From the call: up to
+three as separate attachments, more as one message with a compact list. Every
+entry opens and saves its stored copy. Text and other documents open in an inert
+text or binary preview; PDFs retain the native viewer. Indexed storage keeps equal basenames
+separate and addresses readback by message and attachment position, never by a
+caller-supplied source path. A later correction can deliver the updated file; a later call owns its own results. Work that survives
+hang-up still delivers while its lease is valid; revocation prevents delivery.

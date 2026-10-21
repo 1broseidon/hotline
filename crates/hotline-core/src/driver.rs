@@ -100,6 +100,11 @@ pub enum Update {
         /// The tool's own name, which the UI picks an icon by.
         kind: String,
     },
+    /// Structured mutations retained with the corresponding tool record.
+    ToolFiles {
+        call_id: String,
+        files: Vec<crate::contract::ChangedFile>,
+    },
     ToolResult {
         call_id: String,
         ok: bool,

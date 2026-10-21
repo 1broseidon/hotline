@@ -376,6 +376,7 @@ impl Occupant for LiveJob {
         room.threads()
             .turn(
                 Seat {
+                    capability: None,
                     thread: &thread,
                     persona_id: &self.persona_id,
                     driver: driver.as_ref(),
@@ -1065,6 +1066,7 @@ impl Room {
             live.say(
                 self,
                 &TranscriptEvent::Permission {
+                    from: None,
                     id,
                     ts: now_ms(),
                     request_id,

@@ -1,7 +1,10 @@
 mod call_threads {
     mod cards;
+    mod closing;
+    mod files;
     mod legacy_feedback;
     mod live_work;
+    mod person_name;
     mod reader;
 }
 use crate::common::{Client, acp_fixture};
@@ -159,6 +162,8 @@ async fn open_with_front(realtime: Option<Arc<dyn hotline_voice::realtime::Realt
                 if request["stream"] != true {
                     let note = if request.to_string().contains("Summarise this finished reply") {
                         if request.to_string().contains("REFUSE_REPLY_SUMMARY") { json!({"note":"too long ".repeat(200)}) } else { json!({"note":"Eddystone lighthouse history: the account covers the successive towers and how each design improved resistance to the sea."}) }
+                    } else if request.to_string().contains("qa.sonnet.txt") {
+                        json!({"title":"Sonnet", "note":"The work summary was cut off, so check the file for the full text."})
                     } else {
                         json!({"title":"Harbour plan", "note":"Harbour plan: agreed on the beacon repair."})
                     }.to_string();
@@ -479,7 +484,7 @@ async fn picking_up_before_old_work_finishes_still_posts_its_reply() {
 
 /// Scenario: A quick question on the go; Hanging up while work runs.
 #[tokio::test]
-async fn closing_note_waits_thirty_seconds_and_for_finished_work_then_parks() {
+async fn closing_note_waits_two_minutes_and_for_finished_work_then_parks() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let (ada, tape) = desk.teammate("Ada", driver, false).await;
@@ -494,7 +499,7 @@ async fn closing_note_waits_thirty_seconds_and_for_finished_work_then_parks() {
             })
             .await;
         desk.hang_up(&call, sub).await;
-        desk.advance(29).await;
+        desk.advance(119).await;
         assert!(
             !desk
                 .chat(&ada)
@@ -547,7 +552,7 @@ async fn in_the_chat_afterwards_is_one_summary_not_a_transcript_or_periodic_dige
         desk.advance(301).await;
         assert_eq!(desk.chat(&ada), [] as [Value; 0]);
         desk.hang_up(&call, sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         let note = desk.closing(tape).await;
         assert_eq!(note["from"]["thread"], thread["key"]);
         assert_eq!(note["text"].as_str().unwrap().lines().count(), 1);
@@ -573,7 +578,7 @@ async fn picking_it_back_up_keeps_context_and_the_next_note_covers_only_new_work
         desk.say(&call, 1, "BEACON_OLD_TOPIC").await;
         desk.finished(sub).await;
         desk.hang_up(&call, sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         desk.closing(tape).await;
         desk.event(sub, |event| {
             event["kind"] == "link" && event["state"] == "parked"
@@ -591,7 +596,7 @@ async fn picking_it_back_up_keeps_context_and_the_next_note_covers_only_new_work
         // new closing boundary before testing an interval with only new words.
         let (next, _, next_sub) = desk.call_on(&ada, Some(thread.clone())).await;
         desk.hang_up(&next, next_sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         desk.closing(tape).await;
         desk.event(next_sub, |event| {
             event["kind"] == "link" && event["state"] == "parked"
@@ -603,7 +608,7 @@ async fn picking_it_back_up_keeps_context_and_the_next_note_covers_only_new_work
         desk.say(&last, 1, "BEACON_NEW_TOPIC").await;
         desk.finished_after(last_sub, &earlier).await;
         desk.hang_up(&last, last_sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         desk.closing(tape).await;
         let requests = desk.requests.lock().unwrap();
         let summary = requests
@@ -762,7 +767,7 @@ async fn following_up_in_the_chat_hands_the_home_agent_the_calls_posts_and_note(
         .await;
         desk.finished(sub).await;
         desk.hang_up(&call, sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         desk.closing(tape).await;
         let sent = desk
             .client
@@ -808,7 +813,7 @@ async fn posts_and_closing_notes_name_the_subject_for_someone_not_on_the_call() 
         .await;
         desk.finished(sub).await;
         desk.hang_up(&call, sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         desk.closing(tape).await;
         let requests = desk.requests.lock().unwrap();
         assert!(
@@ -877,7 +882,7 @@ async fn answering_a_card_after_hang_up_wakes_the_same_call_thread() {
             .await;
         desk.finished(sub).await;
         desk.hang_up(&call, sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         desk.closing(tape).await;
         desk.event(sub, |event| {
             event["kind"] == "link" && event["state"] == "parked"
@@ -905,7 +910,7 @@ async fn picking_it_back_up_keeps_typed_turns_in_the_parked_calls_thread() {
         desk.finished(sub).await;
         assert_eq!(desk.chat(&ada), [] as [Value; 0]);
         desk.hang_up(&call, sub).await;
-        desk.advance(31).await;
+        desk.advance(121).await;
         desk.closing(tape).await;
         desk.event(sub, |event| {
             event["kind"] == "link" && event["state"] == "parked"

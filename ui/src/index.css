@@ -1202,6 +1202,10 @@
 		font-weight: 500;
 		color: var(--ink-3);
 	}
+	/* A note covering several calls links each: "Open call 1", "Open call 2". */
+	.said-name + .said-name {
+		margin-left: 12px;
+	}
 	/* Them, at work: the mark floats over the foot of the conversation, just
 	 * above the composer, with one word for what kind of work. It is not a
 	 * message and gets no bubble; it is in the room while the reply is on its

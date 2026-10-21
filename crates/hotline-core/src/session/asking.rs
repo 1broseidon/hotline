@@ -69,6 +69,16 @@ impl Room {
             return Ok(());
         }
 
+        if let Some(TranscriptEvent::Permission {
+            from: Some(from), ..
+        }) = self.permission_card(persona_id, request_id)
+            && from.kind == ThreadKind::Call
+        {
+            return self
+                .answer_side_permission(&from.thread, request_id, option_id)
+                .await;
+        }
+
         let session = self.session(persona_id)?;
         if !session.driver.answer_permission(request_id, option_id) {
             return Err("That request is no longer waiting for an answer.".to_string());
@@ -93,6 +103,7 @@ impl Room {
         self.write(
             persona_id,
             &TranscriptEvent::Permission {
+                from: None,
                 id,
                 ts: now_ms(),
                 request_id,
@@ -156,11 +167,18 @@ impl Room {
         );
         let informational = question.is_some();
         if let Some(capability) = question {
-            lock(&self.voice_questions).insert(action_id.clone(), capability);
+            lock(&self.voice_questions).insert(
+                action_id.clone(),
+                Question {
+                    capability,
+                    person_name: None,
+                },
+            );
         }
         self.write(
             persona_id,
             &TranscriptEvent::HumanAction {
+                from: None,
                 id: format!("human:{action_id}"),
                 ts: now_ms(),
                 action_id: action_id.clone(),
@@ -216,16 +234,25 @@ impl Room {
         capability: CapabilityLease,
     ) -> Result<String, String> {
         capability.check()?;
-        self.ask_card(persona_id, reason, home, None, Some(capability))
+        self.ask_card(
+            persona_id,
+            reason,
+            home,
+            None,
+            Some(Question {
+                capability,
+                person_name: None,
+            }),
+        )
     }
 
-    fn ask_card(
+    pub(super) fn ask_card(
         &self,
         persona_id: &str,
         reason: &str,
         home: &ThreadId,
         hours: Option<u32>,
-        question: Option<CapabilityLease>,
+        question: Option<Question>,
     ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
@@ -235,20 +262,25 @@ impl Room {
         let reason: String = reason.chars().take(500).collect();
         let hours = hours.unwrap_or(ASK_HOURS).clamp(1, ASK_MAX_HOURS);
         let ts = now_ms();
-        let action_id = new_id();
+        let action_id = if question.as_ref().is_some_and(|q| q.person_name.is_some()) {
+            format!("person-name:{}", new_id())
+        } else {
+            new_id()
+        };
         let work =
             matches!(home.kind, ThreadKind::Side | ThreadKind::Call).then_some(home.key.as_str());
         self.link_handoff_human(work, &action_id)?;
         let informational = question.is_some();
-        if let Some(capability) = question {
+        if let Some(question) = question {
             let mut questions = lock(&self.voice_questions);
-            questions.retain(|_, lease| lease.is_current());
-            questions.insert(action_id.clone(), capability);
+            questions.retain(|_, question| question.capability.is_current());
+            questions.insert(action_id.clone(), question);
         }
         self.write_home(
             persona_id,
             home,
             &TranscriptEvent::HumanAction {
+                from: None,
                 id: format!("human:{action_id}"),
                 ts,
                 action_id: action_id.clone(),
@@ -262,7 +294,11 @@ impl Room {
             },
         );
         self.push.notify_in(
-            Some(home),
+            Some(&if home.kind == ThreadKind::Call {
+                ThreadId::dm(persona_id)
+            } else {
+                home.clone()
+            }),
             &self.needs_you(persona_id),
             &reason,
             persona_id,
@@ -354,6 +390,7 @@ impl Room {
                 reason,
                 status: HumanActionStatus::Pending,
                 delivers: Some(true),
+                expires_at,
                 ..
             },
             home,
@@ -361,6 +398,9 @@ impl Room {
         else {
             return Err("That request is no longer waiting for an answer.".to_string());
         };
+        if action_id.starts_with("person-name:") {
+            self.settle_person_name(action_id, status, expires_at)?;
+        }
         self.supersede_human(persona_id, action_id, status, note.clone());
         self.deliver_answer(persona_id, action_id, &reason, status, note, home);
         Ok(())
@@ -411,7 +451,17 @@ impl Room {
             about: peers::about(reason),
         };
         let delivery_id = format!("human-answer:{action_id}");
-        let text = note.unwrap_or_default();
+        // A tap with no note still says how it came out: on a call or work
+        // thread the delivery text is all the voice side sees of it.
+        let outcome = match status {
+            HumanActionStatus::Done => "The person answered yes (marked it done).",
+            HumanActionStatus::Dismissed => "The person answered no (declined it).",
+            _ => "",
+        };
+        let text = match home.kind {
+            ThreadKind::Side | ThreadKind::Call => note.unwrap_or_else(|| outcome.to_string()),
+            _ => note.unwrap_or_default(),
+        };
         let from = DeliveryFrom::new(&home, Some(action_id.to_string()));
         match home.kind {
             ThreadKind::Side | ThreadKind::Call => {
@@ -512,7 +562,12 @@ impl Room {
     /// for a permission: the agent is no longer waiting, so the button has
     /// nothing behind it and the transcript should not draw one.
     pub(super) fn settle_permissions(&self, persona_id: &str) {
-        for expired in crate::log::expire_orphaned_permissions(&self.tape(persona_id), now_ms()) {
+        let home_cards: Vec<_> = self
+            .tape(persona_id)
+            .into_iter()
+            .filter(|event| event["from"]["kind"] != "call")
+            .collect();
+        for expired in crate::log::expire_orphaned_permissions(&home_cards, now_ms()) {
             self.write_value(persona_id, &expired);
         }
     }
@@ -582,6 +637,7 @@ impl Room {
             persona_id,
             &home,
             &TranscriptEvent::HumanAction {
+                from: None,
                 id,
                 ts: now_ms(),
                 action_id: action_id.to_string(),
@@ -616,8 +672,24 @@ impl Room {
         let dm = ThreadId::dm(persona_id);
         self.tape(persona_id)
             .into_iter()
-            .map(|event| (event, dm.clone()))
-            .chain(self.cards_in_work(persona_id))
+            .map(|event| {
+                let home = if event["from"]["kind"] == "call"
+                    && let Some(key) = event["from"]["thread"].as_str()
+                {
+                    ThreadId {
+                        kind: ThreadKind::Call,
+                        key: key.to_string(),
+                    }
+                } else {
+                    dm.clone()
+                };
+                (event, home)
+            })
+            .chain(
+                self.cards_in_work(persona_id)
+                    .into_iter()
+                    .filter(|(event, _)| event["from"]["kind"] != "call"),
+            )
             .chain(self.cards_in_jobs(persona_id))
             .collect()
     }
@@ -663,4 +735,10 @@ fn human_outcome(answer: HumanAnswered) -> String {
         Some(note) => format!("{outcome} They said: {note}"),
         None => outcome.to_string(),
     }
+}
+
+/// Authority held by the core, never reconstructed from card prose or saved flags.
+pub(super) struct Question {
+    pub capability: CapabilityLease,
+    pub person_name: Option<String>,
 }

@@ -95,6 +95,7 @@ pub(super) struct OpenMessage {
 
 /// A tool call as the transcript last saw it.
 pub(super) struct ToolLine {
+    pub(super) files: Vec<crate::contract::ChangedFile>,
     pub(super) title: String,
     pub(super) kind: String,
     /// The first path the call named, which is the detail a permission answer

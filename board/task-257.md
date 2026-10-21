@@ -1,8 +1,8 @@
 ---
 id: task-257
 title: "task-20 follow-up: zero TCP linger on every WebSocket breaks all remote tests on Windows"
-column: in-progress
-position: 0
+column: review
+position: 2
 priority: high
 tags:
   - performance
@@ -22,7 +22,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T11:21:20.348Z"
 assignee: codex
-updatedAt: "2026-10-21T11:23:31.285Z"
+updatedAt: "2026-10-21T11:30:44.906Z"
 decisions:
   - decision-24
 ---

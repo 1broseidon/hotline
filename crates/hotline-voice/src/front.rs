@@ -6,7 +6,6 @@ use hotline_contract::{VoiceEvent, VoiceState};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 use super::realtime::WORK_ON_IT;
@@ -45,8 +44,6 @@ pub fn tools() -> Vec<Tool> {
 pub enum Note {
     /// The next words of the teammate's `<spoken>` version of its reply.
     Spoken(String),
-    /// The teammate's turn is still running.
-    Progress(String),
     /// The teammate waits on the person at the desk or phone.
     NeedsYou(String),
 }
@@ -54,7 +51,7 @@ pub enum Note {
 impl Note {
     pub fn text(&self) -> &str {
         match self {
-            Self::Spoken(text) | Self::Progress(text) | Self::NeedsYou(text) => text,
+            Self::Spoken(text) | Self::NeedsYou(text) => text,
         }
     }
 }
@@ -77,24 +74,6 @@ pub enum Speaks {
     AsTeammate,
     ForDesk,
 }
-
-/// Taken in turn, so a long piece of work does not repeat one line.
-const TEAMMATE_PROGRESS: [&str; 4] = [
-    "Still on it.",
-    "Still digging, bear with me.",
-    "Still working on it, one moment.",
-    "Bear with me, still going.",
-];
-const DESK_PROGRESS: [&str; 3] = [
-    "Still working on it.",
-    "Still waiting on that.",
-    "Still going, bear with me.",
-];
-/// A call says it is still thinking every 15 seconds, and again whenever the
-/// front stops talking; the person hears it at most this often.
-const PROGRESS_EVERY: Duration = Duration::from_secs(45);
-/// Each progress line waits twice as long as the last, up to this.
-const PROGRESS_MOST: Duration = Duration::from_secs(180);
 
 /// A pending request is not described: its details are the desk's to show.
 fn needs_you(speaks: Speaks, kind: &str) -> String {
@@ -126,22 +105,12 @@ pub struct Front {
     calls: Arc<Calls>,
     call_id: String,
     speaks: Speaks,
-    /// Progress lines said so far, to take the next in turn.
-    progressed: usize,
     events: broadcast::Receiver<VoiceEvent>,
     /// The last thing sent, by sequence number, which must rise.
     seq: u32,
     /// How much of each said line has been given out already; a line is sent
     /// again, grown, as its reply streams.
     said: HashMap<String, usize>,
-    /// Words are with the teammate and its turn has not ended, so a call that
-    /// says it is still thinking is progress.
-    waiting: bool,
-    /// The call says it is thinking as soon as the words are handed over; the
-    /// front already knows, so only the repeats are progress.
-    first_thinking_unreported: bool,
-    /// When the person last heard something of the teammate's turn.
-    last_told: Instant,
     /// The latest lines given to the front to say, newest last. A front that
     /// relays one back would have the teammate answer its own reply, and the
     /// front say that, round and round.
@@ -158,13 +127,9 @@ impl Front {
             calls: calls.clone(),
             call_id: call_id.into(),
             speaks,
-            progressed: 0,
             events,
             seq: 0,
             said: HashMap::new(),
-            waiting: false,
-            first_thinking_unreported: false,
-            last_told: Instant::now(),
             notes: std::collections::VecDeque::new(),
             desk_tools: None,
         })
@@ -220,7 +185,6 @@ impl Front {
         };
         if stop {
             let stopped = self.calls.stop_work(&self.call_id)?;
-            self.waiting = false;
             return Ok(Some(stopped));
         }
         if let Some(tools) = &self.desk_tools {
@@ -230,9 +194,6 @@ impl Front {
             .work_on_it(&self.call_id, self.seq + 1, words)
             .await?;
         self.seq += 1;
-        self.waiting = true;
-        self.first_thinking_unreported = true;
-        self.last_told = Instant::now();
         Ok(None)
     }
 
@@ -252,7 +213,6 @@ impl Front {
                     if !fresh.is_empty() {
                         let note = Note::Spoken(fresh.to_string());
                         *given = text.len();
-                        self.last_told = Instant::now();
                         return self.told(note);
                     }
                 }
@@ -260,25 +220,6 @@ impl Front {
                     state: VoiceState::Ended,
                     ..
                 } => return None,
-                VoiceEvent::State {
-                    state: VoiceState::Thinking,
-                    listening: true,
-                    ..
-                } => {
-                    if std::mem::take(&mut self.first_thinking_unreported)
-                        || !self.waiting
-                        || self.last_told.elapsed() < self.progress_wait()
-                    {
-                        continue;
-                    }
-                    self.last_told = Instant::now();
-                    let line = self.progress_line();
-                    return self.told(Note::Progress(line.into()));
-                }
-                VoiceEvent::State {
-                    state: VoiceState::Listening,
-                    ..
-                } => self.waiting = false,
                 VoiceEvent::Card { kind, .. } => {
                     let line = needs_you(self.speaks, &kind);
                     return self.told(Note::NeedsYou(line));
@@ -307,23 +248,6 @@ impl Front {
         }
         self.notes.push_back(note.text().trim().to_string());
         Some(note)
-    }
-
-    /// 45 s before the first progress line, then 90 s, then every 3 min.
-    fn progress_wait(&self) -> Duration {
-        PROGRESS_EVERY
-            .saturating_mul(1 << self.progressed.min(4))
-            .min(PROGRESS_MOST)
-    }
-
-    fn progress_line(&mut self) -> &'static str {
-        let lines: &[&str] = match self.speaks {
-            Speaks::AsTeammate => &TEAMMATE_PROGRESS,
-            Speaks::ForDesk => &DESK_PROGRESS,
-        };
-        let line = lines[self.progressed % lines.len()];
-        self.progressed += 1;
-        line
     }
 }
 

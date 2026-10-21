@@ -315,6 +315,7 @@ pub(crate) struct Carry {
 
 impl Carry {
     pub(crate) fn push(&mut self, speaker: &str, words: &str) {
+        let words = crate::front_prompt::scrub(words);
         let words = words.trim();
         if words.is_empty() {
             return;
@@ -419,6 +420,13 @@ impl Driver {
 
     async fn command(&mut self, socket: &mut Socket, command: Command) -> Result<(), SpeechError> {
         match command {
+            Command::Instructions(text) => {
+                self.config.instructions = text;
+                let update = json!({"type":"session.update", "session": {
+                    "instructions": self.config.instructions
+                }});
+                self.send(socket, update).await
+            }
             Command::Audio(pcm) => {
                 let append = json!({
                     "type": "input_audio_buffer.append",

@@ -1032,3 +1032,63 @@ async fn a_live_cut_is_recorded_and_late_audio_cannot_resume_it() {
         3
     );
 }
+
+#[tokio::test]
+async fn the_live_prompt_knows_its_identity_and_refreshes_already_said_call_context() {
+    let mut desk = front_desk(true, 64).await;
+    let persona = answer(&mut desk.socket, 1, json!({"cmd":"persona.create","params":{"draft":{
+        "name":"Ada", "goal":"Warm, brisk, and precise. Keep credentials sk-private204 private.", "cwd":desk.root.path().to_str().unwrap()
+    }}})).await["result"]["id"].as_str().unwrap().to_string();
+    let call = Uuid::new_v4().to_string();
+    let started = answer(&mut desk.socket, 2, json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}})).await;
+    assert_eq!(started["ok"], true, "{started}");
+    common::until("the live prompt", || {
+        desk.front.config.lock().unwrap().is_some()
+    })
+    .await;
+    let config = desk.front.config.lock().unwrap().clone().unwrap();
+    assert!(config.instructions.contains("You are Ada."));
+    assert!(config.instructions.contains("Warm, brisk, and precise."));
+    assert!(!config.instructions.contains("sk-private204"));
+    desk.events
+        .send(Ok(RealtimeEvent::Heard("Can you hear me?".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("Yes.".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::ResponseDone))
+        .await
+        .unwrap();
+    let updated = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(Asked::Instructions(text)) = desk.asked.recv().await
+                && text.contains(
+                    "Already said (including acknowledgements; never reuse an acknowledgement):\nYes.",
+                )
+            {
+                break text;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(updated.contains("Person: Can you hear me?"));
+    assert!(updated.contains("Nothing posted."));
+    assert!(updated.contains("Work running: false"));
+    assert!(
+        !desk
+            .log
+            .load(&hotline_core::log::StreamId::Tape(persona))
+            .iter()
+            .any(|event| event["text"] == "Yes.")
+    );
+    answer(
+        &mut desk.socket,
+        3,
+        json!({"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+}

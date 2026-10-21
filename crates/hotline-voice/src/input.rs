@@ -215,6 +215,7 @@ impl Calls {
             call.stop_streams(false);
             call.utterance_pending = true;
             call.first_clip_started = Some(Instant::now());
+            call.waiting_sound = false;
             call.seq = Some(seq);
             call.activity = Instant::now();
             call.state(VoiceState::Thinking, None);
@@ -426,6 +427,7 @@ impl Calls {
                 input.committed.store(input.bytes as u32, Ordering::SeqCst);
                 drop(input.sender);
                 call.first_clip_started = Some(Instant::now());
+                call.waiting_sound = false;
                 call.state(VoiceState::Thinking, None);
             }
             Ok(())

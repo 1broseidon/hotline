@@ -15,3 +15,5 @@ Every bundled clip is explicitly tagged `audio/wav`, regardless of provider.
 ```sh
 ffmpeg -f lavfi -i "flite=text='Sorry, say that again.':voice=slt" -ar 16000 -ac 1 -c:a pcm_s16le -map_metadata -1 retry.wav
 ```
+
+`waiting.wav` is a 200 ms, 440 Hz sine at amplitude 1800/32768, with a sine-squared envelope, sampled as 16 kHz mono PCM16. It is a soft sound, with no speech. The core sends it once after 1.8 seconds only if a Legacy turn has not started speaking.

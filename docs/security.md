@@ -195,7 +195,7 @@ front has no direct posting or raw MCP tools. A policy change revokes both
 paths. `validate_call_thread` checks ownership and lifecycle before work or
 cancellation; `work_on_it` refuses a held or non-live call. The clone uses the
 teammate's own model and harness without steering the home session.
-Its starting prompt is a scrubbed, budgeted slice of the DM, never credentials.
+Its starting prompt is a scrubbed, budgeted slice of the DM and identity, never credentials. Mid-call instruction updates add bounded scrubbed speech, interruption notices, running work and confirmed posts from the same call. Speech-to-speech audio cannot be filtered before it is heard: the identity prompt, tool framing and opt-in live scripted-front regression deck enforce phrasing, rather than a runtime audio filter.
 The work brief includes the whole call transcript, including tools. Hanging
 up closes the voice socket but leaves accepted work running. Budget exhaustion
 or a revoked login ends the front visibly. Residual risk: the front can

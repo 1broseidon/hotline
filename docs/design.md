@@ -692,17 +692,26 @@ tape from the reference tree reads as before, and an older client shows the
 written text. Hotline Agent's rebuilt history shows the model both, tagged
 ([One brain, two outputs](voice.md#one-brain-two-outputs)).
 
-A reply on a direct call that writes no spoken version is not read by its
-opening while it streams. Once it is whole, the call assistant says it again
-to be heard, and that is said and kept as the reply's `spoken`, superseding
-the event the session wrote. The opening of a reply written to be read was
-rarely the answer, and a phone call needs the answer first; holding the
-reply until it is whole is what keeps the person from hearing an opening and
-then the rewrite. One short line is said as written, since it is the line the
-contract asks for before a tool. The rewrite is a fallback, never a gate: no
-call assistant, a refused Chat budget, a failure or six seconds without an
-answer says the opening as before, and the call goes on
-([A reply written only to be read](voice.md#a-reply-written-only-to-be-read)).
+Legacy speaks the teammate's own first sentence as it arrives, including an
+untagged prose opening, and streams the spoken reply. It never waits for a
+rewrite before saying that opening. If no speech has begun after 1.8 seconds,
+the core sends one soft, wordless WAV on the ordinary clip wire, to desk and
+phone alike. There is no repeating client chime or stock acknowledgement.
+Interruption cancels queued speech as before. Live work that has no spoken
+version can still be rewritten before the live model says it.
+
+The live model is the teammate: its name and goal (including manner), up to
+4,000 characters of chapter context and 32 recent chat lines within 12,000
+characters. The prompt teaches the kinds of turn, fresh lookups for state,
+code and results, short answers and an explicitly requested longer answer.
+Call-state refreshes replace the instructions through `session.update`, at
+turn/tool boundaries and when durable state changes (checked every half
+second). They include budgeted call speech, interruption notices, running
+work, eight recent already-said lines and eight confirmed chat posts from
+this thread. All injected prose is scrubbed as the starting context is.
+The prompt and tool framing forbid relay language and repeated acknowledgements;
+the fixed spoken regression deck checks all three live models when credentials
+are supplied. Speech-to-speech audio cannot be filtered before it is heard.
 
 A finalized transcript that is wholly a goodbye speaks `Goodbye.` and ends
 either kind of call. Audio goodbye still requires enough genuine audio to

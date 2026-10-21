@@ -11,7 +11,7 @@ not cancel accepted teammate work.
 | --- | --- | --- |
 | `voice.call_start` | Optional `personaId` selects a teammate; omitted selects the desk. Optional `streamAudio` enables progressive sentence audio. | Owner/local desk only. Validate target before replacing an existing call. Echo the target; reject reuse with a different target. |
 | `voiceDirectCalls` capability in remote hello and `voice.status.capabilities` | Additive; clients require it before sending a target. | A client must check the echoed target to avoid an older desk silently routing the call to its dispatcher. |
-| `voiceListenWhileThinking` capability; `state.listening` | Additive; `listening: true` appears only on a direct call's `thinking` once the person's words are with the teammate, and is omitted otherwise. An older client ignores it and keeps the microphone shut while thinking. | The desk accepts an utterance whenever no earlier one is still being taken, so the flag only tells a client it may listen. The desk client listens through it and through speech with echo cancellation, keeps its blip-blip out of its detector, and does not play over the person while they talk. |
+| `voiceListenWhileThinking` capability; `state.listening` | Additive; `listening: true` appears only on a direct call's `thinking` once the person's words are with the teammate, and is omitted otherwise. An older client ignores it and keeps the microphone shut while thinking. | The desk accepts an utterance whenever no earlier one is still being taken, so the flag only tells a client it may listen. The desk client listens through it and through speech with echo cancellation, receives the core's single waiting clip, and does not play over the person while they talk. |
 | `voiceFront`, `voice.status.liveSelected`, `voice.call_start.mode`, reply `front` | Selection is separate from availability. Omitted mode follows Settings; `front` requires live and `pipeline` is an explicit Legacy choice. A missing front never authorizes automatic Legacy. | Owner/local desk only. The selected mode is enforced before a call is created. A live call refuses all Legacy inputs, including after failure. |
 | `voice.front_audio` `{callId,seq,data}` | Microphone PCM16 little endian, mono, at the negotiated `inputRate`, at most 32 KiB, base64. `seq` rises (gaps are allowed: a dropped frame is just lost audio). Chunks of about 20-100 ms are the intent. | Never waits: a front still connecting, or whose bounded queue is full, refuses the frame with an error and the client drops it and sends the next. A held call refuses audio. |
 | `frontAudio` `{seq,data}` event | The front's speech as PCM16 mono at `outputRate`, in frames of at most 100 ms. `seq` rises by one from 0, so a gap tells the client the desk lost frames. | Only a front call emits it; held calls emit none. A client too slow to read the call's event queue is disconnected, as for clips. |
@@ -94,3 +94,27 @@ the thread unless they explicitly post.
 The source-thread title labels posts (untitled calls say “From the call”);
 posts and closing notes open that thread, and replying to a post routes there. Silent posts made during the
 call never become unread later; posts after hang-up notify as replies do.
+
+## Identity, turn choices and acknowledgements
+
+The live prompt carries the teammate's name and goal/manner, 4,000 characters
+of chapter context and up to 32 recent chat lines within 12,000 characters.
+It chooses small talk, questions, status, exploration, rundown, work, steering,
+dictation, cards and routing itself. State, code and results require a lookup.
+Acknowledgements name the request briefly when needed, never a hand-off or a
+repeated stock phrase. Replies are short by default; an explicit overview
+relaxes length for that answer only, in numbered parts with a check-in.
+
+`session.update` refreshes running work, the call so far, recent already-said
+lines and actual chat posts at turn/tool boundaries and on a half-second
+change check. Context is bounded and scrubbed; interruption notices distinguish
+generated words from what the caller heard. Small talk stays on the call thread.
+Legacy streams its own opening and reply, with one core-supplied soft sound
+if it has not begun speaking after 1.8 seconds. No client repeating chime or
+live progress filler is generated.
+
+`realtime::scripted_front` runs a fixed spoken deck against each live model,
+rejecting relay wording and repeated acknowledgements within one call. The
+provider runs require explicit test credentials; the checker and local wire
+regressions run normally. A speech-to-speech model's audio cannot be filtered
+before it is heard: prompt, tool framing and this check are the enforcement.

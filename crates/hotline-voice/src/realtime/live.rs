@@ -398,8 +398,9 @@ fn instructions(base: &str) -> String {
     format!(
         "{base}\n\nUse the protocol's client delegation to invoke work_on_it. \
          This is your own action: never describe sending or handing work to someone else. \
-         It starts immediately; keep listening while your work runs. Its result comes back \
-         for you to say. Put a JSON object in the delegation text: \
+         It starts immediately; keep listening while your work runs. For state, code or results, \
+         use this same action for a fresh lookup by your call-thread tools; never answer from \
+         memory. Briefly name the lookup while it runs. Its result comes back for you to say. Put a JSON object in the delegation text: \
          {{\"words\":\"the task or correction in the person's words\",\"action\":\"work\"}}. \
          To drop running work use action \"stop\" with the person's words. \
          Send only this object, without a code fence."
@@ -971,6 +972,13 @@ impl Driver {
         command: Command,
     ) -> Result<(), SpeechError> {
         match command {
+            Command::Instructions(text) => {
+                self.config.instructions = text;
+                let update = json!({"type":"session.update", "session": {
+                    "instructions": instructions(&self.config.instructions)
+                }});
+                self.send(sideband, update).await
+            }
             Command::Audio(pcm) => {
                 self.mic.push(&pcm);
                 Ok(())

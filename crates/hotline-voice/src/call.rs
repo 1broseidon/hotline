@@ -182,6 +182,7 @@ impl Calls {
                 deliveries: CancellationToken::new(),
                 utterance_pending: false,
                 first_clip_started: None,
+                waiting_sound: false,
                 answering: None,
                 streams: HashMap::new(),
                 cut: VecDeque::new(),
@@ -200,6 +201,8 @@ impl Calls {
             });
             if let Some(realtime) = realtime {
                 tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));
+            } else {
+                tokio::spawn(self.clone().waiting_sound(id.into(), cancel.clone()));
             }
             self.thinking_again(id, cancel.clone());
             let this = self.clone();

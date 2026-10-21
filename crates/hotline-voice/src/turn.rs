@@ -33,6 +33,7 @@ impl Calls {
             if let VoiceEvent::Said { id, text } = &event
                 && call.front.is_none()
             {
+                call.waiting_sound = true;
                 call.speech_line.update(id, text);
             }
             let _ = call.events.send(event);
@@ -445,8 +446,8 @@ impl Calls {
     /// A teammate's reply on its own call, said as it streams in: its spoken
     /// version ([`spoken::Spoken`]) sentence by sentence as one line, kept on
     /// the call's thread once it is over. A reply that wrote none is said
-    /// once it is whole ([`Self::unspoken`]). Speaking over it stops it at
-    /// once, so the call is free for what the person says; the chat has the
+    /// as its own prose on Legacy; live work may use [`Self::unspoken`].
+    /// Speaking over it stops it at once, so the call is free for what the person says; the chat has the
     /// written version in any case. A reply that reaches its end is counted
     /// by how it was said ([`Self::count`]).
     pub(super) async fn answer(
@@ -460,9 +461,14 @@ impl Calls {
         if speech.is_cancelled() {
             return Ok(());
         }
+        let legacy = !self.fronted(id);
         let (sentences, mut said) = mpsc::channel(8);
         let split = async move {
-            let mut spoken = spoken::Spoken::default();
+            let mut spoken = if legacy {
+                spoken::Spoken::streaming()
+            } else {
+                spoken::Spoken::default()
+            };
             let mut whole = String::new();
             while let Some(chunk) = chunks.recv().await {
                 whole.push_str(&chunk);
@@ -476,6 +482,12 @@ impl Calls {
                 spoken::Ending::Spoken(rest) => {
                     self.count(id, event, spoken::path(&whole));
                     rest
+                }
+                spoken::Ending::Untagged(opening) if legacy => {
+                    if !spoken::said_as_written(&spoken::versions(&whole).written) {
+                        self.count(id, event, spoken::Path::Untagged);
+                    }
+                    opening
                 }
                 spoken::Ending::Untagged(opening) => {
                     self.unspoken(id, event, &whole, opening, speech).await
@@ -532,9 +544,8 @@ impl Calls {
     /// A reply written only to be read, said again by the call assistant as
     /// it would be on a phone call ([`Dispatcher::rewrite`]), from the reply
     /// and the person's last words, and kept as what was said for it. The
-    /// call thinks while it is written, so the person hears the blip-blip and
-    /// the phone the call's heartbeat. `None`, and a line in the log, when
-    /// the desk has no call assistant, the Chat budget refuses it, it fails,
+    /// call remains responsive while it is written. `None`, and a line in
+    /// the log, when the desk has no call assistant, the Chat budget refuses it, it fails,
     /// or it takes longer than [`REWRITE_WAIT`]: none of those ends the call.
     pub(super) async fn rewrite(
         &self,

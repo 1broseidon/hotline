@@ -1,8 +1,8 @@
 ---
 id: task-259
 title: One closing note for calls close together, and no repeated reply after hang-up
-column: in-progress
-position: 0
+column: review
+position: 2
 priority: high
 tags:
   - voice
@@ -21,7 +21,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T14:10:55.979Z"
 assignee: codex
-updatedAt: "2026-10-21T14:15:34.231Z"
+updatedAt: "2026-10-21T14:26:35.054Z"
 decisions:
   - decision-25
   - decision-26

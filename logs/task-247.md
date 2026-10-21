@@ -1,8 +1,6 @@
 ---
 id: task-247
 title: release-cache runs only where its cache is saved
-column: review
-position: 0
 priority: high
 tags:
   - ci
@@ -24,7 +22,8 @@ dispatch:
     ended: "2026-10-21T02:26:36.814Z"
     outcome: review
 assignee: codex
-updatedAt: "2026-10-21T02:26:36.814Z"
+updatedAt: "2026-10-21T03:40:46.719Z"
+completedAt: "2026-10-21T03:40:46.719Z"
 ---
 
 ## Description

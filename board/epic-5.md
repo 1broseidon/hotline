@@ -9,7 +9,9 @@ tags:
   - improvement
   - performance
 createdAt: "2026-10-12T01:51:39.966Z"
-updatedAt: "2026-10-14T20:05:16.436Z"
+updatedAt: "2026-10-21T09:10:38.419Z"
+landsOn: release/0.42.0
+epicBranch: true
 ---
 
 ## Description

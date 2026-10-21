@@ -1,13 +1,26 @@
 use super::*;
 
 #[tokio::test]
+async fn conversation_keeps_one_written_record_and_never_posts_or_points() {
+    direct_call_uses_its_thread(
+        true,
+        "<spoken>Yes, that works.</spoken><written>Yes, I think that will work.</written>",
+        "Yes, that works.",
+        "Yes, that works.",
+        Some("Yes, that works."),
+        "both",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn a_direct_call_uses_its_thread_agent_without_dispatching() {
     direct_call_uses_its_thread(
         false,
         TAGGED_REPLY,
-        "The checks passed.",
+        "The checks passed. You can review the result in our chat.",
         TAGGED_WRITTEN,
-        Some("The checks passed."),
+        Some("The checks passed. You can review the result in our chat."),
         "both",
     )
     .await;
@@ -18,9 +31,9 @@ async fn device_text_uses_the_call_thread_and_preserves_its_spoken_reply() {
     direct_call_uses_its_thread(
         true,
         TAGGED_REPLY,
-        "The checks passed.",
+        "The checks passed. You can review the result in our chat.",
         TAGGED_WRITTEN,
-        Some("The checks passed."),
+        Some("The checks passed. You can review the result in our chat."),
         "both",
     )
     .await;
@@ -32,9 +45,9 @@ async fn legacy_speaks_its_own_untagged_opening() {
     direct_call_uses_its_thread(
         true,
         UNTAGGED_REPLY,
-        "Here is the fix:",
+        "Here is the fix: You can review the result in our chat.",
         UNTAGGED_REPLY,
-        None,
+        Some("Here is the fix: You can review the result in our chat."),
         "untagged",
     )
     .await;
@@ -182,13 +195,29 @@ async fn direct_call_uses_its_thread(
         .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
         .filter(|message| message["role"] == "user")
         .map(|message| message["content"].to_string())
-        .find(|content| content.contains("[Voice call: answer twice"))
+        .find(|content| content.contains("[Voice call: answer naturally"))
         .expect("the turn's input carries the contract");
     assert!(asked.contains(&words), "{asked}");
+    assert!(asked.contains("Make that result stand alone."), "{asked}");
+
     assert!(
-        asked.contains("Do not assume the reader heard the spoken version."),
+        asked.contains("1 turns in; last pointer turn: None"),
         "{asked}"
     );
+    if hotline_core::voice::spoken::carries_more(written) {
+        common::until("the core posts the written result", || {
+            log.load(&hotline_core::log::StreamId::Tape(persona.clone()))
+                .iter()
+                .any(|event| is_call_post(event) && event["text"] == written)
+        })
+        .await;
+    } else {
+        assert!(
+            !log.load(&hotline_core::log::StreamId::Tape(persona.clone()))
+                .iter()
+                .any(is_call_post)
+        );
+    }
 
     // What was said is kept beside the reply as soon as the reply is
     // written, which for a rewrite may be just after it is said.

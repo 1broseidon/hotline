@@ -42,6 +42,7 @@ pub(crate) struct Fake {
     pub rewrite_delay: Mutex<Duration>,
     /// The person's words and the written reply each rewrite was handed.
     pub rewrites: Mutex<Vec<(String, String)>>,
+    pub pointer_instructions: Mutex<Vec<String>>,
 }
 impl Default for Fake {
     fn default() -> Self {
@@ -63,6 +64,7 @@ impl Default for Fake {
             rewrite: Mutex::new(Err("No rewrite is scripted.".into())),
             rewrite_delay: Mutex::new(Duration::ZERO),
             rewrites: Mutex::new(Vec::new()),
+            pointer_instructions: Mutex::new(Vec::new()),
         }
     }
 }
@@ -142,7 +144,13 @@ impl Dispatcher for Fake {
         }
         Ok("The first sentence. The second sentence.".into())
     }
-    async fn narrate(&self, name: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn narrate(
+        &self,
+        name: &str,
+        text: &str,
+        _: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
         self.narrations.fetch_add(1, Ordering::SeqCst);
         let gate = lock(&self.answer_gate).clone();
         if let Some(gate) = gate {
@@ -154,7 +162,17 @@ impl Dispatcher for Fake {
         }
         Ok(format!("{name} says: {text}"))
     }
-    async fn rewrite(&self, words: &str, written: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn rewrite(
+        &self,
+        words: &str,
+        written: &str,
+        instruction: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        if instruction.contains("Only supply the brief contextual pointer") {
+            lock(&self.pointer_instructions).push(instruction.into());
+            return Ok("The result is available in our chat.".into());
+        }
         lock(&self.rewrites).push((words.into(), written.into()));
         let delay = *lock(&self.rewrite_delay);
         tokio::time::sleep(delay).await;
@@ -293,6 +311,7 @@ async fn direct_call_with(
 /// The call has heard turn `seq`, as if the person had said it: its replies
 /// are this call's.
 fn on_turn(calls: &Calls, id: &str, seq: u32) -> Origin {
+    calls.test_begin_turn(id);
     calls
         .test_change(id, |call| {
             call.seq = Some(seq);

@@ -288,6 +288,7 @@ struct Input {
 
 #[doc(hidden)]
 pub struct Call {
+    conversation: spoken::CallContext,
     desk: bool,
     thread: Option<hotline_contract::ThreadId>,
     id: String,
@@ -871,7 +872,7 @@ impl Calls {
         tokio::spawn(async move {
             let _permit = permit;
             let summary = this
-                .summary(&delivery)
+                .summary(None, &delivery)
                 .await
                 .ok()
                 .filter(|text| !text.is_empty());

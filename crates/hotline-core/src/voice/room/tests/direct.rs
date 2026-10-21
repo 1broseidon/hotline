@@ -27,7 +27,11 @@ async fn a_streamed_reply_says_its_spoken_version_as_one_line() {
         said.iter()
             .map(|(_, text)| text.as_str())
             .collect::<Vec<_>>(),
-        ["The build is still red.", spoken]
+        [
+            "The build is still red.",
+            spoken,
+            &format!("{spoken} The result is available in our chat.")
+        ]
     );
     assert!(clips.iter().all(|(id, _, _)| id == line));
     assert_eq!(
@@ -35,19 +39,20 @@ async fn a_streamed_reply_says_its_spoken_version_as_one_line() {
             .iter()
             .map(|(_, index, empty)| (*index, *empty))
             .collect::<Vec<_>>(),
-        [(0, false), (1, false), (2, true)]
+        [(0, false), (1, false), (2, false), (3, true)]
     );
     assert_eq!(
         *lock(&fake.spoken),
         [
             "The build is still red.",
-            "It's the flaky config test again."
+            "It's the flaky config test again.",
+            "The result is available in our chat."
         ]
     );
     // The turn's end hands the same reply over again: it is not said twice.
     assert!(calls.delivery(&persona, "reply-1", "Mack", &whole, true, Some(&origin)));
     tokio::time::sleep(Duration::from_millis(30)).await;
-    assert_eq!(lock(&fake.spoken).len(), 2);
+    assert_eq!(lock(&fake.spoken).len(), 3);
     calls.end(&id).unwrap();
 }
 
@@ -172,9 +177,22 @@ async fn legacy_never_speaks_a_code_block_or_rewrites_its_own_opening() {
     write_reply(&desk, &persona, "reply-1", UNTAGGED);
     assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
     let (said, _) = one_reply(&mut rx).await;
-    assert_eq!(said.last().unwrap().1, "Here's the fix for the flaky test:");
+    assert_eq!(
+        said.last().unwrap().1,
+        "Here's the fix for the flaky test: The result is available in our chat."
+    );
     assert!(lock(&fake.rewrites).is_empty());
-    assert_eq!(kept_spoken(&desk, &persona, "reply-1"), None);
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while kept_spoken(&desk, &persona, "reply-1").is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        kept_spoken(&desk, &persona, "reply-1").as_deref(),
+        Some("Here's the fix for the flaky test: The result is available in our chat.")
+    );
     calls.end(&id).unwrap();
 }
 
@@ -589,5 +607,40 @@ async fn a_legacy_turn_without_opening_speech_gets_one_sound_on_the_clip_wire() 
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "The tests pass."),
     )
     .await;
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn narrator_points_at_real_results_only_once_every_three_turns() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    for (index, written) in [
+        "Yes, that works.",
+        "```rust\nlet ready = true;\n```",
+        "| job | result |\n| --- | --- |\n| unit | ok |",
+        "- first\n- second",
+        "| job | result |\n| --- | --- |\n| unit | ok |",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let seq = u32::try_from(index + 1).unwrap();
+        let origin = on_turn(&calls, &id, seq);
+        let reply = format!("<spoken>Answer {seq}.</spoken><written>{written}</written>");
+        assert!(calls.delivery(
+            &persona,
+            &format!("reply-{seq}"),
+            "Mack",
+            &reply,
+            true,
+            Some(&origin)
+        ));
+        let (said, _) = one_reply(&mut rx).await;
+        let pointer = said.last().unwrap().1.contains("available in our chat");
+        assert_eq!(pointer, seq == 2 || seq == 5, "turn {seq}: {said:?}");
+    }
+    let instructions = lock(&fake.pointer_instructions);
+    assert_eq!(instructions.len(), 2);
+    assert!(instructions[1].contains("5 turns in"));
+    assert!(instructions[1].contains("Answer 4."));
     calls.end(&id).unwrap();
 }

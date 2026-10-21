@@ -72,6 +72,10 @@ impl Calls {
             return Err("The dispatcher returned no words.".into());
         }
         let text = sentences.join(" ");
+        let _ = self.change(id, |call| {
+            call.conversation.remember(&text);
+            Ok(())
+        });
         let line = if self.fronted(id) {
             uuid::Uuid::new_v4().to_string()
         } else {

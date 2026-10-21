@@ -151,8 +151,53 @@ struct Told<'a, F> {
 }
 
 impl<F: Fn() -> bool> Witness for Told<'_, F> {
+    fn heard(
+        &mut self,
+        update: &Update,
+        _: &mut std::collections::HashMap<String, super::prompt::PendingTool>,
+    ) {
+        if self.voice.is_none()
+            || !(self.open)()
+            || !self.threads.room.on_the_call(self.seat.thread)
+        {
+            return;
+        }
+        if let Update::Message {
+            kind: MessageKind::Agent,
+            id,
+            text,
+        } = update
+        {
+            let versions = crate::voice::spoken::versions(text);
+            if versions.spoken.as_deref() != Some(versions.written.as_str())
+                && crate::voice::spoken::carries_more(&versions.written)
+            {
+                // Classify the whole reply before pacing divides it into bubbles,
+                // and write it before completion releases the spoken pointer.
+                let post = super::Post {
+                    id: format!("call-result:{}:{id}", self.seat.thread.key),
+                    ..super::Post::words(&versions.written)
+                };
+                if let Err(error) =
+                    self.threads
+                        .room
+                        .post(self.seat.persona_id, self.seat.thread, post)
+                {
+                    eprintln!("[voice] could not post call result: {error}");
+                }
+            }
+        }
+    }
+
     fn said_on_call(&self) -> bool {
         self.voice.is_some()
+    }
+
+    fn keep_written(&self) -> bool {
+        self.voice.as_ref().is_some_and(|origin| origin.front)
+            || lock(&self.threads.room.posting)
+                .get(self.seat.thread)
+                .is_some_and(|turn| turn.file_sent)
     }
 
     fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {

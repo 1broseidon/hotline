@@ -682,15 +682,22 @@ hold and an unfinished preceding turn are refused before work is queued.
 There is no remote STT request or STT budget reservation for device text.
 Dispatcher and speaking costs keep their existing budget and ledger rules.
 
-A teammate on a direct call answers twice, a `<spoken>` version to be heard
-and a `<written>` version to be read, each standing alone, rather than one
-reply split by a marker: a split reads to a model as an opener and a body, and
-the chat then showed one answer cut in two. The written version is the chat's
-message; the spoken one is kept beside it as an optional `spoken` field on the
-reply's first `agent` event, so the tape and segment layout are unchanged, a
-tape from the reference tree reads as before, and an older client shows the
-written text. Hotline Agent's rebuilt history shows the model both, tagged
-([One brain, two outputs](voice.md#one-brain-two-outputs)).
+A conversational call answer is said once: its `<spoken>` words are also
+its written record. Only a result speech cannot preserve needs a standalone
+`<written>` version. The core recognizes code, tables, links, sent files,
+lists of four or more items and write-ups over 120 words, and posts written
+results through `Room::post`. Short conversation does not generate a second
+chat message. The existing in-flight hang-up post and one closing note remain.
+
+The core permits a contextual chat pointer at most once in three caller turns.
+The teammate streams its own opening without a pointer; once the result is
+known, the narrator can add a brief pointer in its own words. No stock phrase
+or fixed word cap is requested. Legacy and narrator instructions carry the
+turn count, last pointer turn and three recent generated spoken lines; live
+voice receives the same state. Reservations count even if speech is cut or
+generation fails, conservatively avoiding a repeated reminder. A conversational
+turn never reserves one. Generated speech remains distinct from proof of hearing.
+The optional `spoken` field and tape segment layout are unchanged.
 
 Legacy speaks the teammate's own first sentence as it arrives, including an
 untagged prose opening, and streams the spoken reply. It never waits for a

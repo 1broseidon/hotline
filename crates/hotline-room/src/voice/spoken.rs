@@ -1,45 +1,21 @@
-//! One brain, two outputs: a teammate's reply on a call is the same answer
-//! written twice, once to be heard and once to be read.
+//! A call says the teammate's own words as they stream. Conversation has one
+//! version; a result speech cannot preserve adds a standalone written version.
+//! The core classifies that content and paces any contextual chat pointer.
 //!
-//! A call with a teammate has no voice in front of it. What the person says
-//! goes into the teammate's own session as a turn of its conversation, and
-//! that turn's input carries [`CONTRACT`]: answer twice, the version to say
-//! between `<spoken>` tags and then the version to show between `<written>`
-//! tags. Two whole versions rather than one reply cut in two, because a model
-//! asked for a part to say and a part to show writes an opener and a body,
-//! and the chat then reads as the opener followed by the rest of it. The
-//! contract travels in the text the agent is handed, never in a model
-//! setting, so Hotline Agent and an ACP agent read it alike, and never in the
-//! tape, so the conversation keeps the person's words as they said them.
-//!
-//! [`Spoken`] takes what to say from a reply as it streams, [`said_as_written`]
-//! says whether a reply that wrote no spoken version is short enough to say
-//! as it is rather than have the call assistant say it again, and
-//! [`speech_text`] turns each sentence into what a person would say for it. [`Shown`] and [`versions`] take what the chat shows, which is the
-//! written version alone; [`versions`] also keeps the spoken one, which the
-//! chat draws as a transcript line and the model is shown again in its
-//! history ([`both`]).
+//! The contract travels in the turn's input, so every driver reads it alike,
+//! without saving instructions as caller speech. `Spoken` extracts speech,
+//! `Shown` streams written text and `versions` splits a completed answer.
 
 use regex::{Captures, Regex};
 use std::sync::LazyLock;
 
 /// What a voice turn asks of the agent, after the person's words.
-pub const CONTRACT: &str = "[Voice call: answer twice, once to be heard and once to be read. Each version must stand alone; neither continues the other.
+pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Take the space the question needs; one word can be enough. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
+Only when there is something to keep that speech cannot carry, add <written>...</written>: code, a table, a file or link, a substantial list or a long write-up. Make that result stand alone. For conversation, omit written: the spoken words are the written record, with no second answer to invent.
+Before a tool, begin with your own short spoken sentence naming the action when acknowledgement helps. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]";
 
-<spoken>
-How you'd answer on a phone call. Lead with the answer. 1 to 3 sentences, under 40 words. Plain speech: no code, lists, links or markdown, and no mention of the written version except \"details are in the chat\" when needed. For long answers, give the gist and how many items there are.
-</spoken>
-<written>
-The complete answer exactly as if the question were typed. Full detail, code, tables, links. Never spoken. Do not assume the reader heard the spoken version.
-</written>
-
-Example:
-<spoken>Two things are wrong: the API key is missing and the port's already in use. I've put both fixes in the chat.</spoken>
-<written>The build fails for two reasons:
-1. **Missing API key.** ...
-2. **Port 8080 in use.** ...</written>
-
-Before using a tool, begin with your own first short sentence in <spoken> tags, naming the action when an acknowledgement helps. Often just answer. Never use filler or describe handing work off. State, code and results require a lookup, never memory. One word is enough when it answers. If the person asks for an overview or says they have time, that answer alone may be longer, in numbered spoken parts with a check-in. If you were cut off, answer the new words without repeating yourself.]";
+mod context;
+pub use context::{CallContext, carries_more};
 
 /// The most sentences said of a reply that has no spoken version, when the
 /// call assistant cannot say it again: it was written to be read, so the
@@ -369,21 +345,14 @@ impl Spoken {
     }
 }
 
-/// The most words in a reply with no spoken version that is said as it was
-/// written: the contract's limit for a spoken version.
-const LINE_WORDS: usize = 40;
-
-/// Whether a reply that wrote no spoken version is said as it was written
-/// rather than rewritten: one line of prose under [`LINE_WORDS`] words and
-/// at most [`FALLBACK_SENTENCES`] sentences, with no code or table, so its
-/// opening is all of it. That is the one short line the contract asks for
-/// before a tool, and a reply that short has nothing to rewrite.
+/// Plain conversational prose can be said as written. Material worth keeping
+/// in chat goes through the narrator when it has no spoken version.
 pub fn said_as_written(written: &str) -> bool {
     let text = written.trim();
     !text.is_empty()
         && !text.contains(['\n', '`'])
         && !table(text)
-        && text.split_whitespace().count() < LINE_WORDS
+        && !carries_more(text)
         && sentences(text).len() <= FALLBACK_SENTENCES
 }
 
@@ -997,7 +966,6 @@ mod tests {
             "Let me check the logs.",
             "On it. Running the tests now.",
             "  The build is green, all **42** checks pass.\n",
-            "It's at https://ketch.run/docs.",
         ] {
             assert!(said_as_written(line), "{line:?}");
         }
@@ -1005,10 +973,11 @@ mod tests {
             "",
             "Here's the fix:\n```rust\nlet x = 1;\n```",
             "Run `cargo test` first.",
+            "It's at https://ketch.run/docs.",
             "Two fixes:\n- set the key\n- free the port",
             "| test | result |",
             "One. Two. Three. Four.",
-            &"word ".repeat(40),
+            &"word ".repeat(121),
         ] {
             assert!(!said_as_written(reply), "{reply:?}");
         }

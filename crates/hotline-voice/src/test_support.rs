@@ -12,6 +12,14 @@ pub fn model(id: SpeechId) -> VoiceModel {
 }
 
 impl Calls {
+    pub fn test_begin_turn(&self, id: &str) {
+        self.change(id, |call| {
+            call.conversation.begin_turn();
+            Ok(())
+        })
+        .unwrap();
+    }
+
     pub fn test_change<T>(
         &self,
         id: &str,

@@ -61,10 +61,12 @@ async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
     let fake = Arc::new(Fake::default());
     let (_root, desk, calls) = desk(with_fake(fake.clone()));
     let id = Uuid::new_v4().to_string();
-    calls.start(&id, desk).unwrap();
+    let persona = mack(&desk).await;
+    calls
+        .start_target(&id, Some(persona.clone()), false, desk)
+        .unwrap();
     calls
         .test_change(&id, |call| {
-            call.target = Some("ada".into());
             call.seq = Some(4);
             Ok(())
         })
@@ -76,7 +78,14 @@ async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
         direct: true,
         front: false,
     };
-    assert!(!calls.delivery("ada", "unrelated", "Ada", "Background work.", false, None));
+    assert!(!calls.delivery(
+        &persona,
+        "unrelated",
+        "Ada",
+        "Background work.",
+        false,
+        None
+    ));
     assert!(!calls.delivery(
         "mack",
         "other",
@@ -89,19 +98,33 @@ async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
         seq: 5,
         ..origin.clone()
     };
-    assert!(!calls.delivery("ada", "ahead", "Ada", "Not asked yet.", true, Some(&unsaid)));
+    assert!(!calls.delivery(
+        &persona,
+        "ahead",
+        "Ada",
+        "Not asked yet.",
+        true,
+        Some(&unsaid)
+    ));
     let old_call = Origin {
         call_id: Uuid::new_v4().to_string(),
         ..origin.clone()
     };
-    assert!(!calls.delivery("ada", "old-call", "Ada", "Old call.", true, Some(&old_call)));
+    assert!(!calls.delivery(
+        &persona,
+        "old-call",
+        "Ada",
+        "Old call.",
+        true,
+        Some(&old_call)
+    ));
     // A reply to an earlier turn of this call is the call's too, and is said once.
     let earlier = Origin {
         seq: 3,
         ..origin.clone()
     };
-    assert!(calls.delivery("ada", "ack", "Ada", "On it.", true, Some(&earlier)));
-    assert!(calls.delivery("ada", "ack", "Ada", "On it.", true, Some(&origin)));
+    assert!(calls.delivery(&persona, "ack", "Ada", "On it.", true, Some(&earlier)));
+    assert!(calls.delivery(&persona, "ack", "Ada", "On it.", true, Some(&origin)));
     event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
     event(&mut rx, |e| {
         matches!(
@@ -123,11 +146,11 @@ async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
     );
     assert!(rx.try_recv().is_err());
     calls.card(
-        "ada",
+        &persona,
         &json!({"kind":"human_action","status":"pending","actionId":"mine"}),
     );
     assert!(
-        matches!(rx.try_recv().unwrap(), VoiceEvent::Card { persona_id, .. } if persona_id == "ada")
+        matches!(rx.try_recv().unwrap(), VoiceEvent::Card { persona_id, .. } if persona_id == persona)
     );
     calls.end(&id).unwrap();
 }

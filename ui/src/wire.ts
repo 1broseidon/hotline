@@ -107,6 +107,7 @@ type Results = {
 	"voice.front_audio": null;
 	"voice.front_barge": null;
 	"voice.interrupt": null;
+	"voice.input_state": null;
 	"voice.hold": null;
 	"voice.call_end": null;
 	"voice.models": SpeechModel[];

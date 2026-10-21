@@ -154,6 +154,10 @@ pub enum TranscriptEvent {
         ts: i64,
         action_id: String,
         reason: String,
+        /// An informational yes/no question. It never approves an operation.
+        /// Older cards are actions and remain desk-only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question: Option<bool>,
         status: HumanActionStatus,
         /// What the person said with their answer, when they said anything.
         #[serde(default, skip_serializing_if = "Option::is_none")]

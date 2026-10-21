@@ -4,10 +4,10 @@ use hotline_voice::speech::{SpeechError, SpeechId};
 use std::sync::Mutex;
 use tokio::sync::mpsc;
 
-struct Front {
-    provider: &'static str,
-    session: Mutex<Option<RealtimeSession>>,
-    config: Mutex<Option<RealtimeConfig>>,
+pub(super) struct Front {
+    pub(super) provider: &'static str,
+    pub(super) session: Mutex<Option<RealtimeSession>>,
+    pub(super) config: Mutex<Option<RealtimeConfig>>,
 }
 #[async_trait::async_trait]
 impl Realtime for Front {

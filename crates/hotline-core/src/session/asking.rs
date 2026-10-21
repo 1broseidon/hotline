@@ -118,6 +118,27 @@ impl Room {
         reason: &str,
         deadline: Duration,
     ) -> Result<String, String> {
+        self.request_card(persona_id, reason, deadline, None).await
+    }
+
+    pub(crate) async fn request_question(
+        &self,
+        persona_id: &str,
+        reason: &str,
+        capability: CapabilityLease,
+    ) -> Result<String, String> {
+        capability.check()?;
+        self.request_card(persona_id, reason, HUMAN_DEADLINE, Some(capability))
+            .await
+    }
+
+    async fn request_card(
+        &self,
+        persona_id: &str,
+        reason: &str,
+        deadline: Duration,
+        question: Option<CapabilityLease>,
+    ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
         if reason.len() < 3 {
@@ -133,6 +154,10 @@ impl Room {
                 sender,
             },
         );
+        let informational = question.is_some();
+        if let Some(capability) = question {
+            lock(&self.voice_questions).insert(action_id.clone(), capability);
+        }
         self.write(
             persona_id,
             &TranscriptEvent::HumanAction {
@@ -140,6 +165,7 @@ impl Room {
                 ts: now_ms(),
                 action_id: action_id.clone(),
                 reason: reason.clone(),
+                question: informational.then_some(true),
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: None,
@@ -179,6 +205,28 @@ impl Room {
         home: &ThreadId,
         hours: Option<u32>,
     ) -> Result<String, String> {
+        self.ask_card(persona_id, reason, home, hours, None)
+    }
+
+    pub(crate) fn ask_question(
+        &self,
+        persona_id: &str,
+        reason: &str,
+        home: &ThreadId,
+        capability: CapabilityLease,
+    ) -> Result<String, String> {
+        capability.check()?;
+        self.ask_card(persona_id, reason, home, None, Some(capability))
+    }
+
+    fn ask_card(
+        &self,
+        persona_id: &str,
+        reason: &str,
+        home: &ThreadId,
+        hours: Option<u32>,
+        question: Option<CapabilityLease>,
+    ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
         if reason.len() < 3 {
@@ -191,6 +239,12 @@ impl Room {
         let work =
             matches!(home.kind, ThreadKind::Side | ThreadKind::Call).then_some(home.key.as_str());
         self.link_handoff_human(work, &action_id)?;
+        let informational = question.is_some();
+        if let Some(capability) = question {
+            let mut questions = lock(&self.voice_questions);
+            questions.retain(|_, lease| lease.is_current());
+            questions.insert(action_id.clone(), capability);
+        }
         self.write_home(
             persona_id,
             home,
@@ -199,6 +253,7 @@ impl Room {
                 ts,
                 action_id: action_id.clone(),
                 reason: reason.clone(),
+                question: informational.then_some(true),
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: Some(true),
@@ -439,7 +494,11 @@ impl Room {
     }
 
     /// The card this request wrote, read back off the tape it was written to.
-    fn permission_card(&self, persona_id: &str, request_id: &str) -> Option<TranscriptEvent> {
+    pub(super) fn permission_card(
+        &self,
+        persona_id: &str,
+        request_id: &str,
+    ) -> Option<TranscriptEvent> {
         let id = Value::from(format!("perm:{request_id}"));
         self.tape(persona_id)
             .into_iter()
@@ -509,6 +568,7 @@ impl Room {
         let TranscriptEvent::HumanAction {
             id,
             reason,
+            question,
             delivers,
             expires_at,
             thread,
@@ -517,6 +577,7 @@ impl Room {
         else {
             return;
         };
+        lock(&self.voice_questions).remove(action_id);
         self.write_home(
             persona_id,
             &home,
@@ -525,6 +586,7 @@ impl Room {
                 ts: now_ms(),
                 action_id: action_id.to_string(),
                 reason,
+                question,
                 status,
                 note,
                 delivers,

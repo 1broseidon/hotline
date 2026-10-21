@@ -34,6 +34,7 @@
 mod agent;
 mod asking;
 pub(crate) mod avatar;
+mod call_cards;
 mod chapters;
 mod computer;
 mod dm;
@@ -606,6 +607,7 @@ pub struct Room {
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
     human_waits: Mutex<HashMap<String, HumanWait>>,
+    voice_questions: Mutex<HashMap<String, CapabilityLease>>,
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
     answering_later: Mutex<()>,
@@ -748,6 +750,7 @@ impl Room {
             peers: peers::Peers::default(),
             sides: sides::Sides::default(),
             human_waits: Mutex::new(HashMap::new()),
+            voice_questions: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
@@ -997,6 +1000,7 @@ impl Room {
 
     pub(crate) fn set_voice(&self, voice: &Arc<crate::voice::Calls>) {
         *lock(&self.voice) = Arc::downgrade(voice);
+        self.push.set_voice(voice);
     }
 
     /// Keeps `spoken` as what a call to the teammate said for its reply

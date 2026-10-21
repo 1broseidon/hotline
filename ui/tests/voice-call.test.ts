@@ -114,12 +114,24 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("a call with the desk", () => {
+	test("a card settled on the call or at the desk leaves the call's pending list", async () => {
+		const r = rig();
+		await r.call.start();
+		const card = { type: "card", personaId: "ada", requestId: "q1", kind: "human_action" };
+		r.desk(card);
+		r.desk(card);
+		expect(r.call.current.cards).toHaveLength(1);
+		r.desk({ ...card, resolved: true });
+		expect(r.call.current.cards).toHaveLength(0);
+	});
+
 	test("a spoken turn is sent once, and the call waits on the desk", async () => {
 		const r = rig();
 		await r.call.start();
 		expect(r.call.current.phase).toBe("listening");
 		r.speak(0.3, 1_000, 1_600);
 		expect(r.call.current.phase).toBe("hearing");
+		expect(r.sent.some((one) => one.cmd === "voice.input_state" && one.params["speaking"] === true)).toBe(true);
 		r.speak(0, 1_650, 3_000);
 		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(1);
 		expect(r.call.current.phase).toBe("thinking");

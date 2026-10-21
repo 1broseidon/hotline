@@ -347,6 +347,7 @@ fn call_link(desk: &crate::desk::Desk, persona: &str) -> Option<Value> {
 }
 
 mod budgets;
+mod cards;
 mod clips;
 mod desk_calls;
 mod direct;

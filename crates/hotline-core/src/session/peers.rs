@@ -261,6 +261,16 @@ pub(super) struct Peers {
 }
 
 impl Peers {
+    pub(super) fn voice_approval(&self, persona: &str, request: &str) -> bool {
+        lock(&self.waiting).get(request).is_some_and(|wait| {
+            wait.card_on == persona
+                && wait.caller_capability.is_current()
+                && wait.target_capability.is_current()
+                && !wait.sender.is_closed()
+                && self.scope_current(&wait.caller_id, &wait.target_id, wait.scope)
+        })
+    }
+
     /// Claims the pair for a delivery, or says who already has it. The claim
     /// is let go by the [`Answering`] the room wraps it in.
     fn begin(&self, key: &str, target_id: &str) -> Result<(), String> {

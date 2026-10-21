@@ -9,6 +9,7 @@
 
 mod call;
 pub mod call_room;
+pub mod cards;
 pub mod dispatcher;
 mod duplex;
 mod front;
@@ -333,6 +334,8 @@ pub struct Call {
     /// On a front call, its sound; gone once the front is.
     front: Option<Front>,
     live_error: Option<String>,
+    cards: cards::Queue,
+    caller_speaking: bool,
 }
 
 impl Call {
@@ -988,28 +991,6 @@ impl Calls {
     fn push(&self, delivery: &Delivery, text: &str) {
         if let Some(room) = self.live_room() {
             room.voice_push(&delivery.persona, &delivery.name, text);
-        }
-    }
-
-    pub fn card(&self, persona: &str, event: &serde_json::Value) {
-        let kind = event["kind"].as_str().unwrap_or_default();
-        let request = match kind {
-            "permission" if event["decision"].is_null() => event["requestId"].as_str(),
-            "human_action" if event["status"] == "pending" => event["actionId"].as_str(),
-            "passkey_ask" if event["status"] == "pending" => event["askId"].as_str(),
-            _ => None,
-        };
-        if let Some(request) = request {
-            for call in lock(&self.calls).iter().filter(|call| {
-                call.state != VoiceState::Ended
-                    && call.target.as_ref().is_none_or(|target| target == persona)
-            }) {
-                let _ = call.events.send(VoiceEvent::Card {
-                    persona_id: persona.into(),
-                    request_id: request.into(),
-                    kind: kind.into(),
-                });
-            }
         }
     }
 }

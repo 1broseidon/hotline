@@ -16,6 +16,16 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 impl Calls {
+    pub fn input_state(&self, id: &str, speaking: bool) -> Result<(), String> {
+        self.change(id, |call| {
+            if call.front.is_some() {
+                return Err("Live voice reports its own input state.".into());
+            }
+            call.caller_speaking = speaking;
+            Ok(())
+        })
+    }
+
     pub fn utterance(
         &self,
         id: &str,
@@ -62,6 +72,12 @@ impl Calls {
             return Err("Work needs between 1 and 8,000 characters.".into());
         }
         let target = self.change(id, |call| {
+            if call.cards.answered {
+                return Err(
+                    "The caller's answer was already recorded for the card. No work was requested."
+                        .into(),
+                );
+            }
             if call.front.is_none() {
                 return Err("This call has no live voice.".into());
             }

@@ -7,7 +7,7 @@ priority: medium
 tags:
   - tests
   - docs
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/tests
   - docs
@@ -20,9 +20,16 @@ dependsOn:
   - task-239
   - task-240
   - task-241
-updatedAt: "2026-10-21T05:17:40.843Z"
+updatedAt: "2026-10-21T07:50:07.295Z"
 decisions:
   - decision-9
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T07:50:07.154Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

@@ -314,6 +314,8 @@ pub struct Call {
     pub utterance_pending: bool,
     pub first_clip_started: Option<Instant>,
     waiting_sound: bool,
+    /// Last audible clip or queued feedback; independent of first-clip telemetry.
+    pub feedback_at: Option<tokio::time::Instant>,
     /// On a direct call, the latest turn handed to the teammate whose session
     /// has not finished it: the call thinks until it has, unless the person
     /// takes the floor.
@@ -468,6 +470,12 @@ enum Work {
     Answer {
         event: String,
         chunks: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
+        speech: CancellationToken,
+    },
+    /// Quiet-turn feedback shares the speech queue, so it cannot overlap an answer.
+    Progress {
+        seq: u32,
+        at: tokio::time::Instant,
         speech: CancellationToken,
     },
     /// The teammate's session finished the turn of this utterance.
@@ -952,6 +960,9 @@ impl Calls {
         };
         // The turn will say nothing more, even of a reply it never finished.
         call.streams.clear();
+        if call.answering.is_some_and(|seq| seq <= origin.seq) {
+            call.feedback_at = None;
+        }
         if call.work.try_send(Work::TurnOver(origin.seq)).is_err()
             && call
                 .answering

@@ -311,7 +311,13 @@ pub(super) async fn completion_model(
             gemini::Gemini::new(key.as_str()).completion(model).erase()
         }
         (Client::XAi, ProviderAuth::ApiKey(key)) => {
-            xai::new(key.as_str()).completion(model).erase()
+            let config = OpenAIConfig::with_key(&xai::DIALECT, key);
+            #[cfg(feature = "test-support")]
+            let config = match crate::provider_fixture::origin(key) {
+                Some(origin) => config.with_base_url(origin),
+                None => config,
+            };
+            config.client().completion(model).erase()
         }
         (Client::Groq, ProviderAuth::ApiKey(key)) => {
             groq::new(key.as_str()).completion(model).erase()

@@ -703,7 +703,12 @@ Legacy speaks the teammate's own first sentence as it arrives, including an
 untagged prose opening, and streams the spoken reply. It never waits for a
 rewrite before saying that opening. If no speech has begun after 1.8 seconds,
 the core sends one soft, wordless WAV on the ordinary clip wire, to desk and
-phone alike. There is no repeating client chime or stock acknowledgement.
+phone alike. Only an audio clip suppresses that cue, not text awaiting TTS.
+There is no repeating client chime or stock opening acknowledgement. While a
+teammate is still working, twenty seconds without audio queues a short core-owned
+“I'm still working on that.” line in the same speech queue as its answer. It
+claims no result or specific tool activity. The queue checks the turn again;
+finished, interrupted, held or superseded turns cannot start that line.
 Interruption cancels queued speech as before. Live work that has no spoken
 version can still be rewritten before the live model says it.
 

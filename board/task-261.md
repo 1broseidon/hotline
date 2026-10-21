@@ -1,8 +1,8 @@
 ---
 id: task-261
 title: "Your name: a Settings field, and the agent can store it when you tell it, with your approval"
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: medium
 tags:
   - voice
@@ -22,7 +22,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T19:59:40.694Z"
 assignee: codex
-updatedAt: "2026-10-21T19:59:40.694Z"
+updatedAt: "2026-10-21T19:59:55.449Z"
 ---
 
 ## Description

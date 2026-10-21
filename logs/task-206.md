@@ -1,8 +1,6 @@
 ---
 id: task-206
 title: "End to end, docs and the scenario pass: every scenario in the deck proved"
-column: review
-position: 0
 priority: medium
 tags:
   - tests
@@ -20,7 +18,7 @@ dependsOn:
   - task-239
   - task-240
   - task-241
-updatedAt: "2026-10-21T08:02:13.234Z"
+updatedAt: "2026-10-21T08:02:36.076Z"
 decisions:
   - decision-9
 dispatch:
@@ -35,6 +33,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T07:50:09.451Z"
+    ended: "2026-10-21T08:02:36.076Z"
+    outcome: done
+completedAt: "2026-10-21T08:02:35.647Z"
 ---
 
 ## Description
@@ -56,3 +57,4 @@ Done when:
 - 2026-10-21T07:54:00.925Z: [claude] 2026-10-21 Pork Chop QA (a180a43d): after the core said 'A question for you: … Say yes or no.', the front added 'The card is up. Say yes or no on whether…' — the card's ask said twice. The front should stay silent after a card notice it didn't write. Also once (model variance) the front refused to start work for 'ask me a yes or no question with a card…' saying 'That's for the card to ask.' and remained silent.
 - 2026-10-21T07:56:42.651Z: [codex] Scripted scope implemented on dispatch/task-206: explicit lead selection + wire roster-answer assertion, short names/current-work roster instruction, scenario-named evidence and a per-requirement device checklist, voice docs/ADR amendments/changelog. Filed missing automatic file attachment as task-253 for George’s decision; no attachment policy implemented. make check and make precheck are running. Full physical Linux/desk/phone pass remains Pork Chop + George.
 - 2026-10-21T08:02:12.930Z: [codex] Ready for review on dispatch/task-206, commit 9b5901ad; worktree clean. Added scenario-named test evidence and a checklist retaining all 17 scenarios / 58 requirements, strengthened the explicit-lead → roster answer on the call → named handoff wire proof, tightened roster speech to names/current work, and updated voice docs, ADR 0005/0008 §5 and CHANGELOG. make check, all 8 make precheck legs and commit hooks passed. Unwired/unverified: full real-audio pass belongs to Pork Chop on Linux then George desk/phone; speaker/AEC, dictation pauses, phone input_state/card.resolved/resume adoption and Pi relay diagnosis remain pending in docs/design/voice-scenario-pass.md. File attachment gap is task-253 for George’s decision, with no auto-attachment implemented. Next: review/merge this branch, then run and record each device checklist item (or file failures); recheck concise live roster speech.
+- 2026-10-21T08:02:34.957Z: Landed on release/0.42.0

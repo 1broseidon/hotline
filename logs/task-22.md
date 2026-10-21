@@ -2,8 +2,6 @@
 id: task-22
 title: "Window: notify on visible streaming changes and avoid repeated render passes"
 parentId: epic-5
-column: review
-position: 2
 priority: high
 tags:
   - improvement
@@ -15,7 +13,7 @@ description: |-
   Split the independent former scope into task-49 (long-tape progressive rendering/scroll anchoring) and task-50 (per-desk list caches). CSS :has replacement and solid working-card backgrounds belong here if profiling shows them material.
 
   Migration source: BRO-241; former BRO-242 and BRO-244 scope is retained in the split tasks.
-updatedAt: "2026-10-21T10:36:36.566Z"
+updatedAt: "2026-10-21T10:36:47.626Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -28,12 +26,16 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T10:22:54.509Z"
+    ended: "2026-10-21T10:36:47.626Z"
+    outcome: done
 assignee: codex
 decisions:
   - decision-21
+completedAt: "2026-10-21T10:36:46.857Z"
 ---
 
 ## Log
 - 2026-10-21T10:22:49.324Z: [claude] 2026-10-21 Pork Chop: lands on dispatch/epic-5 (now 3891214f, includes task-19's writer-held fold cache and task-46). Before done: merge dispatch/epic-5 into your branch, run make check in the foreground on the merged result, commit, and show a before/after measurement.
 - 2026-10-21T10:27:29.496Z: [codex] Implemented visible streaming projection, atomic queued-word settlement, stable live stamps, memoized transcript/work derivations, isolated conversation/work bands, and gated follow layout. Synthetic 60,000-character / 1,000-frame Transcript fixture: baseline 1,000 notifications/renders and 170.9 ms; changed 1 notification/render and 56.4 ms, final DOM bubble retained. Running required make check and precheck on dispatch/epic-5 base 0a1127a0.
 - 2026-10-21T10:36:36.286Z: [codex] Finished on dispatch/task-22, commit dd0a6254; clean worktree. Merged/confirmed dispatch/epic-5 (0a1127a0), ran make check in foreground on the final result, and passed all 8 make precheck legs. Visible projection/atomic settlement, stable live stamps with cadence, memoized derivations, independent bands, gated follow layout; tests cover final DOM bubbles and live tool/card changes. Before/after 60k-character, 1000-frame fixture: 1000→1 notifications and transcript-reader renders, 170.9→56.4 ms (synthetic timing). Ready for review.
+- 2026-10-21T10:36:46.190Z: Landed on dispatch/epic-5

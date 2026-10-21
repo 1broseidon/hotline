@@ -758,3 +758,50 @@ async fn a_tap_cancels_generation_before_truncating_playback() {
     drop(session);
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn instructions_refresh_without_starting_speech_and_survive_reconnect() {
+    for openai in [false, true] {
+        let (listener, url) = listen().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = accept(&listener).await;
+            handshake(&mut socket).await;
+            let update = receive(&mut socket).await;
+            assert_eq!(update["type"], "session.update");
+            assert_eq!(
+                update["session"]["instructions"],
+                "Work running. Already said: inspecting tests."
+            );
+            socket.close(None).await.unwrap();
+            let (mut socket, _) = accept(&listener).await;
+            let fresh = handshake(&mut socket).await;
+            assert_eq!(
+                fresh["instructions"],
+                "Work running. Already said: inspecting tests."
+            );
+            closed(&mut socket).await;
+        });
+        let endpoint = Endpoint {
+            provider_id: if openai { "openai" } else { "xai" }.into(),
+            base_url: url,
+            key: Some("fixture".into()),
+        };
+        let provider = if openai {
+            RealtimeSocket::openai(endpoint)
+        } else {
+            RealtimeSocket::grok(endpoint)
+        };
+        let mut configuration = config();
+        configuration.input_rate = 24_000;
+        let mut session = provider.open(configuration).await.unwrap();
+        session
+            .input
+            .instructions("Work running. Already said: inspecting tests.")
+            .await
+            .unwrap();
+        assert_eq!(next(&mut session).await, RealtimeEvent::Reconnecting);
+        assert_eq!(next(&mut session).await, RealtimeEvent::Renewed);
+        session.close().await;
+        finish(server).await;
+    }
+}

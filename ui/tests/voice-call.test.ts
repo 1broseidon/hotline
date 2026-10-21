@@ -41,7 +41,6 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 	const pcm: { data: string; rate: number }[] = [];
 	let playedMs = 0;
 	const chimes: string[] = [];
-	let tone = 0;
 	let queue = 0;
 	let idle: () => void = () => {};
 	const mic = { open: true, closed: 0, opened: 0 };
@@ -74,7 +73,7 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		outputLevel: () => 0,
 		chime: (kind) => {
 			chimes.push(kind);
-			return kind === "think" ? tone : 0;
+			return 0;
 		},
 		close: () => {
 			mic.open = false;
@@ -91,8 +90,6 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		pcm,
 		heardFor: (ms: number) => (playedMs = ms),
 		chimes,
-		/** How long a blip-blip plays, in seconds. */
-		tone: (seconds: number) => (tone = seconds),
 		mic,
 		desk: (event: unknown) => handlers?.event(event),
 		snapshot: (items: unknown[]) => handlers?.snapshot(items),
@@ -568,24 +565,16 @@ describe("a call while the teammate works", () => {
 		r.call.hangUp();
 	});
 
-	test("the blip-blip goes on while the mic is open, and never counts as the person", async () => {
-		const speech = fakeSpeech();
-		const r = textRig(speech, { personaId: "mack", input: ["text/plain"] }, TEXT_DESK, MACK);
-		await r.call.start();
-		r.tone(0.3);
-		r.at(5_000);
-		r.desk(WORKING);
-		expect(r.call.current.phase).toBe("listening");
-		await new Promise((resolve) => setTimeout(resolve, 1_900));
-		expect(r.chimes.filter((kind) => kind === "think").length).toBeGreaterThan(0);
-		// The engine hears the blip-blip; the detector is not told.
-		r.levels(-20, 5_000, 5_400);
-		expect(r.call.current.phase).toBe("listening");
-		r.levels(-74, 5_450, 5_600);
-		r.levels(-20, 5_650, 6_000);
-		expect(r.call.current.phase).toBe("hearing");
-		r.call.hangUp();
-	});
+	test("Legacy waiting audio comes from the core without local filler tones", async () => {
+        const speech = fakeSpeech();
+        const r = textRig(speech, { personaId: "mack", input: ["text/plain"] }, TEXT_DESK, MACK);
+        await r.call.start();
+        r.desk(WORKING);
+        r.desk({ type: "clip", id: "waiting-1", index: 0, final: true, mimeType: "audio/wav", data: "soft sound" });
+        expect(r.played).toEqual(["soft sound"]);
+        expect(r.chimes.filter((kind) => kind === "think")).toEqual([]);
+        r.call.hangUp();
+    });
 
 	test("noise taken for the person gives the floor back, and what the desk said meanwhile is said", async () => {
 		const r = textRig();

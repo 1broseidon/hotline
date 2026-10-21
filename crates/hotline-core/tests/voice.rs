@@ -294,10 +294,16 @@ async fn answer(socket: &mut Socket, id: u32, command: Value) -> Value {
 }
 
 async fn next_asked(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> Asked {
-    tokio::time::timeout(Duration::from_secs(15), asked.recv())
-        .await
-        .expect("the front was asked nothing")
-        .expect("the front closed")
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let command = asked.recv().await.expect("the front closed");
+            if !matches!(command, Asked::Instructions(_)) {
+                return command;
+            }
+        }
+    })
+    .await
+    .expect("the front was asked nothing")
 }
 
 // The tests, one file per topic in `tests/voice/`. The inline module is what
@@ -309,6 +315,7 @@ mod voice {
     mod after_call;
     mod direct;
     mod front;
+    mod front_state;
     mod front_tools;
     mod lead;
     mod pipeline;

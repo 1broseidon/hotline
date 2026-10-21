@@ -97,6 +97,8 @@ pub enum Command {
         reply: bool,
     },
     Text(String),
+    /// Replace the standing prompt without starting a reply.
+    Instructions(String),
     /// A line for the model to say to the person as given.
     Say(String),
     Truncate {
@@ -117,6 +119,10 @@ impl RealtimeInput {
             .send(command)
             .await
             .map_err(|_| SpeechError::Cancelled)
+    }
+
+    pub async fn instructions(&self, text: &str) -> Result<(), SpeechError> {
+        self.send(Command::Instructions(text.into())).await
     }
 
     /// One frame of microphone PCM at the input rate.
@@ -245,3 +251,6 @@ pub trait Realtime: Send + Sync {
     /// provider is unreachable, refuses the login or rejects the config.
     async fn open(&self, config: RealtimeConfig) -> Result<RealtimeSession, SpeechError>;
 }
+
+#[cfg(test)]
+mod scripted_front;

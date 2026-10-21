@@ -130,9 +130,6 @@ const NO_TRANSCRIPTION = "Speech recognition on this Mac could not start. Check 
 /** How much audio before the detector is sure it heard speech is kept, so a word's first sound is not clipped. */
 const PREROLL_MS = 400;
 
-/** How often the blip-blip repeats while the desk works and says nothing. */
-const WORKING_EVERY_MS = 1800;
-
 /** Recognized words corroborate a short answer such as "yes", so a text call's onset can be shorter than a clip's. */
 const TEXT_MIN_SPEECH_MS = 100;
 
@@ -235,8 +232,6 @@ export class Call {
 	private level = 0;
 	private shown = 0;
 	private raf = 0;
-	/** While the desk works, a blip-blip every so often says it still is. */
-	private working: ReturnType<typeof setInterval> | null = null;
 
 	/**
 	 * A text call: this Mac recognizes the speech and the desk gets finished
@@ -647,7 +642,7 @@ export class Call {
 		// A teammate still working on a call that listens while it thinks leaves the mic open.
 		const deskBusy = this.desk === "speaking" || (this.desk === "thinking" && !this.deskListens);
 		if (this.awaiting || this.outputLines.size > 0 || deskBusy) return this.set({ phase: "thinking" });
-		// Still listening: the blip-blip follows whether the teammate is working.
+		// Keep listening while the teammate works.
 		if (phase === "listening") return this.set({});
 		this.cancelInput();
 		this.detector.reset(this.now());
@@ -763,7 +758,6 @@ export class Call {
 			const input = this.input;
 			this.awaiting = true;
 			this.settle();
-			this.audio.chime("think");
 			void input.finish().then(() => {
 				if (this.input === input) this.input = null;
 				if (!this.ended && this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
@@ -786,7 +780,6 @@ export class Call {
 		const seq = ++this.seq;
 		this.awaiting = true;
 		this.settle();
-		this.audio.chime("think");
 		this.transport
 			.command("voice.utterance", {
 				callId: this.id,
@@ -964,8 +957,6 @@ export class Call {
 		this.cutIn();
 		const seq = ++this.seq;
 		this.line({ kind: "you", id: `heard-${seq}`, text });
-		// After the engine let the microphone go, so the blip-blip is never transcribed.
-		this.audio.chime("think");
 		this.transport
 			.command("voice.text", { callId: this.id, seq, text })
 			.then(() => this.delivered(), (error: unknown) => this.refused(error));
@@ -1078,32 +1069,11 @@ export class Call {
 		const tone = this.audio.chime("end");
 		setTimeout(() => this.audio.close(), tone * 1000 + 80);
 	}
-
-	/**
-	 * One blip-blip. The microphone may be open, so the detector does not take
-	 * it for the person: the webview's mic skips it, and this Mac's engine's
-	 * levels are let go of until it and its tail have played.
-	 */
-	private blip(): void {
-		const tone = this.audio.chime("think");
-		this.quietUntil = Math.max(this.quietUntil, this.now() + tone * 1000 + 120);
-	}
-
 	private set(patch: Partial<CallSnapshot>): void {
 		this.snapshot = { ...this.snapshot, ...patch };
 		// Recognition stays open through playback for barge-in; native voice processing removes echo.
 		if (this.recognizing && this.snapshot.phase !== "listening" && this.snapshot.phase !== "hearing" && this.snapshot.phase !== "speaking") this.stopListening();
-		// The first blip-blip goes with the utterance; these repeat it while the desk is quiet and busy,
-		// and while the teammate works on a call that listens meanwhile.
-		const phase = this.snapshot.phase;
-		// A front says itself that the teammate is working, so it gets no blip-blip.
-		const working = this.front === null && (phase === "thinking" || (phase === "listening" && this.desk === "thinking" && this.deskListens));
-		if (working && this.working === null) {
-			this.working = setInterval(() => this.blip(), WORKING_EVERY_MS);
-		} else if (!working && this.working !== null) {
-			clearInterval(this.working);
-			this.working = null;
-		}
+		// The core supplies one waiting sound over the same clip channel as speech.
 		for (const listener of this.listeners) listener();
 	}
 }

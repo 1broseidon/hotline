@@ -170,7 +170,7 @@ impl Calls {
         front_prompt::instructions(
             &Behind::Teammate {
                 public_name: &persona.name,
-                voice: "",
+                voice: &persona.goal,
             },
             &Start {
                 person,
@@ -409,7 +409,7 @@ impl Calls {
             instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. When the person names a teammate to do work, use message_teammate with intent handoff and their words unchanged. Say who has it after acceptance. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
         }
         let config = RealtimeConfig {
-            instructions,
+            instructions: self.front_context(&id, &instructions, None),
             voice: self.front_voice(persona.as_ref()),
             tools: front::tools()
                 .into_iter()
@@ -436,7 +436,10 @@ impl Calls {
                 return;
             }
         };
-        let mut kept = Kept::default();
+        let mut kept = Kept {
+            base: instructions,
+            ..Kept::default()
+        };
         let mut session = session;
         let mut recovered = false;
         let ended = loop {
@@ -491,10 +494,12 @@ impl Calls {
                 Ok(())
             });
             let mut replacement = config.clone();
-            replacement.instructions = kept.carry.instructions(&config.instructions);
+            replacement.instructions = self.front_context(&id, &kept.base, Some(&kept.carry));
             if let Ok(Some(cut)) = self.change(&id, |call| Ok(call.speech_line.pending.clone())) {
                 replacement.instructions.push_str("\n\n");
-                replacement.instructions.push_str(&cut);
+                replacement
+                    .instructions
+                    .push_str(&front_prompt::scrub(&cut));
             }
             let opened = tokio::select! {
                 () = cancel.cancelled() => break FrontEnd::Call,
@@ -542,6 +547,7 @@ impl Calls {
         kept: &mut Kept,
     ) -> FrontEnd {
         let Kept {
+            base,
             carry,
             heard,
             replies,
@@ -568,12 +574,47 @@ impl Calls {
             let _ = input.say("We're back on the same call.").await;
         }
         let mut saying = String::new();
+        // Subscribe before reading, so a post racing the snapshot is refreshed.
+        // Idle calls must not parse the whole home tape twice a second.
+        let mut context_events = self
+            .change(id, |call| {
+                let streams = call
+                    .thread
+                    .as_ref()
+                    .and_then(StreamId::of_thread)
+                    .into_iter()
+                    .chain(call.target.clone().map(StreamId::Tape));
+                Ok(streams
+                    .map(|stream| self.log.subscribe(&stream))
+                    .collect::<Vec<_>>())
+            })
+            .unwrap_or_default();
+        let mut work_state = self.change(id, |call| Ok((call.answering, call.utterance_pending)));
+        let mut last_instructions = self.front_context(id, base, Some(carry));
+        let mut refresh = tokio::time::interval(Duration::from_millis(500));
 
         let mut minutes =
             tokio::time::interval_at(tokio::time::Instant::now() + SPEND_EVERY, SPEND_EVERY);
         loop {
             let event = tokio::select! {
                 () = cancel.cancelled() => return FrontEnd::Call,
+                _ = refresh.tick() => {
+                    let state = self.change(id, |call| Ok((call.answering, call.utterance_pending)));
+                    let mut changed = state != work_state;
+                    work_state = state;
+                    for events in &mut context_events {
+                        while let Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) = events.try_recv() {
+                            changed = true;
+                        }
+                    }
+                    if !changed { continue; }
+                    let fresh = self.front_context(id, base, Some(carry));
+                    if fresh != last_instructions {
+                        if input.instructions(&fresh).await.is_err() { return FrontEnd::Lost; }
+                        last_instructions = fresh;
+                    }
+                    continue;
+                }
                 _ = minutes.tick() => {
                     if !self.front_connected(realtime) {
                         eprintln!("[voice] call {id}: provider login disconnected");
@@ -619,6 +660,14 @@ impl Calls {
                     Ok(())
                 });
             }
+            let renewed = matches!(event, RealtimeEvent::Renewed);
+            let refresh_now = renewed
+                || matches!(
+                    event,
+                    RealtimeEvent::Heard(_)
+                        | RealtimeEvent::ResponseDone
+                        | RealtimeEvent::ToolCall { .. }
+                );
             let seen = match event {
                 RealtimeEvent::Audio(pcm) => {
                     if saying.is_empty() {
@@ -771,6 +820,15 @@ impl Calls {
                     recovered.map(|_| ())
                 }
             };
+            if refresh_now {
+                let fresh = self.front_context(id, base, Some(carry));
+                if renewed || fresh != last_instructions {
+                    if input.instructions(&fresh).await.is_err() {
+                        return FrontEnd::Lost;
+                    }
+                    last_instructions = fresh;
+                }
+            }
             if seen.is_err() {
                 return FrontEnd::Call;
             }
@@ -809,6 +867,7 @@ impl Calls {
 /// What a front call keeps for after it, whichever way it ends.
 #[derive(Default)]
 struct Kept {
+    base: String,
     /// Conversation used when the realtime connection is renewed.
     carry: realtime::socket::Carry,
     heard: u32,

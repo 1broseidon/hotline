@@ -26,18 +26,16 @@ async fn device_text_uses_the_call_thread_and_preserves_its_spoken_reply() {
     .await;
 }
 
-/// An agent that ignores the tags wrote to be read: the call assistant says
-/// it again to be heard, that is said and kept as what was said for it, and
-/// the chat shows all of the reply.
+/// Legacy streams the agent's own opening; the chat retains the complete reply.
 #[tokio::test]
-async fn a_reply_without_tags_is_rewritten_to_be_heard() {
+async fn legacy_speaks_its_own_untagged_opening() {
     direct_call_uses_its_thread(
         true,
         UNTAGGED_REPLY,
-        REWRITTEN,
+        "Here is the fix:",
         UNTAGGED_REPLY,
-        Some(REWRITTEN),
-        "rewritten",
+        None,
+        "untagged",
     )
     .await;
 }

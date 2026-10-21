@@ -39,7 +39,7 @@ Example:
 1. **Missing API key.** ...
 2. **Port 8080 in use.** ...</written>
 
-Before using a tool, say at most one short line. If you were cut off, answer the new words without repeating yourself.]";
+Before using a tool, begin with your own first short sentence in <spoken> tags, naming the action when an acknowledgement helps. Often just answer. Never use filler or describe handing work off. State, code and results require a lookup, never memory. One word is enough when it answers. If the person asks for an overview or says they have time, that answer alone may be longer, in numbered spoken parts with a check-in. If you were cut off, answer the new words without repeating yourself.]";
 
 /// The most sentences said of a reply that has no spoken version, when the
 /// call assistant cannot say it again: it was written to be read, so the
@@ -184,7 +184,8 @@ fn table(line: &str) -> bool {
 /// The sentences of a reply that are said, taken as the reply streams.
 ///
 /// Everything inside `<spoken>` is said, a sentence as soon as it is whole,
-/// and nothing after it. Text before a spoken version is held rather than
+/// and nothing after it. Legacy uses `streaming` to say prose immediately.
+/// For live work, text before a spoken version is held rather than
 /// said as it streams: a reply that never writes one is said again by the
 /// call assistant once it is whole (`Calls::answer`), and its opening must not
 /// be heard first. What is held is read as a reply written to be read is: up
@@ -196,6 +197,8 @@ fn table(line: &str) -> bool {
 /// part of one that ends a chunk.
 #[derive(Default)]
 pub struct Spoken {
+    /// Legacy says its own prose as it arrives; live work can still be rewritten.
+    stream_opening: bool,
     tags: Tags,
     place: Place,
     /// A spoken version has begun.
@@ -229,6 +232,13 @@ pub enum Ending {
 }
 
 impl Spoken {
+    pub fn streaming() -> Self {
+        Self {
+            stream_opening: true,
+            ..Self::default()
+        }
+    }
+
     /// A chunk of the reply in, the sentences now ready to say out.
     pub fn push(&mut self, chunk: &str) -> Vec<String> {
         let pieces = self.tags.push(chunk);
@@ -243,7 +253,11 @@ impl Spoken {
         if self.began {
             Ending::Spoken(rest)
         } else {
-            Ending::Untagged(std::mem::take(&mut self.held))
+            Ending::Untagged(if self.stream_opening {
+                rest
+            } else {
+                std::mem::take(&mut self.held)
+            })
         }
     }
 
@@ -266,7 +280,7 @@ impl Spoken {
                     } else if next == Place::Spoken {
                         // What came before is said as far as the fallback
                         // would, and the spoken version starts afresh.
-                        self.read(true);
+                        out.extend(self.read(true));
                         out.append(&mut self.held);
                         self.began = true;
                         self.fenced = false;
@@ -345,7 +359,11 @@ impl Spoken {
                 out.push(sentence);
             } else if !self.visual && self.said < FALLBACK_SENTENCES {
                 self.said += 1;
-                self.held.push(sentence);
+                if self.stream_opening {
+                    out.push(sentence);
+                } else {
+                    self.held.push(sentence);
+                }
             }
         }
     }

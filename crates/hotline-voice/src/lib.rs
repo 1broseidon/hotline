@@ -12,6 +12,7 @@ pub mod call_room;
 pub mod dispatcher;
 mod duplex;
 mod front;
+mod front_context;
 mod front_prompt;
 pub mod front_tools;
 mod input;
@@ -21,6 +22,7 @@ mod replies;
 pub mod speech;
 mod synthesis;
 mod turn;
+mod waiting_sound;
 
 pub use hotline_room::voice::{ledger, metering, settings, spoken};
 
@@ -309,6 +311,7 @@ pub struct Call {
     pub deliveries: CancellationToken,
     pub utterance_pending: bool,
     pub first_clip_started: Option<Instant>,
+    waiting_sound: bool,
     /// On a direct call, the latest turn handed to the teammate whose session
     /// has not finished it: the call thinks until it has, unless the person
     /// takes the floor.

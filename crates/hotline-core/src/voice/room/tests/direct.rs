@@ -139,174 +139,43 @@ fn kept_spoken(desk: &crate::desk::Desk, persona: &str, event: &str) -> Option<S
         .and_then(|line| line["spoken"].as_str().map(str::to_string))
 }
 
-/// A reply that wrote no spoken version says nothing while it streams, so
-/// its opening is never heard before what replaces it. Once it is whole, the
-/// call assistant is handed it and the person's last words and says it again
-/// to be heard; that is said as the reply's one line, kept on the call's
-/// thread and on the reply as what was said, and counted as rewritten. A
-/// reply with a spoken version, or one short line such as the line before
-/// a tool, never asks the call assistant.
+/// Legacy says its own opening while the model is still working, never a rewrite.
 #[tokio::test]
-async fn a_reply_without_a_spoken_version_is_rewritten_said_and_kept() {
-    let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
-    let origin = on_turn(&calls, &id, 1);
-    calls
-        .test_change(&id, |call| {
-            call.words = "Why is the test flaky?".into();
-            Ok(())
-        })
-        .unwrap();
-    let rewrite = "It was a race on startup, and it's fixed now. Details are in the chat.";
-    *lock(&fake.rewrite) = Ok(rewrite.into());
-
-    assert!(calls.delivery(
-        &persona,
-        "tagged",
-        "Mack",
-        "<spoken>It's fixed.</spoken><written>Fixed: see the diff.</written>",
-        true,
-        Some(&origin)
-    ));
-    one_reply(&mut rx).await;
-    assert!(calls.delivery(
-        &persona,
-        "line",
-        "Mack",
-        "Let me check the logs.",
-        true,
-        Some(&origin)
-    ));
-    assert_eq!(one_reply(&mut rx).await.0[0].1, "Let me check the logs.");
-    assert!(
-        lock(&fake.rewrites).is_empty(),
-        "only a reply to be read is rewritten"
-    );
-
-    let (head, tail) = UNTAGGED.split_at(40);
-    calls.reply_delta(&persona, "reply-1", head, &origin);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    while let Ok(event) = rx.try_recv() {
-        assert!(
-            !matches!(event, VoiceEvent::Said { .. } | VoiceEvent::Clip { .. }),
-            "nothing is said of it while it streams: {event:?}"
-        );
-    }
-    calls.reply_delta(&persona, "reply-1", tail, &origin);
-    assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
-    let (said, clips) = one_reply(&mut rx).await;
-    assert!(said.iter().all(|(line, _)| *line == said[0].0));
-    assert_eq!(said.last().unwrap().1, rewrite);
-    assert_eq!(clips.len(), 3, "two sentences and the closing clip");
-    assert_eq!(
-        *lock(&fake.rewrites),
-        [("Why is the test flaky?".to_string(), UNTAGGED.to_string())]
-    );
-    assert_eq!(
-        lock(&fake.spoken)[2..],
-        [
-            "It was a race on startup, and it's fixed now.",
-            "Details are in the chat."
-        ]
-    );
-    // The session writes the reply after handing it over; the rewrite waits
-    // for it, and is kept beside it as what was said.
-    write_reply(&desk, &persona, "reply-1", UNTAGGED);
-    until("the rewrite", || {
-        kept_spoken(&desk, &persona, "reply-1").as_deref() == Some(rewrite)
-    })
-    .await;
-
-    let counts = calls.status().replies.unwrap();
-    assert_eq!((counts[0].both, counts[0].rewritten), (1, 1), "{counts:?}");
-    assert_eq!(counts[0].untagged, 0);
-    calls.end(&id).unwrap();
-}
-
-/// While the call assistant writes, the call thinks: the person hears the
-/// blip-blip, and the call says so again on its heartbeat, so a phone does
-/// not give up on it.
-#[tokio::test]
-async fn the_call_thinks_while_a_reply_is_rewritten() {
+async fn legacy_says_its_first_sentence_before_the_reply_finishes() {
     let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
-    *lock(&fake.rewrite) = Ok("It's fixed. Details are in the chat.".into());
-    *lock(&fake.rewrite_delay) = REWRITE_WAIT * 2 / 3;
-    assert!(REWRITE_WAIT * 2 / 3 > THINKING_AGAIN);
-    assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
-    let thinking = |e: &VoiceEvent| {
-        matches!(
-            e,
-            VoiceEvent::State {
-                state: VoiceState::Thinking,
-                ..
-            }
-        )
-    };
-    event(&mut rx, thinking).await;
-    event(&mut rx, thinking).await;
+    calls.reply_delta(&persona, "reply-1", "Inspecting the flaky test. ", &origin);
+    event(&mut rx, |event| matches!(event, VoiceEvent::Said { text, .. } if text == "Inspecting the flaky test.")).await;
+    assert_eq!(*lock(&fake.spoken), ["Inspecting the flaky test."]);
+    calls.reply_delta(&persona, "reply-1", "The race is fixed. ", &origin);
+    assert!(calls.delivery(
+        &persona,
+        "reply-1",
+        "Mack",
+        "Inspecting the flaky test. The race is fixed.",
+        true,
+        Some(&origin)
+    ));
     let (said, _) = one_reply(&mut rx).await;
     assert_eq!(
         said.last().unwrap().1,
-        "It's fixed. Details are in the chat."
+        "Inspecting the flaky test. The race is fixed."
     );
+    assert!(lock(&fake.rewrites).is_empty());
     calls.end(&id).unwrap();
 }
 
-/// When the call assistant cannot rewrite a reply written to be read (it
-/// fails, its budget refuses it, it takes too long, or the desk has none),
-/// the call says the reply's opening, up to its first code block, as it
-/// always did; the reply is counted as untagged, nothing is kept as said for
-/// it, and the call goes on.
 #[tokio::test]
-async fn a_reply_that_cannot_be_rewritten_is_said_up_to_its_first_code_block() {
-    for case in ["failed", "budget", "slow", "no assistant"] {
-        let (_root, desk, calls, id, persona, mut rx, fake) =
-            direct_call_with(case != "no assistant").await;
-        let origin = on_turn(&calls, &id, 1);
-        *lock(&fake.rewrite) = match case {
-            "failed" => Err("The provider is down.".into()),
-            "budget" => Err(BUDGET_ERROR.into()),
-            _ => Ok("Too late to say.".into()),
-        };
-        if case == "slow" {
-            *lock(&fake.rewrite_delay) = REWRITE_WAIT * 3;
-        }
-        write_reply(&desk, &persona, "reply-1", UNTAGGED);
-        assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
-        let (said, _) = one_reply(&mut rx).await;
-        assert_eq!(
-            said.last().unwrap().1,
-            "Here's the fix for the flaky test:",
-            "{case}"
-        );
-        assert_eq!(
-            *lock(&fake.spoken),
-            ["Here's the fix for the flaky test:"],
-            "{case}"
-        );
-        assert_eq!(
-            lock(&fake.rewrites).len(),
-            usize::from(case != "no assistant"),
-            "{case}"
-        );
-        let counts = calls.status().replies.unwrap();
-        assert_eq!((counts[0].untagged, counts[0].rewritten), (1, 0), "{case}");
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(kept_spoken(&desk, &persona, "reply-1"), None, "{case}");
-        // A refused budget ends nothing: the call takes the next words.
-        event(&mut rx, |e| {
-            matches!(
-                e,
-                VoiceEvent::State {
-                    state: VoiceState::Listening,
-                    ..
-                }
-            )
-        })
-        .await;
-        utterance(&calls, &id, 2).unwrap();
-        calls.end(&id).unwrap();
-    }
+async fn legacy_never_speaks_a_code_block_or_rewrites_its_own_opening() {
+    let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    write_reply(&desk, &persona, "reply-1", UNTAGGED);
+    assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
+    let (said, _) = one_reply(&mut rx).await;
+    assert_eq!(said.last().unwrap().1, "Here's the fix for the flaky test:");
+    assert!(lock(&fake.rewrites).is_empty());
+    assert_eq!(kept_spoken(&desk, &persona, "reply-1"), None);
+    calls.end(&id).unwrap();
 }
 
 /// Speaking over a teammate stops what it is saying and gives the person the
@@ -675,5 +544,50 @@ async fn a_direct_call_pays_for_no_call_assistant() {
         .start_target(&id, Some(persona), false, desk.clone())
         .unwrap();
     assert!(calls.test_ready_for(&id).is_ok());
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_legacy_turn_without_opening_speech_gets_one_sound_on_the_clip_wire() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.first_clip_started =
+                Some(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+            Ok(())
+        })
+        .unwrap();
+    let cue = event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
+    )
+    .await;
+    if let VoiceEvent::Clip {
+        mime_type,
+        data,
+        r#final,
+        ..
+    } = cue
+    {
+        assert_eq!(mime_type, "audio/wav");
+        assert!(r#final);
+        assert!(STANDARD.decode(data).unwrap().starts_with(b"RIFF"));
+    }
+    tokio::time::advance(Duration::from_secs(10)).await;
+    tokio::task::yield_now().await;
+    while let Ok(event) = rx.try_recv() {
+        assert!(
+            !matches!(event, VoiceEvent::Clip { .. } | VoiceEvent::Said { .. }),
+            "no repeated sound or filler: {event:?}"
+        );
+    }
+    calls.reply_delta(&persona, "reply-1", "<spoken>The tests pass. ", &origin);
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "The tests pass."),
+    )
+    .await;
     calls.end(&id).unwrap();
 }

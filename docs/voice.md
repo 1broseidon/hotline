@@ -93,11 +93,10 @@ is hung up with a message to update it. A recognition session runs only
 while the call listens: the desk speaking or thinking with the floor, hold
 and hang-up cancel it, so the engine never hears the desk. A `thinking` that
 says `listening` is listened through: the call's phase is `listening` while
-the teammate works, the blip-blip goes on, and its levels are not given to
-the detector until each blip-blip and its tail have played (the webview's
-microphone skips those blocks the same way). Speech that plays mid-turn shuts
-the microphone or ends the session as any speech does, and it opens again
-once the speech is done. What the desk begins to say while the person is
+the teammate works. Legacy receives one soft waiting clip from the core if
+its own speech has not begun after 1.8 seconds; there is no local repeating
+chime. Recognition stays open through playback for interruption, with voice
+processing and echo cancellation enabled. What the desk begins to say while the person is
 talking does not play over them: it waits until their turn ends, and goes if
 they said something (the desk stops it on taking their words) or plays if it
 was only noise. Clips that arrive after the person's words are sent and before
@@ -579,13 +578,10 @@ The reply is read twice from one stream:
   each sentence said as soon as it is whole, cleaned for speech as below, and
   nothing after it. It holds back the end of a chunk that could be the start
   of a tag, so no part of a tag is ever said, and it never reads out a fenced
-  code block or a table. Text before a spoken version is not said as it
-  streams, because a reply that never writes one is said differently once it
-  is whole ([A reply written only to be
-  read](#a-reply-written-only-to-be-read)), and its opening must not be heard
-  first. When a spoken
-  version begins, the text before it is said first, read as a reply with no
-  tags is, as the line an agent wrote before its tags.
+  code block or a table. Legacy streams its own untagged prose opening too,
+  without waiting for the whole reply or a rewrite. Live work can hold its
+  untagged reply for a spoken rewrite before giving it to the live model.
+
 - **Shown.** The chat shows the written version alone, as a normal desk
   answer: as it streams (`spoken::Shown`, which holds back a partial tag the
   same way and drops the spoken version), and as it is written to the tape
@@ -628,15 +624,13 @@ version of its own, opening with a continuation ("Also", "Additionally",
 for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
 diagnostic: nothing shown or said changes.
 
-On an agent turn, what the agent writes before its first tool call is said as
-the acknowledgement: its spoken version as it streams, or, without one, the
-line as written once it is whole, which is when the tool starts. Its words
-between tools are narration (`session/narration.rs`) and are not said; the
-call stays `thinking`, and the client's blip-blip covers the work. The message
-that lands as the report is said when it lands: its spoken version, or, when
-it wrote none, as below. Each message said is one reply:
-one `said` id, the line growing sentence by sentence, its clips under that id
-closed by an empty final clip, and one line on the call's thread.
+On a Legacy turn, the teammate's own first sentence is said as it streams,
+including prose before a tool. The prompt asks for that sentence before tools,
+with no stock filler. If no speech has begun after 1.8 seconds, the core sends
+one soft sound on the normal clip wire, on desk and phone. The reply stays
+interruptible, and the written answer stays intact. Each message said is one
+reply id, growing sentence by sentence, with clips under that id.
+
 
 The call is `thinking` from an utterance until the teammate's session has
 finished that turn, or left it open only for subagents (`Calls::turn_ended`),
@@ -674,8 +668,7 @@ words as written. The two pairs of tags are the only markup the agent is asked
 for.
 
 The latency of a call to a teammate is the teammate's: its first word waits on
-its model's first sentence, and for a reply written only to be read, on the
-whole reply and its rewrite. That is accepted. A desk call keeps its router:
+its model's first sentence. Legacy streams that sentence without a rewrite. A desk call keeps its router:
 the call assistant answers what was said on the desk, hands work to teammates
 with `session.prompt`, and narrates their replies, as below.
 
@@ -705,37 +698,15 @@ voice. Desk calls always use the desk's voice.
 
 ### A reply written only to be read
 
-A reply that writes no `<spoken>` version (`spoken::Ending::Untagged`) is
-said once it is whole, from its written version (`Calls::unspoken`):
+Legacy streams an untagged prose opening, up to three sentences and before
+code or tables, without asking another model to rewrite it. Tagged spoken
+versions stream in full, including an explicitly requested longer overview.
 
-- **One short line** is said as it was written (`spoken::said_as_written`):
-  one line of prose, under 40 words and at most three sentences, with no code
-  or table. That is the one short line the contract asks for before a tool,
-  which arrives as a message of its own when the tool starts, and a reply that
-  short has nothing to say again.
-- **Anything longer** the call assistant says again to be heard
-  (`Calls::rewrite`, `Dispatcher::rewrite`): it is handed the written version,
-  its first 8,000 characters with a note that the rest is in the chat, and
-  the person's last words, as escaped untrusted data, and asked to say it as
-  on a phone call, leading with the answer in one to three sentences under 40
-  words of plain speech, mentioning that details are in the chat, and adding
-  nothing. What it writes is said as the reply's line, kept on the call's
-  thread, and kept as the reply's `spoken`, so the window's transcript line
-  and the model's rebuilt history have it: the session has written the reply
-  by then, and the call supersedes that event with the field added
-  (`Room::voice_spoken`), waiting up to two seconds for it to land. While it
-  writes, the call is `thinking`: the person hears the blip-blip, and the
-  15-second heartbeat keeps a phone waiting.
-- **When there is no rewrite** (the desk has no call assistant, the Chat
-  budget refuses it, the request fails, or it takes longer than six seconds)
-  the call says the reply's opening, as it always did: up to its first code
-  block or table, and at most three sentences. Each such case writes one
-  `[voice]` line to the log; none of them ends the call, not even a refused
-  budget.
-
-The rewrite is the call assistant's work and is metered as it is (see
-[The ledger](#the-ledger)): reserved and settled on the Chat budget's call
-assistant line, and never refused on a model that costs nothing.
+Live work can still use `Calls::unspoken` and `Dispatcher::rewrite` for an
+untagged written result before the live model speaks it: a short line is used
+as written, a longer result is rewritten within six seconds, and failure uses
+the bounded opening. This rewrite spends the Chat budget and never changes
+what was already heard. The live provider's actual speech is the transcript.
 
 ### How each reply was said
 

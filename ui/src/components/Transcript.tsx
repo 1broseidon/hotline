@@ -27,7 +27,7 @@ import {
 	withStreaming,
 } from "../transcriptFolds";
 import { useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
-import { Steps } from "./transcript/Steps";
+import { CallTools, Steps } from "./transcript/Steps";
 import { AgentSay, NamedSay, UserBubble, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
@@ -402,7 +402,9 @@ export function Transcript({
 								<ScheduledGroup name={block.name} runs={block.runs} />
 							) : block.kind === "calls" ? (
 								<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
-							) : block.kind === "steps" ? (
+							) : block.kind === "steps" ? (thread?.kind === "call" ? (
+								<CallTools items={block.items} />
+							) : (
 								<Steps
 									id={block.id}
 									items={block.items}
@@ -410,7 +412,7 @@ export function Transcript({
 									shown={workShown}
 									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 								/>
-							) : (
+							)) : (
 								<Row
 									personaId={personaId}
 									thread={rowThread}
@@ -542,6 +544,10 @@ const Row = memo(function Row({
 	const worn = reactions === undefined ? own : [...(own ?? []), ...reactions];
 	switch (event.kind) {
 		case "user":
+			if (thread.kind === "call") return <>
+                <p className="said-name text-right">You</p>
+                <UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
+            </>;
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
 			) : speakers !== undefined ? (
@@ -551,6 +557,20 @@ const Row = memo(function Row({
 			);
 
 		case "agent":
+            if (thread.kind === "call") {
+                const { spoken, ...written } = event;
+                const heard = spoken?.trim() ? spoken : event.text;
+                return <>
+                    <p className="said-name">{ownerName}</p>
+                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} run={run} reactions={worn}
+                        {...(onReply !== undefined ? { onReply } : {})} {...(onReact !== undefined ? { onReact } : {})}
+                        {...(onOpenThread !== undefined ? { onOpenThread } : {})} />
+                    {heard !== event.text && <details className="my-2 text-sm text-ink-3">
+                        <summary>Written reply</summary>
+                        <NamedSay name={ownerName} mine={false} text={event.text} />
+                    </details>}
+                </>;
+            }
 			return speakers !== undefined ? (
 				<NamedSay
 					name={speakers.mine === "agent" ? speakers.me : speakers.them}

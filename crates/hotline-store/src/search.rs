@@ -154,6 +154,14 @@ fn message_hit(row: &Row, scope: &Scope) -> rusqlite::Result<Value> {
     hit.insert("eventId".into(), json!(row.get::<_, String>("event_id")?));
     insert_if_present(&mut hit, "chapterId", row.get("chapter_id")?);
     insert_if_present(&mut hit, "thread", row.get("thread")?);
+    if let Some(thread) = hit.get("thread").and_then(Value::as_str)
+        && thread.starts_with("call:")
+    {
+        let note = format!(
+            "This call's thread IS its transcript. Read it in full with read_thread(thread: {thread})."
+        );
+        hit.insert("transcript".into(), json!(note));
+    }
     hit.insert("ts".into(), json!(row.get::<_, i64>("ts")?));
     let from = if row.get::<_, String>("kind")? == "user" {
         "me"

@@ -186,3 +186,17 @@ function EditLines({ text }: { text: string }) {
 		</>
 	);
 }
+
+/** The call is read as a transcript: every tool has its own visible line. */
+export function CallTools({ items }: { items: Step[] }) {
+    return <div className="my-2 steps">{items.map((item) => {
+        if (item.kind !== "tool") return null;
+        const detail = (item.output ?? []).map(outputText).find((text) => text.trim() !== "");
+        const summary = (detail ?? stepTitle(item.title)).replace(/\s+/g, " ").trim().slice(0, 180);
+        return <div key={item.id} data-step-id={item.id} className="my-2 text-sm text-ink-3">
+            <p><strong>{stepTitle(item.title)}</strong>{item.toolKind && item.toolKind !== item.title ? ` (${item.toolKind})` : ""} · {item.status.replace(/_/g, " ")}</p>
+            <p className="truncate">{summary}</p>
+            {detail && <details><summary>Tool details</summary><StepOutput output={item.output ?? []} /></details>}
+        </div>;
+    })}</div>;
+}

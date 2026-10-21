@@ -161,7 +161,7 @@ async fn a_calls_post_rides_on_the_home_sessions_next_line_once() {
         .unwrap();
     let first = heard(&prompts, 1).await;
     assert!(
-        first[0].contains("From your call (thread call:c1): the scheduler fix is in")
+        first[0].contains("From your call; this thread IS its transcript — read_thread reads it in full (thread call:c1): the scheduler fix is in")
             && first[0].contains("and the release?"),
         "{}",
         first[0]

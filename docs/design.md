@@ -437,6 +437,18 @@ server the teammate's policy grants, connected by Hotline as the client. A
 child driver is handed the same list, Hotline's server included, in the form
 ACP takes. One tool surface, one policy, one ledger.
 
+`read_thread(thread, after?, limit?)` reads a teammate's own thread from its
+beginning, in folded log order, with full events and an event-id cursor for
+following pages (50 events by default, at most 100). A call's thread **is its
+transcript**, including the spoken and written versions of replies and each
+tool call in its own position. Search hits and posts name the same key and
+say this explicitly, so the home agent can read what “like we said on the
+call” refers to. Both drivers use the same lease-checked handler; ownership
+comes from the thread's parent, or membership for a pair. The window shows
+a call's speakers and tools inline, with the written version available when
+it differs from what was spoken, and keeps the composer for continuing it.
+No tape events or segment layouts change.
+
 The global MCP configuration is the operator's gateway. New teammates get
 no gateway servers; the operator grants selected servers or all servers on
 each teammate. All includes servers added later. A saved choice is preserved,

@@ -156,6 +156,16 @@ fn hotline_server(servers: &[McpServer]) -> Option<Desk> {
 
 /// The calls a prompt asks for, in order.
 fn calls(said: &str) -> Vec<(String, Value)> {
+    if said.contains("Like we said on the call") {
+        let Some((_, tail)) = said.rsplit_once("(thread call:") else {
+            return Vec::new();
+        };
+        let key = tail.split(')').next().unwrap_or_default();
+        return vec![(
+            "read_thread".into(),
+            serde_json::json!({"thread":format!("call:{key}")}),
+        )];
+    }
     said.lines()
         .filter_map(|line| {
             let rest = &line[line.find("CALL ")? + "CALL ".len()..];

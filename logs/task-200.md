@@ -1,8 +1,6 @@
 ---
 id: task-200
 title: "Flaky: a process left running is sometimes never listed on the session (processes.rs, Linux isolation runner)"
-column: review
-position: 1
 priority: medium
 tags:
   - flaky
@@ -25,8 +23,9 @@ dispatch:
     pid: 94104
     at: "2026-10-21T09:10:55.827Z"
 assignee: codex
-updatedAt: "2026-10-21T09:27:51.355Z"
+updatedAt: "2026-10-21T20:00:37.286Z"
 landsOn: release/0.42.0
+completedAt: "2026-10-21T20:00:37.286Z"
 ---
 
 ## Description

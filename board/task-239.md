@@ -48,3 +48,12 @@ Done when:
 - 2026-10-21T07:34:59.417Z: [codex-task-239] Resolved the requested release/0.42.0 merge on dispatch/task-239 in 19662d10; worktree clean. Kept task-207's automatic written-result security record and task-239's core-only voice-card boundary intact. make check and all 8 make precheck legs passed, as did commit hooks. Ready for reviewer to merge. Nothing newly left unwired: older/mobile clients still need voice.input_state and card.resolved adoption; task-206 owns physical microphone/playback verification; opaque driver approvals remain desk-only pending trusted metadata.
 - 2026-10-21T07:35:10.810Z: Landed on release/0.42.0
 - 2026-10-21T14:39:33.468Z: [claude] Reopened into To do: George desk QA 2026-10-21 09:31: a card raised on a call lands in the call's thread, not the home chat where the operator sees it. Rework.
+- 2026-10-21T14:39:33.967Z: [claude] 2026-10-21 Pork Chop, rework brief from George's desk QA (call 4be175cf, 09:29, from his phone): he asked on a call for a yes/no card; the clone's ask_question wrote the human_action card into the CALL thread. George, 09:31: it should be sent to the home thread where the operator would actually see it. The voice also told him 'I put a yes-or-no card in the chat', which was false.
+
+Done when (in addition to the original lines):
+- A card raised from a call's thread (by the clone or the teammate, any kind: question, action, permission, passkey) appears in the teammate's home chat, stamped 'From the call' with the call's title and a link to the call, and notifies like any card when the call is down.
+- Answering it from the home chat settles it; answering by voice on the call settles the same card; either way it shows settled in both places, and the 'Answered on the call: …' record sits in the home chat beside it.
+- The call's thread still shows that a card was raised (a line linking the home-chat card), so the transcript stays whole.
+- The card handler's voice permissions (decision-15, docs/security.md) are unchanged: what may be answered by voice is still the core's decision.
+- Tests: a call-thread ask_question lands in the home tape with from=call; home-chat thread.answer settles it and the voice queue drops it; a voice answer settles the home-chat card.
+Merge release/0.42.0 first (now 3d590335), make check in the foreground, commit before done.

@@ -1,0 +1,18 @@
+---
+id: task-248
+title: Faster linkers on Windows and Linux
+column: backlog
+position: 48
+priority: high
+tags:
+  - ci
+  - build
+parentId: epic-23
+createdAt: "2026-10-21T02:18:27.672Z"
+---
+
+## Description
+Done when:
+- Windows MSVC targets link with rust-lld (lld-link) through .cargo/config.toml, keeping +crt-static. Linux links with mold or lld in CI and in the documented local setup. macOS keeps Apple's linker.
+- CI passes on all three OS, and a release build of each target still produces a working binary (the release-cache jobs on a main-like run, and a desktop-release dry run on the branch).
+- The PR records before/after link-heavy timings: CI's Windows and Linux test steps, and cargo test --no-run locally on Linux (the QA computer).

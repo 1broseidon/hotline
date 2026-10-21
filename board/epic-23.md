@@ -30,3 +30,4 @@ Order: the single test binary (biggest) and release-cache on main only go first,
 
 ## Log
 - 2026-10-21T05:05:22.715Z: [claude] Parked 2026-10-21 by George after #194 (Windows CI 29 -> 22 min) and #196 (runner minutes 141 -> 70). Linker dropped; nextest, the gate and the docs parked.
+- 2026-10-21T20:00:25.161Z: [claude] 2026-10-21 Pork Chop board cleanup: parked by George 2026-10-20 ('enough of this, let's keep building core features'). Shipped: task-246 (#194) and task-247 (#196). task-248 (linkers) is marked done but was dropped: the warm gain was within noise. task-249/250/251 parked; task-249's nextest branch is kept.

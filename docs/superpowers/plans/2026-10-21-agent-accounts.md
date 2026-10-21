@@ -1965,3 +1965,4 @@ Desvios em relação à spec e ao plano, registrados pelo coordenador durante a 
 11. **Testes vão para `<módulo>/tests.rs` quando passam do tamanho do código** (docs/standards.md), e a matriz de segurança cita o arquivo real.
 12. **`test_githooks` não roda neste Windows** (privilégio de symlink, WinError 1314; exec de hook `#!/bin/sh`, WinError 193); é informado, não desabilitado.
 13. **A validação real usa `bun run --cwd ui dev` + `cargo run -p hotline-app`**, sem instalar o `tauri-cli`.
+14. **A linha de suporte `CLAUDE` é um `static`, não `const`** (CONTRACT_SHEET), para que `&CLAUDE` tenha um só endereço e a comparação por `ptr::eq` valha.

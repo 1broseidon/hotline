@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/store/previews.rs
 parentId: epic-5
 createdAt: "2026-10-12T04:20:47.697Z"
-updatedAt: "2026-10-21T09:11:15.546Z"
+updatedAt: "2026-10-21T09:23:25.022Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -27,6 +27,8 @@ dispatch:
     pid: 94104
     at: "2026-10-21T09:10:53.487Z"
 assignee: codex
+decisions:
+  - decision-20
 ---
 
 ## Description

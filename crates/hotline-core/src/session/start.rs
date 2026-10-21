@@ -84,6 +84,9 @@ impl Room {
         capability.check()?;
         let persona = self.persona(persona_id)?;
         capability.check()?;
+        // Read before the child starts: a sign-in that lands while it starts
+        // is not the one its credentials were read from.
+        let accounts = room::agent_accounts(&self.log);
         let mut agent = self
             .thread_agent(agent::Opening {
                 thread: ThreadId::dm(&persona.id),
@@ -99,7 +102,7 @@ impl Room {
         // that is held keeps the session on the account it started with.
         let account_id = crate::accounts::account_of(&persona).map(str::to_string);
         let account_login_at = account_id.as_deref().and_then(|id| {
-            room::agent_accounts(&self.log)
+            accounts
                 .into_iter()
                 .find(|account| account.id == id)
                 .and_then(|account| account.login_at)

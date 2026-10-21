@@ -89,6 +89,23 @@ async fn a_checkpoint_is_kept_only_while_the_record_names_the_sessions_account_a
 }
 
 #[tokio::test]
+async fn a_sign_in_that_lands_while_the_session_starts_is_not_the_sessions() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let log = scratch("account-sign-in-in-flight");
+    accounts(&log, 1);
+    enrol(&log, &on_account(&log, A));
+    let signed_in_again = log.clone();
+    agents.when_building(move || accounts(&signed_in_again, 2));
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+    room.start("ada").await.unwrap();
+    let session = lock(&room.sessions).get("ada").cloned().unwrap();
+    assert_eq!(
+        (session.account_id.as_deref(), session.account_login_at),
+        (Some(A), Some(1))
+    );
+}
+
+#[tokio::test]
 async fn a_resume_onto_another_account_opens_fresh() {
     let agents = Fake::new(Scripted::new(Vec::new()));
     let log = scratch("account-resume");

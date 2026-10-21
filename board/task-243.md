@@ -1,7 +1,7 @@
 ---
 id: task-243
 title: A parked call's row in the chat says it is parked, not "in progress"
-column: in-progress
+column: review
 position: 0
 priority: medium
 tags:
@@ -22,7 +22,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T05:05:39.270Z"
 assignee: codex
-updatedAt: "2026-10-21T05:05:56.709Z"
+updatedAt: "2026-10-21T05:16:11.667Z"
 ---
 
 ## Description

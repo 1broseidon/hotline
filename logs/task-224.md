@@ -1,8 +1,6 @@
 ---
 id: task-224
 title: "Proving call after S5: Pork Chop on the QA computer, then George on desk and phone, before S6"
-column: backlog
-position: 37
 priority: high
 tags:
   - voice
@@ -13,7 +11,8 @@ createdAt: "2026-10-19T20:00:07.420Z"
 dependsOn:
   - task-223
   - task-242
-updatedAt: "2026-10-20T23:06:03.441Z"
+updatedAt: "2026-10-21T05:05:24.903Z"
+completedAt: "2026-10-21T05:05:24.903Z"
 ---
 
 ## Description

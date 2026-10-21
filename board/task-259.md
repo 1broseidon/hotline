@@ -41,3 +41,4 @@ Lands on release/0.42.0. Merge release/0.42.0, make check in the foreground, com
 
 ## Log
 - 2026-10-21T14:15:50.932Z: [codex] Implemented per-teammate two-minute closing batches, source-thread links, delivered-result suppression, and summary evidence/fallback. Wire tests cover 60-second and 3-minute spacing plus a posted result and late reply on both drivers. release/0.42.0 is already an ancestor (0 missing commits); no conflict-settlement merge is needed or permitted by dispatch instructions. Running make check in the foreground, then precheck.
+- 2026-10-21T14:24:27.944Z: [codex] make check passes in full. Updated the old idle-call test to advance the paused clock instead of waiting in real time for parking; all 32 call-thread tests and the adversarial cut-off-summary case pass. Running make precheck before committing and handing off.

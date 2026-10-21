@@ -45,3 +45,6 @@ Done when:
 - A regression check in the scripted-front tests runs a fixed set of requests on each live model and fails on relay phrasing or on an acknowledgement repeated within a call.
 
 Caveat for the notes: a speech-to-speech model's audio can't be filtered before it is heard, so the prompt, the tool's framing and this check are the enforcement.
+
+## Log
+- 2026-10-21T06:27:47.349Z: [codex] Wired identity from persona.goal, expanded scrubbed context, turn-kind prompt, bounded mid-call session.update for running work / already-said speech / confirmed posts, and removed canned live progress filler. Legacy now streams its own prose with one core-supplied soft waiting clip. Adding real-core refresh/playback checks and an opt-in fixed spoken deck for all three live models; no capability grants or standing decisions changed.

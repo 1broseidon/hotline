@@ -6,6 +6,13 @@ import type { AccountStatusState, AccountStatusView } from "../../generated/cont
  * the agent's own name comes from the registry and is passed in.
  */
 
+/**
+ * The id a choice of account gives System default: the agent's own sign-in
+ * on this computer, which is no account at all, so a teammate on it has no
+ * account id and `persona.account` is sent `null` for it.
+ */
+export const SYSTEM_DEFAULT = "";
+
 const STATUS_WORDS: Record<AccountStatusState, string> = {
 	not_checked: "Not checked",
 	checking: "Checking…",

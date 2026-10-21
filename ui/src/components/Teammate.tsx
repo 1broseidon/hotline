@@ -14,6 +14,7 @@ import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
 import { Schedules } from "./Schedules";
 import type { ThreadRef } from "./Transcript";
+import { AccountRow } from "./teammate/AccountRow";
 import { ComputerRows } from "./teammate/ComputerRows";
 import { McpRows, SkillRows } from "./teammate/GrantRows";
 import { BACKGROUND_ABOUT, FoldRow, InfoKey, MACHINE_ABOUT, NESTED, RowText, SwitchRow } from "./teammate/rows";
@@ -50,6 +51,7 @@ export function Teammate({
 	onClose,
 	onDeleted,
 	onOpenThread,
+	onAccountSetup,
 }: {
 	persona: Persona;
 	session: SessionInfo;
@@ -59,6 +61,8 @@ export function Teammate({
 	onClose(): void;
 	onDeleted(): void;
 	onOpenThread(thread: ThreadRef): void;
+	/** Opens an agent account's setup, from the account section's link. */
+	onAccountSetup?: ((accountId: string) => void) | undefined;
 }) {
 	const servers = useRoomSettings().mcpServers;
 	const [name, setName] = useState(persona.name);
@@ -264,6 +268,9 @@ export function Teammate({
 							</button>
 						</div>
 					</div>
+
+					{/* Which sign-in of its agent it runs on, for an agent with accounts. */}
+					{!hotline && <AccountRow persona={persona} session={session} disabled={busy} onSetup={onAccountSetup} />}
 
 					<section>
 						<h3 className="label">Folders</h3>

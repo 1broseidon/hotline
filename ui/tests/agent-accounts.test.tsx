@@ -424,6 +424,16 @@ describe("Settings › Agent accounts", () => {
 		expect(Object.keys(calls.at(-1)![1])).toEqual(["accountId"]);
 	});
 
+	test("opening lands on the account's page with its agent behind Back", async () => {
+		await act(async () => {
+			root!.render(<AgentAccountsSection roster={roster} opening="a1" />);
+		});
+		await settle();
+		expect(band()).toBe("Account 1");
+		await click("Back to the team");
+		expect(band()).toBe("Claude Code");
+	});
+
 	test("the next blank name skips a taken one", () => {
 		expect(nextAccountName(["Account 1", "account 3"])).toBe("Account 4");
 		expect(nextAccountName([])).toBe("Account 1");

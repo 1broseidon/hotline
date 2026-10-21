@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AccountFailure } from "./accounts/AccountFailure";
 import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
@@ -6,13 +7,27 @@ import { Refusal, refused, type Refused } from "../ui/Refusal";
 /**
  * The failures a second try can get past: the network, the provider having
  * a bad moment or turning a working sign-in away, a limit that has since
- * lifted, a harness that fell over.
+ * lifted, a harness that fell over, an agent's usage limit (on this account
+ * or, once switched, on another).
  * A refused key, a spent quota or a request the model will not take fails
  * the same way again, so it is not offered.
  */
-const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "unknown"]);
+const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "usage_limit", "unknown"]);
 
-export function errorDetails(text: string): { title: string; summary: string; details: string; context?: string; signIn?: AgentSignInAction; kind?: string } {
+/** What a failure notice says: the core's words, and the facts a card acts on. */
+export type FailureDetails = {
+    title: string;
+    summary: string;
+    details: string;
+    context?: string;
+    signIn?: AgentSignInAction;
+    kind?: string;
+    /** The agent account the failure happened on, when it was on one. */
+    accountId?: string;
+    code?: string;
+};
+
+export function errorDetails(text: string): FailureDetails {
     const start = text.indexOf('{"hotlineFailure":');
     if (start !== -1) {
         try {
@@ -31,6 +46,8 @@ export function errorDetails(text: string): { title: string; summary: string; de
                     context,
                     ...(signIn ? { signIn } : {}),
                     ...(typeof failure.kind === "string" ? { kind: failure.kind } : {}),
+                    ...(typeof failure.accountId === "string" ? { accountId: failure.accountId } : {}),
+                    ...(typeof failure.code === "string" ? { code: failure.code } : {}),
                 };
             }
         } catch { /* Older notices are plain text. */ }
@@ -53,15 +70,34 @@ function signInAction(failure: { kind?: unknown; signIn?: unknown }): AgentSignI
     return { harnessName: action.harnessName, methods };
 }
 
+/**
+ * Whether a failure is about the teammate's agent account, so its card
+ * offers the account's way out: a usage limit, an account the desk cannot
+ * use, or a sign-in missing on an account (the harness's own sign-in
+ * methods would sign in the System default instead, spec §9.3).
+ */
+function aboutAccount(error: FailureDetails): boolean {
+    return error.kind === "usage_limit" || error.kind === "account_unavailable" || (error.kind === "agent_auth" && error.accountId !== undefined);
+}
+
 export function ErrorCard({
     text,
     personaId,
+    teammate,
+    backendId,
+    onChooseAccount,
     onRetry,
     onRunAgain,
     onProviders,
 }: {
     text: string;
     personaId?: string;
+    /** The teammate's name, for a card that speaks of it. */
+    teammate?: string;
+    /** The teammate's agent: with it, a failure on an account offers the account's way out. */
+    backendId?: string;
+    /** Opens the teammate's pane, where its account is chosen. */
+    onChooseAccount?(): void;
     onRetry?: () => void;
     /** Runs the failed turn again; offered only on the latest one. */
     onRunAgain?: () => Promise<unknown>;
@@ -71,13 +107,27 @@ export function ErrorCard({
     const error = errorDetails(text);
     const [again, setAgain] = useState<"idle" | "trying" | Refused>("idle");
     const offerAgain = onRunAgain !== undefined && error.kind !== undefined && WORTH_ANOTHER_TRY.has(error.kind);
+    const account = personaId !== undefined && backendId !== undefined && aboutAccount(error);
     return (
         <section className="my-2 min-w-0 max-w-full rounded-lg border border-line bg-raised p-3" aria-label={error.title}>
-            <div className="flex items-center gap-2 text-danger">
-                <WarningIcon className="shrink-0" />
-                <span className="font-medium">{error.title}</span>
-            </div>
-            <p className="mt-1 text-sm text-ink-2">{error.summary}</p>
+            {account ? (
+                <AccountFailure
+                    error={error}
+                    personaId={personaId}
+                    teammate={teammate}
+                    backendId={backendId}
+                    onChooseAccount={onChooseAccount}
+                    onRetry={onRetry}
+                />
+            ) : (
+                <>
+                    <div className="flex items-center gap-2 text-danger">
+                        <WarningIcon className="shrink-0" />
+                        <span className="font-medium">{error.title}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-ink-2">{error.summary}</p>
+                </>
+            )}
             {error.kind === "no_provider" && onProviders && (
                 <div className="mt-2">
                     <button type="button" className="control btn btn-sm" onClick={onProviders}>
@@ -85,7 +135,7 @@ export function ErrorCard({
                     </button>
                 </div>
             )}
-            {error.signIn && personaId && <AgentSignIn personaId={personaId} action={error.signIn} {...(onRetry ? { onRetry } : {})} />}
+            {!account && error.signIn && personaId && <AgentSignIn personaId={personaId} action={error.signIn} {...(onRetry ? { onRetry } : {})} />}
             {offerAgain && (
                 <div className="mt-2 flex items-center gap-3">
                     <button

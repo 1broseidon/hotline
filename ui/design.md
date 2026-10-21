@@ -281,13 +281,23 @@ transition and animation, and holds the mark still.
   says the screen is the person's until Done, so the way to do the thing
   is the first thing on the card. The desktop opens in a window of its
   own, one per teammate; the band carries Screen while it runs.
+- Account cards: a failure about the teammate's agent account names the
+  account. A usage limit offers Continue on each other signed-in account
+  and System default before Try again; a missing sign-in offers Sign in
+  {account} and Choose account; an account the desk cannot use offers
+  Choose account (and Show folder for its folder). Nothing switches an
+  account on its own.
 - Machinery between messages is folded into instrument rows on a 2px rule.
 - The inspector is 320px, so it shows state and folds detail. Its band
   says only Teammate. It opens on who they are, the way a contact card
   does: the face, the name at the heading's size and the goal under it
   like a bio, each plain text until pointed at, when it shows the field
-  it is. The working directory is a row of its own, the folder's name
-  (Main workspace when it is the teammate's) and three quiet keys (the
+  it is. Under the profile card, a teammate on an agent with accounts
+  has an "{agent} account" list whose radio rows carry the status, "In
+  use" on the running one and Add account in place; a pending switch
+  (Keep / Stop and switch now) or a held one sits under the rows, and the
+  list's one note says Restored or Fresh. The working directory is a row
+  of its own, the folder's name (Main workspace when it is the teammate's) and three quiet keys (the
   full path, choose, reveal), never a path field. Every grant is one row
   in one of three lists, ordered authority, equipment, outcome:
   Permissions (reach, background work and collaboration, each with an
@@ -331,6 +341,9 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-10-21 The teammate pane's account list and the account cards; a
+  switch waits for the teammate's work and for the account's sign-in.
 
 - 2026-10-21 Settings › Agent accounts: a third Providers-shaped list,
   three levels deep; Open hands a setup item to the system through the

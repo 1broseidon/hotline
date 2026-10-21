@@ -178,6 +178,7 @@ function RailFooter({ section, onSection }: { section: SettingsSection; onSectio
 export function Settings({
 	section,
 	roster,
+	account,
 	onSection,
 	onBack,
 	onAddDesk,
@@ -185,6 +186,8 @@ export function Settings({
 	section: SettingsSection;
 	/** The desk's teammates, for who uses each agent account. */
 	roster: RosterEntry[];
+	/** An agent account to open on, from a teammate's pane. */
+	account?: string | undefined;
 	onSection?: (section: SettingsSection) => void;
 	onBack?: () => void;
 	onAddDesk?: () => void;
@@ -201,7 +204,10 @@ export function Settings({
 	// their bands are their own; Secrets keeps its own list, so it draws
 	// itself the same way.
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
-	if (section === "accounts") return <AgentAccountsSection roster={roster} onBack={onBack} />;
+	if (section === "accounts") {
+		// Keyed by the account it opens on, so asking for another starts there and not where the last one was left.
+		return <AgentAccountsSection key={account ?? ""} roster={roster} onBack={onBack} {...(account !== undefined ? { opening: account } : {})} />;
+	}
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
 	if (section === "secrets") return <SecretsSection onBack={onBack} />;

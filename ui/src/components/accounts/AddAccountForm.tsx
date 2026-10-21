@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { type KeyboardEvent, useId, useState } from "react";
 import type { AccountView, SetupFrom } from "../../generated/contract";
 import { Refusal } from "../../ui/Refusal";
 import { wire } from "../../wire";
@@ -13,13 +13,17 @@ import { nextAccountName, SETUP_CATEGORIES } from "./words";
  * handed up rather than sent.
  *
  * There is no <form> here: New teammate nests this in its own, and a form
- * may not hold another. Enter in the name adds, and every key is a button.
+ * may not hold another. Enter in the name or the email adds, and every key
+ * is a button. `compact` is the inline form of New teammate and the
+ * teammate's pane: two unlabelled fields and one line saying what it starts
+ * with, whose Change or customize opens the same choices as the full form.
  */
 export function AddAccountForm({
 	backendId,
 	agentName,
 	takesEmail,
 	taken,
+	compact = false,
 	onAdded,
 	onCancel,
 }: {
@@ -28,6 +32,7 @@ export function AddAccountForm({
 	takesEmail: boolean;
 	/** The names this agent's accounts already have. */
 	taken: string[];
+	compact?: boolean;
 	onAdded(account: AccountView, email: string | undefined): void;
 	onCancel(): void;
 }) {
@@ -37,6 +42,7 @@ export function AddAccountForm({
 	const [startWith, setStartWith] = useState<SetupFrom>("system_default");
 	const [customize, setCustomize] = useState(false);
 	const [ticked, setTicked] = useState<Set<string>>(() => new Set(SETUP_CATEGORIES.map((one) => one.id)));
+	const [choosing, setChoosing] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const placeholder = nextAccountName(taken);
@@ -72,6 +78,106 @@ export function AddAccountForm({
 			return next;
 		});
 
+	// Enter adds from either field, and goes no further: in New teammate it would submit the teammate.
+	const addOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+		if (event.key !== "Enter") return;
+		event.preventDefault();
+		void add();
+	};
+
+	const choice = (
+		<>
+			<span className="label" id={`${id}-start`}>
+				Start with
+			</span>
+			<div className="grouped" role="radiogroup" aria-labelledby={`${id}-start`}>
+				<label className="group-row group-row-choice">
+					<input type="radio" className="radio" name={`${id}-start`} checked={mine} disabled={busy} onChange={() => setStartWith("system_default")} />
+					<span className="group-row-text">
+						<span className="group-row-title">My {agentName} setup</span>
+						<span className="group-row-detail">A copy of your own {agentName} setup, without the sign-in, keys or history</span>
+					</span>
+				</label>
+				<label className="group-row group-row-choice">
+					<input type="radio" className="radio" name={`${id}-start`} checked={!mine} disabled={busy} onChange={() => setStartWith("empty")} />
+					<span className="group-row-text">
+						<span className="group-row-title">Empty</span>
+						<span className="group-row-detail">{agentName}'s defaults; add what this account needs afterwards</span>
+					</span>
+				</label>
+			</div>
+			{mine && (
+				<button type="button" className="control btn-quiet self-start" aria-expanded={customize} onClick={() => setCustomize((was) => !was)}>
+					{customize ? "Hide what is copied" : "Customize what is copied…"}
+				</button>
+			)}
+			{mine && customize && (
+				<div className="grouped">
+					{SETUP_CATEGORIES.map((category) => (
+						<label key={category.id} className="group-row group-row-choice">
+							<input type="checkbox" className="check" checked={ticked.has(category.id)} disabled={busy} onChange={() => flip(category.id)} />
+							<span className="group-row-text">
+								<span className="group-row-title">{category.choice}</span>
+							</span>
+						</label>
+					))}
+				</div>
+			)}
+		</>
+	);
+
+	const keys = (
+		<div className="flex justify-end gap-2">
+			<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
+				Cancel
+			</button>
+			<button type="button" className="control btn btn-primary" disabled={busy} onClick={() => void add()}>
+				{busy ? "Adding…" : "Add and sign in"}
+			</button>
+		</div>
+	);
+
+	if (compact) {
+		return (
+			<div className="group-row flex-col items-stretch gap-2">
+				<input
+					className="field"
+					aria-label="New account name"
+					placeholder={placeholder}
+					value={name}
+					disabled={busy}
+					onChange={(event) => setName(event.target.value)}
+					onKeyDown={addOnEnter}
+				/>
+				{takesEmail && (
+					<input
+						type="email"
+						className="field"
+						aria-label={`Email of the ${agentName} account (optional)`}
+						placeholder="Email (optional)"
+						autoComplete="off"
+						value={email}
+						disabled={busy}
+						onChange={(event) => setEmail(event.target.value)}
+						onKeyDown={addOnEnter}
+					/>
+				)}
+				{choosing ? (
+					choice
+				) : (
+					<p className="text-sm text-ink-3">
+						Starts with your {agentName} setup ·{" "}
+						<button type="button" className="text-accent-ink hover:underline" aria-expanded={false} onClick={() => setChoosing(true)}>
+							Change or customize
+						</button>
+					</p>
+				)}
+				{keys}
+				{refusal !== null && <Refusal message={refusal} />}
+			</div>
+		);
+	}
+
 	return (
 		<section>
 			<h3 className="group-title">What a new account starts with</h3>
@@ -90,12 +196,7 @@ export function AddAccountForm({
 						value={name}
 						disabled={busy}
 						onChange={(event) => setName(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								event.preventDefault();
-								void add();
-							}
-						}}
+						onKeyDown={addOnEnter}
 					/>
 				</div>
 				{takesEmail && (
@@ -112,56 +213,13 @@ export function AddAccountForm({
 							value={email}
 							disabled={busy}
 							onChange={(event) => setEmail(event.target.value)}
+							onKeyDown={addOnEnter}
 						/>
 						<p className="hint">Fills in the email on {agentName}'s sign-in page, so the right account is used. Hotline does not keep it.</p>
 					</div>
 				)}
-				<div className="group-row flex-col items-stretch gap-2">
-					<span className="label" id={`${id}-start`}>
-						Start with
-					</span>
-					<div className="grouped" role="radiogroup" aria-labelledby={`${id}-start`}>
-						<label className="group-row group-row-choice">
-							<input type="radio" className="radio" name={`${id}-start`} checked={mine} disabled={busy} onChange={() => setStartWith("system_default")} />
-							<span className="group-row-text">
-								<span className="group-row-title">My {agentName} setup</span>
-								<span className="group-row-detail">A copy of your own {agentName} setup, without the sign-in, keys or history</span>
-							</span>
-						</label>
-						<label className="group-row group-row-choice">
-							<input type="radio" className="radio" name={`${id}-start`} checked={!mine} disabled={busy} onChange={() => setStartWith("empty")} />
-							<span className="group-row-text">
-								<span className="group-row-title">Empty</span>
-								<span className="group-row-detail">{agentName}'s defaults; add what this account needs afterwards</span>
-							</span>
-						</label>
-					</div>
-					{mine && (
-						<button type="button" className="control btn-quiet self-start" aria-expanded={customize} onClick={() => setCustomize((was) => !was)}>
-							{customize ? "Hide what is copied" : "Customize what is copied…"}
-						</button>
-					)}
-					{mine && customize && (
-						<div className="grouped">
-							{SETUP_CATEGORIES.map((category) => (
-								<label key={category.id} className="group-row group-row-choice">
-									<input type="checkbox" className="check" checked={ticked.has(category.id)} disabled={busy} onChange={() => flip(category.id)} />
-									<span className="group-row-text">
-										<span className="group-row-title">{category.choice}</span>
-									</span>
-								</label>
-							))}
-						</div>
-					)}
-				</div>
-				<div className="group-row justify-end gap-2">
-					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
-						Cancel
-					</button>
-					<button type="button" className="control btn btn-primary" disabled={busy} onClick={() => void add()}>
-						{busy ? "Adding…" : "Add and sign in"}
-					</button>
-				</div>
+				<div className="group-row flex-col items-stretch gap-2">{choice}</div>
+				<div className="group-row justify-end">{keys}</div>
 			</div>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>

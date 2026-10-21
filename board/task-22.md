@@ -15,7 +15,7 @@ description: |-
   Split the independent former scope into task-49 (long-tape progressive rendering/scroll anchoring) and task-50 (per-desk list caches). CSS :has replacement and solid working-card backgrounds belong here if profiling shows them material.
 
   Migration source: BRO-241; former BRO-242 and BRO-244 scope is retained in the split tasks.
-updatedAt: "2026-10-21T10:23:16.279Z"
+updatedAt: "2026-10-21T10:27:29.838Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -29,6 +29,8 @@ dispatch:
     pid: 94104
     at: "2026-10-21T10:22:54.509Z"
 assignee: codex
+decisions:
+  - decision-21
 ---
 
 ## Log

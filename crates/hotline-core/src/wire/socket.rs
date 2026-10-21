@@ -38,6 +38,8 @@ pub(super) struct Outbox {
     /// companion's is, whatever the device's role. An owner's phone is an
     /// owner by authority and a phone by its link.
     pub(super) lean: Arc<std::sync::atomic::AtomicBool>,
+    /// The client retains omitted roster catalogs between rows.
+    pub(super) roster_options: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Clone)]
 pub(super) enum Outgoing {
@@ -57,6 +59,11 @@ impl IncomingOutput {
     }
 }
 impl Outbox {
+    pub(super) fn roster_options(&self) -> bool {
+        self.roster_options
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(super) fn threads2(&self) -> bool {
         self.threads2.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -186,6 +193,7 @@ where
         uploads: Arc::default(),
         threads2: Arc::default(),
         lean: Arc::default(),
+        roster_options: Arc::default(),
         sender,
         cancel: cancel.clone(),
         max: match seat {
@@ -634,6 +642,10 @@ async fn command(
                     threads::list(log, room, persona_id.as_deref(), seat == Seat::Phone)
                 }
                 (Command::ClientHello { capabilities }, _) => {
+                    sender.roster_options.store(
+                        capabilities.iter().any(|name| name == "rosterOptions"),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
                     sender.threads2.store(
                         capabilities.iter().any(|name| name == THREADS2),
                         std::sync::atomic::Ordering::Relaxed,
@@ -783,6 +795,7 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "threads",
     "runs",
     "threads2",
+    "rosterOptions",
     "lean",
     "thumbnails",
     "turnRetry",

@@ -396,6 +396,24 @@ impl Log {
         Ok(Some(epoch))
     }
 
+    /// A fold and the events strictly after it, with no write between them.
+    /// Derived views use this boundary both on opening and after lag.
+    pub fn snapshot(&self, stream: &StreamId) -> (Vec<Value>, broadcast::Receiver<Value>) {
+        self.snapshot_with(stream, |events| events)
+    }
+
+    /// Seed a derived view while writes are excluded. Some projections also
+    /// need raw append order, which an id fold deliberately does not retain.
+    pub fn snapshot_with<T>(
+        &self,
+        stream: &StreamId,
+        project: impl FnOnce(Vec<Value>) -> T,
+    ) -> (T, broadcast::Receiver<Value>) {
+        let _writer: std::sync::MutexGuard<'_, ()> =
+            self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        (project(self.load(stream)), self.subscribe(stream))
+    }
+
     /// Every event appended after this call, live.
     ///
     /// Nothing already on disk comes back this way — a subscriber that wants

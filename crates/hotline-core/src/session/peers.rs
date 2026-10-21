@@ -204,6 +204,7 @@ pub(super) struct CollaborationAuthorization {
 
 /// One live peer session: the target's agent, answering one caller.
 struct PeerSession {
+    roster: Mutex<Option<crate::store::previews::live::Live>>,
     driver: Arc<dyn Driver>,
     caller_capability: CapabilityLease,
     target_capability: CapabilityLease,

@@ -333,10 +333,26 @@ export type Connection = "connecting" | "open" | "closed" | "outdated";
 
 type Pending = { resolve(value: unknown): void; reject(error: Error): void };
 
+type RosterCatalogs = Pick<RosterEntry["session"], "models" | "slashCommands">;
+
 type Live = {
+	rosterCatalogs: Map<string, RosterCatalogs> | undefined;
 	target: Target;
 	handlers: Handlers<unknown, unknown>;
 };
+
+/** Only catalogs are patches; every other field still replaces the old row. */
+function restoreRosterCatalogs(sub: Live, item: unknown): unknown {
+	if (!sub.rosterCatalogs) return item;
+	const row = item as RosterEntry;
+	const previous = sub.rosterCatalogs.get(row.persona.id);
+	const catalogs = {
+		models: row.session.models ?? previous?.models ?? [],
+		slashCommands: row.session.slashCommands ?? previous?.slashCommands ?? [],
+	};
+	sub.rosterCatalogs.set(row.persona.id, catalogs);
+	return { ...row, session: { ...row.session, ...catalogs } };
+}
 
 /** What this window reads beyond what every desk sends: see `client.hello` in docs/wire.md. */
 const THREADS2 = "threads2";
@@ -401,7 +417,7 @@ export class Wire {
 				this.outdated = true;
 				socket.close();
 			};
-			this.command("client.hello", { capabilities: [THREADS2] }).then(
+			this.command("client.hello", { capabilities: [THREADS2, "rosterOptions"] }).then(
 				(hello) => (hello?.capabilities?.includes(THREADS2) ? ready() : refused()),
 				refused,
 			);
@@ -452,7 +468,10 @@ export class Wire {
 		handlers: Handlers<Item, Ephemeral>,
 	): () => void {
 		const id = this.nextId++;
-		this.live.set(id, { target, handlers: handlers as Handlers<unknown, unknown> });
+		this.live.set(id, {
+			target, handlers: handlers as Handlers<unknown, unknown>,
+			rosterCatalogs: typeof target === "object" && "view" in target && target.view === "roster" ? new Map() : undefined,
+		});
 		this.send({ id, sub: target });
 		return () => {
 			if (!this.live.delete(id)) return;
@@ -499,10 +518,16 @@ export class Wire {
 		if (typeof frame["sub"] === "number") {
 			const sub = this.live.get(frame["sub"]);
 			if (!sub) return;
-			if ("snapshot" in frame) sub.handlers.snapshot(frame["snapshot"] as unknown[]);
-			else if ("event" in frame) sub.handlers.event(frame["event"]);
+			if ("snapshot" in frame) {
+				const items = frame["snapshot"] as unknown[];
+				sub.rosterCatalogs?.clear();
+				sub.handlers.snapshot(items.map((item) => restoreRosterCatalogs(sub, item)));
+			} else if ("event" in frame) sub.handlers.event(restoreRosterCatalogs(sub, frame["event"]));
 			else if ("ephemeral" in frame) sub.handlers.ephemeral?.(frame["ephemeral"]);
-			else if ("removed" in frame) sub.handlers.removed?.(frame["removed"] as string);
+			else if ("removed" in frame) {
+				sub.rosterCatalogs?.delete(frame["removed"] as string);
+				sub.handlers.removed?.(frame["removed"] as string);
+			}
 			return;
 		}
 

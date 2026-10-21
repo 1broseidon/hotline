@@ -183,6 +183,24 @@ seat. Here the wire is one WebSocket carrying three things:
   session state). Unread is the window's: it remembers the latest ts it
   has shown per teammate. A view is a snapshot followed by updates.
 
+The live roster keeps a small projection per watched tape: the last visible
+message, the current tool title and pending card ids. Live work and peer
+sessions likewise keep their pending-card projection for their own lifetime.
+Log seeds these from the folded stream and hands over a broadcast under the
+same writer lock; a lagged receiver replaces both together. This is derived
+state, not another folded-history cache: ordinary tool and session updates
+read no tape tails or peer/side files. The cold tape seed also reads its raw
+tail for tool activity, whose append order differs from folded id order;
+this prevents an overlapping completed tool from resurrecting an older title
+on restart. Message and card recovery is not limited by the old tail windows.
+
+Clients declaring `rosterOptions` keep `session.models` and
+`session.slashCommands` when a row omits them. Every snapshot and new row
+includes both; later rows send each only when it changes, including an empty
+array to clear it. Other fields still replace the previous row. Older clients
+continue receiving complete rows, and the window restores the two lists in
+its wire layer before delivering rows to its callers.
+
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a paired owner has the same command and subscription set. A
 companion keeps the limited phone seat. A linked desk's channel has the link

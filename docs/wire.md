@@ -193,7 +193,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
-| `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads), and a remote one as `lean` ([the phone seat](#the-phone-seat)); the desk, owner and phone seats; an unknown name is ignored |
+| `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads), `rosterOptions` ([roster catalog updates](#the-roster-view)), and a remote one as `lean` ([the phone seat](#the-phone-seat)); the desk, owner and phone seats; an unknown name is ignored |
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
@@ -984,8 +984,19 @@ without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls
-behind on the room stream it reloads every row; a lagged burst of
-session-info is ignored.
+behind on the room stream it reloads every row; lagged session-info refreshes
+every row from current session state. Tape projections consume the tape
+broadcast, reseeding from disk only on opening or after tape lag.
+
+A client declaring `rosterOptions` in `client.hello` receives complete
+catalogs in each snapshot and the first row for a new teammate. Subsequent
+rows omit `session.models` and/or `session.slashCommands` when unchanged.
+Omission means retain that list from this subscription's previous row; an
+empty array means clear it. All other fields still replace the previous row.
+Reset the retained lists on a snapshot, and discard them on `removed` or
+unsubscribe. A client without this declaration receives full rows as before.
+The window folds these two fields in its wire layer, separately per
+subscription and desk, before delivering a `RosterEntry`.
 
 ## The schedules view
 
@@ -1097,6 +1108,8 @@ again on a failed turn only where the desk can run it; `schedules` is the schedu
 reading a thread between two teammates the way a tape is read; `threads2` is
 the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
 them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads));
+`rosterOptions` is omission of unchanged roster catalogs for a client that
+declares it ([The roster view](#the-roster-view));
 `lean` is phone-sized frames for a phone that names it in `client.hello`,
 whatever its role: snapshots, events, pages and roster rows cut as a
 companion's are, a subscription `window` ([Subscriptions](#subscriptions)),

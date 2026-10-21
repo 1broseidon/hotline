@@ -1,7 +1,7 @@
 ---
 id: task-225
 title: "S6: work asked for on a call is done by the teammate's own model on the call's thread, without a word of hand-off"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -14,7 +14,7 @@ createdAt: "2026-10-19T20:00:07.934Z"
 dependsOn:
   - task-224
   - task-244
-updatedAt: "2026-10-21T05:38:29.970Z"
+updatedAt: "2026-10-21T05:43:26.453Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

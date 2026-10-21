@@ -11,26 +11,31 @@ out — fifty milliseconds on the shortage, so that case is not a spin —
 because returning here kills the wire for the life of the process.
 
 One writer task per socket queues whole frames in the order they were
-produced, so answers, snapshots and events never interleave. Commands are
-answered on the read loop, in the order they arrived: the append a
-command makes *is* its answer, and a client that creates a teammate and
-then subscribes must see it. A command that names one teammate — by
-`personaId`, by a `thread` (a DM is its teammate's), by a `sideId`, or as
-the `id` of a `persona.*` command — is answered on that teammate's own lane
-instead: in order with that teammate's other commands, and waiting on
-nobody else's. Starting an agent can take a while, or never finish, and it
-holds up only the commands about that teammate. Its answer may therefore
-arrive after the answers to commands sent after it.
+produced, so answers, snapshots and events never interleave. The reader
+dispatches work without awaiting a command. Global mutations, `ping`, and
+subscription controls share an ordered worker: a client that creates a
+teammate and then subscribes sees the create. `client.hello` is applied on
+the reader before dispatching the next frame, so capability negotiation and
+the lean silence timer take effect immediately.
 
-A read of the whole room that changes nothing — `voice.status`,
-`voice.models`, `images.status`, `websearch.status`, `capabilities.options`,
-`remote.status`, `remote.relays`, `desks.links`, `credential.list`,
-`skills.list` without a teammate, `providers.list`, `models.list`,
-`models.catalog`, `models.efforts`, `search.all`, `schedule.list` — and
-`file.read` and `avatar.read` start once the commands before them have
-finished and answer when they are ready, without holding up the commands
-behind them. Every command that writes keeps its place in the order, and so
-does `ping`, which is how a client learns that what it asked before landed.
+A command that names one teammate — by `personaId`, by a `thread` (a DM is
+its teammate's), by a `sideId`, or as the `id` of a `persona.*` command —
+keeps that teammate's own lane. It waits for that teammate's earlier
+commands, not other teammates or global work. Replies are correlated by id
+and may arrive out of order across lanes.
+
+Independent reads, including provider/model discovery, search, file reads,
+status and catalog queries, run concurrently with global mutations. Link
+previews and desk link/unlink requests also run independently. A read sees
+committed state when it runs; a client needing a preceding mutation must
+await its reply, or an ordered `ping`, before sending that read. `ping`
+orders global writes only; it is not a barrier for teammate lanes or reads.
+
+The reader continues observing cancellation and the lean silence deadline
+while commands wait. Remote work is cancelled on disconnect or revocation;
+already dispatched effects are not rolled back. Accepted desktop mutations
+finish after disconnect. Subscriptions are aborted when the seat ends,
+including when its ordered worker is still awaiting a command.
 
 A frame with no `id` is dropped. `id` is a JSON number (`i64`).
 
@@ -644,7 +649,7 @@ base URL, and are never returned in credential metadata.
 `credential.login` starts sign-in for a provider offering `oauth`, and
 answers with a login id and browser URL. ChatGPT, Copilot and xAI also provide
 a `userCode`; OpenRouter leaves it empty and uses a loopback PKCE callback.
-It is start-then-poll because commands run sequentially per socket.
+It is start-then-poll so a sign-in does not hold the ordered mutation worker.
 `credential.login_status` reports `pending`, `done`, or `failed`; an unknown
 id is an error, and a finished login stays queryable until process exit.
 The login id is the credential id. `credential.login_cancel {loginId}`
@@ -1351,6 +1356,10 @@ while companions retain the 1 MiB output frame limit. Both use a bounded
 take are dropped instead. A frame the peer has not taken within 60 seconds
 also closes the socket, on every seat, so a phone that left the network
 without closing is dropped even when it is quiet and never named `lean`.
+WebSocket TCP transports use zero linger: dropping a seat discards pending
+TCP writes and resets the connection. Ordinary HTTP responses retain normal
+drain-on-close behavior. A complete WebSocket close handshake still closes
+at the application layer; unfinished replies are not guaranteed delivery.
 These limits never widen a seat or fall back to plaintext.
 Rotation prevents a fixed set of anonymous connections from holding all
 reconnect slots, but cannot guarantee availability under sustained connection

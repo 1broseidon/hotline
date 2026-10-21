@@ -213,6 +213,14 @@ array to clear it. Other fields still replace the previous row. Older clients
 continue receiving complete rows, and the window restores the two lists in
 its wire layer before delivering rows to its callers.
 
+The socket reader dispatches independent reads concurrently with global
+mutations. Global writes, `ping` and subscription controls keep their arrival
+order in a worker; commands naming a teammate keep that teammate's lane.
+Reads observe committed state when they run, so a client needing a prior
+write waits for its reply first. Negotiation stays on the reader, and neither
+command work nor ordering waits suspend cancellation or the silence timer.
+Remote work is cancelled with its seat; accepted desktop writes finish.
+
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a paired owner has the same command and subscription set. A
 companion keeps the limited phone seat. A linked desk's channel has the link

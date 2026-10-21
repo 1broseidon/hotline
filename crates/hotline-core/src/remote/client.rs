@@ -638,6 +638,11 @@ pub(super) async fn dial(base: &str, path: &str) -> Result<Socket, String> {
         tokio_tungstenite::client_async_with_config(target.as_str(), stream, Some(config))
             .await
             .map_err(|_| "The desk refused the connection.")?;
+    // Relay-backed seats also need dropping a stalled transport to discard
+    // its pending TCP writes, rather than leaving the kernel draining them.
+    socket2::SockRef::from(socket.get_ref().get_ref().0)
+        .set_linger(Some(std::time::Duration::ZERO))
+        .map_err(|_| "Could not configure the desk connection.")?;
     Ok(socket)
 }
 

@@ -19,3 +19,4 @@ Seen once, 2026-10-19, workspace-isolation run 39232356092, check (ubuntu-24.04)
 
 ## Log
 - 2026-10-20T02:16:28.728Z: [claude] Second instance, a different test, same shape (2026-10-20 02:05, workspace-isolation check (ubuntu-24.04) on release/0.41.0 f041c81c): threads.rs a_work_thread_is_one_conversation_to_old_and_threads2_clients waited 20 s in next_where for a frame that never came after the side thread's turn ended; passes 3/3 locally and in ci's Linux job. Likely the same root: an update dropped or reordered under the isolation runner's load. Look at both together.
+- 2026-10-21T05:03:46.506Z: [claude] 2026-10-21: fixed threads::a_work_thread_is_one_conversation_to_old_and_threads2_clients (a subscription answers before it listens, so the tape's link can arrive in its snapshot; the test now reads it either way). One more unnamed failure seen once in 7 runs of the hotline-core integration binary on Linux; catch its name next time.

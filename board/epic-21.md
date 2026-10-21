@@ -51,3 +51,4 @@ Lands on release/0.42.0. The 0.42 cut waits for this epic (George, 2026-10-20: "
 ## Log
 - 2026-10-20T06:51:49.934Z: [claude] Runs after epic-22 (Rig 0.45 upgrade) reaches S3 and S6: S1 rewrites the voice dispatcher's hooks and S6 its metering, which slice 6 of this epic reshapes.
 - 2026-10-20T20:13:59.071Z: [claude] Rewritten 2026-10-20 from the scenario deck George accepted: 11 children, each with Done-when lines that must be true in code and proved by named tests. S0 (task-214, extract the calls into hotline-voice) now goes first, at George's call. Phone: hotline-mobile epic-5.
+- 2026-10-21T09:09:53.913Z: [claude] 2026-10-21 Pork Chop: all 19 children done and on release/0.42.0 (tip 0e5b28bb). The Linux scenario pass is recorded in docs/design/voice-scenario-pass.md; desk and phone passes are George's. Moved to Review: awaiting George's QA before the 0.42 cut. Open decision: task-253 (files written on a call reaching the chat).

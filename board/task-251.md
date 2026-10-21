@@ -21,3 +21,6 @@ updatedAt: "2026-10-21T02:18:30.962Z"
 Done when:
 - docs/development.md says how to set up the faster linker on each OS, and recommends bacon (with a bacon.toml in the repo running check, clippy and the tests of the crate being edited) for continuous check.
 - The ADR 0007 measurements are re-run after the changes above and appended.
+
+## Log
+- 2026-10-21T05:05:22.183Z: [claude] 2026-10-21 George: 'that's enough of this, let's keep building core features'. Parked.

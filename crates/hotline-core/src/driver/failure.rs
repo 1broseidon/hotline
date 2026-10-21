@@ -1,4 +1,5 @@
 //! Classify at the provider boundary, before diagnostic data becomes display text.
+use crate::accounts::resolve::AccountRefusal;
 use crate::models::Client;
 use crate::providers::discovery::ListedModel;
 use crate::session::ProviderAuth;
@@ -56,8 +57,12 @@ pub(crate) enum Kind {
     /// to run. Said when the teammate comes up, before anything is sent; a
     /// provider in Settings › Providers fixes it.
     NoProvider,
+    UsageLimit,
+    AccountUnavailable,
     Unknown,
 }
+
+const USAGE_LIMIT_BYTES: usize = 500;
 
 /// What a message to Hotline Agent is refused with while no provider is
 /// connected. The words go back to the composer; nothing reaches the tape.
@@ -74,7 +79,8 @@ pub(crate) struct Failure {
     /// Named for the harness when the harness is the problem, so it is not
     /// always a literal.
     pub title: Cow<'static, str>,
-    pub summary: &'static str,
+    /// The agent's own words for a usage limit, so not always a literal.
+    pub summary: Cow<'static, str>,
     pub details: String,
     pub phase: &'static str,
     pub status: Option<u16>,
@@ -83,6 +89,10 @@ pub(crate) struct Failure {
     pub tools_may_have_run: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<super::auth::SignIn>,
+    /// Skipped when absent, so a System default teammate's notice is the
+    /// bytes it was before accounts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 impl Failure {
@@ -241,76 +251,90 @@ impl Failure {
             kind
         };
         let retry_after_seconds = value.as_ref().and_then(|value| retry_hint(value, 0));
-        let mut failure = Self {
-            kind,
-            title: Cow::Borrowed(""),
-            summary: "",
-            details: sanitize(body),
-            phase,
-            status,
-            code: code.map(|code| sanitize(&code)),
-            retry_after_seconds,
-            tools_may_have_run: false,
-            sign_in: None,
+        let mut failure = Self::of(kind, sanitize(body), phase);
+        failure.status = status;
+        failure.code = code.map(|code| sanitize(&code));
+        failure.retry_after_seconds = retry_after_seconds;
+        failure
+    }
+
+    /// `message` is the harness's error and `stderr_hint` the stderr tail
+    /// behind it. A usage limit is decided before [`Failure::classify`], whose
+    /// sign-in rewrite must never apply to it, and its summary comes from
+    /// `message` alone.
+    pub fn classify_acp(
+        message: &str,
+        stderr_hint: &str,
+        phase: &'static str,
+        usage_limit_prefixes: &[&str],
+    ) -> Self {
+        let body = format!("{message}{stderr_hint}");
+        let limit = phase
+            .starts_with("acp")
+            .then(|| usage_limit_text(message, usage_limit_prefixes))
+            .flatten();
+        let Some(text) = limit else {
+            return Self::classify(&body, None, phase);
         };
-        failure.set_kind(kind);
+        let mut failure = Self::of(Kind::UsageLimit, sanitize(&body), phase);
+        failure.summary = Cow::Owned(text);
+        failure
+    }
+
+    /// The account goes by its id alone: its name and folder may only be in
+    /// a private `sentence`.
+    pub fn account_unavailable(refusal: &AccountRefusal, agent: &str, sentence: String) -> Self {
+        let (account_id, code) = match refusal {
+            AccountRefusal::UnknownAccount { account_id } => (account_id, "unknown_account"),
+            AccountRefusal::FolderUnavailable { account_id, .. } => {
+                (account_id, "folder_unavailable")
+            }
+        };
+        let mut failure = Self::of(Kind::AccountUnavailable, sentence.clone(), "acp_start");
+        failure.title = format!("{agent} account unavailable").into();
+        failure.summary = Cow::Owned(sentence);
+        failure.code = Some(code.to_string());
+        failure.account_id = Some(account_id.clone());
         failure
     }
 
     /// A paid request the Chat budget refused, before it was sent.
     pub fn budget(refused: crate::voice::ledger::Exhausted) -> Self {
-        let mut failure = Self {
-            kind: Kind::Budget,
-            title: Cow::Borrowed(""),
-            summary: "",
-            details: refused.to_string(),
-            phase: "budget",
-            status: None,
-            code: None,
-            retry_after_seconds: None,
-            tools_may_have_run: false,
-            sign_in: None,
-        };
-        failure.set_kind(Kind::Budget);
-        failure
+        Self::of(Kind::Budget, refused.to_string(), "budget")
     }
 
     /// An agent whose command did not finish starting in time. The details
     /// are the sentence naming the command, which is what the person needs to
     /// try it in a terminal.
     pub fn startup(details: String) -> Self {
-        let mut failure = Self {
-            kind: Kind::Startup,
-            title: Cow::Borrowed(""),
-            summary: "",
-            details: sanitize(&details),
-            phase: "acp_start",
-            status: None,
-            code: None,
-            retry_after_seconds: None,
-            tools_may_have_run: false,
-            sign_in: None,
-        };
-        failure.set_kind(Kind::Startup);
-        failure
+        Self::of(Kind::Startup, sanitize(&details), "acp_start")
     }
 
     /// Hotline Agent on a desk with no provider connected. Not a turn that
     /// failed: there was no turn, and there is no request to show.
     pub fn no_provider() -> Self {
+        Self::of(
+            Kind::NoProvider,
+            "No provider is connected on this desk, so there is no model to run.".into(),
+            "start",
+        )
+    }
+
+    fn of(kind: Kind, details: String, phase: &'static str) -> Self {
         let mut failure = Self {
-            kind: Kind::NoProvider,
+            kind,
             title: Cow::Borrowed(""),
-            summary: "",
-            details: "No provider is connected on this desk, so there is no model to run.".into(),
-            phase: "start",
+            summary: Cow::Borrowed(""),
+            details,
+            phase,
             status: None,
             code: None,
             retry_after_seconds: None,
             tools_may_have_run: false,
             sign_in: None,
+            account_id: None,
         };
-        failure.set_kind(Kind::NoProvider);
+        failure.set_kind(kind);
         failure
     }
 
@@ -410,22 +434,27 @@ impl Failure {
 
     /// The card for a harness too old for its model names the harness, and
     /// the version it reported when it started, so the person knows what to
-    /// update.
+    /// update. A usage limit names whose limit it is.
     pub fn name_the_harness(&mut self, name: &str, version: Option<&str>) {
-        if self.kind != Kind::HarnessOutdated || name.trim().is_empty() {
+        if name.trim().is_empty() {
             return;
         }
-        self.title = match version.filter(|version| !version.trim().is_empty()) {
-            Some(version) => format!("{name} {version} is too old for this model"),
-            None => format!("{name} is too old for this model"),
+        match self.kind {
+            Kind::HarnessOutdated => {
+                self.title = match version.filter(|version| !version.trim().is_empty()) {
+                    Some(version) => format!("{name} {version} is too old for this model"),
+                    None => format!("{name} is too old for this model"),
+                }
+                .into();
+            }
+            Kind::UsageLimit => self.title = format!("{name} usage limit reached").into(),
+            _ => {}
         }
-        .into();
     }
 
     fn set_kind(&mut self, kind: Kind) {
         self.kind = kind;
-        let title;
-        (title, self.summary) = match kind {
+        let (title, summary) = match kind {
             Kind::RateLimit => (
                 "Provider rate limit",
                 "The provider is temporarily limiting requests.",
@@ -494,12 +523,21 @@ impl Failure {
                 "Hotline Agent unavailable",
                 "Connect a provider in Settings › Providers to run a model.",
             ),
+            Kind::UsageLimit => (
+                "Agent usage limit reached",
+                "The agent stopped at its usage limit.",
+            ),
+            Kind::AccountUnavailable => (
+                "Agent account unavailable",
+                "This teammate's agent account needs attention at the desk.",
+            ),
             Kind::Unknown => (
                 "Turn failed",
                 "The activity could not finish. Expand the details for the reported error.",
             ),
         };
         self.title = Cow::Borrowed(title);
+        self.summary = Cow::Borrowed(summary);
     }
 
     pub fn retry_delay(&self, attempt: u32) -> Option<Duration> {
@@ -545,6 +583,22 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.title, self.details)
     }
+}
+
+/// The agent's usage-limit sentence in `message`: from its earliest prefix to
+/// the end of that line, or to the quote that ends it when it arrived as a
+/// JSON string, without the `: {` an error's data object opens with.
+fn usage_limit_text(message: &str, prefixes: &[&str]) -> Option<String> {
+    let start = prefixes
+        .iter()
+        .filter_map(|prefix| message.find(prefix))
+        .min()?;
+    let rest = &message[start..];
+    let line = &rest[..rest.find(['\n', '"']).unwrap_or(rest.len())];
+    let line = line.trim_end();
+    let mut text = redact_text(line.strip_suffix(": {").unwrap_or(line).trim());
+    text.truncate(text.floor_char_boundary(USAGE_LIMIT_BYTES));
+    Some(text)
 }
 
 fn retry_hint(value: &Value, depth: usize) -> Option<u64> {
@@ -906,6 +960,93 @@ mod tests {
             "request",
         );
         assert_eq!(setting.kind, Kind::InvalidRequest);
+    }
+
+    const LIMITED: &str = "Internal error: You've hit your limit · resets 3pm (Europe/Lisbon): {\n  \"errorKind\": \"rate_limit\"\n}";
+
+    #[test]
+    fn an_agents_usage_limit_is_its_own_kind_in_its_own_words() {
+        let prefixes = crate::accounts::support::CLAUDE.usage_limit_prefixes;
+        let limited = Failure::classify_acp(LIMITED, "", "acp_prompt", prefixes);
+        assert_eq!(
+            (limited.kind, limited.summary.as_ref()),
+            (
+                Kind::UsageLimit,
+                "You've hit your limit · resets 3pm (Europe/Lisbon)"
+            )
+        );
+        assert!(limited.notice().contains(r#""kind":"usage_limit""#));
+        assert_eq!(limited.retry_delay(0), None);
+        assert_ne!(
+            Failure::classify_acp(LIMITED, "", "acp_prompt", &[]).kind,
+            Kind::UsageLimit
+        );
+        assert_ne!(
+            Failure::classify_acp(LIMITED, "", "request", prefixes).kind,
+            Kind::UsageLimit
+        );
+        assert_eq!(
+            Failure::classify_acp(
+                r#"{"code":-32000,"message":"Authentication required"}"#,
+                "",
+                "acp_prompt",
+                prefixes
+            )
+            .kind,
+            Kind::AgentAuth
+        );
+        let coded = Failure::classify_acp(
+            r#"{"code":-32000,"message":"You've hit your limit · resets 3pm"}"#,
+            "",
+            "acp_prompt",
+            prefixes,
+        );
+        assert_eq!(
+            (coded.kind, coded.summary.as_ref()),
+            (Kind::UsageLimit, "You've hit your limit · resets 3pm")
+        );
+        let hinted = Failure::classify_acp(
+            "Internal error: You've hit your limit · resets 3pm",
+            " The backend said: retrying in 5s",
+            "acp_prompt",
+            prefixes,
+        );
+        assert_eq!(hinted.summary, "You've hit your limit · resets 3pm");
+        assert!(
+            hinted.details.contains("retrying in 5s"),
+            "{}",
+            hinted.details
+        );
+    }
+
+    #[test]
+    fn an_account_refusal_card_names_the_account_by_id_alone() {
+        let refusal = AccountRefusal::FolderUnavailable {
+            account_id: "a1".into(),
+            name: "Account 1".into(),
+            path: "C:/d/agent-accounts/a1".into(),
+            kind: std::io::ErrorKind::PermissionDenied,
+        };
+        let notice = Failure::account_unavailable(
+            &refusal,
+            "Claude Code",
+            refusal.public_sentence("Ada", "Claude Code"),
+        )
+        .notice();
+        for part in [
+            r#""kind":"account_unavailable""#,
+            r#""accountId":"a1""#,
+            r#""code":"folder_unavailable""#,
+            "Ada can't start: its Claude Code account needs attention at the desk.",
+        ] {
+            assert!(notice.contains(part), "{notice}");
+        }
+        assert!(!notice.contains("Account 1") && !notice.contains("agent-accounts"));
+        assert!(
+            !Failure::classify("x", None, "local")
+                .notice()
+                .contains("accountId")
+        );
     }
 
     #[test]

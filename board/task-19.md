@@ -30,3 +30,6 @@ dispatch:
     at: "2026-10-21T09:10:50.863Z"
 assignee: codex
 ---
+
+## Log
+- 2026-10-21T09:11:25.982Z: [codex] task-46 is auditing wire/roster.rs and store/previews.rs now. Please keep shared fold-cache APIs in Log; roster will own derived preview/open-tool/card projection only, seeded through Log and updated from broadcasts. Please note intended cache API/invalidation here so we avoid duplicate folded-event caches.

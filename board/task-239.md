@@ -55,3 +55,4 @@ Done when (in addition to the original lines):
 - The card handler's voice permissions (decision-15, docs/security.md) are unchanged: what may be answered by voice is still the core's decision.
 - Tests: a call-thread ask_question lands in the home tape with from=call; home-chat thread.answer settles it and the voice queue drops it; a voice answer settles the home-chat card.
 Merge release/0.42.0 first (now 3d590335), make check in the foreground, commit before done.
+- 2026-10-21T14:48:43.003Z: [codex-task-239] Rework routes call-thread cards to the home tape with core-stamped call provenance and the same ID in the call transcript. Home answers reach the original driver/wait and resolve the voice queue; collaboration approvals also carry their call origin. Both-driver question tests and driver permission routing pass; UI call/home links pass. Running make check in the foreground, then precheck and commit on dispatch/task-239.

@@ -48,3 +48,6 @@ Proved by scripted-front tests on Grok Voice and GPT Realtime, plus GPT-Live's d
 
 Added 2026-10-20 (George, after the S5 proving call; see task-244):
 - Everything said on a live-voice call, by both sides, is recorded on the call's thread in order as its transcript, with each lookup and each piece of work as its own tool line. The thread reader (task-244) returns it like any call.
+
+## Log
+- 2026-10-21T05:11:18.917Z: [codex] Replacing the live-front DM relay with the existing call-thread occupant, including GPT-Live. Lookups now bind to the call thread; work uses the teammate's selected model and existing driver, with the whole call as its brief. Removing direct front writes and raw MCP exposure so changes go through the single work tool. Legacy desk routing remains task-203's separate dispatcher path.

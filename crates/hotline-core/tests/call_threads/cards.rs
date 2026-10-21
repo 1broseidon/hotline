@@ -142,6 +142,15 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
                 })
         })
         .await;
+        let home_card = desk
+            .log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .find(|e| e["id"] == own_card["id"])
+            .expect("the call card is in home chat");
+        assert_eq!(home_card["from"]["kind"], "call");
+        assert_eq!(home_card["from"]["thread"], call);
+        assert!(home_card["from"]["title"].is_string());
         desk.say(&call, 4, "yes").await;
         desk.event(thread, |e| {
             e["id"] == own_card["id"] && e["status"] == "done"
@@ -154,6 +163,77 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
                         && s.contains("Is the harbour north of town?")
                 })
         }));
+        let settled = desk
+            .log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .find(|e| e["id"] == own_card["id"])
+            .unwrap();
+        assert_eq!(settled["status"], "done");
+        assert_eq!(settled["from"], home_card["from"]);
+        desk.hang_up(&call, thread).await;
+    }
+}
+
+#[tokio::test]
+async fn a_home_answer_settles_the_call_question_and_removes_its_voice_notice() {
+    for driver in [Driver::HotlineAgent, Driver::Acp] {
+        let mut desk = open().await;
+        let (ada, home) = desk.teammate("Ada", driver, false).await;
+        let (call, _, thread) = desk.call_on(&ada, None).await;
+        let voice = desk.client.subscribe(json!({"call":call})).await;
+        desk.say(
+            &call,
+            1,
+            "CALL ask_question {\"question\":\"Is blue your preferred colour?\"}",
+        )
+        .await;
+        let card = desk
+            .event(home, |e| {
+                e["kind"] == "human_action" && e["status"] == "pending"
+            })
+            .await;
+        assert_eq!(card["from"]["thread"], call);
+        let answered = desk
+            .client
+            .call(
+                "thread.answer",
+                json!({
+                    "thread":{"kind":"dm","key":ada},
+                    "answer":{"kind":"human","actionId":card["actionId"],"status":"done"}
+                }),
+            )
+            .await;
+        assert_eq!(answered["ok"], true, "{answered}");
+        desk.event(thread, |e| e["id"] == card["id"] && e["status"] == "done")
+            .await;
+        desk.client
+            .next_where(PATIENCE, |frame| {
+                frame["sub"] == voice
+                    && frame["event"]["type"] == "card"
+                    && frame["event"]["resolved"] == true
+                    && frame["event"]["requestId"] == card["actionId"]
+            })
+            .await;
+        let settled = desk
+            .log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .find(|e| e["id"] == card["id"])
+            .unwrap();
+        assert_eq!(settled["status"], "done");
+        assert_eq!(settled["from"], card["from"]);
+        let again = desk
+            .client
+            .call(
+                "thread.answer",
+                json!({
+                    "thread":{"kind":"dm","key":ada},
+                    "answer":{"kind":"human","actionId":card["actionId"],"status":"done"}
+                }),
+            )
+            .await;
+        assert_eq!(again["ok"], false);
         desk.hang_up(&call, thread).await;
     }
 }
@@ -273,42 +353,63 @@ async fn live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes() {
 
 #[tokio::test]
 async fn spoken_collaboration_approval_is_only_for_this_session() {
-    let mut desk = open().await;
-    let (ada, _) = desk.teammate("Ada", Driver::HotlineAgent, false).await;
-    let (bob, _) = desk.teammate("Bob", Driver::HotlineAgent, false).await;
-    let (call, _, thread) = desk.call_on(&ada, None).await;
-    let prompted = desk.client.call("session.prompt", json!({"personaId":ada,
-        "text":format!("CALL message_teammate {}", json!({"to":bob,"message":"Check the harbour","intent":"ask"}))})).await;
-    assert_eq!(prompted["ok"], true);
-    desk.event(thread, |e| {
-        e["kind"] == "agent"
-            && e["text"]
-                .as_str()
-                .is_some_and(|s| s.contains("allow this session"))
-    })
-    .await;
-    desk.say(&call, 1, "yes").await;
-    crate::common::until("the session approval", || {
-        desk.log
-            .load(&StreamId::Tape(ada.clone()))
-            .iter()
-            .any(|e| e["kind"] == "permission" && e["decision"] == "allow_session")
-    })
-    .await;
-    assert!(
-        !desk
-            .log
-            .load(&StreamId::Tape(ada.clone()))
-            .iter()
-            .any(|e| e["decision"] == "allow_always")
-    );
-    assert_eq!(
-        hotline_core::room::roster(&desk.log)
-            .iter()
-            .find(|p| p.id == bob)
-            .unwrap()
-            .allowed_senders,
-        [] as [String; 0]
-    );
-    desk.hang_up(&call, thread).await;
+    for from_call in [false, true] {
+        let mut desk = open().await;
+        let (ada, _) = desk.teammate("Ada", Driver::HotlineAgent, false).await;
+        let (bob, _) = desk.teammate("Bob", Driver::HotlineAgent, false).await;
+        let (call, _, thread) = desk.call_on(&ada, None).await;
+        let prompt = format!(
+            "CALL message_teammate {}",
+            json!({"to":bob,"message":"Check the harbour","intent":"ask"})
+        );
+        if from_call {
+            desk.say(&call, 1, &prompt).await;
+        } else {
+            let prompted = desk
+                .client
+                .call("session.prompt", json!({"personaId":ada,"text":prompt}))
+                .await;
+            assert_eq!(prompted["ok"], true);
+        }
+        desk.event(thread, |e| {
+            e["kind"] == "agent"
+                && e["text"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("allow this session"))
+        })
+        .await;
+        if from_call {
+            let card = desk
+                .log
+                .load(&StreamId::Tape(ada.clone()))
+                .into_iter()
+                .find(|e| e["kind"] == "permission")
+                .unwrap();
+            assert_eq!(card["from"]["thread"], call);
+        }
+        desk.say(&call, 2, "yes").await;
+        crate::common::until("the session approval", || {
+            desk.log
+                .load(&StreamId::Tape(ada.clone()))
+                .iter()
+                .any(|e| e["kind"] == "permission" && e["decision"] == "allow_session")
+        })
+        .await;
+        assert!(
+            !desk
+                .log
+                .load(&StreamId::Tape(ada.clone()))
+                .iter()
+                .any(|e| e["decision"] == "allow_always")
+        );
+        assert_eq!(
+            hotline_core::room::roster(&desk.log)
+                .iter()
+                .find(|p| p.id == bob)
+                .unwrap()
+                .allowed_senders,
+            [] as [String; 0]
+        );
+        desk.hang_up(&call, thread).await;
+    }
 }

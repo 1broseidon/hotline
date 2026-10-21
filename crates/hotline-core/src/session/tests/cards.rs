@@ -444,6 +444,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
     room.write(
         "ada",
         &TranscriptEvent::HumanAction {
+            from: None,
             id: "human:old".to_string(),
             ts: now_ms() - i64::from(ASK_HOURS) * 60 * 60_000 - 1,
             action_id: "old".to_string(),
@@ -459,6 +460,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
     room.write(
         "ada",
         &TranscriptEvent::HumanAction {
+            from: None,
             id: "human:fresh".to_string(),
             ts: now_ms(),
             action_id: "fresh".to_string(),

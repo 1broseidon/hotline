@@ -130,9 +130,20 @@ impl Room {
             }
             return Err("The desk call's lead grant has ended.".into());
         }
-        self.authorize_collaboration(caller, target, a, b, request.intent == Intent::Handoff)
-            .await
-            .map(|_| ())
+        let origin = request
+            .reply_thread
+            .as_deref()
+            .map(|key| self.work_thread(key));
+        self.authorize_collaboration(
+            caller,
+            target,
+            a,
+            b,
+            request.intent == Intent::Handoff,
+            origin.as_ref(),
+        )
+        .await
+        .map(|_| ())
     }
 
     fn exchange_pairs(&self) -> Vec<Pair> {

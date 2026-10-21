@@ -1940,11 +1940,19 @@ from?: DeliveryFrom,
 /**
  * A post from a scheduled run: which job it came from.
  */
-scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
+scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
 /**
  * How long the pull took, once it is done.
  */
-elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", id: string, ts: number, actionId: string, reason: string, 
+elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, actionId: string, reason: string, 
 /**
  * An informational yes/no question. It never approves an operation.
  * Older cards are actions and remain desk-only.
@@ -1973,10 +1981,15 @@ delivers?: boolean,
 expiresAt?: number, 
 /**
  * The work thread the card was raised in, when it was raised in one:
- * the card is on that thread's stream and not on the tape, and the
- * answer goes back to that thread's agent. Absent on the tape's own.
+ * answer goes back to that thread's agent. Call cards live on the
+ * home tape with a mirrored status on the call; other work cards
+ * stay on their thread. Absent on the tape's own cards.
  */
-thread?: string, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
+thread?: string, } | { "kind": "passkey_ask", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, askId: string, 
 /**
  * The name the passkey is stored under once made.
  */

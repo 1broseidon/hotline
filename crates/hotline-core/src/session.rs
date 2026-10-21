@@ -1159,8 +1159,21 @@ impl Room {
         if crate::linked::is_linked(persona_id) {
             return Ok(());
         }
+        let stamped = self.card_with_origin(persona_id, event);
+        let event = stamped.as_ref();
         self.log
             .append(&StreamId::Tape(persona_id.to_string()), event)?;
+        if call_cards::is_card(event)
+            && event["from"]["kind"] == "call"
+            && let Some(key) = event["from"]["thread"].as_str()
+        {
+            let thread = ThreadId {
+                kind: crate::contract::ThreadKind::Call,
+                key: key.to_string(),
+            };
+            let stream = StreamId::of_thread(&thread).expect("a call has a stream");
+            self.log.append(&stream, event)?;
+        }
         self.index(persona_id, event);
         if persona_id != "voice-dispatcher"
             && let Some(voice) = lock(&self.voice).upgrade()

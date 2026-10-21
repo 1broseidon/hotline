@@ -101,6 +101,9 @@ pub enum TranscriptEvent {
         output: Option<Vec<ToolOutput>>,
     },
     Permission {
+        /// The call that raised this card in the home chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
         id: String,
         ts: i64,
         request_id: String,
@@ -150,6 +153,9 @@ pub enum TranscriptEvent {
     /// 2FA tap, a CAPTCHA — usually on its computer. Pending renders a card
     /// with the way in; any other status is the card's afterlife.
     HumanAction {
+        /// The call that raised this card in the home chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
         id: String,
         ts: i64,
         action_id: String,
@@ -178,8 +184,9 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expires_at: Option<i64>,
         /// The work thread the card was raised in, when it was raised in one:
-        /// the card is on that thread's stream and not on the tape, and the
-        /// answer goes back to that thread's agent. Absent on the tape's own.
+        /// answer goes back to that thread's agent. Call cards live on the
+        /// home tape with a mirrored status on the call; other work cards
+        /// stay on their thread. Absent on the tape's own cards.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<String>,
     },
@@ -188,6 +195,9 @@ pub enum TranscriptEvent {
     /// browser until the person answers here. Pending renders the card
     /// with Approve and Deny; any other status is the card's afterlife.
     PasskeyAsk {
+        /// The call that raised this card in the home chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
         id: String,
         ts: i64,
         ask_id: String,

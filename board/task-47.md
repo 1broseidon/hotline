@@ -14,7 +14,15 @@ relatedFiles:
   - crates/hotline-core/src/session/sides.rs
 parentId: epic-5
 createdAt: "2026-10-12T04:20:49.480Z"
-updatedAt: "2026-10-14T20:05:27.659Z"
+updatedAt: "2026-10-21T10:49:57.015Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T10:49:56.887Z"
+  until: done
+  tries: 0
+assignee: codex
 ---
 
 ## Description

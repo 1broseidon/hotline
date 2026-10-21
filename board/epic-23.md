@@ -2,8 +2,8 @@
 id: epic-23
 title: "CI and build speed: CI under 15 min, then a fast gate under 10, each change measured before and after"
 type: epic
-column: todo
-position: 1
+column: backlog
+position: 33
 priority: high
 tags:
   - ci
@@ -11,7 +11,7 @@ tags:
   - "0.42"
 createdAt: "2026-10-21T02:18:25.798Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-21T02:18:26.235Z"
+updatedAt: "2026-10-21T20:00:24.531Z"
 ---
 
 ## Description

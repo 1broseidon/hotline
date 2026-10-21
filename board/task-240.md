@@ -35,3 +35,6 @@ Done when:
 - On speaker the teammate never hears itself: echo cancellation covers its own speech on the desk and the phone. It is unverified today, so it is checked by hand in the scenario pass (task-206) and fixed if it fails.
 
 Proved by tests over the turn and record code for the cut line, plus the manual checks.
+
+## Log
+- 2026-10-21T05:10:57.035Z: [codex] Found and fixing Legacy's playback-time microphone gate and live's discarded cut transcript. Desk barge-in now stops locally at confirmed speech onset; core records interrupted generated text without guessing the last audible word, prevents resumed streamed tails, and supplies playback context to the next thread turn separately from the caller's words. Phone client is outside this worktree; its onset wiring and physical speaker/AEC checks remain for task-206. Validation in progress.

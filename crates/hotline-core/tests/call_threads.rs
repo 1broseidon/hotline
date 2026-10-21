@@ -3,6 +3,7 @@ mod call_threads {
     mod closing;
     mod legacy_feedback;
     mod live_work;
+    mod person_name;
     mod reader;
 }
 use crate::common::{Client, acp_fixture};

@@ -1,5 +1,5 @@
 //! Voice never infers authority from a card's title or a model's choice.
-//! Only the core's live collaboration wait may grant a session approval.
+//! Core-owned name cards and live collaboration waits carry bounded authority.
 
 use super::*;
 use hotline_voice::cards::{Card, Notice};
@@ -21,7 +21,7 @@ impl Room {
             && expires_at.is_none_or(|expires| expires > now_ms())
             && lock(&self.voice_questions)
                 .get(&card.request)
-                .is_some_and(CapabilityLease::is_current)
+                .is_some_and(|question| question.capability.is_current())
         {
             return Some(Notice {
                 text: if first_person {
@@ -115,7 +115,7 @@ impl Room {
             }
             let capability = lock(&self.voice_questions)
                 .get(&card.request)
-                .cloned()
+                .map(|question| question.capability.clone())
                 .ok_or("This question no longer has a live session.")?;
             capability.check()?;
             self.answer_human(

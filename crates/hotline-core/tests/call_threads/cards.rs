@@ -3,7 +3,7 @@ use super::live_work::Front;
 use hotline_voice::realtime::{Command, RealtimeEvent, RealtimeSession};
 use std::sync::Mutex;
 
-async fn ask(desk: &mut Desk, persona: &str, tool: &str, arguments: Value) -> Value {
+pub(super) async fn ask(desk: &mut Desk, persona: &str, tool: &str, arguments: Value) -> Value {
     let result = desk
         .client
         .call(
@@ -28,7 +28,7 @@ async fn ask(desk: &mut Desk, persona: &str, tool: &str, arguments: Value) -> Va
         .unwrap()
 }
 
-async fn said(asked: &mut tokio::sync::mpsc::Receiver<Command>) -> String {
+pub(super) async fn said(asked: &mut tokio::sync::mpsc::Receiver<Command>) -> String {
     tokio::time::timeout(PATIENCE, async {
         loop {
             if let Some(Command::Say(text)) = asked.recv().await {

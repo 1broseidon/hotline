@@ -459,11 +459,12 @@ async fn a_front_call_works_on_its_thread_and_says_its_spoken_line() {
             "search_thread",
             "read_thread",
             "list_chapters",
+            "set_person_name",
             "list_teammates",
             "list_schedules",
             "web_search"
         ],
-        "the bridge's two, the teammate's desk-side reads and the post to the chat"
+        "the bridge's two, the teammate's desk-side reads and the name proposal"
     );
     assert_eq!(config.voice, "rex", "the teammate's own voice");
 

@@ -25,3 +25,6 @@ Done when:
 - The relay call drop George hit is diagnosed from the Pi's journal and fixed, or filed with its cause.
 
 Proved by tests with a fake transport for the hold and the fallback, plus a manual relay check on the phone in the scenario pass.
+
+## Log
+- 2026-10-21T01:36:55.531Z: [claude] 2026-10-20 George: live means live (task-245). The line 'the call goes on with Legacy voice' is amended: a lost live voice reconnects first, and Legacy is only an offered choice, never automatic.

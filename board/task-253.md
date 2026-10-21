@@ -6,14 +6,19 @@ position: 39
 description: "Task-206 manual QA finding from Pork Chop, 2026-10-21, real Grok Voice call 790a5312: fox.txt was written and spoken about with a closing note, but never attached to chat; crane.txt reached chat only because its clone chose send_file. The deck expects results in chat. George must decide whether core should attach files written by work_on_it or use another policy. Do not implement automatic attachment without that decision. Reproduce, settle scope, then prove chosen behavior on both drivers and a real call. Task-206 deliberately leaves this unwired."
 createdAt: "2026-10-21T07:53:18.984Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-21T19:59:35.502Z"
+updatedAt: "2026-10-21T19:59:37.140Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
   by: cli
   at: "2026-10-21T19:59:35.384Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-21T19:59:37.140Z"
 assignee: codex
 ---
 

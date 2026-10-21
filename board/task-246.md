@@ -35,3 +35,4 @@ Done when:
 
 ## Log
 - 2026-10-21T02:20:16.109Z: [codex] Baseline cold build running at fd41e003. Isolation audit: core tls requires an unset rustls global; core processes and voice mutate PATH through common::browser; app shell_path runs a harness-free child with a private environment. These remain explicit separate targets. Consolidated roots will use #[path] to preserve existing file/module layout (task-specific exception to standards).
+- 2026-10-21T02:30:32.118Z: [codex] Committed consolidation and isolation correction (7a58ce20, 00a3fd2d). Final layout is core 5, CLI 1, app 2 binaries (20 -> 8): acp_shutdown also needs isolation because end_every_agent kills other tests' children. Inventory matches all 2,180 test function names/multiplicities; baseline execution 2,164 passed / 16 ignored. Final measurements and make check/precheck underway; CI after-results cannot exist until reviewer pushes the branch.

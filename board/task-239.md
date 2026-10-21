@@ -9,7 +9,7 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:08.678Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T14:49:19.406Z"
+updatedAt: "2026-10-21T14:53:43.956Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -22,12 +22,14 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T14:39:36.383Z"
+    ended: "2026-10-21T14:53:43.441Z"
+    outcome: review
 assignee: codex
 decisions:
   - decision-15
   - decision-27
-column: in-progress
-position: 0
+column: review
+position: 2
 ---
 
 ## Description
@@ -57,3 +59,4 @@ Done when (in addition to the original lines):
 - Tests: a call-thread ask_question lands in the home tape with from=call; home-chat thread.answer settles it and the voice queue drops it; a voice answer settles the home-chat card.
 Merge release/0.42.0 first (now 3d590335), make check in the foreground, commit before done.
 - 2026-10-21T14:48:43.003Z: [codex-task-239] Rework routes call-thread cards to the home tape with core-stamped call provenance and the same ID in the call transcript. Home answers reach the original driver/wait and resolve the voice queue; collaboration approvals also carry their call origin. Both-driver question tests and driver permission routing pass; UI call/home links pass. Running make check in the foreground, then precheck and commit on dispatch/task-239.
+- 2026-10-21T14:53:43.956Z: Not landed: 23 files are not committed in the worktree: send it back, or commit in your editor

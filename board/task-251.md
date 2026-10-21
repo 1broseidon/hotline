@@ -9,6 +9,12 @@ tags:
   - build
 parentId: epic-23
 createdAt: "2026-10-21T02:18:29.110Z"
+dependsOn:
+  - task-246
+  - task-247
+  - task-248
+  - task-249
+updatedAt: "2026-10-21T02:18:30.962Z"
 ---
 
 ## Description

@@ -317,6 +317,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
             "send_to_teammate",
             "remain_silent",
             "search_thread",
+            "read_thread",
             "list_chapters",
             "list_schedules",
             "web_search",

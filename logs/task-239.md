@@ -1,8 +1,6 @@
 ---
 id: task-239
 title: "Cards on a call: what needs the person is said on the call, and approvals and simple questions are answered by voice"
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -11,7 +9,7 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:08.678Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T07:34:59.694Z"
+updatedAt: "2026-10-21T07:35:11.854Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -24,9 +22,12 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T07:29:09.117Z"
+    ended: "2026-10-21T07:35:11.854Z"
+    outcome: done
 assignee: codex
 decisions:
   - decision-15
+completedAt: "2026-10-21T07:35:11.458Z"
 ---
 
 ## Description
@@ -44,3 +45,4 @@ Done when:
 - 2026-10-21T07:28:56.525Z: [codex-task-239] Ready for review on dispatch/task-239, commit fff9ffef (clean worktree). Implemented once-only queued call announcements at conversational gaps, caller-floor signaling, core-enforced session collaboration approvals and informational yes/no questions, from-call chat records, resolved-card UI and active-call push suppression. Wired main and own call-thread cards into both drivers and live fronts. make check, all 8 make precheck legs and commit hooks passed. Boundary/default/grant/enforcement/tests/residuals are in docs/security.md and decision-15. Left unwired outside this tree: older/mobile whole-clip clients must adopt voice.input_state and card.resolved; physical microphone/playback timing remains task-206's device pass. Opaque driver approvals intentionally remain desk-only pending trusted operation metadata; informational answers never grant operation permission.
 - 2026-10-21T07:29:08.591Z: Landing sent back (1 of 1): dispatch/task-239 conflicts with release/0.42.0 in docs/security.md. On release/0.42.0 since this branch started: 8f905bce Call pointers require something worth returning to in chat (task-207). Merge release/0.42.0 into this branch (git merge release/0.42.0), keep what both sides meant, commit the merge, and run the checks.
 - 2026-10-21T07:34:59.417Z: [codex-task-239] Resolved the requested release/0.42.0 merge on dispatch/task-239 in 19662d10; worktree clean. Kept task-207's automatic written-result security record and task-239's core-only voice-card boundary intact. make check and all 8 make precheck legs passed, as did commit hooks. Ready for reviewer to merge. Nothing newly left unwired: older/mobile clients still need voice.input_state and card.resolved adoption; task-206 owns physical microphone/playback verification; opaque driver approvals remain desk-only pending trusted metadata.
+- 2026-10-21T07:35:10.810Z: Landed on release/0.42.0

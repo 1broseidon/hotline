@@ -137,15 +137,9 @@ pub fn remove(log: &Log, desk_id: &str) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-/// What a linked teammate is called here, "Name on Desk", from what its
-/// desk's record last heard; none for an id that is not a linked one.
-pub fn shown_name(log: &Log, id: &str) -> Option<String> {
-    split(id)?;
-    shown_name_from_events(&log.load(&StreamId::Room), id)
-}
-
-/// Resolve a linked name from the room snapshot already read by a list handler.
-pub fn shown_name_from_events(events: &[Value], id: &str) -> Option<String> {
+/// What a linked teammate is called here, from the room snapshot already
+/// read by a list handler; none for an id that is not a linked one.
+pub fn shown_name(events: &[Value], id: &str) -> Option<String> {
     let (desk_id, persona_id) = split(id)?;
     let record: Record = events
         .iter()

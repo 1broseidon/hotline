@@ -323,7 +323,7 @@ fn summarize(
     }
     let with_name = with_persona_id
         .as_deref()
-        .and_then(|with| crate::linked::shown_name_from_events(room_events, with));
+        .and_then(|with| crate::linked::shown_name(room_events, with));
 
     // A DM is read from the end of its tape, which can be very long; every
     // other thread is small enough to read whole.

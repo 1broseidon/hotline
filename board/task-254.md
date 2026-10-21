@@ -21,7 +21,9 @@ dispatch:
     pid: 94104
     at: "2026-10-21T08:26:11.298Z"
 assignee: codex
-updatedAt: "2026-10-21T08:26:31.746Z"
+updatedAt: "2026-10-21T08:32:18.272Z"
+decisions:
+  - decision-16
 ---
 
 ## Description

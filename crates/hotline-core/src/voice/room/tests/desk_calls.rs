@@ -102,7 +102,6 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
         seq: 3,
         direct: true,
         front: false,
-        ended: false,
     };
     let from = direct.from().unwrap();
     assert_eq!(from.kind, crate::contract::ThreadKind::Call);
@@ -116,24 +115,10 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
             seq: 1,
             direct: false,
             front: false,
-            ended: false,
         }
     };
     assert_eq!(desk.from(), None, "a desk call is no thread");
     let pair =
         crate::contract::DeliveryFrom::new(&crate::contract::ThreadId::pair("a\u{1f}b"), None);
     assert_eq!(Origin::from_delivery(&pair), None);
-}
-
-#[test]
-fn only_a_question_or_a_request_is_answered_after_the_call() {
-    use hotline_voice::test_support::worth_following_up;
-    assert!(worth_following_up("what's left on the release checklist?"));
-    assert!(worth_following_up("Is it green?"));
-    assert!(worth_following_up(
-        "check whether the build passed on my laptop"
-    ));
-    assert!(!worth_following_up("ok thanks"));
-    assert!(!worth_following_up("Okay, thanks, bye!"));
-    assert!(!worth_following_up("hold on"));
 }

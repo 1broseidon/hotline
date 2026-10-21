@@ -75,7 +75,6 @@ async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
         seq: 4,
         direct: true,
         front: false,
-        ended: false,
     };
     assert!(!calls.delivery("ada", "unrelated", "Ada", "Background work.", false, None));
     assert!(!calls.delivery(

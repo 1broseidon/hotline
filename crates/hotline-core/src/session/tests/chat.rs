@@ -322,69 +322,6 @@ async fn a_typed_reply_is_shown_kept_and_pushed_as_its_written_version() {
     );
 }
 
-/// A reply to a turn said on a call is written as its written version, the
-/// message the chat shows, with the version that was said kept beside it on
-/// its first bubble. A history rebuilt from the tape shows the model both,
-/// tagged, so a follow-up knows what was heard and what was only read; a
-/// typed reply after the call keeps only what it showed.
-#[tokio::test]
-async fn a_reply_on_a_call_keeps_what_was_said_beside_what_is_shown() {
-    let (first, second) = (bubble(1), bubble(2));
-    let said_aloud = "Two things are wrong. Both fixes are in the chat.";
-    let reply = format!("<spoken>{said_aloud}</spoken>\n<written>{first}\n\n{second}</written>");
-    let room = room(
-        "voice-versions",
-        Fake::new(Scripted::turns(vec![
-            saying("call", &reply),
-            saying(
-                "typed",
-                "<spoken>Yes.</spoken><written>Yes, it's merged.</written>",
-            ),
-        ])),
-    );
-    room.start("ada").await.unwrap();
-    let origin = crate::voice::Origin {
-        call_id: uuid::Uuid::new_v4().to_string(),
-        seq: 1,
-        direct: true,
-        front: false,
-        ended: false,
-    };
-    crate::wire::commands::VOICE_COMMAND
-        .scope(
-            (),
-            crate::wire::commands::CALL_ORIGIN
-                .scope(origin, room.prompt("ada", "What's wrong?", None, None)),
-        )
-        .await
-        .unwrap();
-    let events = settled(&room, "ada", 4).await;
-    assert_eq!(kinds(&events), ["user", "agent", "agent", "turn"]);
-    assert_eq!(events[1]["text"], first);
-    assert_eq!(events[1]["spoken"], said_aloud);
-    assert_eq!(events[2]["text"], second);
-    assert!(events[2].get("spoken").is_none(), "{}", events[2]);
-
-    room.prompt("ada", "Is it merged?", None, None)
-        .await
-        .unwrap();
-    let events = settled(&room, "ada", 7).await;
-    assert_eq!(events[5]["text"], "Yes, it's merged.");
-    assert!(events[5].get("spoken").is_none(), "{}", events[5]);
-
-    assert_eq!(
-        words(said(&tape(&room, "ada"))),
-        [
-            Said::User("What's wrong?".to_string()),
-            Said::Agent(format!(
-                "<spoken>{said_aloud}</spoken>\n<written>{first}\n\n{second}</written>"
-            )),
-            Said::User("Is it merged?".to_string()),
-            Said::Agent("Yes, it's merged.".to_string()),
-        ]
-    );
-}
-
 /// The line an agent writes before its tools stays its own in the history,
 /// and the bubbles of a reply said on a call stay inside its written version.
 #[test]

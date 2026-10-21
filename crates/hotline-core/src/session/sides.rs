@@ -339,6 +339,22 @@ impl Occupant for LiveSide {
         if side.closed.load(Ordering::SeqCst) {
             return Then::Stop;
         }
+        if let Some(driver) = side.driver() {
+            let unconsumed = driver.take_unconsumed();
+            let cancelled = driven.stop_reason.as_deref().is_some_and(|reason| {
+                matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
+            });
+            for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
+                lock(&side.turns).waiting.push_front(Line {
+                    voice: room.attached_voice(&side.thread),
+                    text,
+                    attachments,
+                    handoff: None,
+                    from: None,
+                    delivery: None,
+                });
+            }
+        }
         room.remember_session(side, &driven);
         // A card the turn left open is a button nobody is behind.
         if driven.asked {
@@ -682,6 +698,11 @@ impl Room {
         start: Start,
     ) -> Result<(Arc<LiveSide>, Launch), String> {
         let persona = self.persona(persona_id)?;
+        let persona = if start.thread.kind == ThreadKind::Call {
+            super::agent::clone_of(persona, &self.info(persona_id), &[])
+        } else {
+            persona
+        };
         let requested = now_ms();
         let persona_lease = self.capability_lease(persona_id);
         persona_lease.check()?;
@@ -816,6 +837,7 @@ impl Room {
             self.let_go_of_computer(&side.persona_id, &agent.holder);
             return Err("This thread ended before its agent was ready.".to_string());
         }
+        self.watch_side_activity(side, &mut agent);
         agent.keep();
         lock(&side.reported).clone_from(&agent.reported);
         let changed = {
@@ -927,59 +949,6 @@ impl Room {
             },
         )?;
         Ok((side, Some(launch)))
-    }
-
-    /// Says something in a side thread. Returns at once: the turn runs on its
-    /// own task, and a line said during one waits behind it. A parked thread
-    /// is brought back first, which is the only thing the person does to wake
-    /// it.
-    pub async fn prompt_side(
-        self: &Arc<Self>,
-        side_id: &str,
-        text: &str,
-        attachments: Option<Vec<Attachment>>,
-    ) -> Result<(), String> {
-        self.prompt_side_replying(side_id, text, None, attachments)
-            .await
-    }
-
-    /// Says something in a side thread in answer to one of its lines, which
-    /// `reply_to` names, as a reply in the main conversation does.
-    pub async fn prompt_side_replying(
-        self: &Arc<Self>,
-        side_id: &str,
-        text: &str,
-        reply_to: Option<String>,
-        attachments: Option<Vec<Attachment>>,
-    ) -> Result<(), String> {
-        let _working = self.working()?;
-        let _admission = self.sides.waking.lock().await;
-        let text = text.trim();
-        let attachments = attachments.filter(|attachments| !attachments.is_empty());
-        if text.is_empty() && attachments.is_none() {
-            return Err("There is nothing to say.".to_string());
-        }
-        self.refuse_handed_over(side_id)?;
-        let (side, launch) = match self.live_side(side_id) {
-            Ok(side) => (side, None),
-            Err(_) => self.wake_work(side_id, false)?,
-        };
-        self.say_in_side(&side, text, reply_to, attachments);
-        if let Some(launch) = launch {
-            self.launch(launch);
-        }
-        Ok(())
-    }
-
-    /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it. The thread stays live.
-    pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
-        let side = self.live_side(side_id)?;
-        lock(&side.turns).clear();
-        if let Some(driver) = side.driver() {
-            driver.cancel();
-        }
-        Ok(())
     }
 
     /// Archives a side thread, live or parked. Archiving one that is already
@@ -1501,7 +1470,9 @@ pub(super) fn waiting_on(events: &[Value]) -> bool {
         })
 }
 
+mod activity;
 mod ending;
+mod input;
 
 #[cfg(test)]
 mod tests;

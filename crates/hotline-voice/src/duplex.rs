@@ -5,7 +5,6 @@
 //! plays small frames down over the call's own wire, each side numbered, so
 //! a gap is visible and nothing is queued without a bound.
 
-use super::dispatcher::{Delegated, answer_delegation};
 use super::front::{self, FRONT_LINE_PREFIX};
 use super::front_prompt::{self, Behind, Line, Speaker as LineSpeaker, Start};
 use super::front_tools::FrontTools;
@@ -14,6 +13,7 @@ use super::realtime::{
 };
 use super::settings::FrontProvider;
 use super::*;
+use crate::record::Speaker;
 use hotline_contract::Persona;
 use hotline_store::log::StreamId;
 
@@ -294,34 +294,6 @@ impl Calls {
         Ok(front)
     }
 
-    /// The call ended with the person's last words unanswered: they go to
-    /// the teammate as a message from the call, marked as ended, so it
-    /// answers in writing in the conversation rather than on a call that is
-    /// gone, as a typed line would go (its session and open chapter).
-    fn follow_up(&self, id: &str, target: &str, words: String, seq: u32) {
-        let Some(room) = self.live_room() else {
-            return;
-        };
-        let origin = Origin {
-            call_id: id.into(),
-            seq,
-            direct: true,
-            front: true,
-            ended: true,
-        };
-        let target = target.to_string();
-        tokio::spawn(async move {
-            match tokio::time::timeout(Duration::from_secs(60), room.start(&target)).await {
-                Ok(Ok(())) => {}
-                _ => return,
-            }
-            let prompt = crate::call_room::CALL_ORIGIN.scope(origin, room.prompt(&target, &words));
-            if let Err(error) = prompt.await {
-                eprintln!("[voice] the call's last question did not reach the teammate: {error}");
-            }
-        });
-    }
-
     /// Carries one call's front: opens the provider session with the
     /// bridge's tools, then turns what the provider produces into the call's
     /// events, its tool calls into the bridge's answers, and what the bridge
@@ -352,13 +324,6 @@ impl Calls {
         // call speaks for no one teammate and holds none.
         let desk_tools = match (&persona, self.live_room()) {
             (Some(persona), Some(room)) => {
-                let Ok(reach) = room.front_reach(persona) else {
-                    self.fail_front(
-                        &id,
-                        "Live voice could not open the teammate’s tools.".into(),
-                    );
-                    return;
-                };
                 let Some(thread) = lock(&self.calls)
                     .iter()
                     .find(|call| call.id == id)
@@ -367,10 +332,14 @@ impl Calls {
                     self.fail_front(&id, "Live voice could not find the call’s thread.".into());
                     return;
                 };
-                let opened = tokio::select! {
-                    () = cancel.cancelled() => return,
-                    opened = FrontTools::open(self.room.clone(), &thread, &persona.id, reach) => opened,
+                let Ok(reach) = room.front_reach(persona, &thread) else {
+                    self.fail_front(
+                        &id,
+                        "Live voice could not open the teammate’s tools.".into(),
+                    );
+                    return;
                 };
+                let opened = FrontTools::open(self.room.clone(), &thread, &persona.id, reach);
                 Some(Arc::new(opened))
             }
             _ => None,
@@ -380,11 +349,6 @@ impl Calls {
             .map(|tools| tools.definitions())
             .unwrap_or_default();
         let instructions = self.front_instructions(persona.as_ref(), &desk_definitions);
-        // A model that calls no tools of its own delegates; what it delegates
-        // is answered with the teammate's tools by the call assistant, told
-        // what the front is told.
-        let mind = (realtime.delegates() && desk_tools.is_some())
-            .then(|| front_prompt::delegated(&instructions));
         let config = RealtimeConfig {
             instructions,
             voice: self.front_voice(persona.as_ref()),
@@ -400,7 +364,7 @@ impl Calls {
             input_rate: FRONT_RATE,
             output_rate: FRONT_RATE,
         };
-        let mut bridge = bridge.with_desk_tools(desk_tools).with_delegation(mind);
+        let mut bridge = bridge.with_desk_tools(desk_tools);
         let opened = tokio::select! {
             () = cancel.cancelled() => return,
             opened = realtime.open(config.clone()) => opened,
@@ -489,11 +453,7 @@ impl Calls {
             }
         };
         match ended {
-            FrontEnd::Call => {
-                if let (Some(persona), Some((words, seq))) = (persona, kept.unanswered) {
-                    self.follow_up(&id, &persona.id, words, seq);
-                }
-            }
+            FrontEnd::Call => {}
             FrontEnd::Lost => self.fail_front(
                 &id,
                 "Live voice disconnected and could not reconnect.".into(),
@@ -517,7 +477,6 @@ impl Calls {
         kept: &mut Kept,
     ) -> FrontEnd {
         let Kept {
-            unanswered,
             carry,
             heard,
             replies,
@@ -534,12 +493,8 @@ impl Calls {
         }
         let mut saying = String::new();
 
-        // `unanswered` is what the person last asked that nothing has
-        // answered yet, neither handed to the teammate nor replied to in full
-        // by the front, kept current so whichever way the call ends sees it.
         let mut minutes =
             tokio::time::interval_at(tokio::time::Instant::now() + SPEND_EVERY, SPEND_EVERY);
-        let (answered_tx, mut answered) = mpsc::unbounded_channel::<Delegated>();
         loop {
             let event = tokio::select! {
                 () = cancel.cancelled() => return FrontEnd::Call,
@@ -560,18 +515,6 @@ impl Calls {
                     let _ = input.say(note.text()).await;
                     continue;
                 }
-                Some(delegated) = answered.recv() => {
-                    match delegated {
-                        Delegated::Answer { call_id, text } => {
-                            let _ = input.tool_result(&call_id, &text, true).await;
-                        }
-                        Delegated::HandOff { call_id, arguments } => {
-                            hand_over(bridge, unanswered, &input, &call_id, &arguments)
-                                .await;
-                        }
-                    }
-                    continue;
-                }
                 event = events.recv() => event,
             };
             let event = match event {
@@ -590,7 +533,7 @@ impl Calls {
                     if saying.is_empty() {
                         let _ = self.change(id, |call| {
                             call.speech_line.update(
-                                &format!("{FRONT_LINE_PREFIX}{replies}"),
+                                &format!("{FRONT_LINE_PREFIX}{id}-{replies}"),
                                 "[Audio generated; transcript not yet available.]",
                             );
                             Ok(())
@@ -617,7 +560,13 @@ impl Calls {
                     let _ = self.change(id, |call| {
                         if let Some(front) = &mut call.front {
                             if front.interrupted {
-                                saying.clear();
+                                carry.push(
+                                    "You",
+                                    &format!(
+                                        "[Interrupted speech; not heard to the end] {}",
+                                        std::mem::take(&mut saying)
+                                    ),
+                                );
                                 *replies += 1;
                             }
                             front.interrupted = false;
@@ -625,8 +574,6 @@ impl Calls {
                         }
                         Ok(())
                     });
-                    *unanswered =
-                        worth_following_up(&text).then(|| (text.clone(), bridge.next_seq()));
                     let seq = *heard;
                     *heard += 1;
                     carry.push("Caller", &text);
@@ -639,12 +586,18 @@ impl Calls {
                 }
                 RealtimeEvent::Saying(piece) => {
                     saying.push_str(&piece);
+                    self.keep_as(
+                        id,
+                        Speaker::Voice,
+                        &format!("{FRONT_LINE_PREFIX}{id}-{replies}"),
+                        &saying,
+                    );
                     self.change(id, |call| {
                         if let Some(front) = &mut call.front {
                             front.responding = true;
                         }
                         call.speech_line
-                            .update(&format!("{FRONT_LINE_PREFIX}{replies}"), &saying);
+                            .update(&format!("{FRONT_LINE_PREFIX}{id}-{replies}"), &saying);
                         Ok(())
                     })
                 }
@@ -666,10 +619,6 @@ impl Calls {
                         text.clone()
                     };
                     carry.push("You", &kept_text);
-                    if !text.trim().is_empty() && !interrupted {
-                        self.front_said(id, &text);
-                        *unanswered = None;
-                    }
                     self.change(id, |call| {
                         if !text.trim().is_empty() {
                             let _ = call.events.send(VoiceEvent::Said {
@@ -692,11 +641,9 @@ impl Calls {
                     // front's speech. The model speaks once it has the result.
                     let input = input.clone();
                     let cancel = cancel.clone();
+                    let line = tools.begin(&name, &arguments);
                     tokio::spawn(async move {
-                        let output = tokio::select! {
-                            () = cancel.cancelled() => return,
-                            output = tools.call(&name, &arguments) => output,
-                        };
+                        let output = tools.call(&name, &arguments, line, &cancel).await;
                         let _ = input.tool_result(&call_id, &output, true).await;
                     });
                     Ok(())
@@ -705,35 +652,11 @@ impl Calls {
                     call_id,
                     name,
                     arguments,
-                } if name == crate::realtime::SEND_TO_TEAMMATE
-                    && let Some((preamble, tools)) = bridge.delegation()
-                    && let Ok(assistant) = self.dispatcher() =>
-                {
-                    // Answered beside the call, as a tool is; the model says
-                    // the answer once it comes back.
-                    let ledger = self.ledger.clone();
-                    let answered = answered_tx.clone();
-                    let cancel = cancel.clone();
-                    tokio::spawn(async move {
-                        let delegated = tokio::select! {
-                            () = cancel.cancelled() => return,
-                            delegated = answer_delegation(
-                                assistant.as_ref(), &preamble, tools.dynamic(), ledger, call_id, arguments,
-                            ) => delegated,
-                        };
-                        let _ = answered.send(delegated);
-                    });
-                    Ok(())
-                }
-                RealtimeEvent::ToolCall {
-                    call_id,
-                    name,
-                    arguments,
                 } => {
-                    if name == crate::realtime::SEND_TO_TEAMMATE {
-                        hand_over(bridge, unanswered, &input, &call_id, &arguments).await;
+                    if name == crate::realtime::WORK_ON_IT {
+                        work(bridge, &input, &call_id, &arguments).await;
                     } else {
-                        let (output, reply) = bridge.tool_call(&name, &arguments);
+                        let (output, reply) = bridge.tool_call(&name, &arguments).await;
                         let _ = input.tool_result(&call_id, &output, reply).await;
                     }
                     Ok(())
@@ -785,37 +708,18 @@ impl Calls {
 /// What a front call keeps for after it, whichever way it ends.
 #[derive(Default)]
 struct Kept {
-    /// What the person last asked that nothing has answered yet, neither
-    /// handed to the teammate nor replied to in full by the front.
-    unanswered: Option<(String, u32)>,
+    /// Conversation used when the realtime connection is renewed.
     carry: realtime::socket::Carry,
     heard: u32,
     replies: u32,
 }
 
-/// The words a `send_to_teammate` call carried.
-/// Hands the person's words to the teammate's working session, through the
-/// bridge, and answers the front's call.
-async fn hand_over(
-    bridge: &mut front::Front,
-    unanswered: &mut Option<(String, u32)>,
-    input: &RealtimeInput,
-    call_id: &str,
-    arguments: &str,
-) {
-    let (output, reply) = bridge.tool_call(crate::realtime::SEND_TO_TEAMMATE, arguments);
-    if !reply {
-        *unanswered = None;
-    }
+/// Admit or stop work and answer the provider without waiting for a model turn.
+async fn work(bridge: &mut front::Front, input: &RealtimeInput, call_id: &str, arguments: &str) {
+    let (output, reply) = bridge
+        .tool_call(crate::realtime::WORK_ON_IT, arguments)
+        .await;
     let _ = input.tool_result(call_id, &output, reply).await;
-}
-
-/// Whether words left unanswered when a call ended are worth answering in
-/// writing: a question, or a request of a few words, and never a goodbye.
-pub fn worth_following_up(words: &str) -> bool {
-    let words = words.trim();
-    !super::synthesis::goodbye(words)
-        && (words.ends_with('?') || words.split_whitespace().count() >= 4)
 }
 
 /// Why a front stopped carrying its call.

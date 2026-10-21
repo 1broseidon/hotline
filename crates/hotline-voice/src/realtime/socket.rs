@@ -9,7 +9,9 @@
 //!   (60-minute sessions, PCM at 24 kHz only).
 //!
 //! Audio travels as base64 JSON events, the default transport. Turns are the
-//! provider's server VAD, which stops a reply itself when the person talks.
+//! provider's turn detector, which stops a reply when the person talks.
+//! OpenAI's semantic detector waits through unfinished dictation and hesitations.
+//! https://developers.openai.com/api/docs/guides/realtime-vad
 //! The dialects differ only in the model, the rates, the session limit and
 //! where `session.update` puts the voice, turn detection and transcription.
 
@@ -272,7 +274,7 @@ fn session_update(dialect: Dialect, config: &RealtimeConfig, instructions: &str)
             "audio": {
                 "input": {
                     "format": input,
-                    "turn_detection": {"type": "server_vad"},
+                    "turn_detection": {"type": "semantic_vad", "eagerness": "low"},
                     "transcription": {"model": OPENAI_TRANSCRIBE},
                 },
                 "output": {"format": output, "voice": config.voice},

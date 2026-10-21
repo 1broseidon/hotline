@@ -4452,7 +4452,6 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "hotline-contract",
- "hotline-mcp",
  "hotline-room",
  "hotline-store",
  "hotline-support",

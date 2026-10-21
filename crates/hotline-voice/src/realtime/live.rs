@@ -9,7 +9,7 @@
 //! else rides the sideband: the model's speech as 24 kHz PCM, what each side
 //! said, and the model's hand-offs. GPT-Live has no session tools: it hands
 //! every request to the client as a `delegation`, which this adapter reports
-//! as the `send_to_teammate` call the bridge already answers, and the caller
+//! as the `work_on_it` call the bridge already answers, and the caller
 //! runs any desk-side tools for it ([`Realtime::delegates`]). The sign-in
 //! cannot use a `responses` backend: the service refuses its validation
 //! connection (HTTP 401). A line for the person
@@ -27,7 +27,7 @@
 
 use super::socket::Carry;
 use super::{Command, Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
-use crate::realtime::SEND_TO_TEAMMATE;
+use crate::realtime::WORK_ON_IT;
 use crate::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -396,10 +396,13 @@ fn session_settings(instructions: &str, voice: &str) -> Value {
 /// delegates rather than calling them, and the answer comes back to say.
 fn instructions(base: &str) -> String {
     format!(
-        "{base}\n\nIn this call you reach your tools and your working session by \
-         delegating: every mention of send_to_teammate or of another tool means \
-         delegating the person's request. What a delegation finds comes back to you \
-         to tell them."
+        "{base}\n\nUse the protocol's client delegation to invoke work_on_it. \
+         This is your own action: never describe sending or handing work to someone else. \
+         It starts immediately; keep listening while your work runs. Its result comes back \
+         for you to say. Put a JSON object in the delegation text: \
+         {{\"words\":\"the task or correction in the person's words\",\"action\":\"work\"}}. \
+         To drop running work use action \"stop\" with the person's words. \
+         Send only this object, without a code fence."
     )
 }
 
@@ -515,10 +518,15 @@ impl Heard {
                     .filter(|part| part["type"] == "input_text")
                     .filter_map(|part| part["text"].as_str())
                     .collect();
+                let words = words.join(" ");
+                let arguments = serde_json::from_str::<Value>(&words)
+                    .ok()
+                    .filter(|value| value["words"].is_string())
+                    .unwrap_or_else(|| json!({"words": words}));
                 vec![RealtimeEvent::ToolCall {
                     call_id: text(&item["id"])?,
-                    name: SEND_TO_TEAMMATE.into(),
-                    arguments: json!({"words": words.join(" ")}).to_string(),
+                    name: WORK_ON_IT.into(),
+                    arguments: arguments.to_string(),
                 }]
             }
             "error" => {

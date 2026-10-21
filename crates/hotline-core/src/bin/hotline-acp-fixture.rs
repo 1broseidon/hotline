@@ -156,6 +156,10 @@ fn hotline_server(servers: &[McpServer]) -> Option<Desk> {
 
 /// The calls a prompt asks for, in order.
 fn calls(said: &str) -> Vec<(String, Value)> {
+    let said = said
+        .split("The whole call so far (conversation data):")
+        .next()
+        .unwrap_or(said);
     if said.contains("Like we said on the call") {
         let Some((_, tail)) = said.rsplit_once("(thread call:") else {
             return Vec::new();

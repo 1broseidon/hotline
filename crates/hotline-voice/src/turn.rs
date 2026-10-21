@@ -9,8 +9,8 @@ use super::speech::{self, Clip};
 use super::spoken::sentences;
 use super::synthesis::{goodbye, speech_ready};
 use super::{
-    BUDGET_LINE, Calls, Delivery, ERROR_LINE, MAX_FAILURES, Origin, RETRY_LINE, REWRITE_WAIT,
-    Reply, TranscriptSource, Work, lock, realtime, spoken,
+    BUDGET_LINE, Calls, Delivery, ERROR_LINE, MAX_FAILURES, RETRY_LINE, REWRITE_WAIT, Reply,
+    TranscriptSource, Work, lock, realtime, spoken,
 };
 use hotline_contract::{VoiceEndReason, VoiceEvent, VoiceState};
 use std::sync::atomic::Ordering;
@@ -338,31 +338,19 @@ impl Calls {
             return Ok(());
         }
         self.ready_for(id)?;
-        let origin = Origin {
-            call_id: id.into(),
-            seq,
-            direct: target.is_some(),
-            front: matches!(source, TranscriptSource::Front),
-            ended: false,
-        };
         if let Some(target) = target {
-            if !relayed {
-                let thread = self
-                    .change(id, |call| Ok(call.thread.clone()))?
-                    .ok_or("The call has no thread.")?;
-                let room = self.live_room().ok_or("The desk has closed.")?;
-                room.call_prompt(&target, &thread, &text).await?;
-                return self.change(id, |call| {
-                    call.answering = Some(seq);
-                    Ok(())
-                });
-            }
-            return self
-                .hand_off(id, &target, &text, origin, context, speech_cancel)
-                .await;
+            let thread = self
+                .change(id, |call| Ok(call.thread.clone()))?
+                .ok_or("The call has no thread.")?;
+            let room = self.live_room().ok_or("The desk has closed.")?;
+            room.call_prompt(&target, &thread, &text).await?;
+            return self.change(id, |call| {
+                call.answering = Some(seq);
+                Ok(())
+            });
         }
         let dispatcher = self.dispatcher()?;
-        let context = context.with_origin(origin);
+        let context = context.clone();
         let (output, mut answers) = mpsc::channel(8);
         let produce = async {
             tokio::time::timeout(
@@ -386,56 +374,6 @@ impl Calls {
                 }
             } => result,
         }
-    }
-
-    /// The person's words into the teammate's own session, in the open
-    /// chapter of its conversation, as a turn said on this call: what a direct
-    /// call does with every utterance. The session hears the contract after
-    /// the words (see [`spoken`]); the conversation shows the words alone.
-    /// Into a turn still running, the words steer it. The call thinks until
-    /// the session has finished the turn ([`Self::turn_ended`]).
-    pub(super) async fn hand_off(
-        &self,
-        id: &str,
-        target: &str,
-        text: &str,
-        origin: Origin,
-        context: &Context,
-        speech_cancel: &CancellationToken,
-    ) -> Result<(), String> {
-        let room = self.live_room().ok_or("The desk has closed.")?;
-        let seq = origin.seq;
-        // Room owns session startup/reuse, revocable grants, steering and tape.
-        // Once accepted, this work is independent of the call's speech token.
-        tokio::select! {
-            biased;
-            () = context.cancel.cancelled() => return Ok(()),
-            () = speech_cancel.cancelled() => return Ok(()),
-            started = tokio::time::timeout(Duration::from_secs(60), room.start(target)) => {
-                started.map_err(|_| "The teammate did not start in time.".to_string())??;
-            }
-        }
-        if context.cancel.is_cancelled() || speech_cancel.is_cancelled() {
-            return Ok(());
-        }
-        let prompt = crate::call_room::VOICE_COMMAND.scope(
-            (),
-            crate::call_room::CALL_ORIGIN.scope(origin, room.prompt(target, text)),
-        );
-        // Chapter/start gates can still wait before the instruction is
-        // accepted. Cancellation stops that wait, not an accepted turn.
-        tokio::select! {
-            biased;
-            () = context.cancel.cancelled() => return Ok(()),
-            () = speech_cancel.cancelled() => return Ok(()),
-            accepted = tokio::time::timeout(Duration::from_secs(60), prompt) => {
-                accepted.map_err(|_| "The teammate did not accept the instruction in time.".to_string())??;
-            }
-        }
-        self.change(id, |call| {
-            call.answering = Some(seq);
-            Ok(())
-        })
     }
 
     pub(super) async fn summary(&self, delivery: &Delivery) -> Result<String, String> {

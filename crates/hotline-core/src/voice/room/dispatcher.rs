@@ -169,8 +169,6 @@ mod tests {
     use axum::{Router, body::Bytes, routing::post};
     use hotline_voice::dispatcher::*;
     use hotline_voice::metering::{BUDGET_ERROR, Budget};
-    use rig::message::ToolName;
-    use rig::tool::{DynamicTool, ToolOutput};
     use serde_json::{Value, json};
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -189,117 +187,6 @@ mod tests {
     /// One fixture model call's cost: 20 prompt and 10 completion tokens at
     /// the guard rate, since a custom gateway's models have no listed price.
     const FIXTURE_CALL_USD: f64 = (20.0 * 5.0 + 10.0 * 25.0) / 1_000_000.0;
-
-    /// A request the front delegated is answered from the teammate's tool, or
-    /// handed on when the assistant calls `send_to_teammate`.
-    #[tokio::test]
-    async fn a_delegated_request_is_answered_from_a_tool_or_handed_on() {
-        let root = tempfile::tempdir().unwrap();
-        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
-        let seen = requests.clone();
-        let app = Router::new().route("/v1/chat/completions", post(move |body: Bytes| {
-            let seen = seen.clone();
-            async move {
-                let request: Value = serde_json::from_slice(&body).unwrap();
-                let messages = request["messages"].as_array().unwrap().clone();
-                seen.lock().unwrap().push(request);
-                let result = messages.iter().find(|m| m["role"] == "tool");
-                let asked = messages.iter().map(|m| m["content"].to_string()).collect::<String>();
-                let call = |name: &str, arguments: Value| json!({"role":"assistant","content":null,"tool_calls":[{"id":"t1","type":"function","function":{"name":name,"arguments":arguments.to_string()}}]});
-                let message = match result {
-                    Some(result) if result["content"].to_string().contains("zebracrossing") => json!({"role":"assistant","content":"We fixed the zebracrossing bug."}),
-                    Some(_) => json!({"role":"assistant","content":""}),
-                    None if asked.contains("rename") => call("send_to_teammate", json!({"words":"rename the module"})),
-                    None => call("search_thread", json!({"query":"fixed"})),
-                };
-                let finish = if message["tool_calls"].is_null() { "stop" } else { "tool_calls" };
-                ([("Content-Type", "application/json")], json!({"id":"voice_test","object":"chat.completion","created":1,"model":"fast-mini","choices":[{"index":0,"message":message,"finish_reason":finish}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}).to_string())
-            }
-        }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}/v1", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let store = Arc::new(crate::credentials::MemoryStore::default());
-        let desk =
-            Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
-        let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
-        let credential = vault
-            .save_custom(
-                None,
-                crate::contract::CustomProviderDraft {
-                    name: "Fixture".into(),
-                    base_url: url,
-                    api: crate::contract::OpenAiApi::ChatCompletions,
-                    models: vec!["fast-mini".into()],
-                    secret: Some("fixture-key".into()),
-                },
-            )
-            .unwrap();
-        desk.log.append(&StreamId::Room, &json!({"kind":"setting","id":"defaultModelId","value":format!("{}/fast-mini", credential.provider_id)})).unwrap();
-        let assistant = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
-        let ledger = Arc::new(Budget::open(desk.log.clone()));
-        let search = || {
-            vec![DynamicTool::new(
-                ToolName::new("search_thread").unwrap(),
-                "Search the conversation.",
-                json!({"type":"object","properties":{"query":{"type":"string"}}}),
-                |_| {
-                    Box::pin(async {
-                        Ok(ToolOutput::text(
-                            "We fixed the zebracrossing scheduler bug.",
-                        ))
-                    })
-                },
-            )]
-        };
-
-        let answered = answer_delegation(
-            assistant.as_ref(),
-            "You are Mack.",
-            search(),
-            ledger.clone(),
-            "d1".into(),
-            json!({"words":"what did we fix?"}).to_string(),
-        )
-        .await;
-        let Delegated::Answer { call_id, text } = answered else {
-            panic!("a lookup was handed on")
-        };
-        assert_eq!(
-            (call_id.as_str(), text.as_str()),
-            ("d1", "We fixed the zebracrossing bug.")
-        );
-        let first = requests.lock().unwrap()[0].clone();
-        let offered: Vec<&str> = first["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|tool| tool["function"]["name"].as_str().unwrap())
-            .collect();
-        assert_eq!(offered, ["search_thread", "send_to_teammate"]);
-        assert!(first.to_string().contains("what did we fix?"));
-
-        let handed = answer_delegation(
-            assistant.as_ref(),
-            "You are Mack.",
-            search(),
-            ledger,
-            "d2".into(),
-            json!({"words":"please rename it"}).to_string(),
-        )
-        .await;
-        let Delegated::HandOff { call_id, arguments } = handed else {
-            panic!("work was not handed on")
-        };
-        assert_eq!(call_id, "d2");
-        assert_eq!(
-            serde_json::from_str::<Value>(&arguments).unwrap(),
-            json!({"words":"rename the module"})
-        );
-        server.abort();
-    }
 
     #[tokio::test]
     async fn native_dispatcher_uses_default_provider_fast_model_and_existing_commands() {

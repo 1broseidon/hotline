@@ -1,82 +1,43 @@
-//! The teammate's own desk-side tools, as the voice front holds them.
-//!
-//! The front runs these itself, on the call: it looks things up in the
-//! teammate's conversation and schedules, searches the web, and calls the MCP
-//! servers the teammate's policy grants. Each goes through the handler a
-//! typed turn uses (`TeammateTools`, [`McpTool`]), bound to the teammate's
-//! current capability lease, so a grant taken away on the card refuses the
-//! front's next call. A result goes back to the model as the function's
-//! output, clipped; nothing is posted to the DM.
-//!
-//! The registry names tools and runs them and knows nothing of a provider,
-//! so a front whose model takes no session tools can answer its own
-//! delegations from it.
+//! Read-only tools bound to the call's thread and the teammate's current
+//! capability lease. Work and writes run through the call's own agent.
 
 use super::front::Tool;
 use crate::call_room::CallRoom;
 use futures_util::future::BoxFuture;
 use hotline_contract::ThreadId;
-use hotline_mcp::{self as mcp, McpTool};
 use hotline_tools::capability::CapabilityLease;
-const POST_CHARS: usize = 2_000;
-use rig::message::ToolName;
-use rig::tool::{DynamicTool, ToolOutput};
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
 use std::time::Duration;
-
-pub const POST_TO_CHAT: &str = "post_to_chat";
 
 /// The most a tool's output may be before the model hears it. A voice cannot
 /// use more, and the model's context is spent on what it reads.
 pub const OUTPUT_CHARS: usize = 4_000;
 /// A tool that has not answered by now is given up on, so the front can say so.
 const CALL_LIMIT: Duration = Duration::from_secs(30);
-/// The servers a call connects, all of them or none, before it opens.
-const CONNECT_LIMIT: Duration = Duration::from_secs(10);
-
 pub(crate) struct FrontTools {
     room: Arc<dyn CallRoom>,
     thread: ThreadId,
     persona_id: String,
     teammate: DeskTools,
     capability: CapabilityLease,
-    granted: Vec<McpTool>,
-    /// Keeps the servers' connections open for as long as the call.
-    _connections: Option<mcp::Connections>,
 }
 
 impl FrontTools {
-    /// Connects the servers the teammate is granted and holds them for the
-    /// call. A server that does not answer in time is left out, and the
-    /// front is not given its tools.
-    pub(crate) async fn open(
+    /// Binds the permitted reads to this call.
+    pub(crate) fn open(
         room: Arc<dyn CallRoom>,
         thread: &ThreadId,
         persona_id: &str,
         reach: FrontReach,
     ) -> Self {
-        let FrontReach {
-            tools,
-            connect,
-            capability,
-        } = reach;
-        let connections = match connect {
-            Some(connect) => tokio::time::timeout(CONNECT_LIMIT, connect).await.ok(),
-            None => None,
-        };
-        let granted = connections
-            .as_ref()
-            .map(|connections| connections.tools.clone())
-            .unwrap_or_default();
+        let FrontReach { tools, capability } = reach;
         Self {
             room,
             thread: thread.clone(),
             persona_id: persona_id.into(),
             teammate: tools,
             capability,
-            granted,
-            _connections: connections,
         }
     }
 
@@ -91,64 +52,51 @@ impl FrontTools {
                     description,
                     parameters,
                 });
-        let post = Tool {
-            name: POST_TO_CHAT.into(),
-            description: "Put something in the written conversation with the person, when they ask for it (\"put that in the chat\"). Name the subject and write a self-contained post for someone who was not on the call. Posts link to this thread; it is not how you hand them work.".into(),
-            parameters: json!({
-                "type": "object",
-                "properties": {"text": {"type": "string", "description": "What to post, as the person should read it."}},
-                "required": ["text"],
-            }),
-        };
-        let granted = self.granted.iter().map(|tool| Tool {
-            name: tool.name.clone(),
-            description: tool.description.clone(),
-            parameters: tool.parameters.clone(),
-        });
-        built_in.chain([post]).chain(granted).collect()
+        built_in.collect()
     }
 
-    /// These as tools a desk-side model calls, for a front whose model calls
-    /// none itself.
-    pub fn dynamic(self: &Arc<Self>) -> Vec<DynamicTool> {
-        self.definitions()
-            .into_iter()
-            .map(|tool| {
-                let tools = self.clone();
-                let name = tool.name.clone();
-                DynamicTool::new(
-                    ToolName::new(tool.name)
-                        .expect("a front tool is named by Hotline or its server"),
-                    tool.description,
-                    tool.parameters,
-                    move |arguments| {
-                        let tools = tools.clone();
-                        let name = name.clone();
-                        Box::pin(async move {
-                            Ok(ToolOutput::text(
-                                tools.call(&name, &arguments.to_string()).await,
-                            ))
-                        })
-                    },
-                )
-            })
-            .collect()
+    pub fn check(&self) -> Result<(), String> {
+        self.capability.check()
     }
 
     /// Whether `name` is one of these.
     pub fn has(&self, name: &str) -> bool {
-        name == POST_TO_CHAT
-            || self.granted.iter().any(|tool| tool.name == name)
-            || self
-                .teammate
-                .definitions()
-                .iter()
-                .any(|(known, _, _)| known == name)
+        self.teammate
+            .definitions()
+            .iter()
+            .any(|(known, _, _)| known == name)
     }
 
-    /// Runs one tool and returns what the model is told: the output, or the
-    /// refusal in words, clipped.
-    pub async fn call(&self, name: &str, arguments: &str) -> String {
+    /// Record admission before another speech event can be written.
+    pub fn begin(&self, name: &str, arguments: &str) -> Value {
+        let id = uuid::Uuid::new_v4().to_string();
+        let line = json!({"kind":"tool", "id":id,
+            "ts":chrono::Local::now().timestamp_millis(), "toolCallId":id, "title":name,
+            "output":[{"type":"text", "text":arguments}],
+            "status":"in_progress"});
+        self.room.call_said(&self.thread, &self.persona_id, &line);
+        line
+    }
+
+    /// Run beside speech, completing the same transcript line even on hang-up.
+    pub async fn call(
+        &self,
+        name: &str,
+        arguments: &str,
+        mut line: Value,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> String {
+        let answer = tokio::select! {
+            () = cancel.cancelled() => "The call ended before this lookup finished.".into(),
+            answer = self.run(name, arguments) => answer,
+        };
+        line["status"] = json!("completed");
+        line["output"] = json!([{"type":"text", "text":format!("{arguments}\n{answer}")}]);
+        self.room.call_said(&self.thread, &self.persona_id, &line);
+        answer
+    }
+
+    async fn run(&self, name: &str, arguments: &str) -> String {
         let arguments: Value = if arguments.trim().is_empty() {
             Value::Object(Map::default())
         } else {
@@ -160,47 +108,13 @@ impl FrontTools {
         if let Err(refusal) = self.capability.check() {
             return refusal;
         }
-        if name == POST_TO_CHAT {
-            return self.post(&arguments);
-        }
-        let run = async {
-            match self.granted.iter().find(|tool| tool.name == name) {
-                Some(tool) => tool
-                    .call(arguments)
-                    .await
-                    .map(|content| content.text)
-                    .map_err(|error| error.to_string()),
-                None => (self.teammate.call)(name.to_string(), arguments).await,
-            }
-        };
+        let run = (self.teammate.call)(name.to_string(), arguments);
         let answer = match tokio::time::timeout(CALL_LIMIT, run).await {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => error,
             Err(_) => format!("{name} did not answer in time."),
         };
         hotline_room::text::clip(&answer, OUTPUT_CHARS)
-    }
-}
-
-impl FrontTools {
-    /// Posts the person's request to the teammate's DM, stamped as from the
-    /// call.
-    fn post(&self, arguments: &Value) -> String {
-        let Some(text) = arguments["text"]
-            .as_str()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-        else {
-            return "post_to_chat needs the text to post.".into();
-        };
-        let Some(room) = self.room.upgrade() else {
-            return "The chat is not available.".into();
-        };
-        let text = hotline_room::text::clip(text, POST_CHARS);
-        match room.post(&self.persona_id, &self.thread, &text) {
-            Ok(()) => "Posted to the chat.".into(),
-            Err(error) => error,
-        }
     }
 }
 
@@ -221,5 +135,4 @@ impl DeskTools {
 pub struct FrontReach {
     pub tools: DeskTools,
     pub capability: CapabilityLease,
-    pub connect: Option<BoxFuture<'static, mcp::Connections>>,
 }

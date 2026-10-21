@@ -5,15 +5,9 @@
 //! `search_thread`, and one `link` line on the DM stands for it. A call that has
 //! ended is read back as any other thread is.
 //!
-//! The writes are made by a task of the call's own, in the order they were
-//! sent, so that the call's path to the person's ear never waits on a file or
-//! the search index: saying a line is pushing it on a channel.
-//!
-//! The teammate's session keeps the person's words in its own conversation
-//! too, as the turns they were; this is the call as it was heard and said.
-//! With a voice front on the call, the person's lines are what the front
-//! heard and the voice's are what the front said; the teammate's tape holds
-//! only what was handed to it and what it answered.
+//! Speech is written before the next call event is handled, so work can read
+//! the complete conversation that preceded its request. Ending is queued:
+//! summary generation must not hold up disconnecting the microphone.
 
 use crate::call_room::CallRoom;
 use hotline_contract::End;
@@ -36,7 +30,6 @@ pub(super) enum Speaker {
 
 /// One thing to be written, with the time it happened.
 enum Entry {
-    Line(Value),
     Ended {
         ts: i64,
         end: End,
@@ -49,6 +42,8 @@ pub(super) struct Record {
     sender: mpsc::UnboundedSender<Entry>,
     room: Arc<dyn CallRoom>,
     thread: hotline_contract::ThreadId,
+    persona: String,
+    client: Option<hotline_contract::Client>,
 }
 
 impl Record {
@@ -65,6 +60,8 @@ impl Record {
             sender,
             room: room.clone(),
             thread: call_id.clone(),
+            persona: persona_id.into(),
+            client: crate::call_room::prompt_client(),
         };
         let call_id = call_id.clone();
         let persona_id = persona_id.to_string();
@@ -74,7 +71,6 @@ impl Record {
                     return;
                 };
                 match entry {
-                    Entry::Line(line) => room.call_said(&call_id, &persona_id, &line),
                     Entry::Ended { ts, end, outcome } => {
                         room.call_ended(&call_id, &persona_id, end, outcome, ts);
                     }
@@ -91,8 +87,15 @@ impl Record {
             Speaker::Person => "user",
             Speaker::Voice => "agent",
         };
-        let line = json!({"kind": kind, "id": id, "ts": ts, "text": text});
-        let _ = self.sender.send(Entry::Line(line));
+        let mut line = json!({"kind": kind, "id": id, "ts": ts, "text": text});
+        if speaker == Speaker::Person {
+            line["client"] = json!(self.client);
+        }
+        self.line(&line);
+    }
+
+    pub(super) fn line(&self, line: &Value) {
+        self.room.call_said(&self.thread, &self.persona, line);
     }
 
     /// The call is over, for this reason.
@@ -158,7 +161,7 @@ impl super::Call {
         if let Some(line) = self.speech_line.interrupt(played_ms)
             && let Some(record) = &self.record
         {
-            let _ = record.sender.send(Entry::Line(line));
+            record.line(&line);
         }
     }
 }

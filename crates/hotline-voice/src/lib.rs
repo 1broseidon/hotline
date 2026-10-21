@@ -224,12 +224,8 @@ pub struct Origin {
     pub call_id: String,
     pub seq: u32,
     pub direct: bool,
-    /// The words came through a voice front, not straight from the person,
-    /// so the teammate is told they are a transcript ([`spoken::voice_turn`]).
+    /// Spoken results go through the live front instead of speech synthesis.
     pub front: bool,
-    /// The call ended before the words were answered: the teammate answers
-    /// them in writing, with no version to speak.
-    pub ended: bool,
 }
 
 impl Origin {
@@ -243,14 +239,6 @@ impl Origin {
         })
     }
 
-    pub fn event_id(&self, event: &str) -> String {
-        format!(
-            "voice:{}:{}:{}:{event}",
-            self.call_id,
-            self.seq,
-            if self.direct { "agent" } else { "desk" }
-        )
-    }
     /// The call a line came from, when the line says so as a delivery does:
     /// the call thread, and the turn of it. Only a direct call is a thread, so
     /// a call said in this way is one.
@@ -263,7 +251,6 @@ impl Origin {
             seq: from.request.as_deref()?.parse().ok()?,
             direct: true,
             front: false,
-            ended: false,
         })
     }
 
@@ -289,7 +276,6 @@ impl Origin {
             seq,
             direct,
             front: false,
-            ended: false,
         })
     }
 }
@@ -605,17 +591,15 @@ impl Calls {
     /// Whether the call `id` is still going: the person is on it.
     pub fn thread_origin(&self, thread: &hotline_contract::ThreadId) -> Option<Origin> {
         let calls = lock(&self.calls);
-        let call = calls.iter().rev().find(|call| {
-            call.thread.as_ref() == Some(thread)
-                && call.state != VoiceState::Ended
-                && call.front.is_none()
-        })?;
+        let call = calls
+            .iter()
+            .rev()
+            .find(|call| call.thread.as_ref() == Some(thread) && call.state != VoiceState::Ended)?;
         Some(Origin {
             call_id: call.id.clone(),
             seq: call.seq.unwrap_or_default(),
             direct: true,
-            front: false,
-            ended: false,
+            front: call.front.is_some(),
         })
     }
 
@@ -917,8 +901,7 @@ impl Calls {
             call_id: call.id.clone(),
             seq: call.seq?,
             direct: true,
-            front: false,
-            ended: false,
+            front: call.front.is_some(),
         })
     }
 

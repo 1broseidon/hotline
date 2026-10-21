@@ -55,10 +55,83 @@ impl Calls {
         self.queue_text(id, seq, text, TranscriptSource::Device)
     }
 
-    /// The words a voice front relays to the teammate on this call, handed
-    /// over as a typed message is ([`front`]).
-    pub(crate) fn relay(&self, id: &str, seq: u32, words: &str) -> Result<(), String> {
-        self.queue_text(id, seq, words, TranscriptSource::Front)
+    /// Admit work to the call's occupant before acknowledging it. Startup
+    /// and model execution happen on that occupant's independent task.
+    pub(crate) async fn work_on_it(&self, id: &str, seq: u32, words: &str) -> Result<(), String> {
+        if words.trim().is_empty() || words.chars().count() > 8_000 {
+            return Err("Work needs between 1 and 8,000 characters.".into());
+        }
+        let target = self.change(id, |call| {
+            if call.front.is_none() {
+                return Err("This call has no live voice.".into());
+            }
+            if call.state == VoiceState::Held {
+                return Err("Resume the call first.".into());
+            }
+            let target = call.target.clone().zip(call.thread.clone());
+            if target.is_some() {
+                call.seq = Some(seq);
+                call.answering.get_or_insert(seq);
+                call.words = words.into();
+                call.activity = Instant::now();
+                call.state(VoiceState::Thinking, None);
+            }
+            Ok(target)
+        })?;
+        let Some((persona, thread)) = target else {
+            return self.queue_text(id, seq, words, TranscriptSource::Front);
+        };
+        let result = self.room.call_prompt(&persona, &thread, words).await;
+        if result.is_err() {
+            let _ = self.change(id, |call| {
+                call.answering = None;
+                Ok(())
+            });
+        }
+        result
+    }
+
+    pub(crate) fn stop_work(&self, id: &str) -> Result<String, String> {
+        let (persona, thread, unfinished) = self.change(id, |call| {
+            if call.state == VoiceState::Held {
+                return Err("Resume the call first.".into());
+            }
+            Ok((
+                call.target.clone().ok_or("Choose a teammate first.")?,
+                call.thread.clone().ok_or("The call has no thread.")?,
+                call.words.clone(),
+            ))
+        })?;
+        self.room.cancel_work(&persona, &thread)?;
+        self.change(id, |call| {
+            call.answering = None;
+            call.state(call.resting(), None);
+            Ok(format!(
+                "Stopped work on {}. Anything not yet completed is left unfinished.",
+                hotline_room::text::clip(&unfinished, 180)
+            ))
+        })
+    }
+
+    pub(crate) fn record_tool(
+        &self,
+        id: &str,
+        tool_id: &str,
+        name: &str,
+        arguments: &str,
+        output: Option<&str>,
+    ) {
+        let _ = self.change(id, |call| {
+            let id = tool_id;
+            if let Some(record) = &call.record {
+                record.line(&serde_json::json!({
+                    "kind":"tool", "id":id,
+                    "ts":chrono::Local::now().timestamp_millis(), "toolCallId":id, "title":name,
+                    "output":[{"type":"text", "text":format!("{arguments}\n{}", output.unwrap_or_default())}], "status":if output.is_some() { "completed" } else { "in_progress" }
+                }));
+            }
+            Ok(())
+        });
     }
 
     pub(super) fn queue_text(

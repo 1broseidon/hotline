@@ -634,7 +634,14 @@ note includes only new work even when timestamps tie. New input during the
 summary causes it to be retried before publication; queue admission and final
 parking share a gate. If no summariser answers, the post explicitly says so
 and links to the transcript. The front's Digest and five-minute summaries
-are gone. Live voices still delegate work to the DM until S6.
+are gone. Live voices use `work_on_it` to start or steer one clone on the
+call thread, on the teammate's selected model and harness. The whole call
+so far is its brief. Reads still run beside it; the home session is never
+interrupted. Stop cancels the call's work and drops queued changes. Speech
+from both sides and each read/work tool are written in order on the thread.
+The clone posts drafts and files with a subject, then returns a short spoken
+result. GPT-Live's client delegation uses this same work tool, without a
+call-assistant delegation loop.
 
 The call's chat row reads parked once its thread parks. The roster carries
 `workingCalls`, the call thread ids with a turn in flight, so the row says
@@ -650,7 +657,7 @@ all posts since it last spoke and source thread ids for its reading tools.
 
 A call belongs to one owner connection and its selected desk. The desk is the
 primary entry point; an optional teammate target uses that teammate's standing grants and its
-call thread. Live-front delegation still uses the home session until S6. Call and utterance ids correlate replies,
+call thread. Call and utterance ids correlate replies,
 so unrelated work or an old reply never speaks on a direct call. Hold, hangup,
 interrupt and connection revocation cancel voice input and output; an agent
 instruction already accepted by the session keeps working.

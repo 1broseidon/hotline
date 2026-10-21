@@ -20,9 +20,9 @@ pub use socket::RealtimeSocket;
 /// has a channel for speech and is handed the line alone.
 pub const SAY_THIS: &str = "Say exactly this to the person, word for word, and add nothing: ";
 
-/// The front's tool that hands the person's words to the teammate. GPT-Live
+/// The front's own work tool on the call thread. GPT-Live
 /// has no session tools, and reports each of its hand-offs under this name.
-pub const SEND_TO_TEAMMATE: &str = "send_to_teammate";
+pub const WORK_ON_IT: &str = "work_on_it";
 
 use super::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;
@@ -234,7 +234,7 @@ pub trait Realtime: Send + Sync {
     /// Subscription sessions do not incur an additional metered charge.
     fn is_subscription(&self) -> bool;
     /// Whether the model calls no session tools of its own and hands every
-    /// request over as `send_to_teammate`, for the caller to answer with its
+    /// request over as `work_on_it`, for the caller to answer with its
     /// tools or pass on.
     fn delegates(&self) -> bool {
         false

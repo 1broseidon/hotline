@@ -93,7 +93,7 @@ fn config() -> RealtimeConfig {
         instructions: "You are the front.".into(),
         voice: "eve".into(),
         tools: vec![RealtimeTool {
-            name: "hand_off".into(),
+            name: "work_on_it".into(),
             description: "Give the teammate the caller's words.".into(),
             parameters: json!({"type": "object", "properties": {"words": {"type": "string"}}}),
         }],
@@ -150,7 +150,7 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
             })
         );
         assert_eq!(session["tools"][0]["type"], "function");
-        assert_eq!(session["tools"][0]["name"], "hand_off");
+        assert_eq!(session["tools"][0]["name"], "work_on_it");
         assert_eq!(session["tools"][0]["parameters"]["type"], "object");
 
         let append = receive(&mut socket).await;
@@ -196,7 +196,7 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
         send(&mut socket, json!({"type": "response.created"})).await;
         send(
             &mut socket,
-            json!({"type": "response.function_call_arguments.done", "call_id": "c1", "name": "hand_off", "arguments": "{\"words\":\"Fix the build.\"}"}),
+            json!({"type": "response.function_call_arguments.done", "call_id": "c1", "name": "work_on_it", "arguments": "{\"words\":\"Fix the build.\"}"}),
         )
         .await;
         // The result arrives mid-reply: the next reply waits for this one.
@@ -244,7 +244,7 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
         next(&mut session).await,
         RealtimeEvent::ToolCall {
             call_id: "c1".into(),
-            name: "hand_off".into(),
+            name: "work_on_it".into(),
             arguments: "{\"words\":\"Fix the build.\"}".into(),
         }
     );
@@ -573,15 +573,15 @@ async fn gpt_realtime_asks_for_its_model_and_puts_voice_turns_and_transcription_
             json!({"type": "audio/pcm", "rate": 24_000})
         );
         assert_eq!(
-            session["audio"]["input"]["turn_detection"]["type"],
-            "server_vad"
+            session["audio"]["input"]["turn_detection"],
+            json!({"type":"semantic_vad", "eagerness":"low"})
         );
         assert_eq!(
             session["audio"]["input"]["transcription"]["model"],
             OPENAI_TRANSCRIBE
         );
         assert!(session.get("voice").is_none() && session.get("turn_detection").is_none());
-        assert_eq!(session["tools"][0]["name"], "hand_off");
+        assert_eq!(session["tools"][0]["name"], "work_on_it");
 
         // The same events as Grok's carry the call.
         send(

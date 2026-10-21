@@ -53,7 +53,7 @@ fn a_line_to_say_goes_in_pieces_the_sideband_takes() {
 }
 
 #[test]
-fn a_hand_off_is_the_send_the_bridge_answers_in_the_persons_words() {
+fn a_delegation_invokes_work_in_the_persons_words() {
     let mut heard = Heard::default();
     let events = heard
         .event(&json!({
@@ -66,13 +66,31 @@ fn a_hand_off_is_the_send_the_bridge_answers_in_the_persons_words() {
         events,
         [RealtimeEvent::ToolCall {
             call_id: "item_1".into(),
-            name: SEND_TO_TEAMMATE.into(),
+            name: WORK_ON_IT.into(),
             arguments: json!({"words": "check whether the build passed"}).to_string(),
         }]
     );
     // A delegation to the server's own backend is not the desk's to answer.
     let server = json!({"type": "delegation.created", "item": {"id": "x", "target": "responses", "content": []}});
     assert_eq!(heard.event(&server).unwrap(), [] as [RealtimeEvent; 0]);
+}
+
+#[test]
+fn a_delegation_can_stop_work_through_the_same_tool() {
+    let mut heard = Heard::default();
+    let arguments = json!({"words":"Never mind, drop it.","action":"stop"});
+    let events = heard.event(&json!({
+        "type":"delegation.created",
+        "item":{"id":"stop", "target":"client", "content":[{"type":"input_text", "text":arguments.to_string()}]}
+    })).unwrap();
+    assert_eq!(
+        events,
+        [RealtimeEvent::ToolCall {
+            call_id: "stop".into(),
+            name: WORK_ON_IT.into(),
+            arguments: arguments.to_string()
+        }]
+    );
 }
 
 #[test]
@@ -250,7 +268,7 @@ async fn a_live_call_says_a_line_hands_over_what_it_hears_and_says_the_answer() 
         "a second of speech came back: {audio} bytes"
     );
     let (call_id, name, arguments) = handed.expect("the ask was handed over");
-    assert_eq!(name, SEND_TO_TEAMMATE);
+    assert_eq!(name, WORK_ON_IT);
     assert!(arguments.contains("laptop"), "{arguments}");
 
     // What the desk found for the delegation is said.

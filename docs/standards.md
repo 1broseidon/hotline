@@ -78,7 +78,7 @@ module map itself is [development.md](development.md#layout).
   into the live room, the `mcp`↔`session` cycle below.
 - `hotline-voice` owns calls and their speech and realtime engines. It stands
   on `hotline-contract`, `hotline-support`, `hotline-store`, `hotline-room`,
-  `hotline-tools` and `hotline-mcp`, never on `hotline-core` or Tauri. Its
+  `hotline-tools`, never on `hotline-core` or Tauri. Its
   single `CallRoom` interface reaches sessions, the vault and real tool
   handlers through `hotline-core::voice::room`; `voice::connected` still
   reads the vault into the engines' `Connected`. Temporary interface

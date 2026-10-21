@@ -51,7 +51,6 @@ pub struct Context {
     calls: Arc<super::Calls>,
     pub cancel: CancellationToken,
     heard: bool,
-    origin: Option<super::Origin>,
     handoffs: Arc<AtomicUsize>,
     schedules: Arc<Mutex<std::collections::HashSet<String>>>,
 }
@@ -69,16 +68,8 @@ impl Context {
             calls,
             cancel,
             heard: false,
-            origin: None,
             handoffs: Arc::new(AtomicUsize::new(0)),
             schedules: Arc::default(),
-        }
-    }
-
-    pub fn with_origin(&self, origin: super::Origin) -> Self {
-        Self {
-            origin: Some(origin),
-            ..self.clone()
         }
     }
 
@@ -207,14 +198,7 @@ impl Context {
                             context.calls.clone(),
                         ),
                     );
-                    match &context.origin {
-                        Some(origin) => {
-                            crate::call_room::CALL_ORIGIN
-                                .scope(origin.clone(), prompt)
-                                .await
-                        }
-                        None => prompt.await,
-                    }
+                    prompt.await
                 };
                 let result = tokio::select! {
                     () = context.cancel.cancelled() => Err("The call ended before the handoff landed.".to_string()),
@@ -326,19 +310,6 @@ pub trait Dispatcher: Send + Sync {
         written: &str,
         ledger: Arc<Budget>,
     ) -> Result<String, String>;
-    /// A request the voice on a call to a teammate delegated, answered with
-    /// `tools`, the teammate's desk-side tools and the hand-off to its
-    /// working session: what the voice should tell the person, or the
-    /// hand-off's words when it handed the request on.
-    async fn delegated(
-        &self,
-        _preamble: &str,
-        _request: &str,
-        _tools: Vec<DynamicTool>,
-        _ledger: Arc<Budget>,
-    ) -> Result<String, String> {
-        Err("This call assistant runs no tools.".into())
-    }
     /// Whether its model costs nothing per token: a sign-in, a local server.
     /// One that does not say so is treated as paid.
     fn free(&self) -> bool {
@@ -543,13 +514,6 @@ const ANSWER_TOKENS: u64 = 512;
 /// The output ceiling of a narrated or rewritten reply, and so of its
 /// reservation.
 const NARRATION_TOKENS: u64 = 160;
-/// The most one model turn answering a delegated request may write: room for
-/// a tool call's arguments and a short spoken answer.
-const DELEGATED_TOKENS: u64 = 1_024;
-/// The model turns a delegated request may take: a few lookups, then the
-/// answer.
-const DELEGATED_TURNS: usize = 6;
-
 /// How much of a written answer a rewrite is handed. The opening of a long
 /// answer carries its gist, and the rest is in the chat.
 const REWRITE_CHARS: usize = 8_000;
@@ -649,35 +613,6 @@ impl Dispatcher for ProviderDispatcher {
             .await
     }
 
-    async fn delegated(
-        &self,
-        preamble: &str,
-        request: &str,
-        tools: Vec<DynamicTool>,
-        ledger: Arc<Budget>,
-    ) -> Result<String, String> {
-        let agent = self
-            .room
-            .completion_builder(&self.model, self.effort.as_deref(), DELEGATED_TOKENS)
-            .await?
-            .preamble(preamble)
-            .dynamic_tools(tools)
-            .build();
-        let (meter, denied) = self.meter(ledger, DELEGATED_TOKENS);
-        let result = agent
-            .prompt(untrusted(&json!({"personSaid": request})))
-            .max_turns(DELEGATED_TURNS)
-            .add_hook(meter)
-            .await;
-        result.map(|response| response.output()).map_err(|error| {
-            if denied.load(Ordering::SeqCst) {
-                BUDGET_ERROR.to_string()
-            } else {
-                error.to_string()
-            }
-        })
-    }
-
     async fn narrate(&self, name: &str, text: &str, ledger: Arc<Budget>) -> Result<String, String> {
         self.once(
             NARRATION,
@@ -704,87 +639,6 @@ impl Dispatcher for ProviderDispatcher {
         )
         .await
     }
-}
-
-/// What became of a request the front delegated.
-pub enum Delegated {
-    /// What to tell the person, from the teammate's tools.
-    Answer { call_id: String, text: String },
-    /// Work for the teammate's working session, as `send_to_teammate`'s
-    /// arguments.
-    HandOff { call_id: String, arguments: String },
-}
-
-/// The longest the call assistant may take over a delegated request before
-/// it goes to the working session instead.
-const DELEGATED_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Answers a delegated request with the teammate's desk-side tools, or hands
-/// it on: when the assistant calls `send_to_teammate`, fails, or says
-/// nothing, the request goes to the working session as it would have.
-pub async fn answer_delegation(
-    assistant: &dyn Dispatcher,
-    preamble: &str,
-    mut offered: Vec<DynamicTool>,
-    ledger: Arc<Budget>,
-    call_id: String,
-    arguments: String,
-) -> Delegated {
-    let handed = Arc::new(Mutex::new(None::<String>));
-    offered.push(hand_off(handed.clone()));
-    let request = serde_json::from_str::<Value>(&arguments)
-        .ok()
-        .and_then(|arguments| arguments["words"].as_str().map(str::to_string))
-        .unwrap_or_default();
-    let answer = tokio::time::timeout(
-        DELEGATED_LIMIT,
-        assistant.delegated(preamble, &request, offered, ledger),
-    )
-    .await
-    .unwrap_or_else(|_| Err("The call assistant did not answer in time.".into()));
-    let words = super::lock(&handed).take();
-    if let Some(words) = words {
-        let arguments = json!({ "words": words }).to_string();
-        return Delegated::HandOff { call_id, arguments };
-    }
-    match answer {
-        Ok(text) if !text.trim().is_empty() => Delegated::Answer { call_id, text },
-        Ok(_) => Delegated::HandOff { call_id, arguments },
-        Err(error) => {
-            eprintln!(
-                "[voice] the call assistant could not answer a delegation: {}",
-                hotline_room::text::clip(&error, 300)
-            );
-            Delegated::HandOff { call_id, arguments }
-        }
-    }
-}
-
-/// `send_to_teammate` for the call assistant: it keeps the words, for the
-/// call to hand over once the assistant is done.
-fn hand_off(handed: Arc<Mutex<Option<String>>>) -> DynamicTool {
-    let tool = super::front::tools()
-        .into_iter()
-        .find(|tool| tool.name == crate::realtime::SEND_TO_TEAMMATE)
-        .expect("the front's own tools hold send_to_teammate");
-    DynamicTool::new(
-        ToolName::new(tool.name).expect("a desk tool is named by Hotline"),
-        tool.description,
-        tool.parameters,
-        move |arguments| {
-            let handed = handed.clone();
-            Box::pin(async move {
-                let words = arguments["words"].as_str().map_or("", str::trim);
-                if words.is_empty() {
-                    return Ok(ToolOutput::text(
-                        "send_to_teammate needs the person's words.",
-                    ));
-                }
-                *super::lock(&handed) = Some(words.to_string());
-                Ok(ToolOutput::text("Handed to your working session."))
-            })
-        },
-    )
 }
 
 fn request(context: &Context, text: &str) -> String {

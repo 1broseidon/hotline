@@ -304,7 +304,6 @@ fn on_turn(calls: &Calls, id: &str, seq: u32) -> Origin {
         seq,
         direct: true,
         front: false,
-        ended: false,
     }
 }
 

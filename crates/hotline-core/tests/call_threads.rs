@@ -452,8 +452,16 @@ async fn closing_note_waits_thirty_seconds_and_for_finished_work_then_parks() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let (ada, tape) = desk.teammate("Ada", driver, false).await;
-        let (call, _, sub) = desk.call_on(&ada, None).await;
+        let roster = desk.client.subscribe(json!({"view":"roster"})).await;
+        let (call, thread, sub) = desk.call_on(&ada, None).await;
         let gate = desk.gate(&call, sub).await;
+        desk.client
+            .next_where(PATIENCE, |frame| {
+                frame["sub"] == roster
+                    && frame["event"]["persona"]["id"] == ada
+                    && frame["event"]["workingCalls"] == json!([thread["key"]])
+            })
+            .await;
         desk.hang_up(&call, sub).await;
         desk.advance(29).await;
         assert!(
@@ -471,7 +479,16 @@ async fn closing_note_waits_thirty_seconds_and_for_finished_work_then_parks() {
                 .iter()
                 .any(|request| request["stream"] != true)
         );
+        // Discard earlier idle rows so only the turn's completion can satisfy this.
+        desk.client.inbox.retain(|frame| frame["sub"] != roster);
         std::fs::write(gate, "finish").unwrap();
+        desk.client
+            .next_where(PATIENCE, |frame| {
+                frame["sub"] == roster
+                    && frame["event"]["persona"]["id"] == ada
+                    && frame["event"].get("workingCalls").is_none()
+            })
+            .await;
         desk.closing(tape).await;
         desk.event(sub, |event| {
             event["kind"] == "link" && event["state"] == "parked"

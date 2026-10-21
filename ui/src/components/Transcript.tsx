@@ -87,6 +87,7 @@ export function Transcript({
 	streaming,
 	live,
 	cornered = false,
+	workingCalls,
 	focus,
 	speakers,
 	onReply,
@@ -120,6 +121,8 @@ export function Transcript({
 	 * and the way back down sits above it.
 	 */
 	cornered?: boolean;
+	/** Call thread IDs with a turn in flight, from the roster. */
+	workingCalls?: readonly string[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
@@ -418,6 +421,7 @@ export function Transcript({
 									thread={rowThread}
 									ownerName={name}
 									event={block.event}
+									working={block.event.kind === "link" && block.event.threadKind === "call" && (workingCalls?.includes(block.event.thread) ?? false)}
 									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
 									top={run.top}
 									bottom={run.bottom}
@@ -501,6 +505,7 @@ const Row = memo(function Row({
 	thread,
 	ownerName,
 	event,
+	working,
 	quote,
 	top,
 	bottom,
@@ -521,6 +526,7 @@ const Row = memo(function Row({
 	/** Whose tape this is: the teammate, so a card can speak of it in the third person. */
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
+	working: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
 	quote: string | undefined;
 	top: boolean;
@@ -699,10 +705,10 @@ const Row = memo(function Row({
 					type="button"
 					className="rule-line rule-line-plain w-full"
 					style={linkFailed(event) ? { color: "var(--warn)" } : undefined}
-					aria-label={`${linkLine(event, personaId, people)}. Open it`}
+					aria-label={`${linkLine(event, personaId, people, working)}. Open it`}
 					onClick={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })}
 				>
-					<span className="min-w-0 truncate">{linkLine(event, personaId, people)}</span>
+					<span className="min-w-0 truncate">{linkLine(event, personaId, people, working)}</span>
 					<span className="shrink-0">· Open</span>
 				</button>
 			);

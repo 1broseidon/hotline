@@ -141,6 +141,7 @@ function workingNow(entry: RosterEntry, open: ThreadRef): boolean {
 	if (open.thread.kind === "side") return entry.sides?.find((side) => side.sideId === open.thread.key)?.working ?? false;
 	if (open.thread.kind === "run") return entry.subagents?.some((run) => run.runId === open.thread.key) ?? false;
 	if (open.thread.kind === "job") return entry.workingJobs?.includes(open.thread.key) ?? false;
+	if (open.thread.kind === "call") return entry.workingCalls?.includes(open.thread.key) ?? false;
 	return false;
 }
 
@@ -195,6 +196,8 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 		(entry?.subagents ?? []).map((run) => run.runId).join(",") +
 		"|" +
 		(entry?.workingJobs ?? []).join(",") +
+		"|" +
+		(entry?.workingCalls ?? []).join(",") +
 		(entry?.waiting === true ? "|waiting" : "");
 	// biome-ignore lint/correctness/useExhaustiveDependencies: signature and revision are what say the threads changed.
 	useEffect(() => {

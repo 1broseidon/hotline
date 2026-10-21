@@ -453,6 +453,7 @@ export function Conversation({
 					events={shown}
 					streaming={streaming}
 					live={state === "thinking"}
+					workingCalls={entry.workingCalls}
 					cornered={cornered}
 					focus={focus}
 					onReply={setReplying}

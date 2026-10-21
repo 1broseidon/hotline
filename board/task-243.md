@@ -27,3 +27,6 @@ updatedAt: "2026-10-21T05:05:56.709Z"
 
 ## Description
 Found re-checking task-242 on the QA desk, 2026-10-20, at a185fff1. After hang-up, once the closing note was posted and the call's thread pane said "Parked: no agent is running", the call's row in the chat still read "<title> · in progress · Open". Done when: the row reads parked (as the pane does) once the thread parks, and running only while a turn is in flight; a desk-harness or UI test proves both states.
+
+## Log
+- 2026-10-21T05:07:10.271Z: [codex] Found callWords treating every non-closed link as in progress. The saved live state means open, not a turn in flight; label live calls open and parked calls parked, retaining closed-call duration/outcome. UI regression covers both states.

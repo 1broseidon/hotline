@@ -1,8 +1,8 @@
 ---
 id: task-255
 title: "Live dictation: a pause inside 'draft… / say… / write…' ends the turn and starts work on half a sentence"
-column: in-progress
-position: 1
+column: review
+position: 0
 priority: high
 tags:
   - voice
@@ -21,7 +21,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T08:49:45.959Z"
 assignee: codex
-updatedAt: "2026-10-21T08:52:51.247Z"
+updatedAt: "2026-10-21T08:59:35.257Z"
 decisions:
   - decision-18
 ---

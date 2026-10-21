@@ -37,3 +37,4 @@ Done when:
 
 ## Log
 - 2026-10-21T05:05:15.665Z: [codex] In progress on dispatch/task-249: preserving task-246 integration targets; nextest must delegate hotline-contract to one libtest process (ts-rs exports) and shell_path to its existing harness-free entry point. Baseline local run compiling; per-OS after CI evidence requires reviewer push, forbidden in this dispatch.
+- 2026-10-21T05:05:20.108Z: [claude] 2026-10-21 George: 'that's enough of this, let's keep building core features'. Parked.

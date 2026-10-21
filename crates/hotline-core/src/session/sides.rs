@@ -320,6 +320,7 @@ impl Occupant for LiveSide {
         room.threads()
             .turn(
                 Seat {
+                    capability: Some(&self.capability),
                     thread: &thread,
                     persona_id: &self.persona_id,
                     driver: driver.as_ref(),

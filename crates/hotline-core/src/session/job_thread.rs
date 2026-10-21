@@ -376,6 +376,7 @@ impl Occupant for LiveJob {
         room.threads()
             .turn(
                 Seat {
+                    capability: None,
                     thread: &thread,
                     persona_id: &self.persona_id,
                     driver: driver.as_ref(),

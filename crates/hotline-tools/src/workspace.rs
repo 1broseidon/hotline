@@ -644,6 +644,16 @@ impl Workspace {
         Ok((file.into_std(), metadata.len(), root.join(relative)))
     }
 
+    /// ACP records absolute workspace paths; use its existing callback
+    /// boundary before applying the ordinary attachment read checks.
+    pub fn open_recorded_to_send(
+        &self,
+        path: &Path,
+    ) -> Result<(std::fs::File, u64, PathBuf), ToolError> {
+        let requested = self.callback_path(path)?;
+        self.open_to_send(&requested)
+    }
+
     pub fn create_file_path(&self, requested: &str, bytes: &[u8]) -> Result<PathBuf, ToolError> {
         self.check_capability()?;
         if bytes.len() > MAX_WRITE_BYTES {

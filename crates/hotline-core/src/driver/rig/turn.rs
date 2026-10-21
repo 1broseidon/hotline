@@ -721,7 +721,28 @@ impl Activity<'_> {
                 .execute(tools, call, &call_id, arguments, revision)
                 .await?;
             round_failed |= !result.is_success();
-            let (shown, images) = result_of(result.output().as_content());
+            let (mut shown, images) = result_of(result.output().as_content());
+            if result.is_success()
+                && matches!(call.function.name.as_str(), "write" | "edit")
+                && let Some(value) = result
+                    .output()
+                    .as_content()
+                    .iter()
+                    .find_map(rig::message::ToolResultContent::as_json)
+                && let Ok(file) = serde_json::from_value(value["file"].clone())
+            {
+                if let Some(message) = value["message"].as_str() {
+                    shown = message.to_string();
+                }
+                send(
+                    self.sender,
+                    Update::ToolFiles {
+                        call_id: call_id.clone(),
+                        files: vec![file],
+                    },
+                )
+                .await;
+            }
             // The model gets its one launch receipt now. The transcript's
             // shell card stays running until the owned job produces a result.
             if !self.jobs.owns(&call_id) {

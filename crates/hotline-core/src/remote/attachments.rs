@@ -160,6 +160,7 @@ pub(super) fn resolve(
                 return Err("Attachment upload is incomplete.".into());
             }
             Ok(Attachment {
+                created: None,
                 kind: if metadata
                     .mime_type
                     .as_ref()

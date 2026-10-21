@@ -95,7 +95,7 @@ export function AgentSay({
 			>
 				{event.text.trim() !== "" && <Markdown text={event.text} />}
 				{event.attachments?.map((file, index) => (
-					<SentFile key={file.path} personaId={personaId} eventId={event.id} index={index} file={file} />
+					<SentFile compact={event.from?.kind === "call" && (event.attachments?.length ?? 0) > 3} key={file.path} personaId={personaId} eventId={event.id} index={index} file={file} />
 				))}
 				<Reactions emoji={reactions} />
 				<BubbleActions {...actions} />

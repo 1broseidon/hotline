@@ -2002,3 +2002,32 @@ narrator leaves the written result available without a new spoken pointer.
   one. Driver approvals need trusted operation metadata before their voice
   support can expand. Live providers generate the spoken announcement;
   physical playback/echo and microphone timing still need the device pass.
+
+
+## Files produced by call work
+
+- **Default and grant source:** successful write/edit records on a call's own
+  turn are automatically delivered to that teammate's home chat. Explicit sends
+  join the batch. This adds no model tool, filesystem grant or destination.
+- **Enforcement:** `session/call_files.rs` reads only the recorded paths through
+  `files::from_workspace` and checks the call's scoped capability lease before
+  reads, storage and posting. Failed tools supply no automatic result. A stopped
+  or revoked call cannot regain authority from a saved record. File readback
+  selects the stored copy by message id and index; separate indexed directories
+  prevent equal basenames from colliding. Other documents open as inert text
+  or binary previews through `file.read`; the native image/PDF-only opener
+  remains unchanged and markup is never executed.
+- **Proof:** `tests/call_threads/files.rs`
+  `call_files_are_delivered_once_and_large_batches_are_one_openable_card` covers
+  both real drivers over the wire, one/three/six files, explicit sends, empty
+  work, unrelated workspace files and readback of every indexed result.
+  `session/tests/sent_files.rs`
+  `automatic_call_files_keep_the_call_lease_reach_and_work_boundary`
+  exercises the real publishing handler with allowed files, an outside path,
+  revoked authority, later corrections and separate calls.
+- **Residual risk:** ACP reports its own mutations, as it reports tool results;
+  those reports do not widen Hotline's read reach. Tools without explicit file
+  metadata (including shell commands) do not produce automatic attachments.
+  The file is read when the turn finishes, so another authorized writer can
+  change it before capture. Real-provider and physical-device behavior still
+  requires the separate call QA pass.

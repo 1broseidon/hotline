@@ -25,6 +25,7 @@ async fn what_is_appended_is_indexed() {
 
 fn attachment(name: &str, path: &str) -> Attachment {
     Attachment {
+        created: None,
         kind: AttachmentKind::File,
         name: name.to_string(),
         path: path.to_string(),

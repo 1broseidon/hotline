@@ -82,9 +82,15 @@ The acceptance set remains [the scenario deck](design/voice-scenarios.html).
 The [scenario pass record](design/voice-scenario-pass.md) maps every scenario
 to scripted evidence and retains each device requirement for Pork Chop and
 George. Physical phone behavior is not established by desktop tests.
-Files explicitly sent by the clone reach chat; files only written to disk
-are not automatically attached. That QA finding is task-253, awaiting George’s
-policy decision.
+The core delivers files from successful write/edit tool records on the call's
+own work turn, whether or not the clone calls `send_file`. Up to three files
+are individual attachments; larger batches are one compact list with each
+file's name, created/edited status, size and Open/Save actions. Explicit sends
+on that turn join the same batch, and an explicit send and the same turn’s automatic result
+are not repeated. A later correction delivers the updated file. No directory scan or path inferred from prose is used.
+Shell commands and tools without explicit file-change records cannot supply
+automatic attachments. Scripted real-core tests cover both drivers; real-provider
+and physical-device QA remain separate from that evidence.
 
 Headless wire/session tests cover desk compatibility, target validation,
 owner/companion boundaries, stream bounds, commit/cancellation and reply

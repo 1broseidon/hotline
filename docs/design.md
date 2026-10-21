@@ -1092,3 +1092,24 @@ both views. Answers from the home chat still reach the original call agent,
 and the voice handler keeps exactly the same authority checks. The call
 queue keeps request identities across provider reconnection and removes
 settled cards; interrupted generation is still not proof of what was heard.
+
+
+### Files produced by call work reach the home chat
+
+The core collects successful write/edit records from the call's own work turn.
+Hotline Agent preserves its workspace mutation's path and created/edited status;
+ACP preserves diff paths and creation status (location-only edit reports count
+as edited). The optional `files` field on a tool event and `created` field on an
+attachment are additive; existing tapes, segment layout and importer are unchanged.
+The core reads through the existing workspace reach under the call's revocable
+lease. It never scans directories or infers paths from the conversation or shell
+commands. Missing, oversized or inaccessible files leave a warning on the call.
+
+At work completion, explicit `send_file` calls join the recorded mutations in
+one batch. Each file is delivered once per work result, stamped From the call: up to
+three as separate attachments, more as one message with a compact list. Every
+entry opens and saves its stored copy. Text and other documents open in an inert
+text or binary preview; PDFs retain the native viewer. Indexed storage keeps equal basenames
+separate and addresses readback by message and attachment position, never by a
+caller-supplied source path. A later correction can deliver the updated file; a later call owns its own results. Work that survives
+hang-up still delivers while its lease is valid; revocation prevents delivery.

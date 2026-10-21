@@ -33,7 +33,7 @@ impl Realtime for Front {
             .ok_or(SpeechError::Cancelled)
     }
 }
-async fn result(asked: &mut mpsc::Receiver<Command>, id: &str) -> String {
+pub(super) async fn result(asked: &mut mpsc::Receiver<Command>, id: &str) -> String {
     tokio::time::timeout(PATIENCE, async {
         loop {
             if let Some(Command::ToolResult {
@@ -48,7 +48,10 @@ async fn result(asked: &mut mpsc::Receiver<Command>, id: &str) -> String {
     .await
     .expect("work tool answers")
 }
-async fn event(events: &mpsc::Sender<Result<RealtimeEvent, SpeechError>>, event: RealtimeEvent) {
+pub(super) async fn event(
+    events: &mpsc::Sender<Result<RealtimeEvent, SpeechError>>,
+    event: RealtimeEvent,
+) {
     events.send(Ok(event)).await.unwrap();
 }
 

@@ -107,6 +107,13 @@ impl Calls {
         mut work: mpsc::Receiver<Work>,
     ) {
         let mut failures = 0u8;
+        let mut progress_lines = [
+            "I'm still working on that.",
+            "Still on it.",
+            "I'm continuing to work on this.",
+        ]
+        .into_iter()
+        .cycle();
         let mut cards = tokio::time::interval(Duration::from_millis(250));
         loop {
             let next = tokio::select! { biased;
@@ -232,8 +239,8 @@ impl Calls {
                         })
                         .unwrap_or(false);
                     if active && !speech.is_cancelled() {
-                        self.say(&id, "I'm still working on that.", speech, &context.cancel)
-                            .await
+                        let line = progress_lines.next().expect("progress lines never run out");
+                        self.say(&id, line, speech, &context.cancel).await
                     } else {
                         Ok(())
                     }

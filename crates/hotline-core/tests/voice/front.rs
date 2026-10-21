@@ -239,7 +239,7 @@ async fn a_dropped_live_call_reconnects_with_its_context_and_keeps_its_audio_mod
         .await
         .unwrap();
     frame_where(&mut desk.socket, |f| f["event"]["type"] == "heard").await;
-    let (replacement, _asked, events) = RealtimeSession::scripted(64);
+    let (replacement, mut asked, events) = RealtimeSession::scripted(64);
     *desk.front.session.lock().unwrap() = Some(replacement);
     desk.events
         .send(Err(SpeechError::Unreachable {
@@ -247,6 +247,17 @@ async fn a_dropped_live_call_reconnects_with_its_context_and_keeps_its_audio_mod
         }))
         .await
         .unwrap();
+    frame_where(&mut desk.socket, |f| f["event"]["reconnecting"] == true).await;
+    frame_where(&mut desk.socket, |f| {
+        f["event"]["type"] == "state" && f["event"]["reconnecting"] != true
+    })
+    .await;
+    assert_eq!(
+        tokio::time::timeout(common::ANSWER, asked.recv())
+            .await
+            .unwrap(),
+        Some(Asked::Say("We're back on the same call.".into()))
+    );
     events
         .send(Ok(RealtimeEvent::Heard("Are you back?".into())))
         .await
@@ -299,6 +310,13 @@ async fn a_dropped_live_call_that_cannot_reconnect_ends_once_with_a_persistent_r
         .unwrap();
     frame_where(&mut desk.socket, |f| f["event"]["type"] == "heard").await;
     drop(desk.events);
+    let notice = frame_where(&mut desk.socket, |f| f["event"]["type"] == "said").await;
+    assert_eq!(
+        notice["event"]["text"],
+        "Live voice is unavailable. You can try again or choose Legacy voice."
+    );
+    let clip = frame_where(&mut desk.socket, |f| f["event"]["type"] == "clip").await;
+    assert_eq!(clip["event"]["mimeType"], "audio/wav");
     let ended = frame_where(&mut desk.socket, |f| f["event"]["state"] == "ended").await;
     assert!(
         ended["event"]["liveError"]
@@ -1091,4 +1109,44 @@ async fn the_live_prompt_knows_its_identity_and_refreshes_already_said_call_cont
         json!({"cmd":"voice.call_end","params":{"callId":call}}),
     )
     .await;
+}
+
+#[tokio::test]
+async fn a_wire_drop_resumes_the_same_live_call_and_announces_it() {
+    let mut desk = front_desk(true, 64).await;
+    let call = Uuid::new_v4().to_string();
+    answer(
+        &mut desk.socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call}}),
+    )
+    .await;
+    send(&mut desk.socket, json!({"id":101,"sub":{"call":call}})).await;
+    frame_where(&mut desk.socket, |f| f["snapshot"].is_array()).await;
+    desk.socket.close(None).await.unwrap();
+    // Reopening the same subscription reattaches to the original call.
+    let (mut socket, _) =
+        connect_async(format!("ws://127.0.0.1:{}/ws?token=front-test", desk.port))
+            .await
+            .unwrap();
+    send(&mut socket, json!({"id":102,"sub":{"call":call}})).await;
+    let snapshot = frame_where(&mut socket, |f| f["snapshot"].is_array()).await;
+    assert_ne!(snapshot["snapshot"][0]["state"], "ended");
+    let said = tokio::time::timeout(common::ANSWER, async {
+        loop {
+            if let Some(Asked::Say(text)) = desk.asked.recv().await {
+                break text;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(said, "We're back on the same call.");
+    let ended = answer(
+        &mut socket,
+        2,
+        json!({"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(ended["ok"], true);
 }

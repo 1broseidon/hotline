@@ -82,6 +82,8 @@ pub enum RealtimeEvent {
     /// dropped connection. Audio of an unfinished reply is lost, and the new
     /// session knows the conversation only from its transcript.
     Renewed,
+    /// Recovery is in progress; cleared by Renewed or a terminal error.
+    Reconnecting,
 }
 
 /// What a caller asks of a live session; the driver task carries it out.

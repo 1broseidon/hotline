@@ -5,6 +5,8 @@ These fixed system sentences remain playable without a paid speech request:
 | `retry.wav` | Sorry, say that again. |
 | `error.wav` | Voice keeps failing. Please continue by text. |
 | `goodbye.wav` | Goodbye. |
+| `live-budget.wav` | The Voice budget is spent. Raise it in Settings or choose Legacy voice. |
+| `live-unavailable.wav` | Live voice is unavailable. You can try again or choose Legacy voice. |
 | `budget.wav` | The voice budget is unavailable or spent. Chat carries on by text. |
 
 Generated locally with FFmpeg's Flite `slt` voice, resampled to 16 kHz mono
@@ -17,3 +19,7 @@ ffmpeg -f lavfi -i "flite=text='Sorry, say that again.':voice=slt" -ar 16000 -ac
 ```
 
 `waiting.wav` is a 200 ms, 440 Hz sine at amplitude 1800/32768, with a sine-squared envelope, sampled as 16 kHz mono PCM16. It is a soft sound, with no speech. The core sends it once after 1.8 seconds only if a Legacy turn has not started speaking.
+
+The two `live-*.wav` notices use the same Flite `slt` voice directly:
+`flite -voice slt -t 'SENTENCE' -o FILE.wav`. They are 16 kHz mono PCM16,
+play once before the terminal live state, and make no provider request.

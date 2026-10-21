@@ -1092,6 +1092,7 @@ impl Driver {
     /// The call outlives its sideband: a dropped one is joined again. A call
     /// the server no longer knows has ended.
     async fn rejoin(&mut self, sideband: &mut Sideband) -> Result<(), SpeechError> {
+        self.emit(RealtimeEvent::Reconnecting).await?;
         let mut wait = REJOIN_WAIT;
         for _ in 0..REJOINS {
             sleep(wait).await;

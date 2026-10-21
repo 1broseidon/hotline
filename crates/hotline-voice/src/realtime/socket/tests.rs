@@ -435,6 +435,7 @@ async fn a_dropped_connection_reconnects_with_the_transcript_carried() {
         RealtimeEvent::Saying("it.".into())
     );
     assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
+    assert_eq!(next(&mut session).await, RealtimeEvent::Reconnecting);
     assert_eq!(next(&mut session).await, RealtimeEvent::Renewed);
     session.input.push_audio(vec![7, 0]).await.unwrap();
     session.close().await;
@@ -472,6 +473,7 @@ async fn a_lost_provider_is_retried_then_reported_unreachable() {
         drop(listener);
     });
     let mut session = voice(&url).open(config()).await.unwrap();
+    assert_eq!(next(&mut session).await, RealtimeEvent::Reconnecting);
     let error = timeout(Duration::from_secs(10), session.events.recv())
         .await
         .unwrap()
@@ -797,6 +799,7 @@ async fn instructions_refresh_without_starting_speech_and_survive_reconnect() {
             .instructions("Work running. Already said: inspecting tests.")
             .await
             .unwrap();
+        assert_eq!(next(&mut session).await, RealtimeEvent::Reconnecting);
         assert_eq!(next(&mut session).await, RealtimeEvent::Renewed);
         session.close().await;
         finish(server).await;

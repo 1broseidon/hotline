@@ -217,6 +217,7 @@ impl Realtime for ScriptedFront {
 }
 
 struct FrontDesk {
+    port: u16,
     socket: Socket,
     asked: tokio::sync::mpsc::Receiver<Asked>,
     events: tokio::sync::mpsc::Sender<Result<RealtimeEvent, SpeechError>>,
@@ -261,6 +262,7 @@ async fn front_desk_with(front: bool, queue: usize, delegates: bool) -> FrontDes
         .await
         .unwrap();
     FrontDesk {
+        port,
         socket,
         asked,
         events,

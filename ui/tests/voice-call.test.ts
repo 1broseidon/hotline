@@ -218,14 +218,32 @@ describe("a call with the desk", () => {
 		expect(r.played).toEqual([]);
 	});
 
-	test("a desk out of reach ends the call: the desk has ended it too", async () => {
+	test("a short drop resumes the same call without starting another", async () => {
 		const r = rig();
 		await r.call.start();
 		r.connection("open");
 		expect(r.call.current.phase).toBe("listening");
 		r.connection("closed");
+		expect(r.call.current.phase).toBe("reconnecting");
+		r.call.settle();
+		expect(r.call.current.phase).toBe("reconnecting");
+		r.connection("open");
+		expect(r.call.current.phase).toBe("reconnecting");
+		r.snapshot([{ type: "state", state: "listening" }]);
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("provider recovery clears Reconnecting when it succeeds or offers Legacy on failure", async () => {
+		const r = rig();
+		await r.call.start();
+		r.call.receive({ type: "state", state: "listening", reconnecting: true });
+		expect(r.call.current.phase).toBe("reconnecting");
+		r.call.receive({ type: "state", state: "listening" });
+		expect(r.call.current.phase).toBe("listening");
+		r.call.receive({ type: "state", state: "ended", liveError: "Live voice could not reconnect." });
 		expect(r.call.current.phase).toBe("ended");
-		expect(r.call.current.trouble).toBe("Lost the connection to the desk.");
+		expect(r.call.current.legacyAvailable).toBe(true);
 	});
 
 	test("a desk that no longer pairs ends the call at once", async () => {
@@ -1033,4 +1051,20 @@ test("the explicit retry after a live failure keeps its call thread", async () =
     await r.call.start();
     r.desk({ type: "state", state: "ended", reason: "error", liveError: "Live voice disconnected." });
     expect(r.call.redial(true).target?.thread).toEqual({ kind: "call", key: r.call.id });
+});
+
+
+test("a failed live call finishes its fixed notice once before the Legacy offer", async () => {
+    const r = rig();
+    await r.call.start();
+    r.desk({ type: "state", state: "listening", reconnecting: true });
+    r.desk({ type: "said", id: "notice", text: "Choose Legacy voice." });
+    r.desk({ type: "clip", id: "notice", index: 0, final: true, mimeType: "audio/wav", data: "notice" });
+    r.desk({ type: "state", state: "ended", reason: "error", liveError: "The Voice budget is spent." });
+    expect(r.call.current.phase).toBe("speaking");
+    expect(r.played).toEqual(["notice"]);
+    r.finishClip();
+    expect(r.call.current.phase).toBe("ended");
+    expect(r.call.current.legacyAvailable).toBe(true);
+    expect(r.sent.filter(({ cmd }) => cmd === "voice.call_start")).toHaveLength(1);
 });

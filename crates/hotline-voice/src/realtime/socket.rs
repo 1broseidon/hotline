@@ -633,6 +633,7 @@ impl Driver {
             "[voice] {}: socket lost; reconnecting with transcript",
             self.voice.dialect.model()
         );
+        self.emit(RealtimeEvent::Reconnecting).await?;
         let mut wait = RECONNECT_WAIT;
         let mut attempt = 0;
         loop {

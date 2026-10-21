@@ -37,6 +37,38 @@ impl Requests {
     }
 }
 
+/// Only turn boundaries are traced: no audio, transcript, tool arguments,
+/// provider identifiers or arbitrary event fields can enter these logs.
+pub(super) fn turn_boundary(event: &Value) -> Option<String> {
+    let kind = event["type"].as_str()?;
+    match kind {
+        "input_audio_buffer.speech_started"
+        | "input_audio_buffer.speech_stopped"
+        | "input_audio_buffer.commit"
+        | "input_audio_buffer.committed"
+        | "input_audio_buffer.cleared"
+        | "conversation.item.input_audio_transcription.completed"
+        | "conversation.item.input_audio_transcription.failed"
+        | "conversation.item.create"
+        | "response.function_call_arguments.done"
+        | "conversation.item.truncate"
+        | "conversation.item.truncated"
+        | "response.cancel"
+        | "response.create"
+        | "response.created"
+        | "response.done" => {}
+        _ => return None,
+    }
+    let status = match event["response"]["status"].as_str() {
+        Some("completed") => "completed",
+        Some("cancelled") => "cancelled",
+        Some("failed") => "failed",
+        Some("incomplete") => "incomplete",
+        _ => "none",
+    };
+    Some(format!("event={kind} status={status}"))
+}
+
 pub(super) fn sanitize(text: &str, secrets: &[&str]) -> String {
     let mut safe = text.to_string();
     for secret in secrets.iter().filter(|secret| !secret.is_empty()) {
@@ -54,6 +86,28 @@ pub(super) fn sanitize(text: &str, secrets: &[&str]) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn turn_traces_include_boundaries_but_never_provider_content() {
+        let event = json!({"type":"response.done", "response":{
+            "status":"cancelled", "output":"private words"},
+            "item_id":"private-id", "audio":"private-audio"});
+        assert_eq!(
+            turn_boundary(&event).unwrap(),
+            "event=response.done status=cancelled"
+        );
+        assert_eq!(
+            turn_boundary(&json!({"type":"response.done",
+            "response":{"status":"secret"}}))
+            .unwrap(),
+            "event=response.done status=none"
+        );
+        assert!(
+            turn_boundary(&json!({"type":"response.output_audio.delta", "delta":"audio"}))
+                .is_none()
+        );
+        assert!(turn_boundary(&json!({"type":"secret"})).is_none());
+    }
 
     #[test]
     fn a_refusal_names_its_request_without_logging_credentials_or_bodies() {

@@ -103,17 +103,32 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
         Asked::Truncate { played_ms: 250 }
     );
 
-    // What each side said reaches the call card.
+    // Barge-in stops playback, not capture: the question and trailing
+    // silence still reach the adapter before its provider commits the turn.
+    let audio = answer(
+        socket,
+        60,
+        json!({"cmd":"voice.front_audio","params":{"callId":call,"seq":1,"data":pcm(&[1000,0,0,0])}}),
+    )
+    .await;
+    assert_eq!(audio["ok"], true, "{audio}");
+    assert!(matches!(next_asked(&mut desk.asked).await, Asked::Audio(_)));
+
+    // The interrupting question is heard and answered without another turn.
     desk.events
-        .send(Ok(RealtimeEvent::Heard("check the PR".into())))
+        .send(Ok(RealtimeEvent::Heard(
+            "Wait. Which one was the newest?".into(),
+        )))
         .await
         .unwrap();
     assert_eq!(
         frame_where(socket, |f| f["event"]["type"] == "heard").await["event"]["text"],
-        "check the PR"
+        "Wait. Which one was the newest?"
     );
     desk.events
-        .send(Ok(RealtimeEvent::Saying("On it.".into())))
+        .send(Ok(RealtimeEvent::Saying(
+            "The call notes were newest.".into(),
+        )))
         .await
         .unwrap();
     desk.events
@@ -122,7 +137,7 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
         .unwrap();
     assert_eq!(
         frame_where(socket, |f| f["event"]["type"] == "said").await["event"]["text"],
-        "On it."
+        "The call notes were newest."
     );
 
     // A front call takes front audio only: the pipeline's inputs are shut.

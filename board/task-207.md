@@ -14,7 +14,7 @@ parentId: epic-21
 dependsOn:
   - task-225
 createdAt: "2026-10-19T14:02:18.044Z"
-updatedAt: "2026-10-21T06:53:27.742Z"
+updatedAt: "2026-10-21T07:04:30.903Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -27,6 +27,8 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T06:53:09.067Z"
+decisions:
+  - decision-14
 ---
 
 ## Description

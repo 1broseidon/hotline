@@ -232,6 +232,8 @@ impl Realtime for RealtimeSocket {
             saying: String::new(),
             audio_item: None,
             responding: false,
+            caller_turn: CallerTurn::Idle,
+            trace_id: uuid::Uuid::new_v4().to_string(),
             respond_after: false,
             quiet_reply: false,
             opened: Instant::now(),
@@ -350,6 +352,14 @@ enum Next {
     Renew,
 }
 
+/// VAD owns the caller's commit and the automatic response that follows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CallerTurn {
+    Idle,
+    Pending,
+    Committed,
+}
+
 /// Owns one call's provider connection, replacing it as the session limit
 /// and the network require.
 struct Driver {
@@ -362,6 +372,8 @@ struct Driver {
     /// The reply item whose audio is playing, for a barge-in's truncation.
     audio_item: Option<String>,
     responding: bool,
+    caller_turn: CallerTurn,
+    trace_id: String,
     /// A tool result or text arrived mid-reply; ask for the next reply after it.
     respond_after: bool,
     /// The next reply only says a line it was given, so it may not call a
@@ -476,8 +488,12 @@ impl Driver {
                 self.respond(socket).await
             }
             Command::Truncate { played_ms } => {
-                if self.responding {
-                    self.respond_after = false;
+                self.respond_after = false;
+                self.quiet_reply = false;
+                // VAD already cancels on speech_started. A tap still needs
+                // cancellation, but a playback acknowledgement must not race
+                // the provider's cancellation of the interrupted response.
+                if self.responding && self.caller_turn == CallerTurn::Idle {
                     self.send(socket, json!({"type": "response.cancel"}))
                         .await?;
                 }
@@ -498,9 +514,11 @@ impl Driver {
     }
 
     /// The provider refuses a second reply while one is in progress, so a
-    /// result that arrives mid-reply waits for that reply's end.
+    /// result that arrives mid-reply waits for that reply's end. During a
+    /// caller turn, VAD's automatic response will consume the added context;
+    /// neither the cancelled response's end nor transcription owns that turn.
     async fn respond(&mut self, socket: &mut Socket) -> Result<(), SpeechError> {
-        if self.responding {
+        if self.responding || self.caller_turn != CallerTurn::Idle {
             self.respond_after = true;
             return Ok(());
         }
@@ -514,6 +532,7 @@ impl Driver {
     }
 
     async fn event(&mut self, socket: &mut Socket, event: Value) -> Result<(), SpeechError> {
+        self.trace("received", &event);
         match event["type"].as_str().unwrap_or_default() {
             "response.output_audio.delta" | "response.audio.delta" => {
                 let delta = event["delta"].as_str().ok_or_else(|| self.malformed())?;
@@ -537,7 +556,13 @@ impl Driver {
             }
             "response.output_audio_transcript.done" => self.said(),
             "input_audio_buffer.speech_started" => {
+                self.caller_turn = CallerTurn::Pending;
+                self.respond_after = false;
+                self.quiet_reply = false;
                 self.emit(RealtimeEvent::SpeechStarted).await?;
+            }
+            "input_audio_buffer.committed" => {
+                self.caller_turn = CallerTurn::Committed;
             }
             "conversation.item.input_audio_transcription.completed" => {
                 let words = event["transcript"]
@@ -563,7 +588,17 @@ impl Driver {
                 })
                 .await?;
             }
-            "response.created" => self.responding = true,
+            "response.created" => {
+                self.responding = true;
+                if self.caller_turn == CallerTurn::Committed {
+                    self.caller_turn = CallerTurn::Idle;
+                    // This automatic response sees the tool outputs and text
+                    // already added. Do not follow it with a duplicate reply
+                    // or carry a queued Say's tool restriction into later work.
+                    self.respond_after = false;
+                    self.quiet_reply = false;
+                }
+            }
             "response.done" => {
                 self.said();
                 self.responding = false;
@@ -597,6 +632,20 @@ impl Driver {
         Ok(())
     }
 
+    fn trace(&self, direction: &str, event: &Value) {
+        if let Some(boundary) = super::diagnostics::turn_boundary(event) {
+            eprintln!(
+                "[voice] {} session={} +{}ms {direction} {boundary} caller={:?} responding={} queued={}",
+                self.voice.dialect.model(),
+                self.trace_id,
+                self.opened.elapsed().as_millis(),
+                self.caller_turn,
+                self.responding,
+                self.respond_after,
+            );
+        }
+    }
+
     fn malformed(&self) -> SpeechError {
         self.voice.access.malformed()
     }
@@ -611,6 +660,7 @@ impl Driver {
     /// was meant for is gone, but the call is not.
     async fn send(&mut self, socket: &mut Socket, mut event: Value) -> Result<(), SpeechError> {
         self.requests.stamp(&mut event);
+        self.trace("sent", &event);
         let text = event.to_string();
         if socket
             .send(Message::Text(text.clone().into()))
@@ -658,6 +708,7 @@ impl Driver {
         self.said();
         self.audio_item = None;
         self.responding = false;
+        self.caller_turn = CallerTurn::Idle;
         self.respond_after = false;
         self.quiet_reply = false;
         self.opened = Instant::now();

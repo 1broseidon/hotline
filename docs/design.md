@@ -773,6 +773,19 @@ streamed reply also prevents its late completion from starting speech again.
 The phone uses the same wire commands; its client-side onset and speaker
 checks are a separate task-206 verification, not established by desk tests.
 
+The Grok Voice and GPT Realtime socket adapters leave VAD in charge of
+committing caller audio and starting its answer. From `speech_started`
+through `input_audio_buffer.committed` until the automatic `response.created`,
+a late tool result or line to say adds context without sending `response.create`.
+The automatic answer consumes that context once. Playback truncation after
+provider-detected speech does not send a second cancellation; a tap without
+provider-detected speech still cancels active generation. No interruption
+clears or manually commits the microphone buffer. Boundary traces identify
+the socket session, elapsed milliseconds and turn state without audio,
+transcripts, tool contents or provider identifiers. They show whether a stalled
+turn reached speech stop, commit and response creation; scripted ordering tests
+do not establish real-provider VAD timing, which needs the Linux audio QA pass.
+
 ### A transport drop holds the call for twenty seconds
 
 A lost client socket holds its call for twenty seconds. Replaying the call

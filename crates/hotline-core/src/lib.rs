@@ -6,6 +6,14 @@
 //! the remote desks and relays, and the wire that carries all of it to a
 //! window, a phone or another desk.
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver, status, login, setup and switch tasks call into accounts; Task 9 removes this"
+    )
+)]
+pub(crate) mod accounts;
 pub mod boot;
 mod capabilities;
 pub mod computer;

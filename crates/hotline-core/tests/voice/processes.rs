@@ -115,7 +115,7 @@ async fn running_process_that_ends_during_a_call_is_said_on_the_call() {
     desk.events
         .send(Ok(RealtimeEvent::ToolCall {
             call_id: "c1".into(),
-            name: "send_to_teammate".into(),
+            name: "work_on_it".into(),
             arguments: json!({ "words": words }).to_string(),
         }))
         .await
@@ -204,7 +204,7 @@ async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() 
     desk.events
         .send(Ok(RealtimeEvent::ToolCall {
             call_id: "c1".into(),
-            name: "send_to_teammate".into(),
+            name: "work_on_it".into(),
             arguments: json!({ "words": words }).to_string(),
         }))
         .await

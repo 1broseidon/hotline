@@ -46,34 +46,6 @@ Before using a tool, say at most one short line. If you were cut off, answer the
 /// call says its opening and the chat has it all.
 const FALLBACK_SENTENCES: usize = 3;
 
-/// What the teammate is told of a turn whose words came through a voice
-/// front, so it reads them as a transcript and not as the person's typing.
-/// The front's own speech never reaches the teammate. There is no matching
-/// line for the call's end: each relayed turn says it, and a turn without it
-/// is the person typing, so the teammate resumes normal behaviour by itself.
-pub const FRONT_NOTE: &str = "[This turn came from a voice call, behind an intermediary: the input is a transcript of what the person said and may have recognition errors. Treat the words as theirs, and ask if something looks misheard.]";
-
-/// What the teammate is told of a question the call ended on before it was
-/// answered: there is no call to speak on, so the answer is written.
-pub const ENDED_NOTE: &str = "[This came from a voice call that ended before it was answered: a transcript of what the person said there, which may have recognition errors. Answer it here in writing; the call is over, so there is nothing to say aloud.]";
-
-/// What the agent is handed for a turn said on a call: the person's words as
-/// they said them, the note when a front relayed them, then the contract. A
-/// call that has ended has no contract: the answer is only written.
-pub fn voice_turn(words: &str, front: bool, ended: bool) -> String {
-    if ended {
-        format!(
-            "{words}
-
-{ENDED_NOTE}"
-        )
-    } else if front {
-        format!("{words}\n\n{FRONT_NOTE}\n\n{CONTRACT}")
-    } else {
-        format!("{words}\n\n{CONTRACT}")
-    }
-}
-
 /// One of the tags a reply on a call is written with. Case and spaces inside
 /// the angle brackets are the model's to vary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -825,17 +797,10 @@ mod tests {
     }
 
     #[test]
-    fn the_contract_asks_for_both_versions_and_follows_the_words() {
+    fn the_contract_asks_for_both_versions() {
         for tag in ["<spoken>", "</spoken>", "<written>", "</written>"] {
             assert!(CONTRACT.contains(tag), "{tag}");
         }
-        let turn = voice_turn("Is the build green?", false, false);
-        assert!(turn.starts_with("Is the build green?\n\n[Voice call: "));
-        assert!(turn.ends_with(CONTRACT));
-        assert!(!turn.contains("intermediary"));
-        let relayed = voice_turn("Is the build green?", true, false);
-        assert!(relayed.starts_with(&format!("Is the build green?\n\n{FRONT_NOTE}\n\n")));
-        assert!(relayed.ends_with(CONTRACT));
     }
 
     #[test]

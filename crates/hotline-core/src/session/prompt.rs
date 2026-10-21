@@ -113,28 +113,13 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    // A turn said on a call to this teammate asks for the reply
-                    // twice, a version to say and a version to show. That is
-                    // for the agent alone; the conversation shows what the
-                    // person said.
-                    text: match crate::wire::commands::voice_origin() {
-                        Some(origin) if origin.direct => {
-                            crate::voice::spoken::voice_turn(text, origin.front, origin.ended)
-                        }
-                        _ => text.to_string(),
-                    },
+                    text: text.to_string(),
                     attachments: attachments.clone().unwrap_or_default(),
-                    steer: !crate::wire::commands::from_voice()
-                        || crate::wire::commands::voice_origin()
-                            .is_some_and(|origin| origin.direct),
+                    steer: !crate::wire::commands::from_voice(),
                     said: None,
-                    from: crate::wire::commands::voice_origin().and_then(|origin| origin.from()),
-                    voice: crate::wire::commands::voice_origin(),
-                    // A question the call ended on is answered only in writing.
-                    spoken: (crate::wire::commands::from_voice()
-                        || crate::wire::commands::voice_origin().is_some())
-                        && !crate::wire::commands::voice_origin()
-                            .is_some_and(|origin| origin.ended),
+                    from: None,
+                    voice: None,
+                    spoken: crate::wire::commands::from_voice(),
                     unprompted: None,
                     retry: false,
                 },
@@ -259,13 +244,7 @@ impl Room {
     /// a turn that fails must not lose the message that started it.
     async fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
         // The opaque event ID carries provenance through queued turns and restarts.
-        let id = if let Some(origin) = crate::wire::commands::voice_origin() {
-            origin.event_id(&new_id())
-        } else if crate::wire::commands::from_voice() {
-            format!("voice:{}", new_id())
-        } else {
-            new_id()
-        };
+        let id = new_id();
         if let Some(attachments) = &sending.attachments {
             let root = self.log.root().to_path_buf();
             let persona_id = session.persona_id.clone();

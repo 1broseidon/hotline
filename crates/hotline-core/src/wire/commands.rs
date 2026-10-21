@@ -25,13 +25,7 @@ use serde_json::{Map, Value, json};
 use settings::{update_settings, web_search_status};
 use std::sync::Arc;
 
-// Only the dispatcher sets this scope; wire parameters cannot claim voice origin.
-pub(crate) use hotline_voice::call_room::{CALL_ORIGIN, VOICE_COMMAND};
-
-pub(crate) fn voice_origin() -> Option<crate::voice::Origin> {
-    CALL_ORIGIN.try_with(Clone::clone).ok()
-}
-
+pub(crate) use hotline_voice::call_room::VOICE_COMMAND;
 // Set by the door a message came in at, never by the message: whether this
 // socket declared `threads2`, for the commands whose answer carries lines a
 // thread's link is one of.

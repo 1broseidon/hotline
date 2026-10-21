@@ -352,7 +352,7 @@ async fn a_front_that_is_behind_refuses_audio_instead_of_stalling_the_wire() {
 }
 
 /// The front wired end to end, against a scripted provider: it opens with
-/// the teammate's prompt and the bridge's two tools; its `send_to_teammate`
+/// the teammate's prompt and the bridge's two tools; its `work_on_it`
 /// hands the words to the teammate's own session unrephrased, as a typed
 /// message would go (its open chapter, the call's origin on the line), told
 /// they are a transcript, and is answered; the call
@@ -361,7 +361,7 @@ async fn a_front_that_is_behind_refuses_audio_instead_of_stalling_the_wire() {
 /// it; `remain_silent` asks for no reply; and the call's thread keeps what
 /// the front heard and said, each once.
 #[tokio::test]
-async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
+async fn a_front_call_works_on_its_thread_and_says_its_spoken_line() {
     let mut desk = front_desk(true, 64).await;
     let root = desk.root.path().to_path_buf();
     let socket = &mut desk.socket;
@@ -418,14 +418,13 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     assert_eq!(
         tools,
         [
-            "send_to_teammate",
+            "work_on_it",
             "remain_silent",
             "search_thread",
             "read_thread",
             "list_chapters",
             "list_schedules",
-            "web_search",
-            "post_to_chat"
+            "web_search"
         ],
         "the bridge's two, the teammate's desk-side reads and the post to the chat"
     );
@@ -441,7 +440,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     desk.events
         .send(Ok(RealtimeEvent::ToolCall {
             call_id: "c1".into(),
-            name: "send_to_teammate".into(),
+            name: "work_on_it".into(),
             arguments: json!({ "words": words }).to_string(),
         }))
         .await
@@ -457,7 +456,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     assert_eq!(call_id, "c1");
     assert!(output.contains("Nothing is done yet"), "{output}");
     assert!(
-        output.contains("working session") && !output.contains("Handed to"),
+        output.contains("Work accepted on this call") && !output.contains("Handed to"),
         "a direct call hands over as the teammate: {output}"
     );
     assert!(
@@ -503,7 +502,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     desk.events
         .send(Ok(RealtimeEvent::ToolCall {
             call_id: "c2".into(),
-            name: "send_to_teammate".into(),
+            name: "work_on_it".into(),
             arguments: json!({ "words": said }).to_string(),
         }))
         .await
@@ -517,7 +516,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         panic!("the echo went unanswered")
     };
     assert_eq!(call_id, "c2");
-    assert!(output.starts_with("Not sent"), "{output}");
+    assert!(output.starts_with("Work could not start"), "{output}");
     assert!(reply, "a refusal is spoken to");
 
     // The front says it; that is the call's line, kept once.
@@ -584,40 +583,25 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         "{record:?}"
     );
 
-    // The words went in as typed, with the call's origin, and the teammate
-    // was told they are a transcript; nothing the front said is on its tape.
-    let asked = requests
-        .lock()
-        .unwrap()
-        .iter()
-        .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
-        .filter(|message| message["role"] == "user")
-        .map(|message| message["content"].as_str().unwrap_or_default().to_string())
-        .find(|content| content.contains("[Voice call: answer twice"))
-        .expect("the turn's input carries the contract");
+    let requests = requests.lock().unwrap();
     assert!(
-        asked.contains(&format!("{words}\n\n[This turn came from a voice call")),
-        "{asked}"
+        requests
+            .iter()
+            .any(|request| request.to_string().contains("The whole call so far"))
     );
-    assert!(asked.contains("behind an intermediary"), "{asked}");
     let tape = log.load(&hotline_core::log::StreamId::Tape(persona));
-    let users: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "user").collect();
-    assert_eq!(users.len(), 1, "{tape:?}");
-    assert_eq!(users[0]["text"], words, "the person's words, unrephrased");
     assert!(
-        users[0]["id"]
-            .as_str()
-            .unwrap()
-            .starts_with(&format!("voice:{call}:1:agent:"))
+        !tape.iter().any(|v| v["kind"] == "user"),
+        "home thread was interrupted: {tape:?}"
     );
-    assert_eq!(tape.iter().filter(|v| v["kind"] == "chapter").count(), 1);
-    assert!(
-        !tape.iter().any(|v| {
-            let line = v.to_string();
-            line.contains("intermediary") || line.contains("Sent to your working session")
-        }),
-        "the front's side stays off the teammate's tape: {tape:?}"
-    );
+    let tools: Vec<_> = record.iter().filter(|v| v["kind"] == "tool").collect();
+    assert!(tools.iter().any(|v| v["title"] == "work_on_it"));
+    for line in &record {
+        if line["kind"] == "tool" {
+            serde_json::from_value::<hotline_core::contract::TranscriptEvent>(line.clone())
+                .unwrap();
+        }
+    }
 }
 
 /// A front on an API key costs its minutes, on a subscription login nothing,
@@ -704,7 +688,7 @@ async fn speak_into(socket: &mut Socket, call: &str, seq: &mut u32, pcm: &[u8]) 
 
 /// The wired front against Grok Voice itself, with a scripted teammate:
 /// the person's 16 kHz speech is heard and transcribed, the front calls
-/// `send_to_teammate`, the teammate's spoken line comes back as 24 kHz
+/// `work_on_it`, the teammate's spoken line comes back as 24 kHz
 /// speech, and speaking over it is a barge-in. Needs an xAI API key in
 /// `HOTLINE_LIVE_XAI_KEY` and is charged by the minute;
 /// `cargo test -p hotline-core --test voice live -- --ignored --nocapture`.
@@ -826,7 +810,7 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
     );
     let heard = heard.expect("the person's speech was transcribed");
     assert!(heard.to_lowercase().contains("mac"), "{heard}");
-    assert!(!handed.is_empty(), "the front called send_to_teammate");
+    assert!(!handed.is_empty(), "the front called work_on_it");
     assert!(frames > 0, "the front spoke");
     assert_eq!(longest, 4_800, "100 ms frames of 24 kHz PCM16");
     relayed.expect("the teammate's spoken line was said by the front");

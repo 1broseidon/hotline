@@ -3,11 +3,11 @@
 - Status: Accepted by George, 2026-10-19 (task-215). Slices 1 to 4 are
   built (task-216, task-217, task-219, task-218), §7's jobs on their own
   threads (task-220), and §0's clone model for subagents and jobs
-  (task-221); slice 5 (task-223) now attaches Legacy voice to the shared work-thread occupant; live-front delegation remains for slice 6.
+  (task-221); slices 5 and 6 (task-223, task-225) attach Legacy voice and live-front work to the shared call-thread occupant.
 - Date: 2026-10-19
 - Builds on: [ADR 0001](0001-threads-are-a-primitive.md), whose runtime
   this finishes for pairs and calls
-- Amends, once its slices land: [ADR 0005](0005-front-is-a-full-agent.md)
+- Amends: [ADR 0005](0005-front-is-a-full-agent.md)
   (the live voice stays a full agent for conversation and lookups, but real
   work goes to a clone of the teammate on its own model and harness, on the
   call's thread, never into the DM); supersedes the "Quiet" rule in sessions.md that only

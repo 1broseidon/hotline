@@ -262,7 +262,6 @@ async fn a_file_sent_on_a_call_is_posted_from_the_call() {
         seq: 2,
         direct: true,
         front: false,
-        ended: false,
     });
     let sent = TeammateTools::new(&room, "ada")
         .call(

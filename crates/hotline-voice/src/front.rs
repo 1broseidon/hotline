@@ -1,17 +1,4 @@
-//! The bridge between a call's voice front and the teammate it speaks for.
-//!
-//! The front is a realtime model that hears the person and talks to them. It
-//! has two tools and no reach into the room: `send_to_teammate` hands the
-//! person's words to the teammate, and `remain_silent` says the front has
-//! nothing to add. The teammate does the work. [`Front::tool_call`] answers
-//! the front's tool calls, and [`Front::next_note`] turns what the call then
-//! says and asks of the person into [`Note`]s for the front to speak.
-//!
-//! The words go in by the path a typed message takes (the call's own text
-//! input, so the teammate's session, grants and open chapter, and a second
-//! send while its turn runs steers that turn), marked as said on the call.
-//! What the front itself says is never sent anywhere: the teammate's tape
-//! holds the person's words alone.
+//! Live conversation and work on the call’s own thread.
 
 use super::Calls;
 use super::front_tools::FrontTools;
@@ -22,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
-use super::realtime::SEND_TO_TEAMMATE;
+use super::realtime::WORK_ON_IT;
 pub const REMAIN_SILENT: &str = "remain_silent";
 
 /// One function the front may call. `parameters` is its JSON Schema.
@@ -36,12 +23,12 @@ pub struct Tool {
 pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
-            name: SEND_TO_TEAMMATE.into(),
-            description: "Pass the person's own words to the teammate, exactly as they said them: do not rephrase, summarize or add to them. The teammate does the work; sending is not doing it.".into(),
+            name: WORK_ON_IT.into(),
+            description: "I write, change or run what was asked on this call. I keep working while we talk. Further instructions change my current work; stop cancels it. Use the whole call as context when asked to write that down.".into(),
             parameters: json!({
                 "type": "object",
-                "properties": {"words": {"type": "string", "description": "What the person said, verbatim."}},
-                "required": ["words"],
+                "properties": {"words": {"type": "string", "description": "The task or change, in the person’s words."}, "action": {"type": "string", "enum": ["work", "stop"]}},
+                "required": ["words"], "additionalProperties": false,
             }),
         },
         Tool {
@@ -74,7 +61,7 @@ impl Note {
 
 use super::realtime::SAY_THIS;
 
-/// How many of the latest notes a relay is checked against.
+/// How many recent spoken results are checked for accidental echoes.
 const NOTES_KEPT: usize = 8;
 /// The shortest text an echo is looked for in.
 const ECHO_CHARS: usize = 16;
@@ -123,15 +110,14 @@ fn needs_you(speaks: Speaks, kind: &str) -> String {
     .into()
 }
 
-/// What the front hears back once the person's words are handed over, with
-/// no reply asked for: it acknowledged them as it sent them.
-fn handed(speaks: Speaks) -> &'static str {
+/// Admission is not completion. The front already acknowledged the request.
+fn accepted(speaks: Speaks) -> &'static str {
     match speaks {
         Speaks::AsTeammate => {
-            "Sent to your working session. Nothing is done yet: say nothing of the result until you are given it, and do not acknowledge it again."
+            "Work accepted on this call. Nothing is done yet: say nothing of the result until you are given it, and do not acknowledge it again."
         }
         Speaks::ForDesk => {
-            "Handed to the desk. Nothing is done yet: say nothing of the result until you are given it, and do not acknowledge it again."
+            "Work accepted. Nothing is done yet: say nothing of the result until you are given it, and do not acknowledge it again."
         }
     }
 }
@@ -162,9 +148,6 @@ pub struct Front {
     notes: std::collections::VecDeque<String>,
     /// The teammate's desk-side tools, on a direct call.
     desk_tools: Option<Arc<FrontTools>>,
-    /// What the call assistant is told when it answers a request the front
-    /// delegated, for a front that runs no tools itself.
-    delegation: Option<String>,
 }
 
 impl Front {
@@ -184,7 +167,6 @@ impl Front {
             last_told: Instant::now(),
             notes: std::collections::VecDeque::new(),
             desk_tools: None,
-            delegation: None,
         })
     }
 
@@ -193,26 +175,10 @@ impl Front {
         self
     }
 
-    pub fn with_delegation(mut self, preamble: Option<String>) -> Self {
-        self.delegation = preamble;
-        self
-    }
-
-    /// The instructions a delegated request is answered under, with the
-    /// tools to answer it, when the front delegates rather than calls them.
-    pub fn delegation(&self) -> Option<(String, Arc<FrontTools>)> {
-        self.delegation.clone().zip(self.desk_tools.clone())
-    }
-
     /// The desk-side tools a call to a teammate holds, which run beside the
     /// call rather than through [`Front::tool_call`].
     pub fn desk_tools(&self) -> Option<Arc<FrontTools>> {
         self.desk_tools.clone()
-    }
-
-    /// The sequence number the next line handed to the teammate takes.
-    pub fn next_seq(&self) -> u32 {
-        self.seq + 1
     }
 
     /// Answers one tool call with the output the front is given back, and
@@ -220,31 +186,54 @@ impl Front {
     /// the front does not take the words for sent, and is spoken to. A send
     /// is not: the front acknowledged it as it made it, and a second word
     /// would only say it again.
-    pub fn tool_call(&mut self, name: &str, arguments: &str) -> (String, bool) {
-        match name {
+    pub async fn tool_call(&mut self, name: &str, arguments: &str) -> (String, bool) {
+        let tool_id = uuid::Uuid::new_v4().to_string();
+        self.calls
+            .record_tool(&self.call_id, &tool_id, name, arguments, None);
+        let result = match name {
             REMAIN_SILENT => (String::new(), false),
-            SEND_TO_TEAMMATE => match self.send(arguments) {
-                Ok(()) => (handed(self.speaks).into(), false),
-                Err(error) => (format!("Not sent: {error}"), true),
+            WORK_ON_IT => match self.work(arguments).await {
+                Ok(Some(stopped)) => (stopped, true),
+                Ok(None) => (accepted(self.speaks).into(), false),
+                Err(error) => (format!("Work could not start: {error}"), true),
             },
             other => (format!("There is no tool called {other}."), true),
-        }
+        };
+        self.calls
+            .record_tool(&self.call_id, &tool_id, name, arguments, Some(&result.0));
+        result
     }
 
-    fn send(&mut self, arguments: &str) -> Result<(), String> {
-        let words = serde_json::from_str::<Value>(arguments)
-            .ok()
-            .and_then(|arguments| arguments["words"].as_str().map(str::to_string))
-            .ok_or("send_to_teammate needs the person's words.")?;
-        if self.echoes_a_note(&words) {
+    async fn work(&mut self, arguments: &str) -> Result<Option<String>, String> {
+        let arguments: Value =
+            serde_json::from_str(arguments).map_err(|_| "work_on_it needs a JSON object.")?;
+        let words = arguments["words"]
+            .as_str()
+            .ok_or("work_on_it needs the person's words.")?;
+        if self.echoes_a_note(words) {
             return Err("those are words you were given to say, not the person's. Say nothing more about them.".into());
         }
-        self.calls.relay(&self.call_id, self.seq + 1, &words)?;
+        let stop = match arguments.get("action").and_then(Value::as_str) {
+            None | Some("work") => false,
+            Some("stop") => true,
+            Some(_) => return Err("work_on_it action must be work or stop.".into()),
+        };
+        if stop {
+            let stopped = self.calls.stop_work(&self.call_id)?;
+            self.waiting = false;
+            return Ok(Some(stopped));
+        }
+        if let Some(tools) = &self.desk_tools {
+            tools.check()?;
+        }
+        self.calls
+            .work_on_it(&self.call_id, self.seq + 1, words)
+            .await?;
         self.seq += 1;
         self.waiting = true;
         self.first_thinking_unreported = true;
         self.last_told = Instant::now();
-        Ok(())
+        Ok(None)
     }
 
     /// The next thing to tell the person, or `None` once the call has ended.
@@ -345,7 +334,7 @@ mod tests {
     #[test]
     fn the_front_has_two_tools_and_neither_reaches_the_room() {
         let names: Vec<_> = tools().iter().map(|tool| tool.name.clone()).collect();
-        assert_eq!(names, [SEND_TO_TEAMMATE, REMAIN_SILENT]);
+        assert_eq!(names, [WORK_ON_IT, REMAIN_SILENT]);
     }
 
     #[test]
@@ -358,10 +347,10 @@ mod tests {
     fn a_direct_call_speaks_its_fixed_lines_as_the_teammate() {
         assert!(needs_you(Speaks::AsTeammate, "permission").starts_with("I need you to approve"));
         assert!(needs_you(Speaks::ForDesk, "permission").starts_with("The teammate needs you"));
-        let direct = handed(Speaks::AsTeammate);
+        let direct = accepted(Speaks::AsTeammate);
         assert!(direct.contains("do not acknowledge it again"));
         assert!(direct.contains("Nothing is done yet"));
         assert!(!direct.contains("Handed to"));
-        assert!(handed(Speaks::ForDesk).contains("Nothing is done yet"));
+        assert!(accepted(Speaks::ForDesk).contains("Nothing is done yet"));
     }
 }

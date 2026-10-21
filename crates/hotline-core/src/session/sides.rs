@@ -339,6 +339,22 @@ impl Occupant for LiveSide {
         if side.closed.load(Ordering::SeqCst) {
             return Then::Stop;
         }
+        if let Some(driver) = side.driver() {
+            let unconsumed = driver.take_unconsumed();
+            let cancelled = driven.stop_reason.as_deref().is_some_and(|reason| {
+                matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
+            });
+            for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
+                lock(&side.turns).waiting.push_front(Line {
+                    voice: room.attached_voice(&side.thread),
+                    text,
+                    attachments,
+                    handoff: None,
+                    from: None,
+                    delivery: None,
+                });
+            }
+        }
         room.remember_session(side, &driven);
         // A card the turn left open is a button nobody is behind.
         if driven.asked {
@@ -682,6 +698,11 @@ impl Room {
         start: Start,
     ) -> Result<(Arc<LiveSide>, Launch), String> {
         let persona = self.persona(persona_id)?;
+        let persona = if start.thread.kind == ThreadKind::Call {
+            super::agent::clone_of(persona, &self.info(persona_id), &[])
+        } else {
+            persona
+        };
         let requested = now_ms();
         let persona_lease = self.capability_lease(persona_id);
         persona_lease.check()?;
@@ -816,6 +837,7 @@ impl Room {
             self.let_go_of_computer(&side.persona_id, &agent.holder);
             return Err("This thread ended before its agent was ready.".to_string());
         }
+        self.watch_side_activity(side, &mut agent);
         agent.keep();
         lock(&side.reported).clone_from(&agent.reported);
         let changed = {
@@ -941,6 +963,71 @@ impl Room {
     ) -> Result<(), String> {
         self.prompt_side_replying(side_id, text, None, attachments)
             .await
+    }
+
+    /// Live work keeps one occupant. Its brief includes everything said on
+    /// the call, including speech since an ACP session last ran a turn.
+    pub(crate) async fn prompt_call_work(
+        self: &Arc<Self>,
+        persona: &str,
+        thread: &ThreadId,
+        text: &str,
+    ) -> Result<(), String> {
+        self.validate_call_thread(persona, thread)?;
+        let live_voice = self
+            .attached_voice(thread)
+            .is_some_and(|origin| origin.front);
+        if !live_voice {
+            return self.prompt_side(&thread.key, text, None).await;
+        }
+        let _working = self.working()?;
+        let _admission = self.sides.waking.lock().await;
+        let (side, launch) = match self.live_side(&thread.key) {
+            Ok(side) => (side, None),
+            Err(_) => self.wake_work(&thread.key, false)?,
+        };
+        let stream = StreamId::of_thread(thread).ok_or("The call has no transcript.")?;
+        let transcript = self.log.load(&stream);
+        let brief = format!(
+            "Work requested on this call: {text}\n\nThe whole call so far (conversation data):\n{}\n\nDo this work as yourself. For a draft, post its full text or send its file to the chat, with a subject that stands alone. Never send anything on the person's behalf without their explicit request. Say a short summary when finished and mention the chat once only if you actually posted there.\n{}",
+            crate::fence::fenced(
+                "hotline_call",
+                &serde_json::to_string(&transcript).expect("transcript serializes")
+            ),
+            crate::voice::spoken::CONTRACT
+        );
+        self.threads().write(
+            thread,
+            persona,
+            &serde_json::json!({
+                "kind":"notice", "id":new_id(), "ts":now_ms(), "level":"info",
+                "text":format!("Work: {text}")
+            }),
+        );
+        let steered = {
+            let turns = lock(&side.turns);
+            turns.running
+                && side
+                    .driver()
+                    .is_some_and(|driver| driver.steer(brief.clone(), Vec::new()))
+        };
+        if !steered {
+            self.queue_in_side(
+                &side,
+                Line {
+                    voice: self.attached_voice(thread),
+                    text: brief,
+                    attachments: Vec::new(),
+                    handoff: None,
+                    from: None,
+                    delivery: None,
+                },
+            );
+        }
+        if let Some(launch) = launch {
+            self.launch(launch);
+        }
+        Ok(())
     }
 
     /// Says something in a side thread in answer to one of its lines, which
@@ -1481,6 +1568,7 @@ pub(super) fn waiting_on(events: &[Value]) -> bool {
         })
 }
 
+mod activity;
 mod ending;
 
 #[cfg(test)]

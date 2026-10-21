@@ -95,25 +95,6 @@ impl Dispatcher for ScriptDispatcher {
     async fn narrate(&self, name: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
         Ok(format!("{name} says: {text}"))
     }
-    /// Answers a delegated "what did we fix?" from the teammate's tools it
-    /// is offered, and nothing else.
-    async fn delegated(
-        &self,
-        preamble: &str,
-        request: &str,
-        tools: Vec<rig::tool::DynamicTool>,
-        _: Arc<Budget>,
-    ) -> Result<String, String> {
-        let names: Vec<&str> = tools.iter().map(|tool| tool.name().as_str()).collect();
-        assert!(names.contains(&"search_thread"), "{names:?}");
-        assert!(names.contains(&"send_to_teammate"), "{names:?}");
-        assert!(preamble.contains("cannot run your tools"), "{preamble}");
-        if request == "what did we fix?" {
-            Ok("We fixed the zebracrossing bug.".into())
-        } else {
-            Err("Not a lookup.".into())
-        }
-    }
     /// Says the untagged reply below again, given what the person said.
     async fn rewrite(&self, words: &str, written: &str, _: Arc<Budget>) -> Result<String, String> {
         assert_eq!(words, "ask Mack to check the failing PR");

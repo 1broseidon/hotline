@@ -2,7 +2,7 @@
 use crate::{
     contract::{Command, ConfigChoice, End, ModelCost, Persona, SessionInfo, ThreadId},
     log::Log,
-    session::{Post, Room},
+    session::Room,
     vault::Vault,
     wire::RoomHandle,
 };
@@ -83,16 +83,12 @@ impl CallRoom for RoomSide {
     ) -> Result<(), String> {
         let room = self.room()?;
         room.validate_call_thread(persona, thread)?;
-        room.prompt_side(&thread.key, text, None).await
+        room.prompt_call_work(persona, thread, text).await
     }
-    fn post(&self, persona: &str, thread: &ThreadId, text: &str) -> Result<(), String> {
-        self.room()?.post(persona, thread, Post::words(text))
-    }
-    async fn start(&self, persona: &str) -> Result<(), String> {
-        self.room()?.start(persona).await.map(|_| ())
-    }
-    async fn prompt(&self, persona: &str, text: &str) -> Result<(), String> {
-        self.room()?.prompt(persona, text, None, None).await
+    fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String> {
+        let room = self.room()?;
+        room.validate_call_thread(persona, thread)?;
+        room.cancel_side(&thread.key)
     }
     fn info(&self, persona: &str) -> Option<SessionInfo> {
         self.room.upgrade().map(|room| room.info(persona))
@@ -114,30 +110,11 @@ impl CallRoom for RoomSide {
             room.voice_push(persona, name, text);
         }
     }
-    fn front_reach(&self, persona: &Persona) -> Result<FrontReach, String> {
-        let reach = self.room()?.front_reach(persona);
+    fn front_reach(&self, persona: &Persona, thread: &ThreadId) -> Result<FrontReach, String> {
+        let reach = self.room()?.front_reach(persona, thread)?;
         let definitions = crate::mcp::server::TeammateTools::front_descriptors();
         let tools = Arc::new(reach.tools);
         let capability = reach.capability;
-        let connect = if reach.servers.is_empty() {
-            None
-        } else {
-            let persona = persona.id.clone();
-            let capability = capability.clone();
-            Some(Box::pin(async move {
-                crate::mcp::connect_with_capability_and_vault(
-                    &persona,
-                    &reach.servers,
-                    Some(capability),
-                    reach.vault,
-                )
-                .await
-            })
-                as futures_util::future::BoxFuture<
-                    'static,
-                    crate::mcp::Connections,
-                >)
-        };
         Ok(FrontReach {
             tools: DeskTools {
                 definitions,
@@ -147,7 +124,6 @@ impl CallRoom for RoomSide {
                 }),
             },
             capability,
-            connect,
         })
     }
     async fn command(

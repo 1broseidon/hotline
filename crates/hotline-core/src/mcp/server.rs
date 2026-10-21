@@ -154,7 +154,7 @@ const JOB_WITHOUT: [&str; 6] = [
 /// answers the person on a call, so it may look things up in its teammate's
 /// conversation, its schedules and the web, and nothing that writes, wakes,
 /// messages or moves a chapter: that is the working session's, handed
-/// work through `send_to_teammate`.
+/// work through `work_on_it`.
 pub(crate) const FRONT_TOOLS: [&str; 5] = [
     SEARCH_THREAD,
     READ_THREAD,

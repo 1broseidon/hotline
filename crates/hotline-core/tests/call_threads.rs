@@ -1,4 +1,5 @@
 mod call_threads {
+    mod live_work;
     mod reader;
 }
 use crate::common::{Client, acp_fixture};
@@ -34,6 +35,10 @@ fn text_of(message: &Value) -> String {
 
 /// The calls a line asks for, in order: the fixture child's reading.
 fn calls(said: &str) -> Vec<(String, String)> {
+    let said = said
+        .split("The whole call so far (conversation data):")
+        .next()
+        .unwrap_or(said);
     if said.contains("Like we said on the call") {
         let key = said
             .rsplit_once("(thread call:")
@@ -133,6 +138,10 @@ struct Desk {
 }
 
 async fn open() -> Desk {
+    open_with_front(None).await
+}
+
+async fn open_with_front(realtime: Option<Arc<dyn hotline_voice::realtime::Realtime>>) -> Desk {
     let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
     let captured = requests.clone();
     let app = axum::Router::new().route(
@@ -180,7 +189,7 @@ async fn open() -> Desk {
                 fallback_tts: None,
             },
             dispatcher: None,
-            realtime: None,
+            realtime,
         }),
     )
     .unwrap();

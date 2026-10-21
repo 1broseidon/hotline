@@ -536,18 +536,14 @@ while a desk text call also needs the dispatcher.
 
 ## One brain, two outputs
 
-A pipeline call to a teammate has nothing in front of the teammate
-(`voice/spoken.rs` in `hotline-room`); a front call puts a realtime voice there, which answers
-conversation and runs the teammate's desk-side tools itself, and hands
-the teammate's session only work that needs it (see the voice front setting
-below, [voice-calls.md](voice-calls.md) and
-[ADR 0005](adr/0005-front-is-a-full-agent.md)). Every handed-off utterance goes into the teammate's own session as a
-turn of its conversation, in the open chapter of its main thread, the same way
-a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
-harness, same grants. The tape keeps the person's words exactly as they were
-heard, under an id that marks the line as said on the call
-(`voice:<callId>:<seq>:agent:…`), and the chat shows them like any message.
-Said into a turn that is still running, the words steer it, as typing does.
+A Legacy call feeds utterances to the teammate's call thread. A live voice
+answers conversation and read-only lookups itself, and uses `work_on_it` for
+writes, changes and commands. Work runs on one clone on the call thread,
+using the teammate's model, harness and grants. Further instructions steer
+that clone; stop cancels it. The full call is available as its brief. Neither
+path interrupts the home session. Both sides' speech and all tool calls are
+kept on the call thread; files and full drafts are explicitly posted to chat.
+See [voice-calls.md](voice-calls.md) and ADR 0008.
 
 What makes the turn a voice turn is one thing the agent is handed after the
 person's words, the contract (`spoken::CONTRACT`): answer twice, once to be
@@ -965,15 +961,11 @@ bearer and account, joined by a sideband socket at
 the person's audio up as Opus over RTP, 20 ms packets at 48 kHz paced by
 the adapter and filled with silence when the microphone is quiet or held;
 the model's speech (24 kHz PCM, the front's own rate), what each side said
-and its hand-offs come back on the sideband. It takes no tools on the
-session: it hands a request over as a client `delegation`, which the
-adapter reports as the
-bridge's `send_to_teammate`, and a line for the person goes in on the
-`speakable` channel, which the model says in its own words rather than
-verbatim. On a teammate call the desk answers a delegation itself first:
-the call assistant runs the teammate's desk-side tools on it and the answer
-goes back as commentary for the model to say, and only what it hands on, or
-fails at, reaches the working session ([ADR 0005](adr/0005-front-is-a-full-agent.md)).
+and its work requests come back on the sideband. It takes no tools on the
+session: client `delegation` invokes the bridge's `work_on_it`, which runs the
+same call-thread work as the other fronts. There is no intermediate call
+assistant. A line for the person goes in on the `speakable` channel, which
+the model says in its own words rather than verbatim.
 The sign-in cannot use `responses` delegation: the service refuses its
 validation connection with HTTP 401. The server stops a reply itself when the person talks; the
 adapter reports the person's new turn as a barge-in so the client cuts its

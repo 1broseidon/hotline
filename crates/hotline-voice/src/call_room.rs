@@ -1,7 +1,7 @@
 //! The room operations a call uses. The room owns sessions, grants and writes;
 //! voice owns the call and its sound. Temporary operations name their removal slice.
 
-use crate::{Calls, Origin, front_tools::FrontReach, speech::Connected};
+use crate::{Calls, front_tools::FrontReach, speech::Connected};
 use async_trait::async_trait;
 use hotline_contract::{Command, ConfigChoice, End, ModelCost, Persona, SessionInfo, ThreadId};
 use hotline_room::room_handle::RoomHandle;
@@ -10,7 +10,6 @@ use serde_json::{Map, Value};
 use std::sync::Arc;
 
 tokio::task_local! { pub static VOICE_COMMAND: (); }
-tokio::task_local! { pub static CALL_ORIGIN: Origin; }
 tokio::task_local! { pub static PROMPT_CLIENT: hotline_contract::Client; }
 
 pub fn prompt_client() -> Option<hotline_contract::Client> {
@@ -32,12 +31,8 @@ pub trait CallRoom: Send + Sync {
     fn validate_call_thread(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
     async fn call_prompt(&self, persona: &str, thread: &ThreadId, text: &str)
     -> Result<(), String>;
-    fn post(&self, persona: &str, thread: &ThreadId, text: &str) -> Result<(), String>;
-    /// S6 replaces the live front's DM startup with the thread queue.
-    async fn start(&self, persona: &str) -> Result<(), String>;
-    /// S6 moves live-front delegations from the DM to the thread queue.
-    async fn prompt(&self, persona: &str, text: &str) -> Result<(), String>;
-    /// The live front still observes its delegated DM turn until S6.
+    fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
+    /// Model information for reply diagnostics.
     fn info(&self, persona: &str) -> Option<SessionInfo>;
     /// Keeps a Legacy reply's spoken version on its own thread.
     fn call_spoken(&self, persona: &str, thread: &ThreadId, event: &str, spoken: &str) -> bool;
@@ -47,7 +42,7 @@ pub trait CallRoom: Send + Sync {
     /// task-203 removes the dispatcher's out-of-call narration.
     fn voice_push(&self, persona: &str, name: &str, text: &str);
     /// S6 replaces the front's DM reach with the call thread's lease.
-    fn front_reach(&self, persona: &Persona) -> Result<FrontReach, String>;
+    fn front_reach(&self, persona: &Persona, thread: &ThreadId) -> Result<FrontReach, String>;
     /// task-203 removes the dispatcher's command table.
     async fn command(
         &self,

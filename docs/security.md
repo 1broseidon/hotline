@@ -187,26 +187,25 @@ GPT-Live the login's bearer goes to `chatgpt.com` to create the call and to
 media is a WebRTC peer the desk opens with host candidates only). Legacy
 voice turns it off, and a client asks for it per call. The Grok login is
 only ever sent to xAI's voice origin, and GPT Realtime refuses it. GPT-Live
-has no tools at all: its one way to reach the teammate is a client
-delegation, which the core answers as `send_to_teammate`. Its whole reach is two tools enforced in the core
-(`hotline-voice/src/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
-owner-seat, sequence-gated, call-origin path as `voice.text`, so the
-teammate's session keeps its own grants and approval gates; `remain_silent`
-does nothing. No other tool name is honoured, the person's own input is
-refused while a front is on the call, and a relay is refused on a call
-without one. Its starting prompt is a scrubbed, budgeted slice of the DM
-(`front_prompt.rs`), never tool output, code or credentials. Its lease is the
-call's: hanging up or replacing the call closes its socket, a paid front
-needs Voice budget room to open and ends the call when a minute cannot be
-paid, and a revoked login is noticed within a minute and drops the front.
-Residual risk: the front is a model, so it can misrepresent the person's
-words in what it relays or say something the teammate did not; the teammate
-is told the input is a transcript behind an intermediary, and the call's
-thread keeps what the front heard and said for review.
+uses client delegation to invoke the same `work_on_it` handler as the other
+fronts. The front holds read-only lookups and one work tool. The core binds
+reads to the call thread and the teammate's current capability lease; writes,
+MCP calls and shell work run on the call's independently leased clone. The
+front has no direct posting or raw MCP tools. A policy change revokes both
+paths. `validate_call_thread` checks ownership and lifecycle before work or
+cancellation; `work_on_it` refuses a held or non-live call. The clone uses the
+teammate's own model and harness without steering the home session.
+Its starting prompt is a scrubbed, budgeted slice of the DM, never credentials.
+The work brief includes the whole call transcript, including tools. Hanging
+up closes the voice socket but leaves accepted work running. Budget exhaustion
+or a revoked login ends the front visibly. Residual risk: the front can
+misinterpret a request; its recorded words and tool calls permit review.
+ACP harness tools retain their existing sandbox boundary. Draft-versus-send
+intent is a model instruction; it does not grant new capability.
 
 Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the
 headless `tests/voice/direct.rs::device_text_uses_the_call_thread_and_preserves_its_spoken_reply`,
-`tests/voice/front.rs::a_front_call_relays_to_the_teammate_and_says_its_spoken_line`,
+`tests/voice/front.rs::a_front_call_works_on_its_thread_and_says_its_spoken_line`,
 direct-call and dispatcher-unavailable readiness tests, and the finalized-text
 replay, pending, mode, bounds, budget, STT-accounting, direct origin, live commit,
 cancellation and streaming failure tests in `voice::room::tests` and
@@ -1814,9 +1813,9 @@ granted, so a thread never has a computer wider than the teammate's grants, and 
 teammate's lease never covers another teammate's computer.
 
 
-## Call-thread agents (S5)
+## Call-thread agents (S5 and S6)
 
-- **Default and grant source:** a Legacy call uses the selected teammate's
+- **Default and grant source:** a call uses the selected teammate's
   tools and standing grants, without chapter moves. Its independent lease
   survives a home-session chapter change and is revoked by the existing
   work-thread stop, policy-change and removal paths. Voice grants nothing.
@@ -1833,8 +1832,7 @@ teammate's lease never covers another teammate's computer.
   attachment and queued speech through the desk wire. Existing work-thread
   lease tests continue to cover the shared revocation path.
 - **Residual risk:** an ACP harness's own tools remain outside Hotline's
-  sandbox, as for its work threads. Live-front work still uses its existing
-  DM relay until S6. A failed summary is reported explicitly with the thread
+  sandbox, as for its work threads. A failed summary is reported explicitly with the thread
   link, rather than fabricated.
 
 
@@ -1857,9 +1855,14 @@ teammate's lease never covers another teammate's computer.
 - **Residual risk:** the caller can read its entire own record, including
   tool output. Pages bound event count, not bytes; one event can be large.
   The log currently folds the whole stream for each page. Recorded speech
-  is the transcript kept by the call engine, not recovered audio; live-front
-  work routing remains S6's responsibility.
+  is the transcript kept by the call engine, not recovered audio.
 
 | Boundary | Tests | Platform |
 | --- | --- | --- |
 | Own-thread reads use both drivers' shared handler; cross-teammate reads and stale leases fail; pages retain full text and tools in order | `tests/call_threads/reader.rs` `the_home_agent_reads_the_call_transcript_to_recover_a_detail_only_said_there`, `thread_reads_page_in_order_and_refuse_another_teammates_thread_on_both_drivers`, `work_and_job_threads_are_read_by_the_keys_the_home_agent_receives`; `session/tests/reading.rs` `thread_pages_keep_full_text_order_and_one_line_per_tool`; `session/tests/posting.rs` `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`; `session/sides/tests.rs` `stopping_the_teammate_archives_its_side_threads_as_stopped` | — |
+
+
+| Boundary | Tests | Platform |
+| --- | --- | --- |
+| Live work uses its own driver/model and call transcript, posts its file, and leaves the home agent running through correction and cancellation | `tests/call_threads/live_work.rs` `live_work_uses_its_own_driver_and_posts_its_file_without_touching_home`, `changing_and_dropping_live_work_keeps_one_call_agent_and_home_keeps_running` | Both drivers; scripted Grok, GPT Realtime and GPT-Live |
+| Front reads refuse revoked grants and direct writes; GPT-Live uses the same work admission | `tests/voice/front_tools.rs` `a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refused`, `gpt_live_delegation_uses_the_same_call_thread_work_tool` | — |

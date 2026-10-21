@@ -34,7 +34,6 @@ impl Calls {
     }
 }
 
-pub use crate::duplex::worth_following_up;
 pub use crate::replies::Replies;
 pub const BUDGET_LINE: &str = super::BUDGET_LINE;
 pub const ERROR_LINE: &str = super::ERROR_LINE;
@@ -74,4 +73,4 @@ impl Calls {
         self.clip(id, line, index, last, clip, interrupted);
     }
 }
-pub use crate::dispatcher::{answer_delegation, speed_family, untrusted};
+pub use crate::dispatcher::{speed_family, untrusted};

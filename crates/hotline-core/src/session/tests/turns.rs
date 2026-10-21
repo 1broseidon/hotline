@@ -177,49 +177,6 @@ async fn a_cancelled_turn_leaves_its_line_sent() {
     assert_eq!(events[0]["receipt"], "sent");
 }
 
-/// A turn said on a call to the teammate asks the agent for a spoken part
-/// and a shown one, after the person's words; the tape keeps the words alone.
-#[tokio::test]
-async fn a_voice_turn_tells_the_agent_the_contract_but_the_tape_shows_only_the_words() {
-    let agents = Fake::new(Scripted::new(spoken_turn()));
-    let prompts = agents.driver.prompts.clone();
-    let room = room("voice-turn", agents);
-    room.start("ada").await.unwrap();
-    let origin = crate::voice::Origin {
-        call_id: uuid::Uuid::new_v4().to_string(),
-        seq: 1,
-        direct: true,
-        front: false,
-        ended: false,
-    };
-    crate::wire::commands::VOICE_COMMAND
-        .scope(
-            (),
-            crate::wire::commands::CALL_ORIGIN
-                .scope(origin, room.prompt("ada", "Check the build.", None, None)),
-        )
-        .await
-        .unwrap();
-    for _ in 0..200 {
-        if !lock(&prompts).is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    let heard = lock(&prompts).clone();
-    assert!(heard[0].starts_with("Check the build.\n\n"), "{heard:?}");
-    assert!(
-        heard[0].ends_with(crate::voice::spoken::CONTRACT),
-        "{heard:?}"
-    );
-    let events = settled(&room, "ada", 2).await;
-    assert_eq!(events[0]["text"], "Check the build.");
-    assert!(
-        events[0]["id"].as_str().unwrap().starts_with("voice:"),
-        "the line is marked as said on a call"
-    );
-}
-
 /// The agent's reaction lands on the person's last message and nowhere else.
 #[tokio::test]
 async fn a_reaction_lands_on_the_last_thing_the_person_said() {

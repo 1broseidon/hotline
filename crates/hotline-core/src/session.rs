@@ -242,8 +242,6 @@ pub trait Agents: Send + Sync {
 /// A voice front's reach into the room: see [`Room::front_reach`].
 pub(crate) struct FrontReach {
     pub tools: TeammateTools,
-    pub servers: Vec<mcp::McpServer>,
-    pub vault: Option<Arc<Vault>>,
     pub capability: CapabilityLease,
 }
 
@@ -857,10 +855,14 @@ impl Room {
     /// What the teammate's session is doing. A teammate with no session is
     /// idle, which is a state and not an absence.
     pub fn info(&self, persona_id: &str) -> SessionInfo {
-        match lock(&self.sessions).get(persona_id) {
+        let mut info = match lock(&self.sessions).get(persona_id) {
             Some(session) => lock(&session.info).clone(),
             None => idle_info(persona_id),
+        };
+        for processes in self.sides.processes(persona_id) {
+            info.processes.extend(processes.listed());
         }
+        info
     }
 
     /// Whether this teammate's picture is being drawn.
@@ -1266,18 +1268,21 @@ impl Room {
         });
     }
 
-    /// The processes of this teammate's running session, for the person.
-    fn processes_of(&self, persona_id: &str) -> Result<Arc<Processes>, String> {
-        self.session(persona_id)?
-            .driver
-            .processes()
-            .ok_or_else(|| "This teammate leaves no commands running.".to_string())
+    /// Find a command only among this teammate's home and work threads.
+    fn processes_of(&self, persona_id: &str, id: &str) -> Result<Arc<Processes>, String> {
+        let home = lock(&self.sessions)
+            .get(persona_id)
+            .and_then(|session| session.driver.processes());
+        home.into_iter()
+            .chain(self.sides.processes(persona_id))
+            .find(|processes| processes.output(id).is_some())
+            .ok_or_else(|| "That process is not running.".to_string())
     }
 
     /// Stops one command the teammate left running. It does not wake the
     /// teammate: the person stopped it, and the chip going says so.
     pub fn process_stop(&self, persona_id: &str, id: &str) -> Result<(), String> {
-        self.processes_of(persona_id)?
+        self.processes_of(persona_id, id)?
             .cancel(jobs::JobArgs {
                 job_id: id.to_string(),
                 reason: Some("stopped by the person".to_string()),
@@ -1293,7 +1298,7 @@ impl Room {
         id: &str,
     ) -> Result<crate::contract::ProcessOutput, String> {
         let (command, tail) = self
-            .processes_of(persona_id)?
+            .processes_of(persona_id, id)?
             .output(id)
             .ok_or_else(|| "That process is not running.".to_string())?;
         Ok(crate::contract::ProcessOutput { command, tail })

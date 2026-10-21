@@ -243,6 +243,13 @@ impl Threads<'_> {
             .voice
             .clone()
             .or_else(|| self.room.attached_voice(&thread));
+        if voice.as_ref().is_some_and(|origin| {
+            lock(&self.room.voice)
+                .upgrade()
+                .is_none_or(|calls| !calls.is_up(&origin.call_id))
+        }) {
+            self.room.call_detached(&thread);
+        }
         let subject = line.text.clone();
         let mut told = Told {
             replies: Vec::new(),

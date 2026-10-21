@@ -18,7 +18,12 @@ pub fn prompt_client() -> Option<hotline_contract::Client> {
 #[async_trait]
 pub trait CallRoom: Send + Sync {
     /// Hold the live room for one operation; calls themselves do not own it.
-    fn card_notice(&self, card: &crate::cards::Card) -> Option<crate::cards::Notice>;
+    /// `first_person` when the voice on the call is the card's own teammate.
+    fn card_notice(
+        &self,
+        card: &crate::cards::Card,
+        first_person: bool,
+    ) -> Option<crate::cards::Notice>;
     async fn answer_card(
         &self,
         card: &crate::cards::Card,

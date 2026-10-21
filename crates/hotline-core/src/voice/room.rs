@@ -39,8 +39,9 @@ impl CallRoom for RoomSide {
     fn card_notice(
         &self,
         card: &hotline_voice::cards::Card,
+        first_person: bool,
     ) -> Option<hotline_voice::cards::Notice> {
-        self.room().ok()?.call_card_notice(card)
+        self.room().ok()?.call_card_notice(card, first_person)
     }
     async fn answer_card(
         &self,

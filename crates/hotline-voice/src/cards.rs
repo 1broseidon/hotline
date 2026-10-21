@@ -113,10 +113,15 @@ impl Calls {
                     {
                         return Ok(None);
                     }
-                    Ok(call.cards.pending.pop_front())
+                    Ok(call.cards.pending.pop_front().map(|card| {
+                        let first_person =
+                            !call.desk && call.target.as_deref() == Some(card.persona.as_str());
+                        (card, first_person)
+                    }))
                 })
                 .ok()??;
-            let Some(notice) = self.room.card_notice(&card) else {
+            let (card, first_person) = card;
+            let Some(notice) = self.room.card_notice(&card, first_person) else {
                 continue;
             };
             if self.change(id, |call| {

@@ -44,7 +44,21 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
         let event = pending(&desk, &persona);
         let card = reference(&persona, &event);
         assert!(event.get("question").is_none());
-        assert!(!room.call_card_notice(&card).unwrap().answerable);
+        let desk_notice = room.call_card_notice(&card, false).unwrap();
+        assert!(!desk_notice.answerable);
+        // The desk's voice names the teammate; the teammate's own voice says I.
+        assert!(
+            !desk_notice.text.starts_with("I ")
+                && desk_notice
+                    .text
+                    .contains(&format!(" needs you for an action: {reason}. "))
+        );
+        assert!(
+            room.call_card_notice(&card, true)
+                .unwrap()
+                .text
+                .starts_with(&format!("I need you for an action: {reason}. "))
+        );
         for yes in [true, false] {
             assert!(
                 room.answer_call_card(&card, &call, yes)
@@ -72,7 +86,7 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
         .await
         .unwrap();
     let card = reference(&persona, &pending(&desk, &persona));
-    assert!(room.call_card_notice(&card).unwrap().answerable);
+    assert!(room.call_card_notice(&card, false).unwrap().answerable);
     let mut wrong = card.clone();
     wrong.persona = "someone-else".into();
     assert!(room.answer_call_card(&wrong, &call, true).await.is_err());
@@ -86,7 +100,7 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
             .unwrap_err()
             .contains("revoked")
     );
-    assert!(!room.call_card_notice(&card).unwrap().answerable);
+    assert!(!room.call_card_notice(&card, false).unwrap().answerable);
     assert_eq!(pending(&desk, &persona)["actionId"], card.request);
     calls.end(&call).unwrap();
     assert!(room.answer_call_card(&card, &call, false).await.is_err());
@@ -128,7 +142,7 @@ async fn duplicate_cards_are_said_once_and_withdrawn_cards_are_not_said() {
     assert_eq!(
         lock(&fake.spoken)
             .iter()
-            .filter(|text| text.contains("needs you for an action"))
+            .filter(|text| text.starts_with("I need you for an action"))
             .count(),
         1
     );

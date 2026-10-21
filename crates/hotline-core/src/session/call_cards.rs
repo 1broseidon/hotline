@@ -5,7 +5,7 @@ use super::*;
 use hotline_voice::cards::{Card, Notice};
 
 impl Room {
-    pub(crate) fn call_card_notice(&self, card: &Card) -> Option<Notice> {
+    pub(crate) fn call_card_notice(&self, card: &Card, first_person: bool) -> Option<Notice> {
         let persona = self.persona(&card.persona).ok()?;
         if card.kind == "human_action"
             && let Some((
@@ -24,7 +24,11 @@ impl Room {
                 .is_some_and(CapabilityLease::is_current)
         {
             return Some(Notice {
-                text: format!("{} asks: {reason} Say yes or no.", persona.name),
+                text: if first_person {
+                    format!("A question for you: {reason} Say yes or no.")
+                } else {
+                    format!("{} asks: {reason} Say yes or no.", persona.name)
+                },
                 answerable: true,
             });
         }
@@ -56,7 +60,7 @@ impl Room {
                     reason,
                     status: HumanActionStatus::Pending,
                     ..
-                } => format!(": {reason}"),
+                } => format!(": {}", reason.trim_end_matches(['.', ' '])),
                 _ => return None,
             },
             "permission" => match self.permission_card(&card.persona, &card.request) {
@@ -64,15 +68,22 @@ impl Room {
                     title,
                     decision: None,
                     ..
-                }) => format!(": {}", hotline_room::text::clip(&title, 500)),
+                }) => format!(
+                    ": {}",
+                    hotline_room::text::clip(&title, 500).trim_end_matches(['.', ' '])
+                ),
                 _ => String::new(),
             },
             _ => String::new(),
         };
         Some(Notice {
             text: format!(
-                "{} needs you for {action}{detail}. Please handle it at the desk; it cannot be answered by voice.",
-                persona.name
+                "{} for {action}{detail}. Please handle it at the desk; it cannot be answered by voice.",
+                if first_person {
+                    "I need you".to_string()
+                } else {
+                    format!("{} needs you", persona.name)
+                }
             ),
             answerable: false,
         })

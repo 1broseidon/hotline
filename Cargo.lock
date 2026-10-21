@@ -4236,6 +4236,7 @@ version = "0.41.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
+ "dunce",
  "futures-util",
  "hotline-core",
  "objc2",

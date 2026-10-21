@@ -1,6 +1,6 @@
 //! The table of what each agent needs to run under an account: one row per
-//! agent that can, and a `match` on the agent's id rather than a trait. The row
-//! says how the agent is pointed at a folder, which credentials it must not
+//! agent that can, found by the agent's id rather than through a trait. The
+//! row says how the agent is pointed at a folder, which credentials it must not
 //! inherit, how to ask it who is signed in and how to sign it in, and what of
 //! its user-level setup an account folder holds.
 //!
@@ -57,10 +57,19 @@ pub(crate) struct SetupCategory {
 
 /// The row for `backend_id`, or `None` for an agent that cannot run under an account.
 pub(crate) fn account_support(backend_id: &str) -> Option<&'static AccountSupport> {
-    match backend_id {
-        "claude-acp" => Some(&CLAUDE),
-        _ => None,
-    }
+    ROWS.iter()
+        .find(|(id, _)| *id == backend_id)
+        .map(|(_, row)| *row)
+}
+
+static ROWS: [(&str, &AccountSupport); 1] = [("claude-acp", &CLAUDE)];
+
+/// The `open` values of every row's setup. The desk shell is handed a path and
+/// not an agent, so it checks a request against all of them; a folder ends in `/`.
+pub fn account_setup_items() -> Vec<&'static str> {
+    ROWS.iter()
+        .flat_map(|(_, row)| row.setup.iter().map(|category| category.open))
+        .collect()
 }
 
 /// A `static` and not a `const`, so that every `&CLAUDE` is the one row, and a
@@ -205,6 +214,20 @@ mod tests {
         assert_eq!(
             (row.parse_status)(br#"{"loggedIn":false}"#, Path::new(".")).state,
             AccountStatusState::SignedOut
+        );
+    }
+
+    #[test]
+    fn open_may_show_only_what_a_row_names() {
+        assert_eq!(
+            account_setup_items(),
+            [
+                "CLAUDE.md",
+                "skills/",
+                "plugins/",
+                ".claude.json",
+                "settings.json"
+            ]
         );
     }
 }

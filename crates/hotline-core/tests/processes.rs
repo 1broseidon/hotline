@@ -203,18 +203,66 @@ probe() {
 } > probe.txt
 mv probe.txt probe.done"#;
 
-/// The session as the roster says it, the next time `wanted` holds of it.
+/// The session as the roster says it, in a snapshot or a later row.
 async fn session_where(desk: &mut Desk, wanted: impl Fn(&Value) -> bool) -> Value {
     let persona = desk.persona.clone();
-    let row = desk
+    let matching = |frame: &Value| {
+        frame
+            .get("event")
+            .into_iter()
+            .chain(frame["snapshot"].as_array().into_iter().flatten())
+            .find(|row| {
+                row["persona"]["id"] == persona.as_str()
+                    && row["session"].is_object()
+                    && wanted(&row["session"])
+            })
+            .map(|row| row["session"].clone())
+    };
+    let frame = desk
+        .client
+        .next_where(common::ANSWER, |frame| matching(frame).is_some())
+        .await;
+    matching(&frame).unwrap()
+}
+
+/// A subscription started after the turn has no later change to wait for.
+#[tokio::test(flavor = "multi_thread")]
+async fn process_chip_an_existing_process_is_in_the_roster_snapshot() {
+    let mut desk = Desk::open().await;
+    desk.client.subscribe(json!({"view": "roster"})).await;
+    let (pid, id) = desk
+        .leave_running_as("echo $$ > sleeper.pid; exec sleep 300")
+        .await;
+    session_where(&mut desk, |session| {
+        session["state"] == "ready" && session["processes"][0]["id"] == id.as_str()
+    })
+    .await;
+    let sub = desk.client.subscribe(json!({"view": "roster"})).await;
+    let snapshot = desk
         .client
         .next_where(common::ANSWER, |frame| {
-            frame["event"]["persona"]["id"] == persona.as_str()
-                && frame["event"]["session"].is_object()
-                && wanted(&frame["event"]["session"])
+            frame["sub"] == sub && frame["snapshot"].is_array()
         })
         .await;
-    row["event"]["session"].clone()
+    assert_eq!(
+        snapshot["snapshot"][0]["session"]["processes"][0]["id"],
+        id.as_str()
+    );
+    // Exercise the same reader with only the snapshot available, even when
+    // the live subscription also happened to emit a row during startup.
+    desk.client.inbox.clear();
+    desk.client.inbox.push_back(snapshot);
+    let session = session_where(&mut desk, |session| {
+        session["processes"][0]["id"] == id.as_str()
+    })
+    .await;
+    assert_eq!(session["processes"][0]["state"], "running");
+    assert!(desk.client.inbox.is_empty(), "the snapshot was consumed");
+    let stopped = desk
+        .call("process.stop", json!({"personaId": desk.persona, "id": id}))
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    until_dead(pid).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -222,10 +270,13 @@ async fn process_chip_a_process_is_on_the_session_until_the_person_stops_it() {
     let mut desk = Desk::open().await;
     desk.client.subscribe(json!({"view": "roster"})).await;
     let pid = desk.leave_running().await;
+    // The handover and the end of the turn can appear in the same row.
+    // Consume that row once: there need not be another ready update.
     let session = session_where(&mut desk, |session| {
-        session["processes"]
-            .as_array()
-            .is_some_and(|listed| !listed.is_empty())
+        session["state"] == "ready"
+            && session["processes"]
+                .as_array()
+                .is_some_and(|listed| !listed.is_empty())
     })
     .await;
     let process = &session["processes"][0];
@@ -233,11 +284,6 @@ async fn process_chip_a_process_is_on_the_session_until_the_person_stops_it() {
     assert_eq!(process["state"], "running");
     assert!(process["startedAt"].as_i64().unwrap() > 0, "{process}");
     let id = process["id"].as_str().unwrap().to_owned();
-    // The turn is over: a process running beside it is not work in flight.
-    session_where(&mut desk, |session| {
-        session["state"] != "thinking" && session["processes"][0]["id"] == id.as_str()
-    })
-    .await;
 
     // Rows from before the process was held say it has none too.
     desk.client.inbox.clear();
@@ -308,7 +354,7 @@ async fn process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn process_chip_output_is_the_latest_of_what_it_wrote() {
     let mut desk = Desk::open().await;
-    let command = "echo $$ > sleeper.pid; for i in $(seq 1 3000); do echo line $i; done; echo oops >&2; exec sleep 300";
+    let command = "echo $$ > sleeper.pid; for i in $(seq 1 3000); do echo line $i; done; while [ ! -f stdout-read ]; do sleep 0.01; done; echo oops >&2; exec sleep 300";
     let (pid, job_id) = desk.leave_running_as(command).await;
     let output = tokio::time::timeout(common::ANSWER, async {
         loop {
@@ -319,8 +365,14 @@ async fn process_chip_output_is_the_latest_of_what_it_wrote() {
                 )
                 .await;
             assert_eq!(read["ok"], true, "{read}");
-            if read["result"]["tail"].as_str().unwrap().contains("oops") {
+            let tail = read["result"]["tail"].as_str().unwrap();
+            if tail.contains("oops") {
                 return read["result"].clone();
+            }
+            // The two pipes drain independently. Let stdout reach the tail
+            // before writing stderr, or its marker can be evicted by stdout.
+            if tail.contains("line 3000\n") {
+                std::fs::write(desk.workspace.join("stdout-read"), "").unwrap();
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }

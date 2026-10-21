@@ -16,19 +16,19 @@ parentId: epic-21
 createdAt: "2026-10-19T13:59:38.168Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T06:45:32.265Z"
+updatedAt: "2026-10-21T06:45:39.164Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
   by: cli
   at: "2026-10-21T06:17:32.167Z"
   until: done
-  tries: 1
+  tries: 2
   claim:
     host: Georges-Mac-Studio
     runner: cli
     pid: 94104
-    at: "2026-10-21T06:17:35.688Z"
+    at: "2026-10-21T06:45:39.164Z"
 decisions:
   - decision-11
 ---
@@ -51,3 +51,4 @@ Proved by scripted-front tests: a desk call with a lead answers a roster questio
 - 2026-10-21T06:25:07.070Z: [codex] Desk calls now resolve to the lead's ordinary call thread/front; implementing call-scoped local handoff authorization and scripted-front proofs. Removed desk_command and wire-command dispatch from the no-lead fallback, and moved fallback transcript storage to its own call stream. Preserving no-lead fallback operations and historical hidden-tape read restrictions.
 - 2026-10-21T06:36:43.837Z: [codex] Scripted lead/fallback proofs pass; finishing full checks. New standing decision voice.lead-call-grant scopes implicit local handoffs to the live desk call and denies recovered queued requests. Added optional personName room-setting input because the landed tree has no profile-name source; its UI/onboarding population remains for identity work (task-204). Full build hit host disk exhaustion, so cleaning only this worktree's Cargo artifacts and rerunning without incremental caches.
 - 2026-10-21T06:45:31.942Z: [codex] Ready on dispatch/task-203 at 2b90f377; worktree clean. Desk calls use the lead's call thread/front, roster lookup and direct named handoff, with live-call local grants checked by the core. Removed desk_command, wire-command bridge and dispatcher tape writes; retained bounded no-lead fallback and historical privacy restrictions. Scripted-front, hang-up and recovery proofs pass; make check, all 8 make precheck legs and final fallback tests pass (CARGO_INCREMENTAL=0 after workspace-only Cargo cleanup). Remaining integration: identity UI/onboarding must populate optional personName; task-206 owns real-call scenario/acoustic verification. See docs/security.md and decision-11 for grant enforcement and residual risk.
+- 2026-10-21T06:45:38.518Z: Landing sent back (1 of 1): dispatch/task-203 conflicts with release/0.42.0 in crates/hotline-core/tests/voice.rs, docs/security.md. On release/0.42.0 since this branch started: 9345dcf9 A dropped call stays on its thread until twenty seconds or revoked access ends it. (task-241). Merge release/0.42.0 into this branch (git merge release/0.42.0), keep what both sides meant, commit the merge, and run the checks.

@@ -82,7 +82,7 @@ async fn list_sources_are_read_once_and_results_stay_current() {
     let gets = secrets.gets.load(Ordering::SeqCst);
     let reads = log.take_load_counts();
     let models = models["result"].as_array().unwrap();
-    assert_ne!(models.as_slice(), []);
+    assert_ne!(models.as_slice(), [] as [serde_json::Value; 0]);
     eprintln!("model results: {}", serde_json::to_string(models).unwrap());
     eprintln!(
         "models: results={} secret_gets={gets} loads={reads:?}",

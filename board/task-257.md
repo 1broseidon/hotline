@@ -36,3 +36,4 @@ Done when: normal closes drain as before; only a seat dropped for stalling (the 
 
 ## Log
 - 2026-10-21T11:23:30.974Z: [codex] Confirmed zero linger at all three transport setup paths. Moving reset selection into joined seat teardown only after WRITE_STALL, preserving normal TLS/WebSocket drains. Existing stalled-seat reset harness remains the required proof; pairing/auth and door tests cover final replies.
+- 2026-10-21T11:29:20.755Z: [codex] make check passed in the foreground: 1,240 core unit tests plus workspace/integration suites, including the unchanged stalled-seat TCP-reset proof and new normal-revocation drain regression. make precheck is running; Windows runtime validation remains Pork Chop's CI step.

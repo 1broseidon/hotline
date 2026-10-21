@@ -13,7 +13,8 @@ parentId: epic-21
 createdAt: "2026-10-19T20:00:07.934Z"
 dependsOn:
   - task-224
-updatedAt: "2026-10-20T20:13:22.833Z"
+  - task-244
+updatedAt: "2026-10-21T01:32:42.839Z"
 ---
 
 ## Description
@@ -32,3 +33,12 @@ Done when:
 - When a conversation ends in "write that down", the clone gets the whole call so far as its brief.
 
 Proved by scripted-front tests on Grok Voice and GPT Realtime, plus GPT-Live's delegation, and desk-harness tests for the clone and the posts. The listening window is checked by hand in the scenario pass (task-206). ADR 0005 is marked amended.
+
+Related Files:
+  - crates/hotline-core/src/voice
+
+Depends on:
+  ○ task-224 open (backlog)
+
+Added 2026-10-20 (George, after the S5 proving call; see task-244):
+- Everything said on a live-voice call, by both sides, is recorded on the call's thread in order as its transcript, with each lookup and each piece of work as its own tool line. The thread reader (task-244) returns it like any call.

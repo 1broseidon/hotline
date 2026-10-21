@@ -30,3 +30,4 @@ Found re-checking task-242 on the QA desk, 2026-10-20, at a185fff1. After hang-u
 
 ## Log
 - 2026-10-21T05:07:10.271Z: [codex] Found callWords treating every non-closed link as in progress. The saved live state means open, not a turn in flight; label live calls open and parked calls parked, retaining closed-call duration/outcome. UI regression covers both states.
+- 2026-10-21T05:09:35.230Z: [codex] Extended fix to publish workingCalls in the roster, using the core's actual per-call turn state. Chat rows now distinguish running/open/parked; the pane refreshes from the same roster signal. UI regression passes, including rerenders and Open; extending existing real-core hang-up harness to prove roster start/finish for both drivers.

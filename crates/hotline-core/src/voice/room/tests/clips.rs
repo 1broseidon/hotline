@@ -327,7 +327,9 @@ async fn idle_replacement_and_disconnect_end_only_the_named_call() {
     calls.start(&third, desk).unwrap();
     let (_, mut events) = calls.subscribe(&third).unwrap();
     let revoked = CancellationToken::new();
-    calls.bind_connection(third, revoked.clone());
+    calls
+        .bind_connection(third, "desk", revoked.clone(), revoked.clone())
+        .unwrap();
     revoked.cancel();
     event(&mut events, |e| {
         matches!(

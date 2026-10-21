@@ -174,7 +174,9 @@ async fn canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call() {
                 .is_err()
         );
         let revoked = CancellationToken::new();
-        calls.bind_connection(id.clone(), revoked.clone());
+        calls
+            .bind_connection(id.clone(), "desk", revoked.clone(), revoked.clone())
+            .unwrap();
         revoked.cancel();
         event(&mut rx, |e| {
             matches!(
@@ -224,4 +226,144 @@ async fn device_goodbye_needs_no_fabricated_audio_or_dispatcher() {
         assert_eq!(fake.transcriptions.load(Ordering::SeqCst), 0);
         assert_eq!(*lock(&fake.spoken), ["Goodbye."]);
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_short_transport_drop_resumes_but_twenty_seconds_detaches() {
+    for desk_call in [false, true] {
+        transport_drop_resumes_but_twenty_seconds_detaches(desk_call).await;
+    }
+}
+
+async fn transport_drop_resumes_but_twenty_seconds_detaches(desk_call: bool) {
+    let fake = Arc::new(Fake::default());
+    let (_root, desk, calls) = desk(with_fake(fake));
+    let id = Uuid::new_v4().to_string();
+    let persona = mack(&desk).await;
+    calls
+        .start_target(
+            &id,
+            (!desk_call).then(|| persona.clone()),
+            false,
+            desk.clone(),
+        )
+        .unwrap();
+    let call_thread = crate::contract::ThreadId::call(&id);
+    assert_eq!(calls.lead_call(&persona, &call_thread), desk_call);
+    let thread = call_link(&desk, &persona).unwrap()["thread"].clone();
+    let (_, mut events) = calls.subscribe(&id).unwrap();
+    let revoked = CancellationToken::new();
+    let first = CancellationToken::new();
+    calls
+        .bind_connection(id.clone(), "phone", first.clone(), revoked.clone())
+        .unwrap();
+    first.cancel();
+    event(&mut events, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Held,
+                reconnecting: true,
+                ..
+            }
+        )
+    })
+    .await;
+    assert_eq!(calls.lead_call(&persona, &call_thread), desk_call);
+    tokio::time::advance(Duration::from_secs(19)).await;
+    assert!(
+        calls
+            .bind_connection(
+                id.clone(),
+                "other-phone",
+                CancellationToken::new(),
+                CancellationToken::new()
+            )
+            .is_err()
+    );
+    let second = CancellationToken::new();
+    calls
+        .bind_connection(id.clone(), "phone", second.clone(), revoked.clone())
+        .unwrap();
+    event(
+        &mut events,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "We're back on the same call."),
+    )
+    .await;
+    assert_eq!(call_link(&desk, &persona).unwrap()["thread"], thread);
+    tokio::time::advance(Duration::from_secs(2)).await;
+    assert!(!matches!(
+        calls.subscribe(&id).unwrap().0,
+        VoiceEvent::State {
+            state: VoiceState::Ended,
+            ..
+        }
+    ));
+    assert_eq!(calls.lead_call(&persona, &call_thread), desk_call);
+    second.cancel();
+    event(&mut events, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Held,
+                ..
+            }
+        )
+    })
+    .await;
+    tokio::time::advance(Duration::from_secs(20)).await;
+    event(&mut events, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Ended,
+                reason: Some(VoiceEndReason::Client),
+                reconnecting: false,
+                ..
+            }
+        )
+    })
+    .await;
+    assert!(!calls.lead_call(&persona, &call_thread));
+    assert!(calls.text(&id, 1, "Too late").is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn pairing_revocation_during_a_drop_ends_without_the_grace_period() {
+    let (_root, desk, calls) = desk(with_fake(Arc::new(Fake::default())));
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk).unwrap();
+    let (_, mut events) = calls.subscribe(&id).unwrap();
+    let revoked = CancellationToken::new();
+    let socket = CancellationToken::new();
+    calls
+        .bind_connection(id.clone(), "phone", socket.clone(), revoked.clone())
+        .unwrap();
+    socket.cancel();
+    event(&mut events, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Held,
+                ..
+            }
+        )
+    })
+    .await;
+    revoked.cancel();
+    event(&mut events, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Ended,
+                ..
+            }
+        )
+    })
+    .await;
+    assert!(
+        calls
+            .bind_connection(id, "phone", CancellationToken::new(), revoked)
+            .is_err()
+    );
 }

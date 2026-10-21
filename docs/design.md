@@ -757,6 +757,19 @@ streamed reply also prevents its late completion from starting speech again.
 The phone uses the same wire commands; its client-side onset and speaker
 checks are a separate task-206 verification, not established by desk tests.
 
+### A transport drop holds the call for twenty seconds
+
+A lost client socket holds its call for twenty seconds. Replaying the call
+subscription from the same paired device resumes the existing call and thread,
+with one “We're back on the same call.” line. A different device cannot take
+it over, and another subscription does not transfer an active call's lifetime.
+Revoking the pairing ends the call immediately, including during the hold.
+Expiry uses the ordinary hang-up transition, so S5 detaches voice and preserves
+ongoing thread work and its closing note. An explicit user hold stays held on
+reconnection. The window shows Reconnecting during its socket retry or the
+provider's reported recovery; terminal snapshots clear it. Phone adoption and
+the physical relay scenario remain to be verified in the phone tree.
+
 ### Live calls keep the selected model
 
 Settings selects the call mode in the core, including when a client omits
@@ -771,7 +784,10 @@ Legacy voice**. That choice starts a new call on the same conversation.
 The provider adapters renew and reconnect with their bounded transcript.
 If a session exits, the call runtime makes a bounded replacement attempt
 with the conversation preserved; a replacement that fails before making
-progress ends the live call visibly. A revoked login or spent budget ends
+progress ends the live call visibly. Fixed local recordings explain a failed
+live connection or spent Voice budget once and offer an explicit Legacy
+choice, without asking the unavailable provider to speak. The call card keeps
+the reason, while spoken notices contain no provider error codes. A revoked login or spent budget ends
 it without reopening the revoked connection. Start, recovery and refusal
 logs identify their reason. Refusal logs correlate provider `event_id` to
 request type and redact credentials from the provider's message; request

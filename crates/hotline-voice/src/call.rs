@@ -26,6 +26,15 @@ pub struct CallRequest {
     pub mic_rate: Option<u32>,
 }
 
+pub(super) struct Connection {
+    owner: String,
+    replaced: CancellationToken,
+    disconnected: CancellationToken,
+    pub(super) dropped: bool,
+    deadline: Option<tokio::time::Instant>,
+    was_held: bool,
+}
+
 impl Calls {
     pub fn start(
         self: &Arc<Self>,
@@ -174,7 +183,8 @@ impl Calls {
                 speech_services,
                 input: None,
                 spoken_events: VecDeque::new(),
-                connection_bound: false,
+                connection: None,
+                reconnecting: false,
                 state: VoiceState::Listening,
                 reason: None,
                 seq: None,
@@ -278,24 +288,132 @@ impl Calls {
         });
     }
 
-    /// A revoked or disconnected owner may not leave a paid dispatcher running.
-    pub fn bind_connection(self: &Arc<Self>, id: String, cancel: CancellationToken) {
-        let this = Arc::downgrade(self);
-        let call_cancel = lock(&self.calls)
-            .iter_mut()
-            .find(|c| c.id == id && !c.connection_bound)
-            .map(|c| {
-                c.connection_bound = true;
-                c.cancel.clone()
-            });
-        if let Some(call_cancel) = call_cancel {
-            tokio::spawn(async move {
-                tokio::select! {
-                    () = cancel.cancelled() => if let Some(this) = this.upgrade() { let _ = this.end(&id); },
-                    () = call_cancel.cancelled() => {},
+    /// Transport loss has a grace period; losing the pairing does not.
+    pub fn bind_connection(
+        self: &Arc<Self>,
+        id: String,
+        owner: &str,
+        disconnected: CancellationToken,
+        revoked: CancellationToken,
+    ) -> Result<(), String> {
+        let generation = CancellationToken::new();
+        let Some((cancel, resumed)) = self.change(&id, |call| {
+            if let Some(connection) = &call.connection {
+                if connection.owner != owner {
+                    return Err("Only the device that started this call can resume it.".into());
                 }
+                if connection
+                    .deadline
+                    .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+                {
+                    call.state(VoiceState::Ended, Some(VoiceEndReason::Client));
+                    return Ok(None);
+                }
+                // A second subscription observes an active call; it does not
+                // transfer its lifetime to another window's socket.
+                if !connection.disconnected.is_cancelled() {
+                    return Ok(None);
+                }
+                connection.replaced.cancel();
+            }
+            let resumed = call
+                .connection
+                .as_ref()
+                .is_some_and(|c| c.dropped || c.disconnected.is_cancelled());
+            let held = call
+                .connection
+                .as_ref()
+                .map_or(call.state == VoiceState::Held, |c| {
+                    if c.dropped {
+                        c.was_held
+                    } else {
+                        call.state == VoiceState::Held
+                    }
+                });
+            call.connection = Some(Connection {
+                owner: owner.into(),
+                replaced: generation.clone(),
+                disconnected: disconnected.clone(),
+                dropped: false,
+                deadline: None,
+                was_held: held,
+            });
+            if resumed && !held {
+                call.state(call.resting(), None);
+            }
+            Ok(Some((call.cancel.clone(), resumed && !held)))
+        })?
+        else {
+            return Ok(());
+        };
+        if resumed {
+            let _ = self.change(&id, |call| {
+                let notice = super::Delivery {
+                    persona: call.target.clone().unwrap_or_default(),
+                    name: String::new(),
+                    event: String::new(),
+                    text: "We're back on the same call.".into(),
+                };
+                let _ = call
+                    .work
+                    .try_send(super::Work::Notice(notice, call.deliveries.child_token()));
+                Ok(())
             });
         }
+        let this = Arc::downgrade(self);
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                () = revoked.cancelled() => {
+                    if let Some(this) = this.upgrade() { let _ = this.end(&id); }
+                    return;
+                }
+                () = generation.cancelled() => return,
+                () = cancel.cancelled() => return,
+                () = disconnected.cancelled() => {},
+            }
+            if let Some(this) = this.upgrade() {
+                let _ = this.change(&id, |call| {
+                    // Rebinding can race with this task waking from the old socket.
+                    if generation.is_cancelled() {
+                        return Ok(());
+                    }
+                    if let Some(connection) = &mut call.connection {
+                        connection.dropped = true;
+                        connection.deadline =
+                            Some(tokio::time::Instant::now() + std::time::Duration::from_secs(20));
+                        connection.was_held = call.state == VoiceState::Held;
+                    }
+                    call.input = None;
+                    call.speech.cancel();
+                    call.deliveries.cancel();
+                    call.deliveries = CancellationToken::new();
+                    call.cut_speech(None);
+                    call.stop_streams(true);
+                    call.state(VoiceState::Held, None);
+                    Ok(())
+                });
+            }
+            tokio::select! {
+                biased;
+                () = generation.cancelled() => {},
+                () = cancel.cancelled() => {},
+                () = revoked.cancelled() => {
+                    if let Some(this) = this.upgrade() { let _ = this.end(&id); }
+                }
+                () = tokio::time::sleep(std::time::Duration::from_secs(20)) => {
+                    if let Some(this) = this.upgrade() {
+                        let _ = this.change(&id, |call| {
+                            if !generation.is_cancelled() {
+                                call.state(VoiceState::Ended, Some(VoiceEndReason::Client));
+                            }
+                            Ok(())
+                        });
+                    }
+                }
+            }
+        });
+        Ok(())
     }
 
     pub fn subscribe(

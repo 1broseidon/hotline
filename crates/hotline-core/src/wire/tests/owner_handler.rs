@@ -442,3 +442,70 @@ async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
     }
     assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
 }
+
+#[tokio::test]
+async fn a_call_subscription_cannot_resume_another_devices_transport() {
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_voice_services(
+            root.path(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+            Some(crate::voice::tests::services()),
+        )
+        .unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let parts = desk.parts();
+    let calls = parts.voice.as_ref().unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    calls.start(&id, room.clone()).unwrap();
+    let socket = tokio_util::sync::CancellationToken::new();
+    calls
+        .bind_connection(
+            id.clone(),
+            "another-device",
+            socket.clone(),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .unwrap();
+    socket.cancel();
+    let refused = remote_control_answer(
+        Seat::Owner,
+        &room,
+        &desk.log,
+        &parts,
+        json!({"id":1,"sub":{"call":id}}),
+    )
+    .await;
+    assert_eq!(refused["ok"], false);
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("device that started")
+    );
+    calls.end(&id).unwrap();
+
+    let id = uuid::Uuid::new_v4().to_string();
+    calls.start(&id, room.clone()).unwrap();
+    let socket = tokio_util::sync::CancellationToken::new();
+    calls
+        .bind_connection(
+            id.clone(),
+            "desk",
+            socket.clone(),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .unwrap();
+    socket.cancel();
+    let resumed = remote_control_answer(
+        Seat::Owner,
+        &room,
+        &desk.log,
+        &parts,
+        json!({"id":2,"sub":{"call":id}}),
+    )
+    .await;
+    assert_eq!(resumed["ok"], true);
+    calls.end(&id).unwrap();
+}

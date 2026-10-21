@@ -296,7 +296,8 @@ pub struct Call {
     pub speech_services: CallSpeech,
     input: Option<Input>,
     spoken_events: VecDeque<String>,
-    connection_bound: bool,
+    connection: Option<call::Connection>,
+    reconnecting: bool,
     pub state: VoiceState,
     reason: Option<VoiceEndReason>,
     pub seq: Option<u32>,
@@ -374,7 +375,12 @@ impl Call {
     fn snapshot(&self) -> VoiceEvent {
         VoiceEvent::State {
             state: self.state,
-            live_error: self.live_error.clone(),
+            live_error: self
+                .live_error
+                .clone()
+                .filter(|_| self.state == VoiceState::Ended),
+            reconnecting: self.state != VoiceState::Ended
+                && (self.reconnecting || self.connection.as_ref().is_some_and(|c| c.dropped)),
             reason: self.reason,
             listening: self.listening_while_thinking(),
         }

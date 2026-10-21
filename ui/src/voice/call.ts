@@ -27,6 +27,7 @@ import { useModelsRevision, useRawSetting } from "../room";
 
 export type CallPhase =
 	| "connecting"
+	| "reconnecting"
 	| "listening"
 	| "hearing"
 	| "thinking"
@@ -205,6 +206,8 @@ export class Call {
 	private unwatch: (() => void) | null = null;
 	/** Whether the desk has made the call; before it, there is nothing to hang up there. */
 	private started = false;
+	private providerReconnecting = false;
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	/** The desk's own word on where the call stands. */
 	private desk: "listening" | "thinking" | "speaking" | "held" = "listening";
 	/**
@@ -390,6 +393,10 @@ export class Call {
 			{
 				// A snapshot is where the call stands, never audio to play again.
 				snapshot: (items) => {
+					if (this.reconnectTimer !== null && items.some((item) => (item as CallEvent).type === "state")) {
+						clearTimeout(this.reconnectTimer);
+						this.reconnectTimer = null;
+					}
 					for (const item of items) if ((item as CallEvent).type === "state") this.receive(item as CallEvent);
 				},
 				event: (item) => this.receive(item as CallEvent),
@@ -500,10 +507,11 @@ export class Call {
 		if (this.ended) return;
 		switch (event.type) {
 			case "state": {
+				this.providerReconnecting = event.reconnecting === true;
 				if (event.liveError) {
 					this.set({ trouble: event.liveError, legacyAvailable: true });
-					this.audio.stopPlayback();
-					this.end("error");
+					if (this.audio.playing || this.outputLines.size > 0) { this.closing = "error"; this.settle(); }
+					else this.end("error");
 					return;
 				}
 				const listens = event.state === "thinking" && event.listening === true;
@@ -619,6 +627,7 @@ export class Call {
 		if (this.closing !== null && !this.audio.playing && this.outputLines.size === 0) return this.end(this.closing);
 		// Until the desk has made the call and it is watched, it is still connecting.
 		if (this.unsubscribe === null) return;
+		if (this.reconnectTimer !== null || this.providerReconnecting) return this.set({ phase: "reconnecting" });
 		if (this.held) return this.set({ phase: "held" });
 		if (this.audio.playing) {
 			if (this.snapshot.phase !== "speaking" && this.snapshot.phase !== "hearing") {
@@ -649,8 +658,16 @@ export class Call {
 	private connection(state: Reach): void {
 		if (this.ended) return;
 		if (state === "gone") return this.fail("This desk is no longer paired with this computer.");
-		// The desk ends a call whose connection drops, so there is nothing to wait for.
-		if (state === "closed") this.fail(LOST);
+		if (state === "closed" && this.reconnectTimer === null) {
+			this.cancelInput();
+			this.audio.stopPlayback();
+			this.deferred = [];
+			this.outputLines.clear();
+			this.awaiting = false;
+			this.reconnectTimer = setTimeout(() => this.fail(LOST), 20_000);
+			this.set({ phase: "reconnecting" });
+		}
+		// An open socket is not yet an attached call; its snapshot clears the hold.
 	}
 
 
@@ -667,6 +684,7 @@ export class Call {
 
 	/** Exposed for tests; the microphone is the only caller in the window. */
 	hear(block: Float32Array, rate: number): void {
+		if (this.snapshot.phase === "reconnecting") return;
 		if (this.front !== null) return this.hearFront(block, rate);
 		const phase = this.snapshot.phase;
 		if (phase !== "listening" && phase !== "hearing" && phase !== "speaking") return;
@@ -1037,6 +1055,8 @@ export class Call {
 
 	private end(reason: EndReason): void {
 		if (this.ended) return;
+		if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = null;
 		this.holdGeneration++;
 		this.cancelInput();
 		this.deferred = [];

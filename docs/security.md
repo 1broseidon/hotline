@@ -1907,3 +1907,26 @@ teammate's lease never covers another teammate's computer.
   Linked recipients retain ordinary collaboration consent. The fallback
   assistant remains only for desks with no lead, with its existing bounded
   operations; old dispatcher tapes remain owner-only historical data.
+
+
+## Resuming a dropped call
+
+- **Default and grant source:** the existing call and subscription seat checks
+  remain. A socket drop permits twenty seconds of reattachment by the same
+  authenticated device id (local desk sockets share the desk owner).
+- **Enforcement:** `wire/socket.rs` binds the call to the socket and separately
+  to its pairing's revocation token. `wire/subscribe.rs` reattaches through
+  `Calls::bind_connection`, which refuses another device. Revocation bypasses
+  the grace period; expiry takes the normal hang-up path.
+- **Tests:** `voice/room/tests/text.rs`
+  `a_short_transport_drop_resumes_but_twenty_seconds_detaches` proves the
+  grace period and wrong-device refusal, and that a desk lead’s routing grant
+  survives reattachment but ends on expiry; `pairing_revocation_during_a_drop_ends_without_the_grace_period`
+  proves revocation during the hold. `tests/voice/front.rs`
+  `a_wire_drop_resumes_the_same_live_call_and_announces_it` drives resumption
+  through the real socket subscription handler. `wire/tests/owner_handler.rs`
+  `a_call_subscription_cannot_resume_another_devices_transport` proves allowed
+  and denied owners through the subscription handler.
+- **Residual risk:** a dropped call keeps its provider connection for up to
+  twenty seconds and can incur that connection's normal cost. This does not
+  restore a revoked grant or cancel work already admitted on its thread.

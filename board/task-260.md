@@ -31,3 +31,4 @@ George, 2026-10-21: vary it. task-256 says 'I'm still working on that.' after ea
 
 ## Log
 - 2026-10-21T20:00:22.635Z: [codex] Started on dispatch/task-260; release/0.42.0 is already contained in HEAD (no merge needed). Keeping feedback queue/cadence/turn guards; rotating neutral first-person lines and extending paused-clock coverage to three consecutive lines.
+- 2026-10-21T20:09:14.756Z: [codex] Implemented neutral three-line rotation in the existing Legacy speech queue, preserving timing and guards. Unit and real-wire tests now verify three non-repeating lines (both drivers), with completion/hold silence retained. make check passed; make precheck running. Decision-28 updates the wording rule as requested.

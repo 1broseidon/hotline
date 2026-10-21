@@ -113,6 +113,24 @@ impl Desk {
         let path = self.a.dir.join(format!("fixture-{run}.json"));
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
     }
+
+    async fn switch_to_a_while_it_signs_in(&self) {
+        let mut ada = roster(&self.log)
+            .into_iter()
+            .find(|persona| persona.id == "ada")
+            .unwrap();
+        ada.agent_account_id = Some(B.to_string());
+        crate::room::append_persona(&self.log, &ada).unwrap();
+        assert_eq!(
+            self.room.assign_account("ada", Some(A.to_string())).await,
+            Ok(SessionAccount {
+                running: None,
+                wanted: Some(A.to_string()),
+                held: Some(AccountHold::SigningIn),
+            })
+        );
+        assert_eq!(self.sessions(), ["s1", "s2", "s3"]);
+    }
 }
 
 fn view(state: AccountStatusState) -> AccountStatusView {
@@ -401,22 +419,8 @@ async fn a_sign_in_is_judged_by_its_own_status_not_one_already_running() {
 #[tokio::test]
 async fn a_switch_held_for_a_running_sign_in_applies_once_it_is_confirmed() {
     let desk = desk();
-    let mut ada = roster(&desk.log)
-        .into_iter()
-        .find(|persona| persona.id == "ada")
-        .unwrap();
-    ada.agent_account_id = Some(B.to_string());
-    crate::room::append_persona(&desk.log, &ada).unwrap();
     let attempt = desk.logins.admit(A, CancellationToken::new()).unwrap();
-    assert_eq!(
-        desk.room.assign_account("ada", Some(A.to_string())).await,
-        Ok(SessionAccount {
-            running: None,
-            wanted: Some(A.to_string()),
-            held: Some(AccountHold::SigningIn),
-        })
-    );
-    assert_eq!(desk.sessions(), ["s1", "s2", "s3"]);
+    desk.switch_to_a_while_it_signs_in().await;
     desk.plant_credentials();
     desk.logins
         .conclude(
@@ -426,6 +430,18 @@ async fn a_switch_held_for_a_running_sign_in_applies_once_it_is_confirmed() {
             Outcome::Exited(Ok(())),
         )
         .await;
+    until("the switch applies", || desk.sessions().is_empty()).await;
+    assert_eq!(desk.outcome(), Some((Succeeded, None)));
+    assert_eq!(desk.room.info("ada").account, None);
+}
+
+#[tokio::test]
+#[cfg_attr(windows, ignore = "opens a console window")]
+async fn a_real_sign_in_releases_the_switch_it_held() {
+    let desk = desk();
+    let signing = desk.sign("ok", PATIENCE, CancellationToken::new());
+    desk.switch_to_a_while_it_signs_in().await;
+    signing.await;
     until("the switch applies", || desk.sessions().is_empty()).await;
     assert_eq!(desk.outcome(), Some((Succeeded, None)));
     assert_eq!(desk.room.info("ada").account, None);

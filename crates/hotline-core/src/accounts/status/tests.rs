@@ -323,3 +323,21 @@ async fn refresh_rechecks_the_folder_and_covers_only_accounts_in_use() {
     .await;
     assert_eq!(statuses.cached(B).state, AccountStatusState::NotChecked);
 }
+
+#[tokio::test]
+async fn a_recheck_runs_its_own_status_even_behind_one_already_running() {
+    use AccountStatusState::{SignedIn, SignedOut};
+    let statuses = AccountStatuses::new(StartBounds::default());
+    let (release, held) = oneshot::channel::<()>();
+    let running = statuses.check_with("a", move || async move {
+        held.await.ok();
+        view(SignedOut, None, None)
+    });
+    let recheck = statuses.recheck_with("a", || async { view(SignedIn, None, None) });
+    let releaser = async { release.send(()).unwrap() };
+    let (earlier, fresh, ()) = tokio::join!(running, recheck, releaser);
+    assert_eq!(
+        (earlier.state, fresh.state, statuses.cached("a").state),
+        (SignedOut, SignedIn, SignedIn)
+    );
+}

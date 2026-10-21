@@ -1,7 +1,7 @@
 use super::*;
 use crate::accounts::support::CLAUDE;
 use crate::contract::AccountStatusState::{SignedIn, SignedOut, Unavailable};
-use crate::contract::LoginAttemptState::{Failed, Succeeded};
+use crate::contract::LoginAttemptState::{Failed, Running, Succeeded};
 use crate::contract::Persona;
 use crate::driver::acp::StartBounds;
 use crate::log::Log;
@@ -10,6 +10,7 @@ use crate::session::tests::{DeskKeys, enrol, persona};
 use crate::test_support::{PATIENCE, account_on_disk, acp_fixture_launch, until};
 use std::future::Future;
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 
 const A: &str = "3f6c2a1e-8b4d-4e7a-9c15-2d8e7f0a6b31";
 const B: &str = "a7d94e02-1c5b-4f83-b6e9-0f2c3d4a5b68";
@@ -163,7 +164,8 @@ fn one_running_attempt_per_account() {
         logins.admit(A, CancellationToken::new()).err(),
         Some("A sign-in is already running for this account.".into())
     );
-    assert!(logins.admit(B, CancellationToken::new()).is_ok() && logins.running(A));
+    assert!(logins.admit(B, CancellationToken::new()).is_ok());
+    assert_eq!(logins.view(A).map(|view| view.state), Some(Running));
     assert_eq!(
         logins.input(A, &first.id, "x"),
         Err("This sign-in is not accepting terminal input.".into())
@@ -254,7 +256,7 @@ async fn start_refuses_before_anything_is_spawned() {
             path.display()
         ))
     );
-    assert!(!desk.logins.running(A));
+    assert!(desk.logins.view(A).is_none());
 }
 
 #[tokio::test]
@@ -345,6 +347,49 @@ async fn cancel_disconnect_and_timeout_end_a_sign_in_as_failed() {
             (desk.login_at(A), desk.sessions()[0] == "s1"),
             (Some(5), true),
             "{end}"
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(windows, ignore = "opens a console window")]
+async fn a_sign_in_is_judged_by_its_own_status_not_one_already_running() {
+    for (mode, in_flight, state, error) in [
+        ("ok", SignedOut, Succeeded, None),
+        (
+            "silent",
+            SignedIn,
+            Failed,
+            Some("Claude Code finished, but Account 1 is not signed in."),
+        ),
+    ] {
+        let desk = desk();
+        let (release, held) = oneshot::channel::<()>();
+        let statuses = desk.logins.statuses.clone();
+        let holding = tokio::spawn(async move {
+            statuses
+                .check_with(A, move || async move {
+                    held.await.ok();
+                    view(in_flight)
+                })
+                .await
+        });
+        until("a check holds the gate", || {
+            desk.logins.statuses.checks_in_line(A) == 1
+        })
+        .await;
+        let signing = tokio::spawn(desk.sign(mode, PATIENCE, CancellationToken::new()));
+        until("the sign-in waits for its own status", || {
+            desk.logins.statuses.checks_in_line(A) == 2
+        })
+        .await;
+        release.send(()).unwrap();
+        assert_eq!(holding.await.unwrap().state, in_flight, "{mode}");
+        signing.await.unwrap();
+        assert_eq!(
+            desk.outcome(),
+            Some((state, error.map(String::from))),
+            "{mode}"
         );
     }
 }

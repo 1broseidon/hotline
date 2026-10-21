@@ -145,12 +145,6 @@ impl AccountLogins {
         Ok(())
     }
 
-    pub(crate) fn running(&self, account_id: &str) -> bool {
-        lock(&self.attempts)
-            .get(account_id)
-            .is_some_and(|attempt| attempt.running())
-    }
-
     pub(crate) fn view(&self, account_id: &str) -> Option<LoginAttemptView> {
         let attempt = lock(&self.attempts).get(account_id).cloned()?;
         let (state, error) = attempt.state();
@@ -170,7 +164,7 @@ impl AccountLogins {
         let outcome = sign_in(&run, &attempt).await;
         let status = self
             .statuses
-            .check_with(&run.account.id, || {
+            .recheck_with(&run.account.id, || {
                 run_status(&run.launch, &run.account, run.status_bound)
             })
             .await;

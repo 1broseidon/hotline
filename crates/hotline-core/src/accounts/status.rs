@@ -132,11 +132,7 @@ impl AccountStatuses {
         account_id: &str,
         run: impl FnOnce() -> F,
     ) -> AccountStatusView {
-        let (gate, runs_before) = {
-            let mut entries = lock(&self.entries);
-            let entry = entries.entry(account_id.to_string()).or_default();
-            (entry.gate.clone(), entry.runs)
-        };
+        let (gate, runs_before) = self.gate(account_id);
         let _running = gate.lock().await;
         if let Some(entry) = lock(&self.entries).get(account_id)
             && entry.runs != runs_before
@@ -144,13 +140,44 @@ impl AccountStatuses {
         {
             return view.clone();
         }
-        let mut view = run().await;
+        self.record(account_id, run().await)
+    }
+
+    /// For a question asked after something changed the folder, such as
+    /// whether a sign-in that just ended took: an answer from a run already
+    /// going predates the change, so this waits its turn and always runs.
+    pub(super) async fn recheck_with<F: Future<Output = AccountStatusView>>(
+        &self,
+        account_id: &str,
+        run: impl FnOnce() -> F,
+    ) -> AccountStatusView {
+        let (gate, _) = self.gate(account_id);
+        let _running = gate.lock().await;
+        self.record(account_id, run().await)
+    }
+
+    fn gate(&self, account_id: &str) -> (Arc<tokio::sync::Mutex<()>>, u64) {
+        let mut entries = lock(&self.entries);
+        let entry = entries.entry(account_id.to_string()).or_default();
+        (entry.gate.clone(), entry.runs)
+    }
+
+    fn record(&self, account_id: &str, mut view: AccountStatusView) -> AccountStatusView {
         view.checked_at = Some(now_ms());
         let mut entries = lock(&self.entries);
         let entry = entries.entry(account_id.to_string()).or_default();
         entry.view = Some(view.clone());
         entry.runs += 1;
         view
+    }
+
+    /// How many checks of the account hold its gate or wait for it: each one
+    /// keeps a clone of the gate for as long as it runs.
+    #[cfg(test)]
+    pub(super) fn checks_in_line(&self, account_id: &str) -> usize {
+        lock(&self.entries)
+            .get(account_id)
+            .map_or(0, |entry| Arc::strong_count(&entry.gate) - 1)
     }
 
     pub(crate) fn cached(&self, account_id: &str) -> AccountStatusView {

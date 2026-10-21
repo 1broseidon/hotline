@@ -1,14 +1,13 @@
 ---
 id: task-258
 title: "Phone: every caller turn after a finished reply was recorded as an interruption at 0 ms"
-column: backlog
-position: 33
 priority: high
 tags:
   - voice
 parentId: epic-21
 createdAt: "2026-10-21T13:51:57.917Z"
-updatedAt: "2026-10-21T14:26:37.143Z"
+updatedAt: "2026-10-21T20:00:36.176Z"
+completedAt: "2026-10-21T20:00:36.176Z"
 ---
 
 ## Description

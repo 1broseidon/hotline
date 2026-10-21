@@ -1,7 +1,7 @@
 ---
 id: task-241
 title: "Drops: a short drop resumes the same call; a live voice that can't come back says so and offers Legacy, never silently"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -10,7 +10,7 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:09.620Z"
 dependsOn:
   - task-223
-updatedAt: "2026-10-21T06:30:23.292Z"
+updatedAt: "2026-10-21T06:40:21.842Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

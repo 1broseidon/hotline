@@ -1,8 +1,6 @@
 ---
 id: task-261
 title: "Your name: a Settings field, and the agent can store it when you tell it, with your approval"
-column: review
-position: 1
 priority: medium
 tags:
   - voice
@@ -21,10 +19,13 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T19:59:40.694Z"
+    ended: "2026-10-21T20:20:36.796Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T20:20:22.703Z"
+updatedAt: "2026-10-21T20:20:36.797Z"
 decisions:
   - decision-29
+completedAt: "2026-10-21T20:20:36.293Z"
 ---
 
 ## Description
@@ -42,3 +43,4 @@ Lands on release/0.42.0. Merge release/0.42.0 first, make check in the foregroun
 - 2026-10-21T20:12:18.499Z: [codex] First make check reached 1,233 passing core unit tests and found a tool descriptor/ledger ordering mismatch; aligned the new entry. Build exhausted disk, so removed only this worktree's generated target artifacts and restarted foreground make check with debug symbols and incremental caches disabled.
 - 2026-10-21T20:18:26.989Z: [codex] Foreground make check passed: 2,214 Rust tests, 485 UI tests, dependency gates, Python tests, fmt and Clippy. Existing voice tool-catalog expectation now includes the approved-name proposal. Running make precheck before committing and handing off.
 - 2026-10-21T20:20:22.192Z: [codex] Finished on dispatch/task-261, commit c643f405. Added Your name Settings round-trip, core-owned set_person_name approval cards with spoken yes/no, current saved-name context for home prompts, security/design docs and regression tests. make check passed (2,214 Rust + 485 UI tests); all 8 make precheck legs passed, including Windows and isolated UI files. Working tree is clean. Ready for a person to review and merge into release/0.42.0.
+- 2026-10-21T20:20:35.394Z: Landed on release/0.42.0

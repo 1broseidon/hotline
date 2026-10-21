@@ -361,6 +361,21 @@ impl Desk {
     async fn finished(&mut self, sub: i64) {
         self.event(sub, |event| event["kind"] == "turn").await;
     }
+    /// The turns a thread already holds. A new subscription's snapshot carries
+    /// them, so `finished` on it would match an old turn at once.
+    fn turns(&self, thread: &Value) -> Vec<Value> {
+        self.stream(thread)
+            .into_iter()
+            .filter(|event| event["kind"] == "turn")
+            .map(|event| event["id"].clone())
+            .collect()
+    }
+    async fn finished_after(&mut self, sub: i64, earlier: &[Value]) {
+        self.event(sub, |event| {
+            event["kind"] == "turn" && !earlier.contains(&event["id"])
+        })
+        .await;
+    }
     async fn closing(&mut self, tape: i64) -> Value {
         self.event(tape, |event| {
             event["kind"] == "agent"
@@ -583,8 +598,9 @@ async fn picking_it_back_up_keeps_context_and_the_next_note_covers_only_new_work
         .await;
         let (last, same, last_sub) = desk.call_on(&ada, Some(thread.clone())).await;
         assert_eq!(same, thread);
+        let earlier = desk.turns(&thread);
         desk.say(&last, 1, "BEACON_NEW_TOPIC").await;
-        desk.finished(last_sub).await;
+        desk.finished_after(last_sub, &earlier).await;
         desk.hang_up(&last, last_sub).await;
         desk.advance(31).await;
         desk.closing(tape).await;
@@ -905,10 +921,26 @@ async fn picking_it_back_up_keeps_typed_turns_in_the_parked_calls_thread() {
                     .is_some_and(|text| text.contains("Make the lighthouse poem rhyme"))
         }));
         let (next, _, next_sub) = desk.call_on(&ada, Some(thread.clone())).await;
+        let earlier = desk.turns(&thread);
         desk.say(&next, 1, "ECHO_HISTORY https://example.com | beacon")
             .await;
-        desk.finished(next_sub).await;
-        assert_eq!(desk.chat(&ada), before);
+        desk.finished_after(next_sub, &earlier).await;
+        // The echo carries a link and a table, so the call posts its result once
+        // (ADR 0008 §4); the typed turns themselves never reach the chat.
+        let chat = desk.chat(&ada);
+        assert_eq!(chat[..before.len()], before[..]);
+        let added = &chat[before.len()..];
+        assert_eq!(added.len(), 1, "{added:?}");
+        assert!(
+            added.iter().all(|post| {
+                post["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("call-result:"))
+                    && post["silent"] == true
+                    && post["from"]["kind"] == "call"
+            }),
+            "{added:?}"
+        );
         desk.hang_up(&next, next_sub).await;
     }
 }

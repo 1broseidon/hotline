@@ -31,3 +31,4 @@ Linux QA, 2026-10-21, Grok Voice, 2735d01a: 'Draft a message to the harbour mast
 
 ## Log
 - 2026-10-21T08:52:24.073Z: [codex] Implementing a shared live-front work admission guard based on caller transcript, with silent rejection of dangling dictation and deferred admission when tool calls beat transcription. Provider VAD ownership stays unchanged; scripted Grok/OpenAI regression covers a four-second pause and invented completion.
+- 2026-10-21T08:56:17.555Z: [codex] Recorded decision-18 (voice.unfinished-dictation), preserving decision-16. Guard and late-transcription ordering are implemented with lexical unit coverage and a real-core scripted-front test for Grok/OpenAI, including four seconds of silence, guessed arguments, continuation, and withdrawal of queued work. Full check/precheck underway; live microphone QA remains the physical-provider verification.

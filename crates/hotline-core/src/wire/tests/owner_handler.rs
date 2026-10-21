@@ -533,6 +533,51 @@ async fn removing_an_account_in_use_names_its_teammates_and_keeps_its_folder() {
 }
 
 #[tokio::test]
+async fn persona_account_reaches_the_room_through_the_real_handler() {
+    use crate::credentials::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let ask = |frame: Value| {
+        let (room, desk) = (room.clone(), desk.clone());
+        async move { remote_control_answer(Seat::Desk, &room, &desk.log, &desk.parts(), frame).await }
+    };
+    let created = ask(json!({"id":1,"cmd":"accounts.create","params":{
+        "backendId":"claude-acp","name":"Account 1","startWith":"empty"}}))
+    .await;
+    let id = created["result"]["account"]["account"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let made = ask(json!({"id":2,"cmd":"persona.create","params":{"draft":{
+        "name":"Ada","backendId":"claude-acp"}}}))
+    .await;
+    let ada = made["result"]["id"].as_str().unwrap().to_string();
+    let chosen = || {
+        room::roster(&desk.log)
+            .into_iter()
+            .find(|persona| persona.id == ada)
+            .and_then(|persona| persona.agent_account_id)
+    };
+    let set = ask(json!({"id":3,"cmd":"persona.account","params":{
+        "personaId":ada,"accountId":id}}))
+    .await;
+    assert_eq!(
+        (&set["ok"], &set["result"]["wanted"]),
+        (&json!(true), &json!(id)),
+        "{set}"
+    );
+    assert_eq!(chosen(), Some(id));
+    let cleared = ask(json!({"id":4,"cmd":"persona.account","params":{
+        "personaId":ada,"accountId":null}}))
+    .await;
+    assert_eq!(cleared["ok"], true, "{cleared}");
+    assert_eq!(chosen(), None);
+}
+
+#[tokio::test]
 async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
     let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
     let root = tempfile::tempdir().unwrap();

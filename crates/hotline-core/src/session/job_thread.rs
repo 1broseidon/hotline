@@ -461,6 +461,7 @@ impl Occupant for LiveJob {
         // A stop that landed after the last turn's end has no turn to stop.
         self.halted.store(false, Ordering::SeqCst);
         let _ = room.info_changes.send(room.info(&self.persona_id));
+        room.apply_account_when_idle(&self.persona_id);
     }
 }
 

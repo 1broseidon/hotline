@@ -432,6 +432,13 @@ impl RoomHandle for Desk {
     fn accounts_login_cancel(&self, account_id: &str, id: &str) -> Result<(), String> {
         self.room.account_logins().cancel(account_id, id)
     }
+    async fn persona_account(
+        &self,
+        persona_id: &str,
+        account_id: Option<String>,
+    ) -> Result<crate::contract::SessionAccount, String> {
+        self.room.assign_account(persona_id, account_id).await
+    }
 
     fn protect_mcp_settings(&self, value: &serde_json::Value) -> Result<serde_json::Value, String> {
         self.vault

@@ -250,6 +250,7 @@ impl Room {
             lease,
             heard_from,
         } = opening;
+        let persona = self.on_running_account(persona);
         let policy = Policy::of(thread.kind);
         let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
         let main = policy.resume == Resume::Checkpoint;

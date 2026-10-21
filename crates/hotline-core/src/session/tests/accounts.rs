@@ -1,5 +1,7 @@
 use super::*;
-use crate::contract::AgentAccount;
+use crate::contract::{
+    AccountHold, AccountStatusState, AccountStatusView, AgentAccount, SessionAccount,
+};
 
 const A: &str = "11111111-1111-4111-8111-111111111111";
 const B: &str = "22222222-2222-4222-8222-222222222222";
@@ -151,4 +153,288 @@ async fn an_unknown_account_refuses_the_start_in_public_words() {
         room.start("ada").await.unwrap_err(),
         "Ada can't start: its Claude Code account needs attention at the desk."
     );
+}
+
+fn on_accounts(name: &str, agents: Arc<Fake>) -> (Arc<Room>, String, String) {
+    let log = scratch(name);
+    accounts(&log, 1);
+    enrol(&log, &on_account(&log, A));
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+    (room, A.to_string(), B.to_string())
+}
+
+fn gated() -> (Arc<Fake>, Arc<Semaphore>) {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(Scripted::new(saying("1", "Working.")).gated(gate.clone()));
+    (agents, gate)
+}
+
+async fn started(room: &Arc<Room>) {
+    room.start("ada").await.unwrap();
+    until_state(room, "ada", SessionState::Ready).await;
+}
+
+async fn mid_turn(room: &Arc<Room>) {
+    room.prompt("ada", "Work on it.", None, None).await.unwrap();
+    until_state(room, "ada", SessionState::Thinking).await;
+}
+
+fn running(room: &Room) -> Option<String> {
+    room.info("ada").account.and_then(|account| account.running)
+}
+
+fn chosen(room: &Room) -> Option<String> {
+    room.persona("ada").unwrap().agent_account_id
+}
+
+fn switching(running: &str, wanted: &str, held: Option<AccountHold>) -> SessionAccount {
+    SessionAccount {
+        running: Some(running.to_string()),
+        wanted: Some(wanted.to_string()),
+        held,
+    }
+}
+
+fn status(state: AccountStatusState) -> AccountStatusView {
+    AccountStatusView {
+        state,
+        checked_at: None,
+        email: None,
+        plan: None,
+    }
+}
+
+fn signed_in_at(log: &Log, account_id: &str, login_at: i64) {
+    let mut rows = room::agent_accounts(log);
+    for row in rows.iter_mut().filter(|row| row.id == account_id) {
+        row.login_at = Some(login_at);
+    }
+    room::write_agent_accounts(log, &rows).unwrap();
+}
+
+fn both_checkpoints(room: &Room, a: &str, b: &str) {
+    room::checkpoint_session(&room.log, "ada", "claude-acp", Some(a), "s-a").unwrap();
+    room::checkpoint_session(&room.log, "ada", "claude-acp", Some(b), "s-b-old").unwrap();
+}
+
+#[tokio::test]
+async fn a_switch_during_a_dm_turn_waits_for_the_turn_and_then_applies() {
+    let (agents, gate) = gated();
+    let (room, a, b) = on_accounts("switch-dm-turn", agents.clone());
+    started(&room).await;
+    mid_turn(&room).await;
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, None)
+    );
+    assert_eq!(agents.views().len(), 1);
+    gate.add_permits(10);
+    until("switched", || running(&room) == Some(b.clone())).await;
+    assert_eq!(agents.views().last().unwrap().agent_account_id, Some(b));
+}
+
+#[tokio::test]
+async fn a_switch_waits_for_a_side_thread_mid_turn() {
+    let (agents, gate) = gated();
+    let (room, a, b) = on_accounts("switch-side", agents.clone());
+    started(&room).await;
+    room.start_side("ada", "Task").await.unwrap();
+    until("the side is working", || {
+        room.sides("ada").first().is_some_and(|side| side.working)
+    })
+    .await;
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, None)
+    );
+    room.start_side("ada", "Another task").await.unwrap();
+    until("both sides have agents", || agents.views().len() == 3).await;
+    assert_eq!(agents.views().last().unwrap().agent_account_id, Some(a));
+    gate.add_permits(10);
+    until("switched", || running(&room) == Some(b.clone())).await;
+}
+
+#[tokio::test]
+async fn keeping_the_running_account_clears_the_switch_and_keeps_checkpoints() {
+    let (agents, gate) = gated();
+    let (room, a, b) = on_accounts("switch-keep", agents.clone());
+    room::checkpoint_session(&room.log, "ada", "claude-acp", Some(&a), "s-a").unwrap();
+    agents.reporting("s-a", true);
+    started(&room).await;
+    mid_turn(&room).await;
+    room.assign_account("ada", Some(b)).await.unwrap();
+    assert_eq!(
+        room.assign_account("ada", Some(a.clone())).await.unwrap(),
+        switching(&a, &a, None)
+    );
+    gate.add_permits(10);
+    until_state(&room, "ada", SessionState::Ready).await;
+    assert_eq!(agents.views().len(), 1);
+    assert_eq!(saved(&room), [("s-a".to_string(), Some(a))]);
+}
+
+#[tokio::test]
+async fn a_held_account_waits_for_its_sign_in() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let (room, a, b) = on_accounts("switch-held", agents.clone());
+    started(&room).await;
+    room.account_statuses()
+        .put(&b, status(AccountStatusState::SignedOut));
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, Some(AccountHold::NotSignedIn))
+    );
+    assert_eq!(chosen(&room), Some(b.clone()));
+    assert_eq!(agents.views().len(), 1);
+    signed_in_at(&room.log, &b, 2);
+    room.account_statuses()
+        .put(&b, status(AccountStatusState::SignedIn));
+    room.account_signed_in(&b);
+    until("switched", || running(&room) == Some(b.clone())).await;
+}
+
+#[tokio::test]
+async fn applying_clears_the_backends_checkpoints_and_the_next_start_is_new() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let (room, a, b) = on_accounts("switch-apply", agents.clone());
+    both_checkpoints(&room, &a, &b);
+    started(&room).await;
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&b, &b, None)
+    );
+    assert_eq!(saved(&room), []);
+    let view = agents.views().pop().unwrap();
+    assert_eq!(
+        (view.agent_account_id, view.session_checkpoints),
+        (Some(b), Vec::new())
+    );
+}
+
+#[tokio::test]
+async fn stop_and_switch_now_starts_the_new_account_fresh() {
+    let (agents, _gate) = gated();
+    let (room, a, b) = on_accounts("switch-stop", agents.clone());
+    both_checkpoints(&room, &a, &b);
+    started(&room).await;
+    mid_turn(&room).await;
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, None)
+    );
+    room.stop("ada").unwrap();
+    room.start("ada").await.unwrap();
+    until("the new session is on B, fresh", || {
+        agents.views().last().is_some_and(|view| {
+            view.agent_account_id == Some(b.clone()) && view.session_checkpoints.is_empty()
+        })
+    })
+    .await;
+    assert_eq!(saved(&room), []);
+}
+
+#[tokio::test]
+async fn a_stale_lease_cannot_write_a_checkpoint_after_the_switch() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    agents.reporting("s-a", false);
+    let (room, a, b) = on_accounts("switch-stale-lease", agents);
+    started(&room).await;
+    let old = room.session("ada").unwrap();
+    assert_eq!(lock(&old.pending_checkpoint).as_deref(), Some("s-a"));
+    room.assign_account("ada", Some(b)).await.unwrap();
+    room.assign_account("ada", Some(a.clone())).await.unwrap();
+    assert_eq!(running(&room), Some(a));
+    room.checkpoint(&old);
+    assert_eq!(saved(&room), []);
+}
+
+#[tokio::test]
+async fn signing_in_again_rebuilds_sessions_that_started_before_it() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let (room, a, b) = on_accounts("switch-relogin", agents.clone());
+    room::checkpoint_session(&room.log, "ada", "claude-acp", Some(&b), "s-b").unwrap();
+    started(&room).await;
+    signed_in_at(&room.log, &a, 2);
+    room.account_signed_in(&a);
+    until("rebuilt on the new sign-in", || {
+        room.session("ada")
+            .is_ok_and(|session| session.account_login_at == Some(2))
+    })
+    .await;
+    assert_eq!(agents.views().len(), 2);
+    assert_eq!(running(&room), Some(a));
+    assert_eq!(saved(&room), [("s-b".to_string(), Some(b))]);
+}
+
+#[tokio::test]
+async fn an_assignment_is_checked_before_anything_is_written() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let (room, a, _b) = on_accounts("switch-checked", agents);
+    enrol(
+        &room.log,
+        &Persona {
+            name: "Hal".to_string(),
+            ..persona("hal")
+        },
+    );
+    let before = room::roster(&room.log);
+    for (persona_id, account_id, refusal) in [
+        ("ghost", A, "There is no such teammate in this room."),
+        (
+            "ada",
+            "33333333-3333-4333-8333-333333333333",
+            "That account is not on this desk.",
+        ),
+        ("hal", A, "That agent does not use accounts."),
+    ] {
+        assert_eq!(
+            room.assign_account(persona_id, Some(account_id.to_string()))
+                .await,
+            Err(refusal.to_string())
+        );
+    }
+    assert_eq!(room::roster(&room.log), before);
+    assert_eq!(chosen(&room), Some(a));
+}
+
+#[tokio::test]
+async fn a_pending_switch_is_dropped_when_its_teammate_is_removed_or_changes_agent() {
+    let (agents, gate) = gated();
+    let (room, a, b) = on_accounts("switch-deleted", agents.clone());
+    started(&room).await;
+    mid_turn(&room).await;
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, None)
+    );
+    room.invalidate("ada").unwrap();
+    room.log
+        .append(
+            &StreamId::Room,
+            &json!({"kind": "persona", "id": "ada", "deleted": true}),
+        )
+        .unwrap();
+    room.forget("ada");
+    assert_eq!(room.info("ada").account, None);
+    gate.add_permits(10);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(room.info("ada").account, None);
+    assert_eq!(agents.views().len(), 1);
+
+    let (agents, gate) = gated();
+    let (room, a, b) = on_accounts("switch-moved", agents.clone());
+    started(&room).await;
+    mid_turn(&room).await;
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, None)
+    );
+    room.invalidate("ada").unwrap();
+    let mut moved = room.persona("ada").unwrap();
+    moved.backend_id = "hotline".to_string();
+    room::append_persona(&room.log, &moved).unwrap();
+    room.reattach("ada").await.unwrap();
+    gate.add_permits(10);
+    assert_eq!(room.info("ada").account, None);
+    assert_eq!(agents.views().last().unwrap().backend_id, "hotline");
 }

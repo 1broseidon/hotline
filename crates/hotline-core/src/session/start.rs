@@ -82,6 +82,7 @@ impl Room {
     ) -> Result<SessionInfo, String> {
         let _working = self.working()?;
         capability.check()?;
+        self.apply_account_at_start(persona_id)?;
         let persona = self.persona(persona_id)?;
         capability.check()?;
         // Read before the child starts: a sign-in that lands while it starts
@@ -218,7 +219,7 @@ impl Room {
     /// caller restart it, while the inactive epoch blocks starts that race
     /// inside the wire's invalidate-to-append window.
     pub fn invalidate(&self, persona_id: &str) -> Result<(), String> {
-        self.persona(persona_id)?;
+        self.settle_account_switch(&self.persona(persona_id)?);
         self.forget_informed_collaboration(persona_id);
         {
             let _lifecycle = lock(&self.lifecycle);
@@ -294,6 +295,7 @@ impl Room {
     /// a side of dropped, and its start gate let go, because nothing should
     /// wait behind — or be kept for — an id that names nobody any more.
     pub fn forget(&self, persona_id: &str) {
+        self.forget_account_switch(persona_id);
         let _ = self.stop(persona_id);
         self.drop_peer_sessions(persona_id);
         lock(&self.capabilities).remove(persona_id);

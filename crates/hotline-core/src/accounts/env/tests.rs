@@ -25,7 +25,6 @@ fn account() -> (TempDir, ResolvedAccount) {
         name: "Account 1".to_string(),
         dir: dunce::canonicalize(dir).unwrap(),
         support: support(),
-        login_at: None,
     };
     (tmp, account)
 }

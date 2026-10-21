@@ -875,10 +875,12 @@ impl Room {
     /// What the teammate's session is doing. A teammate with no session is
     /// idle, which is a state and not an absence.
     pub fn info(&self, persona_id: &str) -> SessionInfo {
-        match lock(&self.sessions).get(persona_id) {
-            Some(session) => lock(&session.info).clone(),
-            None => idle_info(persona_id),
-        }
+        let (mut info, running) = match lock(&self.sessions).get(persona_id) {
+            Some(session) => (lock(&session.info).clone(), session.account_id.clone()),
+            None => (idle_info(persona_id), None),
+        };
+        info.account = self.session_account(persona_id, running);
+        info
     }
 
     /// Whether this teammate's picture is being drawn.
@@ -914,6 +916,9 @@ impl Room {
             }
         }
         let _ = self.info_changes.send(self.info(persona_id));
+        if !running {
+            self.apply_account_when_idle(persona_id);
+        }
     }
 
     /// Marks a picture as being drawn until the guard drops, telling the

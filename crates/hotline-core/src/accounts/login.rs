@@ -162,6 +162,10 @@ impl AccountLogins {
 
     async fn run(self: &Arc<Self>, room: &Arc<Room>, run: Run, attempt: Arc<Attempt>) {
         let outcome = sign_in(&run, &attempt).await;
+        self.conclude(room, &run, &attempt, outcome).await;
+    }
+
+    async fn conclude(&self, room: &Arc<Room>, run: &Run, attempt: &Attempt, outcome: Outcome) {
         let status = self
             .statuses
             .recheck_with(&run.account.id, || {
@@ -181,7 +185,12 @@ impl AccountLogins {
                 settle(room, &run.account, exited, &status, &run.agent).await
             }
         };
+        let confirmed = result.is_ok();
         attempt.finish(result);
+        // Only now: a running attempt holds every switch to this account.
+        if confirmed {
+            room.account_signed_in(&run.account.id);
+        }
     }
 }
 

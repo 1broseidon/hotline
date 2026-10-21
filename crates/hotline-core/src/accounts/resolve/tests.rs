@@ -110,7 +110,6 @@ fn an_account_resolves_to_its_canonical_folder() {
         assert_eq!(resolved.id, ID);
         assert_eq!(resolved.backend_id, "claude-acp");
         assert_eq!(resolved.name, "Account 1");
-        assert_eq!(resolved.login_at, Some(1_700_000_100_000));
         assert!(std::ptr::eq(
             resolved.support,
             account_support("claude-acp").unwrap()

@@ -86,7 +86,6 @@ pub(super) fn resolved(id: &str, dir: PathBuf) -> ResolvedAccount {
         name: "Account 2".to_string(),
         dir,
         support: &CLAUDE,
-        login_at: Some(1),
     }
 }
 

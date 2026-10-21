@@ -24,6 +24,7 @@ pub(crate) mod resolve;
 pub(crate) mod setup;
 pub(crate) mod status;
 pub(crate) mod support;
+pub(crate) mod switch;
 
 use crate::contract::Persona;
 use crate::log::Log;

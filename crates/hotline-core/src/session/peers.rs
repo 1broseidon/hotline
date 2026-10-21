@@ -280,6 +280,13 @@ impl Peers {
             .map(|(_, target_id)| target_id.clone())
     }
 
+    /// Whether this teammate is mid-reply in any thread.
+    pub(super) fn answering_for(&self, persona_id: &str) -> bool {
+        lock(&self.answering)
+            .iter()
+            .any(|(_, target_id)| target_id == persona_id)
+    }
+
     fn scope(&self, caller_id: &str, target_id: &str) -> CollaborationScope {
         let generations = lock(&self.collaboration_generations);
         CollaborationScope {
@@ -506,7 +513,19 @@ struct Answering {
 
 impl Drop for Answering {
     fn drop(&mut self) {
-        lock(&self.room.peers.answering).retain(|(held, _)| *held != self.key);
+        let target = {
+            let mut answering = lock(&self.room.peers.answering);
+            let target = answering
+                .iter()
+                .find(|(held, _)| *held == self.key)
+                .map(|(_, target_id)| target_id.clone());
+            answering.retain(|(held, _)| *held != self.key);
+            target
+        };
+        // After the guard: the idle check reads `answering` again.
+        if let Some(target) = target {
+            self.room.apply_account_when_idle(&target);
+        }
     }
 }
 

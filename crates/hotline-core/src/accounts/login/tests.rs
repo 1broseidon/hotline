@@ -2,7 +2,7 @@ use super::*;
 use crate::accounts::support::CLAUDE;
 use crate::contract::AccountStatusState::{SignedIn, SignedOut, Unavailable};
 use crate::contract::LoginAttemptState::{Failed, Running, Succeeded};
-use crate::contract::Persona;
+use crate::contract::{AccountHold, Persona, SessionAccount};
 use crate::driver::acp::StartBounds;
 use crate::log::Log;
 use crate::room::{checkpoint_session, roster};
@@ -49,8 +49,8 @@ fn desk() -> Desk {
     Desk {
         _tmp: tmp,
         log,
+        logins: room.account_logins().clone(),
         room,
-        logins: logins(),
         a,
     }
 }
@@ -93,16 +93,20 @@ impl Desk {
         owner: CancellationToken,
     ) -> impl Future<Output = ()> + Send + use<> {
         let attempt = self.logins.admit(A, owner).unwrap();
-        let run = Run {
+        let run = self.run(mode, timeout);
+        let (logins, room) = (self.logins.clone(), self.room.clone());
+        async move { logins.run(&room, run, attempt).await }
+    }
+
+    fn run(&self, mode: &str, timeout: Duration) -> Run {
+        Run {
             launch: acp_fixture_launch(&[("FIXTURE_LOGIN_MODE", mode)]),
             status_bound: PATIENCE,
             account: self.a.clone(),
             args: login_args(&CLAUDE, Some("ada@example.com")),
             agent: "Claude Code".to_string(),
             timeout,
-        };
-        let (logins, room) = (self.logins.clone(), self.room.clone());
-        async move { logins.run(&room, run, attempt).await }
+        }
     }
 
     fn reported(&self, run: &str) -> Vec<String> {
@@ -392,6 +396,39 @@ async fn a_sign_in_is_judged_by_its_own_status_not_one_already_running() {
             "{mode}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_switch_held_for_a_running_sign_in_applies_once_it_is_confirmed() {
+    let desk = desk();
+    let mut ada = roster(&desk.log)
+        .into_iter()
+        .find(|persona| persona.id == "ada")
+        .unwrap();
+    ada.agent_account_id = Some(B.to_string());
+    crate::room::append_persona(&desk.log, &ada).unwrap();
+    let attempt = desk.logins.admit(A, CancellationToken::new()).unwrap();
+    assert_eq!(
+        desk.room.assign_account("ada", Some(A.to_string())).await,
+        Ok(SessionAccount {
+            running: None,
+            wanted: Some(A.to_string()),
+            held: Some(AccountHold::SigningIn),
+        })
+    );
+    assert_eq!(desk.sessions(), ["s1", "s2", "s3"]);
+    desk.plant_credentials();
+    desk.logins
+        .conclude(
+            &desk.room,
+            &desk.run("ok", PATIENCE),
+            &attempt,
+            Outcome::Exited(Ok(())),
+        )
+        .await;
+    until("the switch applies", || desk.sessions().is_empty()).await;
+    assert_eq!(desk.outcome(), Some((Succeeded, None)));
+    assert_eq!(desk.room.info("ada").account, None);
 }
 
 #[cfg(unix)]

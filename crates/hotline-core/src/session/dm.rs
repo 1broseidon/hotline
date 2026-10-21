@@ -194,11 +194,13 @@ impl Occupant for Session {
     fn rest(self: &Arc<Self>, room: &Arc<Room>) {
         if !self.answering(room) {
             lock(&self.turns).running = false;
+            room.apply_account_when_idle(&self.persona_id);
             return;
         }
         room.set_state(self, SessionState::Ready);
         room.attach_computer_when_idle(&self.persona_id);
         room.swap_computer_when_idle(&self.persona_id);
+        room.apply_account_when_idle(&self.persona_id);
     }
 }
 

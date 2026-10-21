@@ -379,6 +379,7 @@ impl Occupant for LiveSide {
     fn rest(self: &Arc<Self>, room: &Arc<Room>) {
         lock(&self.turns).running = false;
         let _ = room.info_changes.send(room.info(&self.persona_id));
+        room.apply_account_when_idle(&self.persona_id);
     }
 }
 

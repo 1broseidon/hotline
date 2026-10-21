@@ -22,9 +22,6 @@ pub(crate) struct ResolvedAccount {
     /// The canonical folder. Use this one and no other spelling of it.
     pub(crate) dir: PathBuf,
     pub(crate) support: &'static AccountSupport,
-    /// When a sign-in last finished here, so a session can tell its login from a
-    /// newer one.
-    pub(crate) login_at: Option<i64>,
 }
 
 /// Why a teammate cannot start under its account. Two sentences tell it: the
@@ -124,7 +121,6 @@ pub(crate) fn account(
         name: row.name,
         dir,
         support,
-        login_at: row.login_at,
     })
 }
 

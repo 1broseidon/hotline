@@ -339,7 +339,8 @@ mod tests {
             dm.binding,
             Some(AgentBinding {
                 backend_id: "hotline".into(),
-                session_id: "s1".into()
+                session_id: "s1".into(),
+                account_id: None,
             })
         );
         assert_eq!(store.load(&ThreadId::dm("nobody")), None);
@@ -377,7 +378,8 @@ mod tests {
             side.binding,
             Some(AgentBinding {
                 backend_id: "hotline".into(),
-                session_id: "child-1".into()
+                session_id: "child-1".into(),
+                account_id: None,
             }),
             "the saved session is the thread's binding"
         );

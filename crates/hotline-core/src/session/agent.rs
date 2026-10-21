@@ -679,6 +679,7 @@ mod tests {
             Some(AgentBinding {
                 backend_id: backend.to_string(),
                 session_id: "s1".to_string(),
+                account_id: None,
             })
         };
         assert_eq!(

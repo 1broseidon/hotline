@@ -140,6 +140,7 @@ impl Room {
             binding: saved.map(|session_id| AgentBinding {
                 backend_id: side.backend_id.clone(),
                 session_id,
+                account_id: None,
             }),
             elapsed_ms: None,
             opener: side.opener.clone(),

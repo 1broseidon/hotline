@@ -261,11 +261,8 @@ fn agent_accounts_default_to_empty_and_read_back_what_was_written() {
     assert_eq!(agent_accounts(&log), [one.clone(), two]);
 
     // A line a person edited by hand costs its bad entry and nothing else.
-    append(
-        &log,
-        &setting(AGENT_ACCOUNTS, json!([{"id": "bad"}, one.clone()])),
-    );
-    assert_eq!(agent_accounts(&log), [one.clone()]);
+    append(&log, &setting(AGENT_ACCOUNTS, json!([{"id": "bad"}, one])));
+    assert_eq!(agent_accounts(&log), std::slice::from_ref(&one));
     assert_eq!(settings(&log)[AGENT_ACCOUNTS], json!([one]));
 }
 

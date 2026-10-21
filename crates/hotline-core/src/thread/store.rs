@@ -113,6 +113,7 @@ impl ThreadStore {
             .map(|checkpoint| AgentBinding {
                 backend_id: checkpoint.backend_id.clone(),
                 session_id: checkpoint.session_id.clone(),
+                account_id: checkpoint.account_id.clone(),
             });
         Some(Thread {
             id: ThreadId::dm(persona_id),

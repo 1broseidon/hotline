@@ -243,6 +243,7 @@ impl LiveJob {
                 .map(|session_id| AgentBinding {
                     backend_id: up.backend_id.clone(),
                     session_id,
+                    account_id: None,
                 })
         };
         let changed = {

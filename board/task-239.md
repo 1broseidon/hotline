@@ -1,8 +1,8 @@
 ---
 id: task-239
 title: "Cards on a call: what needs the person is said on the call, and approvals and simple questions are answered by voice"
-column: backlog
-position: 44
+column: in-progress
+position: 1
 priority: high
 tags:
   - voice
@@ -11,7 +11,7 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:08.678Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T06:53:11.736Z"
+updatedAt: "2026-10-21T06:53:31.504Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

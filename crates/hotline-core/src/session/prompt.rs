@@ -243,8 +243,12 @@ impl Room {
     /// the invariant: what was said is a fact the moment somebody said it, and
     /// a turn that fails must not lose the message that started it.
     async fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
-        // The opaque event ID carries provenance through queued turns and restarts.
-        let id = new_id();
+        // Desk calls retain their provenance until task-203 replaces the dispatcher.
+        let id = if crate::wire::commands::from_voice() {
+            format!("voice:{}", new_id())
+        } else {
+            new_id()
+        };
         if let Some(attachments) = &sending.attachments {
             let root = self.log.root().to_path_buf();
             let persona_id = session.persona_id.clone();

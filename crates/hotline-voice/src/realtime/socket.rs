@@ -358,6 +358,9 @@ enum CallerTurn {
     Idle,
     Pending,
     Committed,
+    /// The automatic reply began before the commit arrived, as Grok orders
+    /// them; the commit then ends the turn.
+    Answered,
 }
 
 /// Owns one call's provider connection, replacing it as the session limit
@@ -562,7 +565,11 @@ impl Driver {
                 self.emit(RealtimeEvent::SpeechStarted).await?;
             }
             "input_audio_buffer.committed" => {
-                self.caller_turn = CallerTurn::Committed;
+                self.caller_turn = if self.caller_turn == CallerTurn::Answered {
+                    CallerTurn::Idle
+                } else {
+                    CallerTurn::Committed
+                };
             }
             "conversation.item.input_audio_transcription.completed" => {
                 let words = event["transcript"]
@@ -590,8 +597,17 @@ impl Driver {
             }
             "response.created" => {
                 self.responding = true;
-                if self.caller_turn == CallerTurn::Committed {
-                    self.caller_turn = CallerTurn::Idle;
+                if matches!(
+                    self.caller_turn,
+                    CallerTurn::Committed | CallerTurn::Pending
+                ) {
+                    // Nothing of ours is created during a caller turn, so this
+                    // is VAD's reply to it, whichever order the commit comes in.
+                    self.caller_turn = if self.caller_turn == CallerTurn::Committed {
+                        CallerTurn::Idle
+                    } else {
+                        CallerTurn::Answered
+                    };
                     // This automatic response sees the tool outputs and text
                     // already added. Do not follow it with a duplicate reply
                     // or carry a queued Say's tool restriction into later work.
@@ -602,6 +618,11 @@ impl Driver {
             "response.done" => {
                 self.said();
                 self.responding = false;
+                // A reply to the caller that ended without its commit
+                // arriving must not hold back every later reply.
+                if self.caller_turn == CallerTurn::Answered {
+                    self.caller_turn = CallerTurn::Idle;
+                }
                 self.emit(RealtimeEvent::ResponseDone).await?;
                 if std::mem::take(&mut self.respond_after) {
                     self.respond(socket).await?;

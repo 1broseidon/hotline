@@ -152,3 +152,50 @@ async fn a_barged_question_commits_before_any_client_reply_can_overtake_it() {
         finish(server).await;
     }
 }
+
+/// Grok creates its automatic reply before it commits the caller's audio. That
+/// turn is then over: a work result arriving later is still answered.
+#[tokio::test]
+async fn a_reply_created_before_the_commit_ends_the_caller_turn() {
+    for gpt in [false, true] {
+        let (listener, url) = listen().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = accept(&listener).await;
+            handshake(&mut socket).await;
+            for event in [
+                json!({"type":"input_audio_buffer.speech_started", "item_id":"ask"}),
+                json!({"type":"input_audio_buffer.speech_stopped", "item_id":"ask"}),
+                json!({"type":"response.created"}),
+                json!({"type":"input_audio_buffer.committed", "item_id":"ask"}),
+                json!({"type":"conversation.item.input_audio_transcription.completed",
+                    "item_id":"ask", "transcript":"Write the sonnet to a file."}),
+                json!({"type":"response.done"}),
+            ] {
+                send(&mut socket, event).await;
+            }
+            assert_eq!(
+                receive(&mut socket).await["item"]["type"],
+                "function_call_output"
+            );
+            assert_eq!(receive(&mut socket).await["type"], "response.create");
+            closed(&mut socket).await;
+        });
+        let provider = if gpt { openai(&url) } else { voice(&url) };
+        let mut configuration = config();
+        configuration.input_rate = 24_000;
+        let mut session = provider.open(configuration).await.unwrap();
+        assert_eq!(next(&mut session).await, RealtimeEvent::SpeechStarted);
+        assert_eq!(
+            next(&mut session).await,
+            RealtimeEvent::Heard("Write the sonnet to a file.".into())
+        );
+        assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
+        session
+            .input
+            .tool_result("work", "Saved qa.sonnet.txt.", true)
+            .await
+            .unwrap();
+        session.close().await;
+        finish(server).await;
+    }
+}

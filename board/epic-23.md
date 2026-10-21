@@ -27,3 +27,6 @@ Baseline (CI at a185fff1, release runs for 0.40 and 0.41):
 Not in scope: the phone (hotline-mobile, built with Expo and EAS), LTO (none is set), more crate splitting (ADR 0007 says it buys little more).
 
 Order: the single test binary (biggest) and release-cache on main only go first, in parallel. Then faster linkers. Then nextest. Then the gate, which George decides with the numbers. The local-loop docs come last.
+
+## Log
+- 2026-10-21T05:05:22.715Z: [claude] Parked 2026-10-21 by George after #194 (Windows CI 29 -> 22 min) and #196 (runner minutes 141 -> 70). Linker dropped; nextest, the gate and the docs parked.

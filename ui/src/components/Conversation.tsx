@@ -444,7 +444,14 @@ export function Conversation({
 
 			{refusedCard ? (
 				<div className="shrink-0 px-4">
-					<ErrorCard text={refused} personaId={personaId} teammate={persona.name} backendId={persona.backendId} onChooseAccount={onChooseAccount} />
+					<ErrorCard
+						text={refused}
+						personaId={personaId}
+						teammate={persona.name}
+						backendId={persona.backendId}
+						onChooseAccount={onChooseAccount}
+						onProviders={onProviders}
+					/>
 				</div>
 			) : notice !== null && (
 				<p

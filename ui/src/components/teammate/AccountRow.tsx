@@ -20,10 +20,11 @@ type Signing = { view: AccountView; email: string | undefined };
  * account added here becomes the teammate's only once its sign-in is
  * confirmed.
  *
- * What the teammate is set to is its record, which `persona.account`
- * writes at once; the session says which account it runs on and why a
- * switch is held. The section is not drawn when the desk lists no accounts
- * for this agent, or refuses to list them.
+ * The checked row is the teammate's record, which `persona.account`
+ * writes at once. The session says which account it runs on, the one it
+ * moves to (`wanted`, sent only while that differs, so absent falls back
+ * to the record) and why a move is held. The section is not drawn when the
+ * desk lists no accounts for this agent, or refuses to list them.
  */
 export function AccountRow({
 	persona,
@@ -70,9 +71,10 @@ export function AccountRow({
 
 	const chosen = persona.agentAccountId ?? SYSTEM_DEFAULT;
 	const running = session.account?.running ?? SYSTEM_DEFAULT;
+	const wanted = session.account?.wanted ?? chosen;
 	const held = session.account?.held;
 	const up = session.state === "ready" || session.state === "thinking";
-	const pending = up && held === undefined && chosen !== running;
+	const pending = up && held === undefined && wanted !== running;
 
 	const send = async (step: () => Promise<unknown>) => {
 		if (busy) return;
@@ -123,7 +125,7 @@ export function AccountRow({
 					agentName={agent.name}
 					accounts={accounts}
 					selected={chosen}
-					inUse={up && chosen === running ? running : undefined}
+					inUse={up && wanted === running ? running : undefined}
 					signing={signing?.view.account.id}
 					name={`account-${persona.id}`}
 					disabled={disabled || busy}
@@ -163,7 +165,7 @@ export function AccountRow({
 				)}
 				{pending && (
 					<div className="group-row flex-col items-stretch gap-1">
-						<p>Switches to {nameOf(chosen)} when its work ends.</p>
+						<p>Switches to {nameOf(wanted)} when its work ends.</p>
 						<p className="text-sm text-ink-3">
 							What is running now stays on {nameOf(running)}. Stop and switch now stops all of {persona.name}'s work.
 						</p>
@@ -180,8 +182,8 @@ export function AccountRow({
 				{held !== undefined && (
 					<p className="group-row">
 						{held === "signing_in"
-							? `${nameOf(chosen)} is still signing in. ${persona.name} keeps ${nameOf(running)} until it is.`
-							: `${nameOf(chosen)} is not signed in. ${persona.name} keeps ${nameOf(running)} until it is.`}
+							? `${nameOf(wanted)} is still signing in. ${persona.name} keeps ${nameOf(running)} until it is.`
+							: `${nameOf(wanted)} is not signed in. ${persona.name} keeps ${nameOf(running)} until it is.`}
 					</p>
 				)}
 			</div>

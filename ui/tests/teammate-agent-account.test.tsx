@@ -239,6 +239,17 @@ describe("a teammate's agent account", () => {
 		await click("Stop and switch now");
 		expect(named("session.").map(([cmd]) => cmd)).toEqual(["session.stop", "session.start"]);
 		expect(named("session.").map(([, params]) => params)).toEqual([{ personaId: "ada" }, { personaId: "ada" }]);
+
+		// The session names where it moves to even before the record says so.
+		await remount(ada, sessionOf("thinking", { running: "a1", wanted: "a2" }));
+		expect(text()).toContain("Switches to Account 2 when its work ends.");
+		// A switch to System default leaves `wanted` out; the record says where.
+		await remount(onDefault, sessionOf("thinking", { running: "a1" }));
+		expect(text()).toContain("Switches to System default when its work ends.");
+		// And a session on the account the record names has nothing pending.
+		await remount(ada, sessionOf("thinking", { running: "a1" }));
+		expect(text()).not.toContain("Switches to");
+		expect(row("Account 1").textContent).toContain("In use");
 	});
 
 	test("a held switch keeps the current account", async () => {

@@ -1022,3 +1022,38 @@ async fn hotline_agent_with_no_provider_says_so_before_the_first_turn() {
     );
     server.abort();
 }
+
+/// The real settings handler waits on the room's policy gate. Discovery on
+/// the same socket still answers, and the following write keeps its place.
+#[tokio::test]
+async fn discovery_answers_while_a_settings_command_waits_on_the_policy_gate() {
+    use hotline_core::wire::RoomHandle;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(common::open_desk(root.path()).unwrap());
+    let gate = desk.policy_update_lock();
+    let held = gate.lock().await;
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone(), desk.parts()).unwrap();
+    let port = door.port();
+    let serving = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    let first = client
+        .send("settings.update", json!({"patch":{"theme":"dark"}}))
+        .await;
+    let second = client
+        .send("settings.update", json!({"patch":{"theme":"light"}}))
+        .await;
+    let providers = client.call("providers.list", json!({})).await;
+    assert_eq!(providers["ok"], true, "{providers}");
+    assert_ne!(
+        hotline_core::room::settings(&desk.log).get("theme"),
+        Some(&json!("light"))
+    );
+    drop(held);
+    assert_eq!(client.reply(first, common::ANSWER).await["ok"], true);
+    assert_eq!(client.reply(second, common::ANSWER).await["ok"], true);
+    assert_eq!(
+        hotline_core::room::settings(&desk.log).get("theme"),
+        Some(&json!("light"))
+    );
+    serving.abort();
+}

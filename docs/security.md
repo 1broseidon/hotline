@@ -1287,7 +1287,11 @@ it lets a colleague use another's tools.
 - **Enforcement:** `remote/admission.rs` owns pending rotation, atomic promotion,
   device budgets and final-owner cleanup. `remote/server.rs` keeps the same
   permit across TLS, HTTP and spawned WebSocket tasks. Revocation retains the
-  wire's cleanup path for subscriptions and pending commands. No forwarding
+  wire's cleanup path for subscriptions and pending commands. The socket
+  reader observes silence and cancellation while global commands wait;
+  WebSocket transports use zero TCP linger so a stalled seat's queued bytes
+  are discarded on close. Ordinary HTTP responses retain normal close.
+  No forwarding
   header can manufacture a separate budget or device identity.
 - **Tests:** `remote::admission::tests` covers global and per-device bounds,
   IPv4-mapped peers, eviction/promotion races, final-owner release and expired
@@ -1296,6 +1300,10 @@ it lets a colleague use another's tools.
   saturation, paired reconnects, surviving sessions, HTTP keepalive, stalled
   Noise, raw TCP and multiple devices sharing one proxy IP. The existing remote
   suite covers pairing, roles, viewer sockets and revocation.
+  `wire/tests/concurrency.rs` proves silence expiry during a pending global
+  command and desktop work surviving disconnect;
+  `remote/tests/phone.rs` `a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound`
+  proves the stalled connection ends in a TCP reset.
 - **Testing limits:** the proxy harness uses one upstream TLS connection per
   client. It does not reproduce Cloudflare's upstream connection pooling,
   production latency or flood defenses. Controlled Cloudflare staging and

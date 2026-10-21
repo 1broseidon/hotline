@@ -145,6 +145,8 @@ pub(super) fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
 // offer here.
 #[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn serve(stream: TcpStream, desk_token: &str, behind: Behind) -> Result<(), Error> {
+    // Once a seat is dropped, no queued TCP bytes should keep it alive.
+    socket2::SockRef::from(&stream).set_linger(Some(Duration::ZERO))?;
     let socket = accept_hdr_async(stream, |request: &Request, response: Response| {
         let uri = request.uri();
         if uri.path() != "/ws" {

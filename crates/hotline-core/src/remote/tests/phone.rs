@@ -822,6 +822,74 @@ async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound()
         tokio::time::advance(crate::wire::WRITE_STALL).await;
         tokio::time::resume();
     }
+    // Draining the bytes already received ends in a TCP reset, not a FIN
+    // left waiting behind the desk's unsent frame.
+    use tokio::io::AsyncReadExt;
+    let tcp = phone.socket.get_mut().get_mut().0;
+    let reset = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut bytes = [0; 65536];
+        loop {
+            match tcp.read(&mut bytes).await {
+                Ok(0) => panic!("the stalled seat closed without resetting TCP"),
+                Ok(_) => {}
+                Err(error) => break error,
+            }
+        }
+    })
+    .await
+    .expect("the stalled transport resets");
+    assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
     drop(phone);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_pairing_queued_before_desktop_disconnect_cannot_outlive_its_socket() {
+    use crate::wire::RoomHandle;
+    let h = Harness::new().await;
+    let gate = h.desk.policy_update_lock();
+    let held = gate.lock().await;
+    let mut parts = h.desk.parts();
+    parts.remote = Arc::downgrade(&h.remote);
+    let door =
+        crate::wire::Door::bind(h.desk.log.clone(), "test".into(), h.desk.clone(), parts).unwrap();
+    let port = door.port();
+    let serving = tokio::spawn(door.run());
+    let (mut socket, _) =
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws?token=test"))
+            .await
+            .unwrap();
+    for frame in [
+        json!({"id":1,"cmd":"settings.update","params":{"patch":{"theme":"dark"}}}),
+        json!({"id":2,"cmd":"remote.pairing"}),
+        json!({"id":3,"cmd":"settings.update","params":{"patch":{"theme":"light"}}}),
+        json!({"id":4,"cmd":"client.hello","params":{"capabilities":[]}}),
+    ] {
+        socket.send(Message::text(frame.to_string())).await.unwrap();
+    }
+    let reply = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&reply.into_text().unwrap()).unwrap()["id"],
+        4
+    );
+    socket.close(None).await.unwrap();
+    // The server has observed disconnect before the ordered work is released.
+    let _ = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .unwrap();
+    drop(held);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while crate::room::settings(&h.desk.log).get("theme") != Some(&json!("light")) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("accepted desk writes drain in order");
+    assert!(!h.remote.pairing_open());
+    serving.abort();
     h.remote.configure(false, network::ALL).await.unwrap();
 }

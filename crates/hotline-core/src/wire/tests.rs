@@ -88,6 +88,7 @@ struct PendingStop {
 
 struct Quiet {
     pending_stop: Option<Arc<PendingStop>>,
+    pending_login: Option<Arc<PendingStop>>,
     /// When set, `capabilities.options` answers only once it is cancelled:
     /// a provider slow to say what it can do.
     slow_read: Option<tokio_util::sync::CancellationToken>,
@@ -108,6 +109,7 @@ impl Quiet {
     fn new() -> Self {
         Self {
             pending_stop: None,
+            pending_login: None,
             slow_read: None,
             auth_owner: Mutex::new(None),
             infos: broadcast::channel(16).0,
@@ -704,6 +706,12 @@ impl RoomHandle for Quiet {
     }
 
     async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
+        if let Some(pending) = &self.pending_login {
+            let _dropped = pending.dropped.clone().drop_guard();
+            pending.entered.cancel();
+            pending.release.cancelled().await;
+            pending.completed.cancel();
+        }
         if let Some(message) = crate::models::login_refusal(provider_id) {
             return Err(message);
         }
@@ -1131,3 +1139,5 @@ mod windows;
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {
     snapshot_shaped(log, stream, seat == Seat::Phone, None, threads2)
 }
+
+mod concurrency;

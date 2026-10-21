@@ -119,14 +119,19 @@ it is measured on the room the rail leaves, not the window, so a closed
 rail makes space for both and a wide one hands the inspector the
 conversation's place.
 
-Providers and Tools are one shape, because they do one job: a list of
-things the room has. An add row heads the list in accent — the one accent
-in a pane, because adding is what an empty list is for — and opens the
-form in place, or for Providers the rows of what is not yet connected,
-in place too: nothing on these pages pops over them. Each
+Providers, Tools and Agent accounts are one shape, because they do one
+job: a list of things the room has. An add row heads the list in accent —
+the one accent in a pane, because adding is what an empty list is for —
+and opens the form in place, or for Providers the rows of what is not yet
+connected, in place too: nothing on these pages pops over them. Each
 row is the thing's name over one detail line (a key or a login, a command
 or a URL) and opens the thing's own page, with its fields and the way out
 (Remove, Sign out) at the foot. Nothing is edited on the row.
+Agent accounts goes one level deeper: the agents, then an agent's
+accounts with System default first, then an account's page with its
+Setup and, at the foot, Remove. A sign-in stands under the row that asked
+for it; on a Windows desk it happens in the agent's own window, so the row
+says so in one line with Cancel, and never shows a terminal.
 
 The computer is two places. Settings › Computer is the room's word: the
 runtimes this machine could have as radio rows, the missing ones greyed
@@ -326,6 +331,10 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-10-21 Settings › Agent accounts: a third Providers-shaped list,
+  three levels deep; Open hands a setup item to the system through the
+  shell, which touches nothing outside the account's folder.
 
 - 2026-10-09 A reply to a call carries what was said aloud as a transcript
   line above its bubble (0.36).

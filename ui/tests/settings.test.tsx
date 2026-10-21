@@ -58,6 +58,15 @@ describe("settings rail", () => {
 		expect(opened).toEqual(["about", "shortcuts"]);
 	});
 
+	test("Agent accounts stands right after Providers", async () => {
+		await mount("accounts");
+		const names = buttons().map((node) => node.textContent);
+		expect(names).toContain("Agent accounts");
+		expect(names.indexOf("Agent accounts")).toBe(names.indexOf("Providers") + 1);
+		const accounts = buttons().find((node) => node.textContent === "Agent accounts")!;
+		expect(accounts.getAttribute("aria-current")).toBe("true");
+	});
+
 	test("the open footer item carries aria-current", async () => {
 		await mount("about");
 		const about = container.querySelector('button[aria-label^="About Hotline"]')!;

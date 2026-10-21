@@ -17,6 +17,8 @@ import { RemoteSection } from "./RemoteSection";
 import { onServer } from "../serverFiles";
 import { DesksSection } from "./DesksSection";
 import { useActiveDesk, useDesks } from "../desks";
+import type { RosterEntry } from "../generated/contract";
+import { AgentAccountsSection } from "./settings/AgentAccounts";
 import { ComputerSection } from "./settings/Computer";
 import { GeneralSection } from "./settings/General";
 import { ImportSection } from "./settings/Import";
@@ -29,6 +31,7 @@ export type SettingsSection =
 	| "general"
 	| "desks"
 	| "providers"
+	| "accounts"
 	| "tools"
 	| "skills"
 	| "computer"
@@ -43,6 +46,7 @@ const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
 	{ id: "desks", title: "Desks" },
 	{ id: "providers", title: "Providers" },
+	{ id: "accounts", title: "Agent accounts" },
 	{ id: "tools", title: "Tools" },
 	{ id: "skills", title: "Skills" },
 	{ id: "computer", title: "Computer" },
@@ -173,11 +177,14 @@ function RailFooter({ section, onSection }: { section: SettingsSection; onSectio
  */
 export function Settings({
 	section,
+	roster,
 	onSection,
 	onBack,
 	onAddDesk,
 }: {
 	section: SettingsSection;
+	/** The desk's teammates, for who uses each agent account. */
+	roster: RosterEntry[];
 	onSection?: (section: SettingsSection) => void;
 	onBack?: () => void;
 	onAddDesk?: () => void;
@@ -190,9 +197,11 @@ export function Settings({
 		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
 
-	// Providers, Tools and Skills have a page under them, so their bands are
-	// their own; Secrets keeps its own list, so it draws itself the same way.
+	// Providers, Agent accounts, Tools and Skills have a page under them, so
+	// their bands are their own; Secrets keeps its own list, so it draws
+	// itself the same way.
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
+	if (section === "accounts") return <AgentAccountsSection roster={roster} onBack={onBack} />;
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
 	if (section === "secrets") return <SecretsSection onBack={onBack} />;

@@ -553,7 +553,7 @@ export function App() {
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
-						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
+						<Settings section={settingsSection} roster={roster} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
 					</Suspense>
 				) : pane === "add-desk" ? (
 					<AddDesk onClose={closePane} />

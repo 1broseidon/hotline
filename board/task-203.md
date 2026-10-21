@@ -1,7 +1,7 @@
 ---
 id: task-203
 title: Calling the desk reaches the team lead, who answers the roster and hands named work straight on
-column: review
+column: in-progress
 position: 1
 priority: high
 tags:
@@ -16,7 +16,7 @@ parentId: epic-21
 createdAt: "2026-10-19T13:59:38.168Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T06:45:39.164Z"
+updatedAt: "2026-10-21T06:46:01.366Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

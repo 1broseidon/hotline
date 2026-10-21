@@ -1,7 +1,7 @@
 ---
 id: task-206
 title: "End to end, docs and the scenario pass: every scenario in the deck proved"
-column: in-progress
+column: review
 position: 0
 priority: medium
 tags:
@@ -20,7 +20,7 @@ dependsOn:
   - task-239
   - task-240
   - task-241
-updatedAt: "2026-10-21T07:50:53.884Z"
+updatedAt: "2026-10-21T08:02:13.234Z"
 decisions:
   - decision-9
 dispatch:

@@ -6,19 +6,19 @@ position: 1
 description: "Task-206 manual QA finding from Pork Chop, 2026-10-21, real Grok Voice call 790a5312: fox.txt was written and spoken about with a closing note, but never attached to chat; crane.txt reached chat only because its clone chose send_file. The deck expects results in chat. George must decide whether core should attach files written by work_on_it or use another policy. Do not implement automatic attachment without that decision. Reproduce, settle scope, then prove chosen behavior on both drivers and a real call. Task-206 deliberately leaves this unwired."
 createdAt: "2026-10-21T07:53:18.984Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-21T20:28:49.130Z"
+updatedAt: "2026-10-21T20:28:55.791Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
   by: cli
   at: "2026-10-21T19:59:35.384Z"
   until: done
-  tries: 1
+  tries: 2
   claim:
     host: Georges-Mac-Studio
     runner: cli
     pid: 94104
-    at: "2026-10-21T19:59:37.140Z"
+    at: "2026-10-21T20:28:55.791Z"
 assignee: codex
 decisions:
   - decision-31
@@ -51,3 +51,4 @@ Lands on release/0.42.0. Merge release/0.42.0 first, make check in the foregroun
 - 2026-10-21T20:22:16.303Z: [codex] Foreground make check now passes on the final code (CARGO_INCREMENTAL=0 after reclaiming this worktree's build cache). Both-driver wire matrix covers 0/1/3/6 files, explicit sends, refused writes, duplicate basenames and every indexed readback; UI and lease/reach/correction tests pass. Deduplication is per work result so a later correction is delivered. Running make precheck before commit; real-provider call QA remains pending because no explicit test credentials/QA endpoint were supplied.
 - 2026-10-21T20:27:56.057Z: [codex] Final make check passes, including the functional in-app Open path for non-PDF files (stored-byte text/binary preview, paging, inert markup). Native opening remains restricted to images/PDFs. Initial make precheck passed all 8 legs; rerunning it with the added preview/paging UI tests, then committing on dispatch/task-253. Remaining manual step: a real-provider call against an isolated QA instance/test credentials.
 - 2026-10-21T20:28:48.847Z: [codex] Committed 2f818157 on dispatch/task-253: core-owned per-work file delivery from successful Rig/ACP mutation records, deduplicated explicit sends, ≤3 attachments or one larger summary, indexed readback and functional text/binary previews. Foreground make check and make precheck (all 8 legs) pass; working tree is clean. Ready for code review. Remaining acceptance step: reproduce fox.txt and a six-file batch on a real-provider QA call; no isolated endpoint/test credentials were supplied here.
+- 2026-10-21T20:28:55.286Z: Landing sent back (1 of 1): dispatch/task-253 conflicts with release/0.42.0 in docs/security.md. On release/0.42.0 since this branch started: c643f405 An agent saves the person's name only after their approval. (task-261). Merge release/0.42.0 into this branch (git merge release/0.42.0), keep what both sides meant, commit the merge, and run the checks.

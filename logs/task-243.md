@@ -1,8 +1,6 @@
 ---
 id: task-243
 title: A parked call's row in the chat says it is parked, not "in progress"
-column: review
-position: 0
 priority: medium
 tags:
   - voice
@@ -21,8 +19,11 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T05:05:39.270Z"
+    ended: "2026-10-21T05:16:25.336Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T05:16:11.667Z"
+updatedAt: "2026-10-21T05:16:25.336Z"
+completedAt: "2026-10-21T05:16:24.473Z"
 ---
 
 ## Description
@@ -32,3 +33,4 @@ Found re-checking task-242 on the QA desk, 2026-10-20, at a185fff1. After hang-u
 - 2026-10-21T05:07:10.271Z: [codex] Found callWords treating every non-closed link as in progress. The saved live state means open, not a turn in flight; label live calls open and parked calls parked, retaining closed-call duration/outcome. UI regression covers both states.
 - 2026-10-21T05:09:35.230Z: [codex] Extended fix to publish workingCalls in the roster, using the core's actual per-call turn state. Chat rows now distinguish running/open/parked; the pane refreshes from the same roster signal. UI regression passes, including rerenders and Open; extending existing real-core hang-up harness to prove roster start/finish for both drivers.
 - 2026-10-21T05:16:11.310Z: [codex] Ready for review on dispatch/task-243, commit cf04fa23. Call rows now say running only for their own in-flight turn, open between turns, and parked once parked; roster workingCalls also refreshes the thread pane. Added UI rerender/Open regression and real-core roster start/finish assertions for both drivers. make check and all 8 make precheck legs pass. Next: reviewer inspect and merge the branch; task remains for human completion.
+- 2026-10-21T05:16:22.216Z: Landed on release/0.42.0

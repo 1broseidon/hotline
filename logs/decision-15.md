@@ -2,11 +2,13 @@
 id: decision-15
 title: Voice answers are core-owned session approvals or informational yes/no answers; opaque operation…
 type: decision
-status: current
+status: superseded
 claimKey: voice.card-answer-boundary
 kind: decision
 recheck: Revisit when driver cards carry independently trusted operation metadata, or when a question needs authority rather than information.
 createdAt: "2026-10-21T07:08:22.020Z"
+supersededBy: decision-29
+updatedAt: "2026-10-21T20:04:16.289Z"
 ---
 
 ## Description

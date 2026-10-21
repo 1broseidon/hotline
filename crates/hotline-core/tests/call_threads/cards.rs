@@ -107,7 +107,12 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
                 .collect();
             assert_eq!(notices.len(), 1);
             let text = notices[0]["text"].as_str().unwrap();
-            assert!(text.contains(if seq == 1 { "Yes" } else { "No" }));
+            assert!(text.starts_with(if seq == 1 {
+                "Answered on the call: Yes — "
+            } else {
+                "Answered on the call: No — "
+            }));
+            assert!(!text.contains(call.as_str()));
             crate::common::until("the answer continuation ends", || {
                 desk.log
                     .load(&StreamId::Tape(ada.clone()))
@@ -141,16 +146,13 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
             e["id"] == own_card["id"] && e["status"] == "done"
         })
         .await;
-        assert!(
-            desk.log
-                .load(&StreamId::Tape(ada.clone()))
-                .iter()
-                .any(|e| e["kind"] == "notice"
-                    && e["text"]
-                        .as_str()
-                        .is_some_and(|s| s.contains("From call")
-                            && s.contains("Is the harbour north of town?")))
-        );
+        assert!(desk.log.load(&StreamId::Tape(ada.clone())).iter().any(|e| {
+            e["kind"] == "notice"
+                && e["text"].as_str().is_some_and(|s| {
+                    s.starts_with("Answered on the call: Yes — ")
+                        && s.contains("Is the harbour north of town?")
+                })
+        }));
         desk.hang_up(&call, thread).await;
     }
 }

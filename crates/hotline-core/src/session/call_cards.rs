@@ -167,7 +167,8 @@ impl Room {
             &serde_json::json!({
                 "kind": "notice", "id": format!("call-answer:{call}:{}", card.request),
                 "ts": now_ms(), "level": "info",
-                "text": format!("From call {call}: {} — {summary}",
+                // The person reads this; the call is in the id, not the words.
+                "text": format!("Answered on the call: {} — {summary}",
                     if yes { "Yes" } else { "No" }),
             }),
         )

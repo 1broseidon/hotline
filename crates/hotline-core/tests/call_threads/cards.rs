@@ -92,7 +92,12 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
                 desk.log.load(&StreamId::Tape(ada.clone())).iter().any(|e| {
                     e["id"] == card["id"]
                         && e["status"] == status
-                        && e["note"] == "Answered by voice on the call."
+                        && e["note"]
+                            == if seq == 1 {
+                                "Answered by voice on the call: yes."
+                            } else {
+                                "Answered by voice on the call: no."
+                            }
                 })
             })
             .await;
@@ -156,7 +161,7 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
         assert!(desk.log.load(&StreamId::Tape(ada.clone())).iter().any(|e| {
             e["id"] == own_card["id"]
                 && e["status"] == "done"
-                && e["note"] == "Answered by voice on the call."
+                && e["note"] == "Answered by voice on the call: yes."
         }));
         let settled = desk
             .log

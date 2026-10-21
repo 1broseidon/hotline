@@ -126,9 +126,13 @@ impl Room {
                 } else {
                     HumanAnswer::Declined
                 },
-                // The settled card in the home chat is the record; its status
-                // carries the yes or no, and the person reads this note.
-                Some("Answered by voice on the call.".into()),
+                // The settled card in the home chat is the record. The person
+                // reads this note, and the agent's delivery carries only the
+                // note, so it must say which answer was given.
+                Some(format!(
+                    "Answered by voice on the call: {}.",
+                    if yes { "yes" } else { "no" }
+                )),
             )?;
             return Ok(());
         }

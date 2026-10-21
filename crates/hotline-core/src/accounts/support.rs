@@ -34,6 +34,10 @@ pub(crate) struct AccountSupport {
     /// How the agent's out-of-usage messages begin, so a failed turn that says
     /// one of them can be told from any other failure.
     pub(crate) usage_limit_prefixes: &'static [&'static str],
+    pub(crate) home_dir: &'static str,
+    /// Beside `home_dir` in the home, but inside the folder `env_var` names.
+    /// A category's `json_keys` name it by this spelling.
+    pub(crate) state_file: Option<&'static str>,
     /// The user-level setup a folder can hold, which a new account may start from.
     pub(crate) setup: &'static [SetupCategory],
     /// Keys of the agent's settings file that name a way to sign in, which the
@@ -108,6 +112,8 @@ pub(crate) static CLAUDE: AccountSupport = AccountSupport {
         "You're out of extra usage",
         "Your seat type doesn't include extra usage",
     ],
+    home_dir: ".claude",
+    state_file: Some(".claude.json"),
     setup: &[
         SetupCategory {
             id: "instructions",
@@ -185,6 +191,10 @@ mod tests {
                 ".claude.json",
                 "settings.json"
             ]
+        );
+        assert_eq!(
+            (row.home_dir, row.state_file),
+            (".claude", Some(".claude.json"))
         );
         assert_eq!(row.setup[0].paths, ["CLAUDE.md", "rules"]);
         assert_eq!(

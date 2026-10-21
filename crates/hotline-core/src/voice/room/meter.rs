@@ -141,7 +141,7 @@ async fn voice_meter_estimates_a_third_of_the_request_bytes_each_tools_overhead_
     let (meter, _) = fixture.meter();
     let mut request = CompletionRequest::new("Any schedules?").preamble("Route it.");
     request.tools.push(Arc::new(ToolDefinition::new(
-        ToolName::new("desk_command").unwrap(),
+        ToolName::new("list_schedules").unwrap(),
         "Read the room.",
         json!({"type": "object"}),
     )));

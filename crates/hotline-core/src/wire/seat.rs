@@ -184,7 +184,7 @@ impl Seat {
             // is the same: its line is on the tape, and the run holds the
             // task, its steps and what it said.
             Seat::Phone => {
-                !matches!(target, Target::Tape(id) if id == crate::voice::TAPE_ID)
+                !matches!(target, Target::Tape(id) if id == "voice-dispatcher")
                     && match target {
                         Target::ThreadId(thread) => phone_may_read(thread),
                         _ => matches!(
@@ -244,7 +244,7 @@ fn phone_thread_command(command: &Command) -> bool {
 /// call, which is a voice surface it is not seated on.
 pub(super) fn phone_may_read(thread: &crate::contract::ThreadId) -> bool {
     match thread.kind {
-        ThreadKind::Dm => thread.key != crate::voice::TAPE_ID,
+        ThreadKind::Dm => thread.key != "voice-dispatcher",
         ThreadKind::Call => false,
         ThreadKind::Side | ThreadKind::Pair | ThreadKind::Run | ThreadKind::Job => true,
     }

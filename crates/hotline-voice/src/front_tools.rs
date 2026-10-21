@@ -1,5 +1,6 @@
 //! Read-only tools bound to the call's thread and the teammate's current
-//! capability lease. Work and writes run through the call's own agent.
+//! capability lease. Work and writes run through the call's own agent,
+//! except the desk lead's bounded named handoff.
 
 use super::front::Tool;
 use crate::call_room::CallRoom;
@@ -74,7 +75,8 @@ impl FrontTools {
             "ts":chrono::Local::now().timestamp_millis(), "toolCallId":id, "title":name,
             "output":[{"type":"text", "text":arguments}],
             "status":"in_progress"});
-        self.room.call_said(&self.thread, &self.persona_id, &line);
+        self.room
+            .call_said(&self.thread, Some(&self.persona_id), &line);
         line
     }
 
@@ -92,7 +94,8 @@ impl FrontTools {
         };
         line["status"] = json!("completed");
         line["output"] = json!([{"type":"text", "text":format!("{arguments}\n{answer}")}]);
-        self.room.call_said(&self.thread, &self.persona_id, &line);
+        self.room
+            .call_said(&self.thread, Some(&self.persona_id), &line);
         answer
     }
 
@@ -131,7 +134,7 @@ impl DeskTools {
         self.definitions.clone()
     }
 }
-/// S6 replaces this DM reach with the call thread's own lease and tools.
+/// The call thread's tools under the teammate's authority.
 pub struct FrontReach {
     pub tools: DeskTools,
     pub capability: CapabilityLease,

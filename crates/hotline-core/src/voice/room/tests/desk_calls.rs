@@ -8,9 +8,9 @@ fn a_link_keeps_a_desk_reply_from_being_said_as_written() {
 }
 
 /// A desk call's answer, streamed in sentences, is one line on the
-/// dispatcher's tape too.
+/// call transcript too.
 #[tokio::test]
-async fn a_desk_calls_streamed_answer_is_one_line_on_its_tape() {
+async fn a_desk_calls_streamed_answer_is_one_line_on_its_call() {
     let (_root, desk, calls) = desk(services());
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk.clone()).unwrap();
@@ -22,7 +22,7 @@ async fn a_desk_calls_streamed_answer_is_one_line_on_its_tape() {
     .await;
     let agent = || -> Vec<String> {
         desk.log
-            .load(&StreamId::Tape(TAPE_ID.into()))
+            .load(&StreamId::Call(id.clone()))
             .into_iter()
             .filter(|event| event["kind"] == "agent")
             .map(|event| event["text"].as_str().unwrap().to_string())
@@ -79,7 +79,7 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
 }
 
 #[tokio::test]
-async fn a_desk_call_is_kept_on_the_dispatchers_tape_and_is_no_thread() {
+async fn a_no_lead_desk_call_keeps_its_own_transcript() {
     let (_root, desk, calls) = desk(services());
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk.clone()).unwrap();
@@ -87,13 +87,12 @@ async fn a_desk_call_is_kept_on_the_dispatchers_tape_and_is_no_thread() {
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
     assert!(
-        desk.log.load(&StreamId::Call(id.clone())).is_empty(),
-        "no thread, and so no call stream"
+        desk.log
+            .load(&StreamId::Tape("voice-dispatcher".into()))
+            .is_empty(),
+        "no synthetic dispatcher tape"
     );
-    assert_ne!(
-        desk.log.load(&StreamId::Tape(TAPE_ID.into())),
-        [] as [Value; 0]
-    );
+    assert_ne!(desk.log.load(&StreamId::Call(id.clone())), [] as [Value; 0]);
     calls.end(&id).unwrap();
 }
 
@@ -123,4 +122,31 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
     let pair =
         crate::contract::DeliveryFrom::new(&crate::contract::ThreadId::pair("a\u{1f}b"), None);
     assert_eq!(Origin::from_delivery(&pair), None);
+}
+
+#[tokio::test]
+async fn hanging_up_removes_the_leads_handoff_tool_from_an_existing_handle() {
+    let (_root, desk, calls) = desk(services());
+    let persona_id = mack(&desk).await;
+    let persona = crate::room::roster(&desk.log)
+        .into_iter()
+        .find(|p| p.id == persona_id)
+        .unwrap();
+    let call = Uuid::new_v4().to_string();
+    calls.start(&call, desk.clone()).unwrap();
+    let room = desk.test_room();
+    let thread = crate::contract::ThreadId::call(&call);
+    let reach = room.front_reach(&persona, &thread).unwrap();
+    assert!(room.lead_call(&persona_id, &thread));
+    calls.end(&call).unwrap();
+    let error = reach
+        .tools
+        .call(
+            "message_teammate",
+            &json!({"to":"anyone","message":"work","intent":"handoff"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(error.contains("no tool"), "{error}");
+    assert!(!room.lead_call(&persona_id, &thread));
 }

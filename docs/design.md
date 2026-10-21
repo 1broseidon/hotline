@@ -962,8 +962,17 @@ teammate lead (which moves the role) or clears it with `persona.lead`, owner
 only. Clearing a desk of one is refused, since the next open would put it
 back, and `settings.update` cannot name a lead around these rules. Being lead
 changes nothing else about a teammate: its own model, memory and tools stay
-its own. Desk calls reach the lead, and the lead hands work on, in later
-work ([ADR 0008](adr/0008-one-agent-thread-layer.md#5-voice-under-this-design)).
+its own. A desk call opens the lead's own call thread and voice front. The
+front answers roster questions with `list_teammates` and passes named work
+straight through `message_teammate`, intent `handoff`, saying who has it. The
+live desk call and current lead together grant local handoffs without a
+first-contact card; a direct call, DM, stopped call or former lead does not
+carry that grant. The queue checks it again before starting work. Stopping or
+reassigning colleagues remains the person's choice. With no lead the fallback
+call assistant remains, with the roster and optional `personName` setting,
+using bounded named tools rather than the wire command table. No new
+`voice-dispatcher` tape is written; each fallback call keeps its own transcript
+([ADR 0008](adr/0008-one-agent-thread-layer.md#5-voice-under-this-design)).
 
 ### Linked desks
 

@@ -9,6 +9,12 @@ use std::time::Duration;
 const SUMMARY_CURSOR: &str = "call-closing-note";
 
 impl Room {
+    pub(crate) fn lead_call(&self, persona: &str, thread: &ThreadId) -> bool {
+        lock(&self.voice)
+            .upgrade()
+            .is_some_and(|calls| calls.lead_call(persona, thread))
+    }
+
     pub(crate) fn validate_call_thread(
         &self,
         persona: &str,

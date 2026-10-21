@@ -230,13 +230,26 @@ async fn device_goodbye_needs_no_fabricated_audio_or_dispatcher() {
 
 #[tokio::test(start_paused = true)]
 async fn a_short_transport_drop_resumes_but_twenty_seconds_detaches() {
+    for desk_call in [false, true] {
+        transport_drop_resumes_but_twenty_seconds_detaches(desk_call).await;
+    }
+}
+
+async fn transport_drop_resumes_but_twenty_seconds_detaches(desk_call: bool) {
     let fake = Arc::new(Fake::default());
     let (_root, desk, calls) = desk(with_fake(fake));
     let id = Uuid::new_v4().to_string();
     let persona = mack(&desk).await;
     calls
-        .start_target(&id, Some(persona.clone()), false, desk.clone())
+        .start_target(
+            &id,
+            (!desk_call).then(|| persona.clone()),
+            false,
+            desk.clone(),
+        )
         .unwrap();
+    let call_thread = crate::contract::ThreadId::call(&id);
+    assert_eq!(calls.lead_call(&persona, &call_thread), desk_call);
     let thread = call_link(&desk, &persona).unwrap()["thread"].clone();
     let (_, mut events) = calls.subscribe(&id).unwrap();
     let revoked = CancellationToken::new();
@@ -256,6 +269,7 @@ async fn a_short_transport_drop_resumes_but_twenty_seconds_detaches() {
         )
     })
     .await;
+    assert_eq!(calls.lead_call(&persona, &call_thread), desk_call);
     tokio::time::advance(Duration::from_secs(19)).await;
     assert!(
         calls
@@ -285,6 +299,7 @@ async fn a_short_transport_drop_resumes_but_twenty_seconds_detaches() {
             ..
         }
     ));
+    assert_eq!(calls.lead_call(&persona, &call_thread), desk_call);
     second.cancel();
     event(&mut events, |e| {
         matches!(
@@ -309,6 +324,7 @@ async fn a_short_transport_drop_resumes_but_twenty_seconds_detaches() {
         )
     })
     .await;
+    assert!(!calls.lead_call(&persona, &call_thread));
     assert!(calls.text(&id, 1, "Too late").is_err());
 }
 

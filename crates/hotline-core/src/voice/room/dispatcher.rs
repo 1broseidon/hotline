@@ -189,7 +189,7 @@ mod tests {
     const FIXTURE_CALL_USD: f64 = (20.0 * 5.0 + 10.0 * 25.0) / 1_000_000.0;
 
     #[tokio::test]
-    async fn native_dispatcher_uses_default_provider_fast_model_and_existing_commands() {
+    async fn the_no_lead_assistant_uses_bounded_named_tools() {
         let root = tempfile::tempdir().unwrap();
         let ledger_file = root.path().join("voice-ledger.json");
         let reserved = Arc::new(Mutex::new(Vec::<f64>::new()));
@@ -208,7 +208,7 @@ mod tests {
                 let message = if has_result {
                     json!({"role":"assistant","content":"The room has no schedules."})
                 } else {
-                    json!({"role":"assistant","content":null,"tool_calls":[{"id":"desk_1","type":"function","function":{"name":"desk_command","arguments":"{\"command\":\"schedule.list\",\"params\":\"{}\"}"}}]})
+                    json!({"role":"assistant","content":null,"tool_calls":[{"id":"desk_1","type":"function","function":{"name":"list_schedules","arguments":"{}"}}]})
                 };
                 ([("Content-Type", "application/json")], json!({"id":"voice_test","object":"chat.completion","created":1,"model":"fast-mini","choices":[{"index":0,"message":message,"finish_reason":if has_result {"stop"} else {"tool_calls"}}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}).to_string())
             }
@@ -271,7 +271,7 @@ mod tests {
         let requests = requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert!(requests.iter().all(|r| r["model"] == "fast-mini"));
-        assert_eq!(requests[0]["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(requests[0]["tools"].as_array().unwrap().len(), 5);
         assert!(requests[1]["messages"].as_array().unwrap().iter().any(
             |m| m["role"] == "tool" && m["content"].as_str().is_some_and(|s| s.contains("[]"))
         ));
@@ -306,7 +306,7 @@ mod tests {
                         gate.acquire().await.unwrap().forget();
                         tx.send(chunk(json!({"content":"Keep the warning."}), Value::Null, Value::Null)).await.unwrap();
                     } else {
-                        tx.send(chunk(json!({"role":"assistant","tool_calls":[{"index":0,"id":"desk_1","type":"function","function":{"name":"desk_command","arguments":"{\"command\":\"schedule.list\",\"params\":\"{}\"}"}}]}), Value::Null, Value::Null)).await.unwrap();
+                        tx.send(chunk(json!({"role":"assistant","tool_calls":[{"index":0,"id":"desk_1","type":"function","function":{"name":"list_schedules","arguments":"{}"}}]}), Value::Null, Value::Null)).await.unwrap();
                     }
                     tx.send(chunk(json!({}), json!(if has_result { "stop" } else { "tool_calls" }), json!({"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}))).await.unwrap();
                     tx.send("data: [DONE]\n\n".into()).await.unwrap();
@@ -383,7 +383,7 @@ mod tests {
         near(ledger.spent().unwrap().day.total(), 3.0 * FIXTURE_CALL_USD);
         let requests = requests.lock().unwrap();
         assert_eq!(requests.len(), 3);
-        assert_eq!(requests[0]["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(requests[0]["tools"].as_array().unwrap().len(), 5);
         assert!(
             requests[1]["messages"]
                 .as_array()

@@ -192,7 +192,14 @@ impl Room {
         let teammates: Vec<String> = crate::room::roster(&self.log)
             .into_iter()
             .map(|persona| persona.id)
-            .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
+            // Recover an old dispatcher tape without creating one on a new desk.
+            .chain(
+                (!self
+                    .log
+                    .load(&StreamId::Tape("voice-dispatcher".into()))
+                    .is_empty())
+                .then(|| "voice-dispatcher".to_string()),
+            )
             .collect();
         let mut closed = Vec::new();
         self.settle_jobs(now);
@@ -567,7 +574,7 @@ mod tests {
         crate::log::thread::ensure(log.root(), &key).unwrap();
         log.append(&StreamId::Pair(key.clone()), &card("pair-card"))
             .unwrap();
-        let voice = StreamId::Tape(crate::voice::TAPE_ID.into());
+        let voice = StreamId::Tape("voice-dispatcher".into());
         log.append(&voice, &card("call-card")).unwrap();
 
         let room = room_on(log, quiet_agents());

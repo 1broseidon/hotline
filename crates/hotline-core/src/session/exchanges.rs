@@ -77,6 +77,8 @@ struct Request {
     /// its desk has been told, so its sender is not left waiting.
     #[serde(default)]
     returned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lead_call: Option<ThreadId>,
 }
 /// How the sender of a request hears its answer: inline, while it waits, or
 /// later, in the thread it was sent from.
@@ -109,6 +111,30 @@ pub(crate) fn answering(record: &serde_json::Value) -> bool {
     })
 }
 impl Room {
+    async fn authorize_exchange(
+        self: &Arc<Self>,
+        request: &Request,
+        caller: &crate::contract::Persona,
+        target: &crate::contract::Persona,
+        a: &CapabilityLease,
+        b: &CapabilityLease,
+    ) -> Result<(), String> {
+        a.check()?;
+        b.check()?;
+        if let Some(thread) = &request.lead_call {
+            if request.intent == Intent::Handoff
+                && target.node.is_none()
+                && self.lead_call(&caller.id, thread)
+            {
+                return Ok(());
+            }
+            return Err("The desk call's lead grant has ended.".into());
+        }
+        self.authorize_collaboration(caller, target, a, b, request.intent == Intent::Handoff)
+            .await
+            .map(|_| ())
+    }
+
     fn exchange_pairs(&self) -> Vec<Pair> {
         self.log
             .load(&StreamId::Room)
@@ -248,6 +274,16 @@ impl Room {
                     _ => None,
                 },
                 returned: false,
+                lead_call: match answer {
+                    Answer::Later(thread)
+                        if intent == Intent::Handoff
+                            && target.node.is_none()
+                            && self.lead_call(from, thread) =>
+                    {
+                        Some(thread.clone())
+                    }
+                    _ => None,
+                },
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(id.clone(), leases);
@@ -670,7 +706,7 @@ impl Room {
         let auth = tokio::select! {
             biased;
             () = peers::capabilities_expired(&a, &b) => Err("Collaboration was revoked.".into()),
-            auth = self.authorize_collaboration(&caller, &target, &a, &b, true) => auth,
+            auth = self.authorize_exchange(&request, &caller, &target, &a, &b) => auth,
         };
         if let Err(error) = auth {
             self.set_exchange_reply(&key, id, error.clone(), true)?;
@@ -862,13 +898,7 @@ impl Room {
                         self.stop_revoked_exchanges(None);
                         return Ok(());
                     }
-                    auth = self.authorize_collaboration(
-                        &caller,
-                        &target,
-                        &caller_capability,
-                        &target_capability,
-                        request.intent == Intent::Handoff,
-                    ) => auth,
+                    auth = self.authorize_exchange(&request, &caller, &target, &caller_capability, &target_capability) => auth,
                 };
                 if let Err(error) = auth {
                     self.set_exchange_reply(key, &request.id, error, true)?;
@@ -1277,6 +1307,7 @@ impl Room {
                 reply_thread: None,
                 reply_job: None,
                 returned: false,
+                lead_call: None,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(

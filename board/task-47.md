@@ -35,3 +35,4 @@ Split from task-19, preserving its BRO-239 scope. Compute connections once per m
 
 ## Log
 - 2026-10-21T10:49:55.251Z: [claude] 2026-10-21 Pork Chop: lands on dispatch/epic-5 (now dfb4048d: task-19, 46, 22, 20). Before done: merge dispatch/epic-5 into your branch, run make check in the foreground on the merged result, commit, and show a before/after measurement.
+- 2026-10-21T10:57:57.113Z: [codex] Measured original dfb4048d handlers and updated handlers with the same real-wire fixture (3 teammates, 3 sides, 1 pair). Complete JSON results byte-identical: 17 models, 7 all threads, 3 Ada threads. models.list secret gets 3→1, room loads 4→1; thread.list whole-history loads 31→8 all / 13→4 Ada, unrelated side copies 2→0. Uses Log fold projection, request-local model sources only (no persistent secret cache). dispatch/epic-5 merge is up to date; foreground make check running.

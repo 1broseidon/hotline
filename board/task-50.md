@@ -1,8 +1,8 @@
 ---
 id: task-50
 title: "Window: cache room-wide picker and inspector lists per desk"
-column: in-progress
-position: 0
+column: review
+position: 2
 description: Split from task-22, preserving BRO-244. Room-wide model efforts, backends and capability reads are repeated on teammate switches. Share reads within a desk and invalidate on the relevant model/settings changes; never share credentials or data between desks. Keep per-persona computer status fresh. Verify picker stability and changed providers/settings, including remote desk switching; measure request counts on repeated teammate switches.
 priority: medium
 tags:
@@ -13,7 +13,7 @@ relatedFiles:
   - ui/src/components/Teammate.tsx
 parentId: epic-5
 createdAt: "2026-10-12T04:20:54.002Z"
-updatedAt: "2026-10-21T10:55:44.352Z"
+updatedAt: "2026-10-21T11:06:13.697Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

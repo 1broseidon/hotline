@@ -39,3 +39,4 @@ Done when: a question asked over the voice's speech is heard and answered within
 
 ## Log
 - 2026-10-21T08:26:08.801Z: [claude] For the Codex run: read crates/hotline-voice/src/realtime (socket, live) and duplex.rs for what we send after a barge (truncate, response.create, function outputs, any input_audio_buffer.clear/commit) and compare with each provider's documented barge-in sequence. Fix the sequence, add a scripted-front test that reproduces it. Pork Chop will verify on the Linux QA desk with ~/qa-audio/barge.sh before it ships.
+- 2026-10-21T08:28:07.900Z: [codex] Found an adapter ordering hole: speech_started is forwarded but does not guard response.create; late tool/text completions can create a response before the caller's VAD commit. Provider docs say VAD owns cancellation/commit/automatic response. Adding both-dialect scripted ordering regression and body-free boundary tracing; live Linux QA remains necessary to confirm the reported provider stall.

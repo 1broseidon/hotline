@@ -26,6 +26,13 @@ pub(super) struct Channel<S> {
     max: usize,
     pending: VecDeque<Vec<u8>>,
 }
+impl<S: AsyncRead + AsyncWrite + crate::wire::transport::AbortiveClose + Unpin>
+    crate::wire::transport::AbortiveClose for Channel<S>
+{
+    fn abortive_close(&self) -> io::Result<()> {
+        self.socket.abortive_close()
+    }
+}
 impl<S> Channel<S> {
     /// The relay claim ends at message two; its transport state never wraps
     /// the visitor's end-to-end records.

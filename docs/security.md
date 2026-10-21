@@ -1289,8 +1289,9 @@ it lets a colleague use another's tools.
   permit across TLS, HTTP and spawned WebSocket tasks. Revocation retains the
   wire's cleanup path for subscriptions and pending commands. The socket
   reader observes silence and cancellation while global commands wait;
-  WebSocket transports use zero TCP linger so a stalled seat's queued bytes
-  are discarded on close. Ordinary HTTP responses retain normal close.
+  only a seat that exceeds the write deadline selects zero TCP linger, so
+  its queued bytes are discarded on close. Ordinary WebSocket and HTTP
+  closes retain normal drain behavior.
   No forwarding
   header can manufacture a separate budget or device identity.
 - **Tests:** `remote::admission::tests` covers global and per-device bounds,
@@ -1303,7 +1304,9 @@ it lets a colleague use another's tools.
   `wire/tests/concurrency.rs` proves silence expiry during a pending global
   command and desktop work surviving disconnect;
   `remote/tests/phone.rs` `a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound`
-  proves the stalled connection ends in a TCP reset.
+  proves the stalled connection ends in a TCP reset;
+  `a_revoked_seat_drains_tcp_instead_of_resetting_it` in the same file proves
+  ordinary revocation drains without a reset.
 - **Testing limits:** the proxy harness uses one upstream TLS connection per
   client. It does not reproduce Cloudflare's upstream connection pooling,
   production latency or flood defenses. Controlled Cloudflare staging and

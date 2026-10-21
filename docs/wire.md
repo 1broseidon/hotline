@@ -1356,9 +1356,9 @@ while companions retain the 1 MiB output frame limit. Both use a bounded
 take are dropped instead. A frame the peer has not taken within 60 seconds
 also closes the socket, on every seat, so a phone that left the network
 without closing is dropped even when it is quiet and never named `lean`.
-WebSocket TCP transports use zero linger: dropping a seat discards pending
-TCP writes and resets the connection. Ordinary HTTP responses retain normal
-drain-on-close behavior. A complete WebSocket close handshake still closes
+Only a seat that exceeds the write deadline selects zero TCP linger before
+dropping its transport, discarding pending writes and resetting the connection.
+Ordinary WebSocket and HTTP closes retain normal drain-on-close behavior. A complete WebSocket close handshake still closes
 at the application layer; unfinished replies are not guaranteed delivery.
 These limits never widen a seat or fall back to plaintext.
 Rotation prevents a fixed set of anonymous connections from holding all

@@ -229,8 +229,6 @@ async fn relay_door(
     reply.map(|()| Full::new(Bytes::new()))
 }
 
-/// Only upgraded transports use abortive close. A stalled seat must discard
-/// queued TCP bytes when dropped, while ordinary HTTP replies still drain.
 /// Hyper may already have read the first WebSocket bytes; preserve those.
 async fn upgraded_socket(
     upgraded: hyper::upgrade::Upgraded,
@@ -240,9 +238,6 @@ async fn upgraded_socket(
         .downcast::<TokioIo<tokio_rustls::server::TlsStream<TcpStream>>>()
         .ok()?;
     let stream = parts.io.into_inner();
-    socket2::SockRef::from(stream.get_ref().0)
-        .set_linger(Some(Duration::ZERO))
-        .ok()?;
     Some(
         WebSocketStream::from_partially_read(
             stream,
@@ -339,7 +334,12 @@ pub(super) async fn sealed_session<S>(
     purpose: Purpose,
     seat: Seat,
 ) where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + crate::wire::transport::AbortiveClose
+        + Unpin
+        + Send
+        + 'static,
 {
     if matches!(purpose, Purpose::RelayAccept) {
         super::relay::accept(remote, socket, seat).await;

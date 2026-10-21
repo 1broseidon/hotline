@@ -113,7 +113,7 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    text: text.to_string(),
+                    text: self.with_person_name(text),
                     attachments: attachments.clone().unwrap_or_default(),
                     steer: !crate::wire::commands::from_voice(),
                     said: None,

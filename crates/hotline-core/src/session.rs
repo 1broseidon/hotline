@@ -51,6 +51,7 @@ mod links;
 mod narration;
 mod pacing;
 mod peers;
+mod person_name;
 mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
@@ -607,7 +608,7 @@ pub struct Room {
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
     human_waits: Mutex<HashMap<String, HumanWait>>,
-    voice_questions: Mutex<HashMap<String, CapabilityLease>>,
+    voice_questions: Mutex<HashMap<String, asking::Question>>,
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
     answering_later: Mutex<()>,

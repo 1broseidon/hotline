@@ -1076,7 +1076,12 @@ sending a phone push. The caller's finalized yes/no, not a model tool,
 answers the last announced card and leaves a chat record from the call.
 The handler allows core-owned collaboration approvals for this session only
 and informational `ask_question` cards under the requesting session's live
-lease. An informational answer never grants an operation. Existing action
+lease. `set_person_name` adds one core-owned operation: the proposed name
+and lease are bound to its card before publication, and only approval writes
+`personName`. Settings → General also reads and writes it as **Your name**.
+The home agent receives the current name with each prompt; live voice reads
+it when the call opens and hears the name card's answer during the call.
+An informational answer never grants an operation. Existing action
 cards, passkeys and opaque driver approvals stay at the desk: their words
 cannot establish that an action is safe for voice. This includes credentials,
 2FA, screen interaction, payment and deletion. Replayed cards without their

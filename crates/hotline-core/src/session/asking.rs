@@ -167,7 +167,13 @@ impl Room {
         );
         let informational = question.is_some();
         if let Some(capability) = question {
-            lock(&self.voice_questions).insert(action_id.clone(), capability);
+            lock(&self.voice_questions).insert(
+                action_id.clone(),
+                Question {
+                    capability,
+                    person_name: None,
+                },
+            );
         }
         self.write(
             persona_id,
@@ -228,16 +234,25 @@ impl Room {
         capability: CapabilityLease,
     ) -> Result<String, String> {
         capability.check()?;
-        self.ask_card(persona_id, reason, home, None, Some(capability))
+        self.ask_card(
+            persona_id,
+            reason,
+            home,
+            None,
+            Some(Question {
+                capability,
+                person_name: None,
+            }),
+        )
     }
 
-    fn ask_card(
+    pub(super) fn ask_card(
         &self,
         persona_id: &str,
         reason: &str,
         home: &ThreadId,
         hours: Option<u32>,
-        question: Option<CapabilityLease>,
+        question: Option<Question>,
     ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
@@ -247,15 +262,19 @@ impl Room {
         let reason: String = reason.chars().take(500).collect();
         let hours = hours.unwrap_or(ASK_HOURS).clamp(1, ASK_MAX_HOURS);
         let ts = now_ms();
-        let action_id = new_id();
+        let action_id = if question.as_ref().is_some_and(|q| q.person_name.is_some()) {
+            format!("person-name:{}", new_id())
+        } else {
+            new_id()
+        };
         let work =
             matches!(home.kind, ThreadKind::Side | ThreadKind::Call).then_some(home.key.as_str());
         self.link_handoff_human(work, &action_id)?;
         let informational = question.is_some();
-        if let Some(capability) = question {
+        if let Some(question) = question {
             let mut questions = lock(&self.voice_questions);
-            questions.retain(|_, lease| lease.is_current());
-            questions.insert(action_id.clone(), capability);
+            questions.retain(|_, question| question.capability.is_current());
+            questions.insert(action_id.clone(), question);
         }
         self.write_home(
             persona_id,
@@ -371,6 +390,7 @@ impl Room {
                 reason,
                 status: HumanActionStatus::Pending,
                 delivers: Some(true),
+                expires_at,
                 ..
             },
             home,
@@ -378,6 +398,9 @@ impl Room {
         else {
             return Err("That request is no longer waiting for an answer.".to_string());
         };
+        if action_id.starts_with("person-name:") {
+            self.settle_person_name(action_id, status, expires_at)?;
+        }
         self.supersede_human(persona_id, action_id, status, note.clone());
         self.deliver_answer(persona_id, action_id, &reason, status, note, home);
         Ok(())
@@ -712,4 +735,10 @@ fn human_outcome(answer: HumanAnswered) -> String {
         Some(note) => format!("{outcome} They said: {note}"),
         None => outcome.to_string(),
     }
+}
+
+/// Authority held by the core, never reconstructed from card prose or saved flags.
+pub(super) struct Question {
+    pub capability: CapabilityLease,
+    pub person_name: Option<String>,
 }

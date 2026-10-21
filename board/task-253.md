@@ -34,3 +34,4 @@ Done when:
 - Files are taken from the work's own write/edit tool records on the call thread (not a directory scan), and only from this call.
 - Tests: one file → one attachment; send_file already used → no repeat; six files → one summary card listing six; nothing written → nothing posted.
 Lands on release/0.42.0. Merge release/0.42.0 first, make check in the foreground, commit before done.
+- 2026-10-21T20:00:16.988Z: [codex] Starting implementation on dispatch/task-253 using George's recorded policy: call-owned successful write/edit records, deduplicated send_file, individual attachments through three and a functional grouped card above three. Checking shared driver completion and file reach boundaries first.

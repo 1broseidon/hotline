@@ -31,3 +31,6 @@ CI on dispatch/epic-5 at dfb4048d (run 39587319717): 68 tests fail on Windows on
 Cause: task-20 sets SO_LINGER=0 on every WebSocket transport (wire/door.rs serve, remote relay upgraded_socket, remote/client.rs dial). On Windows, closesocket with zero linger resets at once and discards unsent data, so an ordinary close after the last reply (pairing claim, auth answer, final frame) loses that reply.
 
 Done when: normal closes drain as before; only a seat dropped for stalling (the write-bound path) closes abortively, e.g. set zero linger right before dropping that seat, not at accept/dial. a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound still proves the reset. Lands on dispatch/epic-5; merge it, make check in the foreground, commit. Pork Chop runs Windows CI on the branch to prove it.
+
+## Log
+- 2026-10-21T11:23:30.974Z: [codex] Confirmed zero linger at all three transport setup paths. Moving reset selection into joined seat teardown only after WRITE_STALL, preserving normal TLS/WebSocket drains. Existing stalled-seat reset harness remains the required proof; pairing/auth and door tests cover final replies.

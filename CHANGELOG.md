@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- An ACP teammate (Codex, Claude and the rest) starts in a folder whose
+  `AGENTS.md` is a symbolic link, as repositories that share one
+  instructions file across projects keep it. Hotline used to refuse the
+  session with "Mutating files through symbolic links is not allowed";
+  it now leaves the link and its target alone, as it does any
+  hand-written `AGENTS.md`, and still writes nothing through it.
+
 ## [0.41.0] - 2026-10-20
 
 ### Added

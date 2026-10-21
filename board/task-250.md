@@ -23,3 +23,6 @@ Done when:
 - A Linux job (fmt, clippy, nextest, the dependency gates, the window checks) finishes in under 10 min and is the check every dispatch waits on.
 - The Windows and macOS checks run where George decided, and still run before every release cut.
 - The PR records the gate's time over five runs.
+
+## Log
+- 2026-10-21T05:05:21.125Z: [claude] 2026-10-21 George: 'that's enough of this, let's keep building core features'. Parked.

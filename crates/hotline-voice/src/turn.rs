@@ -162,6 +162,8 @@ impl Calls {
                     if held || speech.is_cancelled() {
                         self.push(delivery, &delivery.text);
                         Ok(())
+                    } else if matches!(next, Work::Notice(..)) && self.fronted(&id) {
+                        self.front_notice(&id, &delivery.text).await
                     } else if matches!(next, Work::Notice(..)) {
                         self.say(&id, &delivery.text, speech, &context.cancel).await
                     } else {

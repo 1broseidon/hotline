@@ -18,6 +18,8 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 /// One admitted socket, until either side closes it.
 #[derive(Clone)]
 pub(super) struct Outbox {
+    pub(super) call_owner: String,
+    pub(super) pairing_cancel: tokio_util::sync::CancellationToken,
     pub(super) sender: Outgoing,
     pub(super) cancel: tokio_util::sync::CancellationToken,
     pub(super) max: usize,
@@ -172,6 +174,13 @@ where
         (Outgoing::Desk(tx), IncomingOutput::Desk(rx))
     };
     let sender = Outbox {
+        call_owner: phone
+            .as_ref()
+            .map_or_else(|| "desk".into(), crate::remote::Phone::call_owner),
+        pairing_cancel: phone
+            .as_ref()
+            .map(crate::remote::Phone::pairing_cancel)
+            .unwrap_or_default(),
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
@@ -705,7 +714,12 @@ async fn command(
                     if result.is_ok()
                         && let Some(voice) = &parts.voice
                     {
-                        voice.bind_connection(call_id, sender.cancel.clone());
+                        let _ = voice.bind_connection(
+                            call_id,
+                            &sender.call_owner,
+                            sender.cancel.clone(),
+                            sender.pairing_cancel.clone(),
+                        );
                     }
                     result
                 }

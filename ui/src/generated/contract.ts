@@ -2154,7 +2154,11 @@ export type VoiceEvent = { "type": "state", state: VoiceState,
 /**
  * A live call failed; a new Legacy call requires the person to choose it.
  */
-liveError?: string, reason?: VoiceEndReason, 
+liveError?: string, 
+/**
+ * True only while recovering a dropped transport or live provider.
+ */
+reconnecting?: boolean, reason?: VoiceEndReason, 
 /**
  * On `thinking`: the teammate's turn is still working and the call
  * takes what the person says, which steers into that turn. A client

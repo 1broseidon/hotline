@@ -1043,6 +1043,8 @@ async fn remote_control_answer(
 ) -> Value {
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),

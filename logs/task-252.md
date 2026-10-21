@@ -1,8 +1,6 @@
 ---
 id: task-252
 title: "S6 follow-up: a live call's transcript is what was said, once; the clone's work shows as work"
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -23,10 +21,13 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T05:51:59.039Z"
+    ended: "2026-10-21T06:09:44.309Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T06:09:33.306Z"
+updatedAt: "2026-10-21T06:09:44.309Z"
 decisions:
   - decision-10
+completedAt: "2026-10-21T06:09:43.913Z"
 ---
 
 ## Description
@@ -50,3 +51,4 @@ Proved by desk-harness tests with the fake realtime provider (streamed updates f
 - 2026-10-21T05:57:48.643Z: [codex] Implemented buffered/folded live speech and one Work result tool entry per live clone turn; clone openings/deltas no longer feed speech. Added real-core fake-provider and UI coverage. Local validation is running; requested Linux QA desk access for the real Grok Voice rerun.
 - 2026-10-21T06:07:12.346Z: [codex] Committed 25225b2f on dispatch/task-252; make check passes on the final tree. Fake-provider coverage passes across Grok/OpenAI/GPT-Live and Hotline Agent/ACP, plus read_thread paging, work-result summaries/search, interruption/hang-up persistence and UI/copy tests. Running make precheck; real QA-desk Grok rerun still awaits access.
 - 2026-10-21T06:09:33.016Z: [codex] Ready for review on dispatch/task-252 at 25225b2f; worktree clean. Live speech buffers/folds once by id; live clone tools remain work and its completed answer is one marked Work result, included in search/closing summaries; clone openings never feed speech. Settings copy and regression tests updated. Final make check and all 8 make precheck legs pass. No code left unwired. Outstanding verification: re-run the real Grok Voice crane.txt call on the Linux QA desk (access requested but not provided here); task-207 still owns the single chat-pointer/read-aloud rule. Reviewer next: inspect/merge this branch and run that QA call.
+- 2026-10-21T06:09:43.261Z: Landed on release/0.42.0

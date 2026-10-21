@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
+mod accounts;
 mod cards;
 mod chapters;
 mod chat;

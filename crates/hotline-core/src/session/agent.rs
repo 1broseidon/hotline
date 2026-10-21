@@ -213,17 +213,22 @@ pub(super) fn clone_of(mut persona: Persona, home: &SessionInfo, without: &[Abil
 }
 
 /// The session a child is asked to reopen: the thread's saved one, when the
-/// harness the teammate runs on now is the one that issued it. Only a child
-/// has a session of its own to reopen.
+/// harness the teammate runs on now, under the account it runs on now, is the
+/// one that issued it. Only a child has a session of its own to reopen.
 fn resumable(
     resume: Resume,
     binding: Option<AgentBinding>,
     backend_id: &str,
+    account_id: Option<&str>,
     in_process: bool,
 ) -> Option<String> {
     binding
         .filter(|_| resume == Resume::Binding)
-        .filter(|binding| !in_process && binding.backend_id == backend_id)
+        .filter(|binding| {
+            !in_process
+                && binding.backend_id == backend_id
+                && binding.account_id.as_deref() == account_id
+        })
         .map(|binding| binding.session_id)
 }
 
@@ -369,12 +374,14 @@ impl Room {
             None => Vec::new(),
         };
         let transcript = || chapters::serialize_chapter(&earlier);
+        let account_id = crate::accounts::account_of(&view).map(str::to_string);
         let reopening = resumable(
             policy.resume,
             ThreadStore::new(&self.log)
                 .load(&thread)
                 .and_then(|record| record.binding),
             &view.backend_id,
+            account_id.as_deref(),
             in_process,
         );
 
@@ -408,7 +415,7 @@ impl Room {
             checkpointed.session_checkpoints = vec![SessionCheckpoint {
                 backend_id: view.backend_id.clone(),
                 session_id: session_id.clone(),
-                account_id: None,
+                account_id,
             }];
         }
         let mut driver = build(
@@ -675,32 +682,80 @@ mod tests {
 
     #[test]
     fn a_session_is_reopened_only_by_the_child_that_issued_it() {
-        let binding = |backend: &str| {
+        let binding = |backend: &str, account: Option<&str>| {
             Some(AgentBinding {
                 backend_id: backend.to_string(),
                 session_id: "s1".to_string(),
-                account_id: None,
+                account_id: account.map(str::to_string),
             })
         };
         assert_eq!(
-            resumable(Resume::Binding, binding("claude"), "claude", false).as_deref(),
+            resumable(
+                Resume::Binding,
+                binding("claude", None),
+                "claude",
+                None,
+                false
+            )
+            .as_deref(),
             Some("s1")
         );
         assert_eq!(
-            resumable(Resume::Binding, binding("claude"), "codex", false),
+            resumable(
+                Resume::Binding,
+                binding("claude", None),
+                "codex",
+                None,
+                false
+            ),
             None
         );
         assert_eq!(
             resumable(
                 Resume::Binding,
-                binding(HOTLINE_BACKEND_ID),
+                binding(HOTLINE_BACKEND_ID, None),
                 HOTLINE_BACKEND_ID,
+                None,
                 true
             ),
             None,
             "Hotline Agent has no session to reopen; its history is its context"
         );
-        assert_eq!(resumable(Resume::Binding, None, "claude", false), None);
+        assert_eq!(
+            resumable(Resume::Binding, None, "claude", None, false),
+            None
+        );
+        assert_eq!(
+            resumable(
+                Resume::Binding,
+                binding("claude", Some("a")),
+                "claude",
+                Some("a"),
+                false
+            )
+            .as_deref(),
+            Some("s1")
+        );
+        assert_eq!(
+            resumable(
+                Resume::Binding,
+                binding("claude", Some("a")),
+                "claude",
+                Some("b"),
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            resumable(
+                Resume::Binding,
+                binding("claude", None),
+                "claude",
+                Some("b"),
+                false
+            ),
+            None
+        );
     }
 
     #[test]

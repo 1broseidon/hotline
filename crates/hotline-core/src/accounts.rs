@@ -22,3 +22,14 @@ pub(crate) mod env;
 pub(crate) mod resolve;
 pub(crate) mod status;
 pub(crate) mod support;
+
+use crate::contract::Persona;
+
+/// The account `persona` runs under. A choice stays stored on an agent that
+/// cannot run under one, and is ignored there (spec §8.3).
+pub(crate) fn account_of(persona: &Persona) -> Option<&str> {
+    persona
+        .agent_account_id
+        .as_deref()
+        .filter(|_| support::account_support(&persona.backend_id).is_some())
+}

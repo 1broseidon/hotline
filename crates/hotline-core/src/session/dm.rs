@@ -260,7 +260,7 @@ impl Witness for Heard<'_> {
                         &room.log,
                         &session.persona_id,
                         &session.backend_id,
-                        None,
+                        session.account_id.as_deref(),
                     );
                 } else {
                     room.checkpoint(session);
@@ -419,6 +419,27 @@ impl Room {
             // answer now, so it is working again.
             self.await_subagents(session, false);
         }
+    }
+}
+
+impl Room {
+    /// Whether the teammate's record still names the account this session
+    /// started on, signed in as it was then (spec §8.4). A session that
+    /// outlived a switch, or a sign-in replaced under it, must not leave a
+    /// checkpoint the account's next session would reopen.
+    pub(super) fn checkpoint_still_ours(&self, session: &Session) -> bool {
+        let Ok(persona) = self.persona(&session.persona_id) else {
+            return false;
+        };
+        if crate::accounts::account_of(&persona) != session.account_id.as_deref() {
+            return false;
+        }
+        let Some(account_id) = &session.account_id else {
+            return true;
+        };
+        room::agent_accounts(&self.log).iter().any(|account| {
+            account.id == *account_id && account.login_at == session.account_login_at
+        })
     }
 }
 

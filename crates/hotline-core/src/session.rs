@@ -294,6 +294,15 @@ impl Agents for DeskAgents {
             };
             return Ok(Arc::new(driver));
         }
+        // Before the registry, so a refused account needs no harness on this
+        // machine to say so.
+        let account = crate::accounts::resolve::resolve(&self.root, &self.log, persona).map_err(
+            |refusal| {
+                let agent = acp::registry::name_of(&self.root, &persona.backend_id)
+                    .unwrap_or_else(|| persona.backend_id.clone());
+                refusal.public_sentence(&persona.name, &agent)
+            },
+        )?;
         // The registry answers whether this machine can start that harness at
         // all, and says what is missing when it cannot.
         acp::registry::launch(&self.root, &persona.backend_id)?;
@@ -305,7 +314,8 @@ impl Agents for DeskAgents {
         )
         .with_history(said)
         .with_mcp(grant.servers, grant.missing)
-        .with_start_bounds(self.acp_start);
+        .with_start_bounds(self.acp_start)
+        .with_account(account);
         let driver = match &self.mcp_vault {
             Some(vault) => driver.with_mcp_vault(vault.clone()),
             None => driver,
@@ -384,6 +394,10 @@ struct Session {
     /// Which agent is answering, because a checkpoint is kept per backend and
     /// the tape's chapter markers name the one that wrote them.
     backend_id: String,
+    /// The account the agent was started on, and that account's sign-in then:
+    /// a checkpoint is kept only while the teammate's record names both.
+    account_id: Option<String>,
+    account_login_at: Option<i64>,
     driver: Arc<dyn Driver>,
     info: Mutex<SessionInfo>,
     /// Queued lines and the claim on the active driver share one lock.
@@ -1057,11 +1071,14 @@ impl Room {
         let Some(session_id) = lock(&session.pending_checkpoint).take() else {
             return;
         };
+        if !self.checkpoint_still_ours(session) {
+            return;
+        }
         if let Err(error) = room::checkpoint_session(
             &self.log,
             &session.persona_id,
             &session.backend_id,
-            None,
+            session.account_id.as_deref(),
             &session_id,
         ) {
             eprintln!(
@@ -1073,22 +1090,33 @@ impl Room {
         // chapter possible later. The persona record is what the next
         // start will find; the marker is what a resume points that record
         // back at.
-        self.stamp_chapter_session(&session.persona_id, &session_id);
+        self.stamp_chapter_session(
+            &session.persona_id,
+            &session_id,
+            session.account_id.as_deref(),
+        );
     }
 
-    /// Writes the agent's session id onto the open chapter marker, so a
-    /// later resume can point the checkpoint back at this stretch.
-    fn stamp_chapter_session(&self, persona_id: &str, session_id: &str) {
+    /// Writes the agent's session id, and the account it belongs to, onto the
+    /// open chapter marker, so a later resume can point the checkpoint back at
+    /// this stretch, and only for that account.
+    fn stamp_chapter_session(&self, persona_id: &str, session_id: &str, account_id: Option<&str>) {
         let events = self.tape(persona_id);
         let Some(open) = chapter_view::open_chapter(&events) else {
             return;
         };
-        if open.get("sessionId").and_then(Value::as_str) == Some(session_id) {
+        if open.get("sessionId").and_then(Value::as_str) == Some(session_id)
+            && open.get("accountId").and_then(Value::as_str) == account_id
+        {
             return;
         }
         let mut stamped = open.clone();
         if let Some(object) = stamped.as_object_mut() {
             object.insert("sessionId".into(), Value::from(session_id));
+            match account_id {
+                Some(account_id) => object.insert("accountId".into(), Value::from(account_id)),
+                None => object.remove("accountId"),
+            };
             self.write_value(persona_id, &stamped);
         }
     }

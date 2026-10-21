@@ -122,12 +122,17 @@ pub(super) fn idle_ms(settings: &Map<String, Value>) -> i64 {
 /// The marker a chapter opens with. It carries no `endedAt`, which is what
 /// makes it the open one, and no `sessionId`, because Hotline Agent's context
 /// lives in this process and there is no checkpoint to point back at.
-pub(super) fn opened(backend_id: &str, id: String, now: i64) -> TranscriptEvent {
+pub(super) fn opened(
+    backend_id: &str,
+    account_id: Option<&str>,
+    id: String,
+    now: i64,
+) -> TranscriptEvent {
     TranscriptEvent::Chapter {
         id,
         ts: now,
         backend_id: backend_id.to_string(),
-        account_id: None,
+        account_id: account_id.map(str::to_string),
         session_id: None,
         ended_at: None,
         title: None,
@@ -141,15 +146,18 @@ pub(super) fn opened(backend_id: &str, id: String, now: i64) -> TranscriptEvent 
 
 /// The marker a resume opens: the previous chapter's note and session, under
 /// a new id, so the tape still folds and the chapter that was left is still
-/// in the drawer. `resumedFrom` is that chapter's id.
+/// in the drawer. `resumedFrom` is that chapter's id. The session is kept only
+/// when it ran on `account_id`; another account's session reopens nothing.
 pub(super) fn reopened(
     backend_id: &str,
+    account_id: Option<&str>,
     id: String,
     now: i64,
     from: &Value,
 ) -> Option<TranscriptEvent> {
     let Ok(TranscriptEvent::Chapter {
         id: from_id,
+        account_id: from_account,
         session_id,
         title,
         note,
@@ -164,8 +172,8 @@ pub(super) fn reopened(
         id,
         ts: now,
         backend_id: backend_id.to_string(),
-        account_id: None,
-        session_id,
+        account_id: account_id.map(str::to_string),
+        session_id: session_id.filter(|_| from_account.as_deref() == account_id),
         ended_at: None,
         title,
         note,
@@ -698,15 +706,22 @@ impl Room {
         // Point the persona's checkpoint back at the previous chapter's
         // session, which is what an ACP child will try to resume. Hotline Agent
         // has no checkpoint; its restore is the tape slice `said` will seed.
+        // A session another account wrote opens fresh, and leaves no
+        // checkpoint on any account to reopen it later.
+        let account_id = crate::accounts::account_of(&persona);
         {
             let policy_updates = self.policy_update_lock();
             let _held = policy_updates.lock().await;
-            if let Some(session_id) = previous.get("sessionId").and_then(Value::as_str) {
+            let previous_session = previous
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .filter(|_| previous.get("accountId").and_then(Value::as_str) == account_id);
+            if let Some(session_id) = previous_session {
                 if let Err(error) = room::checkpoint_session(
                     &self.log,
                     persona_id,
                     &persona.backend_id,
-                    None,
+                    account_id,
                     session_id,
                 ) {
                     eprintln!(
@@ -716,15 +731,21 @@ impl Room {
                 }
             } else if persona.backend_id != HOTLINE_BACKEND_ID
                 && let Err(error) =
-                    room::clear_checkpoint(&self.log, persona_id, &persona.backend_id, None)
+                    room::clear_backend_checkpoints(&self.log, persona_id, &persona.backend_id)
             {
                 eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
             }
         }
 
         let id = new_id();
-        let opened = reopened(&persona.backend_id, id.clone(), now_ms(), &previous)
-            .ok_or_else(|| "There is no previous chapter to reopen.".to_string())?;
+        let opened = reopened(
+            &persona.backend_id,
+            account_id,
+            id.clone(),
+            now_ms(),
+            &previous,
+        )
+        .ok_or_else(|| "There is no previous chapter to reopen.".to_string())?;
         self.write(persona_id, &opened);
 
         match self.start(persona_id).await {
@@ -752,11 +773,19 @@ impl Room {
     }
 
     /// Opens a chapter, unless one is already open.
-    pub(super) fn begin_chapter(&self, persona_id: &str, backend_id: &str) {
+    pub(super) fn begin_chapter(
+        &self,
+        persona_id: &str,
+        backend_id: &str,
+        account_id: Option<&str>,
+    ) {
         if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
             return;
         }
-        self.write(persona_id, &opened(backend_id, new_id(), now_ms()));
+        self.write(
+            persona_id,
+            &opened(backend_id, account_id, new_id(), now_ms()),
+        );
     }
 
     /// Closes the open chapter and writes the note the next one wakes on.
@@ -799,12 +828,13 @@ impl Room {
         };
         // Closing a chapter lets go of the agent's own memory of it: the next
         // message starts a context that has never seen it and reads the note
-        // instead. The session is not touched; the promise to reopen it is.
+        // instead. The session is not touched; the promise to reopen it is,
+        // on every account.
         {
             let policy_updates = self.policy_update_lock();
             let _held = policy_updates.lock().await;
             if let Err(error) =
-                room::clear_checkpoint(&self.log, persona_id, &persona.backend_id, None)
+                room::clear_backend_checkpoints(&self.log, persona_id, &persona.backend_id)
             {
                 eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
             }
@@ -1291,7 +1321,7 @@ mod tests {
             "note": "Goal: Get the crane moving", "status": "in-progress",
             "tags": ["crane"], "closedBy": "idle",
         });
-        let opened = reopened("hotline", "c3".to_string(), NOW, &previous).unwrap();
+        let opened = reopened("hotline", None, "c3".to_string(), NOW, &previous).unwrap();
         assert_eq!(
             serde_json::to_value(&opened).unwrap(),
             json!({

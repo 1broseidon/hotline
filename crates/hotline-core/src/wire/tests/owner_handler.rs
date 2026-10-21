@@ -32,6 +32,50 @@ async fn owner_commands_and_room_subscription_reach_the_real_handler() {
 }
 
 #[tokio::test]
+async fn an_unknown_account_refusal_is_private_for_the_desk_and_the_owner() {
+    use crate::credentials::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let mut ada = crate::session::tests::persona("ada");
+    ada.backend_id = "claude-acp".to_string();
+    ada.agent_account_id = Some("33333333-3333-4333-8333-333333333333".to_string());
+    ada.cwd = root.path().join("ada").to_string_lossy().into_owned();
+    crate::session::tests::enrol(&desk.log, &ada);
+    for seat in [Seat::Desk, Seat::Owner] {
+        let answer = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            &desk.parts(),
+            json!({"id":1,"cmd":"session.start","params":{"personaId":"ada"}}),
+        )
+        .await;
+        let error = answer["error"].as_str().unwrap_or_default();
+        for part in [
+            "Pick a Claude Code account for Ada: the one it was set to is not on this desk.",
+            r#""kind":"account_unavailable""#,
+            r#""code":"unknown_account""#,
+        ] {
+            assert!(error.contains(part), "{answer}");
+        }
+    }
+    for command in ["session.start", "session.prompt"] {
+        let denied = remote_control_answer(
+            Seat::Phone,
+            &room,
+            &desk.log,
+            &desk.parts(),
+            json!({"id":2,"cmd":command,"params":{"personaId":"ada","text":"hi"}}),
+        )
+        .await;
+        assert_eq!(denied["code"], FORBIDDEN, "{denied}");
+    }
+}
+
+#[tokio::test]
 async fn voice_is_owner_only_through_the_real_handler() {
     use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();

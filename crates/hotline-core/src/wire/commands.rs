@@ -54,6 +54,26 @@ pub(crate) fn from_voice() -> bool {
     VOICE_COMMAND.try_with(|()| ()).is_ok()
 }
 
+/// A start refused for the teammate's account says so in public words, which
+/// is all a thread or a colleague may hear. Session commands are the desk's
+/// and its owner's alone, so they get the private card: the account's name,
+/// and where its folder is.
+fn refused_at_the_desk(log: &Log, persona_id: &str, error: String) -> String {
+    let Ok(persona) = living(log, persona_id) else {
+        return error;
+    };
+    let Err(refusal) = crate::accounts::resolve::resolve(log.root(), log, &persona) else {
+        return error;
+    };
+    let agent = crate::driver::acp::registry::name_of(log.root(), &persona.backend_id)
+        .unwrap_or_else(|| persona.backend_id.clone());
+    if !error.contains(&refusal.public_sentence(&persona.name, &agent)) {
+        return error;
+    }
+    let sentence = refusal.private_sentence(&persona.name, &agent);
+    crate::driver::failure::Failure::account_unavailable(&refusal, &agent, sentence).notice()
+}
+
 /// Runs work that reads or writes files or a database on the blocking pool,
 /// so a search over a large index or a whole tape does not stop the other
 /// sockets' frames from being read.
@@ -402,7 +422,10 @@ pub(crate) async fn run(
         Command::ModelsEfforts { model_id } => Ok(json!(room.models_efforts(&model_id))),
 
         Command::SessionStart { persona_id } => {
-            let info = room.start(&persona_id).await?;
+            let info = room
+                .start(&persona_id)
+                .await
+                .map_err(|error| refused_at_the_desk(log, &persona_id, error))?;
             if let Ok(persona) = living(log, &persona_id) {
                 remember_model(log, room, &persona).await?;
             }
@@ -415,17 +438,16 @@ pub(crate) async fn run(
             text,
             reply_to,
             attachments,
-        } => {
-            threads::prompt(
-                log,
-                room,
-                &ThreadId::dm(persona_id),
-                &text,
-                reply_to,
-                attachments,
-            )
-            .await
-        }
+        } => threads::prompt(
+            log,
+            room,
+            &ThreadId::dm(&persona_id),
+            &text,
+            reply_to,
+            attachments,
+        )
+        .await
+        .map_err(|error| refused_at_the_desk(log, &persona_id, error)),
         Command::SessionCancel { persona_id } => threads::cancel(room, &ThreadId::dm(persona_id)),
         Command::ProcessStop { persona_id, id } => {
             room.process_stop(&persona_id, &id).map(|()| Value::Null)

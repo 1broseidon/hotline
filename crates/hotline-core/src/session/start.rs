@@ -95,6 +95,15 @@ impl Room {
             })
             .await?;
         let persona = agent.view.clone();
+        // The view the driver was built from, not the record now: a switch
+        // that is held keeps the session on the account it started with.
+        let account_id = crate::accounts::account_of(&persona).map(str::to_string);
+        let account_login_at = account_id.as_deref().and_then(|id| {
+            room::agent_accounts(&self.log)
+                .into_iter()
+                .find(|account| account.id == id)
+                .and_then(|account| account.login_at)
+        });
         let driver = agent.driver.clone();
         let has_computer = agent.computer;
         let reported = agent.started.clone();
@@ -142,6 +151,8 @@ impl Room {
             holder: agent.holder.clone(),
             capability: capability.clone(),
             backend_id: persona.backend_id.clone(),
+            account_id: account_id.clone(),
+            account_login_at,
             driver,
             info: Mutex::new(info.clone()),
             turns: Mutex::new(Turns::default()),
@@ -181,7 +192,7 @@ impl Room {
         }
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
-        self.begin_chapter(&persona.id, &persona.backend_id);
+        self.begin_chapter(&persona.id, &persona.backend_id, account_id.as_deref());
         // Hotline draws the permission cards but does not decide whether the
         // agent sends the requests, and somebody who believes they are behind
         // a gate that is not there should be told.

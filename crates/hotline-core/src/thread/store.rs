@@ -106,10 +106,14 @@ impl ThreadStore {
 
     fn dm(&self, persona_id: &str) -> Option<Thread> {
         let persona = self.persona(persona_id)?;
+        let account_id = crate::accounts::account_of(&persona);
         let binding = persona
             .session_checkpoints
             .iter()
-            .find(|checkpoint| checkpoint.backend_id == persona.backend_id)
+            .find(|checkpoint| {
+                checkpoint.backend_id == persona.backend_id
+                    && checkpoint.account_id.as_deref() == account_id
+            })
             .map(|checkpoint| AgentBinding {
                 backend_id: checkpoint.backend_id.clone(),
                 session_id: checkpoint.session_id.clone(),

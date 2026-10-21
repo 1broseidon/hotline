@@ -41,13 +41,15 @@ export function namesList(names: string[]): string {
 /**
  * The kinds of setup an account folder keeps, in the order a choice of
  * them lists them: `choice` is the name a checkbox says, `item` the name of
- * its row in an account's setup, `noun` what its count counts, and `detail`
- * what it holds. The core answers ids only, so the names live here.
+ * its row in an account's setup, and `noun` what its count counts. The core
+ * answers ids only, so the names live here, and they are every agent's:
+ * which files a kind is made of belongs to the agent's support row, never
+ * to the window (spec §9.1.1).
  */
-export const SETUP_CATEGORIES: readonly { id: string; choice: string; item: string; noun?: string; detail: string }[] = [
-	{ id: "instructions", choice: "Instructions and rules", item: "Instructions", detail: "CLAUDE.md, rules/" },
-	{ id: "skills", choice: "Skills, agents and commands", item: "Skills", noun: "skill", detail: "skills/, agents/, commands/" },
-	{ id: "plugins", choice: "Plugins", item: "Plugins", noun: "plugin", detail: "plugins/ and their settings" },
-	{ id: "mcp", choice: "MCP servers", item: "MCP servers", noun: "server", detail: "user-scope servers" },
-	{ id: "settings", choice: "Settings", item: "Settings", detail: "permissions, hooks, model, statusline — without auth keys" },
+export const SETUP_CATEGORIES: readonly { id: string; choice: string; item: string; noun?: string }[] = [
+	{ id: "instructions", choice: "Instructions and rules", item: "Instructions" },
+	{ id: "skills", choice: "Skills, agents and commands", item: "Skills", noun: "skill" },
+	{ id: "plugins", choice: "Plugins", item: "Plugins", noun: "plugin" },
+	{ id: "mcp", choice: "MCP servers", item: "MCP servers", noun: "server" },
+	{ id: "settings", choice: "Settings", item: "Settings" },
 ];

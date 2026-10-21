@@ -143,7 +143,6 @@ export function AddAccountForm({
 									<input type="checkbox" className="check" checked={ticked.has(category.id)} disabled={busy} onChange={() => flip(category.id)} />
 									<span className="group-row-text">
 										<span className="group-row-title">{category.choice}</span>
-										<span className="group-row-detail">{category.detail}</span>
 									</span>
 								</label>
 							))}

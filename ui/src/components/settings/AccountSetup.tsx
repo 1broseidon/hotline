@@ -116,8 +116,8 @@ export function AccountSetup({ accountId, agentName }: { accountId: string; agen
 					{rows.map((row) => {
 						const category = SETUP_CATEGORIES.find((one) => one.id === row.id);
 						const item = category?.item ?? row.id;
-						const detail =
-							category?.noun !== undefined ? plural(row.count, category.noun) : row.path !== undefined ? nameOf(row.path) : (category?.detail ?? "");
+						// A count where the kind is counted; a kind that is one file is its name alone.
+						const detail = category?.noun !== undefined ? plural(row.count, category.noun) : "";
 						return (
 							<div key={row.id} className="group-row">
 								<span className="group-row-text">
@@ -170,7 +170,6 @@ export function AccountSetup({ accountId, agentName }: { accountId: string; agen
 									<input type="checkbox" className="check" checked={ticked.has(category.id)} disabled={busy} onChange={() => flip(category.id)} />
 									<span className="group-row-text">
 										<span className="group-row-title">{category.choice}</span>
-										<span className="group-row-detail">{category.detail}</span>
 									</span>
 								</label>
 							))}

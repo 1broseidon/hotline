@@ -19,3 +19,6 @@ updatedAt: "2026-10-14T20:05:27.659Z"
 
 ## Description
 Split from task-19, preserving its BRO-239 scope. Compute connections once per models.list call; avoid repeated OS-secret and room reads. Scan threads once per list, and avoid loading unrelated complete side streams. If secret caching is added, invalidate on every vault mutation and revocation. Measure calls and returned results before and after; exercise the real list handlers with multiple teammates. Start with task-19's shared fold cache to avoid redundant caches.
+
+## Log
+- 2026-10-21T10:49:55.251Z: [claude] 2026-10-21 Pork Chop: lands on dispatch/epic-5 (now dfb4048d: task-19, 46, 22, 20). Before done: merge dispatch/epic-5 into your branch, run make check in the foreground on the merged result, commit, and show a before/after measurement.

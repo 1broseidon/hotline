@@ -8,6 +8,15 @@ tags:
   - voice
 parentId: epic-21
 createdAt: "2026-10-21T08:37:50.053Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T08:49:43.268Z"
+  until: done
+  tries: 0
+assignee: codex
+updatedAt: "2026-10-21T08:49:43.449Z"
 ---
 
 ## Description

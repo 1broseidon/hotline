@@ -4,8 +4,13 @@ export const MAX_QUEUED_CLIPS = 128;
 const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
 /** A voice front's first frame waits this long, so network jitter between frames never leaves a gap. */
 const PCM_LEAD_S = 0.08;
-/** How far ahead of the clock a front's frames may be queued: past it, the desk is sending faster than speech. */
-const MAX_PCM_AHEAD_S = 60;
+/**
+ * How far ahead of the clock a front's frames may be queued. A live voice
+ * streams a long answer's audio far faster than it is spoken, so a two-minute
+ * story arrives as two minutes queued ahead; at 24 kHz that is under 6 MB.
+ * Past this, something is wrong with the desk, not the answer.
+ */
+const MAX_PCM_AHEAD_S = 15 * 60;
 
 /** Decode ahead and schedule consecutive clips on the audio clock, including progressive WAV chunks. */
 export class ClipPlayer {

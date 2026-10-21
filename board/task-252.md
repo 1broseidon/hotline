@@ -43,3 +43,6 @@ Done when:
 - The Settings description of a live model says the voice is the teammate (e.g. "Talks with you as your teammate, looks things up, and does real work on your teammate's own model"), with no hand-off wording. The UI copy test covers it.
 
 Proved by desk-harness tests with the fake realtime provider (streamed updates fold to one line; the clone's result is a work line, not speech; one acknowledgement), the thread view's UI test, and a re-run of this call on the QA desk.
+
+## Log
+- 2026-10-21T05:57:48.643Z: [codex] Implemented buffered/folded live speech and one Work result tool entry per live clone turn; clone openings/deltas no longer feed speech. Added real-core fake-provider and UI coverage. Local validation is running; requested Linux QA desk access for the real Grok Voice rerun.

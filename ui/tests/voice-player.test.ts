@@ -24,6 +24,21 @@ function rig() {
 	return { player, ctx, decodes, nodes, get idle() { return idle; }, get started() { return started; } };
 }
 
+describe("a live voice's streamed audio", () => {
+	test("a long answer streamed faster than it is spoken is queued, not refused", () => {
+		const r = rig();
+		Object.assign(r.ctx, {
+			createBuffer: (_channels: number, length: number, rate: number) => ({
+				length, duration: length / rate, getChannelData: () => new Float32Array(length),
+			}),
+		});
+		// Three minutes of speech, one second a frame, arriving all at once.
+		const second = Buffer.alloc(24_000 * 2).toString("base64");
+		for (let i = 0; i < 180; i++) r.player.pushPcm(second, 24_000);
+		r.player.stop();
+	});
+});
+
 describe("progressive voice playback", () => {
 	test("an unbounded decode backlog is refused instead of accumulating promises", () => {
 		const r = rig();

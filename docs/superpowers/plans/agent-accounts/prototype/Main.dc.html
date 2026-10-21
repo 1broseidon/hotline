@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings — Agent accounts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(12% 0.006 250)}
+a{color:oklch(78.7% 0.128 163)}a:hover{color:oklch(83.7% 0.101 165)}
+.hl{--well:oklch(12% 0.006 250);--canvas:oklch(16% 0.006 250);--raised:oklch(20% 0.007 250);--pop:oklch(24% 0.008 250);--pressed:oklch(28% 0.008 250);--ink:oklch(95% 0.004 250);--ink2:oklch(78% 0.006 250);--ink3:oklch(66% 0.008 250);--ink4:oklch(52% 0.008 250);--line:oklch(100% 0 0 / 0.09);--line2:oklch(100% 0 0 / 0.16);--accent:oklch(78.7% 0.128 163);--onaccent:oklch(24% 0.044 165);--warn:oklch(80% 0.14 80);--danger:oklch(72% 0.17 25);--toplight:inset 0 1px 0 oklch(100% 0 0 / 0.04);font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);font-size:13px;line-height:18px}
+.hl button{font:inherit;cursor:pointer}
+.hl .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.hl .grouped{border-radius:14px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .row{display:flex;width:100%;box-sizing:border-box;min-height:48px;align-items:center;gap:12px;padding:10px 16px;border:0;background:transparent;color:var(--ink);text-align:left}
+.hl .row + .row,.hl .row + .nest,.hl .nest + .row{border-top:1px solid var(--line)}
+.hl .rowbtn:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .nest{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px 16px}
+.hl .title{display:block;font-size:13px;color:var(--ink)}
+.hl .detail{display:block;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .gtitle{margin:0 0 8px 16px;font-size:12px;line-height:16px;font-weight:500;color:var(--ink2)}
+.hl .ghint{margin:8px 16px 0 16px;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .btn{height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--pop);color:var(--ink);box-shadow:var(--toplight),0 0 0 1px var(--line2);font-size:12px;white-space:nowrap}
+.hl .btn:hover{background:var(--pressed)}
+.hl .btnp{background:var(--accent);color:var(--onaccent);box-shadow:none;font-weight:600}
+.hl .btnp:hover{background:oklch(83.7% 0.101 165)}
+.hl .quiet{height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:12px;white-space:nowrap}
+.hl .quiet:hover{background:oklch(100% 0 0 / 0.05);color:var(--ink)}
+.hl .danger{color:var(--danger)}
+.hl .add{color:var(--accent);font-weight:500}
+.hl .add:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .field{display:block;width:100%;box-sizing:border-box;min-height:28px;padding:5px 8px;border:0;border-radius:6px;background:var(--well);color:var(--ink);font:inherit;box-shadow:inset 0 0 0 1px var(--line)}
+.hl .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.hl .chip{display:inline-flex;height:20px;align-items:center;padding:0 7px;border-radius:4px;background:oklch(100% 0 0 / 0.05);color:var(--ink2);font-size:11px}
+.hl .initial{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:oklch(100% 0 0 / 0.07);color:var(--ink2);font-weight:600;font-size:12px;flex-shrink:0}
+.hl .railitem{display:flex;height:30px;align-items:center;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--ink2);text-align:left;font-size:13px}
+.hl .railitem:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .sel{background:oklch(100% 0 0 / 0.08);color:var(--ink)}
+.hl .term{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
+</style>
+</helmet>
+<div class="hl" style="width: 100%; min-height: 820px; height: 820px; display: flex; background: var(--well); box-sizing: border-box; padding: 8px; gap: 8px">
+<nav aria-label="Settings sections" style="width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 8px 4px">
+<div style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; margin-bottom: 6px; color: var(--ink2); font-size: 12px">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+<span>Settings</span>
+</div>
+<button type="button" class="railitem">General</button>
+<button type="button" class="railitem">Desks</button>
+<button type="button" class="railitem">Providers</button>
+<button type="button" class="railitem sel" aria-current="page" onClick="{{ toAgents }}">Agent accounts</button>
+<button type="button" class="railitem">Tools</button>
+<button type="button" class="railitem">Skills</button>
+<button type="button" class="railitem">Computer</button>
+<button type="button" class="railitem">Secrets</button>
+<button type="button" class="railitem">Remote</button>
+<button type="button" class="railitem">Updates</button>
+<button type="button" class="railitem">Import</button>
+</nav>
+<main style="flex: 1; min-width: 0; position: relative; border-radius: 10px; background: var(--canvas); box-shadow: var(--toplight), 0 0 0 1px var(--line); overflow: auto">
+<div style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px">
+<sc-if value="{{ hasBack }}" hint-placeholder-val="{{ false }}">
+<button type="button" class="quiet" aria-label="Back to {{ backLabel }}" onClick="{{ back }}" style="display: inline-flex; align-items: center; gap: 4px">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+<span>{{ backLabel }}</span>
+</button>
+</sc-if>
+<h1 style="margin: 0 0 0 4px; font-size: 15px; line-height: 20px; font-weight: 600">{{ heading }}</h1>
+</div>
+<div style="max-width: 600px; margin: 0 auto; padding: 8px 24px 48px 24px; display: flex; flex-direction: column; gap: 24px">
+
+<sc-if value="{{ atAgents }}" hint-placeholder-val="{{ true }}">
+<p style="margin: 0; color: var(--ink2)">An account is one sign-in to an agent's own CLI, kept in a folder on this computer. Teammates on the same agent can each use a different account and work at the same time.</p>
+<section>
+<h2 class="gtitle">Agents</h2>
+<div class="grouped">
+<sc-for list="{{ agents }}" as="ag" hint-placeholder-count="3">
+<sc-if value="{{ ag.opens }}" hint-placeholder-val="{{ true }}">
+<button type="button" class="row rowbtn" onClick="{{ ag.open }}">
+<span class="initial" aria-hidden="true">{{ ag.initial }}</span>
+<span style="flex: 1; min-width: 0"><span class="title">{{ ag.name }}</span><span class="detail" style="color: {{ ag.detailColor }}">{{ ag.detail }}</span></span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--ink3)" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>
+</button>
+</sc-if>
+<sc-if value="{{ ag.plain }}" hint-placeholder-val="{{ false }}">
+<div class="row">
+<span class="initial" aria-hidden="true">{{ ag.initial }}</span>
+<span style="flex: 1; min-width: 0"><span class="title">{{ ag.name }}</span><span class="detail">{{ ag.detail }}</span></span>
+</div>
+</sc-if>
+</sc-for>
+</div>
+<p class="ghint">Accounts are usually added while making a teammate. Hotline never sees a password or token: each agent's CLI keeps its own sign-in.</p>
+</section>
+</sc-if>
+
+<sc-if value="{{ atAgent }}" hint-placeholder-val="{{ false }}">
+<section>
+<h2 class="gtitle">Accounts</h2>
+<div class="grouped">
+<sc-if value="{{ adding }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<label for="new-account" style="font-size: 12px; font-weight: 500; color: var(--ink2)">Name</label>
+<input id="new-account" class="field" placeholder="{{ suggested }}" value="{{ newName }}" onChange="{{ typeNewName }}">
+<label for="new-email" style="font-size: 12px; font-weight: 500; color: var(--ink2)">Email of the Claude account <span style="color: var(--ink4); font-weight: 400">(optional)</span></label>
+<input id="new-email" class="field" placeholder="name@example.com">
+<span style="font-size: 12px; font-weight: 500; color: var(--ink2)">Start with</span>
+<span class="detail">My Claude Code setup (a copy of ~/.claude without sign-in or keys) · <a href="StartWith.dc.html">Change or customize</a></span>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ cancelAdd }}">Cancel</button>
+<button type="button" class="btn btnp" onClick="{{ confirmAdd }}">Add and sign in</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ notAdding }}" hint-placeholder-val="{{ true }}">
+<button type="button" class="row add" onClick="{{ startAdd }}">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+<span>Add account</span>
+</button>
+</sc-if>
+<div class="row">
+<span class="dot" style="background: var(--ink4)" aria-hidden="true"></span>
+<span style="flex: 1; min-width: 0"><span class="title">System default</span><span class="detail">Claude Code's own sign-in on this computer, as before · Used by Claudio</span></span>
+<span class="chip">Built in</span>
+</div>
+<sc-for list="{{ rows }}" as="item" hint-placeholder-count="3">
+<button type="button" class="row rowbtn" onClick="{{ item.open }}">
+<span class="dot" style="background: {{ item.dotColor }}" aria-hidden="true"></span>
+<span style="flex: 1; min-width: 0"><span class="title">{{ item.name }}</span><span class="detail">{{ item.summary }}</span></span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--ink3)" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>
+</button>
+<sc-if value="{{ item.isSigning }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<div class="term">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--accent); flex-shrink: 0; margin-top: 1px" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M13 15h4"></path></svg>
+<span>A Claude Code window opened for {{ item.name }}. Finish signing in there; Hotline checks when it closes.</span>
+</div>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ item.cancelSignIn }}">Cancel</button>
+</div>
+</div>
+</sc-if>
+</sc-for>
+</div>
+<p class="ghint">Claude Code keeps each account's sign-in, history and settings in its own folder. An API key or token in Hotline's environment is not passed to a teammate on an account, so it cannot stand in for the sign-in.</p>
+</section>
+</sc-if>
+
+<sc-if value="{{ atAccount }}" hint-placeholder-val="{{ false }}">
+<div class="grouped" style="padding: 16px; display: flex; gap: 14px; align-items: center">
+<span class="initial" style="width: 44px; height: 44px; border-radius: 12px; font-size: 16px" aria-hidden="true">{{ acct.initial }}</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<sc-if value="{{ renaming }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; gap: 6px">
+<input class="field" aria-label="Account name" value="{{ renameValue }}" onChange="{{ typeRename }}">
+<button type="button" class="btn btnp" onClick="{{ saveRename }}">Save</button>
+</div>
+</sc-if>
+<sc-if value="{{ notRenaming }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; gap: 6px; align-items: center">
+<span style="font-size: 15px; font-weight: 600">{{ acct.name }}</span>
+<button type="button" class="quiet" onClick="{{ startRename }}">Rename</button>
+</div>
+</sc-if>
+<span class="detail" style="display: flex; gap: 6px; align-items: center"><span class="dot" style="background: {{ acct.dotColor }}"></span>{{ acct.statusText }}</span>
+</div>
+</div>
+
+<section>
+<h2 class="gtitle">Sign-in</h2>
+<div class="grouped">
+<div class="row">
+<span style="flex: 1; min-width: 0"><span class="title">{{ acct.signedAs }}</span><span class="detail">{{ acct.checkedText }}</span></span>
+<button type="button" class="quiet" onClick="{{ acct.check }}">Check</button>
+</div>
+<sc-if value="{{ acct.isSigning }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<div class="term"><span>A Claude Code window opened for {{ acct.name }}. Finish signing in there; Hotline checks when it closes.</span></div>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ acct.cancelSignIn }}">Cancel</button>
+</div>
+</div>
+</sc-if>
+</div>
+</section>
+
+<section>
+<h2 class="gtitle">Used by</h2>
+<div class="grouped">
+<sc-if value="{{ acct.hasUsers }}" hint-placeholder-val="{{ true }}">
+<div class="row" style="flex-wrap: wrap; gap: 6px">
+<sc-for list="{{ acct.users }}" as="who" hint-placeholder-count="1"><span class="chip">{{ who }}</span></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ acct.noUsers }}" hint-placeholder-val="{{ false }}">
+<div class="row"><span class="detail">No teammate uses it yet. Pick it in a Claude Code teammate's settings.</span></div>
+</sc-if>
+</div>
+</section>
+
+<section>
+<h2 class="gtitle">Setup</h2>
+<div class="grouped">
+<div class="row"><span style="flex: 1; min-width: 0"><span class="title">Instructions</span><span class="detail">CLAUDE.md and rules/</span></span><button type="button" class="btn">Open</button></div>
+<div class="row"><span style="flex: 1; min-width: 0"><span class="title">Settings</span><span class="detail">settings.json · permissions, hooks, model</span></span><button type="button" class="btn">Open</button></div>
+<div class="row"><span style="flex: 1; min-width: 0"><span class="title">Skills, plugins and MCP servers</span><span class="detail">6 skills · 3 plugins · 2 servers</span></span><a href="Setup.dc.html" class="quiet" style="display: inline-flex; align-items: center; text-decoration: none">All of setup…</a></div>
+</div>
+<p class="ghint">Started from your Claude Code setup. Open edits it in your own editor; changes apply from the next session.</p>
+</section>
+
+<section>
+<h2 class="gtitle">Folder</h2>
+<div class="grouped">
+<div class="row">
+<span class="detail mono" style="flex: 1; min-width: 0; word-break: break-all">{{ acct.folder }}</span>
+<button type="button" class="quiet">Show folder</button>
+</div>
+</div>
+<p class="ghint">Claude Code keeps this account's sign-in, history and settings here.</p>
+</section>
+
+<sc-if value="{{ confirmRemove }}" hint-placeholder-val="{{ false }}">
+<div class="grouped">
+<sc-if value="{{ acct.hasUsers }}" hint-placeholder-val="{{ true }}">
+<div class="nest">
+<span>{{ acct.name }} can't be removed while {{ acct.usersText }} use it.</span>
+<span class="detail">Give them another account in their settings first; Hotline never moves a teammate to another account for you.</span>
+<div style="display: flex; justify-content: flex-end"><button type="button" class="btn" onClick="{{ cancelRemove }}">OK</button></div>
+</div>
+</sc-if>
+<sc-if value="{{ acct.noUsers }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<span>Remove {{ acct.name }}?</span>
+<span class="detail">Hotline forgets the account. Its folder and the sign-in in it stay on this computer, so nothing is signed out.</span>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ cancelRemove }}">Cancel</button>
+<button type="button" class="btn danger" onClick="{{ doRemove }}">Remove</button>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<div style="display: flex; gap: 8px; justify-content: space-between">
+<button type="button" class="quiet danger" onClick="{{ askRemove }}">Remove account</button>
+<button type="button" class="btn btnp" onClick="{{ acct.signIn }}">{{ acct.signInLabel }}</button>
+</div>
+</sc-if>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      view: 'agents', accountId: null,
+      profiles: [
+        { id: '3f9a1c2e-7b4d-4c1a-9e2f-0a5d81c2d07e', name: 'Account 1', status: 'in', email: 'dev@example.com', plan: 'Max', users: ['Developer'] },
+        { id: '81c2d07e-5b10-4f3a-8c6d-2e9b3f9a1c2e', name: 'Account 2', status: 'in', email: 'reviewer@example.com', plan: 'Pro', users: ['Reviewer'] },
+        { id: 'd07e5b10-3f9a-4e2c-b1d8-7c4a81c2e9f0', name: 'Account 3', status: 'out', users: ['Researcher'] },
+        { id: '5b103f9a-d07e-4a81-9c2e-6f1b0e7d2a4c', name: 'Account 4', status: 'in', email: 'spare@example.com', plan: 'Pro', users: [] }
+      ],
+      adding: false, newName: '', renaming: false, renameValue: '', confirmRemove: false
+    };
+  }
+  update(id, change) {
+    this.setState({ profiles: this.state.profiles.map((p) => (p.id === id ? { ...p, ...change } : p)) });
+  }
+  componentWillUnmount() { clearTimeout(this.signTimer); }
+  // The prototype stands in for the Claude Code window closing: Hotline then
+  // checks by itself, so nothing here asks the person to press Check.
+  startSignIn(id) {
+    this.update(id, { status: 'signing' });
+    clearTimeout(this.signTimer);
+    this.signTimer = setTimeout(() => {
+      const p = this.state.profiles.find((x) => x.id === id);
+      if (p && p.status === 'signing') {
+        this.update(id, { status: 'in', email: p.email || p.name.toLowerCase().replace(/\s+/g, '') + '@example.com', plan: p.plan || 'Pro' });
+      }
+    }, 3500);
+  }
+  cancelSignIn(p) {
+    clearTimeout(this.signTimer);
+    this.update(p.id, { status: p.email ? 'in' : 'out' });
+  }
+  renderVals() {
+    const s = this.state;
+    const dot = { in: 'var(--accent)', signing: 'var(--warn)', failed: 'var(--danger)', out: 'var(--ink4)' };
+    const status = (p) => {
+      if (p.status === 'in') return 'Signed in';
+      if (p.status === 'signing') return 'Signing in…';
+      if (p.status === 'failed') return 'Sign-in did not finish';
+      return 'Not signed in';
+    };
+    const usedBy = (p) => (p.users.length ? 'Used by ' + p.users.join(', ') : 'Not used yet');
+    const signedOut = s.profiles.filter((p) => p.status !== 'in').length;
+    const agents = [
+      {
+        name: 'Claude Code', initial: 'C', opens: true, plain: false,
+        detail: s.profiles.length + ' accounts' + (signedOut ? ' · ' + signedOut + ' not signed in' : ''),
+        detailColor: signedOut ? 'var(--warn)' : 'var(--ink3)',
+        open: () => this.setState({ view: 'agent', adding: false })
+      },
+      { name: 'Codex', initial: 'O', opens: false, plain: true, detail: 'Uses its own sign-in' },
+      { name: 'Grok Build', initial: 'G', opens: false, plain: true, detail: 'Uses its own sign-in' }
+    ];
+    const rows = s.profiles.map((p) => ({
+      name: p.name,
+      dotColor: dot[p.status],
+      summary: status(p) + (p.status === 'in' ? ' · ' + p.email : '') + ' · ' + usedBy(p),
+      isSigning: p.status === 'signing',
+      open: () => this.setState({ view: 'account', accountId: p.id, renaming: false, confirmRemove: false }),
+      cancelSignIn: () => this.cancelSignIn(p)
+    }));
+    const a = s.profiles.find((p) => p.id === s.accountId);
+    const acct = a ? {
+      name: a.name,
+      initial: a.name.slice(0, 1),
+      dotColor: dot[a.status],
+      statusText: status(a) + ' · Claude Code',
+      signedAs: a.status === 'in' ? a.email + ' · Claude ' + a.plan : status(a),
+      checkedText: a.status === 'in' ? 'Checked with Claude Code just now' : 'Teammates on this account do not start until it is signed in',
+      isSigning: a.status === 'signing',
+      users: a.users,
+      usersText: a.users.join(', '),
+      hasUsers: a.users.length > 0,
+      noUsers: a.users.length === 0,
+      folder: '%APPDATA%\\Hotline\\agent-accounts\\' + a.id,
+      signInLabel: a.status === 'in' ? 'Sign in again' : 'Sign in',
+      signIn: () => this.startSignIn(a.id),
+      check: () => this.update(a.id, {}),
+      cancelSignIn: () => this.cancelSignIn(a)
+    } : { name: '', initial: '', users: [], hasUsers: false, noUsers: true };
+    const heading = s.view === 'agents' ? 'Agent accounts' : s.view === 'agent' ? 'Claude Code' : (a ? a.name : '');
+    const suggested = 'Account ' + (s.profiles.length + 1);
+    return {
+      atAgents: s.view === 'agents', atAgent: s.view === 'agent', atAccount: s.view === 'account',
+      heading,
+      hasBack: s.view !== 'agents',
+      backLabel: s.view === 'account' ? 'Claude Code' : 'Agent accounts',
+      back: () => this.setState({ view: s.view === 'account' ? 'agent' : 'agents', confirmRemove: false }),
+      toAgents: () => this.setState({ view: 'agents' }),
+      agents, rows, acct,
+      adding: s.adding, notAdding: !s.adding, newName: s.newName, suggested,
+      typeNewName: (e) => this.setState({ newName: e.target.value }),
+      startAdd: () => this.setState({ adding: true, newName: '' }),
+      cancelAdd: () => this.setState({ adding: false }),
+      confirmAdd: () => {
+        const name = s.newName.trim() || suggested;
+        const id = (0x9e2f0000 + s.profiles.length * 7919).toString(16) + '-4c1a-4b7d-8e2f-' + (0x0a5d81c2d07e + s.profiles.length).toString(16);
+        this.setState({ adding: false, profiles: s.profiles.concat([{ id, name, status: 'out', users: [] }]) }, () => this.startSignIn(id));
+      },
+      renaming: s.renaming, notRenaming: !s.renaming, renameValue: s.renameValue,
+      startRename: () => this.setState({ renaming: true, renameValue: a ? a.name : '' }),
+      typeRename: (e) => this.setState({ renameValue: e.target.value }),
+      saveRename: () => { this.update(s.accountId, { name: s.renameValue.trim() || (a ? a.name : '') }); this.setState({ renaming: false }); },
+      confirmRemove: s.confirmRemove,
+      askRemove: () => this.setState({ confirmRemove: true }),
+      cancelRemove: () => this.setState({ confirmRemove: false }),
+      doRemove: () => this.setState({ profiles: s.profiles.filter((p) => p.id !== s.accountId), view: 'agent', confirmRemove: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Adding an account — what it starts with</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(12% 0.006 250)}
+a{color:oklch(78.7% 0.128 163)}a:hover{color:oklch(83.7% 0.101 165)}
+.hl{--well:oklch(12% 0.006 250);--canvas:oklch(16% 0.006 250);--raised:oklch(20% 0.007 250);--pop:oklch(24% 0.008 250);--pressed:oklch(28% 0.008 250);--ink:oklch(95% 0.004 250);--ink2:oklch(78% 0.006 250);--ink3:oklch(66% 0.008 250);--ink4:oklch(52% 0.008 250);--line:oklch(100% 0 0 / 0.09);--line2:oklch(100% 0 0 / 0.16);--accent:oklch(78.7% 0.128 163);--onaccent:oklch(24% 0.044 165);--toplight:inset 0 1px 0 oklch(100% 0 0 / 0.04);font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);font-size:13px;line-height:18px}
+.hl button{font:inherit;cursor:pointer}
+.hl .grouped{border-radius:14px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .inner{border-radius:10px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .row{display:flex;width:100%;box-sizing:border-box;min-height:48px;align-items:center;gap:12px;padding:10px 16px;border:0;background:transparent;color:var(--ink);text-align:left}
+.hl .row + .row{border-top:1px solid var(--line)}
+.hl .nest{display:flex;flex-direction:column;gap:10px;padding:14px 16px}
+.hl .title{display:block;font-size:13px;color:var(--ink)}
+.hl .detail{display:block;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .label{display:block;margin:0;font-size:12px;line-height:16px;font-weight:500;color:var(--ink2)}
+.hl .ghint{margin:8px 16px 0 16px;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .btn{height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--pop);color:var(--ink);box-shadow:var(--toplight),0 0 0 1px var(--line2);font-size:12px;white-space:nowrap}
+.hl .btnp{background:var(--accent);color:var(--onaccent);box-shadow:none;font-weight:600}
+.hl .quiet{height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:12px;white-space:nowrap}
+.hl .quiet:hover{background:oklch(100% 0 0 / 0.05);color:var(--ink)}
+.hl .field{display:block;width:100%;box-sizing:border-box;min-height:28px;padding:5px 8px;border:0;border-radius:6px;background:var(--well);color:var(--ink);font:inherit;box-shadow:inset 0 0 0 1px var(--line)}
+.hl .radio{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--line2);background:var(--well);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.hl .radio span{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.hl .check{width:14px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line2);background:var(--well);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--onaccent)}
+.hl .check-on{background:var(--accent);box-shadow:none}
+.hl .choice:hover{background:oklch(100% 0 0 / 0.05)}
+</style>
+</helmet>
+<div class="hl" style="width: 100%; min-height: 900px; background: var(--canvas); box-sizing: border-box; padding: 28px 32px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3)">Adding an account · the same form everywhere it is offered</span>
+<h1 style="margin: 0; font-size: 20px; line-height: 26px; font-weight: 600">What a new account starts with</h1>
+<p style="margin: 0; color: var(--ink2)">Chosen once, here. After that the account is edited on its own in its Setup, where it can also copy from your setup again.</p>
+</div>
+<div class="grouped">
+<div class="nest">
+<label class="label" for="sw-name">Name</label>
+<input id="sw-name" class="field" value="Account 5">
+<label class="label" for="sw-email">Email of the Claude account <span style="color: var(--ink4); font-weight: 400">(optional)</span></label>
+<input id="sw-email" class="field" placeholder="name@example.com">
+<span class="label">Start with</span>
+<div class="inner" role="radiogroup" aria-label="Start with">
+<button type="button" class="row choice" role="radio" aria-checked="{{ mine }}" onClick="{{ pickMine }}">
+<span class="radio"><sc-if value="{{ mine }}" hint-placeholder-val="{{ true }}"><span></span></sc-if></span>
+<span style="flex: 1"><span class="title">My Claude Code setup</span><span class="detail">A copy of what is in ~/.claude, without the sign-in, keys or history</span></span>
+</button>
+<button type="button" class="row choice" role="radio" aria-checked="{{ empty }}" onClick="{{ pickEmpty }}">
+<span class="radio"><sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}"><span></span></sc-if></span>
+<span style="flex: 1"><span class="title">Empty</span><span class="detail">Claude Code's defaults; add what this account needs afterwards</span></span>
+</button>
+</div>
+<sc-if value="{{ mine }}" hint-placeholder-val="{{ true }}">
+<button type="button" class="quiet" style="align-self: flex-start" aria-expanded="{{ customize }}" onClick="{{ toggleCustomize }}">{{ customizeLabel }}</button>
+</sc-if>
+<sc-if value="{{ showCats }}" hint-placeholder-val="{{ false }}">
+<div class="inner">
+<sc-for list="{{ cats }}" as="c" hint-placeholder-count="5">
+<button type="button" class="row choice" role="checkbox" aria-checked="{{ c.on }}" onClick="{{ c.toggle }}" style="min-height: 40px">
+<span class="{{ c.cls }}"><sc-if value="{{ c.on }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 12l4 4 10-10"></path></svg></sc-if></span>
+<span style="flex: 1"><span class="title">{{ c.title }}</span><span class="detail">{{ c.detail }}</span></span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet">Cancel</button>
+<button type="button" class="btn btnp">Add and sign in</button>
+</div>
+</div>
+</div>
+<p class="ghint">Inline (New teammate, the teammate panel) this shows as one line, “Starts with your Claude Code setup · Change or customize”, which opens these choices.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { startWith: 'mine', customize: true, cats: { instructions: true, skills: true, plugins: true, mcp: true, settings: true } };
+  }
+  renderVals() {
+    const s = this.state;
+    const catDefs = [
+      { id: 'instructions', title: 'Instructions and rules', detail: 'CLAUDE.md, rules/' },
+      { id: 'skills', title: 'Skills, agents and commands', detail: 'skills/, agents/, commands/' },
+      { id: 'plugins', title: 'Plugins', detail: 'plugins/ and their settings' },
+      { id: 'mcp', title: 'MCP servers', detail: 'user-scope servers' },
+      { id: 'settings', title: 'Settings', detail: 'permissions, hooks, model, statusline — without auth keys' }
+    ];
+    return {
+      mine: s.startWith === 'mine', empty: s.startWith === 'empty',
+      pickMine: () => this.setState({ startWith: 'mine' }),
+      pickEmpty: () => this.setState({ startWith: 'empty' }),
+      customize: s.customize,
+      customizeLabel: s.customize ? 'Hide what is copied' : 'Customize what is copied…',
+      toggleCustomize: () => this.setState({ customize: !s.customize }),
+      showCats: s.startWith === 'mine' && s.customize,
+      cats: catDefs.map((c) => ({
+        title: c.title, detail: c.detail, on: s.cats[c.id],
+        cls: s.cats[c.id] ? 'check check-on' : 'check',
+        toggle: () => this.setState({ cats: { ...s.cats, [c.id]: !s.cats[c.id] } })
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

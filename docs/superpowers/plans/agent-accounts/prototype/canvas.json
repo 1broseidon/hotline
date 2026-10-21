@@ -1,0 +1,27 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-10-20T23:40:00Z" },
+  "title": "Hotline — Agent accounts per teammate",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1280, "h": 820, "title": "1 · Settings › Agent accounts (agents → an agent's accounts → one account)", "expand": "fill", "is_interactive": true },
+    "Teammate.dc.html": { "x": 1360, "y": 0, "w": 1280, "h": 820, "title": "2 · Teammate panel (pick, add inline, switch at the usage limit)", "expand": "fill", "is_interactive": true },
+    "NewTeammate.dc.html": { "x": 0, "y": 940, "w": 1280, "h": 900, "title": "3 · New teammate › Thinks with (add an account inline)", "expand": "fill", "is_interactive": true },
+    "States.dc.html": { "x": 1360, "y": 940, "w": 1280, "h": 900, "title": "4 · States and errors", "expand": "fill" },
+    "Login.dc.html": { "x": 0, "y": 1960, "w": 1440, "h": 900, "title": "5 · How signing in works (step by step)", "expand": "fill", "is_interactive": true },
+    "Setup.dc.html": { "x": 0, "y": 2980, "w": 1440, "h": 900, "title": "6 · An account's setup (opened in your editor, copy again)", "expand": "fill", "is_interactive": true },
+    "StartWith.dc.html": { "x": 1980, "y": 2980, "w": 760, "h": 900, "title": "7 · Adding an account: what it starts with", "expand": "fill", "is_interactive": true }
+  },
+  "order": ["Main.dc.html", "Teammate.dc.html", "NewTeammate.dc.html", "States.dc.html", "Login.dc.html", "Setup.dc.html", "StartWith.dc.html"],
+  "notes": {
+    "title": { "x": 0, "y": -300, "text": "Agent accounts per teammate — prototype", "kind": "title1", "maxW": 2640 },
+    "flow": { "x": 2720, "y": 0, "w": 360, "maxH": 520, "fill": "teal", "size": "m", "text": "Flow\n1. In New teammate (or the teammate panel): Account › Add account → name (+ optional email) → Add and sign in.\n2. A Claude Code window opens with only this account's CLAUDE_CONFIG_DIR. Hotline confirms with `auth status` (a folder existing proves nothing).\n3. The account is available to any teammate on the same agent. \"System default\" = today's behaviour.\n4. Settings › Agent accounts manages them: rename, check, see who uses each, remove." },
+    "generic": { "x": 2720, "y": 600, "w": 360, "maxH": 420, "fill": "purple", "size": "m", "text": "One section for every CLI\nEach account records the agent it belongs to (Claude Code today). When another CLI gains accounts (e.g. Codex with CODEX_HOME), it becomes another row in the same agent list and the same picker appears on its teammates — no new menu." },
+    "switch": { "x": 3160, "y": 0, "w": 360, "maxH": 520, "fill": "blue", "size": "m", "text": "Switching accounts (manual)\n• Nothing running: applies at once (a new session on the other account).\n• Anything running (chat, side thread, job): pending until its work ends, or \"Stop and switch now\", which stops all of the teammate's work.\n• An account that is not signed in is held: the teammate keeps its current account until the new one is signed in.\n• Usage limit: the card offers \"Continue on Account 2\"; then \"Try again\" resends the message on the new account.\n• The Hotline conversation goes on; Claude Code's internal session is not carried to the other account — the new one starts Fresh and is handed the conversation.\n• Automatic rotation is out of scope." },
+    "login": { "x": 1520, "y": 1960, "w": 380, "maxH": 520, "fill": "green", "size": "m", "text": "Sign-in\n• Claude Code's own sign-in: `claude auth login --claudeai`, with the account's CLAUDE_CONFIG_DIR in that process only.\n• Windows: a console window of its own, started from the desk itself. macOS/Linux: a terminal inside Hotline (the existing one).\n• The optional email only fills in the page (--email); it is never stored.\n• No Check button while signing in: Hotline checks when the window closes. Success = the sign-in exited cleanly AND `auth status` confirms it in this folder. A window closed early or Cancel = failure, with Try again; an older sign-in stays as it was.\n• Signing in again on the same account: its teammates start a fresh session." },
+    "setup": { "x": 1520, "y": 2980, "w": 380, "maxH": 560, "fill": "orange", "size": "m", "text": "Account setup\n• A new account starts with your Claude Code setup (a copy of ~/.claude without sign-in, keys or history) or Empty. Customize picks what is copied.\n• Afterwards each account is its own: every item (CLAUDE.md, settings.json, skills, plugins, MCP servers) has Open, which opens it in your own editor or file manager on the desk. No editor inside Hotline and no checking of what you write.\n• \"Copy again from System default\" brings over what changed in ~/.claude, item by item.\n• If the account's settings.json replaces its sign-in, the account simply stops showing Signed in (the status check).\n• Changes apply from the next session of the teammates on that account.\n• Only the operator opens or copies; the file is chosen by Hotline, never by a path from the client." },
+    "errors": { "x": 2720, "y": 1100, "w": 360, "maxH": 460, "fill": "red", "size": "m", "text": "Never a silent switch\n• Unknown account, account not on this desk, unreadable folder or no sign-in → the teammate does not start and shows the action that fixes it.\n• Removing an account never deletes its folder or sign-in. An account in use cannot be removed: the dialog names the teammates that need another choice first." }
+  },
+  "designSystems": []
+}

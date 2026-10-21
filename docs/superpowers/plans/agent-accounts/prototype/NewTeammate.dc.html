@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New teammate — agent account</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(12% 0.006 250)}
+a{color:oklch(78.7% 0.128 163)}a:hover{color:oklch(83.7% 0.101 165)}
+.hl{--well:oklch(12% 0.006 250);--canvas:oklch(16% 0.006 250);--raised:oklch(20% 0.007 250);--pop:oklch(24% 0.008 250);--pressed:oklch(28% 0.008 250);--ink:oklch(95% 0.004 250);--ink2:oklch(78% 0.006 250);--ink3:oklch(66% 0.008 250);--ink4:oklch(52% 0.008 250);--line:oklch(100% 0 0 / 0.09);--line2:oklch(100% 0 0 / 0.16);--accent:oklch(78.7% 0.128 163);--onaccent:oklch(24% 0.044 165);--warn:oklch(80% 0.14 80);--danger:oklch(72% 0.17 25);--toplight:inset 0 1px 0 oklch(100% 0 0 / 0.04);font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);font-size:13px;line-height:18px}
+.hl button{font:inherit;cursor:pointer}
+.hl .grouped{border-radius:14px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .inner{border-radius:10px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .row{display:flex;min-height:48px;align-items:center;gap:12px;padding:10px 16px;box-sizing:border-box}
+.hl .row + .row,.hl .row + .nest,.hl .nest + .row{border-top:1px solid var(--line)}
+.hl .nest{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px 16px}
+.hl .choice{width:100%;border:0;background:transparent;color:var(--ink);text-align:left}
+.hl .choice:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .add{width:100%;border:0;background:transparent;color:var(--accent);font-weight:500;text-align:left;gap:8px}
+.hl .add:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .title{font-size:13px;color:var(--ink)}
+.hl .detail{font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .label{display:block;margin:0 0 6px 0;font-size:12px;line-height:16px;font-weight:500;color:var(--ink2)}
+.hl .ghint{margin:8px 16px 0 16px;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .action{border:0;background:transparent;color:var(--accent);font-weight:600;font-size:12px}
+.hl .btn{height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--pop);color:var(--ink);box-shadow:var(--toplight),0 0 0 1px var(--line2);font-size:12px;white-space:nowrap}
+.hl .btnp{background:var(--accent);color:var(--onaccent);box-shadow:none;font-weight:600}
+.hl .quiet{height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:12px}
+.hl .quiet:hover{background:oklch(100% 0 0 / 0.05);color:var(--ink)}
+.hl .field{display:block;width:100%;box-sizing:border-box;min-height:28px;padding:5px 8px;border:0;border-radius:6px;background:var(--well);color:var(--ink);font:inherit;box-shadow:inset 0 0 0 1px var(--line)}
+.hl .radio{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--line2);background:var(--well);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.hl .radio span{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.hl .pill{height:38px;min-width:150px;border:0;border-radius:999px;font-weight:600}
+.hl .term{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
+</style>
+</helmet>
+<div class="hl" style="width: 100%; min-height: 900px; height: 900px; display: flex; background: var(--well); box-sizing: border-box; padding: 8px; gap: 8px">
+<nav aria-label="Teammates" style="width: 230px; flex-shrink: 0; padding: 8px 4px; color: var(--ink3)">
+<div style="padding: 8px 10px" class="detail">All desks</div>
+</nav>
+<main style="flex: 1; min-width: 0; border-radius: 10px; background: var(--canvas); box-shadow: var(--toplight), 0 0 0 1px var(--line); overflow: auto">
+<div style="display: flex; align-items: center; height: 44px; padding: 0 16px"><h1 style="margin: 0; font-size: 15px; font-weight: 600">New teammate</h1></div>
+<div style="max-width: 520px; margin: 0 auto; padding: 8px 24px 40px 24px; display: flex; flex-direction: column; gap: 16px">
+<p style="margin: 0; color: var(--ink2)">An AI helper with a name and a job. Everything else starts with a good default.</p>
+<div class="grouped" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+<label class="label" for="nt-name">Name</label>
+<input id="nt-name" class="field" value="Developer">
+</div>
+
+<div class="grouped">
+<div class="row" style="background: {{ thinksBg }}">
+<span style="width: 96px; font-weight: 600">Thinks with</span>
+<span style="flex: 1; color: var(--ink2)">{{ summary }}</span>
+<button type="button" class="action" onClick="{{ toggle }}">{{ toggleLabel }}</button>
+</div>
+<sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+<div style="padding: 4px 16px 16px 16px; display: flex; flex-direction: column; gap: 14px">
+<div>
+<span class="label">Agent</span>
+<div class="inner">
+<div class="row"><span class="radio"></span><span style="flex: 1"><span class="title" style="display: block">Hotline Agent</span><span class="detail" style="display: block">Hotline's own agent. Runs any model from the providers you connect.</span></span></div>
+</div>
+<p class="detail" style="margin: 10px 0 6px 12px; font-weight: 500; color: var(--ink2)">Or an agent you already use</p>
+<div class="inner">
+<div class="row"><span class="radio"><span></span></span><span style="flex: 1"><span class="title" style="display: block">Claude Code</span><span class="detail" style="display: block">Anthropic's Claude Code CLI, signed in with the account you pick below.</span></span></div>
+<div class="row"><span class="radio"></span><span style="flex: 1"><span class="title" style="display: block">Codex</span><span class="detail" style="display: block">OpenAI's Codex CLI, with your Codex login or OPENAI_API_KEY.</span></span></div>
+</div>
+</div>
+<div>
+<span class="label" id="nt-account">Account</span>
+<div class="inner" role="radiogroup" aria-labelledby="nt-account">
+<sc-for list="{{ accounts }}" as="a" hint-placeholder-count="4">
+<button type="button" class="row choice" role="radio" aria-checked="{{ a.picked }}" onClick="{{ a.pick }}">
+<span class="radio"><sc-if value="{{ a.picked }}" hint-placeholder-val="{{ false }}"><span></span></sc-if></span>
+<span style="flex: 1; min-width: 0"><span class="title" style="display: block">{{ a.label }}</span><span class="detail" style="display: block; color: {{ a.detailColor }}">{{ a.detail }}</span></span>
+</button>
+</sc-for>
+<sc-if value="{{ signing }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<div class="term">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--accent); flex-shrink: 0; margin-top: 1px" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M13 15h4"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span>A Claude Code window opened for {{ signingName }}.</span>
+<span class="detail">Sign in there with the Claude account it should use; Hotline checks when the window closes.</span>
+</div>
+</div>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ laterSignIn }}">Sign in later</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ adding }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<label class="label" for="nt-new-account" style="margin: 0">New Claude Code account</label>
+<input id="nt-new-account" class="field" placeholder="{{ suggested }}" value="{{ newName }}" onChange="{{ typeName }}">
+<label class="label" for="nt-new-email" style="margin: 0">Email of the Claude account <span style="color: var(--ink4); font-weight: 400">(optional)</span></label>
+<input id="nt-new-email" class="field" placeholder="name@example.com">
+<span class="detail">Starts with your Claude Code setup, without the sign-in or keys · <a href="StartWith.dc.html">Change or customize</a></span>
+<span class="detail">The email only fills in Claude's sign-in page; Hotline does not keep it. The sign-in lives in a folder of its own on this computer, and other teammates can use the account too.</span>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ cancelAdd }}">Cancel</button>
+<button type="button" class="btn btnp" onClick="{{ confirmAdd }}">Add and sign in</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ canAdd }}" hint-placeholder-val="{{ true }}">
+<button type="button" class="row add" onClick="{{ startAdd }}">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+<span>Add account</span>
+</button>
+</sc-if>
+</div>
+<p class="ghint">Rename or remove accounts later in <a href="Main.dc.html">Settings › Agent accounts</a>.</p>
+</div>
+</div>
+</sc-if>
+<div class="row"><span style="width: 96px; font-weight: 600">Folders</span><span style="flex: 1; color: var(--ink2)">A new folder of its own</span><span class="action">Change</span></div>
+<div class="row"><span style="width: 96px; font-weight: 600">Abilities</span><span style="flex: 1; color: var(--ink2)">Its folder only</span><span class="action">Change</span></div>
+</div>
+<div style="display: flex; justify-content: flex-end; gap: 12px; align-items: center">
+<button type="button" class="action" style="color: var(--ink)">Cancel</button>
+<button type="button" class="pill" style="background: var(--accent); color: var(--onaccent)">Add teammate</button>
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      open: true, picked: 'account-1', adding: false, newName: '', signing: null,
+      list: [
+        { id: 'default', label: 'System default', state: 'default' },
+        { id: 'account-1', label: 'Account 1', state: 'in', who: 'dev@example.com · Max' },
+        { id: 'account-2', label: 'Account 2', state: 'in', who: 'reviewer@example.com · Pro' }
+      ]
+    };
+  }
+  set(id, change) {
+    this.setState({ list: this.state.list.map((a) => (a.id === id ? { ...a, ...change } : a)) });
+  }
+  renderVals() {
+    const s = this.state;
+    const detailOf = (a) => {
+      if (a.state === 'default') return 'Claude Code’s own sign-in on this computer, as before';
+      if (a.state === 'in') return a.who;
+      if (a.state === 'signing') return 'Signing in…';
+      return 'Not signed in · it will not start until it is';
+    };
+    const picked = s.list.find((a) => a.id === s.picked);
+    const signing = s.list.find((a) => a.id === s.signing);
+    const suggested = 'Account ' + s.list.length;
+    return {
+      open: s.open,
+      toggle: () => this.setState({ open: !s.open }),
+      toggleLabel: s.open ? 'Done' : 'Change',
+      thinksBg: s.open ? 'oklch(100% 0 0 / 0.05)' : 'transparent',
+      summary: picked.id === 'default' ? 'Claude Code' : 'Claude Code · ' + picked.label,
+      accounts: s.list.map((a) => ({
+        label: a.label,
+        detail: detailOf(a),
+        detailColor: a.state === 'out' ? 'var(--warn)' : 'var(--ink3)',
+        picked: s.picked === a.id,
+        pick: () => this.setState({ picked: a.id })
+      })),
+      adding: s.adding,
+      canAdd: !s.adding && !s.signing,
+      newName: s.newName,
+      suggested,
+      typeName: (e) => this.setState({ newName: e.target.value }),
+      startAdd: () => this.setState({ adding: true, newName: '' }),
+      cancelAdd: () => this.setState({ adding: false }),
+      confirmAdd: () => {
+        const label = s.newName.trim() || suggested;
+        const id = 'acct-' + s.list.length;
+        this.setState({ adding: false, picked: id, signing: id, list: s.list.concat([{ id, label, state: 'signing' }]) });
+        // Stands in for the Claude Code window closing: Hotline checks by itself.
+        clearTimeout(this.signTimer);
+        this.signTimer = setTimeout(() => {
+          if (this.state.signing !== id) return;
+          this.set(id, { state: 'in', who: 'new@example.com · Pro' });
+          this.setState({ signing: null });
+        }, 3500);
+      },
+      signing: Boolean(signing),
+      signingName: signing ? signing.label : '',
+      laterSignIn: () => { clearTimeout(this.signTimer); this.set(s.signing, { state: 'out' }); this.setState({ signing: null }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

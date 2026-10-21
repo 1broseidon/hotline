@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Signing in an account, step by step</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(12% 0.006 250)}
+a{color:oklch(78.7% 0.128 163)}a:hover{color:oklch(83.7% 0.101 165)}
+.hl{--well:oklch(12% 0.006 250);--canvas:oklch(16% 0.006 250);--raised:oklch(20% 0.007 250);--pop:oklch(24% 0.008 250);--pressed:oklch(28% 0.008 250);--ink:oklch(95% 0.004 250);--ink2:oklch(78% 0.006 250);--ink3:oklch(66% 0.008 250);--ink4:oklch(52% 0.008 250);--line:oklch(100% 0 0 / 0.09);--line2:oklch(100% 0 0 / 0.16);--accent:oklch(78.7% 0.128 163);--onaccent:oklch(24% 0.044 165);--warn:oklch(80% 0.14 80);--danger:oklch(72% 0.17 25);--toplight:inset 0 1px 0 oklch(100% 0 0 / 0.04);font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);font-size:13px;line-height:18px}
+.hl button{font:inherit;cursor:pointer}
+.hl .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.hl .grouped{border-radius:14px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .row{display:flex;min-height:44px;align-items:center;gap:10px;padding:8px 14px;box-sizing:border-box}
+.hl .row + .row,.hl .row + .nest,.hl .nest + .row{border-top:1px solid var(--line)}
+.hl .nest{display:flex;flex-direction:column;gap:10px;padding:12px 14px}
+.hl .title{font-size:13px;color:var(--ink)}
+.hl .detail{font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .label{display:block;margin:0;font-size:12px;line-height:16px;font-weight:500;color:var(--ink2)}
+.hl .btn{height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--pop);color:var(--ink);box-shadow:var(--toplight),0 0 0 1px var(--line2);font-size:12px;white-space:nowrap}
+.hl .btn:hover{background:var(--pressed)}
+.hl .btnp{background:var(--accent);color:var(--onaccent);box-shadow:none;font-weight:600}
+.hl .quiet{height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:12px;white-space:nowrap}
+.hl .quiet:hover{background:oklch(100% 0 0 / 0.05);color:var(--ink)}
+.hl .field{display:block;width:100%;box-sizing:border-box;min-height:28px;padding:5px 8px;border:0;border-radius:6px;background:var(--well);color:var(--ink);font:inherit;box-shadow:inset 0 0 0 1px var(--line)}
+.hl .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.hl .step{display:flex;align-items:center;gap:8px;padding:6px 10px;border:0;border-radius:999px;background:transparent;color:var(--ink3);font-size:12px}
+.hl .step-on{background:oklch(78.7% 0.128 163 / 0.14);color:var(--ink)}
+.hl .num{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:11px;font-weight:600;background:oklch(100% 0 0 / 0.08)}
+.hl .step-on .num{background:var(--accent);color:var(--onaccent)}
+.hl .win{border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px oklch(100% 0 0 / 0.12),0 12px 32px -8px oklch(0% 0 0 / 0.6)}
+.hl .winbar{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;font-size:12px;color:var(--ink2);background:oklch(26% 0.006 250)}
+.hl .console{background:oklch(9% 0.004 250);color:oklch(88% 0.01 250);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;line-height:18px;padding:12px 14px;min-height:150px;white-space:pre-wrap;word-break:break-all}
+.hl .browser{background:oklch(97% 0.003 250);color:oklch(22% 0.01 250);padding:22px;min-height:190px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.hl .bfield{width:260px;box-sizing:border-box;padding:7px 10px;border-radius:6px;background:white;box-shadow:inset 0 0 0 1px oklch(80% 0.01 250);color:oklch(25% 0.01 250);font-size:13px}
+.hl .bbtn{width:260px;height:32px;border:0;border-radius:6px;background:oklch(30% 0.01 250);color:white;font-weight:600}
+.hl .tip{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:8px;background:oklch(80% 0.14 80 / 0.10);box-shadow:inset 0 0 0 1px oklch(80% 0.14 80 / 0.25)}
+.hl .dim{opacity:0.35}
+</style>
+</helmet>
+<div class="hl" style="width: 100%; min-height: 900px; background: var(--canvas); box-sizing: border-box; padding: 28px 36px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3)">Signing in an account · Windows</span>
+<h1 style="margin: 0; font-size: 20px; line-height: 26px; font-weight: 600">{{ heading }}</h1>
+<p style="margin: 0; color: var(--ink2); max-width: 760px">{{ explain }}</p>
+</div>
+<div style="display: flex; gap: 8px">
+<button type="button" class="quiet" onClick="{{ back }}">Back</button>
+<button type="button" class="btn btnp" onClick="{{ next }}">{{ nextLabel }}</button>
+</div>
+</div>
+
+<nav aria-label="Steps" style="display: flex; gap: 4px; flex-wrap: wrap">
+<sc-for list="{{ steps }}" as="st" hint-placeholder-count="6">
+<button type="button" class="{{ st.cls }}" onClick="{{ st.go }}"><span class="num">{{ st.n }}</span>{{ st.label }}</button>
+</sc-for>
+</nav>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
+<section aria-label="Hotline" style="display: flex; flex-direction: column; gap: 8px">
+<span class="detail" style="font-weight: 500; color: var(--ink2)">In Hotline (New teammate › Account, the teammate panel, or Agent accounts)</span>
+<div class="grouped">
+<div class="row"><span class="dot" style="background: var(--accent)"></span><span style="flex: 1"><span class="title" style="display: block">Account 1</span><span class="detail" style="display: block">dev@example.com · Max</span></span></div>
+<sc-if value="{{ showForm }}" hint-placeholder-val="{{ true }}">
+<div class="nest">
+<label class="label" for="lg-name">New Claude Code account</label>
+<input id="lg-name" class="field" value="Account 3">
+<label class="label" for="lg-email">Email of the Claude account <span style="color: var(--ink4); font-weight: 400">(optional)</span></label>
+<input id="lg-email" class="field" value="researcher@example.com">
+<span class="detail">Fills in the email on Claude's sign-in page, so the right account is used. Hotline does not keep it.</span>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet">Cancel</button>
+<button type="button" class="btn btnp" onClick="{{ next }}">Add and sign in</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ showSigning }}" hint-placeholder-val="{{ false }}">
+<div class="row"><span class="dot" style="background: var(--warn)"></span><span style="flex: 1"><span class="title" style="display: block">Account 3</span><span class="detail" style="display: block">Signing in…</span></span></div>
+<div class="nest">
+<span>A Claude Code window opened for Account 3. Finish signing in there; Hotline checks by itself when the window closes.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+<button type="button" class="btn">Show window</button>
+<span style="flex: 1"></span>
+<button type="button" class="quiet" onClick="{{ fail }}">Cancel</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ showDone }}" hint-placeholder-val="{{ false }}">
+<div class="row" style="background: oklch(78.7% 0.128 163 / 0.08)"><span class="dot" style="background: var(--accent)"></span><span style="flex: 1"><span class="title" style="display: block">Account 3</span><span class="detail" style="display: block">Signed in · researcher@example.com · Claude Pro</span></span><span class="detail">Selected</span></div>
+</sc-if>
+<sc-if value="{{ showFailed }}" hint-placeholder-val="{{ false }}">
+<div class="row"><span class="dot" style="background: var(--danger)"></span><span style="flex: 1"><span class="title" style="display: block">Account 3</span><span class="detail" style="display: block">Sign-in did not finish: Claude Code closed before it was signed in.</span></span><button type="button" class="btn btnp" onClick="{{ restart }}">Try again</button></div>
+</sc-if>
+</div>
+<sc-if value="{{ showDone }}" hint-placeholder-val="{{ false }}">
+<p class="detail" style="margin: 4px 12px 0 12px">Only <span class="mono">claude auth status</span>, run in this account's folder, decides it is signed in; a folder that merely exists does not count.</p>
+</sc-if>
+</section>
+
+<section aria-label="Claude Code and the browser" style="display: flex; flex-direction: column; gap: 14px">
+<div class="{{ consoleCls }}">
+<span class="detail" style="font-weight: 500; color: var(--ink2)">Claude Code window (opened by Hotline)</span>
+<div class="win" style="margin-top: 8px">
+<div class="winbar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M13 15h4"></path></svg><span>Claude Code — sign in · Account 3</span></div>
+<div class="console">{{ consoleText }}</div>
+</div>
+</div>
+<div class="{{ browserCls }}">
+<span class="detail" style="font-weight: 500; color: var(--ink2)">Browser · Claude's sign-in page (schematic)</span>
+<div class="win" style="margin-top: 8px">
+<div class="winbar"><span class="mono" style="font-size: 11px">claude.ai/oauth/authorize?…</span></div>
+<div class="browser">
+<sc-if value="{{ browserEmail }}" hint-placeholder-val="{{ true }}">
+<strong style="font-size: 15px">Sign in to your Claude account</strong>
+<div class="bfield">researcher@example.com</div>
+<button type="button" class="bbtn" onClick="{{ next }}">Continue with email</button>
+<span style="font-size: 12px; color: oklch(45% 0.01 250)">a code or link arrives in that inbox</span>
+</sc-if>
+<sc-if value="{{ browserAuthorize }}" hint-placeholder-val="{{ false }}">
+<strong style="font-size: 15px">Claude Code wants to use your account</strong>
+<span style="font-size: 13px">researcher@example.com · Pro</span>
+<button type="button" class="bbtn" onClick="{{ next }}">Authorize</button>
+<span style="font-size: 12px; color: oklch(45% 0.01 250)">Not you? Switch account</span>
+</sc-if>
+<sc-if value="{{ browserIdle }}" hint-placeholder-val="{{ false }}">
+<span style="font-size: 13px; color: oklch(45% 0.01 250)">{{ browserIdleText }}</span>
+</sc-if>
+</div>
+</div>
+</div>
+<div class="tip">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--warn); flex-shrink: 0; margin-top: 1px" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>
+<span class="detail" style="color: var(--ink2)">The browser uses whatever claude.ai session is already open. If it is signed in to another account, use “Switch account” on the page, or copy the link shown in the Claude Code window and open it in that account's browser profile.</span>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { step: 0, failed: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const labels = ['Add the account', 'Claude Code window', 'Sign in in the browser', 'Authorize', 'Sign-in finished', 'Checked in Hotline'];
+    const headings = [
+      'Name the account and, if you like, give its email',
+      'Hotline opens a Claude Code window for this account only',
+      'The browser opens Claude’s sign-in page',
+      'Authorize Claude Code on this account',
+      'The window confirms and closes by itself',
+      'Hotline checks, and the account is already selected'
+    ];
+    const explains = [
+      'The same form appears in New teammate, in the teammate panel and in Agent accounts. The name is yours; the email is optional and only fills in the sign-in page.',
+      'This is Claude Code’s own sign-in, run with this account’s folder (CLAUDE_CONFIG_DIR) for that window only. No password or token passes through Hotline. On macOS and Linux this terminal sits inside Hotline itself.',
+      'Sign in with the Claude account this one should use. If the browser does not open, the window shows a link to copy.',
+      'Claude asks whether Claude Code may use the account. If the page shows someone else, use “Switch account”.',
+      'Claude Code keeps the sign-in inside this account’s folder. Other accounts and System default are untouched.',
+      'Hotline runs Claude Code’s status in that folder. Only when it says signed in does the account show as Signed in, with its email and plan.'
+    ];
+    const consoles = [
+      '',
+      '> claude auth login --claudeai --email researcher@example.com\n\nOpening your browser to sign in…\nIf the browser did not open, visit:\nhttps://claude.ai/oauth/authorize?code=true&client_id=…\n\nWaiting for you to sign in…',
+      '> claude auth login --claudeai --email researcher@example.com\n\nOpening your browser to sign in…\nWaiting for you to sign in…',
+      '> claude auth login --claudeai --email researcher@example.com\n\nWaiting for you to sign in…',
+      '> claude auth login --claudeai --email researcher@example.com\n\nLogin successful.\nThis window closes in a moment.',
+      '(window closed)'
+    ];
+    const go = (step) => this.setState({ step: Math.max(0, Math.min(5, step)), failed: false });
+    const step = s.step;
+    return {
+      heading: s.failed ? 'The sign-in did not finish' : headings[step],
+      explain: s.failed ? 'The window closed before Claude Code said it was signed in (cancelled, or closed by hand). Nothing changes on the account; try again whenever you like.' : explains[step],
+      steps: labels.map((label, i) => ({ n: i + 1, label, cls: i === step && !s.failed ? 'step step-on' : 'step', go: () => go(i) })),
+      next: () => go(step + 1),
+      back: () => go(step - 1),
+      nextLabel: step === 5 ? 'Start over' : 'Next step',
+      restart: () => go(0),
+      fail: () => this.setState({ failed: true }),
+      showForm: step === 0 && !s.failed,
+      showSigning: step >= 1 && step <= 4 && !s.failed,
+      showDone: step === 5 && !s.failed,
+      showFailed: s.failed,
+      consoleCls: step === 0 || s.failed ? 'dim' : '',
+      browserCls: step === 2 || step === 3 ? '' : 'dim',
+      consoleText: s.failed ? '(window closed)' : (consoles[step] || ' '),
+      browserEmail: step === 2 && !s.failed,
+      browserAuthorize: step === 3 && !s.failed,
+      browserIdle: (step !== 2 && step !== 3) || s.failed,
+      browserIdleText: step >= 4 && !s.failed ? 'You can close this tab and return to Claude Code.' : 'The browser opens at step 3.'
+    };
+  }
+}
+</script>
+</body>
+</html>

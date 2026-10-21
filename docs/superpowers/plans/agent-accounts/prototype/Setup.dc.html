@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Account setup — opened in your editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(12% 0.006 250)}
+a{color:oklch(78.7% 0.128 163)}a:hover{color:oklch(83.7% 0.101 165)}
+.hl{--well:oklch(12% 0.006 250);--canvas:oklch(16% 0.006 250);--raised:oklch(20% 0.007 250);--pop:oklch(24% 0.008 250);--pressed:oklch(28% 0.008 250);--ink:oklch(95% 0.004 250);--ink2:oklch(78% 0.006 250);--ink3:oklch(66% 0.008 250);--ink4:oklch(52% 0.008 250);--line:oklch(100% 0 0 / 0.09);--line2:oklch(100% 0 0 / 0.16);--accent:oklch(78.7% 0.128 163);--onaccent:oklch(24% 0.044 165);--warn:oklch(80% 0.14 80);--toplight:inset 0 1px 0 oklch(100% 0 0 / 0.04);font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);font-size:13px;line-height:18px}
+.hl button{font:inherit;cursor:pointer}
+.hl .grouped{border-radius:14px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .row{display:flex;width:100%;box-sizing:border-box;min-height:48px;align-items:center;gap:12px;padding:10px 16px;border:0;background:transparent;color:var(--ink);text-align:left}
+.hl .row + .row,.hl .row + .nest,.hl .nest + .row{border-top:1px solid var(--line)}
+.hl .nest{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px 16px}
+.hl .title{display:block;font-size:13px;color:var(--ink)}
+.hl .detail{display:block;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .gtitle{margin:0 0 8px 16px;font-size:12px;line-height:16px;font-weight:500;color:var(--ink2)}
+.hl .ghint{margin:8px 16px 0 16px;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .btn{height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--pop);color:var(--ink);box-shadow:var(--toplight),0 0 0 1px var(--line2);font-size:12px;white-space:nowrap}
+.hl .btn:hover{background:var(--pressed)}
+.hl .btnp{background:var(--accent);color:var(--onaccent);box-shadow:none;font-weight:600}
+.hl .quiet{height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:12px;white-space:nowrap}
+.hl .quiet:hover{background:oklch(100% 0 0 / 0.05);color:var(--ink)}
+.hl .check{width:14px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line2);background:var(--well);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--onaccent)}
+.hl .check-on{background:var(--accent);box-shadow:none}
+.hl .choice:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.hl .ok{display:flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;background:oklch(78.7% 0.128 163 / 0.12);color:var(--ink)}
+</style>
+</helmet>
+<div class="hl" style="width: 100%; min-height: 900px; background: var(--well); box-sizing: border-box; padding: 8px">
+<main style="min-height: 884px; border-radius: 10px; background: var(--canvas); box-shadow: var(--toplight), 0 0 0 1px var(--line)">
+<div style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px">
+<a href="Main.dc.html" class="quiet" style="display: inline-flex; align-items: center; gap: 4px; text-decoration: none">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+<span>Claude Code</span>
+</a>
+<h1 style="margin: 0 0 0 4px; font-size: 15px; line-height: 20px; font-weight: 600">Account 2</h1>
+</div>
+
+<div style="max-width: 600px; margin: 0 auto; padding: 8px 24px 40px 24px; display: flex; flex-direction: column; gap: 22px">
+<section>
+<h2 class="gtitle">Sign-in</h2>
+<div class="grouped">
+<div class="row"><span class="dot" style="background: var(--accent)"></span><span style="flex: 1; min-width: 0"><span class="title">reviewer@example.com · Claude Pro</span><span class="detail">Used by Reviewer</span></span><button type="button" class="quiet">Check</button></div>
+</div>
+</section>
+
+<section>
+<h2 class="gtitle">Setup</h2>
+<div class="grouped">
+<div class="row" style="min-height: 40px"><span class="detail" style="flex: 1">Started from your Claude Code setup on 21 Oct</span></div>
+<sc-for list="{{ items }}" as="it" hint-placeholder-count="5">
+<div class="row">
+<span style="flex: 1; min-width: 0"><span class="title">{{ it.title }}</span><span class="detail">{{ it.detail }}</span></span>
+<button type="button" class="btn" onClick="{{ it.open }}">Open</button>
+</div>
+</sc-for>
+</div>
+<p class="ghint">Opens in your own editor or file manager on this computer. Changes apply from the next session of the teammates on this account.</p>
+</section>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+<div class="ok"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--accent)" aria-hidden="true"><path d="M5 12l4 4 10-10"></path></svg><span>{{ toastText }}</span></div>
+</sc-if>
+
+<section>
+<h2 class="gtitle">Copy from your own setup</h2>
+<div class="grouped">
+<sc-if value="{{ notCopying }}" hint-placeholder-val="{{ true }}">
+<div class="row"><span style="flex: 1; min-width: 0"><span class="title">Copy again from System default</span><span class="detail">Bring over what you changed in ~/.claude since this account was made</span></span><button type="button" class="btn" onClick="{{ startCopy }}">Choose…</button></div>
+</sc-if>
+<sc-if value="{{ copying }}" hint-placeholder-val="{{ false }}">
+<sc-for list="{{ cats }}" as="c" hint-placeholder-count="5">
+<button type="button" class="row choice" role="checkbox" aria-checked="{{ c.on }}" onClick="{{ c.toggle }}" style="min-height: 40px">
+<span class="{{ c.cls }}"><sc-if value="{{ c.on }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 12l4 4 10-10"></path></svg></sc-if></span>
+<span style="flex: 1"><span class="title">{{ c.title }}</span><span class="detail">{{ c.detail }}</span></span>
+</button>
+</sc-for>
+<div class="nest" style="background: oklch(80% 0.14 80 / 0.08)">
+<span class="detail">The ticked items replace this account's, including your changes to them. The sign-in is not touched.</span>
+<div style="display: flex; gap: 8px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ cancelCopy }}">Cancel</button>
+<button type="button" class="btn btnp" onClick="{{ doCopy }}">Copy {{ copyCount }}</button>
+</div>
+</div>
+</sc-if>
+</div>
+<p class="ghint">The sign-in, keys and history are never copied.</p>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { toast: null, copying: false, cats: { instructions: true, skills: true, plugins: true, mcp: true, settings: false } };
+  }
+  componentWillUnmount() { clearTimeout(this.toastTimer); }
+  say(text) {
+    clearTimeout(this.toastTimer);
+    this.setState({ toast: text });
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), 3500);
+  }
+  renderVals() {
+    const s = this.state;
+    const defs = [
+      { title: 'Instructions', detail: 'CLAUDE.md and rules/', opened: 'CLAUDE.md opened in your editor.' },
+      { title: 'Settings', detail: 'settings.json · permissions, hooks, model, statusline', opened: 'settings.json opened in your editor.' },
+      { title: 'Skills', detail: '6 skills · skills/, agents/, commands/', opened: 'The skills folder opened.' },
+      { title: 'Plugins', detail: '3 plugins', opened: 'The plugins folder opened.' },
+      { title: 'MCP servers', detail: '2 servers (user scope) · .claude.json', opened: '.claude.json opened in your editor.' }
+    ];
+    const catDefs = [
+      { id: 'instructions', title: 'Instructions and rules', detail: 'CLAUDE.md, rules/' },
+      { id: 'skills', title: 'Skills, agents and commands', detail: 'skills/, agents/, commands/' },
+      { id: 'plugins', title: 'Plugins', detail: 'plugins/ and their settings' },
+      { id: 'mcp', title: 'MCP servers', detail: 'user-scope servers' },
+      { id: 'settings', title: 'Settings', detail: 'permissions, hooks, model, statusline — without auth keys' }
+    ];
+    const ticked = catDefs.filter((c) => s.cats[c.id]).length;
+    const count = ticked === 1 ? '1 item' : ticked + ' items';
+    return {
+      items: defs.map((d) => ({ title: d.title, detail: d.detail, open: () => this.say(d.opened) })),
+      toast: Boolean(s.toast), toastText: s.toast || '',
+      copying: s.copying, notCopying: !s.copying,
+      startCopy: () => this.setState({ copying: true }),
+      cancelCopy: () => this.setState({ copying: false }),
+      copyCount: count,
+      doCopy: () => { this.setState({ copying: false }); this.say('Copied ' + count + ' from System default.'); },
+      cats: catDefs.map((c) => ({
+        title: c.title, detail: c.detail, on: s.cats[c.id],
+        cls: s.cats[c.id] ? 'check check-on' : 'check',
+        toggle: () => this.setState({ cats: { ...s.cats, [c.id]: !s.cats[c.id] } })
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

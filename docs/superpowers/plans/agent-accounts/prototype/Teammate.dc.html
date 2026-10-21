@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Teammate — account and switching</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(12% 0.006 250)}
+a{color:oklch(78.7% 0.128 163)}a:hover{color:oklch(83.7% 0.101 165)}
+.hl{--well:oklch(12% 0.006 250);--canvas:oklch(16% 0.006 250);--raised:oklch(20% 0.007 250);--pop:oklch(24% 0.008 250);--pressed:oklch(28% 0.008 250);--ink:oklch(95% 0.004 250);--ink2:oklch(78% 0.006 250);--ink3:oklch(66% 0.008 250);--ink4:oklch(52% 0.008 250);--line:oklch(100% 0 0 / 0.09);--line2:oklch(100% 0 0 / 0.16);--accent:oklch(78.7% 0.128 163);--onaccent:oklch(24% 0.044 165);--warn:oklch(80% 0.14 80);--danger:oklch(72% 0.17 25);--toplight:inset 0 1px 0 oklch(100% 0 0 / 0.04);font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);font-size:13px;line-height:18px}
+.hl button{font:inherit;cursor:pointer}
+.hl .grouped{border-radius:14px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .row{display:flex;min-height:40px;align-items:center;gap:10px;padding:8px 12px;box-sizing:border-box}
+.hl .row + .row,.hl .row + .nest,.hl .nest + .row,.hl .nest + .nest{border-top:1px solid var(--line)}
+.hl .nest{display:flex;flex-direction:column;gap:8px;padding:10px 12px}
+.hl .choice{width:100%;border:0;background:transparent;color:var(--ink);text-align:left}
+.hl .choice:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .add{width:100%;border:0;background:transparent;color:var(--accent);font-weight:500;text-align:left}
+.hl .add:hover{background:oklch(100% 0 0 / 0.05)}
+.hl .title{font-size:13px;color:var(--ink)}
+.hl .detail{font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .label{margin:0 0 6px 0;font-size:12px;line-height:16px;font-weight:500;color:var(--ink2)}
+.hl .ghint{margin:6px 12px 0 12px;font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .btn{height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--pop);color:var(--ink);box-shadow:var(--toplight),0 0 0 1px var(--line2);font-size:12px;white-space:nowrap}
+.hl .btn:hover{background:var(--pressed)}
+.hl .btnp{background:var(--accent);color:var(--onaccent);box-shadow:none;font-weight:600}
+.hl .quiet{height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:12px;white-space:nowrap}
+.hl .quiet:hover{background:oklch(100% 0 0 / 0.05);color:var(--ink)}
+.hl .field{display:block;width:100%;box-sizing:border-box;min-height:28px;padding:5px 8px;border:0;border-radius:6px;background:var(--well);color:var(--ink);font:inherit;box-shadow:inset 0 0 0 1px var(--line)}
+.hl .radio{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--line2);background:var(--well);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.hl .radio span{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.hl .face{display:flex;align-items:center;justify-content:center;border-radius:50%;color:oklch(17% 0.02 250);font-weight:600;flex-shrink:0}
+.hl .bubble{max-width:70%;padding:8px 12px;border-radius:12px;font-size:14px;line-height:22px}
+.hl .me{align-self:flex-end;background:var(--accent);color:var(--onaccent)}
+.hl .them{align-self:flex-start;background:oklch(22% 0.008 250);color:var(--ink)}
+.hl .card{align-self:stretch;max-width:560px;border-radius:12px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.hl .railrow{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px}
+.hl .term{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
+</style>
+</helmet>
+<div class="hl" style="width: 100%; min-height: 820px; height: 820px; display: flex; background: var(--well); box-sizing: border-box; padding: 8px; gap: 8px">
+<nav aria-label="Teammates" style="width: 230px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 4px">
+<div class="railrow" style="background: oklch(100% 0 0 / 0.08)">
+<span class="face" style="width: 30px; height: 30px; background: oklch(72% 0.1 163)">D</span>
+<div style="min-width: 0"><div class="title" style="font-weight: 600">Developer</div><div class="detail">{{ railLine }}</div></div>
+</div>
+<div class="railrow">
+<span class="face" style="width: 30px; height: 30px; background: oklch(72% 0.1 60)">R</span>
+<div style="min-width: 0"><div class="title" style="font-weight: 600">Reviewer</div><div class="detail">Reviewing the PR…</div></div>
+</div>
+<div class="railrow">
+<span class="face" style="width: 30px; height: 30px; background: oklch(72% 0.1 280)">R</span>
+<div style="min-width: 0"><div class="title" style="font-weight: 600">Researcher</div><div class="detail">Reading the docs…</div></div>
+</div>
+</nav>
+
+<section aria-label="Conversation" style="flex: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 10px; background: var(--canvas); box-shadow: var(--toplight), 0 0 0 1px var(--line); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px">
+<span class="face" style="width: 24px; height: 24px; font-size: 12px; background: oklch(72% 0.1 163)">D</span>
+<span style="font-weight: 600">Developer</span>
+<span class="detail">Opus · high</span>
+</div>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 16px 24px; overflow: auto">
+<sc-for list="{{ messages }}" as="m" hint-placeholder-count="3">
+<sc-if value="{{ m.isBubble }}" hint-placeholder-val="{{ true }}">
+<div class="bubble {{ m.side }}">{{ m.text }}</div>
+</sc-if>
+<sc-if value="{{ m.isLimit }}" hint-placeholder-val="{{ false }}">
+<div class="card" role="group" aria-label="Usage limit">
+<div style="display: flex; gap: 8px; align-items: center; font-weight: 600; color: var(--warn)">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+<span>{{ m.title }}</span>
+</div>
+<sc-if value="{{ m.waiting }}" hint-placeholder-val="{{ true }}">
+<span style="color: var(--ink2)">Claude Code says this account takes no more work until 5:00 PM. Your message is kept. Continue on another account, or wait.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<sc-for list="{{ m.options }}" as="o" hint-placeholder-count="1">
+<button type="button" class="btn btnp" onClick="{{ o.pick }}">Continue on {{ o.label }}</button>
+</sc-for>
+<button type="button" class="btn" onClick="{{ retry }}">Try again</button>
+<button type="button" class="quiet">Details</button>
+</div>
+</sc-if>
+<sc-if value="{{ m.switched }}" hint-placeholder-val="{{ false }}">
+<span style="color: var(--ink2)">Now on {{ m.to }}: a fresh Claude Code session that is handed this conversation. The failed turn may have done part of its work, so Try again tells it to check before repeating anything.</span>
+<div style="display: flex; gap: 8px">
+<button type="button" class="btn btnp" onClick="{{ retry }}">Try again</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</sc-for>
+</div>
+<div style="padding: 0 24px 20px 24px; display: flex; flex-direction: column; gap: 8px">
+<sc-if value="{{ working }}" hint-placeholder-val="{{ false }}">
+<span class="detail" style="color: var(--accent)">Thinking…</span>
+</sc-if>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 16px; border-radius: 20px; background: var(--pop); box-shadow: 0 0 0 1px oklch(100% 0 0 / 0.08), 0 12px 32px -8px oklch(0% 0 0 / 0.55)">
+<span style="flex: 1; color: var(--ink3)">Message Developer</span>
+<button type="button" class="btn btnp" style="border-radius: 14px" onClick="{{ send }}">{{ sendLabel }}</button>
+</div>
+</div>
+</section>
+
+<aside aria-label="Developer's settings" style="width: 360px; flex-shrink: 0; border-radius: 10px; background: var(--canvas); box-shadow: var(--toplight), 0 0 0 1px var(--line); overflow: auto">
+<div style="display: flex; align-items: center; height: 44px; padding: 0 16px"><span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3)">Teammate</span></div>
+<div style="display: flex; flex-direction: column; gap: 20px; padding: 4px 16px 16px 16px">
+<div class="grouped" style="display: flex; gap: 12px; align-items: center; padding: 14px">
+<span class="face" style="width: 52px; height: 52px; font-size: 20px; background: oklch(72% 0.1 163)">D</span>
+<div><div style="font-size: 15px; font-weight: 600">Developer</div><div class="detail">Build and fix code in this folder.</div></div>
+</div>
+
+<section>
+<h3 class="label">Claude Code account</h3>
+<div class="grouped" role="radiogroup" aria-label="Claude Code account">
+<sc-for list="{{ choices }}" as="c" hint-placeholder-count="4">
+<button type="button" class="row choice" role="radio" aria-checked="{{ c.picked }}" onClick="{{ c.pick }}">
+<span class="radio"><sc-if value="{{ c.picked }}" hint-placeholder-val="{{ false }}"><span></span></sc-if></span>
+<span style="flex: 1; min-width: 0"><span class="title" style="display: block">{{ c.label }}</span><span class="detail" style="display: block; color: {{ c.detailColor }}">{{ c.detail }}</span></span>
+<sc-if value="{{ c.current }}" hint-placeholder-val="{{ false }}"><span class="detail">In use</span></sc-if>
+</button>
+</sc-for>
+<sc-if value="{{ signing }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<div class="term">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--accent); flex-shrink: 0; margin-top: 1px" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M13 15h4"></path></svg>
+<span>A Claude Code window opened for {{ signingName }}. Sign in there; Hotline checks when it closes.</span>
+</div>
+<div style="display: flex; gap: 6px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ laterSignIn }}">Cancel</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ adding }}" hint-placeholder-val="{{ false }}">
+<div class="nest">
+<input class="field" aria-label="New account name" placeholder="{{ suggested }}" value="{{ newName }}" onChange="{{ typeName }}">
+<input class="field" aria-label="Email of the Claude account (optional)" placeholder="Email (optional)">
+<span class="detail">Starts with your Claude Code setup · <a href="StartWith.dc.html">Change or customize</a></span>
+<div style="display: flex; gap: 6px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ cancelAdd }}">Cancel</button>
+<button type="button" class="btn btnp" onClick="{{ confirmAdd }}">Add and sign in</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ canAdd }}" hint-placeholder-val="{{ true }}">
+<button type="button" class="row add" onClick="{{ startAdd }}">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+<span>Add account</span>
+</button>
+</sc-if>
+<sc-if value="{{ pending }}" hint-placeholder-val="{{ false }}">
+<div class="nest" style="background: oklch(78.7% 0.128 163 / 0.10)">
+<span>Switches to {{ pendingName }} when its work ends.</span>
+<span class="detail">What is running now stays on {{ currentName }}. Stop and switch now stops all of Developer's work.</span>
+<div style="display: flex; gap: 6px; justify-content: flex-end">
+<button type="button" class="quiet" onClick="{{ keep }}">Keep {{ currentName }}</button>
+<button type="button" class="btn" onClick="{{ stopAndSwitch }}">Stop and switch now</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ needsSignIn }}" hint-placeholder-val="{{ false }}">
+<div class="nest" style="background: oklch(80% 0.14 80 / 0.10)">
+<span>{{ selectedName }} is not signed in. Developer keeps {{ currentName }} until it is.</span>
+</div>
+</sc-if>
+</div>
+<p class="ghint">{{ sessionNote }}</p>
+<p class="ghint"><a href="Setup.dc.html">{{ currentName }}'s setup</a> · instructions, settings, skills, opened in your editor. It is shared by every teammate on {{ currentName }}.</p>
+</section>
+
+<section>
+<h3 class="label">Folders</h3>
+<div class="grouped"><div class="row"><span class="title" style="flex: 1">Main workspace</span></div></div>
+</section>
+</div>
+</aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      accounts: [
+        { id: 'default', label: 'System default', state: 'default' },
+        { id: 'account-1', label: 'Account 1', state: 'in', who: 'dev@example.com · Max' },
+        { id: 'account-2', label: 'Account 2', state: 'in', who: 'reviewer@example.com · Pro' }
+      ],
+      current: 'account-1', selected: 'account-1', working: false, pending: null, restored: true,
+      limitShown: false, adding: false, newName: '', signing: null,
+      messages: [
+        { kind: 'bubble', side: 'me', text: 'Build the export endpoint and run the tests.' },
+        { kind: 'bubble', side: 'them', text: 'Done: endpoint in api/export.rs, 14 tests passing.' }
+      ]
+    };
+  }
+  componentWillUnmount() { clearTimeout(this.timer); clearTimeout(this.signTimer); }
+  // Stands in for the Claude Code window closing: Hotline checks by itself,
+  // and a teammate adopts the new account only once it is signed in.
+  finishSignIn(id) {
+    if (this.state.signing !== id) return;
+    this.setAccount(id, { state: 'in', who: 'new@example.com · Pro' });
+    this.setState({ signing: null }, () => {
+      if (this.state.working) this.setState({ pending: id });
+      else this.apply(id);
+    });
+  }
+  account(id) { return this.state.accounts.find((a) => a.id === id) || { label: '' }; }
+  apply(id) {
+    this.setState({ current: id, selected: id, pending: null, restored: false });
+  }
+  setAccount(id, change) {
+    this.setState({ accounts: this.state.accounts.map((a) => (a.id === id ? { ...a, ...change } : a)) });
+  }
+  finishTurn(retry) {
+    const s = this.state;
+    if (!s.limitShown && !retry) {
+      const messages = s.messages.concat([{ kind: 'limit', from: s.current, to: null }]);
+      this.setState({ working: false, limitShown: true, messages });
+      return;
+    }
+    const messages = s.messages.concat([{ kind: 'bubble', side: 'them', text: retry ? 'I checked what the last turn left: the empty case already had a test, only the 204 response was missing. Done.' : 'Done, I reviewed the tests and fixed the empty case.' }]);
+    this.setState({ working: false, messages }, () => { if (this.state.pending) this.apply(this.state.pending); });
+  }
+  renderVals() {
+    const s = this.state;
+    const detailOf = (a) => {
+      if (a.state === 'default') return 'Claude Code’s own sign-in on this computer';
+      if (a.state === 'in') return a.who;
+      if (a.state === 'signing') return 'Signing in…';
+      return 'Not signed in';
+    };
+    const usable = (a) => a.state === 'in' || a.state === 'default';
+    const choices = s.accounts.map((a) => ({
+      label: a.label,
+      detail: detailOf(a),
+      detailColor: usable(a) || a.state === 'signing' ? 'var(--ink3)' : 'var(--warn)',
+      picked: (s.pending || s.selected) === a.id,
+      current: s.current === a.id && s.selected === a.id && !s.pending,
+      pick: () => {
+        if (a.id === s.current) { this.setState({ selected: a.id, pending: null }); return; }
+        if (!usable(a)) { this.setState({ selected: a.id, pending: null }); return; }
+        if (s.working) this.setState({ pending: a.id });
+        else this.apply(a.id);
+      }
+    }));
+    const messages = s.messages.map((m) => {
+      if (m.kind === 'bubble') return { isBubble: true, isLimit: false, side: m.side, text: m.text };
+      const options = s.accounts
+        .filter((a) => a.id !== m.from && usable(a))
+        .map((a) => ({ label: a.label, pick: () => {
+          this.apply(a.id);
+          this.setState({ messages: this.state.messages.map((x) => (x === m ? { ...x, to: a.id } : x)) });
+        } }));
+      return {
+        isBubble: false, isLimit: true,
+        title: this.account(m.from).label + ' hit its usage limit',
+        waiting: !m.to, switched: Boolean(m.to), to: this.account(m.to).label, options
+      };
+    });
+    const selected = this.account(s.selected);
+    const signing = s.accounts.find((a) => a.id === s.signing);
+    const suggested = 'Account ' + s.accounts.length;
+    return {
+      choices, messages,
+      working: s.working,
+      sendLabel: s.working ? 'Stop' : 'Send',
+      railLine: s.working ? 'Thinking…' : 'Done: endpoint in api/export.rs…',
+      pending: Boolean(s.pending),
+      pendingName: this.account(s.pending).label,
+      currentName: this.account(s.current).label,
+      selectedName: selected.label,
+      needsSignIn: selected.state === 'out',
+      sessionNote: s.restored
+        ? 'On ' + this.account(s.current).label + ' · Restored: Claude Code reopened its own session for this account.'
+        : 'On ' + this.account(s.current).label + ' · Fresh: a new Claude Code session for this account, handed this conversation. Another account’s session is never reopened here.',
+      send: () => {
+        if (s.working) { clearTimeout(this.timer); this.setState({ working: false }, () => { if (this.state.pending) this.apply(this.state.pending); }); return; }
+        const messages = s.messages.concat([{ kind: 'bubble', side: 'me', text: 'Now cover the empty export case.' }]);
+        this.setState({ working: true, messages });
+        this.timer = setTimeout(() => this.finishTurn(false), 3500);
+      },
+      retry: () => { this.setState({ working: true }); this.timer = setTimeout(() => this.finishTurn(true), 3500); },
+      keep: () => this.setState({ pending: null, selected: s.current }),
+      stopAndSwitch: () => { clearTimeout(this.timer); const id = s.pending; this.setState({ working: false }, () => this.apply(id)); },
+      adding: s.adding,
+      canAdd: !s.adding && !s.signing,
+      newName: s.newName,
+      suggested,
+      typeName: (e) => this.setState({ newName: e.target.value }),
+      startAdd: () => this.setState({ adding: true, newName: '' }),
+      cancelAdd: () => this.setState({ adding: false }),
+      confirmAdd: () => {
+        const label = s.newName.trim() || suggested;
+        const id = 'acct-' + s.accounts.length;
+        this.setState({ adding: false, signing: id, accounts: s.accounts.concat([{ id, label, state: 'signing' }]) });
+        clearTimeout(this.signTimer);
+        this.signTimer = setTimeout(() => this.finishSignIn(id), 3500);
+      },
+      signing: Boolean(signing),
+      signingName: signing ? signing.label : '',
+      laterSignIn: () => { clearTimeout(this.signTimer); this.setAccount(s.signing, { state: 'out' }); this.setState({ signing: null }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent accounts — states and errors</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:oklch(12% 0.006 250)}
+a{color:oklch(78.7% 0.128 163)}a:hover{color:oklch(83.7% 0.101 165)}
+.hl{--well:oklch(12% 0.006 250);--canvas:oklch(16% 0.006 250);--raised:oklch(20% 0.007 250);--pop:oklch(24% 0.008 250);--ink:oklch(95% 0.004 250);--ink2:oklch(78% 0.006 250);--ink3:oklch(66% 0.008 250);--ink4:oklch(52% 0.008 250);--line:oklch(100% 0 0 / 0.09);--line2:oklch(100% 0 0 / 0.16);--accent:oklch(78.7% 0.128 163);--onaccent:oklch(24% 0.044 165);--warn:oklch(80% 0.14 80);--danger:oklch(72% 0.17 25);--toplight:inset 0 1px 0 oklch(100% 0 0 / 0.04);font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);font-size:13px;line-height:18px}
+.hl button{font:inherit}
+.hl .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.hl .card{border-radius:12px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.hl .grouped{border-radius:14px;background:var(--raised);box-shadow:var(--toplight),0 0 0 1px var(--line);overflow:clip}
+.hl .row{display:flex;min-height:48px;align-items:center;gap:12px;padding:10px 16px}
+.hl .row + .row{border-top:1px solid var(--line)}
+.hl .eyebrow{font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink3)}
+.hl .detail{font-size:12px;line-height:16px;color:var(--ink3)}
+.hl .btn{height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--pop);color:var(--ink);box-shadow:var(--toplight),0 0 0 1px var(--line2);font-size:12px}
+.hl .btnp{background:var(--accent);color:var(--onaccent);box-shadow:none;font-weight:600}
+.hl .quiet{height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:12px}
+.hl .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.hl .errtitle{display:flex;gap:8px;align-items:center;font-weight:600;color:var(--danger)}
+</style>
+</helmet>
+<div class="hl" style="width: 100%; min-height: 900px; background: var(--canvas); box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span class="eyebrow">States and errors</span>
+<h1 style="margin: 0; font-size: 20px; line-height: 26px; font-weight: 600">Nothing switches accounts on its own</h1>
+<p style="margin: 0; color: var(--ink2)">A teammate whose account cannot be used does not start, and says what fixes it. The message the person sent stays in the conversation.</p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span class="eyebrow">In the conversation · not signed in</span>
+<div class="card">
+<div class="errtitle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>Account 3 isn't signed in</div>
+<span style="color: var(--ink2)">Researcher runs on Account 3, and Claude Code says nobody is signed in there. Your message is kept; send it again once the account is ready.</span>
+<div style="display: flex; gap: 8px"><button type="button" class="btn btnp">Sign in Account 3</button><button type="button" class="btn">Choose account</button><button type="button" class="quiet">Details</button></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span class="eyebrow">Starting · unknown account</span>
+<div class="card">
+<div class="errtitle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>Pick a Claude Code account</div>
+<span style="color: var(--ink2)">Reviewer is set to a Claude Code account this desk does not have (brought over from an import). Choose one before it starts again; Hotline will not pick one for it.</span>
+<div style="display: flex; gap: 8px"><button type="button" class="btn btnp">Choose account</button></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span class="eyebrow">Starting · another desk</span>
+<div class="card">
+<div class="errtitle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>Account 1 isn't on batleship</div>
+<span style="color: var(--ink2)">Agent accounts belong to the desk that runs the agent, and their sign-ins never leave it. On batleship, pick one of its accounts or System default.</span>
+<div style="display: flex; gap: 8px"><button type="button" class="btn btnp">Choose account</button></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span class="eyebrow">Starting · folder unreachable</span>
+<div class="card">
+<div class="errtitle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>Can't open Account 2's folder</div>
+<span style="color: var(--ink2)">Hotline could not read the folder that holds Account 2's sign-in. Fix its permissions, or choose another account.</span>
+<span class="detail mono" style="word-break: break-all">%APPDATA%\Hotline\agent-accounts\81c2d07e-5b10-4f3a-8c6d-2e9b3f9a1c2e · Access is denied</span>
+<div style="display: flex; gap: 8px"><button type="button" class="btn">Show folder</button><button type="button" class="btn">Choose account</button></div>
+</div>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span class="eyebrow">Agent accounts › Claude Code · each status</span>
+<div class="grouped">
+<div class="row"><span class="dot" style="background: var(--ink4)"></span><span style="flex: 1"><span style="display: block">Account 3</span><span class="detail" style="display: block">Not signed in</span></span><button type="button" class="btn btnp">Sign in</button></div>
+<div class="row"><span class="dot" style="background: var(--warn)"></span><span style="flex: 1"><span style="display: block">Account 4</span><span class="detail" style="display: block">Signing in… Hotline checks when the Claude Code window closes</span></span><button type="button" class="quiet">Cancel</button></div>
+<div class="row"><span class="dot" style="background: var(--accent)"></span><span style="flex: 1"><span style="display: block">Account 1</span><span class="detail" style="display: block">Signed in · dev@example.com · Claude Max</span></span><button type="button" class="quiet">Check</button></div>
+<div class="row"><span class="dot" style="background: var(--danger)"></span><span style="flex: 1"><span style="display: block">Account 5</span><span class="detail" style="display: block">Sign-in did not finish: Claude Code closed before it was signed in</span></span><button type="button" class="btn btnp">Try again</button></div>
+<div class="row"><span class="dot" style="background: var(--ink4)"></span><span style="flex: 1"><span style="display: block">Account 6</span><span class="detail" style="display: block">Sign in from the desk itself: on Windows the sign-in window opens on the desk's screen</span></span></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span class="eyebrow">Signed in again as someone else</span>
+<div class="grouped">
+<div class="row"><span class="dot" style="background: var(--accent)"></span><span style="flex: 1"><span style="display: block">Account 2</span><span class="detail" style="display: block">Signed in · other@example.com · Claude Pro</span></span></div>
+<div class="row" style="flex-direction: column; align-items: stretch; gap: 4px; background: oklch(78.7% 0.128 163 / 0.10)">
+<span>Account 2 has a new sign-in.</span>
+<span class="detail">Reviewer finishes the turn it is on, then starts a fresh Claude Code session on the new sign-in. The old session is not reopened.</span>
+</div>
+</div>
+<span class="eyebrow" style="margin-top: 12px">In the conversation · usage limit</span>
+<div class="card">
+<div class="errtitle" style="color: var(--warn)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Account 1 hit its usage limit</div>
+<span style="color: var(--ink2)">Claude Code says this account takes no more work until 5:00 PM. Your message is kept. Continue on another account, or wait.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap"><button type="button" class="btn btnp">Continue on Account 2</button><button type="button" class="btn">Continue on System default</button><button type="button" class="btn">Try again</button><button type="button" class="quiet">Details</button></div>
+</div>
+<span class="eyebrow" style="margin-top: 12px">Agents without accounts</span>
+<div class="card"><span style="color: var(--ink2)">Hotline Agent and agents that do not support accounts show no account row and behave as today.</span></div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

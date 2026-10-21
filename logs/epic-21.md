@@ -2,8 +2,6 @@
 id: epic-21
 title: "Voice (0.42): you talk to the teammate itself; the scenarios in docs/design/voice-scenarios.html are true"
 type: epic
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -12,7 +10,8 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T20:00:05.973Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-21T09:09:53.360Z"
+updatedAt: "2026-10-21T21:35:02.064Z"
+completedAt: "2026-10-21T21:35:02.064Z"
 ---
 
 ## Description
@@ -56,3 +55,29 @@ Lands on release/0.42.0. The 0.42 cut waits for this epic (George, 2026-10-20: "
 - 2026-10-21T14:28:32.331Z: [claude] 2026-10-21 09:28 George desk QA: item 6 (calling the desk) passed — Goldie as lead handed a named task to Huck (side thread research) and answered 'what did we do this week' while it ran. Items 1, 2, 4, 5, 6 pass; 3, 7, 8 to go.
 - 2026-10-21T19:27:51.370Z: [claude] 2026-10-21 14:27 George desk QA: item 7 (yes/no card answered by voice) passes after ca967aac. Passing: 1, 2, 4, 5, 6, 7. Left: 3 (dictation pause), 8 (Legacy).
 - 2026-10-21T19:56:03.381Z: [claude] 2026-10-21 14:55 George desk QA: items 3 (dictation pause) and 8 (Legacy, including interruptions) pass. All 8 checklist items pass on the dev window at ca967aac.
+
+## Child Tasks
+Summary: 23/23 children completed.
+- task-203: Calling the desk reaches the team lead, who answers the roster and hands named work straight on (completed)
+- task-204: The live voice is the teammate: its identity, the kinds of turn, and acknowledgements that never sound like a hand-off (completed)
+- task-206: End to end, docs and the scenario pass: every scenario in the deck proved (completed)
+- task-207: The chat gets results, records and one closing note; the pointer only when the chat holds more (completed)
+- task-214: S0: the calls live in hotline-voice; hotline-core keeps only the room's side (completed)
+- task-223: S5: a call is a thread: hang-up detaches, it goes on as text, a call starts on any thread, one closing note (completed)
+- task-224: Proving call after S5: Pork Chop on the QA computer, then George on desk and phone, before S6 (completed)
+- task-225: S6: work asked for on a call is done by the teammate's own model on the call's thread, without a word of hand-off (completed)
+- task-239: Cards on a call: what needs the person is said on the call, and approvals and simple questions are answered by voice (completed)
+- task-240: Interrupting: speech stops at once, what was cut is known, and the teammate never hears itself (completed)
+- task-241: Drops: a short drop resumes the same call; a live voice that can't come back says so and offers Legacy, never silently (completed)
+- task-242: S5 follow-up: a parked call's typed turns stay in its thread, a long reply at hang-up posts as a summary, and untitled posts read "From the call" (completed)
+- task-243: A parked call's row in the chat says it is parked, not "in progress" (completed)
+- task-244: The call's thread is its transcript: any agent can read a thread whole, and the home chat acts on "like we said on the call" (completed)
+- task-245: Live means live: with a live model selected every call is live, failures are said and never silently become Legacy (completed)
+- task-252: S6 follow-up: a live call's transcript is what was said, once; the clone's work shows as work (completed)
+- task-254: Live call: a question asked over the voice's speech waits until the person speaks again (completed)
+- task-255: Live dictation: a pause inside 'draft… / say… / write…' ends the turn and starts work on half a sentence (completed)
+- task-256: Legacy voice: a tool-first turn says nothing for a minute instead of its own first sentence (completed)
+- task-258: Phone: every caller turn after a finished reply was recorded as an interruption at 0 ms (completed)
+- task-259: One closing note for calls close together, and no repeated reply after hang-up (completed)
+- task-260: Legacy: the progress line varies instead of repeating 'I'm still working on that.' (completed)
+- task-261: Your name: a Settings field, and the agent can store it when you tell it, with your approval (completed)

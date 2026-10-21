@@ -31,3 +31,4 @@ Linux QA, 2026-10-21, Legacy voice, Rex on Grok 4.7, a180a43d: 'Search the web f
 
 ## Log
 - 2026-10-21T08:43:35.038Z: [codex] Found that Legacy suppresses its 1.8s cue on Said before TTS yields audio, and has no progress speech after the cue. Fix tracks actual clips on Tokio time and queues guarded 20s quiet-turn progress; adding paused-clock and real-wire Hotline Agent/ACP fixture regressions on dispatch/task-256.
+- 2026-10-21T08:51:25.099Z: [codex] Focused proof passes: 15 direct-call tests plus the real-wire tool-first regression on native xAI/Grok 4.7 Responses fixtures and the ACP child. Single cue precedes progress clips; two quiet periods speak progress before the final answer. Decision-17 supersedes decision-13. Full make check and precheck running; physical Linux/phone audibility and live-provider QA remain reviewer checks.

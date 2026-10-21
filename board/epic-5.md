@@ -20,3 +20,6 @@ Source-audited 2026-10-11 against Log, wire command lanes, app startup, tape/Tra
 Recommended execution order: task-19 folded-stream cache; task-46 live roster; task-20 remaining socket command concurrency; task-22 streaming render projection; task-49 long-tape rendering; task-50 shared lists; task-47 cheaper core lists; task-48 writer/indexing isolation; task-21 startup. Measure each slice before adding another cache or worker. Per-teammate command lanes already exist; task-20 owns only the remaining global command stall and related slow setup paths.
 
 Cross-cutting constraint: preserve stream revisions, ordered mutations, capability revocation, restart recovery and per-desk cache isolation. Splits preserve the former BRO-235/241 scope without one oversized implementation card.
+
+## Log
+- 2026-10-21T09:10:38.946Z: [claude] 2026-10-21 Pork Chop: started overnight per George's 'keep building core features'. Children land on the epic branch dispatch/epic-5 (forked from release/0.42.0), not on the release, so nothing reaches 0.42 or main without George. Each slice must show a before/after measurement.

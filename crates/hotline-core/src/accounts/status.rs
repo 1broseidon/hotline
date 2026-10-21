@@ -7,9 +7,22 @@
 //! names the folder it was asked about (spec §10.2). The raw answer is read and
 //! dropped: it never reaches a log, a tape or the wire.
 
+use super::env::env_plan;
+use super::resolve::{self, ResolvedAccount};
+use super::support::account_support;
 use crate::contract::{AccountStatusState, AccountStatusView};
+use crate::driver::acp::registry::{self, Launch};
+use crate::driver::acp::{self, StartBounds};
+use crate::private_dir;
+use crate::room::roster;
+use crate::session::{Room, now_ms};
 use serde_json::Value;
-use std::path::Path;
+use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
+use tokio::io::AsyncReadExt;
 
 /// Reads `claude auth status --json`'s answer for the account folder `dir`.
 ///
@@ -49,6 +62,226 @@ fn is_first_party_login_in(answer: &Value, dir: &Path) -> bool {
             .and_then(|named| dunce::canonicalize(named).ok())
             .zip(dunce::canonicalize(dir).ok())
             .is_some_and(|(named, wanted)| named == wanted)
+}
+
+pub(crate) const STALE_AFTER_MS: i64 = 600_000;
+
+const STATUS_OUTPUT_LIMIT: u64 = 64 * 1024;
+
+/// What each account's agent last said about its sign-in, in memory only,
+/// with at most one status run per account at a time.
+pub(crate) struct AccountStatuses {
+    bounds: StartBounds,
+    entries: Mutex<HashMap<String, Entry>>,
+}
+
+#[derive(Default)]
+struct Entry {
+    /// Held for the whole of a run: a caller that finds it held waits for
+    /// that run's answer instead of starting another.
+    gate: Arc<tokio::sync::Mutex<()>>,
+    view: Option<AccountStatusView>,
+    runs: u64,
+}
+
+impl AccountStatuses {
+    pub(crate) fn new(bounds: StartBounds) -> Self {
+        Self {
+            bounds,
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub(crate) async fn check(&self, root: &Path, account: &ResolvedAccount) -> AccountStatusView {
+        self.check_with(&account.id, || async {
+            self.run_in_checked_folder(root, account)
+                .await
+                .unwrap_or_else(|_| unavailable())
+        })
+        .await
+    }
+
+    async fn run_in_checked_folder(
+        &self,
+        root: &Path,
+        account: &ResolvedAccount,
+    ) -> Result<AccountStatusView, String> {
+        let dir = private_dir::checked_account_dir(root, &account.id)
+            .map_err(|error| error.to_string())?;
+        registry::install(root, &account.backend_id).await?;
+        let launch = registry::launch(root, &account.backend_id)?;
+        let account = ResolvedAccount {
+            dir,
+            ..account.clone()
+        };
+        Ok(run_status(&launch, &account, self.bound(root, &launch)).await)
+    }
+
+    /// A launch that has never answered here may be fetching its package, so
+    /// it gets the first-start bound. Status never marks a launch started.
+    pub(super) fn bound(&self, root: &Path, launch: &Launch) -> Duration {
+        if registry::started_before(root, launch) {
+            self.bounds.known
+        } else {
+            self.bounds.first
+        }
+    }
+
+    pub(super) async fn check_with<F: Future<Output = AccountStatusView>>(
+        &self,
+        account_id: &str,
+        run: impl FnOnce() -> F,
+    ) -> AccountStatusView {
+        let (gate, runs_before) = {
+            let mut entries = lock(&self.entries);
+            let entry = entries.entry(account_id.to_string()).or_default();
+            (entry.gate.clone(), entry.runs)
+        };
+        let _running = gate.lock().await;
+        if let Some(entry) = lock(&self.entries).get(account_id)
+            && entry.runs != runs_before
+            && let Some(view) = &entry.view
+        {
+            return view.clone();
+        }
+        let mut view = run().await;
+        view.checked_at = Some(now_ms());
+        let mut entries = lock(&self.entries);
+        let entry = entries.entry(account_id.to_string()).or_default();
+        entry.view = Some(view.clone());
+        entry.runs += 1;
+        view
+    }
+
+    pub(crate) fn cached(&self, account_id: &str) -> AccountStatusView {
+        let entries = lock(&self.entries);
+        let Some(entry) = entries.get(account_id) else {
+            return not_checked();
+        };
+        let last = entry.view.clone().unwrap_or_else(not_checked);
+        if entry.gate.try_lock().is_err() {
+            AccountStatusView {
+                state: AccountStatusState::Checking,
+                ..last
+            }
+        } else {
+            last
+        }
+    }
+
+    /// Never-checked is not stale: such an account waits for a person to ask.
+    pub(crate) fn stale(&self, account_id: &str, now_ms: i64) -> bool {
+        let entries = lock(&self.entries);
+        entries.get(account_id).is_some_and(|entry| {
+            entry.gate.try_lock().is_ok()
+                && entry
+                    .view
+                    .as_ref()
+                    .and_then(|view| view.checked_at)
+                    .is_some_and(|checked_at| now_ms.saturating_sub(checked_at) > STALE_AFTER_MS)
+        })
+    }
+
+    pub(crate) fn refresh(self: &Arc<Self>, root: PathBuf, account: ResolvedAccount) {
+        let statuses = self.clone();
+        tokio::spawn(async move {
+            statuses.check(&root, &account).await;
+        });
+    }
+
+    pub(crate) fn refresh_in_use(self: &Arc<Self>, room: &Room) {
+        let log = room.log();
+        let root = log.root().to_path_buf();
+        let in_use: BTreeSet<String> = roster(log)
+            .into_iter()
+            .filter(|persona| account_support(&persona.backend_id).is_some())
+            .filter_map(|persona| persona.agent_account_id)
+            .collect();
+        for account_id in in_use {
+            if let Ok(account) = resolve::account(&root, log, &account_id) {
+                self.refresh(root.clone(), account);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn put(&self, account_id: &str, status: AccountStatusView) {
+        lock(&self.entries)
+            .entry(account_id.to_string())
+            .or_default()
+            .view = Some(status);
+    }
+}
+
+pub(super) async fn run_status(
+    launch: &Launch,
+    account: &ResolvedAccount,
+    bound: Duration,
+) -> AccountStatusView {
+    let mut command = tokio::process::Command::new(&launch.command);
+    command.args(&launch.args).args(account.support.status_args);
+    env_plan(&launch.env, &[], Some(account)).apply(&mut command);
+    command
+        .current_dir(&account.dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    crate::process_windows::prepare(&mut command);
+    let Ok(mut child) = command.spawn() else {
+        return unavailable();
+    };
+    #[cfg(unix)]
+    if let Some(id) = child.id() {
+        lock(&acp::GROUPS).push(id as libc::pid_t);
+    }
+    #[cfg(windows)]
+    let Ok(job) = crate::process_windows::Job::attach(child.id()) else {
+        return unavailable();
+    };
+    let Some(stdout) = child.stdout.take() else {
+        acp::end_group(&child);
+        return unavailable();
+    };
+    let mut answer = Vec::new();
+    let answered = tokio::time::timeout(
+        bound,
+        stdout.take(STATUS_OUTPUT_LIMIT).read_to_end(&mut answer),
+    )
+    .await;
+    acp::end_group(&child);
+    #[cfg(windows)]
+    if answered.is_err() {
+        let _ = job.terminate();
+    }
+    match answered {
+        Ok(Ok(_)) => (account.support.parse_status)(&answer, &account.dir),
+        _ => unavailable(),
+    }
+}
+
+fn not_checked() -> AccountStatusView {
+    only(AccountStatusState::NotChecked)
+}
+
+fn unavailable() -> AccountStatusView {
+    only(AccountStatusState::Unavailable)
+}
+
+fn only(state: AccountStatusState) -> AccountStatusView {
+    AccountStatusView {
+        state,
+        checked_at: None,
+        email: None,
+        plan: None,
+    }
+}
+
+fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
+    held.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]

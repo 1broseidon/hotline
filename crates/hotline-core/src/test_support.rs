@@ -1,5 +1,11 @@
 //! What the unit tests of more than one module need.
 
+use crate::accounts::resolve::{self, ResolvedAccount};
+use crate::contract::AgentAccount;
+use crate::driver::acp::registry::Launch;
+use crate::log::Log;
+use crate::room::{agent_accounts, write_agent_accounts};
+use crate::{paths, private_dir};
 use std::time::Duration;
 
 /// How long a test waits for something before calling it lost. Generous,
@@ -16,4 +22,45 @@ pub(crate) async fn until(what: &str, mut condition: impl FnMut() -> bool) {
         assert!(tokio::time::Instant::now() < deadline, "never: {what}");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+/// A unit test is not told where its bins are, so the fixture is found one
+/// directory up from `deps`, where `cargo build --bin hotline-acp-fixture`
+/// left it.
+pub(crate) fn acp_fixture_launch(env: &[(&str, &str)]) -> Launch {
+    let name = format!("hotline-acp-fixture{}", std::env::consts::EXE_SUFFIX);
+    let command = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.join(name)))
+        .filter(|path| path.exists())
+        .expect("hotline-acp-fixture should have been built before these tests");
+    Launch {
+        command: command.to_string_lossy().into_owned(),
+        args: Vec::new(),
+        env: env
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect(),
+    }
+}
+
+pub(crate) fn account_on_disk(
+    log: &Log,
+    id: &str,
+    name: &str,
+    login_at: Option<i64>,
+) -> ResolvedAccount {
+    let mut accounts = agent_accounts(log);
+    accounts.push(AgentAccount {
+        id: id.to_string(),
+        backend_id: "claude-acp".to_string(),
+        name: name.to_string(),
+        created_at: 1_700_000_000_000,
+        login_at,
+        setup: None,
+    });
+    write_agent_accounts(log, &accounts).unwrap();
+    private_dir::make_private_directory(&paths::agent_account_dir(log.root(), id).unwrap())
+        .unwrap();
+    resolve::account(log.root(), log, id).unwrap()
 }

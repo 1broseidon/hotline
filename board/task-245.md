@@ -1,8 +1,8 @@
 ---
 id: task-245
 title: "Live means live: with a live model selected every call is live, failures are said and never silently become Legacy"
-column: in-progress
-position: 1
+column: review
+position: 0
 priority: high
 tags:
   - voice
@@ -23,7 +23,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T01:36:57.472Z"
 assignee: codex
-updatedAt: "2026-10-21T01:46:02.449Z"
+updatedAt: "2026-10-21T02:05:12.594Z"
 decisions:
   - decision-6
 ---

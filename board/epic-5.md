@@ -2,14 +2,14 @@
 id: epic-5
 title: "Performance: a desk and window that stay fast on long tapes"
 type: epic
-column: backlog
-position: 7
+column: done
+position: 0
 priority: high
 tags:
   - improvement
   - performance
 createdAt: "2026-10-12T01:51:39.966Z"
-updatedAt: "2026-10-21T09:10:38.419Z"
+updatedAt: "2026-10-21T22:44:52.587Z"
 landsOn: release/0.42.0
 epicBranch: true
 ---

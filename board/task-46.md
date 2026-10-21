@@ -33,3 +33,6 @@ decisions:
 
 ## Description
 Split from task-19 after source audit on 2026-10-11. Roster updates still reach through tape tails (64 KB → 1 MB → 8 MB) and peer/side streams. Keep preview, open tools and cards in memory from the existing tape broadcast; disk seeds the first snapshot. Send models and slashCommands only when changed. Preserve restart recovery and attention state. Prove equivalent roster output over the real wire, and measure that ordinary tool updates no longer reread tape tails. Coordinate with task-19's fold cache before adding a separate cache.
+
+## Log
+- 2026-10-21T09:24:40.935Z: [codex] Implemented broadcast-fed tape and live side/peer card projections, atomic Log seed/subscription, and negotiated rosterOptions catalog deltas. Coordination with concurrent task-19 is in its log: snapshot_with must use its already-locked fold reader. Explicit MutexGuard<()> type makes that integration fail compilation rather than silently recursively locking the cache. Added long-tape real-wire/restart/lag/catalog tests and per-directory tail-read instrumentation; running full gates.

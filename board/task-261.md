@@ -38,3 +38,4 @@ Lands on release/0.42.0. Merge release/0.42.0 first, make check in the foregroun
 
 ## Log
 - 2026-10-21T20:00:48.348Z: [codex] Started on dispatch/task-261. release/0.42.0 is already contained in HEAD (zero commits to merge). Reusing core-owned question cards for a narrowly bound name approval; ordinary question prose will never authorize a settings write.
+- 2026-10-21T20:08:18.958Z: [codex] Implemented Your name in General, lease-bound set_person_name approvals (including live-front use), current-name context for home prompts, and security/design docs. New integration tests pass on both drivers and all three live provider seams; boundary tests cover forged cards, revocation, withdrawal, expiry and restart. Decision-29 records the task-authorized preferred-name exception to the voice-card boundary. Foreground make check is running.

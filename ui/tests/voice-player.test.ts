@@ -46,6 +46,17 @@ describe("progressive voice playback", () => {
 		expect(() => r.player.push("audio/wav", "AA==")).toThrow("more voice audio");
 		r.player.stop();
 	});
+	test("a long Legacy reply streamed as many chunks is scheduled, not refused", async () => {
+		const r = rig();
+		// Five minutes of speech in 300 one-second chunks, each decoded as it arrives.
+		for (let i = 0; i < 300; i++) {
+			r.player.push("audio/wav", "AA==");
+			r.decodes[i]!({ duration: 1 } as AudioBuffer);
+			await tick();
+		}
+		expect(r.nodes).toHaveLength(300);
+		r.player.stop();
+	});
 	test("later decodes cannot overtake earlier chunks, which schedule without end-event gaps", async () => {
 		const r = rig();
 		r.player.push("audio/wav", "AA==");

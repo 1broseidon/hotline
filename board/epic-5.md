@@ -23,3 +23,4 @@ Cross-cutting constraint: preserve stream revisions, ordered mutations, capabili
 
 ## Log
 - 2026-10-21T09:10:38.946Z: [claude] 2026-10-21 Pork Chop: started overnight per George's 'keep building core features'. Children land on the epic branch dispatch/epic-5 (forked from release/0.42.0), not on the release, so nothing reaches 0.42 or main without George. Each slice must show a before/after measurement.
+- 2026-10-21T22:44:53.078Z: [claude] 2026-10-21 Pork Chop: merged to main in PR #198 after 0.42.0 (George: 'Performance after .42 lands'). CI green on Linux, Windows, macOS and workspace-isolation. Ships in the next release. task-21, 23 and 48 remain in the backlog.

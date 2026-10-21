@@ -1,7 +1,10 @@
 //! The seam between the wire and the live half of the room.
 
 use async_trait::async_trait;
-use hotline_contract::{SessionInfo, StreamDelta};
+use hotline_contract::{
+    AccountStatusState, AccountStatusView, LoginAttemptView, SessionAccount, SessionInfo,
+    StreamDelta,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -121,6 +124,52 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     fn agent_auth_cancel(&self, _persona_id: &str, _id: &str) -> Result<(), String> {
         Err("That sign-in is no longer available.".into())
+    }
+    /// What is already known of an account's sign-in, without asking its agent.
+    fn account_live(&self, _account_id: &str) -> (AccountStatusView, Option<LoginAttemptView>) {
+        let status = AccountStatusView {
+            state: AccountStatusState::NotChecked,
+            checked_at: None,
+            email: None,
+            plan: None,
+        };
+        (status, None)
+    }
+    /// Asks again about each of these accounts whose last answer is old. One
+    /// never asked about stays unasked until a person asks.
+    fn accounts_refresh_stale(&self, _account_ids: &[String]) {}
+    async fn accounts_status(&self, _account_id: &str) -> Result<AccountStatusView, String> {
+        Err("This room cannot check agent accounts.".into())
+    }
+    async fn accounts_login_start(
+        &self,
+        _account_id: &str,
+        _email: Option<String>,
+        _owner: tokio_util::sync::CancellationToken,
+        _seat_is_desk: bool,
+    ) -> Result<String, String> {
+        Err("This room does not offer account sign-in.".into())
+    }
+    fn accounts_login_poll(&self, _account_id: &str, _id: &str) -> Result<AuthStatus, String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    fn accounts_login_input(
+        &self,
+        _account_id: &str,
+        _id: &str,
+        _input: &str,
+    ) -> Result<(), String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    fn accounts_login_cancel(&self, _account_id: &str, _id: &str) -> Result<(), String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    async fn persona_account(
+        &self,
+        _persona_id: &str,
+        _account_id: Option<String>,
+    ) -> Result<SessionAccount, String> {
+        Err("This room cannot assign agent accounts.".into())
     }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;

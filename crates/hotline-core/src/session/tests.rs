@@ -764,6 +764,7 @@ async fn computer_room(
         agents.clone(),
         Computer::with_path(root.as_os_str()).with_releases(&url),
         Some(vault),
+        crate::driver::acp::StartBounds::default(),
     );
     ComputerRoom {
         room,

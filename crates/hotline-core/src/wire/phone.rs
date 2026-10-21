@@ -26,6 +26,12 @@ fn public_snapshot(log: &Log, stream: &StreamId, threads2: bool) -> Vec<Value> {
     }
 }
 
+/// The room's agent accounts name the desk's sign-ins, which a phone, lean
+/// or not, is never sent.
+pub(super) fn desk_only(event: &Value) -> bool {
+    event["kind"] == "setting" && event["id"] == crate::room::AGENT_ACCOUNTS
+}
+
 /// An event as this client is sent it: a thread's link as the one `link` shape
 /// when it declared `threads2`, and as the marker its kind has always had when
 /// it did not.
@@ -167,7 +173,7 @@ pub(super) fn snapshot_shaped(
     window: Option<usize>,
     threads2: bool,
 ) -> Vec<Value> {
-    let events = public_snapshot(log, stream, threads2);
+    let mut events = public_snapshot(log, stream, threads2);
     if !phone {
         // The desk and its owner device open a tape on its last lines and
         // page back with `tape.page`; a whole tape is too much to draw.
@@ -177,6 +183,7 @@ pub(super) fn snapshot_shaped(
         }
         return events;
     }
+    events.retain(|event| !desk_only(event));
     let window = window.unwrap_or(PHONE_WINDOW).min(PHONE_WINDOW);
     let skip = if matches!(stream, StreamId::Tape(_)) {
         window_start(&events, window)

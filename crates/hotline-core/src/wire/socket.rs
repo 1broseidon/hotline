@@ -23,6 +23,8 @@ pub(super) struct Outbox {
     pub(super) max: usize,
     /// Attempts are private to the socket that started them, not bearer UUIDs.
     pub(super) auth_attempts: Arc<std::sync::Mutex<HashMap<String, String>>>,
+    /// The same for an account's sign-in, by account id.
+    pub(super) account_logins: Arc<std::sync::Mutex<HashMap<String, String>>>,
     /// Only this socket's latest invitation is cancelled on disconnect.
     pub(super) pairing: Arc<std::sync::Mutex<Option<String>>>,
     pub(super) uploads: Arc<std::sync::Mutex<files::Uploads>>,
@@ -173,6 +175,7 @@ where
     };
     let sender = Outbox {
         auth_attempts: Arc::default(),
+        account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
@@ -450,6 +453,45 @@ async fn command(
                 reply(&sender, id, result);
             });
         }
+        // An account's commands have no teammate's lane, and a status run,
+        // a copy or a wait for the policy lock can take seconds: the read
+        // loop does not wait on them.
+        Ok(
+            command @ (Command::AccountsList {}
+            | Command::AccountsCreate { .. }
+            | Command::AccountsRename { .. }
+            | Command::AccountsRemove { .. }
+            | Command::AccountsStatus { .. }
+            | Command::AccountsSetupList { .. }
+            | Command::AccountsSetupCopy { .. }),
+        ) => {
+            let (sender, desk) = (sender.clone(), desk.clone());
+            tokio::spawn(async move {
+                let result =
+                    commands::accounts::run(command, &desk.log, &desk.room, seat == Seat::Desk)
+                        .await;
+                reply(&sender, id, result);
+            });
+        }
+        // Starting may first fetch the agent's package.
+        Ok(Command::AccountsLoginStart { account_id, email }) => {
+            let (sender, room) = (sender.clone(), room.clone());
+            tokio::spawn(async move {
+                let result = room
+                    .accounts_login_start(
+                        &account_id,
+                        email,
+                        sender.cancel.clone(),
+                        seat == Seat::Desk,
+                    )
+                    .await
+                    .map(|attempt| {
+                        lock(&sender.account_logins).insert(account_id, attempt.clone());
+                        json!({ "id": attempt })
+                    });
+                reply(&sender, id, result);
+            });
+        }
         // A picture is read from disk, and a conversation full of them
         // asks for many at once; none of them may hold up the commands
         // behind it, such as the thread list of the teammate just opened.
@@ -460,6 +502,8 @@ async fn command(
         // so it never sees the room older than its asker did. Anything that
         // writes stays in order: `mcp.auth_status` may refresh a token, and
         // `ping` is how a client learns that what it asked before has landed.
+        // `accounts.*` is the exception, answered off the loop above: a
+        // `ping` sent after one of its writes can be answered first.
         Ok(
             command @ (Command::FileRead { .. }
             | Command::AvatarRead { .. }
@@ -568,13 +612,7 @@ async fn command(
                     },
                     _,
                 ) => {
-                    let owned = sender
-                        .auth_attempts
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .get(persona_id)
-                        .is_some_and(|owned| owned == attempt_id);
-                    if !owned || sender.cancel.is_cancelled() {
+                    if !owns(sender, &sender.auth_attempts, persona_id, attempt_id) {
                         Err("That sign-in belongs to another desktop connection.".into())
                     } else {
                         match &command {
@@ -592,6 +630,44 @@ async fn command(
                                 .map(|()| Value::Null),
                             _ => unreachable!(
                                 "the arm above matched only the three sign-in commands"
+                            ),
+                        }
+                    }
+                }
+                (
+                    Command::AccountsLoginPoll {
+                        account_id,
+                        id: attempt_id,
+                    }
+                    | Command::AccountsLoginInput {
+                        account_id,
+                        id: attempt_id,
+                        ..
+                    }
+                    | Command::AccountsLoginCancel {
+                        account_id,
+                        id: attempt_id,
+                    },
+                    _,
+                ) => {
+                    if !owns(sender, &sender.account_logins, account_id, attempt_id) {
+                        Err("That sign-in belongs to another desktop connection.".into())
+                    } else {
+                        match &command {
+                            Command::AccountsLoginPoll { .. } => room
+                                .accounts_login_poll(account_id, attempt_id)
+                                .and_then(|status| {
+                                    serde_json::to_value(status)
+                                        .map_err(|_| "Could not read sign-in status.".into())
+                                }),
+                            Command::AccountsLoginInput { input, .. } => room
+                                .accounts_login_input(account_id, attempt_id, input)
+                                .map(|()| Value::Null),
+                            Command::AccountsLoginCancel { .. } => room
+                                .accounts_login_cancel(account_id, attempt_id)
+                                .map(|()| Value::Null),
+                            _ => unreachable!(
+                                "the arm above matched only the three account sign-in commands"
                             ),
                         }
                     }
@@ -687,6 +763,18 @@ async fn command(
                             list
                         })
                 }
+                // Neither a companion nor a lean phone is shown a teammate's
+                // account or the desk's accounts, as the roster is not.
+                (shown, _)
+                    if (seat == Seat::Phone || sender.lean())
+                        && hidden_from_phones(shown).is_some() =>
+                {
+                    let hidden =
+                        hidden_from_phones(shown).expect("the guard found a field to hide");
+                    commands::run(command, log, room, parts)
+                        .await
+                        .map(|value| commands::without(value, hidden))
+                }
                 // The viewer is a loopback URL with the computer's bearer
                 // in its fragment; it never leaves this machine.
                 (Command::ComputerStatus { .. }, Some(_)) => {
@@ -715,6 +803,36 @@ async fn command(
         }
         Err(error) => reply(sender, id, Err(error)),
     }
+}
+
+/// Whether this socket, still open, started the sign-in `attempt_id` for `key`.
+fn owns(
+    sender: &Outbox,
+    attempts: &std::sync::Mutex<HashMap<String, String>>,
+    key: &str,
+    attempt_id: &str,
+) -> bool {
+    !sender.cancel.is_cancelled()
+        && lock(attempts)
+            .get(key)
+            .is_some_and(|owned| owned == attempt_id)
+}
+
+/// The field of this command's answer that names an account.
+fn hidden_from_phones(command: &Command) -> Option<&'static str> {
+    match command {
+        Command::SessionSetModel { .. } | Command::SessionSetConfig { .. } => Some("account"),
+        Command::MobilePersonaAccess { .. } | Command::MobilePersonaComputer { .. } => {
+            Some("agentAccountId")
+        }
+        Command::SettingsUpdate { .. } => Some(crate::room::AGENT_ACCOUNTS),
+        _ => None,
+    }
+}
+
+fn lock<T>(held: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    held.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The command frame's `cmd` and `params` are this enum's tag and content, so

@@ -61,6 +61,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
             .into_owned()
     });
     let folders = checked_folders(draft.folders, &cwd, log.root())?;
+    crate::accounts::check_choice(log, &backend_id, draft.agent_account_id.as_deref())?;
     let persona = Persona {
         node: None,
         id,
@@ -79,7 +80,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         mode_id: None,
         effort_id: given(draft.effort_id),
         harness_override: None,
-        agent_account_id: None,
+        agent_account_id: draft.agent_account_id,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::None,
@@ -404,6 +405,9 @@ pub(super) fn update_persona(
     let previous = living(log, id)?;
     if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
         return Err("A picture can only be cleared here, with `avatar: null`.".into());
+    }
+    if patch.get("agentAccountId").is_some() {
+        return Err("A teammate's account is set with persona.account.".into());
     }
     let mut record = json!(previous);
     let fields = record

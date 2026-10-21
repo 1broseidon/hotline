@@ -1953,6 +1953,42 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_teammates_never_carries_an_agent_account() {
+        let room = room_with_two("teammate-no-account");
+        let account = "44444444-4444-4444-8444-444444444444";
+        crate::room::write_agent_accounts(
+            room.log(),
+            &[crate::contract::AgentAccount {
+                id: account.to_string(),
+                backend_id: "claude-acp".to_string(),
+                name: "Secret Account".to_string(),
+                created_at: 1,
+                login_at: None,
+                setup: None,
+            }],
+        )
+        .unwrap();
+        write_persona(
+            room.log(),
+            Persona {
+                backend_id: "claude-acp".to_string(),
+                agent_account_id: Some(account.to_string()),
+                ..ada()
+            },
+        );
+        let bobs_tools = TeammateTools::new(&room, "bob");
+        let listed = through_rig(&bobs_tools, LIST_TEAMMATES, json!({})).await;
+        assert!(listed.contains("Ada"), "{listed}");
+        let published = serde_json::to_string(&room.federation_roster_entries()).unwrap();
+        assert!(published.contains("Ada"), "{published}");
+        for seen in [&listed, &published] {
+            for private in [account, "Secret Account", "agentAccountId"] {
+                assert!(!seen.contains(private), "{private} in {seen}");
+            }
+        }
+    }
+
     /// Hotline Agent calls these as functions, so what a test drives is the Rig
     /// tool the agent would have been handed.
     async fn through_rig(tools: &TeammateTools, name: &str, arguments: Value) -> String {

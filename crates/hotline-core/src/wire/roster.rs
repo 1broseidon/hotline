@@ -2,6 +2,7 @@
 //! session state. Tape pumps remember dirty teammate IDs rather than queueing
 //! one disk read for every event. A single wake covers the pending set.
 
+use super::seat::Seat;
 use super::socket::Outbox;
 use super::{RoomHandle, send};
 use crate::contract::{
@@ -48,6 +49,7 @@ pub(super) async fn view(
     mut room_events: broadcast::Receiver<Value>,
     infos: broadcast::Receiver<SessionInfo>,
     sender: Outbox,
+    seat: Seat,
 ) {
     let mut infos = Some(infos);
     let (wake, mut spoken) = mpsc::channel(1);
@@ -64,6 +66,7 @@ pub(super) async fn view(
         &log,
         &handle,
         &sender,
+        seat,
         &personas,
         &pins,
         lead.as_deref(),
@@ -148,7 +151,7 @@ pub(super) async fn view(
                     pins = room::pinned_teammates(&log);
                     lead = room::team_lead(&log);
                     dirty.take();
-                    if !send_snapshot(id, &log, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &log, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
                         return;
                     }
                 }
@@ -171,7 +174,7 @@ pub(super) async fn view(
                     }
                     if lagged {
                         dirty.take();
-                        if !send_snapshot(id, &log, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                        if !send_snapshot(id, &log, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
                             return;
                         }
                     }
@@ -180,7 +183,7 @@ pub(super) async fn view(
                 // must be refreshed when one may have lost its final hint.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     dirty.take();
-                    if !send_snapshot(id, &log, &handle, &sender, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &log, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
                         return;
                     }
                 }
@@ -195,7 +198,7 @@ pub(super) async fn view(
                     let Some(persona) = personas.iter().find(|persona| persona.id == persona_id) else {
                         continue;
                     };
-                    let row = shaped(&sender, roster_entry(&log, &handle, persona.clone(), &pins, lead.as_deref()));
+                    let row = shaped(&sender, seat, roster_entry(&log, &handle, persona.clone(), &pins, lead.as_deref()));
                     if !send(&sender, json!({ "sub": id, "event": row })) {
                         return;
                     }
@@ -211,11 +214,16 @@ fn mark_session(personas: &[Persona], dirty: &Dirty, info: SessionInfo) {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the view keeps each of these apart, and every snapshot reads all of them"
+)]
 fn send_snapshot(
     id: i64,
     log: &Log,
     handle: &Arc<dyn RoomHandle>,
     sender: &Outbox,
+    seat: Seat,
     personas: &[Persona],
     pins: &[String],
     lead: Option<&str>,
@@ -225,6 +233,7 @@ fn send_snapshot(
         .map(|persona| {
             shaped(
                 sender,
+                seat,
                 roster_entry(log, handle, persona.clone(), pins, lead),
             )
         })
@@ -319,8 +328,17 @@ fn changes_row(event: &Value) -> bool {
 /// tool call sends a teammate's whole row again. Hotline Agent's model list
 /// is every model on the desk, which the phone already has from
 /// `models.list`; slash commands and checkpoints are the desk's; the
-/// preview is a line in a list.
-fn shaped(sender: &Outbox, mut row: Value) -> Value {
+/// preview is a line in a list. Neither a companion nor a lean phone is
+/// shown which account a teammate runs under (spec §8.3).
+pub(super) fn shaped(sender: &Outbox, seat: Seat, mut row: Value) -> Value {
+    if seat == Seat::Phone || sender.lean() {
+        if let Some(persona) = row.get_mut("persona").and_then(Value::as_object_mut) {
+            persona.remove("agentAccountId");
+        }
+        if let Some(session) = row.get_mut("session").and_then(Value::as_object_mut) {
+            session.remove("account");
+        }
+    }
     if !sender.lean() {
         return row;
     }

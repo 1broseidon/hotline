@@ -1,6 +1,6 @@
 //! Subscriptions: a stream's snapshot, its events and its live deltas.
 
-use super::phone::{PHONE_WINDOW, link_as_sent, phone_event, snapshot_shaped};
+use super::phone::{PHONE_WINDOW, desk_only, link_as_sent, phone_event, snapshot_shaped};
 use super::seat::Seat;
 use super::socket::{FORBIDDEN, Outbox, Refused, UNKNOWN_TEAMMATE, UNREADABLE, reply};
 use super::{Agents, RoomHandle, roster, schedules, send};
@@ -130,6 +130,7 @@ pub(super) fn subscribe(
                 room_events,
                 infos,
                 sender.clone(),
+                seat,
             );
             subscriptions.insert(id, tokio::spawn(view));
             return Ok(());
@@ -244,6 +245,7 @@ async fn stream_events(
         };
         tokio::select! {
             event = events.recv() => match event {
+                Ok(event) if phone() && desk_only(&event) => {}
                 Ok(event) => {
                     let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { link_as_sent(event, sender.threads2()) };
                     if !send(&sender, json!({ "sub": id, "event": if phone() { phone_event(event) } else { event } })) {

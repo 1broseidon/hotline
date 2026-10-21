@@ -26,6 +26,11 @@ pub(crate) mod status;
 pub(crate) mod support;
 
 use crate::contract::Persona;
+use crate::log::Log;
+use resolve::{AccountRefusal, ResolvedAccount};
+
+pub(crate) const NOT_ON_THIS_DESK: &str = "That account is not on this desk.";
+pub(crate) const NO_ACCOUNTS: &str = "That agent does not use accounts.";
 
 /// The account `persona` runs under. A choice stays stored on an agent that
 /// cannot run under one, and is ignored there (spec §8.3).
@@ -34,4 +39,36 @@ pub(crate) fn account_of(persona: &Persona) -> Option<&str> {
         .agent_account_id
         .as_deref()
         .filter(|_| support::account_support(&persona.backend_id).is_some())
+}
+
+/// Whether a teammate on `backend_id` may be given `account_id`; none is
+/// always allowed.
+pub(crate) fn check_choice(
+    log: &Log,
+    backend_id: &str,
+    account_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(account_id) = account_id else {
+        return Ok(());
+    };
+    if support::account_support(backend_id).is_none() {
+        return Err(NO_ACCOUNTS.into());
+    }
+    if !crate::room::agent_accounts(log)
+        .iter()
+        .any(|account| account.id == account_id && account.backend_id == backend_id)
+    {
+        return Err(NOT_ON_THIS_DESK.into());
+    }
+    Ok(())
+}
+
+/// The account with its folder checked, for the desk and its owner: the
+/// refusal names the account and where its folder is.
+pub(crate) fn resolved(log: &Log, account_id: &str) -> Result<ResolvedAccount, String> {
+    resolve::account(log.root(), log, account_id).map_err(|refusal| match &refusal {
+        AccountRefusal::UnknownAccount { .. } => NOT_ON_THIS_DESK.into(),
+        // This sentence names the account alone, never a teammate or an agent.
+        AccountRefusal::FolderUnavailable { .. } => refusal.private_sentence("", ""),
+    })
 }

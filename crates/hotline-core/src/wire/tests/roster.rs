@@ -734,3 +734,160 @@ async fn a_tool_in_progress_is_the_rosters_activity_while_the_session_is_thinkin
     assert_eq!(idle_row["event"]["session"]["state"], "idle");
     assert!(idle_row["event"].get("activity").is_none(), "{idle_row}");
 }
+
+const ACCOUNT: &str = "44444444-4444-4444-8444-444444444444";
+
+fn outbox(lean: bool) -> (Outbox, mpsc::UnboundedReceiver<String>) {
+    let (tx, frames) = mpsc::unbounded_channel();
+    let outbox = Outbox {
+        auth_attempts: Arc::default(),
+        account_logins: Arc::default(),
+        pairing: Arc::default(),
+        uploads: Arc::default(),
+        threads2: Arc::default(),
+        lean: Arc::new(std::sync::atomic::AtomicBool::new(lean)),
+        sender: Outgoing::Desk(tx),
+        cancel: tokio_util::sync::CancellationToken::new(),
+        max: usize::MAX,
+    };
+    (outbox, frames)
+}
+
+async fn answered_on(seat: Seat, lean: bool, desk: &crate::wire::Agents, frame: Value) -> Value {
+    let (outbox, mut frames) = outbox(lean);
+    answer(&frame, seat, desk, &outbox, &mut HashMap::new(), None).await;
+    serde_json::from_str(&frames.recv().await.unwrap()).unwrap()
+}
+
+fn secret_account() -> crate::contract::AgentAccount {
+    crate::contract::AgentAccount {
+        id: ACCOUNT.to_string(),
+        backend_id: "claude-acp".to_string(),
+        name: "Secret Account".to_string(),
+        created_at: 1,
+        login_at: None,
+        setup: None,
+    }
+}
+
+#[test]
+fn a_phone_roster_never_carries_an_account_lean_or_not() {
+    let row = json!({
+        "persona": {"id": "ada", "backendId": "claude-acp", "agentAccountId": ACCOUNT},
+        "session": {"personaId": "ada", "account": {"running": ACCOUNT}},
+    });
+    for (seat, lean, kept) in [
+        (Seat::Desk, false, true),
+        (Seat::Owner, false, true),
+        (Seat::Phone, false, false),
+        (Seat::Phone, true, false),
+        (Seat::Owner, true, false),
+    ] {
+        let (outbox, _frames) = outbox(lean);
+        let shaped = crate::wire::roster::shaped(&outbox, seat, row.clone());
+        assert_eq!(
+            shaped["persona"].get("agentAccountId").is_some(),
+            kept,
+            "{seat:?} {lean} {shaped}"
+        );
+        assert_eq!(
+            shaped["session"].get("account").is_some(),
+            kept,
+            "{seat:?} {lean} {shaped}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_lean_seat_is_never_sent_the_agent_accounts_setting() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    room::write_agent_accounts(&log, &[secret_account()]).unwrap();
+    let carried = |events: Vec<Value>| json!(events).to_string().contains("Secret Account");
+    assert!(carried(snapshot_shaped(
+        &log,
+        &StreamId::Room,
+        false,
+        None,
+        false
+    )));
+    assert!(!carried(snapshot_shaped(
+        &log,
+        &StreamId::Room,
+        true,
+        None,
+        false
+    )));
+
+    let desk = crate::wire::Agents {
+        log: log.clone(),
+        room: Arc::new(Quiet::new()),
+        parts: Parts::default(),
+    };
+    for lean in [false, true] {
+        let answer = answered_on(
+            Seat::Owner,
+            lean,
+            &desk,
+            json!({"id":1,"cmd":"settings.update","params":{"patch":{"theme":"dark"}}}),
+        )
+        .await;
+        assert_eq!(answer["result"]["theme"], "dark", "{answer}");
+        assert_eq!(
+            answer["result"].get("agentAccounts").is_some(),
+            !lean,
+            "{answer}"
+        );
+        assert_eq!(answer.to_string().contains("Secret Account"), !lean);
+    }
+}
+
+#[tokio::test]
+async fn a_phone_reply_never_carries_an_account() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    room::write_agent_accounts(&log, &[secret_account()]).unwrap();
+    let mut ada = crate::session::tests::persona("ada");
+    ada.agent_account_id = Some(ACCOUNT.to_string());
+    crate::session::tests::enrol(&log, &ada);
+    let quiet = Arc::new(Quiet::new());
+    let mut info = idle("ada");
+    info.account = Some(crate::contract::SessionAccount {
+        running: Some(ACCOUNT.to_string()),
+        wanted: None,
+        held: None,
+    });
+    quiet.set_info(info);
+    let desk = crate::wire::Agents {
+        log: log.clone(),
+        room: quiet,
+        parts: Parts::default(),
+    };
+    let set_model = json!({"id":1,"cmd":"session.set_model",
+        "params":{"personaId":"ada","modelId":"anthropic/claude"}});
+    let access = json!({"id":2,"cmd":"mobile.persona_access",
+        "params":{"id":"ada","backgroundWork":true}});
+    for (seat, lean, kept) in [
+        (Seat::Desk, false, true),
+        (Seat::Owner, false, true),
+        (Seat::Phone, false, false),
+        (Seat::Owner, true, false),
+    ] {
+        let answer = answered_on(seat, lean, &desk, set_model.clone()).await;
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(
+            answer["result"].get("account").is_some(),
+            kept,
+            "{seat:?} {lean} {answer}"
+        );
+        if seat != Seat::Phone {
+            let answer = answered_on(seat, lean, &desk, access.clone()).await;
+            assert_eq!(answer["ok"], true, "{answer}");
+            assert_eq!(
+                answer["result"].get("agentAccountId").is_some(),
+                kept,
+                "{seat:?} {lean} {answer}"
+            );
+        }
+    }
+}

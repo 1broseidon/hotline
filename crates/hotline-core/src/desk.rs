@@ -7,9 +7,9 @@
 //! a desk the same way and get the same room.
 
 use crate::contract::{
-    Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
-    Credential, CredentialKind, ImageSettings, ImagesStatus, LoginPrompt, LoginState, LoginStatus,
-    SessionInfo, SkillEntry, SkillSource, StreamDelta,
+    AccountStatusView, Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary,
+    ConfigChoice, Credential, CredentialKind, ImageSettings, ImagesStatus, LoginAttemptView,
+    LoginPrompt, LoginState, LoginStatus, SessionInfo, SkillEntry, SkillSource, StreamDelta,
 };
 use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
@@ -207,6 +207,7 @@ impl Desk {
             budget: budget.clone(),
         });
         let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_start);
+        room.account_statuses().refresh_in_use(&room);
         let mcp_oauth = Arc::new(McpOAuth::new(vault.clone()));
         let room_for_oauth = Arc::downgrade(&room);
         mcp_oauth.set_on_complete(Arc::new(move || {
@@ -397,6 +398,39 @@ impl RoomHandle for Desk {
     }
     fn agent_auth_cancel(&self, persona_id: &str, id: &str) -> Result<(), String> {
         self.room.agent_auth_cancel(persona_id, id)
+    }
+    fn account_live(&self, account_id: &str) -> (AccountStatusView, Option<LoginAttemptView>) {
+        self.room.account_live(account_id)
+    }
+    fn accounts_refresh_stale(&self, account_ids: &[String]) {
+        self.room.accounts_refresh_stale(account_ids);
+    }
+    async fn accounts_status(&self, account_id: &str) -> Result<AccountStatusView, String> {
+        self.room.accounts_status(account_id).await
+    }
+    async fn accounts_login_start(
+        &self,
+        account_id: &str,
+        email: Option<String>,
+        owner: tokio_util::sync::CancellationToken,
+        seat_is_desk: bool,
+    ) -> Result<String, String> {
+        self.room
+            .accounts_login_start(account_id, email, owner, seat_is_desk)
+            .await
+    }
+    fn accounts_login_poll(
+        &self,
+        account_id: &str,
+        id: &str,
+    ) -> Result<crate::wire::AuthStatus, String> {
+        self.room.account_logins().poll(account_id, id)
+    }
+    fn accounts_login_input(&self, account_id: &str, id: &str, input: &str) -> Result<(), String> {
+        self.room.account_logins().input(account_id, id, input)
+    }
+    fn accounts_login_cancel(&self, account_id: &str, id: &str) -> Result<(), String> {
+        self.room.account_logins().cancel(account_id, id)
     }
 
     fn protect_mcp_settings(&self, value: &serde_json::Value) -> Result<serde_json::Value, String> {

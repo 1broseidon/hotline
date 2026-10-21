@@ -499,3 +499,85 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
         "an invalid patch must not revoke a working session"
     );
 }
+
+#[tokio::test]
+async fn an_account_is_set_only_by_persona_account() {
+    use super::accounts::run;
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let account = "44444444-4444-4444-8444-444444444444";
+    room::write_agent_accounts(
+        &log,
+        &[crate::contract::AgentAccount {
+            id: account.to_string(),
+            backend_id: "claude-acp".to_string(),
+            name: "Account 1".to_string(),
+            created_at: 1,
+            login_at: None,
+            setup: None,
+        }],
+    )
+    .unwrap();
+    let create = |backend: &str, account_id: &str| json!({"draft":{"name":"Ada","backendId":backend,"agentAccountId":account_id}});
+
+    let ada = run(&log, &room, "persona.create", create("claude-acp", account))
+        .await
+        .unwrap();
+    assert_eq!(ada["agentAccountId"], account);
+    let id = ada["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        run(
+            &log,
+            &room,
+            "persona.create",
+            create("claude-acp", "55555555-5555-4555-8555-555555555555"),
+        )
+        .await,
+        Err("That account is not on this desk.".to_string())
+    );
+    assert_eq!(
+        run(&log, &room, "persona.create", create("hotline", account)).await,
+        Err("That agent does not use accounts.".to_string())
+    );
+    assert_eq!(room::roster(&log).len(), 1);
+
+    let before = json!(room::roster(&log));
+    assert_eq!(
+        run(
+            &log,
+            &room,
+            "persona.update",
+            json!({"id":id,"patch":{"agentAccountId":null}}),
+        )
+        .await,
+        Err("A teammate's account is set with persona.account.".to_string())
+    );
+    assert_eq!(json!(room::roster(&log)), before);
+
+    let renamed = run(
+        &log,
+        &room,
+        "mobile.persona_update",
+        json!({"id":id,"name":"Ada 2","agentAccountId":null}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(renamed["name"], "Ada 2");
+    assert!(renamed.get("agentAccountId").is_none(), "{renamed}");
+    assert_eq!(
+        room::roster(&log)[0].agent_account_id.as_deref(),
+        Some(account)
+    );
+
+    let retried = run(
+        &log,
+        &room,
+        "mobile.persona_create",
+        json!({"requestId":id,"name":"Ada"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(retried["id"], json!(id));
+    assert!(retried.get("agentAccountId").is_none(), "{retried}");
+}

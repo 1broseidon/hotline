@@ -1,11 +1,14 @@
 //! What a command does.
 //!
 //! The room's own memory is the wire's to write: a teammate and a setting are
-//! events on the room stream, and this is the only thing that appends them.
+//! events on the room stream, and this is the only thing that appends them,
+//! save the `login_at` a confirmed sign-in stamps on its account
+//! (`accounts::login`). Both writers hold `policy_update_lock`.
 //! Everything else — a session, a secret, the models a key can reach — is
 //! asked of the [`RoomHandle`], because a running agent and a vault are not
 //! things to reimplement behind a door.
 
+pub(super) mod accounts;
 pub(super) mod models;
 pub(super) mod persona;
 mod settings;
@@ -237,28 +240,34 @@ pub(crate) async fn run(
         Command::AgentAuthStart { .. }
         | Command::AgentAuthPoll { .. }
         | Command::AgentAuthInput { .. }
-        | Command::AgentAuthCancel { .. } => {
+        | Command::AgentAuthCancel { .. }
+        | Command::AccountsLoginStart { .. }
+        | Command::AccountsLoginPoll { .. }
+        | Command::AccountsLoginInput { .. }
+        | Command::AccountsLoginCancel { .. } => {
             Err("Sign-in requires its owning desktop connection.".into())
         }
-        // Replaced arm by arm as the accounts commands are built.
         Command::AccountsList {}
         | Command::AccountsCreate { .. }
         | Command::AccountsRename { .. }
         | Command::AccountsRemove { .. }
         | Command::AccountsStatus { .. }
-        | Command::AccountsLoginStart { .. }
-        | Command::AccountsLoginPoll { .. }
-        | Command::AccountsLoginInput { .. }
-        | Command::AccountsLoginCancel { .. }
         | Command::AccountsSetupList { .. }
-        | Command::AccountsSetupCopy { .. }
-        | Command::PersonaAccount { .. } => Err("Agent accounts are not on this desk yet.".into()),
+        | Command::AccountsSetupCopy { .. } => accounts::run(command, log, room, false).await,
+        Command::PersonaAccount {
+            persona_id,
+            account_id,
+        } => room
+            .persona_account(&persona_id, account_id)
+            .await
+            .map(|account| json!(account)),
         Command::MobilePrompt { .. }
         | Command::MobileAttachment { .. }
         | Command::MobilePushRegister { .. } => Err("This command requires a paired phone.".into()),
         Command::RemoteBecomeRelay {} => {
             Err("Only a paired device changes its own pairing.".into())
         }
+        // A phone neither sets nor sees a teammate's account.
         Command::MobilePersonaCreate {
             request_id,
             name,
@@ -274,11 +283,15 @@ pub(crate) async fn run(
                 model_id,
                 effort_id,
             };
-            mobile_persona_create(log, room, &request_id, asked).await
+            mobile_persona_create(log, room, &request_id, asked)
+                .await
+                .map(|persona| without(persona, "agentAccountId"))
         }
         Command::MobilePersonaUpdate { id, name, goal } => {
             let patch = mobile_persona_patch(name, goal)?;
-            apply_persona_update(log, room, &id, &patch).await
+            apply_persona_update(log, room, &id, &patch)
+                .await
+                .map(|persona| without(persona, "agentAccountId"))
         }
         Command::MobilePersonaAccess {
             id,
@@ -292,7 +305,12 @@ pub(crate) async fn run(
             memory,
             cpus,
         } => mobile_persona_computer(log, room, &id, enabled, memory, cpus).await,
-        Command::PersonaCreate { draft } => create_persona(log, draft),
+        // Under the lock, so `accounts.remove` cannot miss a teammate made with its account.
+        Command::PersonaCreate { draft } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            create_persona(log, draft)
+        }
         Command::PersonaUpdate { id, patch } => apply_persona_update(log, room, &id, &patch).await,
         Command::PersonaDelete { id } => {
             let gate = room.policy_update_lock();
@@ -884,6 +902,13 @@ fn remote(parts: &Parts) -> Result<Arc<crate::remote::Remote>, String> {
         .remote
         .upgrade()
         .ok_or_else(|| "Remote access is not available in this room.".into())
+}
+
+pub(super) fn without(mut value: Value, key: &str) -> Value {
+    if let Some(fields) = value.as_object_mut() {
+        fields.remove(key);
+    }
+    value
 }
 
 fn now() -> i64 {

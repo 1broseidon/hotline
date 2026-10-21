@@ -31,6 +31,7 @@
 //! tools, the workspace, or the harness invalidate old handles and queued
 //! work before a live session is rebuilt.
 
+mod accounts;
 mod agent;
 mod asking;
 pub(crate) mod avatar;
@@ -649,6 +650,7 @@ pub struct Room {
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
+    accounts: accounts::Accounts,
     /// Work holds a read lease; an installer can pause an idle room atomically.
     activity: Arc<tokio::sync::RwLock<()>>,
     /// Set once the desk is stopping for a restart: new work is refused while
@@ -691,7 +693,8 @@ impl Room {
             mcp_vault: Some(vault.clone()),
             acp_start,
         });
-        Self::with_agents_computers_and_vault(log, keys, agents, Computer::new(), Some(vault))
+        let computers = Computer::new();
+        Self::with_agents_computers_and_vault(log, keys, agents, computers, Some(vault), acp_start)
     }
 
     /// The room, on an agent seam a test can script. [`Room::new`] is this on
@@ -711,7 +714,8 @@ impl Room {
         agents: Arc<dyn Agents>,
         computers: Computer,
     ) -> Arc<Self> {
-        Self::with_agents_computers_and_vault(log, keys, agents, computers, None)
+        let acp_start = acp::StartBounds::default();
+        Self::with_agents_computers_and_vault(log, keys, agents, computers, None, acp_start)
     }
 
     /// The room with a vault to read a computer's granted secrets from.
@@ -721,6 +725,7 @@ impl Room {
         agents: Arc<dyn Agents>,
         computers: Computer,
         vault: Option<Arc<Vault>>,
+        acp_start: acp::StartBounds,
     ) -> Arc<Self> {
         let push = crate::push::Push::new(log.root());
         let indexer = match Indexer::open(&log) {
@@ -773,6 +778,7 @@ impl Room {
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
+            accounts: accounts::Accounts::new(acp_start),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
         });

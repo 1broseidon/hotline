@@ -456,3 +456,26 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
     .await;
     assert_eq!(bad["ok"], false, "{bad}");
 }
+
+#[tokio::test]
+async fn settings_update_cannot_write_agent_accounts() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let account = json!({"id":"44444444-4444-4444-8444-444444444444","backendId":"claude-acp",
+        "name":"Account 1","createdAt":1});
+    for value in [json!([account]), Value::Null] {
+        assert_eq!(
+            super::accounts::run(
+                &log,
+                &room,
+                "settings.update",
+                json!({"patch":{"agentAccounts":value,"theme":"dark"}}),
+            )
+            .await,
+            Err("Agent accounts are changed with accounts.*.".to_string())
+        );
+    }
+    assert!(room::agent_accounts(&log).is_empty());
+    assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
+}

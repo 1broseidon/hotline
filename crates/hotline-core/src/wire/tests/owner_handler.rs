@@ -461,6 +461,78 @@ async fn cookie_push_is_operator_only_through_the_real_handler() {
 }
 
 #[tokio::test]
+async fn agent_accounts_are_operator_only_through_the_real_handler() {
+    let quiet = Arc::new(Quiet::new());
+    let room: Arc<dyn RoomHandle> = quiet.clone();
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        for frame in super::accounts::account_frames(&format!("{seat:?}")) {
+            let answer =
+                remote_control_answer(seat, &room, &log, &Parts::default(), frame.clone()).await;
+            assert_eq!(
+                answer["code"] == FORBIDDEN,
+                seat == Seat::Phone,
+                "{frame} {answer}"
+            );
+        }
+    }
+    let names: Vec<String> = room::agent_accounts(&log)
+        .into_iter()
+        .map(|account| account.name)
+        .collect();
+    assert_eq!(names, ["Desk", "Owner"]);
+    let starts: Vec<bool> = quiet
+        .account_sign_ins
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, seat_is_desk)| *seat_is_desk)
+        .collect();
+    assert_eq!(starts, [true, false]);
+}
+
+#[tokio::test]
+async fn removing_an_account_in_use_names_its_teammates_and_keeps_its_folder() {
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let desk = |frame: Value| {
+        let (room, log) = (room.clone(), log.clone());
+        async move { remote_control_answer(Seat::Desk, &room, &log, &Parts::default(), frame).await }
+    };
+    let created = desk(json!({"id":1,"cmd":"accounts.create","params":{
+        "backendId":"claude-acp","name":"Account 1","startWith":"empty"}}))
+    .await;
+    let id = created["result"]["account"]["account"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut teammates = Vec::new();
+    for name in ["Ada", "Bob"] {
+        let made = desk(json!({"id":2,"cmd":"persona.create","params":{"draft":{
+            "name":name,"backendId":"claude-acp","agentAccountId":id}}}))
+        .await;
+        assert_eq!(made["result"]["agentAccountId"], json!(id), "{made}");
+        teammates.push(made["result"]["id"].as_str().unwrap().to_string());
+    }
+    let remove = json!({"id":3,"cmd":"accounts.remove","params":{"accountId":id}});
+    let refused = desk(remove.clone()).await;
+    assert_eq!(
+        refused["error"], "Account 1 can't be removed while Ada and Bob use it.",
+        "{refused}"
+    );
+    for teammate in &teammates {
+        let deleted = desk(json!({"id":4,"cmd":"persona.delete","params":{"id":teammate}})).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+    }
+    let removed = desk(remove).await;
+    assert_eq!(removed, json!({"id":3,"ok":true}));
+    assert!(room::agent_accounts(&log).is_empty());
+    assert!(paths::agent_account_dir(root.path(), &id).unwrap().is_dir());
+}
+
+#[tokio::test]
 async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
     let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
     let root = tempfile::tempdir().unwrap();

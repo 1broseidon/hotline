@@ -58,6 +58,7 @@ async fn seat_snapshot(
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
         auth_attempts: Arc::default(),
+        account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),

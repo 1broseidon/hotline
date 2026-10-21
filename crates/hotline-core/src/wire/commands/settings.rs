@@ -46,6 +46,9 @@ pub(super) async fn apply_update(
     if patch.contains_key(room::TEAM_LEAD) {
         return Err("The lead is set with persona.lead.".to_string());
     }
+    if patch.contains_key(room::AGENT_ACCOUNTS) {
+        return Err("Agent accounts are changed with accounts.*.".to_string());
+    }
     for (key, value) in &mut patch {
         if !value.is_null() {
             *value = room::normalize_setting(key, value)?;

@@ -44,17 +44,22 @@ async fn tool_first_legacy_turns_get_a_cue_and_progress_on_both_drivers() {
         let cue = desk.event(voice_sub, |event| event["type"] == "clip").await;
         assert_eq!(cue["id"], "waiting-1");
         assert_eq!(cue["mimeType"], "audio/wav");
-        for _ in 0..2 {
+        let mut progress = Vec::new();
+        for _ in 0..3 {
             for _ in 0..20 {
                 desk.advance(1).await;
                 tokio::task::yield_now().await;
             }
             let said = desk.event(voice_sub, |event| event["type"] == "said").await;
-            assert_eq!(said["text"], "I'm still working on that.");
+            let text = said["text"].as_str().unwrap();
+            assert_ne!(text, "");
+            progress.push(text.to_owned());
             let clip = desk.event(voice_sub, |event| event["type"] == "clip").await;
             assert_eq!(clip["id"], said["id"]);
             assert_ne!(clip["data"].as_str().unwrap(), "");
         }
+        assert!(progress.windows(2).all(|pair| pair[0] != pair[1]));
+        assert!(progress.iter().any(|line| line != &progress[0]));
         std::fs::write(gate, "ready").unwrap();
         let said = desk.event(voice_sub, |event| event["type"] == "said").await;
         assert_eq!(said["text"], "The lookup is finished.");

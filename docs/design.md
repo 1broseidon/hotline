@@ -715,8 +715,9 @@ the core sends one soft, wordless WAV on the ordinary clip wire, to desk and
 phone alike. Only an audio clip suppresses that cue, not text awaiting TTS.
 There is no repeating client chime or stock opening acknowledgement. While a
 teammate is still working, twenty seconds without audio queues a short core-owned
-“I'm still working on that.” line in the same speech queue as its answer. It
-claims no result or specific tool activity. The queue checks the turn again;
+first-person line in the same speech queue as its answer. Neutral lines rotate
+without consecutive repeats; they claim no result, impending completion or
+specific tool activity. The queue checks the turn again;
 finished, interrupted, held or superseded turns cannot start that line.
 Interruption cancels queued speech as before. Live work that has no spoken
 version can still be rewritten before the live model says it.
@@ -1076,7 +1077,12 @@ sending a phone push. The caller's finalized yes/no, not a model tool,
 answers the last announced card and leaves a chat record from the call.
 The handler allows core-owned collaboration approvals for this session only
 and informational `ask_question` cards under the requesting session's live
-lease. An informational answer never grants an operation. Existing action
+lease. `set_person_name` adds one core-owned operation: the proposed name
+and lease are bound to its card before publication, and only approval writes
+`personName`. Settings → General also reads and writes it as **Your name**.
+The home agent receives the current name with each prompt; live voice reads
+it when the call opens and hears the name card's answer during the call.
+An informational answer never grants an operation. Existing action
 cards, passkeys and opaque driver approvals stay at the desk: their words
 cannot establish that an action is safe for voice. This includes credentials,
 2FA, screen interaction, payment and deletion. Replayed cards without their

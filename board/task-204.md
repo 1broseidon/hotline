@@ -1,8 +1,8 @@
 ---
 id: task-204
 title: "The live voice is the teammate: its identity, the kinds of turn, and acknowledgements that never sound like a hand-off"
-column: in-progress
-position: 0
+column: review
+position: 1
 priority: high
 tags:
   - voice
@@ -15,7 +15,7 @@ parentId: epic-21
 createdAt: "2026-10-19T13:59:38.640Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T06:45:49.733Z"
+updatedAt: "2026-10-21T06:52:34.499Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

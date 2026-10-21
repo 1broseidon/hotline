@@ -2,8 +2,6 @@
 id: task-19
 title: "Core: cache folded streams and chapter activity on hot paths"
 parentId: epic-5
-column: review
-position: 2
 priority: high
 tags:
   - improvement
@@ -15,7 +13,7 @@ description: |-
   Split the independent former scope into task-46 (roster projections), task-47 (list reads), and task-48 (write locks/indexing). Those tasks remain children of epic-5 and should reuse this cache instead of inventing competing ones.
 
   Migration source: BRO-235, with BRO-237/239/240 now tracked by the split tasks.
-updatedAt: "2026-10-21T09:25:42.022Z"
+updatedAt: "2026-10-21T09:25:53.770Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -28,9 +26,12 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T09:10:50.863Z"
+    ended: "2026-10-21T09:25:53.770Z"
+    outcome: done
 assignee: codex
 decisions:
   - decision-19
+completedAt: "2026-10-21T09:25:53.012Z"
 ---
 
 ## Log
@@ -42,3 +43,4 @@ decisions:
 - 2026-10-21T09:21:03.327Z: [codex] Exact restart activity needs raw append order (a completed overlapping tool must not resurrect an older tool from folded order). Added Log::snapshot_with<T>(&self, stream, project: impl FnOnce(Vec<Value>)->T) -> (T, broadcast::Receiver<Value>) holding writer over fold, projection callback and subscribe; snapshot delegates identity. Live projection uses your fold for cards/message, cold tape tail only for historical activity semantics. Please have snapshot_with use internal locked reader when merging; ordinary updates never call either.
 - 2026-10-21T09:24:28.782Z: [codex] Committed implementation and tests as 7650a0c5 on dispatch/task-19. All eight precheck legs passed, including Windows. Full suite exposed one corruption fixture that rewrote a live log behind its cache; adjusted it to reopen after injecting saved-file corruption, preserving strict-read assertions and the one-writer contract. Final make check/precheck reruns are in progress.
 - 2026-10-21T09:25:41.073Z: [codex] Ready for review on dispatch/task-19 at 7650a0c5; worktree clean. Added bounded shared folds and incremental chapter/activity state, coherent append/migration/compaction handling, recovery and real-wire tests. Final make check and all 8 make precheck legs pass; the explicit 29 MB benchmark passed (~11x faster warm full reads). Next action: review and merge this branch into dispatch/epic-5; no push or merge performed.
+- 2026-10-21T09:25:52.284Z: Landed on dispatch/epic-5

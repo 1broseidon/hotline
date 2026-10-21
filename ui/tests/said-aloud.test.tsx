@@ -86,6 +86,17 @@ describe("the transcript line", () => {
 		expect(container.textContent).not.toContain("From Call");
 	});
 
+	test("a combined note opens every source call", async () => {
+		const opened: unknown[] = [];
+		await act(async () => root.render(<AgentSay personaId="ada" event={{ kind: "agent", id: "summary", ts: 2, text: "Beacon repair agreed.", from: { kind: "call", thread: "second", sources: [{ kind: "call", key: "first" }, { kind: "call", key: "second" }] } }} run={{ top: true, bottom: true }} reactions={undefined} onOpenThread={(thread) => opened.push(thread)} />));
+		for (const label of ["Open call 1", "Open call 2"]) {
+			const button = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === label) as HTMLButtonElement;
+			expect(button).toBeDefined();
+			await act(async () => button.click());
+		}
+		expect(opened).toEqual([{ thread: { kind: "call", key: "first" } }, { thread: { kind: "call", key: "second" } }]);
+	});
+
 	test("is one line until pressed, then the whole of what was said, and folds again", async () => {
 		await act(async () => root.render(<SaidAloud text={reply.spoken ?? ""} />));
 		const line = container.querySelector("button.said-aloud") as unknown as HTMLButtonElement;

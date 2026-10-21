@@ -309,7 +309,7 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
             desk.client
                 .call("voice.call_end", json!({"callId":call}))
                 .await;
-            desk.advance(31).await;
+            desk.advance(121).await;
             desk.closing(tape).await;
             let requests = desk.requests.lock().unwrap();
             assert!(

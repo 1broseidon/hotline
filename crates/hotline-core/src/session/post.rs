@@ -77,6 +77,7 @@ pub(crate) struct Post {
     pub attachments: Option<Vec<Attachment>>,
     /// The job, when a job posted it.
     pub scheduled: Option<ScheduledRun>,
+    pub sources: Vec<ThreadId>,
 }
 
 impl Post {
@@ -86,6 +87,7 @@ impl Post {
             text: text.to_string(),
             attachments: None,
             scheduled: None,
+            sources: Vec::new(),
         }
     }
 }
@@ -259,6 +261,7 @@ impl Room {
             silent: self.on_the_call(from).then_some(true),
             from: elsewhere.then(|| {
                 let mut source = DeliveryFrom::new(from, None);
+                source.sources = (!post.sources.is_empty()).then_some(post.sources);
                 source.title = self.link_of(from).map(|link| link.title).filter(|title| {
                     !(title.trim().is_empty() || from.kind == ThreadKind::Call && title == "Call")
                 });

@@ -295,9 +295,12 @@ person requests the full text. Nothing is sent without the person's instruction.
 
 Conversation is recorded as spoken. Concrete written results may warrant a
 chat pointer, at most once in three caller turns. Hang-up posts only the turn
-then in flight automatically; one closing note follows after 30 seconds and
-an idle queue. Replies to posts return to their source thread; the home agent
-receives posts and the note and can read the full call for missing detail.
+then in flight automatically, unless the call already delivered a result or
+file to chat. One closing note follows after two quiet minutes and idle queues;
+a new call to the same teammate cancels the timer and joins that note. The note
+links every source thread. Replies to posts return to their source thread;
+the home agent receives posts and the note and can read the full call for
+missing detail.
 
 Cards are spoken once at a break. Voice answers core-owned session
 collaboration approvals and informational yes/no questions; opaque approvals,
@@ -315,7 +318,7 @@ but not sent is not automatically attached; task-253 tracks that observed gap.
 becomes a work thread's in what it reaches (the teammate's tools, plus
 `post_to_chat`, less the chapter moves; `Lease::Independent`; the computer
 through the lease; seeded with the DM's tail; resumed by its binding) and
-keeps its own lifecycle (parked 30 seconds after hang-up once no turn is in flight, one per teammate).
+keeps its own lifecycle (parked two minutes after hang-up once no turn is in flight, one per teammate).
 It is built by `Room::thread_agent` and driven by `Room::run_queue`, as a
 work thread is. On a harness teammate it is an ACP session of the harness's
 own, so Claude Code's edits and Codex's shell do the call's work; ADR 0005's
@@ -336,8 +339,8 @@ from; a soft sound covers a turn that says nothing first.
 
 **Hanging up detaches the modality; it does not end the turn.** A turn in
 flight at hang-up finishes, and its reply is posted to the chat instead of
-said, which replaces today's follow-up of an unanswered question
-(`duplex.rs:292`, `spoken::ENDED_NOTE`). When the call is over, 30 seconds after hang-up once
+said unless a result or file from the call is already there, which replaces today's follow-up of an unanswered question
+(`duplex.rs:292`, `spoken::ENDED_NOTE`). When the call is over, two minutes after hang-up once
 no turn is in flight (a turn still running at hang-up finishes first), its
 closing note, the same summariser a work thread's close uses, is posted to
 the chat as the call's summary, and the thread parks (George, 2026-10-19: ten

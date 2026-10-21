@@ -100,12 +100,16 @@ call after rollout.
 
 
 Legacy call threads (S5) detach on hang-up without cancelling the agent. The
-room posts a closing note after 30 seconds and an idle queue, then parks the
-open thread. There are no periodic summaries or front Digest. Calling a work
+room posts a closing note after two minutes and idle queues, then parks the
+open threads. Calls close together to the same teammate share this note and
+its links to every source thread. Picking up cancels the pending note.
+There are no periodic summaries or front Digest. Calling a work
 thread or a previous call passes `thread` to `voice.call_start`; its context
 and agent are reused. Live-front work uses that same occupant and steers it without starting another clone.
-Only the turn running at hang-up automatically posts its completed written
-reply, as one message. Over 900 characters or three paragraphs, that post
+Only the turn running at hang-up may automatically post its completed written
+reply, as one message, and only if this call has not already delivered a
+result or file to chat. Otherwise the closing note covers the late reply.
+Over 900 characters or three paragraphs, that post
 is a short subject-first summary; a failed summariser leaves a bounded
 notice instead. Open the call leads to the full reply. Later turns stay on
 the thread unless they explicitly post.

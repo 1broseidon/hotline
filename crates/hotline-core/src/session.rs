@@ -583,7 +583,7 @@ pub struct Room {
     /// The turns in flight that `post_to_chat` may post from, by thread, and
     /// whether each has (`session/post.rs`).
     posting: Mutex<HashMap<ThreadId, post::Posting>>,
-    call_closings: Mutex<HashMap<ThreadId, String>>,
+    call_closings: Mutex<HashMap<String, calls::CallClosing>>,
     /// The job threads the room holds: each job's queue, and its agent while
     /// it has one (`session/job_thread.rs`). Made at a job's first firing and
     /// dropped when it ends.

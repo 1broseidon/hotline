@@ -575,6 +575,9 @@ pub enum DeliveryCause {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct DeliveryFrom {
+    /// All source threads of a combined call note. Older readers use `thread`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<Vec<ThreadId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// The thread's key: see [`ThreadId`].
@@ -588,6 +591,7 @@ impl DeliveryFrom {
     pub fn new(thread: &ThreadId, request: Option<String>) -> Self {
         Self {
             title: None,
+            sources: None,
             thread: thread.key.clone(),
             kind: thread.kind,
             request,

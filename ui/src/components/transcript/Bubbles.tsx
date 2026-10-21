@@ -100,7 +100,7 @@ export function AgentSay({
 				<Reactions emoji={reactions} />
 				<BubbleActions {...actions} />
 			</div>
-			{event.from?.kind === "call" && onOpenThread !== undefined && <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: "call", key: event.from!.thread } })}>Open the call</button>}
+			{event.from !== undefined && onOpenThread !== undefined && (event.from.sources?.length ? event.from.sources : event.from.kind === "call" ? [{ kind: event.from.kind, key: event.from.thread }] : []).map((thread, index, sources) => <button key={`${thread.kind}:${thread.key}`} type="button" className="said-name" onClick={() => onOpenThread({ thread })}>{sources.length > 1 ? `Open call ${index + 1}` : "Open the call"}</button>)}
 			{link !== null && <LinkCard url={link} always={onlyLink(event.text, link)} />}
 		</div>
 	);

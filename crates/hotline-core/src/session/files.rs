@@ -192,6 +192,7 @@ impl Room {
             text: caption.to_string(),
             attachments: Some(vec![attachment]),
             scheduled: None,
+            sources: Vec::new(),
         };
         if from.kind == ThreadKind::Dm {
             return self.post(persona_id, &from, post);

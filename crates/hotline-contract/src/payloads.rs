@@ -802,6 +802,10 @@ pub enum VoiceEvent {
         /// A live call failed; a new Legacy call requires the person to choose it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         live_error: Option<String>,
+        /// True only while recovering a dropped transport or live provider.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        reconnecting: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<VoiceEndReason>,
         /// On `thinking`: the teammate's turn is still working and the call

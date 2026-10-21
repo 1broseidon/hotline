@@ -1866,3 +1866,25 @@ teammate's lease never covers another teammate's computer.
 | --- | --- | --- |
 | Live work uses its own driver/model and call transcript, posts its file, and leaves the home agent running through correction and cancellation | `tests/call_threads/live_work.rs` `live_work_uses_its_own_driver_and_posts_its_file_without_touching_home`, `changing_and_dropping_live_work_keeps_one_call_agent_and_home_keeps_running` | Both drivers; scripted Grok, GPT Realtime and GPT-Live |
 | Front reads refuse revoked grants and direct writes; GPT-Live uses the same work admission | `tests/voice/front_tools.rs` `a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refused`, `gpt_live_delegation_uses_the_same_call_thread_work_tool` | — |
+
+
+## Resuming a dropped call
+
+- **Default and grant source:** the existing call and subscription seat checks
+  remain. A socket drop permits twenty seconds of reattachment by the same
+  authenticated device id (local desk sockets share the desk owner).
+- **Enforcement:** `wire/socket.rs` binds the call to the socket and separately
+  to its pairing's revocation token. `wire/subscribe.rs` reattaches through
+  `Calls::bind_connection`, which refuses another device. Revocation bypasses
+  the grace period; expiry takes the normal hang-up path.
+- **Tests:** `voice/room/tests/text.rs`
+  `a_short_transport_drop_resumes_but_twenty_seconds_detaches` proves the
+  grace period and wrong-device refusal; `pairing_revocation_during_a_drop_ends_without_the_grace_period`
+  proves revocation during the hold. `tests/voice/front.rs`
+  `a_wire_drop_resumes_the_same_live_call_and_announces_it` drives resumption
+  through the real socket subscription handler. `wire/tests/owner_handler.rs`
+  `a_call_subscription_cannot_resume_another_devices_transport` proves allowed
+  and denied owners through the subscription handler.
+- **Residual risk:** a dropped call keeps its provider connection for up to
+  twenty seconds and can incur that connection's normal cost. This does not
+  restore a revoked grant or cancel work already admitted on its thread.

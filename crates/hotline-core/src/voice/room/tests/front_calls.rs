@@ -86,3 +86,71 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
         "no pipeline to fall back on"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_spent_live_budget_says_one_local_notice_and_never_selects_legacy() {
+    struct PaidFront(Mutex<Option<realtime::RealtimeSession>>);
+    #[async_trait]
+    impl realtime::Realtime for PaidFront {
+        fn id(&self) -> SpeechId {
+            SpeechId {
+                provider_id: "xai".into(),
+                model_id: "fixture".into(),
+                voice: None,
+            }
+        }
+        fn is_subscription(&self) -> bool {
+            false
+        }
+        async fn open(
+            &self,
+            _: realtime::RealtimeConfig,
+        ) -> Result<realtime::RealtimeSession, speech::SpeechError> {
+            Ok(lock(&self.0).take().unwrap())
+        }
+    }
+    let (session, _input, _output) = realtime::RealtimeSession::scripted(16);
+    let mut services = with_fake(Arc::new(Fake::default()));
+    services.realtime = Some(Arc::new(PaidFront(Mutex::new(Some(session)))));
+    let (_root, desk, calls) = desk(services);
+    spending(&desk, json!({"voice": {"dayUsd": 1}}));
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk).unwrap();
+    let (_, mut events) = calls.subscribe(&id).unwrap();
+    event(&mut events, |e| matches!(e, VoiceEvent::State { .. })).await;
+    calls.budget().charge(Kind::Tts, 1.0);
+    tokio::time::advance(Duration::from_secs(60)).await;
+    let mut notices = Vec::new();
+    let mut clips = 0;
+    loop {
+        match events.recv().await.unwrap() {
+            VoiceEvent::Said { text, .. } => notices.push(text),
+            VoiceEvent::Clip { mime_type, .. } => {
+                assert_eq!(mime_type, "audio/wav");
+                clips += 1;
+            }
+            VoiceEvent::State {
+                state: VoiceState::Ended,
+                live_error,
+                ..
+            } => {
+                assert!(live_error.unwrap().contains("Raise it in Settings"));
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        notices,
+        ["The Voice budget is spent. Raise it in Settings or choose Legacy voice."]
+    );
+    assert_eq!(clips, 1);
+    assert!(calls.text(&id, 1, "Must not become Legacy.").is_err());
+    assert!(matches!(
+        calls.subscribe(&id).unwrap().0,
+        VoiceEvent::State {
+            state: VoiceState::Ended,
+            ..
+        }
+    ));
+}

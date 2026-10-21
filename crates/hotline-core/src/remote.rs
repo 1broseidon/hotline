@@ -219,6 +219,21 @@ pub(crate) struct Phone {
     pub cancel: CancellationToken,
 }
 impl Phone {
+    pub(crate) fn call_owner(&self) -> String {
+        self.id.clone()
+    }
+    pub(crate) fn pairing_cancel(&self) -> CancellationToken {
+        lock(&self.remote.state)
+            .devices
+            .get(&self.id)
+            .cloned()
+            .unwrap_or_else(|| {
+                let token = CancellationToken::new();
+                token.cancel();
+                token
+            })
+    }
+
     pub(crate) fn endpoints(&self) -> Vec<String> {
         self.remote.status().endpoints
     }

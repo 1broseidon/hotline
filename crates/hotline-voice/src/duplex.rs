@@ -27,6 +27,9 @@ const CHUNK_LIMIT: usize = 32 * 1024;
 /// A paid front is charged for its minutes as they pass, so a spent budget
 /// ends the call within one of them.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
+const LIVE_BUDGET: &str = "The Voice budget is spent. Raise it in Settings or choose Legacy voice.";
+const LIVE_UNAVAILABLE: &str =
+    "Live voice is unavailable. You can try again or choose Legacy voice.";
 
 /// A front call's side of the sound. Held by the call, dropped with it.
 pub(super) struct Front {
@@ -92,6 +95,17 @@ impl Calls {
             Some(services) => services.realtime.clone(),
             None => speech::resolve_front(&self.room.connected(), &self.settings()),
         }
+    }
+
+    /// A fixed notice still uses the selected live voice while it is available.
+    pub(super) async fn front_notice(&self, id: &str, text: &str) -> Result<(), String> {
+        let input = self.change(id, |call| {
+            Ok(call.front.as_ref().and_then(|front| front.input.clone()))
+        })?;
+        if let Some(input) = input {
+            input.say(text).await.map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 
     /// Whether the login or key a front was opened with is still connected.
@@ -258,7 +272,29 @@ impl Calls {
 
     /// A failed live call ends visibly. Only a new explicit choice starts Legacy.
     pub(super) fn fail_front(&self, id: &str, reason: String) {
+        self.end_front(
+            id,
+            reason,
+            LIVE_UNAVAILABLE,
+            include_bytes!("assets/live-unavailable.wav"),
+        );
+    }
+
+    fn end_front(&self, id: &str, reason: String, notice: &str, audio: &[u8]) {
         eprintln!("[voice] call {id}: live failed, awaiting explicit Legacy choice: {reason}");
+        if self
+            .change(id, |call| {
+                if call.live_error.is_some() {
+                    return Err("Already reported.".into());
+                }
+                call.live_error = Some(reason.clone());
+                Ok(())
+            })
+            .is_err()
+        {
+            return;
+        }
+        self.system_line(id, notice, audio, None);
         let _ = self.change(id, |call| {
             call.live_error = Some(reason);
             call.state(VoiceState::Ended, Some(VoiceEndReason::Error));
@@ -422,6 +458,8 @@ impl Calls {
             }
             eprintln!("[voice] call {id}: provider lost; reconnecting with call context");
             let _ = self.change(&id, |call| {
+                call.reconnecting = true;
+                let _ = call.events.send(call.snapshot());
                 if let Some(front) = &mut call.front {
                     front.input = None;
                 }
@@ -461,12 +499,12 @@ impl Calls {
                 &id,
                 "Live voice disconnected and could not reconnect.".into(),
             ),
-            FrontEnd::Budget => {
-                self.fail_front(
-                    &id,
-                    "Live voice stopped because the voice budget is spent.".into(),
-                );
-            }
+            FrontEnd::Budget => self.end_front(
+                &id,
+                LIVE_BUDGET.into(),
+                LIVE_BUDGET,
+                include_bytes!("assets/live-budget.wav"),
+            ),
         }
     }
 
@@ -493,6 +531,17 @@ impl Calls {
         });
         if connected.is_err() {
             return FrontEnd::Call;
+        }
+        let recovered = self
+            .change(id, |call| {
+                let recovered = call.reconnecting;
+                call.reconnecting = false;
+                let _ = call.events.send(call.snapshot());
+                Ok(recovered)
+            })
+            .unwrap_or(false);
+        if recovered {
+            let _ = input.say("We're back on the same call.").await;
         }
         let mut saying = String::new();
 
@@ -678,9 +727,24 @@ impl Calls {
                     eprintln!("[voice] the front refused a request: {code:?}");
                     Ok(())
                 }
+                RealtimeEvent::Reconnecting => self.change(id, |call| {
+                    call.reconnecting = true;
+                    let _ = call.events.send(VoiceEvent::FrontStop {});
+                    let _ = call.events.send(call.snapshot());
+                    Ok(())
+                }),
                 RealtimeEvent::Renewed => {
                     eprintln!("[voice] call {id}: provider renewed or reconnected with context");
-                    Ok(())
+                    let recovered = self.change(id, |call| {
+                        let recovered = call.reconnecting;
+                        call.reconnecting = false;
+                        let _ = call.events.send(call.snapshot());
+                        Ok(recovered)
+                    });
+                    if matches!(recovered, Ok(true)) {
+                        let _ = input.say("We're back on the same call.").await;
+                    }
+                    recovered.map(|_| ())
                 }
             };
             if seen.is_err() {

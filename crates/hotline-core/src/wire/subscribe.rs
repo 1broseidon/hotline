@@ -55,7 +55,24 @@ pub(super) fn subscribe(
                 .voice
                 .as_ref()
                 .ok_or_else(|| "Voice is not available on this desk.".to_string())?;
-            let (snapshot, mut events) = voice.subscribe(&call_id)?;
+            let (before, mut events) = voice.subscribe(&call_id)?;
+            // The subscription is replayed by both clients after reconnecting.
+            // An ended call still supplies its terminal snapshot.
+            if !matches!(
+                before,
+                crate::contract::VoiceEvent::State {
+                    state: crate::contract::VoiceState::Ended,
+                    ..
+                }
+            ) {
+                voice.bind_connection(
+                    call_id.clone(),
+                    &sender.call_owner,
+                    sender.cancel.clone(),
+                    sender.pairing_cancel.clone(),
+                )?;
+            }
+            let (snapshot, _) = voice.subscribe(&call_id)?;
             reply(sender, id, Ok(Value::Null));
             if !send(sender, json!({"sub": id, "snapshot": [snapshot]})) {
                 return Ok(());

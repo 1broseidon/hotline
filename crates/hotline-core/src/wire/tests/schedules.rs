@@ -211,6 +211,8 @@ async fn a_schedules_view_catches_up_after_falling_behind_and_ends_when_it_canno
     }
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),

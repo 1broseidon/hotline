@@ -10,6 +10,7 @@ import { setHearOnThisMac } from "../voice/hearing";
 
 const WORDS: Record<CallPhase, string> = {
 	connecting: "Calling",
+	reconnecting: "Reconnecting",
 	listening: "Listening",
 	hearing: "Hearing you",
 	thinking: "Thinking",

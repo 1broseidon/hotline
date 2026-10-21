@@ -9,6 +9,15 @@ tags:
   - build
 parentId: epic-23
 createdAt: "2026-10-21T02:18:26.705Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T02:18:39.157Z"
+  until: review
+  tries: 0
+assignee: codex
+updatedAt: "2026-10-21T02:18:39.287Z"
 ---
 
 ## Description

@@ -1305,14 +1305,24 @@ impl Room {
                 client,
             },
         );
+        let voice = self.attached_voice(&side.thread);
+        let interruption = voice
+            .as_ref()
+            .and_then(|origin| {
+                lock(&self.voice)
+                    .upgrade()?
+                    .take_interruption(&origin.call_id)
+            })
+            .unwrap_or_default();
         self.queue_in_side(
             side,
             Line {
-                voice: self.attached_voice(&side.thread),
-                text: if self.attached_voice(&side.thread).is_some() {
+                voice: voice.clone(),
+                text: if voice.is_some() {
                     format!(
-                        "{}\n\n{}",
+                        "{}\n\n{}\n\n{}",
                         timed_from(ts, client, text),
+                        interruption,
                         crate::voice::spoken::CONTRACT
                     )
                 } else {

@@ -471,9 +471,14 @@ export class Call {
 		if (this.closing !== null) return this.end(this.closing);
 		// A front is cut off by a barge-in, as if the person had talked over it.
 		if (this.front !== null) {
-			if (this.audio.playing) this.bargeFront();
+			this.bargeFront();
 			return;
 		}
+		this.silenceLegacy();
+		this.settle();
+	}
+
+	private silenceLegacy(): void {
 		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
 		for (const id of this.seen) this.muted.add(id);
 		this.deferred = [];
@@ -481,8 +486,7 @@ export class Call {
 		this.endpoint = null;
 		this.audio.stopPlayback();
 		this.awaiting = false;
-		// Work the desk has not finished keeps it thinking; it says when it can listen.
-		this.settle();
+
 	}
 
 	dismissCard(requestId: string): void {
@@ -526,6 +530,7 @@ export class Call {
 				return;
 			}
 			case "heard":
+				this.frontMuted = false;
 				this.line({ kind: "you", id: `heard-${event.seq}`, text: event.text });
 				return;
 			case "delivery":
@@ -566,14 +571,14 @@ export class Call {
 				this.set({ cards: [...this.snapshot.cards, { personaId: event.personaId, requestId: event.requestId, kind: event.kind }] });
 				return;
 			case "frontAudio":
-				if (this.front === null || this.held) return;
+				if (this.front === null || this.held || this.frontMuted) return;
 				try { this.audio.playPcm(event.data, this.front.outputRate); }
 				catch (error) { this.fail(error instanceof Error ? error.message : String(error)); return; }
 				this.settle();
 				return;
 			case "frontStop":
 				// The front heard the person over itself: what is still queued goes, and the desk learns how much was heard.
-				if (this.front !== null) this.bargeFront();
+				if (this.front !== null && this.audio.playing && !this.frontMuted) this.bargeFront();
 				return;
 			case "frontEnded":
 				if (this.front === null) return;
@@ -583,7 +588,10 @@ export class Call {
 		}
 	}
 
+	private frontMuted = false;
+
 	private bargeFront(): void {
+		this.frontMuted = true;
 		const playedMs = this.audio.playedMs();
 		this.audio.stopPlayback();
 		void this.transport.command("voice.front_barge", { callId: this.id, playedMs }).catch(() => {});
@@ -612,7 +620,16 @@ export class Call {
 		// Until the desk has made the call and it is watched, it is still connecting.
 		if (this.unsubscribe === null) return;
 		if (this.held) return this.set({ phase: "held" });
-		if (this.audio.playing) return this.set({ phase: "speaking" });
+		if (this.audio.playing) {
+			if (this.snapshot.phase !== "speaking" && this.snapshot.phase !== "hearing") {
+				this.detector.reset(this.now());
+				this.frames = [];
+				this.heard = false;
+			}
+			this.set({ phase: "speaking" });
+			if (this.textInput && !this.recognizing) this.listen();
+			return;
+		}
 		// A front listens all the time; it says when the teammate is working.
 		if (this.front !== null) return this.set({ phase: this.desk === "thinking" ? "thinking" : "listening" });
 		const phase = this.snapshot.phase;
@@ -652,7 +669,7 @@ export class Call {
 	hear(block: Float32Array, rate: number): void {
 		if (this.front !== null) return this.hearFront(block, rate);
 		const phase = this.snapshot.phase;
-		if (phase !== "listening" && phase !== "hearing") return;
+		if (phase !== "listening" && phase !== "hearing" && phase !== "speaking") return;
 		this.rate = rate;
 		const level = rms(block);
 		this.level = level;
@@ -667,6 +684,7 @@ export class Call {
 		for (const turn of this.detector.push(level, this.now())) {
 			switch (turn.kind) {
 				case "start":
+					if (this.audio.playing) this.silenceLegacy();
 					this.heard = true;
 					this.set({ phase: "hearing" });
 					if (this.pcm) {
@@ -701,6 +719,10 @@ export class Call {
 	private hearFront(block: Float32Array, rate: number): void {
 		if (this.held || this.ended || this.unsubscribe === null) return;
 		this.level = rms(block);
+		for (const turn of this.detector.push(this.level, this.now())) {
+			if (turn.kind === "start" && this.audio.playing) this.bargeFront();
+			if (turn.kind === "end") this.detector.reset(this.now());
+		}
 		if (this.frontResampler === null || this.rate !== rate) {
 			this.rate = rate;
 			this.frontResampler = new PcmResampler(rate);
@@ -822,6 +844,7 @@ export class Call {
 					if (this.wordless.turn(turn)) return this.unheard();
 					switch (turn.kind) {
 						case "start":
+							if (this.audio.playing) this.silenceLegacy();
 							this.heard = true;
 							// Words the engine had before the onset were the room's, not the speaker's.
 							for (const snapshot of this.textSnapshots) {
@@ -1048,8 +1071,8 @@ export class Call {
 
 	private set(patch: Partial<CallSnapshot>): void {
 		this.snapshot = { ...this.snapshot, ...patch };
-		// The desk has the floor or the call is held: the engine lets the microphone go, so it never hears the desk.
-		if (this.recognizing && this.snapshot.phase !== "listening" && this.snapshot.phase !== "hearing") this.stopListening();
+		// Recognition stays open through playback for barge-in; native voice processing removes echo.
+		if (this.recognizing && this.snapshot.phase !== "listening" && this.snapshot.phase !== "hearing" && this.snapshot.phase !== "speaking") this.stopListening();
 		// The first blip-blip goes with the utterance; these repeat it while the desk is quiet and busy,
 		// and while the teammate works on a call that listens meanwhile.
 		const phase = this.snapshot.phase;

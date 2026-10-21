@@ -526,7 +526,7 @@ async fn a_hold_cuts_off_a_reply_and_leaves_it_to_the_phone() {
 }
 
 /// A call to a teammate has no call assistant, so a Chat budget that is off
-/// cannot refuse it; a desk call, which has one, is refused.
+/// cannot refuse it. Calling the desk lead has the same readiness.
 #[tokio::test]
 async fn a_direct_call_pays_for_no_call_assistant() {
     let free_speech = Arc::new(Fake {
@@ -538,7 +538,7 @@ async fn a_direct_call_pays_for_no_call_assistant() {
     spending(&desk, json!({"chat": {"dayUsd": 0}}));
     let status = calls.status();
     assert!(status.direct_available);
-    assert!(!status.available);
+    assert!(status.available);
     let id = Uuid::new_v4().to_string();
     calls
         .start_target(&id, Some(persona), false, desk.clone())

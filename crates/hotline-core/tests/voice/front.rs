@@ -441,6 +441,7 @@ async fn a_front_call_works_on_its_thread_and_says_its_spoken_line() {
             "search_thread",
             "read_thread",
             "list_chapters",
+            "list_teammates",
             "list_schedules",
             "web_search"
         ],

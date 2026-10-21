@@ -154,13 +154,15 @@ const JOB_WITHOUT: [&str; 6] = [
 /// answers the person on a call, so it may look things up in its teammate's
 /// conversation, its schedules and the web, and nothing that writes, wakes,
 /// messages or moves a chapter: that is the working session's, handed
-/// work through `work_on_it`.
-pub(crate) const FRONT_TOOLS: [&str; 5] = [
+/// work through `work_on_it`. The current lead on a live desk call also gets
+/// `message_teammate` for handoffs, checked separately at use.
+pub(crate) const FRONT_TOOLS: [&str; 6] = [
     SEARCH_THREAD,
     READ_THREAD,
     LIST_CHAPTERS,
     LIST_SCHEDULES,
     WEB_SEARCH,
+    LIST_TEAMMATES,
 ];
 
 /// What a work thread is not given of these: the chapter moves. Chapters
@@ -663,10 +665,13 @@ impl TeammateTools {
     }
 
     /// The front's tools as a client is shown them.
-    pub(crate) fn front_descriptors() -> Vec<(String, String, Value)> {
+    pub(crate) fn front_descriptors(lead_call: bool) -> Vec<(String, String, Value)> {
         descriptors()
             .into_iter()
-            .filter(|tool| FRONT_TOOLS.contains(&tool.name.as_ref()))
+            .filter(|tool| {
+                FRONT_TOOLS.contains(&tool.name.as_ref())
+                    || (lead_call && tool.name.as_ref() == MESSAGE_TEAMMATE)
+            })
             .map(|tool| {
                 (
                     tool.name.to_string(),
@@ -724,7 +729,14 @@ impl TeammateTools {
         if self.run && !RUN_TOOLS.contains(&name) {
             return Err(format!("A subagent has no tool called '{name}'."));
         }
-        if self.front && !FRONT_TOOLS.contains(&name) {
+        if self.front
+            && !FRONT_TOOLS.contains(&name)
+            && !(name == MESSAGE_TEAMMATE
+                && self
+                    .room
+                    .upgrade()
+                    .is_some_and(|room| room.lead_call(&self.persona_id, &self.thread)))
+        {
             return Err(format!("A voice front has no tool called '{name}'."));
         }
         if self.job.is_some() && JOB_WITHOUT.contains(&name) {
@@ -835,6 +847,9 @@ impl TeammateTools {
                     }
                     _ => return Err("intent must be ask or handoff".into()),
                 };
+                if self.front && intent != crate::session::exchanges::Intent::Handoff {
+                    return Err("A lead's voice front can only hand named work on.".into());
+                }
                 if self.peer {
                     let answered = room
                         .send_peer_waiting(

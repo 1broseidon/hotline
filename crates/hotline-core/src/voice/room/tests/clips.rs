@@ -47,7 +47,7 @@ fn goodbye_matches_the_whole_utterance() {
 }
 
 #[tokio::test]
-async fn goodbye_is_spoken_without_a_model_and_hidden_tape_is_searchable() {
+async fn goodbye_is_spoken_without_a_model_and_kept_on_the_call() {
     let fake = Arc::new(Fake::default());
     *lock(&fake.transcript) = "Okay, bye.".into();
     let (_root, desk, calls) = desk(with_fake(fake.clone()));
@@ -71,26 +71,12 @@ async fn goodbye_is_spoken_without_a_model_and_hidden_tape_is_searchable() {
         crate::room::roster(&desk.log),
         [] as [crate::contract::Persona; 0]
     );
-    let room: Arc<dyn RoomHandle> = desk.clone();
-    for command in [
-        crate::contract::Command::SearchAll {
-            query: "goodbye".into(),
-            limit: None,
-        },
-        crate::contract::Command::SearchThread {
-            persona_id: TAPE_ID.into(),
-            query: "goodbye".into(),
-            limit: None,
-        },
-    ] {
-        let found = crate::wire::commands::run(command, &desk.log, &room, &desk.parts())
-            .await
-            .unwrap();
-        assert!(
-            found.to_string().contains("Goodbye") || found.to_string().contains("goodbye"),
-            "{found}"
-        );
-    }
+    assert!(
+        desk.log
+            .load(&StreamId::Call(id))
+            .iter()
+            .any(|event| event["text"] == "Goodbye.")
+    );
 }
 
 #[tokio::test]

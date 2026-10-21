@@ -42,17 +42,17 @@ pub(super) struct Record {
     sender: mpsc::UnboundedSender<Entry>,
     room: Arc<dyn CallRoom>,
     thread: hotline_contract::ThreadId,
-    persona: String,
+    persona: Option<String>,
     client: Option<hotline_contract::Client>,
 }
 
 impl Record {
-    /// Opens the call's thread under `persona_id`'s DM and starts its writer.
+    /// Opens the call's record, under its teammate's DM when it has one.
     /// The link is the first thing written.
     pub(super) fn open(
         room: Arc<dyn CallRoom>,
         call_id: &hotline_contract::ThreadId,
-        persona_id: &str,
+        persona_id: Option<&str>,
     ) -> Self {
         let (sender, mut entries) = mpsc::unbounded_channel();
         room.call_began(call_id, persona_id, now_ms());
@@ -60,11 +60,11 @@ impl Record {
             sender,
             room: room.clone(),
             thread: call_id.clone(),
-            persona: persona_id.into(),
+            persona: persona_id.map(str::to_string),
             client: crate::call_room::prompt_client(),
         };
         let call_id = call_id.clone();
-        let persona_id = persona_id.to_string();
+        let persona_id = persona_id.map(str::to_string);
         tokio::spawn(async move {
             while let Some(entry) = entries.recv().await {
                 let Some(room) = room.upgrade() else {
@@ -72,7 +72,7 @@ impl Record {
                 };
                 match entry {
                     Entry::Ended { ts, end, outcome } => {
-                        room.call_ended(&call_id, &persona_id, end, outcome, ts);
+                        room.call_ended(&call_id, persona_id.as_deref(), end, outcome, ts);
                     }
                 }
             }
@@ -95,7 +95,8 @@ impl Record {
     }
 
     pub(super) fn line(&self, line: &Value) {
-        self.room.call_said(&self.thread, &self.persona, line);
+        self.room
+            .call_said(&self.thread, self.persona.as_deref(), line);
     }
 
     /// The call is over, for this reason.

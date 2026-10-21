@@ -52,11 +52,6 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-/// The desk's own calls, which name no teammate, are kept on this tape and not
-/// as call threads: they have no DM to hang off, and the dispatcher reads the
-/// tape's tail as what was said on the desk lately, across calls. It is
-/// indexed, but has no persona and never enters the roster.
-pub const TAPE_ID: &str = "voice-dispatcher";
 const RETRY_LINE: &str = "Sorry, say that again.";
 const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
@@ -293,6 +288,7 @@ struct Input {
 
 #[doc(hidden)]
 pub struct Call {
+    desk: bool,
     thread: Option<hotline_contract::ThreadId>,
     id: String,
     output: String,
@@ -601,6 +597,17 @@ impl Calls {
     }
 
     /// Whether the call `id` is still going: the person is on it.
+    /// Only a live call placed to the desk carries the lead's routing grant.
+    pub fn lead_call(&self, persona: &str, thread: &hotline_contract::ThreadId) -> bool {
+        hotline_room::room::team_lead(&self.log).as_deref() == Some(persona)
+            && lock(&self.calls).iter().any(|call| {
+                call.desk
+                    && call.target.as_deref() == Some(persona)
+                    && call.thread.as_ref() == Some(thread)
+                    && call.state != VoiceState::Ended
+            })
+    }
+
     pub fn thread_origin(&self, thread: &hotline_contract::ThreadId) -> Option<Origin> {
         let calls = lock(&self.calls);
         let call = calls
@@ -709,7 +716,12 @@ impl Calls {
         };
         // A call to a teammate pays for no call assistant.
         let direct_budget_error = budget_error(None);
-        let budget_error = budget_error(dispatcher.as_deref().ok());
+        let lead = hotline_room::room::team_lead(&self.log).is_some();
+        let budget_error = budget_error(if lead {
+            None
+        } else {
+            dispatcher.as_deref().ok()
+        });
         let limits = self.ledger.limits(BudgetKind::Voice);
         let spent = self.ledger.spent();
         // A tally that cannot be read reports its limits spent.
@@ -729,7 +741,13 @@ impl Calls {
             .err()
             .filter(|_| !front)
             .cloned()
-            .or_else(|| dispatcher.as_ref().err().cloned())
+            .or_else(|| {
+                if lead {
+                    None
+                } else {
+                    dispatcher.as_ref().err().cloned()
+                }
+            })
             .or(budget_error);
         let mut capabilities = vec![
             "voiceDirectCalls".into(),

@@ -86,6 +86,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         reply_thread: None,
         reply_job: None,
         returned: false,
+        lead_call: None,
     }
 }
 fn seed(room: &Room, request: Request, count: i64, paused: bool) {
@@ -1489,4 +1490,18 @@ async fn a_handoff_to_a_teammate_with_every_thread_mid_turn_waits_its_place() {
     gate.add_permits(100);
     done(&room, &id).await;
     assert!(work_thread(&room, &id).len() > 10);
+}
+
+#[tokio::test]
+async fn a_saved_desk_handoff_cannot_recreate_a_live_calls_grant() {
+    let (room, _agents) = setup("lead-call-recovery");
+    let mut request = saved_request("desk-request", Intent::Handoff, Phase::Queued);
+    request.lead_call = Some(ThreadId::call("ended-call"));
+    seed(&room, request, 0, false);
+    room.wake_exchange("ada~bob");
+    done(&room, "desk-request").await;
+    let request = room.exchange_pair("ada~bob").unwrap().requests.remove(0);
+    assert!(request.failed);
+    assert!(request.reply.contains("lead grant has ended"));
+    assert!(request.thread.is_none(), "no work thread was created");
 }

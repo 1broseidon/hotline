@@ -384,20 +384,24 @@ impl Room {
         }
         let stored = self.stored_secrets();
         let build = |view: &Persona, transcript: Option<String>| {
+            let mut preamble = preamble_of(
+                thread.kind,
+                view,
+                reach,
+                &stored,
+                Joining {
+                    opener: opened_by.as_ref(),
+                    context: context.clone(),
+                    transcript,
+                    note: note.clone(),
+                },
+            );
+            if self.lead_call(&view.id, &thread) {
+                preamble.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use message_teammate, intent handoff, with the person's words unchanged and say who has it. Do not stop or reassign another teammate's work.");
+            }
             self.agents.agent(
                 view,
-                preamble_of(
-                    thread.kind,
-                    view,
-                    reach,
-                    &stored,
-                    Joining {
-                        opener: opened_by.as_ref(),
-                        context: context.clone(),
-                        transcript,
-                        note: note.clone(),
-                    },
-                ),
+                preamble,
                 history.clone(),
                 tools_of(self, &thread, &view.id, &lease),
                 extra_mcp.clone(),

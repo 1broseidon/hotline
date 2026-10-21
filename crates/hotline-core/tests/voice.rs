@@ -66,7 +66,7 @@ impl Speech for FakeSpeech {
         })
     }
 }
-struct ScriptDispatcher;
+struct ScriptDispatcher(Arc<AtomicUsize>);
 #[async_trait::async_trait]
 impl Dispatcher for ScriptDispatcher {
     fn id(&self) -> VoiceModel {
@@ -77,6 +77,7 @@ impl Dispatcher for ScriptDispatcher {
         }
     }
     async fn answer(&self, context: Context, text: &str, _: Arc<Budget>) -> Result<String, String> {
+        self.0.fetch_add(1, Ordering::SeqCst);
         assert_eq!(text, "ask Mack to check the failing PR");
         let mack = hotline_core::room::roster(&context.log)
             .into_iter()
@@ -110,7 +111,7 @@ fn services() -> Services {
             tts: speech,
             fallback_tts: None,
         },
-        dispatcher: Some(Arc::new(ScriptDispatcher)),
+        dispatcher: Some(Arc::new(ScriptDispatcher(Arc::default()))),
         realtime: None,
     }
 }
@@ -217,6 +218,7 @@ impl Realtime for ScriptedFront {
 }
 
 struct FrontDesk {
+    dispatcher_calls: Arc<AtomicUsize>,
     port: u16,
     socket: Socket,
     asked: tokio::sync::mpsc::Receiver<Asked>,
@@ -242,6 +244,8 @@ async fn front_desk_with(front: bool, queue: usize, delegates: bool) -> FrontDes
         delegates,
     });
     let mut services = services();
+    let dispatcher_calls = Arc::new(AtomicUsize::new(0));
+    services.dispatcher = Some(Arc::new(ScriptDispatcher(dispatcher_calls.clone())));
     if front {
         services.realtime = Some(scripted.clone());
     }
@@ -262,6 +266,7 @@ async fn front_desk_with(front: bool, queue: usize, delegates: bool) -> FrontDes
         .await
         .unwrap();
     FrontDesk {
+        dispatcher_calls,
         port,
         socket,
         asked,
@@ -312,6 +317,7 @@ mod voice {
     mod front;
     mod front_state;
     mod front_tools;
+    mod lead;
     mod pipeline;
     #[cfg(unix)]
     mod processes;

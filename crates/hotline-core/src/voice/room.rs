@@ -1,14 +1,12 @@
 //! Sessions, vault reads and real tool handlers behind the call-room seam.
 use crate::{
-    contract::{Command, ConfigChoice, End, ModelCost, Persona, SessionInfo, ThreadId},
+    contract::{ConfigChoice, End, ModelCost, Persona, SessionInfo, ThreadId},
     log::Log,
     session::Room,
     vault::Vault,
-    wire::RoomHandle,
 };
 use async_trait::async_trait;
 use hotline_voice::{
-    Calls,
     call_room::CallRoom,
     front_tools::{DeskTools, FrontReach},
 };
@@ -52,14 +50,22 @@ impl CallRoom for RoomSide {
     fn connected(&self) -> hotline_voice::speech::Connected {
         super::connected::connected(&self.vault)
     }
-    fn call_began(&self, call: &ThreadId, persona: &str, ts: i64) {
-        if let Ok(room) = self.room() {
+    fn call_began(&self, call: &ThreadId, persona: Option<&str>, ts: i64) {
+        if let Some(persona) = persona
+            && let Ok(room) = self.room()
+        {
             room.call_began(call, persona, ts);
         }
     }
-    fn call_said(&self, call: &ThreadId, persona: &str, line: &Value) {
+    fn call_said(&self, call: &ThreadId, persona: Option<&str>, line: &Value) {
         if let Ok(room) = self.room() {
-            room.call_said(call, persona, line);
+            if let Some(persona) = persona {
+                room.call_said(call, persona, line);
+            } else if let Some(stream) = crate::log::StreamId::of_thread(call)
+                && let Err(error) = room.log().append(&stream, line)
+            {
+                eprintln!("[voice] could not save desk call: {error}");
+            }
         }
     }
     fn call_detached(&self, call: &ThreadId) {
@@ -67,8 +73,10 @@ impl CallRoom for RoomSide {
             room.call_detached(call);
         }
     }
-    fn call_ended(&self, call: &ThreadId, persona: &str, end: End, outcome: &str, ts: i64) {
-        if let Ok(room) = self.room() {
+    fn call_ended(&self, call: &ThreadId, persona: Option<&str>, end: End, outcome: &str, ts: i64) {
+        if let Some(persona) = persona
+            && let Ok(room) = self.room()
+        {
             room.call_ended(call, persona, end, outcome, ts);
         }
     }
@@ -102,9 +110,6 @@ impl CallRoom for RoomSide {
             .upgrade()
             .is_some_and(|room| room.voice_spoken(persona, event, spoken))
     }
-    fn voice_record(&self, kind: &str, text: &str) -> Result<String, String> {
-        self.room()?.voice_record(kind, text)
-    }
     fn voice_push(&self, persona: &str, name: &str, text: &str) {
         if let Ok(room) = self.room() {
             room.voice_push(persona, name, text);
@@ -112,7 +117,9 @@ impl CallRoom for RoomSide {
     }
     fn front_reach(&self, persona: &Persona, thread: &ThreadId) -> Result<FrontReach, String> {
         let reach = self.room()?.front_reach(persona, thread)?;
-        let definitions = crate::mcp::server::TeammateTools::front_descriptors();
+        let definitions = crate::mcp::server::TeammateTools::front_descriptors(
+            self.room()?.lead_call(&persona.id, thread),
+        );
         let tools = Arc::new(reach.tools);
         let capability = reach.capability;
         Ok(FrontReach {
@@ -125,24 +132,6 @@ impl CallRoom for RoomSide {
             },
             capability,
         })
-    }
-    async fn command(
-        &self,
-        command: Command,
-        log: &Log,
-        room: &Arc<dyn RoomHandle>,
-        calls: Arc<Calls>,
-    ) -> Result<Value, String> {
-        crate::wire::commands::run(
-            command,
-            log,
-            room,
-            &crate::wire::Parts {
-                voice: Some(calls),
-                ..Default::default()
-            },
-        )
-        .await
     }
     fn background_work_allowed(&self, log: &Log, persona: &str) -> bool {
         crate::session::schedule::background_work_allowed(log, persona)

@@ -555,7 +555,7 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
     };
     assert!(Seat::Phone.permits(&page(thread(ThreadKind::Pair))));
     assert!(!Seat::Phone.permits(&page(thread(ThreadKind::Call))));
-    assert!(!Seat::Phone.permits(&page(ThreadId::dm(crate::voice::TAPE_ID))));
+    assert!(!Seat::Phone.permits(&page(ThreadId::dm("voice-dispatcher"))));
     for kind in [
         ThreadKind::Dm,
         ThreadKind::Side,
@@ -569,7 +569,7 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
         );
     }
     assert!(!Seat::Phone.permits_sub(&Target::ThreadId(thread(ThreadKind::Call))));
-    assert!(!Seat::Phone.permits_sub(&Target::ThreadId(ThreadId::dm(crate::voice::TAPE_ID))));
+    assert!(!Seat::Phone.permits_sub(&Target::ThreadId(ThreadId::dm("voice-dispatcher"))));
     // The desk and an owner may do all of it.
     for seat in [Seat::Desk, Seat::Owner] {
         assert!(seat.permits(&prompt(ThreadKind::Dm)));

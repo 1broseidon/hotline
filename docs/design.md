@@ -164,6 +164,18 @@ importer reads a data directory the shipping Hotline is still using and never
 writes into it: George runs the old app daily until Phase 1 replaces it, and
 this tree becomes the `hotline` repository when it does.
 
+The log owns a shared in-memory fold under its writer lock. The room stays
+resident; other streams share a least-recently-read cache of at most 64 streams
+and 64 MiB of estimated retained memory, including JSON and id-index overhead.
+An oversized stream is read cold. Appends replace an id in its original slot
+and update the latest chapter and message positions before publishing. Prompt
+and idle checks read that chapter state without copying the tape. Compaction
+and migrations invalidate affected folds; restart rebuilds them from disk.
+Unterminated files and partial reads are not retained. Failure-sensitive and
+strict reads still inspect disk, so caching cannot turn a storage error into
+an authoritative answer. Only the log writes streams during its lifetime;
+imports finish before it opens. Event shapes and segment layout are unchanged.
+
 ### 2. A wire of commands and subscriptions
 
 Hotline's contract is 135 request methods and 14 pushes, gated per method per

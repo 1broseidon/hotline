@@ -999,18 +999,6 @@ impl Room {
         *lock(&self.voice) = Arc::downgrade(voice);
     }
 
-    pub(crate) fn voice_record(&self, kind: &str, text: &str) -> Result<String, String> {
-        let id = new_id();
-        self.try_write_value(
-            crate::voice::TAPE_ID,
-            &json!({
-                "kind": kind, "id": id, "ts": now_ms(), "text": text,
-            }),
-        )
-        .map_err(|_| "The voice conversation could not be saved.".to_string())?;
-        Ok(id)
-    }
-
     /// Keeps `spoken` as what a call to the teammate said for its reply
     /// `event_id`, on the reply's first bubble: the call assistant's rewrite
     /// of a reply that wrote no spoken version ([`crate::voice::spoken`]).
@@ -1170,7 +1158,7 @@ impl Room {
         self.log
             .append(&StreamId::Tape(persona_id.to_string()), event)?;
         self.index(persona_id, event);
-        if persona_id != crate::voice::TAPE_ID
+        if persona_id != "voice-dispatcher"
             && let Some(voice) = lock(&self.voice).upgrade()
         {
             voice.card(persona_id, event);

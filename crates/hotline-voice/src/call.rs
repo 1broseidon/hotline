@@ -92,6 +92,11 @@ impl Calls {
             mode,
             mic_rate,
         } = request;
+        let desk = target.is_none();
+        if desk && thread.is_some() {
+            return Err("Choose the thread's teammate before calling.".into());
+        }
+        let target = target.or_else(|| hotline_room::room::team_lead(&self.log));
         let live = mode == VoiceCallMode::Front
             || (mode == VoiceCallMode::Selected && self.front_selected());
         eprintln!("[voice] call {id}: start requested={mode:?} live={live}");
@@ -105,9 +110,6 @@ impl Calls {
         {
             return Err("That teammate is no longer in the room.".into());
         }
-        if thread.is_some() && target.is_none() {
-            return Err("Choose the thread's teammate before calling.".into());
-        }
         let existing_thread = thread.is_some();
         let thread = target
             .as_ref()
@@ -120,7 +122,8 @@ impl Calls {
         Uuid::parse_str(id).map_err(|_| "A voice call needs a UUID.".to_string())?;
         let mut calls = lock(&self.calls);
         if let Some(call) = calls.iter().find(|call| call.id == id)
-            && (call.target != target
+            && (call.desk != desk
+                || call.target != target
                 || call.thread != thread
                 || call.stream_audio != stream_audio
                 || call.input_mode != input_mode
@@ -164,6 +167,7 @@ impl Calls {
                 id: id.into(),
                 output: speech_services.tts.output_mime().into(),
                 target: target.clone(),
+                desk,
                 thread: thread.clone(),
                 stream_audio,
                 input_mode,
@@ -187,13 +191,11 @@ impl Calls {
                 cut: VecDeque::new(),
                 speech_line: super::record::SpeechLine::default(),
                 interrupted_through: None,
-                record: target.as_deref().map(|persona_id| {
-                    Record::open(
-                        self.room.clone(),
-                        thread.as_ref().expect("a direct call has a thread"),
-                        persona_id,
-                    )
-                }),
+                record: Some(Record::open(
+                    self.room.clone(),
+                    &thread.unwrap_or_else(|| hotline_contract::ThreadId::call(id)),
+                    target.as_deref(),
+                )),
                 words: String::new(),
                 front: realtime.is_some().then(|| Front::new(mic_rate)),
                 live_error: None,
@@ -204,7 +206,7 @@ impl Calls {
             self.thinking_again(id, cancel.clone());
             let this = self.clone();
             let id = id.to_string();
-            let context = Context::new(self.log.clone(), room, self.clone(), cancel);
+            let context = Context::new(self.log.clone(), room, self.clone(), cancel).on_call(&id);
             // What the person says on this call carries the app they called from.
             let client = crate::call_room::prompt_client();
             tokio::spawn(async move {

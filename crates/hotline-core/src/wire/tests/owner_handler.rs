@@ -97,7 +97,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
         &room,
         &desk.log,
         &desk.parts(),
-        json!({"id":20,"sub":{"tape":crate::voice::TAPE_ID}}),
+        json!({"id":20,"sub":{"tape":"voice-dispatcher"}}),
     )
     .await;
     assert_eq!(hidden["code"], FORBIDDEN);

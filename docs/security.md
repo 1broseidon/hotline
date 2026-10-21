@@ -1543,8 +1543,9 @@ it lets a colleague use another's tools.
 
 `voice.*` commands and `{"call":"id"}` subscriptions are restricted to the local
 desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
-`voice-dispatcher` tape is also refused as a companion subscription. No microphone
-audio is written to the tape: only transcriptions and spoken text are indexed.
+historical `voice-dispatcher` tape is also refused as a companion subscription.
+New calls never write it. No microphone audio is stored: calls keep only
+transcriptions, spoken text and tool events.
 
 `voice.text` is an additive finalized-transcript input on an explicitly
 negotiated text call; omitted input mode retains audio. The same socket-bound
@@ -1552,10 +1553,12 @@ call cancellation, monotonically increasing sequence and pending-turn gate
 apply. There is no remote transcription request or STT reservation for text,
 and it adds no permission, grant or caller-controlled origin.
 
-The dispatcher executes a fixed command allowlist in `voice::dispatcher::Context`.
-It cannot answer permission/human/passkey cards, edit policies, read arbitrary
-files, or change credentials. Text handoffs use the ordinary session commands;
-those commands retain the teammate's existing permissions and approval gates.
+Without a lead, the fallback assistant executes bounded named operations in
+`voice::dispatcher::Context` through typed room methods, never the wire command
+table. It cannot answer permission/human/passkey cards, edit policies, read
+arbitrary files, or change credentials. Its text handoffs retain the teammate's
+existing permissions and approval gates. With a lead, the desk uses that
+teammate's own call thread and the lead-call grant described below.
 Disconnect/revocation cancels the call's authority to dispatch further actions,
 while already accepted teammate work continues. Clip queues are bounded; an
 out-of-date subscriber is disconnected instead of losing audio silently.
@@ -1866,3 +1869,41 @@ teammate's lease never covers another teammate's computer.
 | --- | --- | --- |
 | Live work uses its own driver/model and call transcript, posts its file, and leaves the home agent running through correction and cancellation | `tests/call_threads/live_work.rs` `live_work_uses_its_own_driver_and_posts_its_file_without_touching_home`, `changing_and_dropping_live_work_keeps_one_call_agent_and_home_keeps_running` | Both drivers; scripted Grok, GPT Realtime and GPT-Live |
 | Front reads refuse revoked grants and direct writes; GPT-Live uses the same work admission | `tests/voice/front_tools.rs` `a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refused`, `gpt_live_delegation_uses_the_same_call_thread_work_tool` | — |
+
+
+## Desk calls on the team lead
+
+- **Default and grant source:** the roster's current `teamLead`, plus a live
+  call placed to the desk, grant local `handoff` requests without first-contact
+  approval. No policy field or permanent collaboration grant is installed.
+  A direct call to the lead and its other threads get no new grant. Old
+  exchange records carry none.
+- **Enforcement:** `Calls::lead_call` checks target, live call and current lead.
+  `TeammateTools::call` checks the capability lease and limits the front to
+  lookups plus `message_teammate` with `handoff` on that desk call. The exchange
+  records the source call only for a local recipient and rechecks both leases
+  and the lead/call before starting or resuming the handoff. A queued request
+  whose call or lead ended fails explicitly, including after restart. Stop,
+  policy change and deletion retain the ordinary lease revocation. No tool
+  for stopping or reassigning another teammate is added.
+- **Proof:** `tests/voice/lead.rs`
+  `the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on` proves
+  roster lookup without a working-model request, unchanged named handoff
+  without a first-contact card or dispatcher call, and denied ask, stop and
+  former-lead use through the real handlers;
+  `a_direct_call_to_the_lead_does_not_get_the_desks_handoff_grant` proves the
+  direct-call refusal; `a_no_lead_front_knows_the_person_and_roster` proves
+  fallback context; `session/exchanges/tests.rs`
+  `a_saved_desk_handoff_cannot_recreate_a_live_calls_grant` proves recovery
+  fails the old grant before creating work;
+  `voice/room/tests/desk_calls.rs`
+  `hanging_up_removes_the_leads_handoff_tool_from_an_existing_handle` proves
+  a retained handler loses routing authority on hang-up. Existing front-tools
+  tests prove lease revocation.
+- **Residual risk:** the model selects the recipient and words. Prompt
+  injection can misuse this bounded routing authority during the call; the
+  core cannot prove that speech really named a recipient. Accepted work uses
+  the recipient's own grants and continues after hang-up once started.
+  Linked recipients retain ordinary collaboration consent. The fallback
+  assistant remains only for desks with no lead, with its existing bounded
+  operations; old dispatcher tapes remain owner-only historical data.

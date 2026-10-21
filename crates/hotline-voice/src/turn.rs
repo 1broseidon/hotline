@@ -47,15 +47,7 @@ impl Calls {
         audio: &[u8],
         interrupted: Option<&CancellationToken>,
     ) {
-        let direct = self
-            .change(id, |call| Ok(call.target.is_some()))
-            .unwrap_or(false);
-        let line = if direct {
-            self.keep(id, Speaker::Voice, text)
-        } else {
-            self.record("agent", text)
-                .unwrap_or_else(|_| Uuid::new_v4().to_string())
-        };
+        let line = self.keep(id, Speaker::Voice, text);
         self.emit(
             id,
             VoiceEvent::Said {
@@ -316,7 +308,9 @@ impl Calls {
         }
         let target = self.change(id, |call| Ok(call.target.clone()))?;
         if target.is_none() {
-            self.record("user", &text)?;
+            if !relayed {
+                self.keep(id, Speaker::Person, &text);
+            }
         } else {
             let _ = self.change(id, |call| {
                 call.words.clone_from(&text);
@@ -733,22 +727,16 @@ impl Calls {
 
     /// A reply said sentence by sentence, kept once and whole: on a direct
     /// call as one line of the call's thread under the id the clients were
-    /// shown, and on a desk call as one line of the dispatcher's tape.
+    /// shown, including a fallback desk call's own transcript.
     pub(super) fn keep_reply(&self, id: &str, reply: Reply) -> Result<(), String> {
         if reply.text.is_empty() {
             return Ok(());
         }
         let direct = self.change(id, |call| Ok(call.target.is_some()))?;
         if !direct {
-            self.record("agent", &reply.text)?;
+            self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
         }
         Ok(())
-    }
-
-    pub(super) fn record(&self, kind: &str, text: &str) -> Result<String, String> {
-        self.live_room()
-            .ok_or("The desk has closed.")?
-            .voice_record(kind, text)
     }
 
     /// Speech is priced from what is sent (seconds of audio, characters of

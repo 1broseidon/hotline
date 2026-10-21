@@ -105,7 +105,7 @@ async fn a_blocked_dispatcher_says_nothing_and_interrupt_preserves_its_text() {
         assert!(lock(&fake.spoken).is_empty());
         until("the answer", || {
             desk.log
-                .load(&crate::log::StreamId::Tape(TAPE_ID.into()))
+                .load(&crate::log::StreamId::Call(id.clone()))
                 .iter()
                 .any(|e| e["text"] == whole)
         })

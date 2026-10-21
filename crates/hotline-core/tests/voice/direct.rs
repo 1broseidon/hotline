@@ -238,7 +238,7 @@ async fn direct_call_uses_its_thread(
     );
     assert!(
         !log.load(&hotline_core::log::StreamId::Tape(
-            hotline_core::voice::TAPE_ID.into()
+            "voice-dispatcher".into()
         ))
         .iter()
         .any(|v| matches!(v["kind"].as_str(), Some("user" | "agent")))
@@ -338,17 +338,14 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     )
     .await;
     let status = frame_where(&mut socket, |f| f["id"] == 4).await;
-    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["available"], true);
     assert_eq!(status["result"]["directAvailable"], true);
     send(
         &mut socket,
         json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string()}}),
     )
     .await;
-    assert_eq!(
-        frame_where(&mut socket, |f| f["id"] == 5).await["ok"],
-        false
-    );
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 5).await["ok"], true);
     let call = Uuid::new_v4().to_string();
     send(&mut socket, json!({"id":6,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
     let started = frame_where(&mut socket, |f| f["id"] == 6).await;
@@ -368,7 +365,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     )
     .await;
     let status = frame_where(&mut socket, |f| f["id"] == 9).await;
-    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["available"], true);
     assert_eq!(status["result"]["directAvailable"], true);
     assert!(status["result"].get("stt").is_none());
     send(
@@ -378,7 +375,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     .await;
     assert_eq!(
         frame_where(&mut socket, |f| f["id"] == 10).await["ok"],
-        false
+        true
     );
     let text_call = Uuid::new_v4().to_string();
     send(&mut socket, json!({"id":11,"cmd":"voice.call_start","params":{"callId":text_call,"personaId":persona,"inputMode":"text","streamAudio":true}})).await;

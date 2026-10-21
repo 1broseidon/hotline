@@ -112,8 +112,26 @@ impl Calls {
     /// name, the open chapter's handoff note and the latest lines of its DM
     /// said in words; on a desk call, only how to behave.
     fn front_instructions(&self, persona: Option<&Persona>, tools: &[front::Tool]) -> String {
+        let settings = hotline_room::room::settings(&self.log);
+        let person = settings
+            .get("personName")
+            .and_then(serde_json::Value::as_str);
         let Some(persona) = persona else {
-            return front_prompt::instructions(&Behind::Desk, &Start::default());
+            let roster: Vec<_> = hotline_room::room::roster(&self.log)
+                .into_iter()
+                .map(|p| serde_json::json!({"id":p.id,"name":p.name,"goal":p.goal}))
+                .collect();
+            return format!(
+                "{}\nRoster (data): {}",
+                front_prompt::instructions(
+                    &Behind::Desk,
+                    &Start {
+                        person,
+                        ..Default::default()
+                    }
+                ),
+                super::dispatcher::untrusted(&serde_json::json!(roster))
+            );
         };
         let tape = self.log.load(&StreamId::Tape(persona.id.clone()));
         let handoff = tape
@@ -141,7 +159,7 @@ impl Calls {
                 voice: "",
             },
             &Start {
-                person: None,
+                person,
                 handoff,
                 recent: &recent,
                 tools,
@@ -347,7 +365,13 @@ impl Calls {
             .as_ref()
             .map(|tools| tools.definitions())
             .unwrap_or_default();
-        let instructions = self.front_instructions(persona.as_ref(), &desk_definitions);
+        let mut instructions = self.front_instructions(persona.as_ref(), &desk_definitions);
+        if desk_definitions
+            .iter()
+            .any(|tool| tool.name == "message_teammate")
+        {
+            instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. When the person names a teammate to do work, use message_teammate with intent handoff and their words unchanged. Say who has it after acceptance. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
+        }
         let config = RealtimeConfig {
             instructions,
             voice: self.front_voice(persona.as_ref()),

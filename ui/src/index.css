@@ -3747,6 +3747,25 @@
 		overflow: hidden;
 		animation: call-bar-open var(--dur-open) var(--ease-out) both;
 	}
+	.call-live-failure {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		padding: 0 10px 10px;
+		font-size: 13px;
+	}
+	.call-live-failure p {
+		flex: 1 1 180px;
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	.call-live-failure button {
+		flex-shrink: 0;
+	}
+	.desk-call .call-live-failure {
+		padding: 0;
+	}
 	.call-bar[data-bare] {
 		padding-left: 38px;
 	}

@@ -102,11 +102,9 @@ pub struct CallSpeech {
     pub stt: Option<Arc<dyn speech::Speech>>,
     tts: Arc<dyn speech::Speech>,
     fallback_tts: Option<Arc<dyn speech::Speech>>,
-    /// The front stands in for a pipeline the desk does not have ([`CallSpeech::front`]).
-    pub front_only: bool,
 }
 
-/// A front's identity as a call's speech, for a desk with no pipeline: the
+/// A front's identity as a call's speech: the
 /// provider and model the login check and the budgets read, and nothing to
 /// hear or say with, since the front does both itself.
 struct FrontSpeech {
@@ -174,7 +172,6 @@ impl CallSpeech {
             stt: Some(speech.stt),
             tts: speech.tts,
             fallback_tts: speech.fallback_tts,
-            front_only: false,
         }
     }
     pub fn output(speech: SpeechOutput) -> Self {
@@ -182,10 +179,9 @@ impl CallSpeech {
             stt: None,
             tts: speech.tts,
             fallback_tts: speech.fallback_tts,
-            front_only: false,
         }
     }
-    /// A front call on a desk with no pipeline to fall back on: the front
+    /// A front call needs no Legacy speech services: the front
     /// hears and speaks itself, and its identity stands in for the speech
     /// the call would otherwise have resolved.
     fn front(front: &dyn realtime::Realtime) -> Self {
@@ -196,7 +192,6 @@ impl CallSpeech {
                 subscription: front.is_subscription(),
             }),
             fallback_tts: None,
-            front_only: true,
         }
     }
 }
@@ -349,6 +344,7 @@ pub struct Call {
     pub words: String,
     /// On a front call, its sound; gone once the front is.
     front: Option<Front>,
+    live_error: Option<String>,
 }
 
 impl Call {
@@ -394,6 +390,7 @@ impl Call {
     fn snapshot(&self) -> VoiceEvent {
         VoiceEvent::State {
             state: self.state,
+            live_error: self.live_error.clone(),
             reason: self.reason,
             listening: self.listening_while_thinking(),
         }
@@ -688,6 +685,13 @@ impl Calls {
             status.direct_available = false;
             status.unavailable = Some(CALLS_OFF.into());
             status.front = None;
+            status.live_selected = false;
+        }
+        if status.live_selected && !self.settings().calls_off {
+            let error = self.required_front().err();
+            status.direct_available = error.is_none();
+            status.available = error.is_none();
+            status.unavailable = error;
         }
         status
     }
@@ -738,6 +742,7 @@ impl Calls {
             capabilities.push(VOICE_FRONT.into());
         }
         VoiceStatus {
+            live_selected: self.front_selected(),
             capabilities,
             available: unavailable.is_none(),
             direct_available,

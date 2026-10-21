@@ -9,6 +9,7 @@
 //! conversation's transcript across, so the caller sees one session for the
 //! whole call. Dropping every [`RealtimeInput`] closes it.
 
+mod diagnostics;
 pub mod live;
 pub mod socket;
 

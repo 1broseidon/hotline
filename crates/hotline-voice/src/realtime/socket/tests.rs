@@ -175,7 +175,14 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
         .await;
         send(&mut socket, json!({"type": "response.done"})).await;
 
-        let truncate = receive(&mut socket).await;
+        let mut truncate = receive(&mut socket).await;
+        assert!(
+            truncate
+                .as_object_mut()
+                .unwrap()
+                .remove("event_id")
+                .is_some()
+        );
         assert_eq!(
             truncate,
             json!({"type": "conversation.item.truncate", "item_id": "item_1", "content_index": 0, "audio_end_ms": 120})
@@ -193,7 +200,8 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
         )
         .await;
         // The result arrives mid-reply: the next reply waits for this one.
-        let result = receive(&mut socket).await;
+        let mut result = receive(&mut socket).await;
+        assert!(result.as_object_mut().unwrap().remove("event_id").is_some());
         assert_eq!(
             result,
             json!({"type": "conversation.item.create", "item": {"type": "function_call_output", "call_id": "c1", "output": "{\"ok\":true}"}})

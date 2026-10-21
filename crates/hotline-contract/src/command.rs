@@ -37,8 +37,8 @@ pub enum Command {
         stream_audio: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         input_mode: Option<VoiceInputMode>,
-        /// `front` asks for a voice front. The answer is in the reply's
-        /// `front`; a desk that cannot or will not run one leaves it out.
+        /// Omitted: use Settings. `front` requires live; `pipeline` is the
+        /// person's explicit Legacy choice. A failed live call never changes mode.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mode: Option<VoiceCallMode>,
         /// The rate of the microphone audio a front call will send:

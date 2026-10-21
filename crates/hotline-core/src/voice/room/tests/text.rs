@@ -81,6 +81,7 @@ async fn text_mode_needs_only_output_configuration_and_legacy_audio_stays_unavai
                 "setting",
                 json!({
                     "id":"voice", "value": {
+                        "front":{"provider":"legacy"},
                         "stt":{"provider":"not-connected"},
                         "tts":{"provider":"openai"},
                         "dispatcher":{"provider":"openai","model":"gpt-5-mini"}

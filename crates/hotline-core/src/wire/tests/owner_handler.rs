@@ -255,7 +255,7 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
             &crate::room::room_event(
                 "setting",
                 json!({
-                    "id":"voice", "value":{"dispatcher":{"provider":"not-connected"}}
+                    "id":"voice", "value":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"}}
                 }),
             ),
         )
@@ -334,6 +334,7 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
                 "setting",
                 json!({
                     "id":"voice", "value":{
+                        "front":{"provider":"legacy"},
                         "stt":{"provider":"not-connected"},
                         "dispatcher":{"provider":"not-connected"}
                     }

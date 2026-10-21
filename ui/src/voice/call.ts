@@ -54,6 +54,7 @@ export type CallSnapshot = {
 	trouble?: string | undefined;
 	/** This Mac heard no words and the desk would hear the call with its own model, free: worth offering. */
 	deskModel?: boolean;
+	legacyAvailable?: boolean;
 };
 
 /** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
@@ -140,12 +141,12 @@ const TEXT_ONSET_PREROLL_MS = 500;
 /** A voice front hears 16 kHz PCM, sent in 40 ms frames as it is spoken. */
 const FRONT_FRAME_SAMPLES = WAV_RATE / 25;
 
-const FRONT_GONE = "The voice front stopped. The call carries on with Legacy voice.";
+const FRONT_GONE = "Live voice disconnected and could not reconnect.";
 
 type Names = (personaId: string) => string | undefined;
 
 export type CallTarget = { thread?: import("../generated/contract").ThreadId; personaId: string; name: string; avatarHash?: string | undefined };
-export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined };
+export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined; legacy?: boolean };
 
 /** Remove only a stable recognized prefix known to predate the speaker's onset. */
 function afterRecognizedPrefix(text: string, prefix: string): string {
@@ -169,15 +170,17 @@ function speechLevel(rms: number): number {
 
 /** Whether the desk can put a voice front on a call: it says so in `voice.status`. */
 function offersFront(status: unknown): boolean {
+	const selection = (status as { liveSelected?: boolean } | null)?.liveSelected;
+	if (selection !== undefined) return selection;
 	const capabilities = (status as { capabilities?: unknown } | null)?.capabilities;
 	return Array.isArray(capabilities) && capabilities.includes("voiceFront");
 }
 
 export function supportsDirectCalls(status: unknown): boolean {
 	if (typeof status !== "object" || status === null) return false;
-	const value = status as { capabilities?: unknown; directAvailable?: unknown; available?: unknown };
+	const value = status as { capabilities?: unknown; directAvailable?: unknown; available?: unknown; liveSelected?: boolean };
 	return Array.isArray(value.capabilities) && value.capabilities.includes("voiceDirectCalls") &&
-		(value.directAvailable ?? value.available) === true;
+		(value.liveSelected === true || (value.directAvailable ?? value.available) === true);
 }
 
 export class Call {
@@ -256,9 +259,10 @@ export class Call {
 	/**
 	 * A front call: a realtime model on the desk hears and speaks, so the
 	 * microphone streams all the time and its speech plays as it comes.
-	 * Null is the pipeline, also after the front has gone mid-call.
+	 * Null is a Legacy call; a failed live call ends.
 	 */
 	private front: VoiceFront | null = null;
+	private liveRequested = false;
 	private frontSeq = 0;
 	private frontResampler: PcmResampler | null = null;
 	private frontSamples: number[] = [];
@@ -286,7 +290,13 @@ export class Call {
 	nameOf(personaId: string): string | undefined { return this.names(personaId); }
 	readonly readAvatar = (personaId: string, hash: string, offset: number): Promise<FileChunk> =>
 		this.transport.command("avatar.read", { personaId, hash, offset }) as Promise<FileChunk>;
-	redial(): Call { return new Call(this.transport, this.names, undefined, undefined, this.options, this.transcription); }
+	redial(legacy = false): Call {
+		const target = this.target === undefined ? undefined : {
+			...this.target,
+			...(this.started && this.snapshot.legacyAvailable ? { thread: this.target.thread ?? { kind: "call" as const, key: this.id } } : {}),
+		};
+		return new Call(this.transport, this.names, undefined, undefined, { ...this.options, target, legacy }, this.transcription);
+	}
 
 	watch(listener: () => void): () => void {
 		this.listeners.add(listener);
@@ -319,14 +329,16 @@ export class Call {
 			if (this.ended) return;
 			if (this.target !== undefined) status = await this.transport.command("voice.status", asked);
 			// A desk call asks to learn whether the desk fronts calls or takes text; not knowing keeps it on audio.
-			else status = await this.transport.command("voice.status", asked).catch(() => null);
+			else status = await this.transport.command("voice.status", asked);
 			if (this.ended) return;
-			if (this.target !== undefined && !supportsDirectCalls(status)) throw new Error(
+			if (this.target !== undefined && !this.options.legacy && !supportsDirectCalls(status)) throw new Error(
 				(status as { unavailable?: string } | null)?.unavailable ?? "This desk needs an update before it can call a teammate directly.",
 			);
 			// A front hears the call itself, so this Mac's recognition is not asked for.
-			this.textInput = offersFront(status) ? false : await this.transcribes(status);
-			if (offersFront(status)) this.front = { inputRate: WAV_RATE, outputRate: 0 };
+			const live = !this.options.legacy && offersFront(status);
+			this.liveRequested = live;
+			if (live) this.front = { inputRate: WAV_RATE, outputRate: 0 };
+			this.textInput = live ? false : await this.transcribes(status);
 			if (this.ended) return;
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
@@ -349,7 +361,7 @@ export class Call {
 				streamAudio: true,
 				...(this.target !== undefined ? { personaId: this.target.personaId, ...(this.target.thread !== undefined ? { thread: this.target.thread } : {}) } : {}),
 				...(this.textInput ? { inputMode: "text" } : {}),
-				...(this.front !== null ? { mode: "front", inputRate: WAV_RATE } : {}),
+				...(this.front !== null ? { mode: "front", inputRate: WAV_RATE } : this.options.legacy ? { mode: "pipeline" } : {}),
 			}) as { input?: string[]; personaId?: string; front?: VoiceFront } | null;
 			this.started = true;
 			if (this.target !== undefined && response?.personaId !== this.target.personaId) {
@@ -359,7 +371,10 @@ export class Call {
 				throw new Error("The desk did not accept on-device transcription. Update it and call again.");
 			}
 			this.pcm = !this.textInput && response?.input?.includes("audio/pcm") === true;
-			// Asked for and not given (Legacy voice, no xAI login, an older desk): the pipeline.
+			// A live call is never accepted as Legacy, even from an older desk.
+			if (this.front !== null && response?.front?.inputRate !== WAV_RATE) {
+				throw new Error("The desk could not start live voice.");
+			}
 			this.front = response?.front !== undefined && response.front.inputRate === WAV_RATE ? response.front : null;
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
@@ -481,6 +496,12 @@ export class Call {
 		if (this.ended) return;
 		switch (event.type) {
 			case "state": {
+				if (event.liveError) {
+					this.set({ trouble: event.liveError, legacyAvailable: true });
+					this.audio.stopPlayback();
+					this.end("error");
+					return;
+				}
 				const listens = event.state === "thinking" && event.listening === true;
 				// The desk answers an utterance with a state that has the floor. A thinking that listens,
 				// said again while the teammate works, may be from before the utterance reached it.
@@ -556,13 +577,8 @@ export class Call {
 				return;
 			case "frontEnded":
 				if (this.front === null) return;
-				this.front = null;
-				this.frontResampler = null;
-				this.frontSamples = [];
-				this.audio.stopPlayback();
-				this.detector.reset(this.now());
-				this.set({ trouble: FRONT_GONE });
-				this.settle();
+				this.set({ legacyAvailable: true });
+				this.fail(FRONT_GONE);
 				return;
 		}
 	}
@@ -992,7 +1008,7 @@ export class Call {
 	private fail(trouble: string): void {
 		if (this.ended) return;
 		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
-		this.set({ trouble });
+		this.set({ trouble, legacyAvailable: this.liveRequested });
 		this.end("error");
 	}
 
@@ -1065,9 +1081,9 @@ export async function startCall(names?: Names, target?: CallTarget): Promise<Cal
 }
 
 /** Retry the original desk and target, even after the window moved elsewhere. */
-export async function restartCall(previous: Call): Promise<Call> {
+export async function restartCall(previous: Call, legacy = false): Promise<Call> {
 	active?.hangUp();
-	const call = previous.redial();
+	const call = previous.redial(legacy);
 	active = call;
 	for (const holder of holders) holder();
 	await call.start();
@@ -1130,7 +1146,7 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 		void hearsOnThisMac()
 			.then((here) => wireTransport.command("voice.status", here && hearOnThisMac() ? { inputMode: "text" } : {}))
 			.then((status) => {
-				if (current) setSupport({ available: (status as { available?: boolean } | null)?.available === true, directCalls: supportsDirectCalls(status) });
+				if (current) setSupport({ available: (status as { available?: boolean; liveSelected?: boolean } | null)?.available === true || (status as { liveSelected?: boolean } | null)?.liveSelected === true, directCalls: supportsDirectCalls(status) });
 			})
 			.catch(() => {
 				if (current) setSupport({ available: false, directCalls: false });

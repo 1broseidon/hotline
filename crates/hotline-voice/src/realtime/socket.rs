@@ -117,11 +117,13 @@ impl RealtimeSocket {
         url.query_pairs_mut()
             .append_pair("model", self.dialect.model());
         let mut socket = self.access.socket(url, MESSAGE_LIMIT).await?;
-        let update = session_update(
+        let mut requests = super::diagnostics::Requests::default();
+        let mut update = session_update(
             self.dialect,
             config,
             &carry.instructions(&config.instructions),
         );
+        requests.stamp(&mut update);
         socket
             .send(Message::Text(update.to_string().into()))
             .await
@@ -135,7 +137,10 @@ impl RealtimeSocket {
                     Some("session.updated") => return Ok(()),
                     // The provider keeps its previous config on an error; a
                     // session without ours is not one this call can use.
-                    Some("error") => return Err(self.access.malformed()),
+                    Some("error") => {
+                        self.log_refusal(&requests, &event);
+                        return Err(self.access.malformed());
+                    }
                     _ => {}
                 }
             }
@@ -143,6 +148,16 @@ impl RealtimeSocket {
         .await
         .map_err(|_| self.access.unreachable())??;
         Ok(socket)
+    }
+
+    fn log_refusal(&self, requests: &super::diagnostics::Requests, event: &Value) {
+        let secrets = self.access.diagnostic_secrets();
+        let secrets: Vec<&str> = secrets.iter().map(String::as_str).collect();
+        eprintln!(
+            "[voice] {} refused: {}",
+            self.dialect.model(),
+            requests.refusal(event, &secrets)
+        );
     }
 
     async fn read(&self, socket: &mut Socket) -> Result<Read, SpeechError> {
@@ -218,6 +233,7 @@ impl Realtime for RealtimeSocket {
             respond_after: false,
             quiet_reply: false,
             opened: Instant::now(),
+            requests: super::diagnostics::Requests::default(),
         };
         tokio::spawn(driver.run(socket, command_queue));
         Ok(RealtimeSession {
@@ -290,13 +306,13 @@ enum Read {
 
 /// The conversation's transcript, newest kept, for a renewed session.
 #[derive(Clone, Default)]
-pub(super) struct Carry {
+pub(crate) struct Carry {
     lines: VecDeque<String>,
     bytes: usize,
 }
 
 impl Carry {
-    pub(super) fn push(&mut self, speaker: &str, words: &str) {
+    pub(crate) fn push(&mut self, speaker: &str, words: &str) {
         let words = words.trim();
         if words.is_empty() {
             return;
@@ -312,7 +328,7 @@ impl Carry {
         }
     }
 
-    pub(super) fn instructions(&self, base: &str) -> String {
+    pub(crate) fn instructions(&self, base: &str) -> String {
         if self.lines.is_empty() {
             return base.into();
         }
@@ -349,6 +365,7 @@ struct Driver {
     /// tool (OpenAI only).
     quiet_reply: bool,
     opened: Instant,
+    requests: super::diagnostics::Requests,
 }
 
 impl Driver {
@@ -539,6 +556,7 @@ impl Driver {
                 }
             }
             "error" => {
+                self.voice.log_refusal(&self.requests, &event);
                 // A refused `response.create` ends in no `response.done`, so
                 // the flag it set comes down here and a reply queued behind
                 // it goes now. Refused because a reply is already in
@@ -574,7 +592,8 @@ impl Driver {
 
     /// A send that fails reconnects once and is sent again; the session it
     /// was meant for is gone, but the call is not.
-    async fn send(&mut self, socket: &mut Socket, event: Value) -> Result<(), SpeechError> {
+    async fn send(&mut self, socket: &mut Socket, mut event: Value) -> Result<(), SpeechError> {
+        self.requests.stamp(&mut event);
         let text = event.to_string();
         if socket
             .send(Message::Text(text.clone().into()))
@@ -593,6 +612,10 @@ impl Driver {
     /// Only an unreachable provider is retried: a refused login, a refused
     /// entitlement or a rejected config will not change by asking again.
     async fn reconnect(&mut self, socket: &mut Socket) -> Result<(), SpeechError> {
+        eprintln!(
+            "[voice] {}: socket lost; reconnecting with transcript",
+            self.voice.dialect.model()
+        );
         let mut wait = RECONNECT_WAIT;
         let mut attempt = 0;
         loop {
@@ -620,6 +643,10 @@ impl Driver {
         self.respond_after = false;
         self.quiet_reply = false;
         self.opened = Instant::now();
+        eprintln!(
+            "[voice] {}: socket replaced with transcript",
+            self.voice.dialect.model()
+        );
         self.emit(RealtimeEvent::Renewed).await
     }
 }

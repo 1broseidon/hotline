@@ -48,6 +48,7 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
     assert_eq!(
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {
+            live_error: None,
             state: VoiceState::Listening,
             reason: None,
             listening: false,
@@ -63,6 +64,7 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
     assert_eq!(
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {
+            live_error: None,
             state: VoiceState::Ended,
             reason: Some(VoiceEndReason::Idle),
             listening: false,

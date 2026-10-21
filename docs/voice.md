@@ -984,28 +984,33 @@ minutes before the `expires_at` the server gives, a replacement call is
 placed in the background with the conversation so far in its instructions,
 and the adapter switches to it between replies (or after 30 s of a reply)
 and hangs up the old one; a replacement that cannot be placed is tried again
-a minute later. A call the server no longer knows or a failed peer drops the
-front and the call goes on as a pipeline call, when the desk has one: a
-desk with only the ChatGPT login, which is no speech connection, still
-offers and takes calls on the front alone, and losing the front then ends
-the call rather than carrying it on with nothing to hear or speak with. It costs nothing
-against the Voice budget. Legacy voice's own rows, the voice
-it speaks in and the call assistant, show in Settings only under it;
-Transcription stays under Use for, because dictation uses it.
+a minute later. A call the server no longer knows or a failed peer asks the
+call runtime to reconnect with its transcript. A replacement that fails
+ends the live call with a persistent reason, never as Legacy. GPT-Live costs
+nothing against the Voice budget. Legacy voice's settings appear under
+Legacy; Transcription remains under Use for because dictation uses it.
 
-A front call resolves its front from the vault when it starts
-(`speech::resolve_front`): the named login or key, or with none named the
-first connected that can run it. A desk with nothing that can run the chosen
-front, one whose named login is
-no longer connected, and a Voice budget with no room for a key's minutes all
-leave the call on the pipeline; the desk advertises `voiceFront` only when it
-has a login or key to open one with. The window asks for `mode: "front"` whenever
-`voice.status` advertises it (`ui/src/voice/call.ts`), streams the microphone
-as 16 kHz PCM in 40 ms frames, plays `frontAudio` gaplessly at `outputRate`,
-answers `frontStop` and the Stop button with `voice.front_barge`, and drops
-to the pipeline on `frontEnded`. The phone keeps both paths and picks by what
-the desk advertises. It has no way to change desk voice settings today, so
-it has no mirror.
+A call resolves the selected front from the vault at start. The core follows
+Settings when `mode` is omitted, requires live for `mode: "front"`, and accepts
+Legacy only when selected or explicitly requested with `mode: "pipeline"`.
+A missing login or budget refuses the live call. `voice.status.liveSelected`
+reports selection separately from readiness; a client must not interpret
+missing `voiceFront` capability or a missing `front` reply as permission to
+switch to Legacy. The window streams 16 kHz PCM in 40 ms frames, plays
+`frontAudio` at `outputRate`, and answers `frontStop` with `voice.front_barge`.
+A live failure ends with `state.liveError`, retained in the snapshot, and the
+window offers **Call with Legacy voice** on the same thread. Older clients
+cannot bypass the selected mode by omitting it. Companion clients need to
+handle `liveSelected` and `liveError` and expose that explicit choice.
+
+Refusals log provider, rejected event type (correlated through `event_id`),
+code and sanitized provider message, never request bodies or credentials.
+The six historic dev-log `responses_validation_failed` / `invalid_request_error`
+lines lack provider identity. The known matching fault was GPT-Live's
+`responses` delegation validation on a ChatGPT login (task-84, commit
+`ab5722d5`); the adapter uses client delegation and its regression test checks
+the actual session payload. Those historic lines alone cannot establish a
+Grok-specific fault.
 
 In the window, a call to a teammate is an inset card under its
 conversation's band (`components/Call.tsx` `CallBar`): the band and the call

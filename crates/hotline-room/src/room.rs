@@ -36,6 +36,7 @@ use hotline_contract::{
 use hotline_store::log::{Log, StreamId};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// The setting that keeps the room's agent accounts, an array of
 /// [`AgentAccount`].
@@ -596,35 +597,91 @@ pub fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
         .map_err(|error| format!("The room's stream could not be written: {error}."))
 }
 
+/// Held while a teammate's `persona` record is read, changed and appended
+/// again. The stream folds by id and the last whole record wins, so two
+/// changes that each read the record before the other appended would leave
+/// only one of them.
+static PERSONA_WRITES: Mutex<()> = Mutex::new(());
+
+/// The lock that keeps those changes from overwriting each other.
+///
+/// It is the innermost lock: never held across an `.await`, and only the
+/// log's own locks are taken under it. The four checkpoint functions below
+/// take it themselves, so a holder never calls them. `persona.account`'s
+/// append is such a holder, and takes it under `policy_update_lock`;
+/// `Room::checkpoint` reaches it while holding `lifecycle`.
+pub fn persona_write_lock() -> MutexGuard<'static, ()> {
+    PERSONA_WRITES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Remembers an agent's own id for this teammate's conversation, so a later
 /// session can ask that same backend to reopen it.
 ///
-/// One entry per backend, replaced in place: a teammate that moves between
-/// harnesses and back finds both conversations where it left them, and Cursor
-/// is never handed Claude's session id.
+/// One entry per backend and account, replaced in place: a teammate that moves
+/// between harnesses, or between accounts on one, and back finds each
+/// conversation where it left it, and Cursor is never handed Claude's session
+/// id nor one account the other's. No account is the agent's System default.
 pub fn checkpoint_session(
     log: &Log,
     persona_id: &str,
     backend_id: &str,
+    account_id: Option<&str>,
     session_id: &str,
 ) -> Result<(), String> {
     with_checkpoints(log, persona_id, |checkpoints| {
-        checkpoints.retain(|checkpoint| checkpoint.backend_id != backend_id);
+        checkpoints.retain(|checkpoint| !same(checkpoint, backend_id, account_id));
         checkpoints.push(SessionCheckpoint {
             backend_id: backend_id.to_string(),
             session_id: session_id.to_string(),
-            account_id: None,
+            account_id: account_id.map(str::to_string),
         });
     })
 }
 
-/// Withdraws the promise to reopen that backend's session. The session itself
-/// is not touched; what is gone is Hotline's intention to return to it, which is
-/// what closing a chapter means.
-pub fn clear_checkpoint(log: &Log, persona_id: &str, backend_id: &str) -> Result<(), String> {
+/// Withdraws the promise to reopen that backend's session on that account.
+/// The session itself is not touched; what is gone is Hotline's intention to
+/// return to it, which is what closing a chapter means.
+pub fn clear_checkpoint(
+    log: &Log,
+    persona_id: &str,
+    backend_id: &str,
+    account_id: Option<&str>,
+) -> Result<(), String> {
+    with_checkpoints(log, persona_id, |checkpoints| {
+        checkpoints.retain(|checkpoint| !same(checkpoint, backend_id, account_id));
+    })
+}
+
+/// Withdraws every teammate's checkpoints on one account, and writes only the
+/// records that had one.
+pub fn clear_account_checkpoints(log: &Log, account_id: &str) -> Result<(), String> {
+    let _writes = persona_write_lock();
+    for persona in roster(log) {
+        write_changed_checkpoints(log, persona, |checkpoints| {
+            checkpoints.retain(|checkpoint| checkpoint.account_id.as_deref() != Some(account_id));
+        })?;
+    }
+    Ok(())
+}
+
+/// Withdraws a teammate's checkpoints on one backend, whatever account they
+/// ran under: once the teammate's account has changed, none of them continues
+/// what was said.
+pub fn clear_backend_checkpoints(
+    log: &Log,
+    persona_id: &str,
+    backend_id: &str,
+) -> Result<(), String> {
     with_checkpoints(log, persona_id, |checkpoints| {
         checkpoints.retain(|checkpoint| checkpoint.backend_id != backend_id);
     })
+}
+
+/// Whether a checkpoint is the one a backend and an account keep.
+fn same(checkpoint: &SessionCheckpoint, backend: &str, account: Option<&str>) -> bool {
+    checkpoint.backend_id == backend && checkpoint.account_id.as_deref() == account
 }
 
 /// The teammate's record with its checkpoints changed and nothing else, or
@@ -634,10 +691,21 @@ fn with_checkpoints(
     persona_id: &str,
     change: impl FnOnce(&mut Vec<SessionCheckpoint>),
 ) -> Result<(), String> {
-    let mut persona = roster(log)
+    let _writes = persona_write_lock();
+    let persona = roster(log)
         .into_iter()
         .find(|persona| persona.id == persona_id)
         .ok_or_else(|| format!("There is no teammate {persona_id}."))?;
+    write_changed_checkpoints(log, persona, change)
+}
+
+/// Appends `persona` with `change` made to its checkpoints, if it changed
+/// any. The caller holds [`persona_write_lock`] from reading the record.
+fn write_changed_checkpoints(
+    log: &Log,
+    mut persona: Persona,
+    change: impl FnOnce(&mut Vec<SessionCheckpoint>),
+) -> Result<(), String> {
     let before = persona.session_checkpoints.clone();
     change(&mut persona.session_checkpoints);
     if persona.session_checkpoints == before {

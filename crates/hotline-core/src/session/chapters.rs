@@ -702,9 +702,13 @@ impl Room {
             let policy_updates = self.policy_update_lock();
             let _held = policy_updates.lock().await;
             if let Some(session_id) = previous.get("sessionId").and_then(Value::as_str) {
-                if let Err(error) =
-                    room::checkpoint_session(&self.log, persona_id, &persona.backend_id, session_id)
-                {
+                if let Err(error) = room::checkpoint_session(
+                    &self.log,
+                    persona_id,
+                    &persona.backend_id,
+                    None,
+                    session_id,
+                ) {
                     eprintln!(
                         "{}'s checkpoint was not pointed back at the previous chapter: {error}",
                         persona.name
@@ -712,7 +716,7 @@ impl Room {
                 }
             } else if persona.backend_id != HOTLINE_BACKEND_ID
                 && let Err(error) =
-                    room::clear_checkpoint(&self.log, persona_id, &persona.backend_id)
+                    room::clear_checkpoint(&self.log, persona_id, &persona.backend_id, None)
             {
                 eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
             }
@@ -799,7 +803,9 @@ impl Room {
         {
             let policy_updates = self.policy_update_lock();
             let _held = policy_updates.lock().await;
-            if let Err(error) = room::clear_checkpoint(&self.log, persona_id, &persona.backend_id) {
+            if let Err(error) =
+                room::clear_checkpoint(&self.log, persona_id, &persona.backend_id, None)
+            {
                 eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
             }
         }

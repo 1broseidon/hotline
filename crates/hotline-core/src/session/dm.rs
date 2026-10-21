@@ -256,8 +256,12 @@ impl Witness for Heard<'_> {
                 room.fail_in_flight(session, in_flight);
                 if !session.driver.checkpoint_valid() || stop_reason == "failed" {
                     lock(&session.pending_checkpoint).take();
-                    let _ =
-                        room::clear_checkpoint(&room.log, &session.persona_id, &session.backend_id);
+                    let _ = room::clear_checkpoint(
+                        &room.log,
+                        &session.persona_id,
+                        &session.backend_id,
+                        None,
+                    );
                 } else {
                     room.checkpoint(session);
                 }

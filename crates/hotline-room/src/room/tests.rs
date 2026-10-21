@@ -269,6 +269,146 @@ fn agent_accounts_default_to_empty_and_read_back_what_was_written() {
     assert_eq!(settings(&log)[AGENT_ACCOUNTS], json!([one]));
 }
 
+/// A teammate's checkpoints as (backend, account, session), in order.
+fn checkpoints_of(log: &Log, id: &str) -> Vec<(String, Option<String>, String)> {
+    roster(log)
+        .into_iter()
+        .find(|persona| persona.id == id)
+        .expect("the teammate is on the roster")
+        .session_checkpoints
+        .into_iter()
+        .map(|checkpoint| {
+            (
+                checkpoint.backend_id,
+                checkpoint.account_id,
+                checkpoint.session_id,
+            )
+        })
+        .collect()
+}
+
+fn kept(backend: &str, account: Option<&str>, session: &str) -> (String, Option<String>, String) {
+    (
+        backend.to_string(),
+        account.map(str::to_string),
+        session.to_string(),
+    )
+}
+
+#[test]
+fn a_checkpoint_is_kept_per_backend_and_account() {
+    let log = scratch("checkpoint-per-account");
+    append(&log, &persona_event(&persona("ada", "Ada")));
+
+    checkpoint_session(&log, "ada", "claude-acp", None, "s0").unwrap();
+    checkpoint_session(&log, "ada", "claude-acp", Some("acc-1"), "s1").unwrap();
+    checkpoint_session(&log, "ada", "claude-acp", Some("acc-1"), "s2").unwrap();
+    assert_eq!(
+        checkpoints_of(&log, "ada"),
+        [
+            kept("claude-acp", None, "s0"),
+            kept("claude-acp", Some("acc-1"), "s2")
+        ],
+        "an account replaces its own checkpoint and leaves the others"
+    );
+
+    clear_checkpoint(&log, "ada", "claude-acp", Some("acc-1")).unwrap();
+    assert_eq!(
+        checkpoints_of(&log, "ada"),
+        [kept("claude-acp", None, "s0")]
+    );
+}
+
+#[test]
+fn a_legacy_checkpoint_is_the_system_default_one() {
+    let log = scratch("checkpoint-legacy");
+    let mut event = persona_event(&persona("ada", "Ada"));
+    event["sessionCheckpoints"] = json!([{ "backendId": "claude-acp", "sessionId": "old" }]);
+    append(&log, &event);
+
+    checkpoint_session(&log, "ada", "claude-acp", Some("acc-1"), "new").unwrap();
+    assert_eq!(
+        checkpoints_of(&log, "ada"),
+        [
+            kept("claude-acp", None, "old"),
+            kept("claude-acp", Some("acc-1"), "new")
+        ],
+        "a checkpoint from before accounts is the System default's"
+    );
+
+    clear_checkpoint(&log, "ada", "claude-acp", None).unwrap();
+    assert_eq!(
+        checkpoints_of(&log, "ada"),
+        [kept("claude-acp", Some("acc-1"), "new")]
+    );
+    for event in log.load(&StreamId::Room) {
+        assert!(
+            !event.to_string().contains("\"accountId\":null"),
+            "an absent account is absent, not null: {event}"
+        );
+    }
+}
+
+#[test]
+fn clearing_an_account_reaches_every_teammate_and_clearing_a_backend_every_account() {
+    let log = scratch("checkpoint-clears");
+    append(&log, &persona_event(&persona("ada", "Ada")));
+    append(&log, &persona_event(&persona("bob", "Bob")));
+    checkpoint_session(&log, "ada", "claude-acp", None, "a0").unwrap();
+    checkpoint_session(&log, "ada", "claude-acp", Some("acc-1"), "a1").unwrap();
+    checkpoint_session(&log, "ada", "claude-acp", Some("acc-2"), "a2").unwrap();
+    checkpoint_session(&log, "ada", "cursor", None, "c0").unwrap();
+    checkpoint_session(&log, "bob", "claude-acp", Some("acc-1"), "b1").unwrap();
+
+    let mut written = log.subscribe(&StreamId::Room);
+    clear_account_checkpoints(&log, "acc-1").unwrap();
+    assert_eq!(
+        checkpoints_of(&log, "ada"),
+        [
+            kept("claude-acp", None, "a0"),
+            kept("claude-acp", Some("acc-2"), "a2"),
+            kept("cursor", None, "c0")
+        ]
+    );
+    assert!(checkpoints_of(&log, "bob").is_empty());
+    let mut rewritten = Vec::new();
+    while let Ok(event) = written.try_recv() {
+        rewritten.push(event["id"].as_str().unwrap().to_string());
+    }
+    assert_eq!(
+        rewritten,
+        ["ada", "bob"],
+        "one record for each teammate it changed"
+    );
+
+    // An account nobody holds a checkpoint on writes nothing.
+    clear_account_checkpoints(&log, "acc-9").unwrap();
+    assert!(written.try_recv().is_err());
+
+    clear_backend_checkpoints(&log, "ada", "claude-acp").unwrap();
+    assert_eq!(checkpoints_of(&log, "ada"), [kept("cursor", None, "c0")]);
+}
+
+#[test]
+fn checkpoint_writes_on_one_teammate_never_lose_each_other() {
+    let log = scratch("checkpoint-concurrent");
+    append(&log, &persona_event(&persona("ada", "Ada")));
+    let ready = std::sync::Arc::new(std::sync::Barrier::new(16));
+    let writers: Vec<_> = (0..16)
+        .map(|i| {
+            let (log, ready) = (log.clone(), ready.clone());
+            std::thread::spawn(move || {
+                ready.wait();
+                checkpoint_session(&log, "ada", &format!("b{i}"), None, "s").unwrap();
+            })
+        })
+        .collect();
+    for writer in writers {
+        writer.join().unwrap();
+    }
+    assert_eq!(checkpoints_of(&log, "ada").len(), 16);
+}
+
 #[test]
 fn voices_own_caps_count_only_until_the_owner_sets_spending() {
     use crate::voice::settings::VoiceSettings;

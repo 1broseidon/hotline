@@ -1061,6 +1061,7 @@ impl Room {
             &self.log,
             &session.persona_id,
             &session.backend_id,
+            None,
             &session_id,
         ) {
             eprintln!(

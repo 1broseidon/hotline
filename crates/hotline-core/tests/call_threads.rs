@@ -1035,18 +1035,22 @@ async fn interrupted_speech_is_kept_and_the_next_turn_hears_the_cut() {
         );
         desk.say(&call, 2, "Actually, focus on the beacon. ECHO_HISTORY")
             .await;
-        let reply = desk.reply(sub).await;
-        assert!(
-            reply["text"]
-                .as_str()
-                .unwrap()
-                .contains("Actually, focus on the beacon. ECHO_HISTORY")
-        );
-        assert!(
-            reply["text"].as_str().unwrap().contains("do not resume"),
-            "{reply}"
-        );
         desk.finished(sub).await;
+        // Echoed history can contain voice tags and becomes several agent
+        // events. Inspect the whole new turn, not only its first bubble.
+        let replies = desk
+            .stream(&thread)
+            .into_iter()
+            .skip_while(|event| event["id"] != cut["id"])
+            .filter(|event| event["kind"] == "agent")
+            .filter_map(|event| event["text"].as_str().map(str::to_string))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            replies.contains("Actually, focus on the beacon. ECHO_HISTORY"),
+            "{replies}"
+        );
+        assert!(replies.contains("do not resume"), "{replies}");
         assert!(desk.stream(&thread).iter().any(|event| {
             event["kind"] == "user"
                 && event["text"] == "Actually, focus on the beacon. ECHO_HISTORY"

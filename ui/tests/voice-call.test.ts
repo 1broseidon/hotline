@@ -176,6 +176,19 @@ describe("a call with the desk", () => {
 		expect(r.played).toEqual(["one", "new"]);
 	});
 
+	test("microphone speech cuts Legacy playback before the utterance ends", async () => {
+		const r = rig();
+		await r.call.start();
+		r.desk({ type: "said", id: "s1", text: "A long answer." });
+		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
+		r.speak(0.3, 1_000, 1_600);
+		expect(r.call.current.phase).toBe("hearing");
+		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(1);
+		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(0);
+		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "late" });
+		expect(r.played).toEqual(["one"]);
+	});
+
 	test("cutting in on unfinished work waits for the desk to say it can listen", async () => {
 		const r = rig();
 		await r.call.start();
@@ -491,7 +504,7 @@ describe("a call while the teammate works", () => {
 		r.call.hangUp();
 	});
 
-	test("speech mid-turn shuts the mic while it plays, which opens again while the teammate works", async () => {
+	test("speech mid-turn stays interruptible while the teammate works", async () => {
 		const r = rig(MACK, { personaId: "mack" });
 		await r.call.start();
 		r.desk(WORKING);
@@ -500,10 +513,11 @@ describe("a call while the teammate works", () => {
 		r.desk({ type: "said", id: "s1", text: "Looking at the logs." });
 		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "logs" });
 		expect(r.call.current.phase).toBe("speaking");
-		// The reply's own voice in the mic is never heard as the person.
+		// These are echo-cancelled microphone samples from the caller.
 		r.speak(0.3, 1_000, 1_600);
 		r.speak(0, 1_650, 3_000);
-		expect(r.sent.some((one) => one.cmd === "voice.utterance")).toBe(false);
+		expect(r.sent.some((one) => one.cmd === "voice.utterance")).toBe(true);
+		r.desk({ type: "state", state: "listening" });
 		r.desk(WORKING);
 		r.finishClip();
 		expect(r.call.current.phase).toBe("listening");
@@ -713,21 +727,18 @@ describe("a call heard by this Mac", () => {
 		expect(r.speech.counts.starts).toBe(2);
 	});
 
-	test("the engine lets the microphone go while the desk speaks, so it never hears it", async () => {
+	test("native recognition stays open and speech cuts Legacy playback", async () => {
 		const r = textRig();
 		await r.call.start();
 		const cancels = r.speech.counts.cancels;
 		r.desk({ type: "said", id: "s1", text: "On it." });
-		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "one" });
-		expect(r.call.current.phase).toBe("speaking");
-		expect(r.speech.counts.cancels).toBe(cancels + 1);
-		// Late words from the cancelled session are not the speaker's.
-		r.speech.emit({ type: "partial", text: "on it" });
-		r.levels(-20, 1_200, 1_400);
-		expect(r.call.current.lines.filter((one) => one.kind === "you")).toEqual([]);
-		r.finishClip();
-		expect(r.call.current.phase).toBe("listening");
-		expect(r.speech.counts.starts).toBe(2);
+		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
+		expect(r.speech.counts.cancels).toBe(cancels);
+		r.levels(-20, 1_200, 1_500);
+		expect(r.call.current.phase).toBe("hearing");
+		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(1);
+		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "late" });
+		expect(r.played).toEqual(["one"]);
 	});
 
 	test("holding while the engine finishes discards those words, and resuming listens on this Mac again", async () => {
@@ -929,6 +940,20 @@ describe("a call through a voice front", () => {
 		r.desk({ type: "frontStop" });
 		expect(r.sent.find((one) => one.cmd === "voice.front_barge")?.params).toMatchObject({ playedMs: 420 });
 		expect(r.call.current.phase).toBe("listening");
+	});
+
+	test("local speech stops the front before a provider event and rejects queued audio", async () => {
+		const r = fronted();
+		await r.call.start();
+		r.desk({ type: "frontAudio", seq: 0, data: "AAAA" });
+		r.heardFor(120);
+		r.speak(0.3, 1_000, 1_600);
+		expect(r.sent.filter((one) => one.cmd === "voice.front_barge")).toHaveLength(1);
+		r.desk({ type: "frontAudio", seq: 1, data: "late" });
+		expect(r.pcm).toHaveLength(1);
+		r.desk({ type: "heard", seq: 1, text: "Actually, the beacon." });
+		r.desk({ type: "frontAudio", seq: 2, data: "new" });
+		expect(r.pcm).toHaveLength(2);
 	});
 
 	test("Stop barges in on the front without the pipeline's interrupt", async () => {

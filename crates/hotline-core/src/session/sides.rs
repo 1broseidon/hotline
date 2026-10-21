@@ -1140,6 +1140,16 @@ impl Room {
             .is_some_and(|live| live.thread == *thread && live.working())
     }
 
+    /// Call threads with a turn in flight, separate from their saved lifetime.
+    pub fn working_calls(&self, persona_id: &str) -> Vec<String> {
+        self.sides
+            .of(persona_id)
+            .iter()
+            .filter(|side| side.thread.kind == ThreadKind::Call && side.working())
+            .map(|side| side.id.clone())
+            .collect()
+    }
+
     pub fn sides(&self, persona_id: &str) -> Vec<RunningSide> {
         self.sides
             .of(persona_id)
@@ -1264,14 +1274,24 @@ impl Room {
                 client,
             },
         );
+        let voice = self.attached_voice(&side.thread);
+        let interruption = voice
+            .as_ref()
+            .and_then(|origin| {
+                lock(&self.voice)
+                    .upgrade()?
+                    .take_interruption(&origin.call_id)
+            })
+            .unwrap_or_default();
         self.queue_in_side(
             side,
             Line {
-                voice: self.attached_voice(&side.thread),
-                text: if self.attached_voice(&side.thread).is_some() {
+                voice: voice.clone(),
+                text: if voice.is_some() {
                     format!(
-                        "{}\n\n{}",
+                        "{}\n\n{}\n\n{}",
                         timed_from(ts, client, text),
+                        interruption,
                         crate::voice::spoken::CONTRACT
                     )
                 } else {

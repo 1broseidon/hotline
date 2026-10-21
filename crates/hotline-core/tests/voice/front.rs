@@ -888,3 +888,126 @@ async fn a_selected_paid_front_with_no_budget_never_starts_legacy() {
     socket.close(None).await.unwrap();
     server.abort();
 }
+
+/// Interrupting: a tap keeps the cut line on the call thread, rejects the
+/// old response's late audio, and lets the reply to the interruption speak.
+#[tokio::test]
+async fn a_live_cut_is_recorded_and_late_audio_cannot_resume_it() {
+    let mut desk = front_desk(true, 64).await;
+    let socket = &mut desk.socket;
+    let persona = answer(socket, 1, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":desk.root.path().to_str().unwrap()}}})).await["result"]["id"].as_str().unwrap().to_string();
+    let call = Uuid::new_v4().to_string();
+    let started = answer(socket, 2, json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}})).await;
+    assert_eq!(started["ok"], true, "{started}");
+    send(socket, json!({"id":3,"sub":{"call":call}})).await;
+    frame_where(socket, |f| f["sub"] == 3 && f["snapshot"].is_array()).await;
+    common::until("the front opens", || {
+        desk.front.config.lock().unwrap().is_some()
+    })
+    .await;
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("The old explanation.".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::Audio(vec![1; 480])))
+        .await
+        .unwrap();
+    frame_where(socket, |f| f["event"]["type"] == "frontAudio").await;
+    let cut = answer(
+        socket,
+        4,
+        json!({"cmd":"voice.front_barge","params":{"callId":call,"playedMs":80}}),
+    )
+    .await;
+    assert_eq!(cut["ok"], true);
+    assert_eq!(
+        next_asked(&mut desk.asked).await,
+        Asked::Truncate { played_ms: 80 }
+    );
+    desk.events
+        .send(Ok(RealtimeEvent::Audio(vec![2; 480])))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::ResponseDone))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::Heard("Actually, the beacon.".into())))
+        .await
+        .unwrap();
+    loop {
+        let frame = frame_where(socket, |f| f["event"].is_object()).await;
+        assert_ne!(frame["event"]["type"], "frontAudio", "late audio: {frame}");
+        if frame["event"]["type"] == "heard" {
+            break;
+        }
+    }
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("The beacon is ready.".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::Audio(vec![3; 480])))
+        .await
+        .unwrap();
+    frame_where(socket, |f| f["event"]["type"] == "frontAudio").await;
+    desk.events
+        .send(Ok(RealtimeEvent::ResponseDone))
+        .await
+        .unwrap();
+    frame_where(socket, |f| {
+        f["event"]["type"] == "said" && f["event"]["text"] == "The beacon is ready."
+    })
+    .await;
+    let stream = hotline_core::log::StreamId::Call(call.clone());
+    common::until("the cut notice", || {
+        desk.log
+            .load(&stream)
+            .iter()
+            .any(|line| line["interrupted"] == true)
+    })
+    .await;
+    let lines = desk.log.load(&stream);
+    let cuts: Vec<_> = lines
+        .iter()
+        .filter(|line| line["interrupted"] == true)
+        .collect();
+    assert_eq!(cuts.len(), 1);
+    assert_eq!(cuts[0]["playedMs"], 80);
+    let old = lines
+        .iter()
+        .position(|line| line["text"] == "The old explanation.")
+        .unwrap();
+    let cut = lines
+        .iter()
+        .position(|line| line["interrupted"] == true)
+        .unwrap();
+    let correction = lines
+        .iter()
+        .position(|line| line["text"] == "Actually, the beacon.")
+        .unwrap();
+    let reply = lines
+        .iter()
+        .position(|line| line["text"] == "The beacon is ready.")
+        .unwrap();
+    assert!(
+        old < cut && cut < correction && correction < reply,
+        "{lines:?}"
+    );
+    assert_eq!(cuts[0]["speechId"], lines[old]["id"]);
+
+    assert!(
+        cuts[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("The old explanation.")
+    );
+    answer(
+        socket,
+        5,
+        json!({"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+}

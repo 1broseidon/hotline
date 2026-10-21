@@ -643,6 +643,10 @@ The clone posts drafts and files with a subject, then returns a short spoken
 result. GPT-Live's client delegation uses this same work tool, without a
 call-assistant delegation loop.
 
+The call's chat row reads parked once its thread parks. The roster carries
+`workingCalls`, the call thread ids with a turn in flight, so the row says
+running only during a turn; an open thread between turns reads open.
+
 Posts carry optional `from.title` and `silent` fields. A post made while the
 person is on that thread's call is kept silently even after hang-up; later
 posts update the preview, unread rail and notifications. These fields are
@@ -721,6 +725,30 @@ stored xAI login. Automatic speech keeps selecting API providers. A missing
 login or subscription refusal returns an error; it never selects a paid speech
 fallback. Subscription STT and TTS record zero estimated paid API spend, while
 the desk dispatcher and agent work retain their ordinary spending rules.
+
+### Interruptions describe playback, not generation
+
+The desk keeps its microphone open during Legacy speech as it does for live
+voice. Confirmed local speech onset and a tap stop playback locally before
+waiting for the wire. Late clips from the cut Legacy line are discarded;
+live audio remains muted until the caller's next transcript arrives. Browser
+capture requests echo cancellation, and native Mac recognition enables voice
+processing. Physical speaker cancellation, especially across the native
+recognizer and webview playback, still needs the task-206 scenario pass;
+these switches alone do not prove that the teammate cannot hear itself.
+
+An interruption writes a notice on the call thread with the generated line,
+its speech id and the played milliseconds when the live client supplies them.
+It explicitly says that the line was not heard to its end and that the last
+heard word is unknown: generation and elapsed audio do not establish a word
+boundary. The notice metadata is additive; older readers keep its text, and the tape
+segment layout and importer are unchanged. The written reply remains intact.
+The next Legacy thread turn gets
+the interruption as playback context, separately from the saved caller text,
+and live providers receive truncation or interruption context. Cutting a
+streamed reply also prevents its late completion from starting speech again.
+The phone uses the same wire commands; its client-side onset and speaker
+checks are a separate task-206 verification, not established by desk tests.
 
 ### Live calls keep the selected model
 

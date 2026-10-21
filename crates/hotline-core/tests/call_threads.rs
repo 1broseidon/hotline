@@ -461,8 +461,16 @@ async fn closing_note_waits_thirty_seconds_and_for_finished_work_then_parks() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let (ada, tape) = desk.teammate("Ada", driver, false).await;
-        let (call, _, sub) = desk.call_on(&ada, None).await;
+        let roster = desk.client.subscribe(json!({"view":"roster"})).await;
+        let (call, thread, sub) = desk.call_on(&ada, None).await;
         let gate = desk.gate(&call, sub).await;
+        desk.client
+            .next_where(PATIENCE, |frame| {
+                frame["sub"] == roster
+                    && frame["event"]["persona"]["id"] == ada
+                    && frame["event"]["workingCalls"] == json!([thread["key"]])
+            })
+            .await;
         desk.hang_up(&call, sub).await;
         desk.advance(29).await;
         assert!(
@@ -480,7 +488,16 @@ async fn closing_note_waits_thirty_seconds_and_for_finished_work_then_parks() {
                 .iter()
                 .any(|request| request["stream"] != true)
         );
+        // Discard earlier idle rows so only the turn's completion can satisfy this.
+        desk.client.inbox.retain(|frame| frame["sub"] != roster);
         std::fs::write(gate, "finish").unwrap();
+        desk.client
+            .next_where(PATIENCE, |frame| {
+                frame["sub"] == roster
+                    && frame["event"]["persona"]["id"] == ada
+                    && frame["event"].get("workingCalls").is_none()
+            })
+            .await;
         desk.closing(tape).await;
         desk.event(sub, |event| {
             event["kind"] == "link" && event["state"] == "parked"
@@ -1013,5 +1030,57 @@ async fn hanging_up_catches_a_typed_turn_already_running_when_voice_attached() {
                 .iter()
                 .any(|request| request["stream"] != true)
         );
+    }
+}
+
+/// Interrupting: the cut survives on the thread and reaches both drivers,
+/// while the caller’s saved words remain their own.
+#[tokio::test]
+async fn interrupted_speech_is_kept_and_the_next_turn_hears_the_cut() {
+    for driver in [Driver::HotlineAgent, Driver::Acp] {
+        let mut desk = open().await;
+        let (ada, _) = desk.teammate("Ada", driver, false).await;
+        let (call, thread, sub) = desk.call_on(&ada, None).await;
+        desk.say(
+            &call,
+            1,
+            "Explain the harbour.\nREPLY_JSON \"Harbour plan.\"",
+        )
+        .await;
+        desk.reply(sub).await;
+        desk.finished(sub).await;
+        let result = desk
+            .client
+            .call("voice.interrupt", json!({"callId":call}))
+            .await;
+        assert_eq!(result["ok"], true, "{result}");
+        let cut = desk.event(sub, |event| event["interrupted"] == true).await;
+        assert!(
+            cut["text"].as_str().unwrap().contains("Harbour plan"),
+            "{cut}"
+        );
+        desk.say(&call, 2, "Actually, focus on the beacon. ECHO_HISTORY")
+            .await;
+        desk.finished(sub).await;
+        // Echoed history can contain voice tags and becomes several agent
+        // events. Inspect the whole new turn, not only its first bubble.
+        let replies = desk
+            .stream(&thread)
+            .into_iter()
+            .skip_while(|event| event["id"] != cut["id"])
+            .filter(|event| event["kind"] == "agent")
+            .filter_map(|event| event["text"].as_str().map(str::to_string))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            replies.contains("Actually, focus on the beacon. ECHO_HISTORY"),
+            "{replies}"
+        );
+        assert!(replies.contains("do not resume"), "{replies}");
+        assert!(desk.stream(&thread).iter().any(|event| {
+            event["kind"] == "user"
+                && event["text"] == "Actually, focus on the beacon. ECHO_HISTORY"
+        }));
+        desk.hang_up(&call, sub).await;
     }
 }

@@ -36,6 +36,8 @@ pub(super) struct Front {
     mic_rate: u32,
     mic_seq: Option<u32>,
     out_seq: u32,
+    interrupted: bool,
+    responding: bool,
 }
 
 impl Front {
@@ -47,6 +49,8 @@ impl Front {
                 .unwrap_or(FRONT_RATE),
             mic_seq: None,
             out_seq: 0,
+            interrupted: false,
+            responding: false,
         }
     }
 
@@ -234,11 +238,13 @@ impl Calls {
     /// been heard: the front keeps that much of it.
     pub async fn front_barge(&self, id: &str, played_ms: u32) -> Result<(), String> {
         let input = self.change(id, |call| {
-            let front = call.front.as_ref().ok_or("This call has no voice front.")?;
+            let front = call.front.as_mut().ok_or("This call has no voice front.")?;
             let input = front
                 .input
                 .clone()
                 .ok_or("The front is still connecting.")?;
+            front.interrupted = front.responding;
+            call.cut_speech(Some(played_ms));
             call.activity = Instant::now();
             if call.state == VoiceState::Speaking {
                 call.state(call.resting(), None);
@@ -421,6 +427,10 @@ impl Calls {
             });
             let mut replacement = config.clone();
             replacement.instructions = kept.carry.instructions(&config.instructions);
+            if let Ok(Some(cut)) = self.change(&id, |call| Ok(call.speech_line.pending.clone())) {
+                replacement.instructions.push_str("\n\n");
+                replacement.instructions.push_str(&cut);
+            }
             let opened = tokio::select! {
                 () = cancel.cancelled() => break FrontEnd::Call,
                 opened = tokio::time::timeout(Duration::from_secs(30), realtime.open(replacement)) => opened,
@@ -519,21 +529,51 @@ impl Calls {
                 }
             };
             let seen = match event {
-                RealtimeEvent::Audio(pcm) => self.front_speaks(id, &pcm),
-                RealtimeEvent::SpeechStarted => {
-                    if !saying.is_empty() {
-                        carry.push("You", &std::mem::take(&mut saying));
-                        *replies += 1;
+                RealtimeEvent::Audio(pcm) => {
+                    if saying.is_empty() {
+                        let _ = self.change(id, |call| {
+                            call.speech_line.update(
+                                &format!("{FRONT_LINE_PREFIX}{id}-{replies}"),
+                                "[Audio generated; transcript not yet available.]",
+                            );
+                            Ok(())
+                        });
                     }
-                    self.change(id, |call| {
-                        let _ = call.events.send(VoiceEvent::FrontStop {});
-                        if call.state == VoiceState::Speaking {
-                            call.state(call.resting(), None);
+                    self.front_speaks(id, &pcm)
+                }
+                RealtimeEvent::SpeechStarted => self.change(id, |call| {
+                    if call.front.as_ref().is_some_and(|front| front.responding) {
+                        call.cut_speech(None);
+                    }
+                    if let Some(front) = &mut call.front {
+                        front.interrupted = front.responding;
+                    }
+                    let _ = call.events.send(VoiceEvent::FrontStop {});
+                    if call.state == VoiceState::Speaking {
+                        call.state(call.resting(), None);
+                    }
+                    Ok(())
+                }),
+                RealtimeEvent::Heard(text) => {
+                    // GPT-Live may end the caller's turn without a separate
+                    // completion for the interrupted assistant turn.
+                    let _ = self.change(id, |call| {
+                        if let Some(front) = &mut call.front {
+                            if front.interrupted {
+                                carry.push(
+                                    "You",
+                                    &format!(
+                                        "[Interrupted speech; not heard to the end] {}",
+                                        std::mem::take(&mut saying)
+                                    ),
+                                );
+                                *replies += 1;
+                            }
+                            front.interrupted = false;
+                            front.responding = false;
                         }
                         Ok(())
-                    })
-                }
-                RealtimeEvent::Heard(text) => {
+                    });
                     let seq = *heard;
                     *heard += 1;
                     carry.push("Caller", &text);
@@ -552,16 +592,39 @@ impl Calls {
                         &format!("{FRONT_LINE_PREFIX}{id}-{replies}"),
                         &saying,
                     );
-                    Ok(())
+                    self.change(id, |call| {
+                        if let Some(front) = &mut call.front {
+                            front.responding = true;
+                        }
+                        call.speech_line
+                            .update(&format!("{FRONT_LINE_PREFIX}{id}-{replies}"), &saying);
+                        Ok(())
+                    })
                 }
                 RealtimeEvent::ResponseDone => {
+                    let interrupted = self
+                        .change(id, |call| {
+                            Ok(call.front.as_mut().is_some_and(|front| {
+                                front.responding = false;
+                                std::mem::take(&mut front.interrupted)
+                            }))
+                        })
+                        .unwrap_or(true);
                     let text = std::mem::take(&mut saying);
                     let reply = format!("{FRONT_LINE_PREFIX}{replies}");
                     *replies += 1;
-                    carry.push("You", &text);
+                    let kept_text = if interrupted {
+                        format!("[Interrupted speech; not heard to the end] {text}")
+                    } else {
+                        text.clone()
+                    };
+                    carry.push("You", &kept_text);
                     self.change(id, |call| {
                         if !text.trim().is_empty() {
-                            let _ = call.events.send(VoiceEvent::Said { id: reply, text });
+                            let _ = call.events.send(VoiceEvent::Said {
+                                id: reply,
+                                text: kept_text,
+                            });
                         }
                         if call.state == VoiceState::Speaking {
                             call.state(call.resting(), None);
@@ -616,8 +679,13 @@ impl Calls {
     /// The front's speech as numbered frames, while the call is not held.
     fn front_speaks(&self, id: &str, pcm: &[u8]) -> Result<(), String> {
         self.change(id, |call| {
-            if call.state == VoiceState::Held || call.front.is_none() {
+            if call.state == VoiceState::Held
+                || call.front.as_ref().is_none_or(|front| front.interrupted)
+            {
                 return Ok(());
+            }
+            if let Some(front) = &mut call.front {
+                front.responding = true;
             }
             call.activity = Instant::now();
             if call.state != VoiceState::Speaking {

@@ -468,6 +468,13 @@ impl Driver {
                 self.respond(socket).await
             }
             Command::Truncate { played_ms } => {
+                if self.responding {
+                    self.respond_after = false;
+                    self.send(socket, json!({"type": "response.cancel"}))
+                        .await?;
+                }
+                self.carry.push("Playback", "The caller interrupted the last reply. It was not heard to the end. Answer the interruption instead of continuing it.");
+
                 let Some(item_id) = self.audio_item.take() else {
                     return Ok(());
                 };

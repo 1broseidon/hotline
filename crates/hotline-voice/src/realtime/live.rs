@@ -1010,8 +1010,22 @@ impl Driver {
                 )
                 .await
             }
-            // The server stops a reply itself when the person talks.
-            Command::Truncate { .. } => Ok(()),
+            // The server handles spoken barge-in. A tap also needs to tell
+            // its context that generated speech was not heard to the end.
+            Command::Truncate { played_ms } => {
+                let note = format!(
+                    "The caller interrupted playback at {played_ms} ms. The last reply was not heard to the end. Answer the interruption; do not resume the unfinished speech."
+                );
+                self.carry.push("Playback", &note);
+                self.append(
+                    sideband,
+                    "session.context.append",
+                    None,
+                    "commentary",
+                    &note,
+                )
+                .await
+            }
         }
     }
 

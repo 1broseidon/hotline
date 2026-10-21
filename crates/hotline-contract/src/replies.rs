@@ -225,6 +225,11 @@ pub struct RosterEntry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<String>>", optional)]
     pub working_jobs: Vec<String>,
+    /// Call threads with a turn in flight. An open call between turns is
+    /// not working. Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub working_calls: Vec<String>,
     pub session: SessionInfo,
 }
 

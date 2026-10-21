@@ -314,7 +314,7 @@ async fn a_reply_that_cannot_be_rewritten_is_said_up_to_its_first_code_block() {
 /// not said, and the call takes the person's next words at once.
 #[tokio::test]
 async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
-    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls
         .test_change(&id, |call| {
@@ -354,6 +354,20 @@ async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
         true,
         Some(&origin)
     ));
+    calls.reply_delta(
+        &persona,
+        "late-reply",
+        "<spoken>More of the stale answer.</spoken>",
+        &origin,
+    );
+    assert!(calls.delivery(
+        &persona,
+        "late-reply",
+        "Mack",
+        "More of the stale answer.",
+        true,
+        Some(&origin)
+    ));
     tokio::time::sleep(Duration::from_millis(50)).await;
     while let Ok(event) = rx.try_recv() {
         assert!(
@@ -362,6 +376,28 @@ async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
         );
         assert!(!matches!(event, VoiceEvent::Clip { .. }), "{event:?}");
     }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let thread = call_link(&desk, &persona).unwrap()["thread"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let lines = desk.log.load(&StreamId::Call(thread));
+            if let Some(cut) = lines.iter().find(|line| line["interrupted"] == true) {
+                assert!(
+                    cut["text"]
+                        .as_str()
+                        .unwrap()
+                        .contains("I looked at the logs.")
+                );
+                assert!(cut["text"].as_str().unwrap().contains("do not resume"));
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     *lock(&fake.delay) = Duration::ZERO;
     utterance(&calls, &id, 2).unwrap();
     calls.end(&id).unwrap();

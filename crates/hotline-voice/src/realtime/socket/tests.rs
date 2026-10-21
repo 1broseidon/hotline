@@ -729,3 +729,30 @@ async fn a_reply_refused_for_one_in_progress_follows_that_reply() {
     session.close().await;
     finish(server).await;
 }
+
+#[tokio::test]
+async fn a_tap_cancels_generation_before_truncating_playback() {
+    let (listener, url) = listen().await;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = accept(&listener).await;
+        handshake(&mut socket).await;
+        send(&mut socket, json!({"type":"response.created"})).await;
+        send(
+            &mut socket,
+            json!({"type":"response.output_audio.delta", "item_id":"cut", "delta":pcm(&[1, 0])}),
+        )
+        .await;
+        assert_eq!(receive(&mut socket).await["type"], "response.cancel");
+        let truncated = receive(&mut socket).await;
+        assert_eq!(truncated["type"], "conversation.item.truncate");
+        assert_eq!(truncated["audio_end_ms"], 80);
+        send(&mut socket, json!({"type":"response.done"})).await;
+        closed(&mut socket).await;
+    });
+    let mut session = voice(&url).open(config()).await.unwrap();
+    assert!(matches!(next(&mut session).await, RealtimeEvent::Audio(_)));
+    session.input.truncate(80).await.unwrap();
+    assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
+    drop(session);
+    server.await.unwrap();
+}

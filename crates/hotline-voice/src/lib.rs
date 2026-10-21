@@ -325,6 +325,8 @@ pub struct Call {
     /// A direct call's thread, which keeps all of what was said. A desk call
     /// is kept on the desk tape.
     record: Option<Record>,
+    speech_line: record::SpeechLine,
+    interrupted_through: Option<u32>,
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.
     pub words: String,
@@ -769,6 +771,12 @@ impl Calls {
             let Some(call) = calling(&mut calls, persona, origin) else {
                 return false;
             };
+            if call
+                .interrupted_through
+                .is_some_and(|seq| origin.seq <= seq)
+            {
+                return true;
+            }
             // A reply said as it streamed is whole now.
             if call.streams.remove(event).is_some() {
                 return true;
@@ -854,6 +862,12 @@ impl Calls {
         let Some(call) = calling(&mut calls, persona, origin) else {
             return;
         };
+        if call
+            .interrupted_through
+            .is_some_and(|seq| origin.seq <= seq)
+        {
+            return;
+        }
         if let Some(stream) = call.streams.get(event) {
             let _ = stream.send(chunk.into());
             return;

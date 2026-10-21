@@ -66,8 +66,10 @@ describe("a subagent's run's line", () => {
 describe("a call's line", () => {
 	const call = (extra: Partial<LinkEvent> = {}) => link({ threadKind: "call", thread: "c1", title: "Call", ...extra });
 
-	test("reads as in progress while it is live", () => {
-		expect(linkLine(call())).toBe("Call · in progress");
+	test("says open while live without claiming a turn is running, and parked after hang-up", () => {
+		expect(linkLine(call(), "", undefined, true)).toBe("Call · running");
+		expect(linkLine(call())).toBe("Call · open");
+		expect(linkLine(call({ state: "parked", title: "Release checks" }))).toBe("Release checks · parked");
 	});
 
 	test("says how long it lasted and how it ended", () => {

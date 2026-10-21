@@ -185,6 +185,8 @@ impl Calls {
                 answering: None,
                 streams: HashMap::new(),
                 cut: VecDeque::new(),
+                speech_line: super::record::SpeechLine::default(),
+                interrupted_through: None,
                 record: target.as_deref().map(|persona_id| {
                     Record::open(
                         self.room.clone(),
@@ -357,8 +359,8 @@ impl Calls {
     }
 
     /// Stops what the call is saying and gives the person the floor. A
-    /// teammate's turn goes on, and what it says next is still said; what the
-    /// person says now steers into that turn.
+    /// teammate's work goes on, but further speech from its old turn is
+    /// muted. The person's next turn receives the playback context.
     pub fn interrupt(&self, id: &str) -> Result<(), String> {
         self.change(id, |call| {
             call.activity = Instant::now();
@@ -366,7 +368,9 @@ impl Calls {
             call.speech.cancel();
             call.deliveries.cancel();
             call.deliveries = CancellationToken::new();
-            call.stop_streams(false);
+            call.cut_speech(None);
+            call.interrupted_through = call.seq;
+            call.stop_streams(true);
             call.answering = None;
             if call.state != VoiceState::Held {
                 call.state(call.resting(), None);

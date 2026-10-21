@@ -1006,3 +1006,51 @@ async fn hanging_up_catches_a_typed_turn_already_running_when_voice_attached() {
         );
     }
 }
+
+/// Interrupting: the cut survives on the thread and reaches both drivers,
+/// while the caller’s saved words remain their own.
+#[tokio::test]
+async fn interrupted_speech_is_kept_and_the_next_turn_hears_the_cut() {
+    for driver in [Driver::HotlineAgent, Driver::Acp] {
+        let mut desk = open().await;
+        let (ada, _) = desk.teammate("Ada", driver, false).await;
+        let (call, thread, sub) = desk.call_on(&ada, None).await;
+        desk.say(
+            &call,
+            1,
+            "Explain the harbour.\nREPLY_JSON \"Harbour plan.\"",
+        )
+        .await;
+        desk.reply(sub).await;
+        desk.finished(sub).await;
+        let result = desk
+            .client
+            .call("voice.interrupt", json!({"callId":call}))
+            .await;
+        assert_eq!(result["ok"], true, "{result}");
+        let cut = desk.event(sub, |event| event["interrupted"] == true).await;
+        assert!(
+            cut["text"].as_str().unwrap().contains("Harbour plan"),
+            "{cut}"
+        );
+        desk.say(&call, 2, "Actually, focus on the beacon. ECHO_HISTORY")
+            .await;
+        let reply = desk.reply(sub).await;
+        assert!(
+            reply["text"]
+                .as_str()
+                .unwrap()
+                .contains("Actually, focus on the beacon. ECHO_HISTORY")
+        );
+        assert!(
+            reply["text"].as_str().unwrap().contains("do not resume"),
+            "{reply}"
+        );
+        desk.finished(sub).await;
+        assert!(desk.stream(&thread).iter().any(|event| {
+            event["kind"] == "user"
+                && event["text"] == "Actually, focus on the beacon. ECHO_HISTORY"
+        }));
+        desk.hang_up(&call, sub).await;
+    }
+}

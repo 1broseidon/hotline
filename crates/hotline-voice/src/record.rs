@@ -113,3 +113,74 @@ impl Record {
         });
     }
 }
+
+/// Generated words are not proof of playback. Keep the interrupted line,
+/// without guessing a word boundary from elapsed audio time.
+#[derive(Default)]
+pub(super) struct SpeechLine {
+    id: String,
+    text: String,
+    cut: bool,
+    pub(super) pending: Option<String>,
+}
+
+impl SpeechLine {
+    pub(super) fn update(&mut self, id: &str, text: &str) {
+        if self.id != id {
+            self.id = id.into();
+            self.cut = false;
+        }
+        self.text = text.into();
+    }
+
+    pub(super) fn interrupt(&mut self, played_ms: Option<u32>) -> Option<Value> {
+        if self.cut || self.text.is_empty() {
+            return None;
+        }
+        self.cut = true;
+        let timing =
+            played_ms.map_or_else(String::new, |ms| format!(" Playback stopped at {ms} ms."));
+        let text = format!(
+            "Speech interrupted.{timing} The caller did not hear this line to the end: {}\nThe exact last word heard is unknown. Answer the caller's interruption; do not resume the unfinished speech.",
+            self.text
+        );
+        self.pending = Some(text.clone());
+        Some(
+            json!({"kind": "notice", "id": uuid::Uuid::new_v4().to_string(),
+            "ts": now_ms(), "level": "info", "text": text, "interrupted": true,
+            "speechId": self.id, "playedMs": played_ms}),
+        )
+    }
+}
+
+impl super::Call {
+    pub(super) fn cut_speech(&mut self, played_ms: Option<u32>) {
+        if let Some(line) = self.speech_line.interrupt(played_ms)
+            && let Some(record) = &self.record
+        {
+            let _ = record.sender.send(Entry::Line(line));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_cut_keeps_the_generated_line_without_claiming_it_was_heard() {
+        let mut line = SpeechLine::default();
+        line.update("reply", "First sentence. Unheard ending.");
+        let cut = line.interrupt(Some(420)).unwrap();
+        let _: hotline_contract::TranscriptEvent = serde_json::from_value(cut.clone()).unwrap();
+        assert_eq!(cut["speechId"], "reply");
+        assert_eq!(cut["playedMs"], 420);
+        assert_eq!(cut["interrupted"], true);
+        assert!(cut["text"].as_str().unwrap().contains("Unheard ending."));
+        assert!(line.pending.as_ref().unwrap().contains("do not resume"));
+        line.update("reply", "A late tail.");
+        assert!(line.interrupt(Some(0)).is_none());
+        line.update("next", "The new answer.");
+        assert!(line.interrupt(None).is_some());
+    }
+}

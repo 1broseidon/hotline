@@ -21,8 +21,18 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 impl Calls {
+    /// Playback context for the next call-thread turn, separate from the caller's words.
+    pub fn take_interruption(&self, id: &str) -> Option<String> {
+        self.change(id, |call| Ok(call.speech_line.pending.take()))
+            .ok()
+            .flatten()
+    }
+
     pub(super) fn emit(&self, id: &str, event: VoiceEvent) {
         let _ = self.change(id, |call| {
+            if let VoiceEvent::Said { id, text } = &event {
+                call.speech_line.update(id, text);
+            }
             let _ = call.events.send(event);
             Ok(())
         });

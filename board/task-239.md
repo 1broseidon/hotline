@@ -35,3 +35,6 @@ Done when:
 - An approval or a simple question is answered by a yes or no on the call, and the answer is written to the chat as a record, from the call.
 - A card needing a credential, a 2FA tap, a screen, a payment or a deletion is said and never answered by voice. It waits for the desk.
 - The card handler enforces which cards may be answered by voice, never the model, as a capability change under docs/security.md. It's proved allowed and refused through the real handler.
+
+## Log
+- 2026-10-21T07:00:49.571Z: [codex] Implementing a stable-ID call card queue and core-only answer path. Existing action/passkey/opaque driver cards fail closed at the desk; core-owned collaboration approvals allow only a live session. Adding a separate informational yes/no question path with no operation authority, lease checks, and from-call records; validating through real room/wire handlers.

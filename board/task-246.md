@@ -1,7 +1,7 @@
 ---
 id: task-246
 title: One integration-test binary per crate
-column: in-progress
+column: review
 position: 1
 priority: high
 tags:
@@ -22,7 +22,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T02:18:40.437Z"
 assignee: codex
-updatedAt: "2026-10-21T02:23:11.800Z"
+updatedAt: "2026-10-21T02:33:39.898Z"
 decisions:
   - decision-7
 ---

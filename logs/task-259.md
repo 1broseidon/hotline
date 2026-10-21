@@ -1,8 +1,6 @@
 ---
 id: task-259
 title: One closing note for calls close together, and no repeated reply after hang-up
-column: review
-position: 2
 priority: high
 tags:
   - voice
@@ -20,11 +18,14 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T14:10:55.979Z"
+    ended: "2026-10-21T14:26:45.883Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T14:26:35.054Z"
+updatedAt: "2026-10-21T14:26:45.883Z"
 decisions:
   - decision-25
   - decision-26
+completedAt: "2026-10-21T14:26:45.467Z"
 ---
 
 ## Description
@@ -43,3 +44,4 @@ Lands on release/0.42.0. Merge release/0.42.0, make check in the foreground, com
 - 2026-10-21T14:15:50.932Z: [codex] Implemented per-teammate two-minute closing batches, source-thread links, delivered-result suppression, and summary evidence/fallback. Wire tests cover 60-second and 3-minute spacing plus a posted result and late reply on both drivers. release/0.42.0 is already an ancestor (0 missing commits); no conflict-settlement merge is needed or permitted by dispatch instructions. Running make check in the foreground, then precheck.
 - 2026-10-21T14:24:27.944Z: [codex] make check passes in full. Updated the old idle-call test to advance the paused clock instead of waiting in real time for parking; all 32 call-thread tests and the adversarial cut-off-summary case pass. Running make precheck before committing and handing off.
 - 2026-10-21T14:26:34.734Z: [codex] Ready for review on dispatch/task-259, commit 2c03fab1. Nearby calls now share one closing note after two minutes, with links to each source; delivered results suppress late repeats and prevent false cut-off claims. make check and all 8 make precheck legs pass, including Windows and isolated UI tests; worktree is clean. Decisions 25/26 record the updated rules. Next action: review this branch and merge into release/0.42.0; no push or branch switch performed.
+- 2026-10-21T14:26:44.779Z: Landed on release/0.42.0

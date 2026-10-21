@@ -1,8 +1,6 @@
 ---
 id: task-225
 title: "S6: work asked for on a call is done by the teammate's own model on the call's thread, without a word of hand-off"
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -14,7 +12,7 @@ createdAt: "2026-10-19T20:00:07.934Z"
 dependsOn:
   - task-224
   - task-244
-updatedAt: "2026-10-21T05:43:26.453Z"
+updatedAt: "2026-10-21T05:43:41.193Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -27,6 +25,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T05:38:11.931Z"
+    ended: "2026-10-21T05:43:41.193Z"
+    outcome: done
+completedAt: "2026-10-21T05:43:40.798Z"
 ---
 
 ## Description
@@ -55,3 +56,4 @@ Added 2026-10-20 (George, after the S5 proving call; see task-244):
 - 2026-10-21T05:38:06.115Z: [codex-task-225] Ready for review on dispatch/task-225: a2226b60, 990ddecd, f0d1aa7f, bab0e71e; worktree clean. One first-person work_on_it starts/steers/stops the own-model/harness call-thread clone; live speech and lookups continue, home work is untouched, the full call briefs work, and files/full drafts post with subjects. Removed the direct-call DM relay, CALL_ORIGIN, hand_off and answer_delegation; GPT-Live invokes the same tool, including stop. Ordered speech/tool transcripts include interrupted speech and preserve desktop provenance. ADR 0005 marked amended. make check and all 8 make precheck legs passed. Hand checks explicitly handed to task-206: real dictation pauses, acknowledgment/correction phrasing and one chat pointer; Grok/GPT-Live use native turn detection plus listening instructions, OpenAI semantic VAD low eagerness. Legacy desk dispatch remains task-203; nothing else left unwired.
 - 2026-10-21T05:38:11.357Z: Landing sent back (1 of 1): dispatch/task-225 conflicts with release/0.42.0 in crates/hotline-voice/src/duplex.rs, docs/voice-calls.md. On release/0.42.0 since this branch started: 2a4c599b Interrupted speech stays cut and the next turn knows what was unheard. (task-240). Merge release/0.42.0 into this branch (git merge release/0.42.0), keep what both sides meant, commit the merge, and run the checks.
 - 2026-10-21T05:43:26.185Z: [codex-task-225] Resolved the requested release/0.42.0 merge on dispatch/task-225 in 6e63bd0c; worktree clean. Preserved S6's ordered streaming transcript and own-thread work alongside task-240's interruption suppression/context, using the synchronous transcript writer for cut notices. Extended the real-core interruption test to prove speech/cut/correction/reply order and matching speech id. make check and all 8 make precheck legs passed; commit hooks passed. Ready for reviewer to merge. Nothing newly left unwired; task-206 still owns real dictation pauses, spoken acknowledgment/correction phrasing and the single chat pointer, and task-203 owns legacy desk routing.
+- 2026-10-21T05:43:40.128Z: Landed on release/0.42.0

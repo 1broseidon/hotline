@@ -1,6 +1,6 @@
 ---
 id: task-241
-title: "Drops and fallbacks: a short drop resumes the same call, and a lost live voice carries on as Legacy voice"
+title: "Drops: a short drop resumes the same call; a live voice that can't come back says so and offers Legacy, never silently"
 column: backlog
 position: 46
 priority: high
@@ -10,7 +10,7 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:09.620Z"
 dependsOn:
   - task-223
-updatedAt: "2026-10-20T20:13:25.588Z"
+updatedAt: "2026-10-21T05:05:34.755Z"
 ---
 
 ## Description

@@ -20,6 +20,7 @@
 
 pub(crate) mod env;
 pub(crate) mod resolve;
+pub(crate) mod setup;
 pub(crate) mod status;
 pub(crate) mod support;
 

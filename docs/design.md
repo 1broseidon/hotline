@@ -602,6 +602,18 @@ header controls and work-card follow layout do not rerun for unrelated body
 updates. `ui/tests/streaming-store.test.tsx` exercises this subscription boundary
 and the final rendered reply, alongside the pacing and cadence tests.
 
+Room-wide picker and inspector metadata (backend names, model efforts and
+voice capability choices) shares in-flight and settled reads within one desk
+connection. Room credential/model events, settings changes other than the
+last-used model, and reconnect snapshots discard those reads. An unobserved
+room reloads before serving them again; a replaced endpoint or token owns a
+new cache. No credential read or persona computer status enters this cache.
+The latter still refreshes per teammate and on its existing timer.
+`ui/tests/room-reads.test.tsx` measures twenty teammate selections: model
+efforts 10 → 1, backends 20 → 1, voice status 20 → 1, capabilities 20 → 1,
+with computer status unchanged at 20. It also checks mounted invalidation,
+remote desk isolation and late replies.
+
 Providers use Rig's native clients for inference. Rig also signs ChatGPT and
 Copilot in and refreshes them, through Hotline's own token store over each
 login's directory (`providers/rig_login.rs`): ChatGPT's record is the

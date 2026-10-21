@@ -7,7 +7,7 @@ import { installDom } from "./dom";
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Teammate } = await import("../src/components/Teammate");
 const { wire } = await import("../src/wire");
-const { replaceDesks } = await import("../src/desks");
+const { replaceDesks, wireFor } = await import("../src/desks");
 
 const persona: Persona = {
 	id: "ada", name: "Ada", goal: "", backendId: "hotline", cwd: "/work/ada",
@@ -42,13 +42,20 @@ let teardown: () => Promise<void>;
 beforeEach(async () => {
 	restores = [];
 	({ teardown } = installDom({ ResizeObserver: NoResize }));
-	// A desk with no endpoint: the room's wire never opens, so the pane reads no settings.
+	// A test desk whose room snapshot and commands are supplied below.
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
 	status = legacy;
 	// The desk's voice status and options are what the test sets; everything
 	// else is refused, which the pane reads as "nothing to show".
-	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
+	const connection = wireFor("local");
+	const subscription = spyOn(connection, "subscribe").mockImplementation((_target, handlers) => {
+		let cancelled = false;
+		queueMicrotask(() => { if (!cancelled) handlers.snapshot([]); });
+		return () => { cancelled = true; };
+	});
+	restores.push(() => subscription.mockRestore());
+	const command = spyOn(connection, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push({ cmd, params });
 		if (cmd === "persona.update") return persona;
 		if (cmd === "voice.status") return status;

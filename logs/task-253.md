@@ -1,12 +1,10 @@
 ---
 id: task-253
 title: "Files written on a call reach the chat: each file, or one summary card when there are many"
-column: review
-position: 1
 description: "Task-206 manual QA finding from Pork Chop, 2026-10-21, real Grok Voice call 790a5312: fox.txt was written and spoken about with a closing note, but never attached to chat; crane.txt reached chat only because its clone chose send_file. The deck expects results in chat. George must decide whether core should attach files written by work_on_it or use another policy. Do not implement automatic attachment without that decision. Reproduce, settle scope, then prove chosen behavior on both drivers and a real call. Task-206 deliberately leaves this unwired."
 createdAt: "2026-10-21T07:53:18.984Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-21T20:33:40.470Z"
+updatedAt: "2026-10-21T20:33:51.445Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -19,6 +17,8 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T20:28:55.791Z"
+    ended: "2026-10-21T20:33:51.444Z"
+    outcome: done
 assignee: codex
 decisions:
   - decision-31
@@ -32,6 +32,7 @@ relatedFiles:
   - crates/hotline-core/tests/call_threads/files.rs
   - ui/src/components/SentFile.tsx
   - ui/src/components/transcript/Bubbles.tsx
+completedAt: "2026-10-21T20:33:51.030Z"
 ---
 
 ## Description
@@ -54,3 +55,4 @@ Lands on release/0.42.0. Merge release/0.42.0 first, make check in the foregroun
 - 2026-10-21T20:28:55.286Z: Landing sent back (1 of 1): dispatch/task-253 conflicts with release/0.42.0 in docs/security.md. On release/0.42.0 since this branch started: c643f405 An agent saves the person's name only after their approval. (task-261). Merge release/0.42.0 into this branch (git merge release/0.42.0), keep what both sides meant, commit the merge, and run the checks.
 - 2026-10-21T20:30:19.808Z: [codex] Merged release/0.42.0 for the landing retry; resolved the sole docs/security.md conflict by retaining both call-file delivery and approved person-name storage sections. Code auto-merges retain both modules and harnesses. Foreground make check running, then precheck and merge commit; real-provider QA remains the previously recorded outstanding step.
 - 2026-10-21T20:33:40.176Z: [codex] Landing conflict resolved and committed as merge 0af2d908 on dispatch/task-253. Both security sections preserved; release/0.42.0 is an ancestor and worktree is clean. Foreground CARGO_INCREMENTAL=0 make check passed, including both-driver file matrix and name approvals; make precheck passed all 8 legs. Ready for review/landing retry. Remaining acceptance: isolated real-provider call QA for fox.txt and six-file batch, as previously recorded.
+- 2026-10-21T20:33:50.360Z: Landed on release/0.42.0

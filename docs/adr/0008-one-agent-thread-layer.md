@@ -303,8 +303,10 @@ the home agent receives posts and the note and can read the full call for
 missing detail.
 
 Cards are spoken once at a break. Voice answers core-owned session
-collaboration approvals and informational yes/no questions; opaque approvals,
-credentials, payments, deletions and screen actions wait for the desk. A cut
+collaboration approvals and yes/no questions, including a teammate asking
+approval of its own plan (amended 2026-10-21 to match the scenario deck);
+opaque driver approvals, credentials, 2FA, payments, deletions and screen
+actions wait for the desk. A cut
 notice records generated text and playback evidence, not an invented last
 heard word. The desk lead answers roster lookups and routes named work directly;
 its implicit local routing grant lasts only for that live desk call.

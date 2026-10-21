@@ -428,7 +428,17 @@ impl Room {
             about: peers::about(reason),
         };
         let delivery_id = format!("human-answer:{action_id}");
-        let text = note.unwrap_or_default();
+        // A tap with no note still says how it came out: on a call or work
+        // thread the delivery text is all the voice side sees of it.
+        let outcome = match status {
+            HumanActionStatus::Done => "The person answered yes (marked it done).",
+            HumanActionStatus::Dismissed => "The person answered no (declined it).",
+            _ => "",
+        };
+        let text = match home.kind {
+            ThreadKind::Side | ThreadKind::Call => note.unwrap_or_else(|| outcome.to_string()),
+            _ => note.unwrap_or_default(),
+        };
         let from = DeliveryFrom::new(&home, Some(action_id.to_string()));
         match home.kind {
             ThreadKind::Side | ThreadKind::Call => {

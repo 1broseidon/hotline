@@ -165,11 +165,13 @@ continuation still goes to the agent on the original call thread. Pushes
 outside an active call point to the home chat, including driver permissions.
 
 The core announces a collaboration approval with its session-only scope,
-or an `ask_question` informational yes/no question. Only the next finalized
-caller yes/no answers the announced card; other words clear that association.
-The model has no answer tool. The answer is kept on the card and/or in a
-chat notice naming the call, and a question's continuation stays on its
-original thread. Existing action cards, passkeys and opaque driver approvals
+or an `ask_question` yes/no question, which is also the card a teammate uses
+to ask approval of its own plan (George, 2026-10-21: an approval card asked
+for on a call must be answerable there). Only the next finalized caller
+yes/no answers the announced card; other words clear that association. The
+model has no answer tool. The answer is kept on the card ("Answered by voice
+on the call: yes."), and a question's continuation stays on its original
+thread; a tap with no note still tells that thread whether it was yes or no. Existing action cards, passkeys and opaque driver approvals
 are announced as needing the desk and cannot be answered by voice. A spoken
 yes to one is refused without settling it or handing that yes off as work.
 The wire's optional `card.resolved` removes answered or withdrawn cards from

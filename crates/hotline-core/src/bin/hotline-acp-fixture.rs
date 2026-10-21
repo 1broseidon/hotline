@@ -9,10 +9,12 @@
 //! calls is answered "On it."
 //!
 //! With `--cli` anywhere in its arguments it is instead the agent's own command
-//! line for an account, `auth status [--json]`, answered from the folder in
-//! `CLAUDE_CONFIG_DIR`. Every run there writes the names of its environment,
-//! never a value, to `<that folder>/fixture-status-env.json`; without the
-//! variable it writes nothing, so it never reaches the home folder.
+//! line for an account, `auth status [--json]` and `auth login …`, answered
+//! from the folder in `CLAUDE_CONFIG_DIR`. Every run there writes the names of
+//! its environment, never a value, to `<that folder>/fixture-<status|login>-env.json`;
+//! without the variable it writes nothing, so it never reaches the home folder.
+//! `FIXTURE_LOGIN_MODE` (`ok`, `fail`, `silent`, `hang`, `prompt`) picks how a
+//! sign-in ends.
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
@@ -209,6 +211,7 @@ fn cli(args: &[OsString]) -> i32 {
     let dir = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from);
     match words.as_slice() {
         ["auth", "status"] | ["auth", "status", "--json"] => auth_status(dir.as_deref()),
+        ["auth", "login", rest @ ..] => auth_login(dir.as_deref(), rest),
         _ => 2,
     }
 }
@@ -266,4 +269,47 @@ fn auth_status(dir: Option<&Path>) -> i32 {
     };
     println!("{answer}");
     if answer["loggedIn"] == true { 0 } else { 1 }
+}
+
+fn auth_login(dir: Option<&Path>, args: &[&str]) -> i32 {
+    let Some(dir) = dir else {
+        return 1;
+    };
+    report_env_names(dir, "login");
+    let given = serde_json::to_vec(args).expect("arguments serialize");
+    std::fs::write(dir.join("fixture-login-args.json"), given)
+        .expect("the account folder is writable");
+    println!("Opening the browser to sign in.");
+    let email = args
+        .iter()
+        .position(|arg| *arg == "--email")
+        .and_then(|at| args.get(at + 1))
+        .copied()
+        .unwrap_or("fixture@example.invalid");
+    let sign_in = || {
+        let credentials = json!({ "email": email }).to_string();
+        std::fs::write(dir.join(".credentials.json"), credentials)
+            .expect("the account folder is writable");
+        0
+    };
+    match std::env::var("FIXTURE_LOGIN_MODE")
+        .as_deref()
+        .unwrap_or("ok")
+    {
+        "ok" => sign_in(),
+        "fail" => 7,
+        "silent" => 0,
+        "hang" => {
+            println!("waiting");
+            std::thread::sleep(Duration::from_secs(600));
+            0
+        }
+        "prompt" => {
+            println!("Paste code:");
+            let mut line = String::new();
+            let _ = std::io::stdin().read_line(&mut line);
+            if line.trim() == "yes" { sign_in() } else { 3 }
+        }
+        _ => 2,
+    }
 }

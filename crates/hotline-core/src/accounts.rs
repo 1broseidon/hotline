@@ -19,6 +19,7 @@
 //!   it only when it names exactly that folder.
 
 pub(crate) mod env;
+pub(crate) mod login;
 pub(crate) mod resolve;
 pub(crate) mod status;
 pub(crate) mod support;

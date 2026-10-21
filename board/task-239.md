@@ -1,7 +1,7 @@
 ---
 id: task-239
 title: "Cards on a call: what needs the person is said on the call, and approvals and simple questions are answered by voice"
-column: review
+column: in-progress
 position: 0
 priority: high
 tags:
@@ -11,7 +11,7 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:08.678Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T07:29:09.117Z"
+updatedAt: "2026-10-21T07:29:29.477Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

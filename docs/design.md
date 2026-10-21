@@ -174,7 +174,13 @@ and migrations invalidate affected folds; restart rebuilds them from disk.
 Unterminated files and partial reads are not retained. Failure-sensitive and
 strict reads still inspect disk, so caching cannot turn a storage error into
 an authoritative answer. Only the log writes streams during its lifetime;
-imports finish before it opens. Event shapes and segment layout are unchanged.
+imports finish before it opens. Event shapes and segment layout are unchanged. Model listing
+resolves vault connections and their discovery/manual records once per request,
+using one room snapshot for credentials and enabled models. No secret survives
+in a listing cache. Thread listing scans the side and pair directories once,
+reads each selected tape once, and asks the shared fold for thread links without
+copying unrelated side histories. Pair working state comes from live sessions,
+not from rebuilding the peer history list.
 
 ### 2. A wire of commands and subscriptions
 

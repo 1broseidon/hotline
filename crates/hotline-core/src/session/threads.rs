@@ -488,7 +488,7 @@ mod tests {
         room.run(spec(&room, "r1"), CancellationToken::new()).await;
 
         let ids: Vec<String> = ThreadStore::new(&room.log)
-            .all()
+            .list_from(None, &room.log.load(&StreamId::Room))
             .into_iter()
             .map(|thread| thread.id.to_string())
             .collect();

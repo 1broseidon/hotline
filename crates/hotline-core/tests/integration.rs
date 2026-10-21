@@ -11,6 +11,8 @@ mod call_threads_harness;
 mod desk_harness;
 #[path = "folders.rs"]
 mod folders;
+#[path = "list_sources.rs"]
+mod list_sources;
 #[path = "local_speech.rs"]
 mod local_speech;
 #[path = "mcp.rs"]

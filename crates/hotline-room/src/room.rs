@@ -362,7 +362,7 @@ pub fn all_jobs(log: &Log) -> Vec<ScheduledJob> {
     jobs(&log.load(&StreamId::Room))
 }
 
-fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
+pub fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
     let mut jobs: Vec<ScheduledJob> = events
         .iter()
         .filter(|event| is_kind(event, "schedule") && !is_deleted(event))

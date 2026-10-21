@@ -1134,9 +1134,11 @@ impl Room {
         Ok("Opened in the person's browser on this computer.".into())
     }
 
-    /// The side threads this teammate has live, oldest first, for its roster
-    /// row.
+    /// Whether this work thread has a turn in flight, without listing its history.
     pub(crate) fn work_thread_working(&self, thread: &ThreadId) -> bool {
+        if thread.kind == ThreadKind::Pair {
+            return self.peers.answering_in(&thread.key).is_some();
+        }
         self.sides
             .get(&thread.key)
             .is_some_and(|live| live.thread == *thread && live.working())

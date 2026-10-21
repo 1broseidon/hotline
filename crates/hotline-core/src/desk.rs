@@ -916,7 +916,7 @@ impl RoomHandle for Desk {
     }
 
     fn models(&self) -> Vec<ConfigChoice> {
-        self.room.models_for_desk()
+        self.vault.model_choices()
     }
 
     fn models_catalog(

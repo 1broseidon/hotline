@@ -221,7 +221,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         Vec::new()
     }
 
-    /// The side threads this teammate has live, for the roster row.
+    /// Whether a work thread or pair has a turn in flight; no history is needed.
     fn thread_working(&self, _thread: &hotline_contract::ThreadId) -> bool {
         false
     }

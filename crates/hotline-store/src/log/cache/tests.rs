@@ -250,3 +250,29 @@ fn warm_reads_need_no_disk_but_authoritative_reads_still_report_io_errors() {
     fs::rename(&saved, &file).unwrap();
     assert_eq!(log.load(&StreamId::Room), vec![event]);
 }
+
+#[test]
+fn thread_links_follow_revisions_compaction_and_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let thread = hotline_contract::ThreadId::side("work");
+    let stream = StreamId::Side("work".into());
+    assert!(log.thread_link(&thread).is_none());
+    let mut link = json!({"kind":"link", "id":"link:side:work", "ts":1,
+        "thread":"work", "threadKind":"side", "personaId":"ada",
+        "title":"First", "state":"parked"});
+    log.append(&stream, &link).unwrap();
+    assert_eq!(log.thread_link(&thread).unwrap().title, "First");
+    log.append(
+        &stream,
+        &json!({"kind":"agent", "id":"answer", "ts":2, "text":"Done"}),
+    )
+    .unwrap();
+    link["title"] = json!("Revised");
+    log.append(&stream, &link).unwrap();
+    assert_eq!(log.thread_link(&thread).unwrap().title, "Revised");
+    log.compact(&stream).unwrap();
+    let expected = crate::link::Link::find(&log.load(&stream), &thread);
+    assert_eq!(log.thread_link(&thread), expected);
+    assert_eq!(Log::open(root.path()).thread_link(&thread), expected);
+}

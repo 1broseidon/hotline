@@ -115,6 +115,8 @@ pub struct Appended {
 #[derive(Clone)]
 pub struct Log {
     root: PathBuf,
+    #[cfg(feature = "test-support")]
+    loads: Arc<Mutex<HashMap<StreamId, usize>>>,
     subscribers: Arc<Mutex<HashMap<StreamId, broadcast::Sender<Value>>>>,
     /// The one writer. Held for the whole of an append and the whole of a
     /// compaction, because both are read-then-write: an append measures the
@@ -133,6 +135,8 @@ impl Log {
     pub fn open(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
+            #[cfg(feature = "test-support")]
+            loads: Arc::default(),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             writer: Arc::new(Mutex::new(cache::Cache::default())),
         }
@@ -158,8 +162,37 @@ impl Log {
 
     /// The whole stream, folded. A stream nobody has written to is empty.
     pub fn load(&self, stream: &StreamId) -> Vec<Value> {
+        #[cfg(feature = "test-support")]
+        {
+            *self
+                .loads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .entry(stream.clone())
+                .or_default() += 1;
+        }
         self.with_fold(stream, false, |fold| fold.events.clone())
             .expect("a tolerant load skips unreadable files")
+    }
+
+    /// Read just a thread's own link from the shared fold, without cloning its history.
+    pub fn thread_link(&self, thread: &hotline_contract::ThreadId) -> Option<crate::link::Link> {
+        let stream = StreamId::of_thread(thread)?;
+        self.with_fold(&stream, false, |fold| {
+            crate::link::Link::find(&fold.events, thread)
+        })
+        .expect("a tolerant load skips unreadable files")
+    }
+
+    /// Drain whole-history copy counts for an isolated handler measurement.
+    #[cfg(feature = "test-support")]
+    pub fn take_load_counts(&self) -> HashMap<StreamId, usize> {
+        std::mem::take(
+            &mut *self
+                .loads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
     }
 
     /// Like `load`, but an unreadable file is an error, never a cached partial fold.

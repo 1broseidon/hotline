@@ -248,18 +248,16 @@ pub(super) fn list(
     companion: bool,
 ) -> Result<Value, String> {
     let store = ThreadStore::new(log);
-    let threads = match persona_id {
-        Some(persona_id) => store.list(persona_id),
-        None => store.all(),
-    };
-    let roster = crate::room::roster(log);
+    let events = log.load(&StreamId::Room);
+    let threads = store.list_from(persona_id, &events);
+    let roster = crate::room::personas(&events);
     let mut summaries: Vec<ThreadSummary> = threads
         .iter()
         .filter(|thread| {
             !companion
                 || (thread.kind() != ThreadKind::Pair && super::seat::phone_may_read(&thread.id))
         })
-        .map(|thread| summarize(log, room, thread, &roster))
+        .map(|thread| summarize(log, room, thread, &roster, &events))
         .collect();
     summaries.sort_by_key(|summary| {
         (
@@ -279,11 +277,13 @@ fn summary_of(log: &Log, room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Resul
     let thread = ThreadStore::new(log)
         .load(thread)
         .ok_or_else(|| format!("There is no such thread {thread}."))?;
+    let events = log.load(&StreamId::Room);
     Ok(json!(summarize(
         log,
         room,
         &thread,
-        &crate::room::roster(log)
+        &crate::room::personas(&events),
+        &events
     )))
 }
 
@@ -292,6 +292,7 @@ fn summarize(
     room: &Arc<dyn RoomHandle>,
     thread: &Thread,
     roster: &[Persona],
+    room_events: &[Value],
 ) -> ThreadSummary {
     let mut persona_id = thread
         .participants
@@ -322,7 +323,7 @@ fn summarize(
     }
     let with_name = with_persona_id
         .as_deref()
-        .and_then(|with| crate::linked::shown_name(log, with));
+        .and_then(|with| crate::linked::shown_name(room_events, with));
 
     // A DM is read from the end of its tape, which can be very long; every
     // other thread is small enough to read whole.
@@ -373,10 +374,7 @@ fn summarize(
         ThreadKind::Side => running
             .iter()
             .any(|side| side.side_id == thread.id.key && side.working),
-        ThreadKind::Pair => room
-            .peer_threads(&persona_id)
-            .iter()
-            .any(|pair| pair.thread_key == thread.id.key && pair.working_persona_id.is_some()),
+        ThreadKind::Pair => room.thread_working(&thread.id),
         ThreadKind::Job => room.working_jobs(&persona_id).contains(&thread.id.key),
         ThreadKind::Run => state == LinkState::Live,
         ThreadKind::Call => room.thread_working(&thread.id),

@@ -512,3 +512,144 @@ async fn changing_and_dropping_live_work_keeps_one_call_agent_and_home_keeps_run
             .await;
     }
 }
+
+/// A provider can answer at the pause, and its tool can beat transcription.
+/// Neither permits the front to fill in the caller's unfinished sentence.
+#[tokio::test]
+async fn paused_dictation_waits_for_the_callers_complete_phrase() {
+    for provider in ["grok", "openai"] {
+        let (session, mut asked, events) = RealtimeSession::scripted(64);
+        let front = Arc::new(Front {
+            provider,
+            session: Mutex::new(Some(session)),
+            config: Mutex::new(None),
+        });
+        let mut desk = open_with_front(Some(front.clone())).await;
+        let (ada, _) = desk.teammate("Ada", Driver::HotlineAgent, false).await;
+        let call = uuid::Uuid::new_v4().to_string();
+        let started = desk
+            .client
+            .call(
+                "voice.call_start",
+                json!({"callId":call,"personaId":ada,"mode":"front"}),
+            )
+            .await;
+        assert_eq!(started["ok"], true, "{started}");
+        crate::common::until("front opens", || front.config.lock().unwrap().is_some()).await;
+        let requests_before = desk.requests.lock().unwrap().len();
+        let first = "Draft a message to the harbour master saying that";
+        let last = "the fog horn should be tested on Friday morning, before the boats go out.";
+        let invented =
+            "Draft a message to the harbour master saying that: the harbour note is ready.";
+        event(&events, RealtimeEvent::SpeechStarted).await;
+        event(
+            &events,
+            RealtimeEvent::ToolCall {
+                call_id: "premature".into(),
+                name: "work_on_it".into(),
+                arguments: json!({"words":invented}).to_string(),
+            },
+        )
+        .await;
+        event(&events, RealtimeEvent::Heard(first.into())).await;
+        for id in ["premature", "retry"] {
+            let (output, reply) = tokio::time::timeout(PATIENCE, async {
+                loop {
+                    if let Some(Command::ToolResult {
+                        call_id,
+                        output,
+                        reply,
+                    }) = asked.recv().await
+                        && call_id == id
+                    {
+                        break (output, reply);
+                    }
+                }
+            })
+            .await
+            .expect("unfinished dictation answers silently");
+            assert!(
+                output.contains("dictation is unfinished"),
+                "{provider}: {output}"
+            );
+            assert!(!reply, "waiting must not request more speech");
+            assert_eq!(
+                desk.requests.lock().unwrap().len(),
+                requests_before,
+                "no work model runs on a guessed completion"
+            );
+            if id == "premature" {
+                desk.advance(4).await;
+                event(
+                    &events,
+                    RealtimeEvent::ToolCall {
+                        call_id: "retry".into(),
+                        name: "work_on_it".into(),
+                        arguments: json!({"words":invented}).to_string(),
+                    },
+                )
+                .await;
+            }
+        }
+        // Stop bypasses the listening guard and withdraws any work whose
+        // transcript has not arrived, so it cannot revive on the next Heard.
+        event(&events, RealtimeEvent::SpeechStarted).await;
+        event(
+            &events,
+            RealtimeEvent::ToolCall {
+                call_id: "withdrawn".into(),
+                name: "work_on_it".into(),
+                arguments: json!({"words":invented}).to_string(),
+            },
+        )
+        .await;
+        event(
+            &events,
+            RealtimeEvent::ToolCall {
+                call_id: "stop".into(),
+                name: "work_on_it".into(),
+                arguments: json!({"words":"Never mind", "action":"stop"}).to_string(),
+            },
+        )
+        .await;
+        assert!(result(&mut asked, "withdrawn").await.contains("withdrawn"));
+        let stopped = result(&mut asked, "stop").await;
+        assert!(!stopped.contains("dictation is unfinished"), "{stopped}");
+        event(&events, RealtimeEvent::Heard(first.into())).await;
+        let complete = format!("{first} {last}");
+        event(&events, RealtimeEvent::SpeechStarted).await;
+        event(
+            &events,
+            RealtimeEvent::ToolCall {
+                call_id: "complete".into(),
+                name: "work_on_it".into(),
+                arguments: json!({"words":complete}).to_string(),
+            },
+        )
+        .await;
+        event(&events, RealtimeEvent::Heard(last.into())).await;
+        assert!(
+            result(&mut asked, "complete")
+                .await
+                .contains("Work accepted")
+        );
+        crate::common::until("complete dictation reaches the work model", || {
+            desk.requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request.to_string().contains(&complete))
+        })
+        .await;
+        assert!(!desk.requests.lock().unwrap().iter().any(|request| {
+            request["messages"].as_array().is_some_and(|messages| {
+                messages.iter().any(|message| {
+                    message["role"] == "user" && text_of(message).starts_with(invented)
+                })
+            })
+        }));
+        desk.client
+            .call("voice.call_end", json!({"callId":call}))
+            .await;
+    }
+}

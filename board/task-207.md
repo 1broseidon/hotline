@@ -1,8 +1,8 @@
 ---
 id: task-207
 title: The chat gets results, records and one closing note; the pointer only when the chat holds more
-column: backlog
-position: 42
+column: in-progress
+position: 0
 priority: high
 tags:
   - voice
@@ -14,7 +14,7 @@ parentId: epic-21
 dependsOn:
   - task-225
 createdAt: "2026-10-19T14:02:18.044Z"
-updatedAt: "2026-10-21T06:53:09.067Z"
+updatedAt: "2026-10-21T06:53:27.742Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

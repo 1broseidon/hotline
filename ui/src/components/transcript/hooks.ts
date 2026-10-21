@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import type { TranscriptEvent } from "../../generated/contract";
 import { REST, step, type Bubble, type Cadence } from "../../cadence";
 import type { Block } from "../../scheduledRuns";
@@ -112,12 +112,15 @@ export function useCadence(personaId: string, blocks: Block[]): ReadonlySet<stri
 	useEffect(() => {
 		cadence.current = REST;
 	}, [personaId]);
-	const bubbles: Bubble[] = [];
-	for (const block of blocks) {
-		if (block.kind === "event" && block.event.kind === "agent") {
-			bubbles.push({ id: block.event.id, text: block.event.text, ts: block.event.ts });
+	const bubbles = useMemo(() => {
+		const bubbles: Bubble[] = [];
+		for (const block of blocks) {
+			if (block.kind === "event" && block.event.kind === "agent") {
+				bubbles.push({ id: block.event.id, text: block.event.text, ts: block.event.ts, live: block.live === true });
+			}
 		}
-	}
+		return bubbles;
+	}, [blocks]);
 	const next = step(cadence.current, bubbles, Date.now());
 	cadence.current = next.cadence;
 	const dueIn = next.dueIn;
@@ -127,7 +130,9 @@ export function useCadence(personaId: string, blocks: Block[]): ReadonlySet<stri
 		const timer = window.setTimeout(wake, dueIn);
 		return () => window.clearTimeout(timer);
 	}, [dueIn, next.hidden.length]);
-	return new Set(next.hidden);
+	const hidden = useRef<ReadonlySet<string>>(new Set());
+	if (hidden.current.size !== next.hidden.length || next.hidden.some((id) => !hidden.current.has(id))) hidden.current = new Set(next.hidden);
+	return hidden.current;
 }
 
 /**

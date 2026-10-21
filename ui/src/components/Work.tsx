@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { processLabel } from "../activity";
 import { chordKeys } from "../chords";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
@@ -78,6 +78,7 @@ export function ProcessWork({
 			docked={docked}
 			following={processId}
 			count={tail.length}
+			content={tail}
 			actions={
 				process !== undefined && (
 					<button type="button" className="control btn btn-sm" disabled={process.state !== "running"} onClick={stop}>
@@ -126,12 +127,14 @@ export function Work({
 	onClose(): void;
 }) {
 	const { events, streaming } = useThread(dmOf(open.personaId));
-	const runs = stepRuns(events, streaming);
+	const runs = useMemo(() => stepRuns(events, streaming), [events, streaming]);
 	const latest = runs[runs.length - 1];
 	const run = open.blockId === null ? latest : runs.find((one) => one.id === open.blockId);
 	const running = live && run !== undefined && run === latest;
 	const waiting = open.blockId === null && live && run === undefined;
 	const state = running || waiting ? "Working" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
+	const items = run?.items;
+	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 
 	return (
 		<WorkCard
@@ -142,6 +145,7 @@ export function Work({
 			docked={docked}
 			following={run?.id}
 			count={run?.items.length ?? 0}
+			content={content}
 			onClose={onClose}
 		>
 			{run === undefined ? (
@@ -162,6 +166,7 @@ function WorkCard({
 	docked,
 	following: followKey,
 	count,
+	content,
 	actions,
 	onClose,
 	children,
@@ -174,6 +179,8 @@ function WorkCard({
 	/** What the window is following: a new one starts at its newest. */
 	following: string | undefined;
 	count: number;
+	/** Changes when the visible body changes, including a growing thought or tool output. */
+	content: unknown;
 	/** Keys in the band, before Close. */
 	actions?: ReactNode;
 	onClose(): void;
@@ -181,25 +188,38 @@ function WorkCard({
 }) {
 	return (
 		<aside className={docked ? "work-float work-docked" : "work-float"} aria-label={label}>
-			<Band>
-				<div className="min-w-0 flex-1 pl-1">
-					<h2 className="flex items-center gap-2 truncate text-lg font-semibold">
-						{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-						<span className="truncate">{heading}</span>
-					</h2>
-				</div>
-				{detail !== undefined && <span className="instrument min-w-0 truncate pr-1">{detail}</span>}
-				{actions}
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
-			</Band>
-			<FollowWindow following={followKey} count={count}>
+			<WorkBand heading={heading} working={working} detail={detail} actions={actions} onClose={onClose} />
+			<FollowWindow following={followKey} count={count} content={content}>
 				{children}
 			</FollowWindow>
 		</aside>
 	);
 }
+
+/** Body updates do not repaint the card's controls. */
+const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onClose }: {
+	heading: string;
+	working: boolean;
+	detail: string | undefined;
+	actions: ReactNode;
+	onClose(): void;
+}) {
+	return (
+		<Band>
+			<div className="min-w-0 flex-1 pl-1">
+				<h2 className="flex items-center gap-2 truncate text-lg font-semibold">
+					{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+					<span className="truncate">{heading}</span>
+				</h2>
+			</div>
+			{detail !== undefined && <span className="instrument min-w-0 truncate pr-1">{detail}</span>}
+			{actions}
+			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
+				<CloseIcon />
+			</button>
+		</Band>
+	);
+});
 
 /**
  * The window a card reads through: it follows the newest line until you
@@ -208,21 +228,25 @@ function WorkCard({
 function FollowWindow({
 	following: followKey,
 	count,
+	content,
 	children,
 }: {
 	/** What the window is following: a new one starts at its newest. */
 	following: string | undefined;
 	count: number;
+	/** Changes when the visible body changes, including a growing thought or tool output. */
+	content: unknown;
 	children: ReactNode;
 }) {
 	const frame = useRef<HTMLDivElement>(null);
 	const [following, setFollowing] = useState(true);
-	// Every tape change re-renders this, a thought growing word by word
-	// included, so following is kept after each one, not only per new step.
+	// Follow actual body changes, including text growing within one step.
+	// Unrelated parent renders need no layout read.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: content and followKey identify the body whose layout changed.
 	useLayoutEffect(() => {
 		const el = frame.current;
 		if (el && following) el.scrollTop = el.scrollHeight;
-	});
+	}, [content, followKey, following]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new followKey is new work to follow.
 	useEffect(() => setFollowing(true), [followKey]);
 

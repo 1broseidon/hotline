@@ -9,6 +9,15 @@ tags:
   - ui
 parentId: epic-21
 createdAt: "2026-10-21T00:48:18.956Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T05:05:35.831Z"
+  until: done
+  tries: 0
+assignee: codex
+updatedAt: "2026-10-21T05:05:35.962Z"
 ---
 
 ## Description

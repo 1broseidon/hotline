@@ -33,3 +33,4 @@ assignee: codex
 
 ## Log
 - 2026-10-21T10:22:49.324Z: [claude] 2026-10-21 Pork Chop: lands on dispatch/epic-5 (now 3891214f, includes task-19's writer-held fold cache and task-46). Before done: merge dispatch/epic-5 into your branch, run make check in the foreground on the merged result, commit, and show a before/after measurement.
+- 2026-10-21T10:27:29.496Z: [codex] Implemented visible streaming projection, atomic queued-word settlement, stable live stamps, memoized transcript/work derivations, isolated conversation/work bands, and gated follow layout. Synthetic 60,000-character / 1,000-frame Transcript fixture: baseline 1,000 notifications/renders and 170.9 ms; changed 1 notification/render and 56.4 ms, final DOM bubble retained. Running required make check and precheck on dispatch/epic-5 base 0a1127a0.

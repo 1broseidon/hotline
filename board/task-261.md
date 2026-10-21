@@ -33,3 +33,6 @@ George, 2026-10-21: the voice reads the personName setting (task-204) but nothin
 - docs/security.md: the tool can only change personName, only with the person's approval.
 - Tests: the tool raises an approval card; approve → personName set; decline → unchanged; Settings field round-trips.
 Lands on release/0.42.0. Merge release/0.42.0 first, make check in the foreground, commit before done.
+
+## Log
+- 2026-10-21T20:00:48.348Z: [codex] Started on dispatch/task-261. release/0.42.0 is already contained in HEAD (zero commits to merge). Reusing core-owned question cards for a narrowly bound name approval; ordinary question prose will never authorize a settings write.

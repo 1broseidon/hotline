@@ -1836,3 +1836,30 @@ teammate's lease never covers another teammate's computer.
   sandbox, as for its work threads. Live-front work still uses its existing
   DM relay until S6. A failed summary is reported explicitly with the thread
   link, rather than fabricated.
+
+
+## Reading a teammate's own threads
+
+- **Default and grant source:** `read_thread` is an own-conversation tool on
+  Hotline's MCP server for both drivers, including runs, jobs and voice
+  fronts. It adds no policy field or migration. A DM's key must be the
+  caller's persona; a call, work thread, job or run must have that persona's
+  DM as its parent. A pair must include the caller. Being the opener of
+  another teammate's work thread does not grant its transcript.
+- **Enforcement:** `TeammateTools::call` checks the calling session's lease
+  before dispatch, in process and over the ACP endpoint. `thread_reader::read`
+  resolves the key with `ThreadStore` and checks ownership before returning
+  any events. Pages follow folded event order using event ids, never a
+  caller-supplied path; records are fenced as conversation data. A stop,
+  policy change or deletion revokes the same handles as the other tools.
+- **Proofs:** the matrix row below covers allowed reads, another teammate's
+  refused record, paging without losing text or tool updates, and revocation.
+- **Residual risk:** the caller can read its entire own record, including
+  tool output. Pages bound event count, not bytes; one event can be large.
+  The log currently folds the whole stream for each page. Recorded speech
+  is the transcript kept by the call engine, not recovered audio; live-front
+  work routing remains S6's responsibility.
+
+| Boundary | Tests | Platform |
+| --- | --- | --- |
+| Own-thread reads use both drivers' shared handler; cross-teammate reads and stale leases fail; pages retain full text and tools in order | `tests/call_threads/reader.rs` `the_home_agent_reads_the_call_transcript_to_recover_a_detail_only_said_there`, `thread_reads_page_in_order_and_refuse_another_teammates_thread_on_both_drivers`, `work_and_job_threads_are_read_by_the_keys_the_home_agent_receives`; `session/tests/reading.rs` `thread_pages_keep_full_text_order_and_one_line_per_tool`; `session/tests/posting.rs` `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`; `session/sides/tests.rs` `stopping_the_teammate_archives_its_side_threads_as_stopped` | — |

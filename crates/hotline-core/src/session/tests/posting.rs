@@ -154,6 +154,12 @@ async fn a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint() {
 
     let _second = room.open_posting(&ThreadId::side("s1"), None);
     let served = crate::mcp::server::serve(tools.clone()).await.unwrap();
+    assert!(
+        tools
+            .call("read_thread", &json!({"thread":"dm:ada"}))
+            .await
+            .is_ok()
+    );
     epoch.invalidate();
     let in_process = tools
         .call("post_to_chat", &json!({"text": "Revoked in process."}))
@@ -181,6 +187,22 @@ async fn a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint() {
         )
         .await
         .expect("the call reached the handler");
+    let read_args = json!({"thread":"dm:ada"});
+    let read_in_process = tools.call("read_thread", &read_args).await.unwrap_err();
+    let read_over_endpoint = connected
+        .peer()
+        .call_tool(
+            CallToolRequestParams::new("read_thread")
+                .with_arguments(read_args.as_object().unwrap().clone()),
+        )
+        .await
+        .expect("the reader reached the handler");
+    assert_eq!(read_over_endpoint.is_error, Some(true));
+    assert_eq!(
+        read_over_endpoint.content[0].as_text().unwrap().text,
+        read_in_process
+    );
+    assert_eq!(read_in_process, in_process);
     connected.cancel().await.ok();
 
     assert_eq!(over_the_endpoint.is_error, Some(true));

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { ConfigChoice, EffortChoices, SessionConfig } from "../generated/contract";
+import type { ConfigChoice, SessionConfig } from "../generated/contract";
+import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
@@ -30,7 +30,6 @@ export function SessionPickers({
 	const { persona, session } = entry;
 	const personaId = persona.id;
 	const { defaultModelId, lastModelId } = useRoomSettings();
-	const [idleEfforts, setIdleEfforts] = useState<EffortChoices>({ choices: [] });
 
 	const hotline = persona.backendId === HOTLINE_AGENT;
 	const modelChoices = session.models.length > 0 ? session.models : hotline ? models : [];
@@ -44,48 +43,14 @@ export function SessionPickers({
 	const currentModel =
 		session.currentModelId ??
 		(hotline ? hotlineModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
-	const [harnessName, setHarnessName] = useState<string | null>(null);
-	useEffect(() => {
-		if (hotline || currentModel !== "") return;
-		let cancelled = false;
-		void wire.command("backends.list", {}).then(
-			(list) => {
-				if (!cancelled) setHarnessName(list.find((one) => one.id === persona.backendId)?.name ?? null);
-			},
-			() => {
-				if (!cancelled) setHarnessName(null);
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [hotline, currentModel, persona.backendId]);
+	const backends = useRoomRead("backends.list", "", !hotline && currentModel === "");
+	const harnessName = backends?.find((one) => one.id === persona.backendId)?.name ?? null;
 	const restingModel = currentModel !== "" ? currentModel : harnessName;
-	// An idle Hotline Agent session carries no configs. The strip derives the
-	// effort picker the same way it derives currentModel: the catalogue
-	// for the model a turn would run on.
-	useEffect(() => {
-		if (!hotline || currentModel === "") {
-			setIdleEfforts({ choices: [] });
-			return;
-		}
-		let cancelled = false;
-		void wire.command("models.efforts", { modelId: currentModel }).then(
-			(efforts) => {
-				if (!cancelled) setIdleEfforts(efforts);
-			},
-			() => {
-				if (!cancelled) setIdleEfforts({ choices: [] });
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [hotline, currentModel]);
+	const idleEfforts = useRoomRead("models.efforts", currentModel, hotline && currentModel !== "");
 	const configs: SessionConfig[] =
 		session.configs.length > 0
 			? session.configs
-			: hotline && idleEfforts.choices.length > 0
+			: hotline && idleEfforts !== undefined && idleEfforts.choices.length > 0
 				? [
 						{
 							id: "effort",

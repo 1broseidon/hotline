@@ -11,6 +11,11 @@ rust-version.workspace = true
 name = "integration"
 path = "tests/integration.rs"
 
+# Shutdown kills every ACP child registered in this process, including other tests' agents.
+[[test]]
+name = "acp_shutdown"
+path = "tests/acp_shutdown.rs"
+
 # These harnesses install a process-wide PATH stub for the browser opener.
 [[test]]
 name = "processes"

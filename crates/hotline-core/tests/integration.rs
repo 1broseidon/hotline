@@ -3,14 +3,12 @@
 
 mod common;
 
-#[path = "acp_shutdown.rs"]
-mod acp_shutdown;
 #[path = "acp_startup.rs"]
 mod acp_startup;
 #[path = "call_threads.rs"]
-mod call_threads;
+mod call_threads_harness;
 #[path = "desk.rs"]
-mod desk;
+mod desk_harness;
 #[path = "folders.rs"]
 mod folders;
 #[path = "local_speech.rs"]

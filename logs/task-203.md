@@ -1,8 +1,6 @@
 ---
 id: task-203
 title: Calling the desk reaches the team lead, who answers the roster and hands named work straight on
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -16,7 +14,7 @@ parentId: epic-21
 createdAt: "2026-10-19T13:59:38.168Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T06:52:27.316Z"
+updatedAt: "2026-10-21T06:52:38.175Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -29,8 +27,11 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T06:45:39.164Z"
+    ended: "2026-10-21T06:52:38.175Z"
+    outcome: done
 decisions:
   - decision-11
+completedAt: "2026-10-21T06:52:37.766Z"
 ---
 
 ## Description
@@ -54,3 +55,4 @@ Proved by scripted-front tests: a desk call with a lead answers a roster questio
 - 2026-10-21T06:45:38.518Z: Landing sent back (1 of 1): dispatch/task-203 conflicts with release/0.42.0 in crates/hotline-core/tests/voice.rs, docs/security.md. On release/0.42.0 since this branch started: 9345dcf9 A dropped call stays on its thread until twenty seconds or revoked access ends it. (task-241). Merge release/0.42.0 into this branch (git merge release/0.42.0), keep what both sides meant, commit the merge, and run the checks.
 - 2026-10-21T06:46:54.419Z: [codex] Resolved the requested release/0.42.0 merge by retaining both fixture fields and both security sections. Extended the paused-clock drop test across direct and desk-lead calls to prove the routing grant survives reconnection and ends on grace expiry. Running make check and precheck; no standing decision changed.
 - 2026-10-21T06:52:27.036Z: [codex] Resolved requested release/0.42.0 merge in ff47957c on dispatch/task-203; worktree clean. Kept both voice fixture fields and security sections, and extended the drop test across direct/desk-lead calls: the live routing grant survives reconnect and ends at grace expiry. make check, all 8 make precheck legs, and commit hooks passed. Ready for reviewer to land. No new unwired integration; prior handoff remains: identity UI/onboarding must populate optional personName, and task-206 owns real-call/acoustic verification.
+- 2026-10-21T06:52:37.095Z: Landed on release/0.42.0

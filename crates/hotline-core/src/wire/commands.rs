@@ -220,6 +220,19 @@ pub(crate) async fn run(
         | Command::AgentAuthCancel { .. } => {
             Err("Sign-in requires its owning desktop connection.".into())
         }
+        // Replaced arm by arm as the accounts commands are built.
+        Command::AccountsList {}
+        | Command::AccountsCreate { .. }
+        | Command::AccountsRename { .. }
+        | Command::AccountsRemove { .. }
+        | Command::AccountsStatus { .. }
+        | Command::AccountsLoginStart { .. }
+        | Command::AccountsLoginPoll { .. }
+        | Command::AccountsLoginInput { .. }
+        | Command::AccountsLoginCancel { .. }
+        | Command::AccountsSetupList { .. }
+        | Command::AccountsSetupCopy { .. }
+        | Command::PersonaAccount { .. } => Err("Agent accounts are not on this desk yet.".into()),
         Command::MobilePrompt { .. }
         | Command::MobileAttachment { .. }
         | Command::MobilePushRegister { .. } => Err("This command requires a paired phone.".into()),

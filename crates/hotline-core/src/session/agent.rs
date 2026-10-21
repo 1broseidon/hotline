@@ -408,6 +408,7 @@ impl Room {
             checkpointed.session_checkpoints = vec![SessionCheckpoint {
                 backend_id: view.backend_id.clone(),
                 session_id: session_id.clone(),
+                account_id: None,
             }];
         }
         let mut driver = build(
@@ -561,6 +562,7 @@ mod tests {
         ada.session_checkpoints = vec![SessionCheckpoint {
             backend_id: ada.backend_id.clone(),
             session_id: "main".to_string(),
+            account_id: None,
         }];
         ada.last_session_id = Some("main".to_string());
         ada.computer = Some(PersonaComputer {
@@ -803,6 +805,7 @@ mod tests {
                     teammate.session_checkpoints = vec![SessionCheckpoint {
                         backend_id: backend.to_string(),
                         session_id: "home-session".to_string(),
+                        account_id: None,
                     }];
                     teammate.last_session_id = Some("home-session".to_string());
                     teammate.cwd = log.root().join(id).to_string_lossy().into_owned();

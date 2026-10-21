@@ -148,6 +148,7 @@ async fn a_run_is_on_its_teammates_live_model_with_no_session_to_reopen() {
     ada.session_checkpoints = vec![SessionCheckpoint {
         backend_id: "hotline".to_string(),
         session_id: "s1".to_string(),
+        account_id: None,
     }];
     enrol(&log, &ada);
     let room = Room::with_agents_and_computers(

@@ -102,3 +102,151 @@ fn an_agent_event_is_stamped_with_where_it_came_from_additively() {
     let event: TranscriptEvent = serde_json::from_value(posted.clone()).unwrap();
     assert_eq!(serde_json::to_value(&event).unwrap(), posted);
 }
+
+const A: &str = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
+
+#[test]
+fn agent_account_fields_are_additive_and_absent_is_system_default() {
+    let config = ts_rs::Config::default();
+    // A checkpoint written before accounts reads, and writes back, as it was.
+    let old = json!({"backendId":"claude-acp","sessionId":"s1"});
+    let c: SessionCheckpoint = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(c.account_id, None);
+    assert_eq!(serde_json::to_value(&c).unwrap(), old);
+    let on = json!({"backendId":"claude-acp","sessionId":"s1","accountId":A});
+    assert_eq!(
+        serde_json::to_value(serde_json::from_value::<SessionCheckpoint>(on.clone()).unwrap())
+            .unwrap(),
+        on
+    );
+    // So does a chapter line, with and without the account it ran on.
+    for line in [
+        json!({"kind":"chapter","id":"c1","ts":1,"backendId":"claude-acp","sessionId":"s1"}),
+        json!({"kind":"chapter","id":"c1","ts":1,"backendId":"claude-acp","accountId":A}),
+    ] {
+        assert_eq!(
+            serde_json::to_value(serde_json::from_value::<TranscriptEvent>(line.clone()).unwrap())
+                .unwrap(),
+            line
+        );
+    }
+    let p: Persona = serde_json::from_value(json!({
+        "id":"ada","name":"Ada","goal":"","backendId":"claude-acp","cwd":"/w",
+        "mcpPolicy":{"mode":"none","serverIds":[]},"sessionCheckpoints":[],
+        "createdAt":1,"updatedAt":1
+    }))
+    .unwrap();
+    assert!(
+        serde_json::to_value(&p)
+            .unwrap()
+            .get("agentAccountId")
+            .is_none()
+    );
+    assert!(SessionCheckpoint::decl(&config).contains("accountId?: string"));
+    assert!(Persona::decl(&config).contains("agentAccountId?: string"));
+    assert!(PersonaDraft::decl(&config).contains("agentAccountId?: string"));
+    assert!(SessionInfo::decl(&config).contains("account?: SessionAccount"));
+    let events = TranscriptEvent::decl(&config);
+    assert!(events.contains("backendId: string, accountId?: string")); // chapter
+    assert_eq!(
+        events
+            .matches("backendId?: string, accountId?: string")
+            .count(),
+        2
+    ); // side, link
+}
+
+#[test]
+fn account_commands_round_trip_under_their_wire_names() {
+    let config = ts_rs::Config::default();
+    for value in [
+        json!({"cmd":"accounts.list","params":{}}),
+        json!({"cmd":"accounts.create","params":{
+            "backendId":"claude-acp","name":"Work","startWith":"system_default"}}),
+        json!({"cmd":"accounts.create","params":{
+            "backendId":"claude-acp","name":"Work","startWith":"empty",
+            "categories":["instructions","skills"]}}),
+        json!({"cmd":"accounts.rename","params":{"accountId":A,"name":"Home"}}),
+        json!({"cmd":"accounts.remove","params":{"accountId":A}}),
+        json!({"cmd":"accounts.status","params":{"accountId":A}}),
+        json!({"cmd":"accounts.login.start","params":{"accountId":A}}),
+        json!({"cmd":"accounts.login.start","params":{"accountId":A,"email":"a@b.co"}}),
+        json!({"cmd":"accounts.login.poll","params":{"accountId":A,"id":"l1"}}),
+        json!({"cmd":"accounts.login.input","params":{"accountId":A,"id":"l1","input":"y\n"}}),
+        json!({"cmd":"accounts.login.cancel","params":{"accountId":A,"id":"l1"}}),
+        json!({"cmd":"accounts.setup.list","params":{"accountId":A}}),
+        json!({"cmd":"accounts.setup.copy","params":{"accountId":A,"categories":["skills"]}}),
+        json!({"cmd":"persona.account","params":{"personaId":"ada","accountId":A}}),
+        json!({"cmd":"persona.account","params":{"personaId":"ada","accountId":null}}),
+    ] {
+        let command = serde_json::from_value::<Command>(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&command).unwrap(), value);
+    }
+    // Absent and null both mean System default; null is what the window sends.
+    assert!(matches!(
+        serde_json::from_value::<Command>(
+            json!({"cmd":"persona.account","params":{"personaId":"ada"}})
+        )
+        .unwrap(),
+        Command::PersonaAccount {
+            account_id: None,
+            ..
+        }
+    ));
+    let commands = Command::decl(&config);
+    assert!(commands.contains(
+        r#""cmd": "persona.account", "params": { personaId: string, accountId?: string | null, }"#
+    ));
+    assert!(commands.contains(
+        r#""cmd": "accounts.login.start", "params": { accountId: string, email?: string, }"#
+    ));
+}
+
+#[test]
+fn an_agent_account_reads_back_as_written_and_its_states_are_snake_case() {
+    let config = ts_rs::Config::default();
+    let bare = json!({"id":A,"backendId":"claude-acp","name":"Account 1","createdAt":1});
+    let a: AgentAccount = serde_json::from_value(bare.clone()).unwrap();
+    assert_eq!((a.login_at, a.setup.is_none()), (None, true));
+    assert_eq!(serde_json::to_value(&a).unwrap(), bare);
+    let mut full = bare;
+    full["loginAt"] = json!(2);
+    full["setup"] = json!({"from":"system_default","at":1,"categories":["instructions"]});
+    let a: AgentAccount = serde_json::from_value(full.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&a).unwrap(), full);
+    assert_eq!(
+        serde_json::to_value(SetupFrom::SystemDefault).unwrap(),
+        "system_default"
+    );
+    assert_eq!(serde_json::to_value(SetupFrom::Empty).unwrap(), "empty");
+    assert_eq!(
+        serde_json::to_value(AccountStatusState::NotChecked).unwrap(),
+        "not_checked"
+    );
+    assert_eq!(
+        serde_json::to_value(AccountStatusState::SignedIn).unwrap(),
+        "signed_in"
+    );
+    assert_eq!(
+        serde_json::to_value(LoginAttemptState::Succeeded).unwrap(),
+        "succeeded"
+    );
+    assert_eq!(
+        serde_json::to_value(AccountHold::SigningIn).unwrap(),
+        "signing_in"
+    );
+    assert_eq!(
+        serde_json::to_value(AccountHold::NotSignedIn).unwrap(),
+        "not_signed_in"
+    );
+    assert_eq!(
+        serde_json::to_value(SessionAccount {
+            running: None,
+            wanted: None,
+            held: None
+        })
+        .unwrap(),
+        json!({})
+    );
+    assert!(AccountView::decl(&config).contains("folder?: string"));
+}

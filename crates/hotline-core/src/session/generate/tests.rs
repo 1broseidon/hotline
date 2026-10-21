@@ -149,6 +149,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
         mode_id: None,
         effort_id: None,
         harness_override: None,
+        agent_account_id: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::None,

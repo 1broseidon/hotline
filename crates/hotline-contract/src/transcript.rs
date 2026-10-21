@@ -308,12 +308,15 @@ pub enum TranscriptEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         note: Option<String>,
         /// The agent's own id for the thread's conversation, written after
-        /// its first turn, and the harness that issued it. What lets a parked
-        /// or archived thread be reopened with recall.
+        /// its first turn, the harness that issued it, and the agent account
+        /// it ran on. What lets a parked or archived thread be reopened with
+        /// recall.
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         backend_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        account_id: Option<String>,
         /// The teammate that opened the thread, when one did: a handoff is a
         /// thread on the teammate it was handed to, and the line is on both
         /// teammates' tapes. Absent when the person opened it.
@@ -375,12 +378,15 @@ pub enum TranscriptEvent {
         /// The closing note.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
-        /// The agent's own id for the thread's conversation and the harness
-        /// that issued it, once a turn has completed.
+        /// The agent's own id for the thread's conversation, the harness that
+        /// issued it and the agent account it ran on, once a turn has
+        /// completed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         backend_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_id: Option<String>,
         /// How long a run ran, once it has stopped.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         elapsed_ms: Option<i64>,
@@ -394,11 +400,15 @@ pub enum TranscriptEvent {
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.
     /// `sessionId` is the agent's own memory of this stretch, so a chapter
-    /// can be reopened rather than merely summarised.
+    /// can be reopened rather than merely summarised. `accountId` is the
+    /// agent account that memory lives under, absent for System default: a
+    /// chapter reopens only on the account it ran on.
     Chapter {
         id: String,
         ts: i64,
         backend_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        account_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]

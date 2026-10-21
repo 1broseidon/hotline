@@ -97,6 +97,13 @@ pub struct Persona {
     /// preference beyond those.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub harness_override: Option<HarnessChoice>,
+    /// The agent account this teammate's agent runs under. Absent means System
+    /// default, the sign-in the agent has without Hotline. The id is kept but
+    /// ignored while the teammate's agent has no accounts, and it applies
+    /// again if it returns to one that does. Only `persona.account` and
+    /// `persona.create` write it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_account_id: Option<String>,
     /// A hop landed this teammate here and it has not been told yet. Machine-
     /// bound and consumed once: the first message after the move carries this
     /// ahead of the user's words, so the agent knows it changed machines and
@@ -163,6 +170,12 @@ pub struct PersonaNode {
 pub struct SessionCheckpoint {
     pub backend_id: String,
     pub session_id: String,
+    /// The agent account the session ran under. Absent means System default,
+    /// so a checkpoint from before accounts still belongs to a teammate that
+    /// has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub account_id: Option<String>,
 }
 
 /// How far a teammate's tools reach. The one policy a teammate has, and it is
@@ -408,4 +421,9 @@ pub struct PersonaDraft {
     /// is off, as on the pane.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_work: Option<bool>,
+    /// The agent account to start on. Absent means System default; the id is
+    /// kept but ignored on an agent without accounts. Only `persona.account`
+    /// and `persona.create` write it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_account_id: Option<String>,
 }

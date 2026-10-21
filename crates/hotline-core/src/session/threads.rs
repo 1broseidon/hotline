@@ -316,10 +316,12 @@ mod tests {
             crate::contract::SessionCheckpoint {
                 backend_id: "elsewhere".to_string(),
                 session_id: "not-this-harness".to_string(),
+                account_id: None,
             },
             crate::contract::SessionCheckpoint {
                 backend_id: "hotline".to_string(),
                 session_id: "s1".to_string(),
+                account_id: None,
             },
         ];
         enrol(&log, &ada);

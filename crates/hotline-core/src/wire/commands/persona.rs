@@ -79,6 +79,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         mode_id: None,
         effort_id: given(draft.effort_id),
         harness_override: None,
+        agent_account_id: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::None,
@@ -171,6 +172,7 @@ pub(super) async fn mobile_persona_create(
         effort_id,
         computer: None,
         background_work: None,
+        agent_account_id: None,
     };
     build_persona(log, id, draft)
 }

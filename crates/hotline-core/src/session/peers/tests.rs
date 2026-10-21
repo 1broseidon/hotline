@@ -1380,6 +1380,7 @@ mod receipts {
             id: "ch".to_string(),
             ts: 7,
             backend_id: "hotline".to_string(),
+            account_id: None,
             session_id: None,
             ended_at: None,
             title: None,

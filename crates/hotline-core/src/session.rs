@@ -366,6 +366,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         error: None,
         awaiting_subagents: false,
         processes: Vec::new(),
+        account: None,
     }
 }
 

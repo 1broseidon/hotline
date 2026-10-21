@@ -48,6 +48,7 @@ async fn a_draft_that_names_things_keeps_them() {
         effort_id: None,
         computer: None,
         background_work: Some(true),
+        agent_account_id: None,
     };
     ask(
         &mut socket,
@@ -303,6 +304,7 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
         effort_id: None,
         computer: None,
         background_work: None,
+        agent_account_id: None,
     };
     ask(
         &mut socket,
@@ -411,6 +413,7 @@ async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
         effort_id: None,
         computer: None,
         background_work: None,
+        agent_account_id: None,
     };
     ask(
         &mut socket,

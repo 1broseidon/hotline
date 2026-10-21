@@ -109,6 +109,7 @@ async fn a_fresh_sessions_id_is_remembered_after_the_turn_that_proves_it() {
     ada.session_checkpoints = vec![SessionCheckpoint {
         backend_id: "opencode".to_string(),
         session_id: "elsewhere".to_string(),
+        account_id: None,
     }];
     enrol(&log, &ada);
     let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
@@ -251,6 +252,7 @@ async fn resume_points_the_checkpoint_back_at_the_previous_chapters_session() {
     ada.session_checkpoints = vec![SessionCheckpoint {
         backend_id: "cursor".to_string(),
         session_id: "s-new".to_string(),
+        account_id: None,
     }];
     enrol(&log, &ada);
     let t = now_ms();

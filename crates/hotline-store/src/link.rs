@@ -237,6 +237,7 @@ impl Link {
                 note,
                 session_id,
                 backend_id,
+                account_id: _,
                 opened_by,
             } => Some(Self {
                 id,
@@ -327,6 +328,7 @@ impl Link {
                     .binding
                     .as_ref()
                     .map(|binding| binding.backend_id.clone()),
+                account_id: None,
                 opened_by: self.opener.clone().map(SideOpener::from),
             }),
             ThreadKind::Run => Some(TranscriptEvent::Subagent {

@@ -659,6 +659,7 @@ pub fn checkpoint_session(
         checkpoints.push(SessionCheckpoint {
             backend_id: backend_id.to_string(),
             session_id: session_id.to_string(),
+            account_id: None,
         });
     })
 }
@@ -722,6 +723,7 @@ mod tests {
             mode_id: None,
             effort_id: None,
             harness_override: None,
+            agent_account_id: None,
             hop_notice: None,
             mcp_policy: McpPolicy {
                 mode: PolicyMode::All,

@@ -691,6 +691,7 @@ async fn a_child_thread_saves_its_session_after_a_turn_and_reopens_it() {
     ada.session_checkpoints = vec![SessionCheckpoint {
         backend_id: "cursor".to_string(),
         session_id: "main".to_string(),
+        account_id: None,
     }];
     enrol(&log, &ada);
     let room = Room::with_agents_and_computers(

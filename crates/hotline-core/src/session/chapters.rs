@@ -127,6 +127,7 @@ pub(super) fn opened(backend_id: &str, id: String, now: i64) -> TranscriptEvent 
         id,
         ts: now,
         backend_id: backend_id.to_string(),
+        account_id: None,
         session_id: None,
         ended_at: None,
         title: None,
@@ -163,6 +164,7 @@ pub(super) fn reopened(
         id,
         ts: now,
         backend_id: backend_id.to_string(),
+        account_id: None,
         session_id,
         ended_at: None,
         title,
@@ -206,6 +208,7 @@ pub(super) fn closed(
         id,
         ts,
         backend_id,
+        account_id,
         session_id,
         resumed_from,
         ..
@@ -221,6 +224,7 @@ pub(super) fn closed(
         id,
         ts,
         backend_id,
+        account_id,
         session_id,
         ended_at: Some(ended_at),
         // A chapter that said nothing has no status either: there was no work
@@ -1099,6 +1103,18 @@ mod tests {
                 "closedBy": "idle",
             })
         );
+    }
+
+    /// The account a chapter ran on is part of what it is, so closing it must
+    /// not forget it: a resume compares that account with the teammate's.
+    #[test]
+    fn a_close_keeps_the_account_its_chapter_ran_on() {
+        let open = json!({
+            "kind": "chapter", "id": "c1", "ts": 100,
+            "backendId": "claude-acp", "accountId": "acc",
+        });
+        let closed = closed(&open, 900, Closing::Empty, ChapterClose::Idle).unwrap();
+        assert_eq!(serde_json::to_value(&closed).unwrap()["accountId"], "acc");
     }
 
     /// Nothing was said in it, so it closes with no title, no note and no

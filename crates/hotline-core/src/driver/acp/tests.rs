@@ -56,6 +56,7 @@ pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona
         mode_id: None,
         effort_id: None,
         harness_override: None,
+        agent_account_id: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::All,

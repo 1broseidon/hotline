@@ -1,4 +1,9 @@
 import type {
+	AccountCreated,
+	AccountSetupView,
+	AccountStatusView,
+	AccountView,
+	AccountsList,
 	BackendChoice,
 	CatalogModel,
 	ChapterSummary,
@@ -33,7 +38,9 @@ import type {
 	RosterEntry,
 	RuntimeReport,
 	ScheduledJob,
+	SessionAccount,
 	SessionInfo,
+	SetupCopyReport,
 	SharedSecret,
 	SideThreadSummary,
 	SkillEntry,
@@ -71,6 +78,13 @@ type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };
 
 /** `search.all`'s answer: the same hits, each named with whose tape they came from. */
 type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
+
+/** What a sign-in poll answers, for an agent and for an agent account alike. */
+type SignInStatus = {
+	state: "running" | "succeeded" | "failed";
+	output: string;
+	error?: string;
+};
 
 /** OAuth gateway status; access and refresh tokens never cross this type. */
 export type McpOAuthStatus = {
@@ -135,11 +149,12 @@ type Results = {
 	"federation.deliver": null;
 	"federation.unlink": null;
     "agent.auth.start": { id: string };
-    "agent.auth.poll": { state: "running" | "succeeded" | "failed"; output: string; error?: string };
+    "agent.auth.poll": SignInStatus;
     "agent.auth.input": null;
     "agent.auth.cancel": null;
 	"persona.create": Persona;
 	"persona.update": Persona;
+	"persona.account": SessionAccount;
 	"persona.delete": null;
 	"persona.pin": string[];
 	/** The desk's lead id, or null when it has none. */
@@ -284,6 +299,17 @@ type Results = {
 	"secrets.passkey.registration": PasskeyRegistration;
 	"secrets.passkey.answer": PasskeyRegistration;
 	"secrets.passkey.cancel": null;
+	"accounts.list": AccountsList;
+	"accounts.create": AccountCreated;
+	"accounts.rename": AccountView;
+	"accounts.remove": null;
+	"accounts.status": AccountStatusView;
+	"accounts.login.start": { id: string };
+	"accounts.login.poll": SignInStatus;
+	"accounts.login.input": null;
+	"accounts.login.cancel": null;
+	"accounts.setup.list": AccountSetupView;
+	"accounts.setup.copy": SetupCopyReport;
 	"desk.looking": null;
 	welcome: Welcome;
 };

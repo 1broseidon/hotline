@@ -1,8 +1,8 @@
 ---
 id: task-249
 title: cargo-nextest runs the tests in CI
-column: backlog
-position: 49
+column: in-progress
+position: 0
 priority: high
 tags:
   - ci
@@ -11,7 +11,7 @@ parentId: epic-23
 createdAt: "2026-10-21T02:18:28.148Z"
 dependsOn:
   - task-246
-updatedAt: "2026-10-21T05:04:00.303Z"
+updatedAt: "2026-10-21T05:04:17.307Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

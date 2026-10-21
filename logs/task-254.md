@@ -1,8 +1,6 @@
 ---
 id: task-254
 title: "Live call: a question asked over the voice's speech waits until the person speaks again"
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -20,10 +18,13 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T08:26:11.298Z"
+    ended: "2026-10-21T08:39:45.265Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T08:39:34.132Z"
+updatedAt: "2026-10-21T08:39:45.265Z"
 decisions:
   - decision-16
+completedAt: "2026-10-21T08:39:44.773Z"
 ---
 
 ## Description
@@ -45,3 +46,4 @@ Done when: a question asked over the voice's speech is heard and answered within
 - 2026-10-21T08:28:41.511Z: [claude] Narrowed (Pork Chop, a180a43d): an interruption over a spoken answer with NO tool calls before it was answered at once ('Maybe a fog horn would do instead' cut a musing reply and got 'True on cost…'). Every failing case had desk lookups (search_thread, list_chapters, read_thread) before the spoken answer. Look at what the tool-result path sends (function_call_output + response.create) and whether a late or duplicate response.create, or an un-cleared pending response, swallows the next caller turn after a truncate.
 - 2026-10-21T08:37:24.794Z: [codex] make check passed, including the full contract export and workspace tests; both-dialect socket regression and real-core voice wire test passed. Original adapter fails the new regression (sends response.cancel after provider speech_started). Added session/timing/state boundary traces, and recorded decision-16. make precheck is running. QA handoff: run ~/qa-audio/barge.sh on Grok Voice and GPT Realtime; correlate speech_started → speech_stopped → committed → response.created and verify the interrupting question is answered without another utterance. Scripted fixtures establish ordering, not real-provider VAD timing.
 - 2026-10-21T08:39:33.792Z: [codex] Committed 25d9fc54 on dispatch/task-254; worktree clean. Guarded the caller's VAD commit/automatic-response sequence, removed duplicate VAD cancellation, added body-free provider boundary tracing, both-dialect scripted regressions and the wire capture-after-barge assertion. make check and all 8 make precheck legs passed. Ready for review; next action is Pork Chop's Linux ~/qa-audio/barge.sh pass on both Grok Voice and GPT Realtime before shipping (real-provider latency/root-cause confirmation remains pending).
+- 2026-10-21T08:39:43.948Z: Landed on release/0.42.0

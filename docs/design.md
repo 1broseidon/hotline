@@ -636,6 +636,10 @@ parking share a gate. If no summariser answers, the post explicitly says so
 and links to the transcript. The front's Digest and five-minute summaries
 are gone. Live voices still delegate work to the DM until S6.
 
+The call's chat row reads parked once its thread parks. The roster carries
+`workingCalls`, the call thread ids with a turn in flight, so the row says
+running only during a turn; an open thread between turns reads open.
+
 Posts carry optional `from.title` and `silent` fields. A post made while the
 person is on that thread's call is kept silently even after hang-up; later
 posts update the preview, unread rail and notifications. These fields are

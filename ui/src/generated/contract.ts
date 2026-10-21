@@ -1227,7 +1227,12 @@ sides?: Array<RunningSide>,
  * firing, or a line the person said in the job's thread. Absent when
  * there are none.
  */
-workingJobs?: Array<string>, session: SessionInfo, };
+workingJobs?: Array<string>, 
+/**
+ * Call threads with a turn in flight. An open call between turns is
+ * not working. Absent when there are none.
+ */
+workingCalls?: Array<string>, session: SessionInfo, };
 
 /**
  * A side thread still live, as its teammate's roster row lists it.

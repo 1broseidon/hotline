@@ -487,6 +487,8 @@ const slides = [
     must: [
       "Every post names what it is about. None leans on the call with \"it\" or \"that one\"; it reads right to someone who wasn't on the call.",
       "A reply on a call's post goes to that call's thread, where the context is.",
+      "Scenario-pass check (task-244): say only on the call that the mascot is Bramble, a wiry terrier, then hang up. From the home chat ask 'Like we said on the call, use the mascot exactly that way.' On both drivers the agent must use read_thread on the call key and recover that detail from the full transcript, without asking you to repeat it or relying on a search snippet.",
+      "Open the call: both speakers appear in order and every tool call is inline with its name and one line of what it did. The composer remains available.",
       "The home agent is handed a call's posts and closing note before its next line, and opens the call's thread when it needs more. It never answers \"I don't know what it is\" when the call knows.",
     ],
     gap: ["The front writes into the chat as if the chat had heard the call, so the home agent answers \"I don't know what 'it' is\" while the call knows exactly."],

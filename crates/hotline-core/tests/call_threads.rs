@@ -1,4 +1,7 @@
 mod common;
+mod call_threads {
+    mod reader;
+}
 use crate::common::{Client, acp_fixture};
 use hotline_core::log::{Log, StreamId};
 use hotline_core::wire::Door;
@@ -32,6 +35,19 @@ fn text_of(message: &Value) -> String {
 
 /// The calls a line asks for, in order: the fixture child's reading.
 fn calls(said: &str) -> Vec<(String, String)> {
+    if said.contains("Like we said on the call") {
+        let key = said
+            .rsplit_once("(thread call:")
+            .expect("the home agent is handed the call key")
+            .1
+            .split(')')
+            .next()
+            .unwrap();
+        return vec![(
+            "read_thread".into(),
+            json!({"thread":format!("call:{key}")}).to_string(),
+        )];
+    }
     said.lines()
         .filter_map(|line| {
             let rest = &line[line.find("CALL ")? + "CALL ".len()..];

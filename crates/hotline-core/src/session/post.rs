@@ -313,14 +313,18 @@ pub(super) fn posted_since(posts: &[String], line: &str) -> String {
 pub(super) fn posted_from(event: &serde_json::Value) -> Option<String> {
     let field = |key: &str| event.get(key).cloned().unwrap_or_default();
     if let Ok(run) = serde_json::from_value::<ScheduledRun>(field("scheduled")) {
-        return Some(format!("From your scheduled job \"{}\"", run.name));
+        return Some(format!(
+            "From your scheduled job {} (thread job:{})",
+            run.name, run.job_id
+        ));
     }
     let from = serde_json::from_value::<DeliveryFrom>(field("from")).ok()?;
     Some(format!(
         "{} (thread {}:{})",
         match from.kind {
             ThreadKind::Dm => return None,
-            ThreadKind::Call => "From your call",
+            ThreadKind::Call =>
+                "From your call; this thread IS its transcript — read_thread reads it in full",
             ThreadKind::Side => "From your work thread",
             ThreadKind::Pair => "From your thread with a colleague",
             ThreadKind::Run => "From your subagent",

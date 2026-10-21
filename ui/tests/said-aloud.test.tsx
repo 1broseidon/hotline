@@ -99,3 +99,28 @@ describe("the transcript line", () => {
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 	});
 });
+
+
+describe("a call thread is a transcript", () => {
+    test("names both speakers and shows every tool inline in order", () => {
+        const events: TranscriptEvent[] = [
+            { kind: "user", id: "u", ts: 1, text: "Check the mascot." },
+            { kind: "agent", id: "a", ts: 2, text: "The written plan.", spoken: "I will check Bramble." },
+            { kind: "tool", id: "t1", ts: 3, toolCallId: "tc1", title: "Read mascot.txt", toolKind: "read_file", status: "completed", output: [{ type: "text", text: "Bramble, a wiry terrier.\nMore detail." }] },
+            { kind: "tool", id: "t2", ts: 4, toolCallId: "tc2", title: "Save the plan", toolKind: "write_file", status: "completed", output: [{ type: "text", text: "Saved mascot.txt." }] },
+            { kind: "agent", id: "a2", ts: 5, text: "Ready to implement." },
+        ];
+        const html = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "call", key: "c1" }} events={events} streaming={[]} live={false} focus={null} />);
+        expect(html).toContain("You");
+        expect(html).toContain("Ada");
+        expect(html).toContain("I will check Bramble.");
+        expect(html).toContain("Bramble, a wiry terrier. More detail.");
+        expect(html).not.toContain(">2 steps<");
+        expect(html).not.toContain("steps-caption");
+        expect(html.indexOf("I will check Bramble.")).toBeLessThan(html.indexOf("read_file"));
+        expect(html.indexOf("read_file")).toBeLessThan(html.indexOf("write_file"));
+        expect(html.indexOf("write_file")).toBeLessThan(html.indexOf("Ready to implement."));
+        const work = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "side", key: "s1" }} events={events} streaming={[]} live={false} focus={null} />);
+        expect(work).toContain("2 steps");
+    });
+});

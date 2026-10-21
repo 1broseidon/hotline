@@ -17,3 +17,6 @@ description: |-
   Migration source: BRO-241; former BRO-242 and BRO-244 scope is retained in the split tasks.
 updatedAt: "2026-10-14T20:05:19.856Z"
 ---
+
+## Log
+- 2026-10-21T10:22:49.324Z: [claude] 2026-10-21 Pork Chop: lands on dispatch/epic-5 (now 3891214f, includes task-19's writer-held fold cache and task-46). Before done: merge dispatch/epic-5 into your branch, run make check in the foreground on the merged result, commit, and show a before/after measurement.

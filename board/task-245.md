@@ -40,3 +40,6 @@ Done when:
 - Legacy voice is used only when it is the selected model, or when the person picks it after a failure.
 
 Proved by desk-harness tests with a fake realtime provider for each line (front unavailable, open fails, drop then reconnect, drop with no reconnect), a UI test that the window never places a Legacy call when live is selected, and a manual check in the scenario pass on the desk and the phone.
+
+## Log
+- 2026-10-21T01:41:50.923Z: [codex] Confirmed silent fallback in both call.ts and Calls::start_call/lose_front. Implementing Settings-selected core mode, persistent live failure reason, explicit Legacy retry, context-preserving recovery. The six dev-log refusal lines lack provider/request identity; ADR 0005 and commit ab5722d5 identify responses_validation_failed as GPT-Live responses delegation, already fixed by task-84. Will regression-test client delegation and add sanitized request diagnostics; cannot truthfully attribute those historic lines to Grok.

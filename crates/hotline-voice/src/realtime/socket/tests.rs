@@ -190,6 +190,12 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
 
         send(
             &mut socket,
+            json!({"type": "input_audio_buffer.speech_stopped"}),
+        )
+        .await;
+        send(&mut socket, json!({"type": "input_audio_buffer.committed"})).await;
+        send(
+            &mut socket,
             json!({"type": "conversation.item.input_audio_transcription.completed", "transcript": " Fix the build. "}),
         )
         .await;
@@ -805,3 +811,5 @@ async fn instructions_refresh_without_starting_speech_and_survive_reconnect() {
         finish(server).await;
     }
 }
+
+mod barge;

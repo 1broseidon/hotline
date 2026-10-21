@@ -2,12 +2,14 @@
 id: decision-5
 title: Only the turn in flight at hang-up automatically posts its completed reply
 type: decision
-status: current
+status: superseded
 claimKey: voice.hangup-reply-post
 kind: decision
 stance: requires
 subject: bounded completed-turn posts at hang-up
 createdAt: "2026-10-20T23:11:32.955Z"
+supersededBy: decision-25
+updatedAt: "2026-10-21T14:15:33.798Z"
 ---
 
 ## Description

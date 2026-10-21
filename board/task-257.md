@@ -9,6 +9,15 @@ tags:
   - windows
 parentId: epic-5
 createdAt: "2026-10-21T11:21:12.260Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T11:21:18.478Z"
+  until: done
+  tries: 0
+assignee: codex
+updatedAt: "2026-10-21T11:21:18.598Z"
 ---
 
 ## Description

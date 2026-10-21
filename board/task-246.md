@@ -1,0 +1,18 @@
+---
+id: task-246
+title: One integration-test binary per crate
+column: backlog
+position: 46
+priority: high
+tags:
+  - ci
+  - build
+parentId: epic-23
+createdAt: "2026-10-21T02:18:26.705Z"
+---
+
+## Description
+Done when:
+- hotline-core, hotline-cli and hotline-app each build one integration-test binary (autotests = false and one [[test]] root whose modules are today's tests/*.rs files, left where they are, so concurrent work on those files doesn't conflict). A test that needs its own process (process-global state, environment, exit) stays a separate [[test]], with the reason written beside it.
+- cargo test --workspace passes on Linux, macOS and Windows in CI, with the same tests run before and after (the counts are equal and in the PR).
+- The PR records before/after for local cargo test --workspace --no-run (cold, and after touching hotline-core) and for CI's test step on each OS.

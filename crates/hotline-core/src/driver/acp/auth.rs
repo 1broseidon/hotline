@@ -199,9 +199,22 @@ async fn authenticate(
                 .ok_or("The harness has no workspace.")?
                 .cwd
                 .clone();
+            let term = ("TERM".to_string(), "xterm-256color".to_string());
+            let env = crate::accounts::env::env_plan(
+                &launch.env,
+                &std::iter::once(term).chain(method.env).collect::<Vec<_>>(),
+                None,
+            );
             let (tx, rx) = tokio::sync::oneshot::channel();
             let task = tokio::spawn(async move {
-                let result = crate::driver::auth::terminal(launch, cwd, method, attempt).await;
+                let result = crate::driver::auth::terminal(
+                    launch,
+                    std::path::PathBuf::from(cwd),
+                    method.args,
+                    env,
+                    attempt,
+                )
+                .await;
                 let _ = tx.send(result);
             });
             *lock(&agent.live.terminal_done) = Some(task);

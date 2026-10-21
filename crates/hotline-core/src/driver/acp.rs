@@ -146,7 +146,7 @@ impl Default for StartBounds {
 /// to pid 1 and runs on. [`end_every_agent`] is how the exit path reaches
 /// them. Each id was captured at spawn, from a group this process made.
 #[cfg(unix)]
-static GROUPS: Mutex<Vec<libc::pid_t>> = Mutex::new(Vec::new());
+pub(crate) static GROUPS: Mutex<Vec<libc::pid_t>> = Mutex::new(Vec::new());
 
 /// Kills every agent process group this process started, for an exit that
 /// will not run their drivers' `Drop`. On Windows each child is in a job
@@ -164,7 +164,7 @@ pub fn end_every_agent() {
 }
 
 /// Kills one child's process group and stops counting it among the live ones.
-fn end_group(child: &tokio::process::Child) {
+pub(crate) fn end_group(child: &tokio::process::Child) {
     #[cfg(unix)]
     if let Some(id) = child.id() {
         let group = id as libc::pid_t;

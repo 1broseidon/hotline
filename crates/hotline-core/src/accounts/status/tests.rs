@@ -1,8 +1,14 @@
 use super::*;
-use crate::contract::AccountStatusState;
+use crate::accounts::support::CLAUDE;
+use crate::contract::{AccountStatusState, Persona};
+use crate::log::Log;
+use crate::session::tests::{DeskKeys, enrol, persona};
+use crate::test_support::{PATIENCE, account_on_disk, acp_fixture_launch, until};
 use serde_json::{Value, json};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 
 /// The canonical `<scratch>/Conta Teste ção`: spaces and a non-ASCII letter,
 /// as a profile name can have. It exists, because the parser resolves both
@@ -137,4 +143,201 @@ fn any_other_answer_is_unavailable_and_says_nothing_more() {
             "{label}"
         );
     }
+}
+
+const A: &str = "3f6c2a1e-8b4d-4e7a-9c15-2d8e7f0a6b31";
+const B: &str = "a7d94e02-1c5b-4f83-b6e9-0f2c3d4a5b68";
+const CATALOGUE: &[(&str, &str)] = &[
+    ("ANTHROPIC_API_KEY", "sk-catalogue"),
+    ("ANTHROPIC_BASE_URL", "https://proxy.invalid"),
+    ("CLAUDE_CODE_USE_BEDROCK", "1"),
+];
+
+fn scratch_log() -> (TempDir, Log) {
+    let tmp = tempfile::tempdir().unwrap();
+    let log = Log::open(tmp.path().join("Conta Teste ção"));
+    (tmp, log)
+}
+
+async fn status(account: &ResolvedAccount, env: &[(&str, &str)]) -> AccountStatusView {
+    run_status(
+        &acp_fixture_launch(&[CATALOGUE, env].concat()),
+        account,
+        PATIENCE,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn one_status_run_per_account_and_waiters_share_its_answer() {
+    use AccountStatusState::{Checking, SignedIn, SignedOut};
+    let statuses = AccountStatuses::new(StartBounds::default());
+    let counter = AtomicUsize::new(0);
+    let runs = &counter;
+    let (release, held) = oneshot::channel::<()>();
+    let first = statuses.check_with("a", move || async move {
+        runs.fetch_add(1, SeqCst);
+        held.await.ok();
+        view(SignedIn, None, None)
+    });
+    let second = statuses.check_with("a", move || async move {
+        runs.fetch_add(1, SeqCst);
+        view(SignedOut, None, None)
+    });
+    let other = async {
+        until("a runs", || runs.load(SeqCst) == 1).await;
+        assert_eq!(statuses.cached("a").state, Checking);
+        let b = statuses
+            .check_with("b", move || async move {
+                runs.fetch_add(1, SeqCst);
+                view(SignedOut, None, None)
+            })
+            .await;
+        assert_eq!(b.state, SignedOut);
+        release.send(()).unwrap();
+    };
+    let (a, b, ()) = tokio::join!(first, second, other);
+    assert_eq!(
+        (
+            runs.load(SeqCst),
+            a.state,
+            b.state,
+            a.checked_at == b.checked_at
+        ),
+        (2, SignedIn, SignedIn, true)
+    );
+    assert!(a.checked_at.is_some());
+
+    statuses
+        .check_with("a", move || async move {
+            runs.fetch_add(1, SeqCst);
+            view(SignedOut, None, None)
+        })
+        .await;
+    assert_eq!(
+        (runs.load(SeqCst), statuses.cached("a").state),
+        (3, SignedOut)
+    );
+}
+
+#[test]
+fn only_an_answer_older_than_ten_minutes_is_stale() {
+    let statuses = AccountStatuses::new(StartBounds::default());
+    statuses.put(
+        "a",
+        AccountStatusView {
+            checked_at: Some(1_000),
+            ..view(AccountStatusState::SignedIn, None, None)
+        },
+    );
+    assert_eq!(
+        statuses.cached("never").state,
+        AccountStatusState::NotChecked
+    );
+    assert!(!statuses.stale("never", i64::MAX));
+    assert!(!statuses.stale("a", 1_000 + STALE_AFTER_MS));
+    assert!(statuses.stale("a", 1_001 + STALE_AFTER_MS));
+}
+
+#[tokio::test]
+async fn status_runs_in_the_account_folder_without_inherited_credentials() {
+    let (_tmp, log) = scratch_log();
+    let account = account_on_disk(&log, A, "Account 1", None);
+    assert_eq!(
+        status(&account, &[]).await.state,
+        AccountStatusState::SignedOut
+    );
+
+    std::fs::write(
+        account.dir.join(".credentials.json"),
+        r#"{"email":"ada@example.com"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        status(&account, &[]).await,
+        view(
+            AccountStatusState::SignedIn,
+            Some("ada@example.com"),
+            Some("max")
+        )
+    );
+    let seen: Vec<String> = serde_json::from_slice(
+        &std::fs::read(account.dir.join("fixture-status-env.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(seen.iter().any(|name| name == CLAUDE.env_var));
+    for name in CLAUDE.scrub.iter().filter(|name| **name != CLAUDE.env_var) {
+        assert!(!seen.iter().any(|seen| seen == name), "{name}");
+    }
+
+    for auth in ["api_key", "bedrock"] {
+        assert_eq!(
+            status(&account, &[("FIXTURE_AUTH", auth)]).await.state,
+            AccountStatusState::Unavailable,
+            "{auth}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_status_that_does_not_answer_in_time_is_unavailable() {
+    let (_tmp, log) = scratch_log();
+    let account = account_on_disk(&log, A, "Account 1", None);
+    let hanging = acp_fixture_launch(&[("FIXTURE_STATUS_MODE", "hang")]);
+    assert_eq!(
+        run_status(&hanging, &account, Duration::from_millis(300))
+            .await
+            .state,
+        AccountStatusState::Unavailable
+    );
+}
+
+#[tokio::test]
+async fn refresh_rechecks_the_folder_and_covers_only_accounts_in_use() {
+    let (_tmp, log) = scratch_log();
+    let room = Room::new(log.clone(), Arc::new(DeskKeys));
+    let a = account_on_disk(&log, A, "Account 1", None);
+    let b = account_on_disk(&log, B, "Account 2", None);
+    for (id, backend_id, account) in [
+        ("ada", "claude-acp", A),
+        ("bob", "codex-acp", B),
+        ("cy", "claude-acp", "5d0c6a8e-91b4-4c1d-b3a2-7e4f8a2d6c10"),
+    ] {
+        enrol(
+            &log,
+            &Persona {
+                backend_id: backend_id.to_string(),
+                agent_account_id: Some(account.to_string()),
+                ..persona(id)
+            },
+        );
+    }
+
+    let statuses = Arc::new(AccountStatuses::new(StartBounds::default()));
+    statuses.refresh_in_use(&room);
+    std::fs::remove_dir(&a.dir).unwrap();
+    std::fs::remove_dir(&b.dir).unwrap();
+    until("A rechecked", || {
+        statuses.cached(A).state == AccountStatusState::Unavailable
+    })
+    .await;
+    assert_eq!(statuses.cached(B).state, AccountStatusState::NotChecked);
+}
+
+#[tokio::test]
+async fn a_recheck_runs_its_own_status_even_behind_one_already_running() {
+    use AccountStatusState::{SignedIn, SignedOut};
+    let statuses = AccountStatuses::new(StartBounds::default());
+    let (release, held) = oneshot::channel::<()>();
+    let running = statuses.check_with("a", move || async move {
+        held.await.ok();
+        view(SignedOut, None, None)
+    });
+    let recheck = statuses.recheck_with("a", || async { view(SignedIn, None, None) });
+    let releaser = async { release.send(()).unwrap() };
+    let (earlier, fresh, ()) = tokio::join!(running, recheck, releaser);
+    assert_eq!(
+        (earlier.state, fresh.state, statuses.cached("a").state),
+        (SignedOut, SignedIn, SignedIn)
+    );
 }

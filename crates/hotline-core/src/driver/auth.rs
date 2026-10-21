@@ -1,11 +1,14 @@
 //! Desktop-owned, ephemeral harness sign-in. Nothing here is a transcript update.
+use crate::accounts::env::EnvPlan;
 use crate::wire::AuthStatus;
 use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use tokio_util::sync::CancellationToken;
 
 const OUTPUT_LIMIT: usize = 64 * 1024;
 const INPUT_LIMIT: usize = 4096;
+pub(crate) const COMMAND_FAILED: &str = "The harness sign-in command failed. You can try again.";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +49,10 @@ impl Attempt {
     }
     pub fn running(&self) -> bool {
         lock(&self.status).state == "running"
+    }
+    pub fn state(&self) -> (&'static str, Option<String>) {
+        let status = lock(&self.status);
+        (status.state, status.error.clone())
     }
     pub fn output(&self, bytes: &[u8]) {
         let mut status = lock(&self.status);
@@ -101,15 +108,18 @@ impl Attempt {
     }
 }
 
-/// `launch` is captured when the initialized harness is spawned. No UI-supplied
-/// command, argument, environment, path or shell interpolation reaches this function.
+/// `launch` is captured when the initialized harness is spawned. `args` and `env`
+/// come from the harness's advertised method, or from an account's row and a
+/// checked email. No UI-supplied command, path, environment or shell
+/// interpolation reaches this function.
 pub(crate) async fn terminal(
     launch: super::acp::registry::Launch,
-    cwd: String,
-    method: agent_client_protocol::schema::v1::AuthMethodTerminal,
+    cwd: PathBuf,
+    args: Vec<String>,
+    env: EnvPlan,
     attempt: Arc<Attempt>,
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || terminal_blocking(launch, cwd, method, attempt))
+    tokio::task::spawn_blocking(move || terminal_blocking(launch, cwd, args, env, attempt))
         .await
         .map_err(|_| "The sign-in terminal stopped unexpectedly.".to_string())?
 }
@@ -117,8 +127,9 @@ pub(crate) async fn terminal(
 #[cfg(unix)]
 fn terminal_blocking(
     launch: super::acp::registry::Launch,
-    cwd: String,
-    method: agent_client_protocol::schema::v1::AuthMethodTerminal,
+    cwd: PathBuf,
+    args: Vec<String>,
+    env: EnvPlan,
     attempt: Arc<Attempt>,
 ) -> Result<(), String> {
     use portable_pty::{CommandBuilder, PtySize};
@@ -138,15 +149,9 @@ fn terminal_blocking(
         .map_err(fail)?;
     let mut command = CommandBuilder::new(&launch.command);
     command.args(&launch.args);
-    command.args(&method.args);
-    for (name, value) in &launch.env {
-        command.env(name, value);
-    }
-    command.cwd(cwd);
-    command.env("TERM", "xterm-256color");
-    for (name, value) in method.env {
-        command.env(name, value);
-    }
+    command.args(&args);
+    command.cwd(&cwd);
+    env.apply_pty(&mut command);
     // Own one nonblocking master, not blocking reader/writer threads: a trusted
     // harness can move a descendant to another process group and keep the slave
     // open indefinitely. Neither EOF nor a writable slave is a cleanup condition.
@@ -213,7 +218,7 @@ fn terminal_blocking(
                 break if status.success() {
                     Ok(())
                 } else {
-                    Err("The harness sign-in command failed. You can try again.".into())
+                    Err(COMMAND_FAILED.into())
                 };
             }
             Err(_) => break Err("Could not observe the sign-in terminal.".into()),
@@ -263,8 +268,9 @@ fn terminal_blocking(
 #[cfg(not(unix))]
 fn terminal_blocking(
     _launch: super::acp::registry::Launch,
-    _cwd: String,
-    _method: agent_client_protocol::schema::v1::AuthMethodTerminal,
+    _cwd: PathBuf,
+    _args: Vec<String>,
+    _env: EnvPlan,
     _attempt: Arc<Attempt>,
 ) -> Result<(), String> {
     Err("Terminal sign-in is not supported on this platform.".into())
@@ -277,9 +283,18 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use crate::accounts::env::env_plan;
+
+    #[cfg(unix)]
+    fn term() -> (String, String) {
+        ("TERM".into(), "xterm-256color".into())
+    }
+
     #[test]
     fn output_is_bounded_and_drained_and_disconnection_forgets_it() {
         let attempt = Attempt::new(CancellationToken::new());
+        assert_eq!(attempt.state(), ("running", None));
         attempt.output("é".repeat(OUTPUT_LIMIT).as_bytes());
         assert_eq!(attempt.poll().output.len(), OUTPUT_LIMIT);
         assert_eq!(attempt.poll().output, "");
@@ -287,17 +302,18 @@ mod tests {
         attempt.owner.cancel();
         assert_eq!(attempt.poll().output, "");
         assert!(attempt.input("anything").is_err());
+        attempt.finish(Err("x".into()));
+        assert_eq!(attempt.state(), ("failed", Some("x".into())));
     }
     #[cfg(unix)]
     #[tokio::test]
     async fn auth_terminal_fixture_succeeds_fails_and_cancels_its_process_group() {
         use super::super::acp::registry::Launch;
-        use agent_client_protocol::schema::v1::AuthMethodTerminal;
         use std::time::Duration;
         for outcome in ["success", "fail", "cancel", "disconnect"] {
             let attempt = Attempt::new(CancellationToken::new());
             let code = if outcome == "success" {
-                "test -t 0 && test -t 1 || exit 9; stty -echo; printf 'ready:%s\\n' \"$FIXTURE\"; read answer; test \"$answer\" = yes"
+                "test -t 0 && test -t 1 || exit 9; stty -echo; printf 'ready:%s:%s\\n' \"$FIXTURE\" \"$TERM\"; read answer; test \"$answer\" = yes"
             } else if outcome == "fail" {
                 "echo failure; exit 7"
             } else {
@@ -308,16 +324,15 @@ mod tests {
                 args: vec!["-c".into()],
                 env: Vec::new(),
             };
-            let method = AuthMethodTerminal::new("terminal", "Fixture")
-                .args(vec![code.into()])
-                .env(std::collections::HashMap::from([(
-                    "FIXTURE".into(),
-                    "advertised-environment".into(),
-                )]));
             let running = tokio::spawn(terminal(
                 launch,
-                std::env::temp_dir().to_string_lossy().into_owned(),
-                method,
+                std::env::temp_dir(),
+                vec![code.into()],
+                env_plan(
+                    &[],
+                    &[term(), ("FIXTURE".into(), "advertised-environment".into())],
+                    None,
+                ),
                 attempt.clone(),
             ));
             if outcome != "fail" {
@@ -326,7 +341,7 @@ mod tests {
                     loop {
                         output.push_str(&attempt.poll().output);
                         if output.contains(if outcome == "success" {
-                            "ready:advertised-environment"
+                            "ready:advertised-environment:xterm-256color"
                         } else {
                             "waiting"
                         }) {
@@ -362,7 +377,6 @@ mod tests {
     #[tokio::test]
     async fn auth_terminal_cancel_and_disconnect_do_not_wait_for_another_process_groups_slave() {
         use super::super::acp::registry::Launch;
-        use agent_client_protocol::schema::v1::AuthMethodTerminal;
         use std::time::Duration;
 
         // Always kill the exact descendant reported by our fixture, including on
@@ -401,16 +415,18 @@ mod tests {
                     args: vec!["-c".into()],
                     env: Vec::new(),
                 };
-                let method = AuthMethodTerminal::new("terminal", "Fixture")
-                    .args(vec![code.into()])
-                    .env(std::collections::HashMap::from([(
-                        "PIDS".into(),
-                        pids_path.to_string_lossy().into_owned(),
-                    )]));
                 let running = tokio::spawn(terminal(
                     launch,
-                    dir.path().to_string_lossy().into_owned(),
-                    method,
+                    dir.path().to_path_buf(),
+                    vec![code.into()],
+                    env_plan(
+                        &[],
+                        &[
+                            term(),
+                            ("PIDS".into(), pids_path.to_string_lossy().into_owned()),
+                        ],
+                        None,
+                    ),
                     attempt.clone(),
                 ));
                 let (leader, descendant) = tokio::time::timeout(Duration::from_secs(5), async {

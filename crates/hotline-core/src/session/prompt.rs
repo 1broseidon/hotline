@@ -54,7 +54,12 @@ impl Room {
             self.start_now(persona_id, capability).await?;
             return Ok((self.session(persona_id)?, held));
         }
-        if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
+        if self
+            .log
+            .chapter_activity(&StreamId::Tape(persona_id.to_string()))
+            .0
+            .is_some()
+        {
             return Ok((session, held));
         }
         let capability = self.stop_with_capability(persona_id);

@@ -1074,14 +1074,16 @@ impl Room {
     /// Writes the agent's session id onto the open chapter marker, so a
     /// later resume can point the checkpoint back at this stretch.
     fn stamp_chapter_session(&self, persona_id: &str, session_id: &str) {
-        let events = self.tape(persona_id);
-        let Some(open) = chapter_view::open_chapter(&events) else {
+        let (open, _) = self
+            .log
+            .chapter_activity(&StreamId::Tape(persona_id.to_string()));
+        let Some(open) = open else {
             return;
         };
         if open.get("sessionId").and_then(Value::as_str) == Some(session_id) {
             return;
         }
-        let mut stamped = open.clone();
+        let mut stamped = open;
         if let Some(object) = stamped.as_object_mut() {
             object.insert("sessionId".into(), Value::from(session_id));
             self.write_value(persona_id, &stamped);

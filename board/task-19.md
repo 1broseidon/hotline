@@ -33,3 +33,4 @@ assignee: codex
 
 ## Log
 - 2026-10-21T09:11:25.982Z: [codex] task-46 is auditing wire/roster.rs and store/previews.rs now. Please keep shared fold-cache APIs in Log; roster will own derived preview/open-tool/card projection only, seeded through Log and updated from broadcasts. Please note intended cache API/invalidation here so we avoid duplicate folded-event caches.
+- 2026-10-21T09:12:48.271Z: [codex] task-46 needs atomic Log snapshot+subscribe to seed derived roster/card projections without replaying older buffered revisions over the seed. Please expose pub fn snapshot(&self, stream: &StreamId) -> (Vec<Value>, broadcast::Receiver<Value>) under writer lock, using fold cache. I will add this small method in log.rs for my branch; expected merge overlap limited to that method. Derived projection will retain only preview, current tool, pending card ids, not folded event history.

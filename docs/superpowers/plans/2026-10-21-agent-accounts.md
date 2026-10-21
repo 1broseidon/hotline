@@ -1942,3 +1942,26 @@ test("a card with no account calls no wire command") // agent_auth without accou
     - macOS and Linux terminal sign-in on this machine;
     - the §3 session-carry spike, which is outside this plan.
 - [ ] **Step 7: Commit.** `git add docs/security.md docs/sessions.md docs/wire.md docs/design.md docs/development.md docs-site CHANGELOG.md`; `git commit -m "Every agent-account claim in the docs names the test that proves it."`
+
+---
+
+## Desvios
+
+Desvios em relação à spec e ao plano, registrados pelo coordenador durante a execução. Nenhum muda uma decisão da spec; cada um preenche uma lacuna ou segue o código real.
+
+### Já previstos em RESOLUTIONS
+1. **`SetupFrom` como `"system_default" | "empty"`** em todo o contrato (a spec §10.6 escreve `systemDefault` uma vez).
+2. **O notice `account_unavailable` leva `accountId` e `code`** (o `kind` da recusa), para o `ErrorCard` desenhar título e ações.
+3. **"Open" passa pelo comando do shell `open_account_setup(path)`** em `crates/hotline-app`, não pelo opener da janela.
+4. **`TranscriptEvent::Link` também ganha `accountId`**, como espelho tipado de `Link::event` (spec §8.4).
+
+### Da varredura pré-execução (2026-10-21)
+5. **`SessionAccount.held` aceita `not_signed_in` e `signing_in`.** A spec §10.4 tipa só `"signing_in"`, mas §7.2 e §10.4 retêm a troca também para uma conta sem login.
+6. **`open_account_setup` aceita só os itens de setup do agente e cria qualquer um que falte**: `.md` vazio, `.json` como `{}`, ou a pasta. A spec §7.6 cita só CLAUDE.md e settings.json; uma conta "Empty" não tem `skills/`, `plugins/` nem `.claude.json`, e §18.16 diz que o item ausente é criado antes de abrir. A lista fechada mantém `.credentials.json`, `projects/` etc. fora (§8.6).
+7. **O texto do cartão de limite vem da mensagem do erro ACP, antes da dica de stderr**, que fica só nos detalhes.
+8. **O seat Phone (e qualquer seat `lean`) também perde `account`/`agentAccountId` nas respostas de `session.set_model`, `session.set_config`, `mobile.persona_access` e `mobile.persona_computer`**, com o mesmo predicado do roster.
+9. **A linha de conta no nível 2 mostra status · email · Used by** (spec §7.1); o plano acrescentava o plano de assinatura.
+10. **Títulos do cartão `account_unavailable` por `code`**, do protótipo (States): "Pick a {agent} account" e "Can't open {account}'s folder"; os corpos são as frases da spec §10.1.
+11. **Testes vão para `<módulo>/tests.rs` quando passam do tamanho do código** (docs/standards.md), e a matriz de segurança cita o arquivo real.
+12. **`test_githooks` não roda neste Windows** (privilégio de symlink, WinError 1314; exec de hook `#!/bin/sh`, WinError 193); é informado, não desabilitado.
+13. **A validação real usa `bun run --cwd ui dev` + `cargo run -p hotline-app`**, sem instalar o `tauri-cli`.

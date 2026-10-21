@@ -65,7 +65,6 @@ impl Calls {
             if let VoiceEvent::Said { id, text } = &event
                 && call.front.is_none()
             {
-                call.waiting_sound = true;
                 call.speech_line.update(id, text);
             }
             let _ = call.events.send(event);
@@ -221,6 +220,24 @@ impl Calls {
                     self.answer(&id, event, chunks, speech, &context.cancel)
                         .await
                 }
+                Work::Progress { seq, at, speech } => {
+                    let active = self
+                        .change(&id, |call| {
+                            Ok(call.feedback_at == Some(*at)
+                                && call.answering == Some(*seq)
+                                && call.seq == Some(*seq)
+                                && call.state == VoiceState::Thinking
+                                && !call.caller_speaking
+                                && call.streams.is_empty())
+                        })
+                        .unwrap_or(false);
+                    if active && !speech.is_cancelled() {
+                        self.say(&id, "I'm still working on that.", speech, &context.cancel)
+                            .await
+                    } else {
+                        Ok(())
+                    }
+                }
                 Work::TurnOver(seq) => {
                     let _ = self.change(&id, |call| {
                         if call.answering.is_some_and(|answering| answering <= *seq) {
@@ -248,6 +265,7 @@ impl Calls {
                             | Work::Text { speech, .. }
                             | Work::Live { speech, .. }
                             | Work::Answer { speech, .. }
+                            | Work::Progress { speech, .. }
                             | Work::Delivery(_, speech)
                             | Work::Notice(_, speech) => Some(speech),
                             Work::TurnOver(_) => None,

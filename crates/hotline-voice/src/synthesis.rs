@@ -361,6 +361,10 @@ impl Calls {
             if call.state != VoiceState::Held
                 && !interrupted.is_some_and(CancellationToken::is_cancelled)
             {
+                if !clip.bytes.is_empty() {
+                    call.waiting_sound = true;
+                    call.feedback_at = Some(tokio::time::Instant::now());
+                }
                 let sent = call.events.send(VoiceEvent::Clip {
                     id: line.into(),
                     index,

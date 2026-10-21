@@ -8,11 +8,13 @@
 //! per call, `<tool> ok: <text>` or `<tool> refused: <text>`. A prompt with no
 //! calls is answered "On it." A REPLY_JSON line supplies a JSON string as
 //! the answer, so reply-format scenarios need not echo session instructions.
+//! REPORT_TOOLS also emits ACP tool notifications around those MCP calls.
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
     McpServer, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId,
-    SessionNotification, SessionUpdate, StopReason, TextContent,
+    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
 use rmcp::ServiceExt;
@@ -92,7 +94,7 @@ async fn main() {
                     // The calls run off the connection's own loop, which has
                     // to stay free to carry the session's other messages.
                     cx.spawn(async move {
-                        let reply = answer(&said, desk).await;
+                        let reply = answer(&said, desk, &replying, &session).await;
                         if let Some(path) = said
                             .lines()
                             .find_map(|line| line.trim().strip_prefix("WAIT_FOR "))
@@ -180,7 +182,12 @@ fn calls(said: &str) -> Vec<(String, Value)> {
 }
 
 /// Makes the calls the prompt asks for and says what came back.
-async fn answer(said: &str, desk: Option<Desk>) -> String {
+async fn answer(
+    said: &str,
+    desk: Option<Desk>,
+    connection: &ConnectionTo<Client>,
+    session: &SessionId,
+) -> String {
     let calls = calls(said);
     if calls.is_empty() {
         return "On it.".to_string();
@@ -201,12 +208,35 @@ async fn answer(said: &str, desk: Option<Desk>) -> String {
         Err(error) => return format!("RESULTS\nthe hotline server refused: {error}"),
     };
     let mut lines = vec!["RESULTS".to_string()];
+    let report = said.contains("REPORT_TOOLS");
     for (tool, arguments) in calls {
+        let id = uuid::Uuid::new_v4().to_string();
+        if report {
+            connection
+                .send_notification(SessionNotification::new(
+                    session.clone(),
+                    SessionUpdate::ToolCall(
+                        ToolCall::new(id.clone(), tool.clone())
+                            .status(ToolCallStatus::InProgress)
+                            .raw_input(arguments.clone()),
+                    ),
+                ))
+                .expect("tool notification reaches the client");
+        }
         let mut request = CallToolRequestParams::new(tool.clone());
         if let Value::Object(arguments) = arguments {
             request = request.with_arguments(arguments);
         }
-        lines.push(match connected.peer().call_tool(request).await {
+        let result = connected.peer().call_tool(request).await;
+        let status = if result
+            .as_ref()
+            .is_ok_and(|result| result.is_error != Some(true))
+        {
+            ToolCallStatus::Completed
+        } else {
+            ToolCallStatus::Failed
+        };
+        lines.push(match result {
             Ok(result) => {
                 let text = result
                     .content
@@ -223,6 +253,17 @@ async fn answer(said: &str, desk: Option<Desk>) -> String {
             }
             Err(error) => format!("{tool} failed: {error}"),
         });
+        if report {
+            connection
+                .send_notification(SessionNotification::new(
+                    session.clone(),
+                    SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                        id,
+                        ToolCallUpdateFields::new().status(status),
+                    )),
+                ))
+                .expect("tool completion reaches the client");
+        }
     }
     connected.cancel().await.ok();
     lines.join("\n")

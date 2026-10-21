@@ -1,7 +1,7 @@
 ---
 id: task-252
 title: "S6 follow-up: a live call's transcript is what was said, once; the clone's work shows as work"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -24,7 +24,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T05:51:59.039Z"
 assignee: codex
-updatedAt: "2026-10-21T06:01:23.001Z"
+updatedAt: "2026-10-21T06:09:33.306Z"
 decisions:
   - decision-10
 ---

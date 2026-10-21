@@ -1,7 +1,7 @@
 ---
 id: task-244
 title: "The call's thread is its transcript: any agent can read a thread whole, and the home chat acts on \"like we said on the call\""
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -24,7 +24,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T01:32:46.063Z"
 assignee: codex
-updatedAt: "2026-10-21T01:33:01.824Z"
+updatedAt: "2026-10-21T01:54:41.275Z"
 ---
 
 ## Description

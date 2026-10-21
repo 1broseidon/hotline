@@ -695,6 +695,10 @@ impl Calls {
                     Ok(())
                 }),
                 RealtimeEvent::Heard(text) => {
+                    let _ = self.change(id, |call| {
+                        call.conversation.begin_turn();
+                        Ok(())
+                    });
                     // GPT-Live may end the caller's turn without a separate
                     // completion for the interrupted assistant turn.
                     let _ = self.change(id, |call| {

@@ -101,10 +101,16 @@ impl Dispatcher for ClipCheck {
         self.routed.fetch_add(1, Ordering::SeqCst);
         Ok("Please continue.".into())
     }
-    async fn narrate(&self, _: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn narrate(
+        &self,
+        _: &str,
+        text: &str,
+        _: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
         Ok(text.into())
     }
-    async fn rewrite(&self, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn rewrite(&self, _: &str, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
         unreachable!("a desk call has no teammate's reply to rewrite")
     }
 }

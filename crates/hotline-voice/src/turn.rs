@@ -28,6 +28,38 @@ impl Calls {
             .flatten()
     }
 
+    pub fn file_posted(&self, thread: &hotline_contract::ThreadId, name: &str) {
+        if let Some(origin) = self.thread_origin(thread) {
+            let _ = self.change(&origin.call_id, |call| {
+                call.conversation.file_sent(name);
+                Ok(())
+            });
+        }
+    }
+
+    /// State travels with each Legacy turn, outside the saved caller words.
+    pub fn turn_instruction(&self, id: &str) -> String {
+        self.change(id, |call| {
+            Ok(format!(
+                "{}\n{}",
+                spoken::CONTRACT,
+                call.conversation.instruction(false)
+            ))
+        })
+        .unwrap_or_else(|_| spoken::CONTRACT.into())
+    }
+
+    fn narration_instruction(&self, id: Option<&str>, written: &str) -> String {
+        id.and_then(|id| {
+            self.change(id, |call| {
+                let pointer = call.conversation.pointer(written);
+                Ok(call.conversation.instruction(pointer))
+            })
+            .ok()
+        })
+        .unwrap_or_else(|| spoken::CallContext::default().instruction(false))
+    }
+
     pub(super) fn emit(&self, id: &str, event: VoiceEvent) {
         let _ = self.change(id, |call| {
             if let VoiceEvent::Said { id, text } = &event
@@ -309,7 +341,12 @@ impl Calls {
         if text.is_empty() {
             return Ok(());
         }
-        let target = self.change(id, |call| Ok(call.target.clone()))?;
+        let target = self.change(id, |call| {
+            if !relayed {
+                call.conversation.begin_turn();
+            }
+            Ok(call.target.clone())
+        })?;
         if target.is_none() {
             if !relayed {
                 self.keep(id, Speaker::Person, &text);
@@ -375,8 +412,12 @@ impl Calls {
         }
     }
 
-    pub(super) async fn summary(&self, delivery: &Delivery) -> Result<String, String> {
-        if speech_ready(&delivery.text) {
+    pub(super) async fn summary(
+        &self,
+        id: Option<&str>,
+        delivery: &Delivery,
+    ) -> Result<String, String> {
+        if speech_ready(&delivery.text) && !spoken::carries_more(&delivery.text) {
             return Ok(delivery.text.trim().to_string());
         }
         let fallback = || {
@@ -393,7 +434,12 @@ impl Calls {
         };
         let result = tokio::time::timeout(
             Duration::from_secs(30),
-            dispatcher.narrate(&delivery.name, &delivery.text, self.ledger.clone()),
+            dispatcher.narrate(
+                &delivery.name,
+                &delivery.text,
+                &self.narration_instruction(id, &delivery.text),
+                self.ledger.clone(),
+            ),
         )
         .await;
         match result {
@@ -414,7 +460,7 @@ impl Calls {
         let text = tokio::select! {
             () = context.cancel.cancelled() => return Ok(()),
             () = speech.cancelled() => { self.push(delivery, &delivery.text); return Ok(()); },
-            text = self.summary(delivery) => text?,
+            text = self.summary(Some(id), delivery) => text?,
         };
         if text.is_empty() {
             return Ok(());
@@ -459,6 +505,8 @@ impl Calls {
         }
         let legacy = !self.fronted(id);
         let (sentences, mut said) = mpsc::channel(8);
+        let pointed = std::sync::atomic::AtomicBool::new(false);
+        let pointer_added = &pointed;
         let split = async move {
             let mut spoken = if legacy {
                 spoken::Spoken::streaming()
@@ -494,6 +542,33 @@ impl Calls {
                     return;
                 }
             }
+            let versions = spoken::versions(&whole);
+            let written = versions.written;
+            let written = self
+                .change(id, |call| Ok(call.conversation.result_text(&written)))
+                .unwrap_or(written);
+            if !speech.is_cancelled() && versions.spoken.as_deref() != Some(written.as_str()) {
+                let instruction = self.change(id, |call| {
+                    Ok(call.conversation.pointer(&written).then(|| {
+                        format!("{} Only supply the brief contextual pointer now; the answer has already been spoken. Do not repeat it.", call.conversation.instruction(true))
+                    }))
+                }).ok().flatten();
+                if let Some(instruction) = instruction
+                    && let Ok(assistant) = self.dispatcher()
+                    && let Ok(Ok(pointer)) = tokio::time::timeout(
+                        REWRITE_WAIT,
+                        assistant.rewrite("", &written, &instruction, self.ledger.clone()),
+                    )
+                    .await
+                {
+                    pointer_added.store(!pointer.trim().is_empty(), Ordering::Relaxed);
+                    for sentence in spoken::sentences(&pointer) {
+                        if sentences.send(sentence).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
         };
         let reply = Mutex::new(Reply::default());
         let say = self.say_reply(id, &mut said, &reply, speech, ended);
@@ -506,7 +581,19 @@ impl Calls {
             call.streams.remove(event);
             Ok(())
         });
-        let kept = self.keep_reply(id, std::mem::take(&mut *lock(&reply)));
+        let reply = std::mem::take(&mut *lock(&reply));
+        if pointed.load(Ordering::Relaxed)
+            && let Ok((Some(persona), thread, false)) = self.change(id, |call| {
+                Ok((
+                    call.target.clone(),
+                    call.thread.clone(),
+                    call.front.is_some(),
+                ))
+            })
+        {
+            self.keep_spoken(&persona, thread, event, &reply.text);
+        }
+        let kept = self.keep_reply(id, reply);
         result.and(kept)
     }
 
@@ -572,7 +659,12 @@ impl Calls {
             .ok()?;
         let rewritten = tokio::time::timeout(
             REWRITE_WAIT,
-            assistant.rewrite(&words, written, self.ledger.clone()),
+            assistant.rewrite(
+                &words,
+                written,
+                &self.narration_instruction(Some(id), written),
+                self.ledger.clone(),
+            ),
         )
         .await;
         match rewritten {
@@ -745,7 +837,10 @@ impl Calls {
         if reply.text.is_empty() {
             return Ok(());
         }
-        let direct = self.change(id, |call| Ok(call.target.is_some()))?;
+        let direct = self.change(id, |call| {
+            call.conversation.remember(&reply.text);
+            Ok(call.target.is_some())
+        })?;
         if !direct {
             self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
         }

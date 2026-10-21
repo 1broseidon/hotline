@@ -347,3 +347,23 @@ fn a_rebuilt_history_shows_both_versions_of_a_reply_said_on_a_call() {
         ]
     );
 }
+
+#[test]
+fn conversational_call_text_is_its_spoken_words() {
+    let events = crate::session::prompt::event_of(
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: "answer".into(),
+            text:
+                "<spoken>Yes, that works.</spoken><written>Yes, I think that should work.</written>"
+                    .into(),
+        },
+        &mut HashMap::new(),
+        true,
+        false,
+    );
+    assert_eq!(events.len(), 1);
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["text"], "Yes, that works.");
+    assert_eq!(event["spoken"], event["text"]);
+}

@@ -1292,7 +1292,7 @@ impl Room {
                         "{}\n\n{}\n\n{}",
                         timed_from(ts, client, text),
                         interruption,
-                        crate::voice::spoken::CONTRACT
+                        self.call_instruction(&side.thread)
                     )
                 } else {
                     timed_from(ts, client, text)

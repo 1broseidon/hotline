@@ -515,6 +515,10 @@ async fn a_front_call_works_on_its_thread_and_says_its_spoken_line() {
     .expect("the teammate's line reached the front");
     assert!(listening, "the call showed the teammate working");
     assert_eq!(said, "The checks passed.");
+    assert_eq!(
+        next_asked(&mut desk.asked).await,
+        Asked::Say("You can review the result in our chat.".into())
+    );
 
     // A front that relays the line it was given back to the teammate is
     // refused, or the teammate would answer its own reply, round and round.

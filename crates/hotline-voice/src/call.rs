@@ -173,6 +173,7 @@ impl Calls {
             let (tx, rx) = mpsc::channel(16);
             let cancel = CancellationToken::new();
             calls.push_back(Call {
+                conversation: super::spoken::CallContext::default(),
                 id: id.into(),
                 output: speech_services.tts.output_mime().into(),
                 target: target.clone(),

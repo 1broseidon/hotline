@@ -171,6 +171,7 @@ impl super::Call {
             && let Some(record) = &self.record
         {
             record.said(Speaker::Voice, &self.speech_line.id, &self.speech_line.text);
+            self.conversation.remember(&self.speech_line.text);
             self.speech_line.recorded = true;
         }
     }

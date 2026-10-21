@@ -183,7 +183,12 @@ async fn gpt_live_delegation_uses_the_same_call_thread_work_tool() {
         declared.contains(&"search_thread".to_string()),
         "{declared:?}"
     );
-    let turns = desk.log.load(&tape).len();
+    let turns = desk
+        .log
+        .load(&tape)
+        .iter()
+        .filter(|event| event["kind"] == "user" || event["kind"] == "turn")
+        .count();
 
     let delegate = |call_id: &'static str, words: &'static str| {
         let events = desk.events.clone();
@@ -218,9 +223,20 @@ async fn gpt_live_delegation_uses_the_same_call_thread_work_tool() {
     })
     .await;
     assert_eq!(
-        desk.log.load(&tape).len(),
+        desk.log
+            .load(&tape)
+            .iter()
+            .filter(|event| event["kind"] == "user" || event["kind"] == "turn")
+            .count(),
         turns,
         "GPT-Live never prompts the home agent"
+    );
+    assert!(
+        desk.log
+            .load(&tape)
+            .iter()
+            .any(|event| is_call_post(event) && event["text"] == TAGGED_WRITTEN),
+        "the written table reaches chat"
     );
 }
 

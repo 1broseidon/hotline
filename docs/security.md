@@ -1930,3 +1930,23 @@ teammate's lease never covers another teammate's computer.
 - **Residual risk:** a dropped call keeps its provider connection for up to
   twenty seconds and can incur that connection's normal cost. This does not
   restore a revoked grant or cancel work already admitted on its thread.
+
+### Automatic written call results
+
+A live call's own turn posts a written result through `Room::post` when its
+text contains code, a table, a link, a list of four or more items, or a write-up
+over 120 words. Sent attachments use the existing file-post path. This is on
+by default for an attached call and grants no new tool or destination: the
+turn's originating persona and thread supply both, and the existing open-turn
+and live-call checks guard the write. Detached work retains the bounded
+in-flight completion rule. The model cannot choose another chat through this
+path. Conversation equal to its speech is not posted again.
+
+`tests/voice/direct.rs` `conversation_keeps_one_written_record_and_never_posts_or_points`,
+`a_direct_call_uses_its_thread_agent_without_dispatching`, and
+`legacy_speaks_its_own_untagged_opening` exercise the real core over the wire:
+conversation stays on the call; tables and code reach the owning chat.
+The existing thread-lease and revoked-post tests still cover tool authority.
+Residual risk: classification is syntactic; a model can mislabel or omit useful
+content, and its spoken wording can ignore an instruction. A missing or failed
+narrator leaves the written result available without a new spoken pointer.

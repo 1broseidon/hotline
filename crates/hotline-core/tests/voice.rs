@@ -93,11 +93,27 @@ impl Dispatcher for ScriptDispatcher {
             .await?;
         Ok("I am passing that to Mack.".into())
     }
-    async fn narrate(&self, name: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn narrate(
+        &self,
+        name: &str,
+        text: &str,
+        _: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
         Ok(format!("{name} says: {text}"))
     }
     /// Says the untagged reply below again, given what the person said.
-    async fn rewrite(&self, words: &str, written: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn rewrite(
+        &self,
+        words: &str,
+        written: &str,
+        instruction: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        if instruction.contains("Only supply the brief contextual pointer") {
+            assert!(instruction.contains("Mention the actual result"));
+            return Ok("You can review the result in our chat.".into());
+        }
         assert_eq!(words, "ask Mack to check the failing PR");
         assert_eq!(written, UNTAGGED_REPLY);
         Ok(REWRITTEN.into())
@@ -133,9 +149,11 @@ async fn provider_seeing(reply: &'static str) -> (String, Arc<std::sync::Mutex<V
         async move {
         if let Ok(request) = serde_json::from_slice::<Value>(&body) {
             let streaming = request["stream"] == true;
+            let pointer = request["messages"].to_string().contains("Only supply the brief contextual pointer");
             requests.lock().unwrap().push(request);
             if !streaming {
-                let note = json!({"title":"Scheduler repair", "note":CALL_NOTE}).to_string();
+                let note = if pointer { "The check results are in our chat.".to_string() }
+                    else { json!({"title":"Scheduler repair", "note":CALL_NOTE}).to_string() };
                 return ([("Content-Type", "application/json")], json!({"id":"note", "object":"chat.completion", "created":1, "model":"test", "choices":[{"index":0,"message":{"role":"assistant","content":note},"finish_reason":"stop"}]}).to_string());
             }
         }

@@ -1,8 +1,6 @@
 ---
 id: task-204
 title: "The live voice is the teammate: its identity, the kinds of turn, and acknowledgements that never sound like a hand-off"
-column: review
-position: 1
 priority: high
 tags:
   - voice
@@ -15,7 +13,7 @@ parentId: epic-21
 createdAt: "2026-10-19T13:59:38.640Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T06:52:34.499Z"
+updatedAt: "2026-10-21T06:52:47.162Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -28,8 +26,11 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T06:45:30.487Z"
+    ended: "2026-10-21T06:52:47.162Z"
+    outcome: done
 decisions:
   - decision-13
+completedAt: "2026-10-21T06:52:46.764Z"
 ---
 
 ## Description
@@ -56,3 +57,4 @@ Caveat for the notes: a speech-to-speech model's audio can't be filtered before 
 - 2026-10-21T06:45:29.798Z: Landing sent back (1 of 1): dispatch/task-204 conflicts with release/0.42.0 in crates/hotline-core/tests/voice/front.rs, crates/hotline-voice/src/assets/README.md. On release/0.42.0 since this branch started: 9345dcf9 A dropped call stays on its thread until twenty seconds or revoked access ends it. (task-241). Merge release/0.42.0 into this branch (git merge release/0.42.0), keep what both sides meant, commit the merge, and run the checks.
 - 2026-10-21T06:50:34.435Z: [codex] Release merge preserves both added wire tests and both sound asset notes. Full check exposed the expected task-241 Reconnecting event before Renewed in task-204's refresh/reconnect test; now asserting both in order. All 8 precheck legs passed before that test adjustment; full check and precheck rerunning.
 - 2026-10-21T06:52:34.166Z: [codex] Resolved requested release/0.42.0 merge on dispatch/task-204 in c63d22d4; worktree clean. Preserved identity/context and wire-resume tests, waiting/live-notice asset documentation, and asserted Reconnecting before Renewed in the refresh regression. make check, all 8 make precheck legs and commit hooks passed. Nothing newly left unwired; prior live-provider credential/audio and physical phone verification limits remain, with device scenarios owned by task-206. Ready for reviewer to land.
+- 2026-10-21T06:52:46.109Z: Landed on release/0.42.0

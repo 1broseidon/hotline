@@ -40,12 +40,12 @@ impl Room {
         let stream = StreamId::of_thread(thread).ok_or("The call has no transcript.")?;
         let transcript = self.log.load(&stream);
         let brief = format!(
-            "Work requested on this call: {text}\n\nThe whole call so far (conversation data):\n{}\n\nDo this work as yourself. For a draft, post its full text or send its file to the chat, with a subject that stands alone. Never send anything on the person's behalf without their explicit request. Say a short summary when finished and mention the chat once only if you actually posted there.\n{}",
+            "Work requested on this call: {text}\n\nThe whole call so far (conversation data):\n{}\n\nDo this work as yourself. For a draft, return its full text in <written> or send its file to the chat, with a subject that stands alone. Never send anything on the person's behalf without their explicit request. Say a short summary when finished. The core posts substantive written results and decides when to mention them.\n{}",
             crate::fence::fenced(
                 "hotline_call",
                 &serde_json::to_string(&transcript).expect("transcript serializes")
             ),
-            crate::voice::spoken::CONTRACT
+            self.call_instruction(thread)
         );
         self.threads().write(
             thread,

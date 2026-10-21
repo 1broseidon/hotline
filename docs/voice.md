@@ -544,22 +544,19 @@ path interrupts the home session. Both sides' speech and all tool calls are
 kept on the call thread; files and full drafts are explicitly posted to chat.
 See [voice-calls.md](voice-calls.md) and ADR 0008.
 
-What makes the turn a voice turn is one thing the agent is handed after the
-person's words, the contract (`spoken::CONTRACT`): answer twice, once to be
-heard and once to be read, each version standing alone and neither continuing
-the other. The version to be heard goes between `<spoken>` tags: how you'd
-answer on a phone call, leading with the answer, one to three sentences under
-40 words, plain speech with no code, lists, links or markdown, mentioning the
-written version only as "details are in the chat". The version to be read
-goes between `<written>` tags: the complete answer exactly as if the question
-had been typed, never spoken, not assuming the reader heard the other one. It
-gives one example, and asks for at most one short line before a tool and, when
-the person cut in, an answer to the new words without repeating what was said.
+Each voice turn carries the spoken contract and the call's state: caller-turn
+count, last pointer turn, and three recent generated spoken lines. Conversation
+uses `<spoken>` alone; those exact words are its written record. A standalone
+`<written>` result is added only for material speech cannot preserve. The core
+recognizes code, tables, links, sent files, lists of four or more items and
+write-ups over 120 words, and posts those results through `Room::post`.
 
-The contract asks for two whole versions rather than one reply cut in two. A
-reply split by a marker into a part to say and a part to show reads to a model
-as an opener and a body, so the chat showed the spoken opener as its first
-bubble and the rest after it: one answer chopped in two, not a desk answer.
+The streaming answer never announces the chat on its own. After the result is
+known, the narrator may add a contextual pointer, at most once in three caller
+turns. Its instruction describes the purpose and bad habits, without a stock
+phrase or word cap. Failed or interrupted pointer attempts still consume the
+slot; generated speech is never proof of what was heard. Ordinary answers and
+short lists receive no pointer or additional chat post.
 
 The contract travels in the text of the turn the driver is handed, after the
 words and a blank line, and nowhere else. A model setting or a system note

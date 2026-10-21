@@ -95,6 +95,12 @@ pub(super) trait Witness {
         false
     }
 
+    /// Work results and sent-file records can carry facts beyond a short
+    /// spoken completion, even when their text has no visual formatting.
+    fn keep_written(&self) -> bool {
+        false
+    }
+
     /// One event of the turn, and whether it came of a permission request.
     fn write(&mut self, event: TranscriptEvent, asked: bool);
 
@@ -188,7 +194,12 @@ pub(super) async fn drive_updates(
             }
             let asked = matches!(update, Update::Permission { .. });
             driven.asked |= asked;
-            for event in event_of(update, &mut in_flight, witness.said_on_call()) {
+            for event in event_of(
+                update,
+                &mut in_flight,
+                witness.said_on_call(),
+                witness.keep_written(),
+            ) {
                 match &event {
                     TranscriptEvent::Agent { text, .. } => {
                         driven.replies.push(text.clone());
@@ -457,7 +468,7 @@ impl Room {
                     return;
                 };
                 for update in run.voice.step(update) {
-                    for event in event_of(update, &mut run.in_flight, false) {
+                    for event in event_of(update, &mut run.in_flight, false, false) {
                         self.threads().write(
                             &ThreadId::run(&run.running.run_id),
                             persona_id,
@@ -472,7 +483,7 @@ impl Room {
                 };
                 let run_id = run.running.run_id.clone();
                 for update in run.voice.finish() {
-                    for event in event_of(update, &mut run.in_flight, false) {
+                    for event in event_of(update, &mut run.in_flight, false, false) {
                         self.threads()
                             .write(&ThreadId::run(&run_id), persona_id, &event);
                     }

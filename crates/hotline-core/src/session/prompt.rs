@@ -578,6 +578,7 @@ pub(super) fn event_of(
     update: Update,
     in_flight: &mut HashMap<String, PendingTool>,
     on_call: bool,
+    keep_written: bool,
 ) -> Vec<TranscriptEvent> {
     match update {
         Update::Chapter { boundary } => {
@@ -586,7 +587,15 @@ pub(super) fn event_of(
         }
         Update::Delta { .. } | Update::Parked => Vec::new(),
         Update::Message { kind, id, text } => {
-            let versions = crate::voice::spoken::versions(&text);
+            let mut versions = crate::voice::spoken::versions(&text);
+            if on_call
+                && !keep_written
+                && !crate::voice::spoken::carries_more(&versions.written)
+                && let Some(spoken) = &versions.spoken
+            {
+                versions.written.clone_from(spoken);
+                versions.lazy = None;
+            }
             match kind {
                 MessageKind::Agent => {
                     let mut spoken = versions.spoken.filter(|_| on_call);

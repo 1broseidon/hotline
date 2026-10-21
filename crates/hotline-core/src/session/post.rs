@@ -42,6 +42,8 @@ pub(super) struct Posting {
     posted: bool,
     /// Voice detached while this turn was running; report once it finishes.
     pub(super) detached: bool,
+    /// A file is a work result even when its closing words are short prose.
+    pub(super) file_sent: bool,
 }
 
 /// The turn in flight on a thread, as [`Room::take_post`] finds it.
@@ -103,6 +105,7 @@ impl Room {
                 job,
                 posted: false,
                 detached: false,
+                file_sent: false,
             },
         );
         PostingTurn {
@@ -266,6 +269,19 @@ impl Room {
         let event = serde_json::to_value(&event).map_err(|error| error.to_string())?;
         self.try_write_value(persona_id, &event)
             .map_err(|error| format!("The chat could not be written to: {error}"))?;
+        if let Some(attachments) = event["attachments"]
+            .as_array()
+            .filter(|items| !items.is_empty())
+        {
+            if let Some(turn) = lock(&self.posting).get_mut(from) {
+                turn.file_sent = true;
+            }
+            if let Some(calls) = lock(&self.voice).upgrade() {
+                for attachment in attachments {
+                    calls.file_posted(from, attachment["name"].as_str().unwrap_or("sent file"));
+                }
+            }
+        }
         let said = crate::sent::message_text(&event);
         if let Some(job) = &job {
             self.job_posted(job, &said);

@@ -791,6 +791,18 @@ transcripts, tool contents or provider identifiers. They show whether a stalled
 turn reached speech stop, commit and response creation; scripted ordering tests
 do not establish real-provider VAD timing, which needs the Linux audio QA pass.
 
+Live work admission also checks the caller's finalized words. English dictation
+opened by “draft”, “say” or “write” and ending in a dangling connector, article
+or verb (such as “saying that” or “the fog horn should”) stays unfinished across
+provider turns. A `work_on_it` attempt receives a silent wait result, even if
+its arguments invent a complete sentence. Silence alone never releases it;
+caller continuation closes the phrase, and the front requests the complete
+work again. Stop remains available. When a tool beats transcription after
+speech onset, admission waits for that transcript. This is a bounded lexical
+check, not a general sentence parser; complete requests keep ordinary latency.
+Scripted fronts prove the four-second pause on both Grok Voice and GPT Realtime;
+real microphone timing and other languages still require audio QA.
+
 ### A transport drop holds the call for twenty seconds
 
 A lost client socket holds its call for twenty seconds. Replaying the call

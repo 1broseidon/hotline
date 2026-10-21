@@ -85,6 +85,7 @@ pub struct Front {
     notes: std::collections::VecDeque<String>,
     /// The teammate's desk-side tools, on a direct call.
     desk_tools: Option<Arc<FrontTools>>,
+    dictation_open: bool,
 }
 
 impl Front {
@@ -100,6 +101,7 @@ impl Front {
             said: HashMap::new(),
             notes: std::collections::VecDeque::new(),
             desk_tools: None,
+            dictation_open: false,
         })
     }
 
@@ -114,6 +116,12 @@ impl Front {
         self.desk_tools.clone()
     }
 
+    /// Provider turn boundaries are not sentence boundaries. Only caller words
+    /// can close an unfinished dictation, never the front's invented completion.
+    pub(crate) fn heard(&mut self, text: &str) {
+        self.dictation_open = unfinished_dictation(text, self.dictation_open);
+    }
+
     /// Answers one tool call with the output the front is given back, and
     /// whether it should speak after it. A failure is an output too, worded so
     /// the front does not take the words for sent, and is spoken to. A send
@@ -125,6 +133,10 @@ impl Front {
             .record_tool(&self.call_id, &tool_id, name, arguments, None);
         let result = match name {
             REMAIN_SILENT => (String::new(), false),
+            WORK_ON_IT if self.dictation_open && !stops_work(arguments) => (
+                "Work has not started: the caller's dictation is unfinished. Remain silent and wait for them to finish; then call work_on_it with the complete request. Do not invent the missing words.".into(),
+                false,
+            ),
             WORK_ON_IT => match self.work(arguments).await {
                 Ok(Some(stopped)) => (stopped, true),
                 Ok(None) => (accepted(self.speaks).into(), false),
@@ -152,6 +164,7 @@ impl Front {
             Some(_) => return Err("work_on_it action must be work or stop.".into()),
         };
         if stop {
+            self.dictation_open = false;
             let stopped = self.calls.stop_work(&self.call_id)?;
             return Ok(Some(stopped));
         }
@@ -215,9 +228,93 @@ impl Front {
     }
 }
 
+pub(crate) fn stops_work(arguments: &str) -> bool {
+    serde_json::from_str::<Value>(arguments).is_ok_and(|arguments| arguments["action"] == "stop")
+}
+
+fn unfinished_dictation(text: &str, already_open: bool) -> bool {
+    let words: Vec<_> = text
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.is_empty() {
+        return already_open;
+    }
+    let dictating = already_open
+        || words
+            .iter()
+            .any(|word| matches!(word.as_str(), "draft" | "say" | "write"));
+    // Punctuation from STT is not evidence of completion. These dangling
+    // words need their object or clause even when STT adds a full stop.
+    dictating
+        && words.last().is_some_and(|word| {
+            matches!(
+                word.as_str(),
+                "draft"
+                    | "say"
+                    | "write"
+                    | "saying"
+                    | "that"
+                    | "the"
+                    | "a"
+                    | "an"
+                    | "to"
+                    | "for"
+                    | "with"
+                    | "about"
+                    | "and"
+                    | "or"
+                    | "but"
+                    | "because"
+                    | "if"
+                    | "when"
+                    | "which"
+                    | "whose"
+                    | "should"
+                    | "could"
+                    | "would"
+                    | "will"
+                    | "is"
+                    | "are"
+                    | "was"
+                    | "be"
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unfinished_dictation_uses_caller_words_not_stt_punctuation() {
+        for text in [
+            "Draft a message saying that.",
+            "Please write",
+            "Say that the",
+            "Write a note about",
+        ] {
+            assert!(unfinished_dictation(text, false), "{text}");
+        }
+        assert!(unfinished_dictation("the fog horn should", true));
+        for text in [
+            "Draft a harbour note.",
+            "Write that down.",
+            "Say hello.",
+            "What is that?",
+        ] {
+            assert!(!unfinished_dictation(text, false), "{text}");
+        }
+        assert!(!unfinished_dictation(
+            "the fog horn should be tested on Friday.",
+            true
+        ));
+        assert!(!unfinished_dictation("Never mind, drop it.", true));
+    }
 
     #[test]
     fn the_front_has_two_tools_and_neither_reaches_the_room() {

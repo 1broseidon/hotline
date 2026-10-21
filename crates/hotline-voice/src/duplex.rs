@@ -574,6 +574,8 @@ impl Calls {
             let _ = input.say("We're back on the same call.").await;
         }
         let mut saying = String::new();
+        let mut awaiting_transcript = false;
+        let mut pending_work = Vec::<(String, String)>::new();
         // Subscribe before reading, so a post racing the snapshot is refreshed.
         // Idle calls must not parse the whole home tape twice a second.
         let mut context_events = self
@@ -684,21 +686,26 @@ impl Calls {
                     }
                     self.front_speaks(id, &pcm)
                 }
-                RealtimeEvent::SpeechStarted => self.change(id, |call| {
-                    call.caller_speaking = true;
-                    if call.front.as_ref().is_some_and(|front| front.responding) {
-                        call.cut_speech(None);
-                    }
-                    if let Some(front) = &mut call.front {
-                        front.interrupted = front.responding;
-                    }
-                    let _ = call.events.send(VoiceEvent::FrontStop {});
-                    if call.state == VoiceState::Speaking {
-                        call.state(call.resting(), None);
-                    }
-                    Ok(())
-                }),
+                RealtimeEvent::SpeechStarted => {
+                    awaiting_transcript = true;
+                    self.change(id, |call| {
+                        call.caller_speaking = true;
+                        if call.front.as_ref().is_some_and(|front| front.responding) {
+                            call.cut_speech(None);
+                        }
+                        if let Some(front) = &mut call.front {
+                            front.interrupted = front.responding;
+                        }
+                        let _ = call.events.send(VoiceEvent::FrontStop {});
+                        if call.state == VoiceState::Speaking {
+                            call.state(call.resting(), None);
+                        }
+                        Ok(())
+                    })
+                }
                 RealtimeEvent::Heard(text) => {
+                    awaiting_transcript = false;
+                    bridge.heard(&text);
                     let _ = self.change(id, |call| {
                         call.conversation.begin_turn();
                         Ok(())
@@ -739,6 +746,9 @@ impl Calls {
                             Ok(())
                         });
                         let _ = input.say(&answer).await;
+                    }
+                    for (call_id, arguments) in pending_work.drain(..) {
+                        work(bridge, &input, &call_id, &arguments).await;
                     }
                     self.change(id, |call| {
                         call.activity = Instant::now();
@@ -811,7 +821,24 @@ impl Calls {
                     arguments,
                 } => {
                     if name == crate::realtime::WORK_ON_IT {
-                        work(bridge, &input, &call_id, &arguments).await;
+                        // A tool can beat asynchronous transcription. Admission
+                        // needs caller words, not the model's proposed completion.
+                        if front::stops_work(&arguments) {
+                            for (pending_id, _) in pending_work.drain(..) {
+                                let _ = input
+                                    .tool_result(
+                                        &pending_id,
+                                        "Work was withdrawn before it started. Remain silent.",
+                                        false,
+                                    )
+                                    .await;
+                            }
+                        }
+                        if awaiting_transcript && !front::stops_work(&arguments) {
+                            pending_work.push((call_id, arguments));
+                        } else {
+                            work(bridge, &input, &call_id, &arguments).await;
+                        }
                     } else {
                         let (output, reply) = bridge.tool_call(&name, &arguments).await;
                         let _ = input.tool_result(&call_id, &output, reply).await;

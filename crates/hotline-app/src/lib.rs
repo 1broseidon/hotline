@@ -8,10 +8,11 @@
 //! links, and write the clipboard; on Linux and Windows one posts toasts too,
 //! while on macOS the notification center does, through `notify`, because it
 //! is the one that hands a click back. Two commands open or save a file a
-//! teammate sent, and refuse any other path (`files`); a few more carry
-//! files to and from a desk on a server, touching only what the person
-//! picked, dropped or chose to save (`transfer`). On macOS what the person
-//! says on a call or dictates can become text on the machine itself
+//! teammate sent, and refuse any other path (`files`). Open on an agent
+//! account's setup item touches only that account's folder (`account_setup`).
+//! A few more carry files to and from a desk on a server, touching only what
+//! the person picked, dropped or chose to save (`transfer`). On macOS what the
+//! person says on a call or dictates can become text on the machine itself
 //! (`speech`). The page registers the person's global shortcuts and hears
 //! them pressed and released from any app. The judgement for all of it
 //! lives in the page, not here. The page draws the window's top strip on
@@ -25,6 +26,7 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod account_setup;
 mod desks;
 mod files;
 mod instance;
@@ -397,6 +399,7 @@ fn start() -> Result<(), String> {
         desks::desk_viewer_token,
         files::open_sent_file,
         files::save_sent_file,
+        account_setup::open_account_setup,
         transfer::transfer_pick,
         transfer::transfer_read,
         transfer::transfer_begin,
@@ -427,6 +430,7 @@ fn start() -> Result<(), String> {
         desks::desk_viewer_token,
         files::open_sent_file,
         files::save_sent_file,
+        account_setup::open_account_setup,
         transfer::transfer_pick,
         transfer::transfer_read,
         transfer::transfer_begin,

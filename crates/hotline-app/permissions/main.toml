@@ -13,6 +13,7 @@ permissions = [
   "allow-desk-viewer-token",
   "allow-open-sent-file",
   "allow-save-sent-file",
+  "allow-open-account-setup",
   "allow-transfer-pick",
   "allow-transfer-read",
   "allow-transfer-begin",

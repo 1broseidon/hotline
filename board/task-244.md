@@ -41,3 +41,6 @@ Done when:
 - In the window, a call's thread opens as its transcript. What was said on each side is shown in order, and every tool call is shown inline (name and one line of what it did), not folded behind "N steps". The composer stays, but the view is built for reading.
 
 Proved by the harness tests above, a UI test for the inline tool calls, and a check in the scenario pass (task-206).
+
+## Log
+- 2026-10-21T01:37:34.969Z: [codex] Implemented read_thread through the shared lease-checked MCP handler, own-thread ownership checks and ordered event-id pagination; call search hits and home-agent posts identify the transcript. Wiring inline call tools and both-driver harness proofs now. Work stays on dispatch/task-244.

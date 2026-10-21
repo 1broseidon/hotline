@@ -175,3 +175,34 @@ impl Room {
         .map_err(|error| format!("The answer's record could not be saved: {error}"))
     }
 }
+
+/// Only cards carry a mirrored status, never arbitrary model output.
+pub(super) fn is_card(event: &Value) -> bool {
+    matches!(
+        event["kind"].as_str(),
+        Some("permission" | "human_action" | "passkey_ask")
+    )
+}
+
+impl Room {
+    /// Preserve the trusted origin when a typed handler supersedes a card.
+    pub(super) fn card_with_origin<'a>(
+        &self,
+        persona: &str,
+        event: &'a Value,
+    ) -> std::borrow::Cow<'a, Value> {
+        if is_card(event)
+            && event["from"].is_null()
+            && let Some(old) = self
+                .tape(persona)
+                .into_iter()
+                .find(|old| old["id"] == event["id"])
+            && !old["from"].is_null()
+        {
+            let mut stamped = event.clone();
+            stamped["from"] = old["from"].clone();
+            return std::borrow::Cow::Owned(stamped);
+        }
+        std::borrow::Cow::Borrowed(event)
+    }
+}

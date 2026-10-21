@@ -69,6 +69,16 @@ impl Room {
             return Ok(());
         }
 
+        if let Some(TranscriptEvent::Permission {
+            from: Some(from), ..
+        }) = self.permission_card(persona_id, request_id)
+            && from.kind == ThreadKind::Call
+        {
+            return self
+                .answer_side_permission(&from.thread, request_id, option_id)
+                .await;
+        }
+
         let session = self.session(persona_id)?;
         if !session.driver.answer_permission(request_id, option_id) {
             return Err("That request is no longer waiting for an answer.".to_string());
@@ -93,6 +103,7 @@ impl Room {
         self.write(
             persona_id,
             &TranscriptEvent::Permission {
+                from: None,
                 id,
                 ts: now_ms(),
                 request_id,
@@ -161,6 +172,7 @@ impl Room {
         self.write(
             persona_id,
             &TranscriptEvent::HumanAction {
+                from: None,
                 id: format!("human:{action_id}"),
                 ts: now_ms(),
                 action_id: action_id.clone(),
@@ -249,6 +261,7 @@ impl Room {
             persona_id,
             home,
             &TranscriptEvent::HumanAction {
+                from: None,
                 id: format!("human:{action_id}"),
                 ts,
                 action_id: action_id.clone(),
@@ -262,7 +275,11 @@ impl Room {
             },
         );
         self.push.notify_in(
-            Some(home),
+            Some(&if home.kind == ThreadKind::Call {
+                ThreadId::dm(persona_id)
+            } else {
+                home.clone()
+            }),
             &self.needs_you(persona_id),
             &reason,
             persona_id,
@@ -512,7 +529,12 @@ impl Room {
     /// for a permission: the agent is no longer waiting, so the button has
     /// nothing behind it and the transcript should not draw one.
     pub(super) fn settle_permissions(&self, persona_id: &str) {
-        for expired in crate::log::expire_orphaned_permissions(&self.tape(persona_id), now_ms()) {
+        let home_cards: Vec<_> = self
+            .tape(persona_id)
+            .into_iter()
+            .filter(|event| event["from"]["kind"] != "call")
+            .collect();
+        for expired in crate::log::expire_orphaned_permissions(&home_cards, now_ms()) {
             self.write_value(persona_id, &expired);
         }
     }
@@ -582,6 +604,7 @@ impl Room {
             persona_id,
             &home,
             &TranscriptEvent::HumanAction {
+                from: None,
                 id,
                 ts: now_ms(),
                 action_id: action_id.to_string(),
@@ -616,8 +639,24 @@ impl Room {
         let dm = ThreadId::dm(persona_id);
         self.tape(persona_id)
             .into_iter()
-            .map(|event| (event, dm.clone()))
-            .chain(self.cards_in_work(persona_id))
+            .map(|event| {
+                let home = if event["from"]["kind"] == "call"
+                    && let Some(key) = event["from"]["thread"].as_str()
+                {
+                    ThreadId {
+                        kind: ThreadKind::Call,
+                        key: key.to_string(),
+                    }
+                } else {
+                    dm.clone()
+                };
+                (event, home)
+            })
+            .chain(
+                self.cards_in_work(persona_id)
+                    .into_iter()
+                    .filter(|(event, _)| event["from"]["kind"] != "call"),
+            )
             .chain(self.cards_in_jobs(persona_id))
             .collect()
     }

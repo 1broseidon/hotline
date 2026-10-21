@@ -1084,6 +1084,11 @@ live authority cannot regain it from a saved marker.
 
 `human_action.question` is an optional additive field; absence means an
 ordinary action, and the tape segment layout and importer are unchanged.
-The card is still answered or withdrawn on its original thread. The call
+Call-thread cards live in the home chat, stamped `from` the call with its
+title and thread key. This optional additive field on permission,
+human-action and passkey cards leaves older tapes and the importer unchanged.
+The call stream keeps the same id as a linked status line; settlement updates
+both views. Answers from the home chat still reach the original call agent,
+and the voice handler keeps exactly the same authority checks. The call
 queue keeps request identities across provider reconnection and removes
 settled cards; interrupted generation is still not proof of what was heard.

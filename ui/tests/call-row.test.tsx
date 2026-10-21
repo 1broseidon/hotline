@@ -65,3 +65,35 @@ test("a call thread folds speech updates and opens work results as work", async 
 	expect(container.querySelector(".step-out")?.textContent).toContain("Farmer Crane tends the field.");
 	expect(container.textContent?.match(/Farmer Crane/g)).toHaveLength(1);
 });
+
+
+test("call cards link home and home cards name and open their call", async () => {
+    const from = { kind: "call" as const, thread: "c1", title: "Release checks" };
+    const card: import("../src/generated/contract").TranscriptEvent = {
+        kind: "human_action", id: "human:q1", ts: 1, actionId: "q1", reason: "Use blue?",
+        question: true, status: "pending", from,
+    };
+    const opened: import("../src/components/Transcript").ThreadRef[] = [];
+    const draw = async (kind: "dm" | "call", settled = false) => {
+        await act(async () => root.render(<Transcript personaId="ada" name="Ada"
+            thread={{ kind, key: kind === "dm" ? "ada" : "c1" }}
+            events={[{ ...card, status: settled ? "done" : "pending" }]} streaming={[]} live={false} focus={null}
+            onOpenThread={(ref) => opened.push(ref)} />));
+    };
+    await draw("dm");
+    const origin = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("From the call"))!;
+    expect(origin.textContent).toContain("Release checks");
+    await act(async () => origin.click());
+    expect(opened.pop()).toEqual({ thread: { kind: "call", key: "c1" }, title: "Release checks" });
+    expect(container.textContent).toContain("Yes");
+    await draw("call");
+    expect(container.textContent).not.toContain("From the call");
+    const link = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("Open card in home chat"))!;
+    expect(link.textContent).toContain("Needs you: Use blue?");
+    await act(async () => link.click());
+    expect(opened.pop()).toEqual({ thread: { kind: "dm", key: "ada" }, eventId: "human:q1" });
+    await draw("call", true);
+    expect(container.textContent).toContain("Settled: Use blue?");
+    await draw("dm", true);
+    expect(container.textContent).toContain("Needed you · Yes");
+});

@@ -156,6 +156,14 @@ again, and settled cards leave both the queue and the call pane. Phone push
 for the card is suppressed while an active matching call carries it; held
 and disconnected calls keep the ordinary push path.
 
+A card raised on a call thread is written to the teammate's home tape with
+`from.kind = call`, the call thread key and its title. The same id is kept on
+the call stream as a linked status line; the window opens the home card from
+that line and opens the call from the home card's “From the call” stamp.
+Home-chat answers and voice answers settle both views, but the answer's
+continuation still goes to the agent on the original call thread. Pushes
+outside an active call point to the home chat, including driver permissions.
+
 The core announces a collaboration approval with its session-only scope,
 or an `ask_question` informational yes/no question. Only the next finalized
 caller yes/no answers the announced card; other words clear that association.

@@ -1972,12 +1972,19 @@ narrator leaves the written result available without a new spoken pointer.
   `voice.input_state`; provider onset events do the same for live calls.
   A changed grant or stopped requesting session revokes question authority;
   withdrawal and a desk answer remove the queued/active card. Answers leave
-  a record in the teammate's chat identifying the call.
+  a record in the teammate's chat identifying the call. Call-thread cards
+  are stored in that home chat with a core-stamped `from` origin and mirrored
+  by id to the call transcript. Home answers route to the original wait or
+  driver; moving the card grants no voice permission. Home-session cleanup
+  cannot expire a call driver's pending card.
 - **Proof:** `tests/call_threads/cards.rs`
   `legacy_answers_a_question_once_and_records_yes_and_no_from_the_call`,
   `live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`, and
-  `spoken_collaboration_approval_is_only_for_this_session` drive the real
+  `spoken_collaboration_approval_is_only_for_this_session`, and
+  `a_home_answer_settles_the_call_question_and_removes_its_voice_notice` drive the real
   wire and handlers, with both drivers and the three live provider seams.
+  `session/threads.rs` `a_call_permission_is_pushed_and_answered_in_home_chat`
+  proves driver settlement and home notification routing without a live call.
   `voice/room/tests/cards.rs`
   `the_card_handler_refuses_actions_forged_questions_and_stale_authority`
   proves the five desk-action categories, forged flags, wrong owner, held

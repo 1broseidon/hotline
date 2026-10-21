@@ -1065,6 +1065,7 @@ impl Room {
             live.say(
                 self,
                 &TranscriptEvent::Permission {
+                    from: None,
                     id,
                     ts: now_ms(),
                     request_id,

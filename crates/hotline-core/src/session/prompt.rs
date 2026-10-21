@@ -682,6 +682,7 @@ pub(super) fn event_of(
             title,
             options,
         } => vec![TranscriptEvent::Permission {
+            from: None,
             // The card is superseded by this id when it is answered, so the
             // decision lands on the line already drawn rather than adding a
             // second one below it.

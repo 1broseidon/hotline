@@ -273,7 +273,13 @@ export function App() {
 		setDock(next);
 	}, [setInspector, setDock]);
 	const closeDock = useCallback(() => setDock(null), [setDock]);
-	const openThread = useCallback((open: ThreadRef) => openDock({ open }), [openDock]);
+	const openThread = useCallback((open: ThreadRef) => {
+        if (open.thread.kind === "dm") {
+            select(open.thread.key);
+            setDock(null);
+            if (open.eventId !== undefined) setFocus({ eventId: open.eventId, at: Date.now() });
+        } else openDock({ open });
+    }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
 	/* A caption or the mark, pressed again with its work already open, closes it. */
@@ -635,7 +641,7 @@ export function App() {
 					{dock !== null && pane !== "settings" && (
 						<Dock
 							state={dock}
-							onState={setDock}
+							onState={(next) => next.open?.thread.kind === "dm" ? openThread(next.open) : setDock(next)}
 							onClose={closeDock}
 							entry={selected}
 							roster={roster}

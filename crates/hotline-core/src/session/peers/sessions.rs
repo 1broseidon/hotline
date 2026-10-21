@@ -137,6 +137,7 @@ impl Room {
                 key,
                 &live.target_id,
                 &TranscriptEvent::Permission {
+                    from: None,
                     id,
                     ts: now_ms(),
                     request_id,

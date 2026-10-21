@@ -1,8 +1,8 @@
 ---
 id: task-247
 title: release-cache runs only where its cache is saved
-column: backlog
-position: 47
+column: in-progress
+position: 0
 priority: high
 tags:
   - ci
@@ -22,7 +22,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T02:18:42.121Z"
 assignee: codex
-updatedAt: "2026-10-21T02:18:42.121Z"
+updatedAt: "2026-10-21T02:18:57.900Z"
 ---
 
 ## Description

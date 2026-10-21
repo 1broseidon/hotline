@@ -1,6 +1,6 @@
 [package]
 name = "hotline-support"
-description = "The utilities Hotline stands on that hold none of its state: credential files, data paths, the desk lock, the log file, images and thumbnails, fences and Windows process jobs. Depends on no other Hotline crate by design."
+description = "The utilities Hotline stands on that hold none of its state: credential files, data paths, the desk lock, the log file, images and thumbnails, fences, private directories and Windows process jobs. Depends on no other Hotline crate by design."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -21,6 +21,8 @@ tempfile = "3"
 getrandom = "0.3"
 hex = "0.4"
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
+# A path's canonical spelling, without the `\\?\` prefix std gives it on Windows.
+dunce = "1.0.5"
 # A phone photo is 5 to 10 MB and a 12-megapixel frame; every provider has
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.

@@ -6,6 +6,9 @@ use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
 use crate::log::{Log, StreamId};
 use crate::mcp::McpOAuthRegistration;
 use crate::models::Client;
+use crate::private_dir::make_private_directory;
+#[cfg(unix)]
+use crate::private_dir::open_directory;
 use crate::providers::discovery::{self, ListedModel};
 use crate::session::ProviderAuth;
 use async_trait::async_trait;
@@ -1103,40 +1106,6 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// Creates the vault directory private to this user, and says so again on a
-/// directory that was already there — a boundary is only a boundary if it is
-/// re-established every time.
-#[cfg(unix)]
-fn make_private_directory(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    // `mkdir` masks the mode it is given by the process umask, which can only
-    // take permissions away, so the directory is never wider than 0700 — not
-    // even for the instant between creating it and setting the mode again.
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)?;
-    // chmod on the path follows a symlink. The fd does not, so a vault/
-    // swapped for a link cannot have its target's mode changed through us.
-    open_directory(path)?.set_permissions(fs::Permissions::from_mode(0o700))
-}
-
-/// Opens a directory without following a symlink at the last component.
-#[cfg(unix)]
-fn open_directory(path: &Path) -> io::Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(path)
-}
-
-/// Windows files inherit the private DACL established at directory creation.
-#[cfg(windows)]
-fn make_private_directory(path: &Path) -> io::Result<()> {
-    crate::credentials::windows::private_directory(path)
-}
-
 /// Creates a file only this user can read. On Windows the file's privacy is
 /// the directory's ACL, which `make_private_directory` refuses to establish,
 /// so nothing reaches here on that platform.
@@ -1672,26 +1641,6 @@ mod tests {
         assert!(
             !temporary.exists(),
             "the temporary was left behind after a failed write"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn setting_the_directory_private_does_not_follow_a_symlink() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = scratch("chmod-symlink");
-        let target = root.join("elsewhere");
-        fs::create_dir_all(&target).unwrap();
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
-        let vault_dir = root.join("vault");
-        std::os::unix::fs::symlink(&target, &vault_dir).unwrap();
-
-        assert!(make_private_directory(&vault_dir).is_err());
-        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
-        assert_eq!(
-            mode, 0o755,
-            "chmod followed the symlink and changed the target"
         );
     }
 

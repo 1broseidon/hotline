@@ -4419,6 +4419,7 @@ dependencies = [
 name = "hotline-support"
 version = "0.41.0"
 dependencies = [
+ "dunce",
  "getrandom 0.3.4",
  "hex",
  "image",

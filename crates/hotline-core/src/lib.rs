@@ -13,7 +13,7 @@ pub use hotline_contract as contract;
 #[cfg(windows)]
 use hotline_support::process_windows;
 pub use hotline_support::{credentials, log_file, paths, room_lock};
-use hotline_support::{fence, images, thumbs};
+use hotline_support::{fence, images, private_dir, thumbs};
 pub mod desk;
 pub mod driver;
 pub mod imagegen;

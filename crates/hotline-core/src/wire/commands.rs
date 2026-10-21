@@ -138,6 +138,10 @@ pub(crate) async fn run(
             voice(parts)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
             Ok(Value::Null)
         }
+        Command::VoiceInputState { call_id, speaking } => {
+            voice(parts)?.input_state(&call_id, speaking)?;
+            Ok(Value::Null)
+        }
         Command::VoiceInterrupt { call_id } => {
             voice(parts)?.interrupt(&call_id)?;
             Ok(Value::Null)

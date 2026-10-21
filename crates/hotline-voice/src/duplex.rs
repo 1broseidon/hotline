@@ -39,7 +39,7 @@ pub(super) struct Front {
     mic_seq: Option<u32>,
     out_seq: u32,
     interrupted: bool,
-    responding: bool,
+    pub(super) responding: bool,
 }
 
 impl Front {
@@ -599,6 +599,9 @@ impl Calls {
             let event = tokio::select! {
                 () = cancel.cancelled() => return FrontEnd::Call,
                 _ = refresh.tick() => {
+                    if let Some(text) = self.next_card(id) {
+                        let _ = input.say(&text).await;
+                    }
                     let state = self.change(id, |call| Ok((call.answering, call.utterance_pending)));
                     let mut changed = state != work_state;
                     work_state = state;
@@ -629,7 +632,7 @@ impl Calls {
                 // front that is gone is noticed by its events ending.
                 note = bridge.next_note() => {
                     let Some(note) = note else { return FrontEnd::Call };
-                    let _ = input.say(note.text()).await;
+                    let _ = input.say(&note).await;
                     continue;
                 }
                 event = events.recv() => event,
@@ -682,6 +685,7 @@ impl Calls {
                     self.front_speaks(id, &pcm)
                 }
                 RealtimeEvent::SpeechStarted => self.change(id, |call| {
+                    call.caller_speaking = true;
                     if call.front.as_ref().is_some_and(|front| front.responding) {
                         call.cut_speech(None);
                     }
@@ -722,6 +726,20 @@ impl Calls {
                     *heard += 1;
                     carry.push("Caller", &text);
                     self.front_heard(id, &text);
+                    let _ = self.change(id, |call| {
+                        call.caller_speaking = false;
+                        call.cards.answered = false;
+                        Ok(())
+                    });
+                    if let Some(answer) = self.answer_card_words(id, &text).await {
+                        let _ = self.change(id, |call| {
+                            if let Some(front) = &mut call.front {
+                                front.responding = true;
+                            }
+                            Ok(())
+                        });
+                        let _ = input.say(&answer).await;
+                    }
                     self.change(id, |call| {
                         call.activity = Instant::now();
                         let _ = call.events.send(VoiceEvent::Heard { seq, text });

@@ -36,6 +36,20 @@ impl RoomSide {
 }
 #[async_trait]
 impl CallRoom for RoomSide {
+    fn card_notice(
+        &self,
+        card: &hotline_voice::cards::Card,
+    ) -> Option<hotline_voice::cards::Notice> {
+        self.room().ok()?.call_card_notice(card)
+    }
+    async fn answer_card(
+        &self,
+        card: &hotline_voice::cards::Card,
+        call: &str,
+        yes: bool,
+    ) -> Result<(), String> {
+        self.room()?.answer_call_card(card, call, yes).await
+    }
     fn upgrade(&self) -> Option<Arc<dyn CallRoom>> {
         let room = self.room.upgrade()?;
         Some(Arc::new(Self {

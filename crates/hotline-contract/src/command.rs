@@ -84,6 +84,9 @@ pub enum Command {
         data: String,
         duration_ms: u32,
     },
+    /// Local Legacy capture owns the floor before a finalized clip or text arrives.
+    #[serde(rename = "voice.input_state")]
+    VoiceInputState { call_id: String, speaking: bool },
     #[serde(rename = "voice.interrupt")]
     VoiceInterrupt { call_id: String },
     #[serde(rename = "voice.hold")]

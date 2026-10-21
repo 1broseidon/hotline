@@ -1950,3 +1950,48 @@ The existing thread-lease and revoked-post tests still cover tool authority.
 Residual risk: classification is syntactic; a model can mislabel or omit useful
 content, and its spoken wording can ignore an instruction. A missing or failed
 narrator leaves the written result available without a new spoken pointer.
+
+## Cards answered on a call
+
+- **Default and grant source:** a card is desk-only. A live core-owned
+  collaboration wait can accept yes for this session or no; voice never
+  grants standing collaboration. `ask_question` creates an informational
+  yes/no card under the requesting session's capability lease. Its answer
+  conveys information, not permission for an operation. `request_human`,
+  passkeys and opaque driver permissions remain desk-only, including requests
+  involving credentials, 2FA, screens, payments and deletions. Older cards
+  have no question marker; after restart no saved marker recreates a lease.
+- **Enforcement:** `session/call_cards.rs` checks the actual card, live call,
+  owner, pending status, expiry and question lease, or the core's actual
+  collaboration wait and both participant leases. The normal card handler
+  then settles it once. A `question` or `voice` argument cannot promote an
+  action card. The voice front has no answer tool or wire command access:
+  only a finalized caller transcript equal to yes or no selects the last
+  announced card. Holding or ending the call removes that input authority.
+  Local Legacy capture reports its floor through owner-only
+  `voice.input_state`; provider onset events do the same for live calls.
+  A changed grant or stopped requesting session revokes question authority;
+  withdrawal and a desk answer remove the queued/active card. Answers leave
+  a record in the teammate's chat identifying the call.
+- **Proof:** `tests/call_threads/cards.rs`
+  `legacy_answers_a_question_once_and_records_yes_and_no_from_the_call`,
+  `live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`, and
+  `spoken_collaboration_approval_is_only_for_this_session` drive the real
+  wire and handlers, with both drivers and the three live provider seams.
+  `voice/room/tests/cards.rs`
+  `the_card_handler_refuses_actions_forged_questions_and_stale_authority`
+  proves the five desk-action categories, forged flags, wrong owner, held
+  and ended calls, and revoked question leases through the real handler;
+  `duplicate_cards_are_said_once_and_withdrawn_cards_are_not_said` proves
+  deduplication and withdrawal. `push.rs`
+  `a_call_replaces_the_card_push_until_it_is_held_or_ended` proves notification
+  routing; `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`
+  also refuses a companion's input-state signal.
+- **Residual risk:** speech recognition may mishear yes/no; there is no
+  speaker authentication. An informational answer can influence subsequent
+  model work within its existing grants, but cannot settle a separate
+  operation card or grant permission. Free-form question prose is not a
+  trusted description of an operation, and the core does not classify it as
+  one. Driver approvals need trusted operation metadata before their voice
+  support can expand. Live providers generate the spoken announcement;
+  physical playback/echo and microphone timing still need the device pass.

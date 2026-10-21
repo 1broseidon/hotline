@@ -1029,3 +1029,22 @@ another desk makes that desk the one the window talks to, so its settings,
 computer and files are that desk's, and nothing is switched by hand. A desk
 that cannot be reached keeps its teammates listed, dimmed, as they last
 were.
+
+### Cards use the call without moving their authority into the model
+
+A card is announced once at a break on the matching active call instead of
+sending a phone push. The caller's finalized yes/no, not a model tool,
+answers the last announced card and leaves a chat record from the call.
+The handler allows core-owned collaboration approvals for this session only
+and informational `ask_question` cards under the requesting session's live
+lease. An informational answer never grants an operation. Existing action
+cards, passkeys and opaque driver approvals stay at the desk: their words
+cannot establish that an action is safe for voice. This includes credentials,
+2FA, screen interaction, payment and deletion. Replayed cards without their
+live authority cannot regain it from a saved marker.
+
+`human_action.question` is an optional additive field; absence means an
+ordinary action, and the tape segment layout and importer are unchanged.
+The card is still answered or withdrawn on its original thread. The call
+queue keeps request identities across provider reconnection and removes
+settled cards; interrupted generation is still not proof of what was heard.

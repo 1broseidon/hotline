@@ -108,8 +108,25 @@ impl Calls {
         mut work: mpsc::Receiver<Work>,
     ) {
         let mut failures = 0u8;
+        let mut cards = tokio::time::interval(Duration::from_millis(250));
         loop {
-            let next = tokio::select! { biased; () = context.cancel.cancelled() => None, work = work.recv() => work };
+            let next = tokio::select! { biased;
+                () = context.cancel.cancelled() => None,
+                work = work.recv() => work,
+                _ = cards.tick(), if !self.fronted(&id) => {
+                    if let Some(text) = self.next_card(&id) {
+                        let speech = self.change(&id, |call| {
+                            call.speech = CancellationToken::new();
+                            Ok(call.speech.clone())
+                        });
+                        if let Ok(speech) = speech {
+                            let _ = self.say(&id, &text, &speech, &context.cancel).await;
+                            let _ = self.change(&id, |call| { call.state(call.resting(), None); Ok(()) });
+                        }
+                    }
+                    continue;
+                }
+            };
             let Some(next) = next else {
                 break;
             };
@@ -356,6 +373,18 @@ impl Calls {
                 call.words.clone_from(&text);
                 Ok(())
             });
+        }
+        if !relayed {
+            let _ = self.change(id, |call| {
+                call.caller_speaking = false;
+                Ok(())
+            });
+            if let Some(answer) = self.answer_card_words(id, &text).await {
+                if target.is_some() {
+                    self.keep(id, Speaker::Person, &text);
+                }
+                return self.say(id, &answer, speech_cancel, &context.cancel).await;
+            }
         }
         if goodbye(&text) && source.permits_goodbye() {
             if self

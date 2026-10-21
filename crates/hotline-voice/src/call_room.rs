@@ -18,6 +18,13 @@ pub fn prompt_client() -> Option<hotline_contract::Client> {
 #[async_trait]
 pub trait CallRoom: Send + Sync {
     /// Hold the live room for one operation; calls themselves do not own it.
+    fn card_notice(&self, card: &crate::cards::Card) -> Option<crate::cards::Notice>;
+    async fn answer_card(
+        &self,
+        card: &crate::cards::Card,
+        call: &str,
+        yes: bool,
+    ) -> Result<(), String>;
     fn upgrade(&self) -> Option<Arc<dyn CallRoom>>;
     /// The local engine's directory, without opening provider credentials.
     fn speech_root(&self) -> &std::path::Path;

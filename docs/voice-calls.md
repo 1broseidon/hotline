@@ -128,3 +128,30 @@ rejecting relay wording and repeated acknowledgements within one call. The
 provider runs require explicit test credentials; the checker and local wire
 regressions run normally. A speech-to-speech model's audio cannot be filtered
 before it is heard: prompt, tool framing and this check are the enforcement.
+
+## Cards during a call
+
+Pending cards are queued by teammate, kind and request id. A live desk call
+covers the desk; a direct call covers its teammate. The queue waits while
+the person is speaking, an utterance is being handled, output is speaking,
+or the call is held or disconnected. Legacy clients report local capture
+onset and dropped input through `voice.input_state`; live calls use provider
+speech-onset events. The desktop sends the new signal for both local text and
+whole-clip capture. Older/mobile whole-clip clients need to adopt this signal
+for the core to know their floor before their clip arrives; their existing
+local playback deferral remains in effect. Repeated writes do not announce a card
+again, and settled cards leave both the queue and the call pane. Phone push
+for the card is suppressed while an active matching call carries it; held
+and disconnected calls keep the ordinary push path.
+
+The core announces a collaboration approval with its session-only scope,
+or an `ask_question` informational yes/no question. Only the next finalized
+caller yes/no answers the announced card; other words clear that association.
+The model has no answer tool. The answer is kept on the card and/or in a
+chat notice naming the call, and a question's continuation stays on its
+original thread. Existing action cards, passkeys and opaque driver approvals
+are announced as needing the desk and cannot be answered by voice. A spoken
+yes to one is refused without settling it or handing that yes off as work.
+The wire's optional `card.resolved` removes answered or withdrawn cards from
+the call pane. Old clients ignore the field and can still open the card's
+conversation. Physical device timing remains part of task-206's scenario pass.

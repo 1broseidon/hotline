@@ -211,6 +211,8 @@ impl Calls {
                 words: String::new(),
                 front: realtime.is_some().then(|| Front::new(mic_rate)),
                 live_error: None,
+                cards: super::cards::Queue::default(),
+                caller_speaking: false,
             });
             if let Some(realtime) = realtime {
                 tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));
@@ -393,6 +395,7 @@ impl Calls {
                     call.deliveries.cancel();
                     call.deliveries = CancellationToken::new();
                     call.cut_speech(None);
+
                     call.stop_streams(true);
                     call.state(VoiceState::Held, None);
                     Ok(())
@@ -469,6 +472,7 @@ impl Calls {
         self.change(id, |call| {
             call.activity = Instant::now();
             if hold {
+                call.cards.active = None;
                 call.input = None;
                 call.speech.cancel();
                 call.deliveries.cancel();
@@ -493,6 +497,7 @@ impl Calls {
             call.deliveries.cancel();
             call.deliveries = CancellationToken::new();
             call.cut_speech(None);
+
             call.interrupted_through = call.seq;
             call.stop_streams(true);
             call.answering = None;

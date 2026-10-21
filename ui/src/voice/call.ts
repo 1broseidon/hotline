@@ -570,6 +570,7 @@ export class Call {
 				this.settle();
 				return;
 			case "card":
+				if (event.resolved) { this.dismissCard(event.requestId); return; }
 				if (this.snapshot.cards.some((card) => card.requestId === event.requestId)) return;
 				this.set({ cards: [...this.snapshot.cards, { personaId: event.personaId, requestId: event.requestId, kind: event.kind }] });
 				return;
@@ -697,6 +698,7 @@ export class Call {
 		for (const turn of this.detector.push(level, this.now())) {
 			switch (turn.kind) {
 				case "start":
+					this.inputState(true);
 					if (this.audio.playing) this.silenceLegacy();
 					this.heard = true;
 					this.set({ phase: "hearing" });
@@ -797,6 +799,7 @@ export class Call {
 
 	/** The desk turned an utterance down: say why, and listen again. */
 	private refused(error: unknown): void {
+		this.inputState(false);
 		if (this.ended || this.held) return;
 		this.endpoint = null;
 		this.awaiting = false;
@@ -804,7 +807,12 @@ export class Call {
 		this.settle();
 	}
 
+	private inputState(speaking: boolean): void {
+		if (this.front === null) void this.transport.command("voice.input_state", { callId: this.id, speaking }).catch(() => {});
+	}
+
 	private cancelInput(): void {
+		if (this.heard) this.inputState(false);
 		this.input?.cancel();
 		this.input = null;
 		this.frames = [];
@@ -855,6 +863,7 @@ export class Call {
 					if (this.wordless.turn(turn)) return this.unheard();
 					switch (turn.kind) {
 						case "start":
+							this.inputState(true);
 							if (this.audio.playing) this.silenceLegacy();
 							this.heard = true;
 							// Words the engine had before the onset were the room's, not the speaker's.
@@ -948,6 +957,7 @@ export class Call {
 		// Held, cut in on or hung up while the engine finished: those words are not sent.
 		if (session !== this.textSession || this.ended || this.held) return;
 		if (text === "") {
+			this.inputState(false);
 			// A cough or a tap: nothing to say, and what the desk said meanwhile is said.
 			this.endpoint = null;
 			this.awaiting = false;

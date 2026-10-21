@@ -841,6 +841,9 @@ pub enum VoiceEvent {
         persona_id: String,
         request_id: String,
         kind: String,
+        /// Remove a card settled at the desk or on the call.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resolved: Option<bool>,
     },
     /// Front call: a piece of the front's speech, at most 100 ms of PCM16 at
     /// the call's output rate. `seq` rises by one per frame; a gap means the

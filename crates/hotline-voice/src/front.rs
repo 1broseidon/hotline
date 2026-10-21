@@ -38,24 +38,6 @@ pub fn tools() -> Vec<Tool> {
     ]
 }
 
-/// Something for the front to say to the person. The text is the core's, to
-/// be said as given.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Note {
-    /// The next words of the teammate's `<spoken>` version of its reply.
-    Spoken(String),
-    /// The teammate waits on the person at the desk or phone.
-    NeedsYou(String),
-}
-
-impl Note {
-    pub fn text(&self) -> &str {
-        match self {
-            Self::Spoken(text) | Self::NeedsYou(text) => text,
-        }
-    }
-}
-
 use super::realtime::SAY_THIS;
 
 /// How many recent spoken results are checked for accidental echoes.
@@ -73,20 +55,6 @@ pub const FRONT_LINE_PREFIX: &str = "front-";
 pub enum Speaks {
     AsTeammate,
     ForDesk,
-}
-
-/// A pending request is not described: its details are the desk's to show.
-fn needs_you(speaks: Speaks, kind: &str) -> String {
-    let approve = matches!(kind, "permission" | "passkey_ask");
-    match (speaks, approve) {
-        (Speaks::AsTeammate, true) => "I need you to approve something on the desk or your phone.",
-        (Speaks::AsTeammate, false) => "I need you to do something on the desk or your phone.",
-        (Speaks::ForDesk, true) => {
-            "The teammate needs you to approve something on the desk or phone."
-        }
-        (Speaks::ForDesk, false) => "The teammate needs you to do something on the desk or phone.",
-    }
-    .into()
 }
 
 /// Admission is not completion. The front already acknowledged the request.
@@ -198,7 +166,7 @@ impl Front {
     }
 
     /// The next thing to tell the person, or `None` once the call has ended.
-    pub async fn next_note(&mut self) -> Option<Note> {
+    pub async fn next_note(&mut self) -> Option<String> {
         loop {
             let event = match self.events.recv().await {
                 Ok(event) => event,
@@ -211,7 +179,7 @@ impl Front {
                     let given = self.said.entry(id).or_insert(0);
                     let fresh = text.get(*given..).unwrap_or_default().trim();
                     if !fresh.is_empty() {
-                        let note = Note::Spoken(fresh.to_string());
+                        let note = fresh.to_string();
                         *given = text.len();
                         return self.told(note);
                     }
@@ -220,10 +188,6 @@ impl Front {
                     state: VoiceState::Ended,
                     ..
                 } => return None,
-                VoiceEvent::Card { kind, .. } => {
-                    let line = needs_you(self.speaks, &kind);
-                    return self.told(Note::NeedsYou(line));
-                }
                 _ => {}
             }
         }
@@ -242,11 +206,11 @@ impl Front {
     }
 
     /// Keeps a note for the echo check, then hands it out.
-    fn told(&mut self, note: Note) -> Option<Note> {
+    fn told(&mut self, note: String) -> Option<String> {
         if self.notes.len() == NOTES_KEPT {
             self.notes.pop_front();
         }
-        self.notes.push_back(note.text().trim().to_string());
+        self.notes.push_back(note.trim().to_string());
         Some(note)
     }
 }
@@ -262,15 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pending_request_is_told_as_needing_the_person_not_described() {
-        assert!(needs_you(Speaks::ForDesk, "permission").contains("approve"));
-        assert!(needs_you(Speaks::ForDesk, "human_action").contains("desk or phone"));
-    }
-
-    #[test]
     fn a_direct_call_speaks_its_fixed_lines_as_the_teammate() {
-        assert!(needs_you(Speaks::AsTeammate, "permission").starts_with("I need you to approve"));
-        assert!(needs_you(Speaks::ForDesk, "permission").starts_with("The teammate needs you"));
         let direct = accepted(Speaks::AsTeammate);
         assert!(direct.contains("do not acknowledge it again"));
         assert!(direct.contains("Nothing is done yet"));

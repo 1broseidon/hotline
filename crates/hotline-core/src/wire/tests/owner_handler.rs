@@ -70,6 +70,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
             json!({"callId":call,"seq":1,"mimeType":"audio/wav","data":"","durationMs":100}),
         ),
         ("voice.interrupt", json!({"callId":call})),
+        ("voice.input_state", json!({"callId":call,"speaking":true})),
         ("voice.hold", json!({"callId":call,"hold":true})),
         ("voice.call_end", json!({"callId":call})),
     ] {

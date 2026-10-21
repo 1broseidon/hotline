@@ -1,8 +1,6 @@
 ---
 id: task-244
 title: "The call's thread is its transcript: any agent can read a thread whole, and the home chat acts on \"like we said on the call\""
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -23,8 +21,11 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T01:32:46.063Z"
+    ended: "2026-10-21T01:54:56.655Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T01:54:41.275Z"
+updatedAt: "2026-10-21T01:54:56.655Z"
+completedAt: "2026-10-21T01:54:56.247Z"
 ---
 
 ## Description
@@ -46,3 +47,4 @@ Proved by the harness tests above, a UI test for the inline tool calls, and a ch
 - 2026-10-21T01:37:34.969Z: [codex] Implemented read_thread through the shared lease-checked MCP handler, own-thread ownership checks and ordered event-id pagination; call search hits and home-agent posts identify the transcript. Wiring inline call tools and both-driver harness proofs now. Work stays on dispatch/task-244.
 - 2026-10-21T01:46:29.506Z: [codex] Committed ffde536c on dispatch/task-244. The 21 call-thread desk scenarios pass on both drivers; UI transcript proof, full-text/fold paging, cross-teammate refusal and both-transport lease revocation pass. Final make check is through native clippy and core unit tests and running harnesses; make precheck started. Live scenario-pass check handed to task-206; S6 live-front routing remains outside this task.
 - 2026-10-21T01:54:40.985Z: [codex] Ready for review on dispatch/task-244: ffde536c and 921111c0, worktree clean. read_thread pages full ordered own-thread records through both drivers under the caller's lease; call hits/posts identify the transcript and key; call UI names both speakers and shows every tool inline. 21 call-thread scenarios pass, including Bramble recovery from a full read and work/job reads; UI, paging/folding, ownership and revocation proofs pass. Final make check and all 8 make precheck legs passed. An earlier unrelated process-chip timeout passed its isolated rerun and subsequent full runs. Nothing in task-244 left unwired; live-front routing remains S6, and task-206 has the explicit live Linux/desk/phone scenario check (not claimed run here).
+- 2026-10-21T01:54:55.567Z: Landed on release/0.42.0

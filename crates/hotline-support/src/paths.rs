@@ -7,6 +7,7 @@
 use std::env;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 /// The data directory: `HOTLINE_DATA_DIR`, or the platform's application
 /// support directory.
@@ -146,6 +147,24 @@ pub fn logs_dir(root: &Path) -> PathBuf {
 /// agent and archive. Safe to delete: the next start downloads it again.
 pub fn acp_agents_dir(root: &Path) -> PathBuf {
     root.join("acp-agents")
+}
+
+/// Where the agent accounts live, one folder each, named by the account's id.
+/// Outside every workspace and repository, and inside the data directory
+/// `checked_folders` already refuses to grant.
+pub fn agent_accounts_dir(root: &Path) -> PathBuf {
+    root.join("agent-accounts")
+}
+
+/// One agent account's folder, or nothing unless `id` is a uuid spelled the one
+/// way Hotline writes it: lowercase, hyphenated. `Uuid::parse_str` also takes
+/// `urn:` and braced forms, whose `:` is not a legal character in a Windows
+/// path component, and uppercase or hyphenless ones, which a case-blind disk
+/// would read as a second name for the same folder.
+pub fn agent_account_dir(root: &Path, id: &str) -> Option<PathBuf> {
+    Uuid::parse_str(id)
+        .is_ok_and(|uuid| uuid.hyphenated().to_string() == id)
+        .then(|| agent_accounts_dir(root).join(id))
 }
 
 /// The speech models a provider offered when last asked, for the "Use for"
@@ -489,6 +508,28 @@ mod tests {
             "desk/..",
         ] {
             assert_eq!(split(not), None, "{not}");
+        }
+    }
+
+    #[test]
+    fn an_account_folder_is_named_only_by_the_one_spelling_of_a_uuid() {
+        let (root, id) = (Path::new("/data"), "89bbac55-e7ac-4409-a709-115f33bb12f0");
+        assert_eq!(agent_accounts_dir(root), root.join("agent-accounts"));
+        assert_eq!(
+            agent_account_dir(root, id),
+            Some(root.join("agent-accounts").join(id))
+        );
+        for bad in [
+            "",
+            "..",
+            "a/b",
+            "not-a-uuid",
+            "89BBAC55-E7AC-4409-A709-115F33BB12F0",
+            "89bbac55e7ac4409a709115f33bb12f0",
+            "{89bbac55-e7ac-4409-a709-115f33bb12f0}",
+            "urn:uuid:89bbac55-e7ac-4409-a709-115f33bb12f0",
+        ] {
+            assert_eq!(agent_account_dir(root, bad), None, "{bad}");
         }
     }
 

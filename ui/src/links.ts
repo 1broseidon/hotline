@@ -30,9 +30,12 @@ export function runState(link: Pick<LinkEvent, "state" | "end" | "elapsedMs">): 
 	}
 }
 
-/** What a call's line says: that it is going, or how long it lasted and how it ended. */
-function callWords(link: LinkEvent): string {
-	if (link.state !== "closed") return `${link.title} · in progress`;
+/** A call's saved state is its lifetime, not whether a turn is running. */
+function callWords(link: LinkEvent, working: boolean): string {
+	if (link.state !== "closed") {
+		const state = working ? "running" : link.state === "parked" ? "parked" : "open";
+		return `${link.title} · ${state}`;
+	}
 	const minutes = Math.round(((link.at ?? link.ts) - link.ts) / 60_000);
 	const length = minutes < 1 ? "under a minute" : `${minutes} min`;
 	return [link.title, length, link.outcome].filter((part) => part !== undefined && part !== "").join(" · ");
@@ -104,14 +107,15 @@ function workWords(link: LinkEvent, owner: string, people?: ReadonlyMap<string, 
 /**
  * A thread's line in the conversation that holds it: one quiet sentence,
  * whatever the kind. `owner` is whose tape it is, and `people` names the
- * colleagues a handoff is between.
+ * colleagues a handoff is between. `working` is the roster's live turn state,
+ * separate from the link's saved lifetime.
  */
-export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>): string {
+export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>, working = false): string {
 	switch (link.threadKind) {
 		case "run":
 			return `Subagent · ${link.title} · ${runState(link)}`;
 		case "call":
-			return callWords(link);
+			return callWords(link, working);
 		case "pair":
 			return link.state === "live" ? `Talking with ${link.title}` : `Talked with ${link.title}`;
 		default:

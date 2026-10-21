@@ -1171,6 +1171,16 @@ impl Room {
             .is_some_and(|live| live.thread == *thread && live.working())
     }
 
+    /// Call threads with a turn in flight, separate from their saved lifetime.
+    pub fn working_calls(&self, persona_id: &str) -> Vec<String> {
+        self.sides
+            .of(persona_id)
+            .iter()
+            .filter(|side| side.thread.kind == ThreadKind::Call && side.working())
+            .map(|side| side.id.clone())
+            .collect()
+    }
+
     pub fn sides(&self, persona_id: &str) -> Vec<RunningSide> {
         self.sides
             .of(persona_id)

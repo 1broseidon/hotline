@@ -1,8 +1,8 @@
 ---
 id: task-248
 title: Faster linkers on Windows and Linux
-column: backlog
-position: 48
+column: in-progress
+position: 0
 priority: high
 tags:
   - ci
@@ -11,7 +11,7 @@ parentId: epic-23
 createdAt: "2026-10-21T02:18:27.672Z"
 dependsOn:
   - task-247
-updatedAt: "2026-10-21T03:40:48.803Z"
+updatedAt: "2026-10-21T03:41:33.565Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

@@ -1,8 +1,6 @@
 ---
 id: task-255
 title: "Live dictation: a pause inside 'draft… / say… / write…' ends the turn and starts work on half a sentence"
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -20,10 +18,13 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T08:49:45.959Z"
+    ended: "2026-10-21T08:59:48.038Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T08:59:35.257Z"
+updatedAt: "2026-10-21T08:59:48.038Z"
 decisions:
   - decision-18
+completedAt: "2026-10-21T08:59:47.538Z"
 ---
 
 ## Description
@@ -33,3 +34,4 @@ Linux QA, 2026-10-21, Grok Voice, 2735d01a: 'Draft a message to the harbour mast
 - 2026-10-21T08:52:24.073Z: [codex] Implementing a shared live-front work admission guard based on caller transcript, with silent rejection of dangling dictation and deferred admission when tool calls beat transcription. Provider VAD ownership stays unchanged; scripted Grok/OpenAI regression covers a four-second pause and invented completion.
 - 2026-10-21T08:56:17.555Z: [codex] Recorded decision-18 (voice.unfinished-dictation), preserving decision-16. Guard and late-transcription ordering are implemented with lexical unit coverage and a real-core scripted-front test for Grok/OpenAI, including four seconds of silence, guessed arguments, continuation, and withdrawal of queued work. Full check/precheck underway; live microphone QA remains the physical-provider verification.
 - 2026-10-21T08:59:34.955Z: [codex] Ready for review on dispatch/task-255, commit 76634faa. Shared live-front guard refuses unfinished caller dictation silently (including invented completions), waits for late transcription, and withdraws pending work on stop. Scripted Grok/OpenAI four-second-pause regression and lexical unit tests pass; make check and all 8 make precheck legs pass. Working tree clean. Reviewer next step: inspect branch and repeat the harbour-master pause with real Linux audio; lexical guard is English, not a general sentence parser.
+- 2026-10-21T08:59:46.728Z: Landed on release/0.42.0

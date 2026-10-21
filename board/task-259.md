@@ -38,3 +38,6 @@ Done when:
 - The closing note never claims something was cut off when the result is in the chat.
 - Tests (paused clock): two calls 60 s apart → one note covering both; two calls 3 min apart → two notes; a work result posted before hang-up plus a late reply → result and one note, no repeat.
 Lands on release/0.42.0. Merge release/0.42.0, make check in the foreground, commit before done.
+
+## Log
+- 2026-10-21T14:15:50.932Z: [codex] Implemented per-teammate two-minute closing batches, source-thread links, delivered-result suppression, and summary evidence/fallback. Wire tests cover 60-second and 3-minute spacing plus a posted result and late reply on both drivers. release/0.42.0 is already an ancestor (0 missing commits); no conflict-settlement merge is needed or permitted by dispatch instructions. Running make check in the foreground, then precheck.

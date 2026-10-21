@@ -29,3 +29,4 @@ updatedAt: "2026-10-14T20:05:18.890Z"
 
 ## Log
 - 2026-10-19T01:32:26.778Z: [claude] Follow-ups from task-55 (epic-14): (1) A command answered inline that hangs still stops the 90 s silence timer, because the timer isn't selected while an inline command is answered. (2) A stalled seat only has its file descriptor dropped; nothing resets the connection (no SO_LINGER reset).
+- 2026-10-21T10:22:48.450Z: [claude] 2026-10-21 Pork Chop: lands on dispatch/epic-5 (now 3891214f, includes task-19's writer-held fold cache and task-46). Before done: merge dispatch/epic-5 into your branch, run make check in the foreground on the merged result, commit, and show a before/after measurement.

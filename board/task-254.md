@@ -1,7 +1,7 @@
 ---
 id: task-254
 title: "Live call: a question asked over the voice's speech waits until the person speaks again"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -21,7 +21,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T08:26:11.298Z"
 assignee: codex
-updatedAt: "2026-10-21T08:32:18.272Z"
+updatedAt: "2026-10-21T08:39:34.132Z"
 decisions:
   - decision-16
 ---

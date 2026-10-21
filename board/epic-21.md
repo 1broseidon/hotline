@@ -2,8 +2,8 @@
 id: epic-21
 title: "Voice (0.42): you talk to the teammate itself; the scenarios in docs/design/voice-scenarios.html are true"
 type: epic
-column: todo
-position: 18
+column: review
+position: 0
 priority: high
 tags:
   - voice
@@ -12,7 +12,7 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T20:00:05.973Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-20T20:13:58.575Z"
+updatedAt: "2026-10-21T09:09:53.360Z"
 ---
 
 ## Description

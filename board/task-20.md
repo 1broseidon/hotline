@@ -24,14 +24,19 @@ description: |-
   ## Status (2026-10-11 review)
 
   Per-teammate lanes landed in 0.35.2 (wire/mod.rs ~1187-1260). Left: commands not tied to a teammate (models.list, settings.update, search) still run inline (~1226).
-updatedAt: "2026-10-21T10:22:50.239Z"
+updatedAt: "2026-10-21T10:22:51.912Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
   by: cli
   at: "2026-10-21T10:22:50.112Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-21T10:22:51.912Z"
 assignee: codex
 ---
 

@@ -198,6 +198,7 @@ impl Calls {
                 utterance_pending: false,
                 first_clip_started: None,
                 waiting_sound: false,
+                feedback_at: None,
                 answering: None,
                 streams: HashMap::new(),
                 cut: VecDeque::new(),

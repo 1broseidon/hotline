@@ -10,7 +10,7 @@ static ORIGINS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Mutex::
 pub struct Origin(String);
 
 impl Origin {
-    /// `credential` is an Anthropic fixture key or a ChatGPT login directory.
+    /// `credential` is an Anthropic/xAI fixture key or a ChatGPT login directory.
     /// The guard must outlive every request using it.
     pub fn new(credential: impl Into<String>, origin: &str) -> Self {
         let url = url::Url::parse(origin).expect("fixture origin");

@@ -232,6 +232,7 @@ impl Calls {
             call.utterance_pending = true;
             call.first_clip_started = Some(Instant::now());
             call.waiting_sound = false;
+            call.feedback_at = Some(tokio::time::Instant::now());
             call.seq = Some(seq);
             call.activity = Instant::now();
             call.state(VoiceState::Thinking, None);
@@ -444,6 +445,7 @@ impl Calls {
                 drop(input.sender);
                 call.first_clip_started = Some(Instant::now());
                 call.waiting_sound = false;
+                call.feedback_at = Some(tokio::time::Instant::now());
                 call.state(VoiceState::Thinking, None);
             }
             Ok(())

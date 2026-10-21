@@ -572,11 +572,14 @@ async fn a_legacy_turn_without_opening_speech_gets_one_sound_on_the_clip_wire() 
     calls
         .test_change(&id, |call| {
             call.answering = Some(1);
-            call.first_clip_started =
-                Some(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+            call.feedback_at = Some(tokio::time::Instant::now());
             Ok(())
         })
         .unwrap();
+    tokio::time::advance(Duration::from_millis(1_750)).await;
+    tokio::task::yield_now().await;
+    assert!(rx.try_recv().is_err());
+    tokio::time::advance(Duration::from_millis(250)).await;
     let cue = event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
@@ -643,4 +646,72 @@ async fn narrator_points_at_real_results_only_once_every_three_turns() {
     assert!(instructions[1].contains("5 turns in"));
     assert!(instructions[1].contains("Answer 4."));
     calls.end(&id).unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_text_opening_does_not_suppress_the_cue_while_tts_is_stalled() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    *lock(&fake.delay) = Duration::from_secs(10);
+    calls
+        .test_change(&id, |call| {
+            call.answering = Some(1);
+            call.feedback_at = Some(tokio::time::Instant::now());
+            Ok(())
+        })
+        .unwrap();
+    calls.reply_delta(&persona, "opening", "I'll check the lighthouse. ", &origin);
+    event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
+    tokio::time::advance(Duration::from_secs(2)).await;
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
+    )
+    .await;
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quiet_legacy_turn_gets_progress_until_it_ends_or_is_interrupted() {
+    for interrupt in [false, true] {
+        let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+        let origin = on_turn(&calls, &id, 1);
+        calls
+            .test_change(&id, |call| {
+                call.answering = Some(1);
+                call.feedback_at = Some(tokio::time::Instant::now());
+                call.state(VoiceState::Thinking, None);
+                Ok(())
+            })
+            .unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        event(
+            &mut rx,
+            |e| matches!(e, VoiceEvent::Clip { id, .. } if id == "waiting-1"),
+        )
+        .await;
+        for _ in 0..2 {
+            // The test build refreshes Thinking every 100ms. Drain those
+            // snapshots while moving time, without losing the feedback.
+            for _ in 0..19 {
+                tokio::time::advance(Duration::from_secs(1)).await;
+                tokio::task::yield_now().await;
+                while let Ok(event) = rx.try_recv() {
+                    assert!(matches!(event, VoiceEvent::State { .. }));
+                }
+            }
+            tokio::time::advance(Duration::from_secs(1)).await;
+            let (said, _) = one_reply(&mut rx).await;
+            assert_eq!(said[0].1, "I'm still working on that.");
+        }
+        if interrupt {
+            calls.hold(&id, true).unwrap();
+        } else {
+            calls.turn_ended(&persona, &origin);
+        }
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(lock(&fake.spoken).len(), 2);
+        calls.end(&id).unwrap();
+    }
 }

@@ -1,6 +1,6 @@
-//! One quiet cue for a Legacy turn that has not begun speaking, on every client.
+//! Bounded feedback while a Legacy teammate works without audible speech.
 
-use crate::{Calls, VoiceEvent, VoiceState};
+use crate::{Calls, VoiceEvent, VoiceState, Work};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
@@ -15,16 +15,21 @@ impl Calls {
             }
             if self
                 .change(&id, |call| {
-                    if call.front.is_none()
-                        && !call.waiting_sound
-                        && !call.speech.is_cancelled()
-                        && call.state != VoiceState::Held
-                        && (call.utterance_pending || call.answering.is_some())
-                        && call
-                            .first_clip_started
-                            .is_some_and(|at| at.elapsed() >= Duration::from_millis(1_800))
+                    if call.front.is_some()
+                        || call.speech.is_cancelled()
+                        || call.state == VoiceState::Held
+                        || call.caller_speaking
+                        || !(call.utterance_pending || call.answering.is_some())
                     {
+                        return Ok(());
+                    }
+                    let Some(at) = call.feedback_at else {
+                        return Ok(());
+                    };
+                    let now = tokio::time::Instant::now();
+                    if !call.waiting_sound && at.elapsed() >= Duration::from_millis(1_800) {
                         call.waiting_sound = true;
+                        call.feedback_at = Some(now);
                         let _ = call.events.send(VoiceEvent::Clip {
                             id: format!("waiting-{}", call.seq.unwrap_or_default()),
                             index: 0,
@@ -32,6 +37,20 @@ impl Calls {
                             mime_type: "audio/wav".into(),
                             data: STANDARD.encode(include_bytes!("assets/waiting.wav")),
                         });
+                    } else if at.elapsed() >= Duration::from_secs(20)
+                        && call.state == VoiceState::Thinking
+                        && call.streams.is_empty()
+                        && let Some(seq) = call.answering
+                        && call
+                            .work
+                            .try_send(Work::Progress {
+                                seq,
+                                at: now,
+                                speech: call.speech.child_token(),
+                            })
+                            .is_ok()
+                    {
+                        call.feedback_at = Some(now);
                     }
                     Ok(())
                 })

@@ -181,6 +181,18 @@ impl Log {
         read: impl FnOnce(&cache::Fold) -> T,
     ) -> io::Result<T> {
         let mut cache = self.lock_cache();
+        self.with_fold_in(&mut cache, stream, fail_on_io, read)
+    }
+
+    /// `with_fold` for a caller already holding the writer lock, which the
+    /// cache lives under: locking it again would deadlock.
+    fn with_fold_in<T>(
+        &self,
+        cache: &mut cache::Cache,
+        stream: &StreamId,
+        fail_on_io: bool,
+        read: impl FnOnce(&cache::Fold) -> T,
+    ) -> io::Result<T> {
         // Failure-sensitive readers deliberately recheck disk; a cached fold
         // cannot certify that the durable record is still readable.
         if fail_on_io {
@@ -455,9 +467,15 @@ impl Log {
         stream: &StreamId,
         project: impl FnOnce(Vec<Value>) -> T,
     ) -> (T, broadcast::Receiver<Value>) {
-        let _writer: std::sync::MutexGuard<'_, ()> =
-            self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        (project(self.load(stream)), self.subscribe(stream))
+        // Appends publish under this lock, so no write falls between the
+        // fold and the subscription.
+        let mut cache = self.lock_cache();
+        let events = self
+            .with_fold_in(&mut cache, stream, false, |fold| fold.events.clone())
+            .expect("a tolerant load skips unreadable files");
+        let receiver = self.subscribe(stream);
+        drop(cache);
+        (project(events), receiver)
     }
 
     /// Every event appended after this call, live.

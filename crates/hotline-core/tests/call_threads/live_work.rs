@@ -55,6 +55,7 @@ async fn event(events: &mpsc::Sender<Result<RealtimeEvent, SpeechError>>, event:
 /// Every live front uses the same work admission, with both real drivers.
 /// The fixture writes through the actual file/post handlers, then read_thread
 /// reads the speech and tool lines in their folded order.
+/// Scenario: Asking for real work.
 #[tokio::test]
 async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -325,6 +326,7 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
     }
 }
 
+/// Scenario: Changing your mind mid-work.
 #[tokio::test]
 async fn changing_and_dropping_live_work_keeps_one_call_agent_and_home_keeps_running() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {

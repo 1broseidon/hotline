@@ -42,6 +42,7 @@ async fn said(asked: &mut tokio::sync::mpsc::Receiver<Command>) -> String {
 
 /// Both real drivers raise informational cards; the Legacy wire's finalized
 /// yes/no settles only the announced card and leaves its source in the chat.
+/// Scenario: Something needs you during the call.
 #[tokio::test]
 async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -159,6 +160,7 @@ async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
 
 /// A live provider's caller-onset event keeps the queued card silent. Only
 /// a finalized caller transcript can answer it; no model tool has that reach.
+/// Scenario: Something needs you during the call.
 #[tokio::test]
 async fn live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes() {
     for provider in ["grok", "openai", "gpt-live"] {

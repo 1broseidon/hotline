@@ -2,9 +2,29 @@
 
 The desk turns a spoken clip into words and words into a spoken clip through
 a provider the owner has already connected, or hears with a model of its own
-that the owner downloaded. Voice never asks for a key of its own. The call, the dispatcher and the wire commands are in
-[wire.md](wire.md); this page is the speech layer under them and the ledger
-beside them (`crates/hotline-core/src/voice/`).
+that the owner downloaded. Voice never asks for a key of its own. The call contract is in [voice-calls.md](voice-calls.md) and the commands in
+[wire.md](wire.md); this page covers the speech engines in `crates/hotline-voice`
+and their ledger.
+
+## What a call keeps
+
+A call is a thread. Live voice handles conversation and lookups; `work_on_it`
+starts or steers one clone using the teammate's own model, driver and grants.
+Legacy feeds that same thread directly. Neither interrupts the home chat.
+Results posted or sent from the thread reach chat; merely writing a file does
+not attach it (task-253). Hang-up detaches speech, the in-flight reply finishes
+in chat, and one closing note follows after 30 seconds and an idle queue.
+The thread remains available for text or another call.
+
+Cards are announced at a break. Finalized spoken yes/no can answer core-owned
+session collaboration approvals and informational questions; opaque driver
+approvals and actions requiring the desk stay there. A short transport drop
+holds the call for 20 seconds for the same authenticated device. Live provider
+recovery carries context; a failed live call explains itself and offers Legacy
+only as an explicit choice. A TTS clip fallback below is not a change of call mode.
+
+The [scenario evidence and device pass](design/voice-scenario-pass.md) separates
+scripted proof from the pending Linux, desk and phone checks.
 
 ## The seam
 
@@ -89,9 +109,9 @@ window starts the call with `inputMode: "text"` only when the desk's
 says this Mac can hear, and `speech_permit` is granted; it then never opens
 the webview's microphone. Otherwise the call is the audio call it always
 was, and a desk that answers a text call without `text/plain` in its input
-is hung up with a message to update it. A recognition session runs only
-while the call listens: the desk speaking or thinking with the floor, hold
-and hang-up cancel it, so the engine never hears the desk. A `thinking` that
+is hung up with a message to update it. Recognition stays open during playback
+so the person can interrupt; hold and hang-up cancel it. Voice processing requests echo cancellation, but
+physical speaker isolation still needs the device scenario pass. A `thinking` that
 says `listening` is listened through: the call's phase is `listening` while
 the teammate works. Legacy receives one soft waiting clip from the core if
 its own speech has not begun after 1.8 seconds; there is no local repeating

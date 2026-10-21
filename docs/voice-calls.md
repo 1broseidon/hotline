@@ -1,8 +1,8 @@
 # Live calls
 
 Calling the desk opens a call thread on its team lead, with that teammate's
-own voice front, model and grants. The lead looks up the roster itself and
-hands a named teammate the person's words through `message_teammate` with
+own voice front, model and grants. The lead looks up the roster itself, answers
+briefly with names and current work (or idle), and hands a named teammate the person's words through `message_teammate` with
 `handoff`, then says who has it. No dispatcher runs for that routing. A direct
 call to the lead remains an ordinary teammate call, without the desk's routing
 grant. Hanging up, holding or interrupting speech does not cancel work already
@@ -25,7 +25,7 @@ Historical dispatcher tapes remain private to owner seats.
 | `voiceFront`, `voice.status.liveSelected`, `voice.call_start.mode`, reply `front` | Selection is separate from availability. Omitted mode follows Settings; `front` requires live and `pipeline` is an explicit Legacy choice. A missing front never authorizes automatic Legacy. | Owner/local desk only. The selected mode is enforced before a call is created. A live call refuses all Legacy inputs, including after failure. |
 | `voice.front_audio` `{callId,seq,data}` | Microphone PCM16 little endian, mono, at the negotiated `inputRate`, at most 32 KiB, base64. `seq` rises (gaps are allowed: a dropped frame is just lost audio). Chunks of about 20-100 ms are the intent. | Never waits: a front still connecting, or whose bounded queue is full, refuses the frame with an error and the client drops it and sends the next. A held call refuses audio. |
 | `frontAudio` `{seq,data}` event | The front's speech as PCM16 mono at `outputRate`, in frames of at most 100 ms. `seq` rises by one from 0, so a gap tells the client the desk lost frames. | Only a front call emits it; held calls emit none. A client too slow to read the call's event queue is disconnected, as for clips. |
-| `voice.front_barge` `{callId,playedMs}`, `frontStop` event | Barge-in. When the provider hears the person over the front, the desk sends `frontStop`: the client stops and clears playback, then answers with `voice.front_barge` and the milliseconds actually played. A client that detects speech first may send `voice.front_barge` at once. The front keeps only `playedMs` of the interrupted reply. | Owner/local desk. The call returns to `listening`; the teammate's work is not touched. |
+| `voice.front_barge` `{callId,playedMs}`, `frontStop` event | Barge-in. When the provider hears the person over the front, the desk sends `frontStop`: the client stops and clears playback, then answers with `voice.front_barge` and the milliseconds actually played. A client that detects speech first may send `voice.front_barge` at once. The adapter receives `playedMs` for truncation where supported; the saved notice never infers the last heard word. | Owner/local desk. The call returns to `listening`; the teammate's work is not touched. |
 | `state.liveError`; older `frontEnded` event | A failed live call keeps its reason in the ended state and its snapshot. The window offers **Call with Legacy voice** on the same thread. An old `frontEnded` stops the client instead of converting it. | Recovery preserves context and is bounded; a revoked login is never reopened. No Legacy call is made until explicitly requested. |
 | Front call states | `listening` while the front waits, `speaking` while it has audio going out, `thinking` with `listening: true` while the teammate works (from the moment the front's `work_on_it` is accepted until the turn ends, as on a pipeline call). A command the teammate leaves running ends its turn at the reply ([running processes](sessions.md#running-processes)), so the call goes `listening` as the reply is said, and while the command runs the call re-sends no `thinking` and the front is given no progress line. `heard {seq,text}` carries what the person said, as the front heard it, and `said {id,text}` what the front said, once its reply is whole, under an id starting `front-`; the teammate's own spoken lines still arrive as `said` under their reply's id, and the desk synthesizes no clips for them: the front says them. | Same `state` events as a pipeline call; an older client sees no new states. |
 | `VoiceStatus.directAvailable` | Additive; older desks omit it, so clients fall back to `available`. Desk `available` includes fallback-assistant readiness only when there is no lead. | Direct readiness requires speech and budget, independent of the dispatcher. Owner/local desk seat enforcement is unchanged. |
@@ -78,10 +78,18 @@ dispatch is refused, whether in this turn or a later request.
 
 ## Verification and rollout
 
+The acceptance set remains [the scenario deck](design/voice-scenarios.html).
+The [scenario pass record](design/voice-scenario-pass.md) maps every scenario
+to scripted evidence and retains each device requirement for Pork Chop and
+George. Physical phone behavior is not established by desktop tests.
+Files explicitly sent by the clone reach chat; files only written to disk
+are not automatically attached. That QA finding is task-253, awaiting George’s
+policy decision.
+
 Headless wire/session tests cover desk compatibility, target validation,
 owner/companion boundaries, stream bounds, commit/cancellation and reply
 isolation, plus output-only text configuration, sequence/mode/bounds and no STT
-spend. Provider protocol tests use local fixtures. UI and mobile tests
+spend. Provider protocol tests use local fixtures. Desktop UI tests
 cover refused live starts, context-preserving recovery, explicit Legacy choice, target pinning and ordered playback.
 
 Release the core/server and desktop first. Mobile uses capabilities and native

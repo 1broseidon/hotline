@@ -422,6 +422,7 @@ async fn legacy_utterances_are_on_the_calls_thread_never_the_dm() {
     }
 }
 
+/// Scenario: Hanging up while work runs.
 #[tokio::test]
 async fn hanging_up_while_work_runs_finishes_in_the_chat_without_speech() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -460,6 +461,7 @@ async fn picking_up_before_old_work_finishes_still_posts_its_reply() {
     }
 }
 
+/// Scenario: A quick question on the go; Hanging up while work runs.
 #[tokio::test]
 async fn closing_note_waits_thirty_seconds_and_for_finished_work_then_parks() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -545,6 +547,7 @@ async fn in_the_chat_afterwards_is_one_summary_not_a_transcript_or_periodic_dige
     }
 }
 
+/// Scenario: Picking it back up.
 #[tokio::test]
 async fn picking_it_back_up_keeps_context_and_the_next_note_covers_only_new_work() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -597,6 +600,7 @@ async fn picking_it_back_up_keeps_context_and_the_next_note_covers_only_new_work
     }
 }
 
+/// Scenario: Calling on a thread already under way.
 #[tokio::test]
 async fn calling_on_a_thread_under_way_queues_speech_on_that_same_thread() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -654,6 +658,7 @@ async fn calling_on_a_thread_under_way_queues_speech_on_that_same_thread() {
     }
 }
 
+/// Scenario: Hanging up while work runs.
 #[tokio::test]
 async fn posts_are_quiet_on_the_call_and_notify_like_replies_after_hang_up() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -686,6 +691,7 @@ async fn posts_are_quiet_on_the_call_and_notify_like_replies_after_hang_up() {
     }
 }
 
+/// Scenario: Following up in the chat.
 #[tokio::test]
 async fn replying_to_a_calls_post_goes_back_to_the_calls_thread() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
@@ -1039,6 +1045,7 @@ async fn hanging_up_catches_a_typed_turn_already_running_when_voice_attached() {
 
 /// Interrupting: the cut survives on the thread and reaches both drivers,
 /// while the caller’s saved words remain their own.
+/// Scenario: Interrupting; Give me the rundown, I have time.
 #[tokio::test]
 async fn interrupted_speech_is_kept_and_the_next_turn_hears_the_cut() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {

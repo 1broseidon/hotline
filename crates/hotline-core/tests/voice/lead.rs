@@ -20,6 +20,8 @@ async fn tool(desk: &mut FrontDesk, name: &str, arguments: Value) -> String {
     }
 }
 
+/// Scenario: Calling the desk. Select the lead, hear its roster answer, then route
+/// named work directly without starting a dispatcher or the lead’s work model.
 #[tokio::test]
 async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
     let mut desk = front_desk(true, 64).await;
@@ -31,6 +33,16 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
         let made = answer(&mut desk.socket, 2, json!({"cmd":"persona.create","params":{"draft":{"name":name,"cwd":desk.root.path().to_str().unwrap()}}})).await;
         assert_eq!(made["ok"], true, "{made}");
         team.push(made["result"]["id"].as_str().unwrap().to_string());
+    }
+    // Move the role away and back so this proves an explicit choice, not just onboarding.
+    for lead in [&team[1], &team[0]] {
+        let chosen = answer(
+            &mut desk.socket,
+            3,
+            json!({"cmd":"persona.lead","params":{"id":lead}}),
+        )
+        .await;
+        assert_eq!(chosen["ok"], true, "{chosen}");
     }
     let updated = answer(&mut desk.socket, 3, json!({"cmd":"persona.update","params":{"id":team[0],"patch":{"voice":{"providerId":"grok","modelId":"front","voice":"ara"}}}})).await;
     assert_eq!(updated["ok"], true, "{updated}");
@@ -50,6 +62,21 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
     let config = desk.front.config.lock().unwrap().clone().unwrap();
     assert!(config.instructions.contains("You are Ada."));
     assert!(config.instructions.contains("team lead"));
+    assert!(
+        config
+            .instructions
+            .contains("names and what each teammate is working on, or idle")
+    );
+    assert!(
+        config
+            .instructions
+            .contains("Do not recite models, tools or machine reach")
+    );
+    send(&mut desk.socket, json!({"id":30,"sub":{"call":call}})).await;
+    frame_where(&mut desk.socket, |f| {
+        f["sub"] == 30 && f["snapshot"].is_array()
+    })
+    .await;
     assert_eq!(config.voice, "ara");
     assert!(config.tools.iter().any(|t| t.name == "message_teammate"));
     desk.events
@@ -66,6 +93,8 @@ async fn the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on() {
         .send(Ok(RealtimeEvent::ResponseDone))
         .await
         .unwrap();
+    let spoken = frame_where(&mut desk.socket, |f| f["event"]["type"] == "said").await;
+    assert_eq!(spoken["event"]["text"], "Mack is on the team.");
     assert!(
         requests.lock().unwrap().is_empty(),
         "a lookup starts no working model or dispatcher"
@@ -197,6 +226,7 @@ async fn a_direct_call_to_the_lead_does_not_get_the_desks_handoff_grant() {
     .await;
 }
 
+/// Scenario: Calling the desk.
 #[tokio::test]
 async fn a_no_lead_front_knows_the_person_and_roster() {
     let mut desk = front_desk(true, 64).await;

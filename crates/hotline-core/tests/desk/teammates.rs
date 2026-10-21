@@ -648,6 +648,7 @@ async fn made(client: &mut Client, name: &str) -> String {
 
 /// Onboarding makes one teammate, and that one is the desk's lead without
 /// anybody choosing it; a second teammate joins under it.
+/// Scenario: Calling the desk.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_first_teammate_is_the_lead_and_a_second_leaves_the_lead_alone() {
     let (_root, port) = open("lead-first").await;
@@ -691,6 +692,7 @@ async fn persona_lead_moves_the_lead_and_clears_it() {
 
 /// Deleting the lead clears it, and nobody is picked from the two left;
 /// deleting down to one makes that one lead by the same rule as the first.
+/// Scenario: Calling the desk.
 #[tokio::test(flavor = "multi_thread")]
 async fn deleting_the_lead_leaves_no_lead_until_one_teammate_is_left_to_lead() {
     let (_root, port) = open("lead-delete").await;

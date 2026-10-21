@@ -228,6 +228,8 @@ mod tests {
 
     /// A full agent answers conversation, looks things up with its tools, and
     /// starts its own changing work with at most one acknowledgement.
+    /// Scenarios: Dictating something; Changing your mind mid-work; Thinking out loud.
+    /// This proves the instructions, not provider pause detection or spoken compliance.
     #[test]
     fn conversation_and_changes_have_distinct_tools_and_no_handoff_narration() {
         let text = instructions(&teammate(), &Start::default());

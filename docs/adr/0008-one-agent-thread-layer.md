@@ -281,6 +281,36 @@ person to keep it posts it.
 
 ### 5. Voice under this design
 
+**2026-10-20 decisions, implemented by the voice slices.** Live means live:
+no silent Legacy fallback. Recovery preserves context; if it fails, say why
+and offer an explicit Legacy call. Legacy remains a selected mode. A transport
+drop holds the same call and thread for 20 seconds for the same authenticated
+device, then follows hang-up, including finishing accepted work.
+
+`work_on_it(words, action)` admits or steers one call-thread occupant;
+`action: "stop"` drops its work. The whole call is its brief. The live model
+keeps conversation and lookups, uses first-person acknowledgements, waits
+through incomplete dictation, and reads a draft back as a summary unless the
+person requests the full text. Nothing is sent without the person's instruction.
+
+Conversation is recorded as spoken. Concrete written results may warrant a
+chat pointer, at most once in three caller turns. Hang-up posts only the turn
+then in flight automatically; one closing note follows after 30 seconds and
+an idle queue. Replies to posts return to their source thread; the home agent
+receives posts and the note and can read the full call for missing detail.
+
+Cards are spoken once at a break. Voice answers core-owned session
+collaboration approvals and informational yes/no questions; opaque approvals,
+credentials, payments, deletions and screen actions wait for the desk. A cut
+notice records generated text and playback evidence, not an invented last
+heard word. The desk lead answers roster lookups and routes named work directly;
+its implicit local routing grant lasts only for that live desk call.
+
+These decisions amend ADR 0005. The [deck](../design/voice-scenarios.html)
+remains the acceptance set; its [pass record](../design/voice-scenario-pass.md)
+distinguishes automated evidence from physical checks still owed. A file written
+but not sent is not automatically attached; task-253 tracks that observed gap.
+
 **A call is a thread whose agent is the teammate.** The `Call` policy row
 becomes a work thread's in what it reaches (the teammate's tools, plus
 `post_to_chat`, less the chapter moves; `Lease::Independent`; the computer
@@ -384,11 +414,13 @@ and its agent instead of opening a new call thread. Whatever is said lands
 in that thread, and posts go to the chat as from any call. A call on a
 thread whose agent is mid-turn waits or interrupts as a typed line would.
 
-**Desk calls.** epic-17 makes a desk call a call to the team lead. Under
-this design that is a call thread on the lead, so the dispatcher's desk role,
-the `voice-dispatcher` tape and its `desk_command` tool (`voice/dispatcher.rs:101`,
-`:989`), which runs the wire's command table, go with epic-17's routing
-task. Until a lead exists, desk calls stay as they are.
+**Desk calls.** A desk call opens the team lead's call thread. The lead
+answers roster questions from `list_teammates`, briefly naming teammates and
+current work, and uses `message_teammate` with `handoff` for named work.
+No dispatcher runs for that route. Without a lead, the fallback assistant
+knows the person's name and roster and uses bounded named tools. Neither
+path writes a new `voice-dispatcher` tape or exposes `desk_command`; the
+fallback transcript belongs to its call.
 
 **epic-19 and task-213.** The engines' move (task-212) is unaffected: the
 `Speech` engines are the modality's ear and mouth. task-213 inventories the

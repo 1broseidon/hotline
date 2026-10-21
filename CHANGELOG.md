@@ -10,6 +10,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- Calls keep their own thread, with results in chat and one closing note after
+  hang-up. Continue by text or call the same thread again. Live voice answers
+  lookups while work runs on the teammate's own model and agent.
+- Calling the desk reaches its team lead: short roster answers and named work
+  sent straight to the teammate. Eligible questions and session approvals can
+  be answered by voice; actions needing the desk stay there.
+- A short connection drop holds the same call for twenty seconds. Failed live
+  voice explains itself and offers Legacy explicitly, never switches silently.
+  Interruptions stop local playback and leave a cut notice on the call thread.
+
 - Hotline Agent runs on Rig 0.45. A ChatGPT or GitHub Copilot sign-in made
   before stays signed in: Copilot's is moved once into a single record
   beside the login, and turns, calls, images and model lists now share one

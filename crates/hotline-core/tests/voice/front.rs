@@ -148,6 +148,7 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
     .expect("the front outlived its call");
 }
 
+/// Scenario: When the live voice goes away.
 #[tokio::test]
 async fn a_desk_without_a_front_refuses_live_and_only_starts_legacy_explicitly() {
     let mut desk = front_desk(false, 64).await;
@@ -183,6 +184,7 @@ async fn a_desk_without_a_front_refuses_live_and_only_starts_legacy_explicitly()
     assert!(started["result"].get("front").is_none());
 }
 
+/// Scenario: When the live voice goes away.
 #[tokio::test]
 async fn a_front_that_cannot_open_ends_visibly_without_accepting_legacy_input() {
     let mut desk = front_desk(true, 64).await;
@@ -292,6 +294,7 @@ async fn a_dropped_live_call_reconnects_with_its_context_and_keeps_its_audio_mod
     .await;
 }
 
+/// Scenario: When the live voice goes away.
 #[tokio::test]
 async fn a_dropped_live_call_that_cannot_reconnect_ends_once_with_a_persistent_reason() {
     let mut desk = front_desk(true, 64).await;
@@ -850,6 +853,7 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
     assert_eq!(ended["ok"], true);
 }
 
+/// Scenario: When the live voice goes away.
 #[tokio::test]
 async fn a_selected_paid_front_with_no_budget_never_starts_legacy() {
     struct PaidFront;
@@ -914,6 +918,7 @@ async fn a_selected_paid_front_with_no_budget_never_starts_legacy() {
 
 /// Interrupting: a tap keeps the cut line on the call thread, rejects the
 /// old response's late audio, and lets the reply to the interruption speak.
+/// Scenario: Interrupting.
 #[tokio::test]
 async fn a_live_cut_is_recorded_and_late_audio_cannot_resume_it() {
     let mut desk = front_desk(true, 64).await;
@@ -1116,6 +1121,7 @@ async fn the_live_prompt_knows_its_identity_and_refreshes_already_said_call_cont
     .await;
 }
 
+/// Scenario: A bad network.
 #[tokio::test]
 async fn a_wire_drop_resumes_the_same_live_call_and_announces_it() {
     let mut desk = front_desk(true, 64).await;

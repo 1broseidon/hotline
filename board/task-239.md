@@ -9,21 +9,14 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:08.678Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-21T14:39:33.468Z"
+updatedAt: "2026-10-21T14:39:34.988Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
   by: cli
-  at: "2026-10-21T06:53:08.339Z"
+  at: "2026-10-21T14:39:34.824Z"
   until: done
   tries: 2
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 94104
-    at: "2026-10-21T07:29:09.117Z"
-    ended: "2026-10-21T07:35:11.854Z"
-    outcome: done
 assignee: codex
 decisions:
   - decision-15

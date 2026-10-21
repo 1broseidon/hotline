@@ -44,3 +44,4 @@ Proved by the harness tests above, a UI test for the inline tool calls, and a ch
 
 ## Log
 - 2026-10-21T01:37:34.969Z: [codex] Implemented read_thread through the shared lease-checked MCP handler, own-thread ownership checks and ordered event-id pagination; call search hits and home-agent posts identify the transcript. Wiring inline call tools and both-driver harness proofs now. Work stays on dispatch/task-244.
+- 2026-10-21T01:46:29.506Z: [codex] Committed ffde536c on dispatch/task-244. The 21 call-thread desk scenarios pass on both drivers; UI transcript proof, full-text/fold paging, cross-teammate refusal and both-transport lease revocation pass. Final make check is through native clippy and core unit tests and running harnesses; make precheck started. Live scenario-pass check handed to task-206; S6 live-front routing remains outside this task.

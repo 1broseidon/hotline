@@ -1,8 +1,8 @@
 ---
 id: task-260
 title: "Legacy: the progress line varies instead of repeating 'I'm still working on that.'"
-column: in-progress
-position: 2
+column: review
+position: 1
 priority: medium
 tags:
   - voice
@@ -21,7 +21,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T19:59:38.896Z"
 assignee: codex
-updatedAt: "2026-10-21T20:00:39.214Z"
+updatedAt: "2026-10-21T20:13:22.598Z"
 decisions:
   - decision-28
 ---

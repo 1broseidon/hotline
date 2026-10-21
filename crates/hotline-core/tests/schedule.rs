@@ -11,7 +11,7 @@
 //! on a disposable model endpoint whose answers its line spells out (`SAY`,
 //! `CALL`, `STALL`, below), and the endpoint keeps every line it was handed.
 
-mod common;
+use crate::common;
 
 use common::{Client, until};
 use hotline_core::log::{Log, StreamId};

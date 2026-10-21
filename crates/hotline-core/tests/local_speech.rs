@@ -9,7 +9,7 @@
 //! real sherpa-onnx Parakeet model in it, with `--ignored`, also runs
 //! `a_real_model_installs_and_hears_what_was_said`, which hears the speech
 //! fixtures through `voice.transcribe`.
-mod common;
+use crate::common;
 
 use axum::Router;
 use axum::body::{Body, Bytes};

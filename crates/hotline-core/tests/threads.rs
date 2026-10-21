@@ -1,7 +1,7 @@
 //! Threads on the wire, through the real core and a disposable model endpoint:
 //! the same conversation, read by a client that declared `threads2` and by one
 //! that did not.
-mod common;
+use crate::common;
 
 use axum::{Router, body::Bytes, routing::post};
 use common::Client;

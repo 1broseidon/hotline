@@ -2,7 +2,7 @@
 //! the wire, held to by Hotline Agent's real tools in a real Rig turn against a
 //! disposable model endpoint, and taken back by a policy change. No live
 //! credentials; the model is a script of tool calls.
-mod common;
+use crate::common;
 
 use axum::{Router, body::Bytes, routing::post};
 use common::Client;

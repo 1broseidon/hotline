@@ -7,7 +7,7 @@
 //! stopped answering, and a message sent to him was drawn but never written.
 //! Here both teammates share one socket, as they do in the window.
 #![cfg(unix)]
-mod common;
+use crate::common;
 
 use common::{Client, stalled};
 use hotline_core::desk::Desk;

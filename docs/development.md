@@ -719,8 +719,8 @@ can run (`cursor`, say) and they drive a real harness as a child, including
 a line sent mid-turn.
 
 ```bash
-HOTLINE_HARNESS_ANTHROPIC_KEY=… cargo test -p hotline-core --test desk -- --ignored a_turn_with_a_real_key
-HOTLINE_HARNESS_ACP=cursor cargo test -p hotline-core --test desk -- --ignored real_acp_harness
+HOTLINE_HARNESS_ANTHROPIC_KEY=… cargo test -p hotline-core --test integration -- --ignored a_turn_with_a_real_key
+HOTLINE_HARNESS_ACP=cursor cargo test -p hotline-core --test integration -- --ignored real_acp_harness
 ```
 
 A harness that wants state in a stream asks the core over the wire, or

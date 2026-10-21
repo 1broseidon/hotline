@@ -116,7 +116,7 @@ paid for. Tool dispatches do not reserve model charges.
 
 ## Automated proof and review limits
 
-`cargo test -p hotline-core --test rig_upgrade` runs under `make verify`
+`cargo test -p hotline-core --test integration rig_upgrade::` runs under `make verify`
 and `make check`. Its `rig_upgrade_` tests use temporary data directories
 passed directly to the desk and a memory vault backend. They do not read or
 change the operator's `HOTLINE_DATA_DIR` or keychain. A `test-support` feature,

@@ -1,8 +1,8 @@
 ---
 id: task-256
 title: "Legacy voice: a tool-first turn says nothing for a minute instead of its own first sentence"
-column: in-progress
-position: 1
+column: review
+position: 0
 priority: medium
 tags:
   - voice
@@ -21,7 +21,7 @@ dispatch:
     pid: 94104
     at: "2026-10-21T08:38:50.424Z"
 assignee: codex
-updatedAt: "2026-10-21T08:45:31.036Z"
+updatedAt: "2026-10-21T08:53:50.130Z"
 decisions:
   - decision-17
 ---

@@ -48,3 +48,4 @@ Proved by desk-harness tests with the fake realtime provider (streamed updates f
 
 ## Log
 - 2026-10-21T05:57:48.643Z: [codex] Implemented buffered/folded live speech and one Work result tool entry per live clone turn; clone openings/deltas no longer feed speech. Added real-core fake-provider and UI coverage. Local validation is running; requested Linux QA desk access for the real Grok Voice rerun.
+- 2026-10-21T06:07:12.346Z: [codex] Committed 25225b2f on dispatch/task-252; make check passes on the final tree. Fake-provider coverage passes across Grok/OpenAI/GPT-Live and Hotline Agent/ACP, plus read_thread paging, work-result summaries/search, interruption/hang-up persistence and UI/copy tests. Running make precheck; real QA-desk Grok rerun still awaits access.

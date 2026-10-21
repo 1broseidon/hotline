@@ -15,9 +15,14 @@ dispatch:
   by: cli
   at: "2026-10-21T11:21:18.478Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-21T11:21:20.348Z"
 assignee: codex
-updatedAt: "2026-10-21T11:21:18.598Z"
+updatedAt: "2026-10-21T11:21:20.348Z"
 ---
 
 ## Description

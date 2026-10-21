@@ -30,11 +30,16 @@
 //! to notice.
 
 use hotline_contract::{
-    ImageSettings, Persona, ScheduleKind, ScheduledJob, SessionCheckpoint, SpendingSettings,
+    AgentAccount, ImageSettings, Persona, ScheduleKind, ScheduledJob, SessionCheckpoint,
+    SpendingSettings,
 };
 use hotline_store::log::{Log, StreamId};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+
+/// The setting that keeps the room's agent accounts, an array of
+/// [`AgentAccount`].
+pub const AGENT_ACCOUNTS: &str = "agentAccounts";
 
 /// What a setting means before anybody has set it. `hotline` is the built-in Hotline
 /// Agent, which is what a new teammate runs on, and a chapter closes after
@@ -48,6 +53,7 @@ fn defaults() -> Map<String, Value> {
     settings.insert("defaultBackendId".into(), Value::from("hotline"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
+    settings.insert(AGENT_ACCOUNTS.into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
     settings.insert("images".into(), json!(ImageSettings::default()));
     settings.insert("spending".into(), json!(SpendingSettings::default()));
@@ -339,7 +345,34 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
             .unwrap_or(&Value::Array(Vec::new())),
     );
     settings.insert("mcpServers".into(), Value::Array(normalised));
+    // The same for accounts, one entry at a time: a bad one costs only itself.
+    let accounts = crate::agent_accounts::normalize_accounts(
+        settings.get(AGENT_ACCOUNTS).unwrap_or(&Value::Null),
+    );
+    settings.insert(AGENT_ACCOUNTS.into(), json!(accounts));
     settings
+}
+
+/// The room's agent accounts, in the order they were added.
+pub fn agent_accounts(log: &Log) -> Vec<AgentAccount> {
+    crate::agent_accounts::normalize_accounts(
+        settings(log).get(AGENT_ACCOUNTS).unwrap_or(&Value::Null),
+    )
+}
+
+/// Stores `accounts` as the whole list, in one `setting` event. It does not
+/// check them: whoever changes the list checks that the candidate reads back
+/// unchanged through `normalize_accounts`, under the policy lock, before
+/// calling this.
+pub fn write_agent_accounts(log: &Log, accounts: &[AgentAccount]) -> std::io::Result<()> {
+    log.append(
+        &StreamId::Room,
+        &room_event(
+            "setting",
+            json!({ "id": AGENT_ACCOUNTS, "value": accounts }),
+        ),
+    )
+    .map(|_| ())
 }
 
 /// The jobs still waiting to fire, soonest first: neither deleted nor ended.

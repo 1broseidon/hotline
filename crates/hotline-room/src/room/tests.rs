@@ -1,4 +1,5 @@
 use super::*;
+use hotline_contract::AgentAccount;
 use hotline_contract::SkillPolicy;
 use hotline_contract::{CookieImport, CookieSite};
 use hotline_contract::{McpPolicy, PolicyMode};
@@ -228,6 +229,44 @@ fn a_malformed_mcp_server_entry_is_skipped_on_read() {
     let servers = folded["mcpServers"].as_array().unwrap();
     assert_eq!(servers.len(), 1);
     assert_eq!(servers[0]["id"], "good");
+}
+
+fn account(n: u8, name: &str) -> AgentAccount {
+    AgentAccount {
+        id: format!("00000000-0000-4000-a000-{n:012}"),
+        backend_id: "claude-acp".to_string(),
+        name: name.to_string(),
+        created_at: 1,
+        login_at: None,
+        setup: None,
+    }
+}
+
+#[test]
+fn agent_accounts_default_to_empty_and_read_back_what_was_written() {
+    let log = scratch("agent-accounts");
+    assert!(agent_accounts(&log).is_empty());
+    assert_eq!(settings(&log)[AGENT_ACCOUNTS], json!([]));
+
+    let (one, two) = (account(1, "Work"), account(2, "Personal"));
+    let before = log.load(&StreamId::Room).len();
+    write_agent_accounts(&log, &[one.clone(), two.clone()]).unwrap();
+    let events = log.load(&StreamId::Room);
+    assert_eq!(
+        events.len(),
+        before + 1,
+        "one setting event, not one per account"
+    );
+    assert_eq!(events.last().unwrap()["kind"], "setting");
+    assert_eq!(agent_accounts(&log), [one.clone(), two]);
+
+    // A line a person edited by hand costs its bad entry and nothing else.
+    append(
+        &log,
+        &setting(AGENT_ACCOUNTS, json!([{"id": "bad"}, one.clone()])),
+    );
+    assert_eq!(agent_accounts(&log), [one.clone()]);
+    assert_eq!(settings(&log)[AGENT_ACCOUNTS], json!([one]));
 }
 
 #[test]

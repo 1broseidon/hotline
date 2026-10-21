@@ -53,59 +53,87 @@ impl ThreadStore {
     /// and jobs, then the pairs it is one side of. Empty for a teammate the
     /// room does not hold.
     pub fn list(&self, persona_id: &str) -> Vec<Thread> {
-        let Some(dm) = self.dm(persona_id) else {
-            return Vec::new();
-        };
-        let mut threads = vec![dm];
-        threads.extend(
-            self.side_ids()
-                .iter()
-                .filter_map(|side_id| self.side(side_id))
-                .filter(|side| {
-                    side.participants
-                        .contains(&Participant::Persona(persona_id.into()))
-                }),
-        );
-        threads.extend(
-            self.run_ids_on_tape(persona_id)
-                .iter()
-                .filter_map(|run_id| self.run(run_id, Some(persona_id))),
-        );
-        threads.extend(
-            self.call_ids_on_tape(persona_id)
-                .iter()
-                .filter_map(|call_id| self.call(call_id)),
-        );
-        threads.extend(
-            room::all_jobs(&self.log)
-                .iter()
-                .filter(|job| job.persona_id == persona_id)
-                .filter_map(|job| self.job(&job.id)),
-        );
-        threads.extend(
-            pair_files::keys_for(self.log.root(), persona_id)
-                .iter()
-                .filter_map(|key| self.pair(key)),
-        );
-        threads
+        self.list_from(Some(persona_id), &self.log.load(&StreamId::Room))
     }
 
-    /// Every thread in the room, each once. A pair is listed with the first of
-    /// its teammates, not with both.
-    pub fn all(&self) -> Vec<Thread> {
-        let mut threads: Vec<Thread> = Vec::new();
-        for persona in room::roster(&self.log) {
-            for thread in self.list(&persona.id) {
-                if !threads.iter().any(|seen| seen.id == thread.id) {
-                    threads.push(thread);
-                }
-            }
+    /// Each source is read once for the selected teammates, in roster order.
+    pub(crate) fn list_from(&self, selected: Option<&str>, events: &[Value]) -> Vec<Thread> {
+        let personas: Vec<_> = room::personas(events)
+            .into_iter()
+            .filter(|p| selected.is_none_or(|id| p.id == id))
+            .collect();
+        if personas.is_empty() {
+            return Vec::new();
+        }
+        let sides: Vec<_> = self
+            .side_ids()
+            .iter()
+            .filter_map(|id| self.side(id))
+            .collect();
+        let jobs = room::jobs(events);
+        let pairs: Vec<_> = pair_files::list_all_keys(self.log.root())
+            .iter()
+            .filter_map(|key| self.pair_from(key, events))
+            .collect();
+        let mut threads = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for persona in personas {
+            let id = persona.id.clone();
+            let mut own = vec![Self::dm_from(persona)];
+            own.extend(
+                sides
+                    .iter()
+                    .filter(|side| {
+                        side.participants
+                            .contains(&Participant::Persona(id.clone()))
+                    })
+                    .cloned(),
+            );
+            let links: Vec<_> = self
+                .log
+                .load(&StreamId::Tape(id.clone()))
+                .iter()
+                .filter_map(Link::read)
+                .collect();
+            own.extend(
+                links
+                    .iter()
+                    .filter(|link| link.thread.kind == ThreadKind::Run)
+                    .filter_map(|link| self.run(&link.thread.key, Some(&id))),
+            );
+            own.extend(
+                links
+                    .iter()
+                    .filter(|link| link.thread.kind == ThreadKind::Call)
+                    .filter_map(|link| self.call(&link.thread.key)),
+            );
+            own.extend(
+                jobs.iter()
+                    .filter(|job| job.persona_id == id)
+                    .filter_map(|job| self.job(&job.id)),
+            );
+            own.extend(
+                pairs
+                    .iter()
+                    .filter(|pair| {
+                        pair.participants
+                            .contains(&Participant::Persona(id.clone()))
+                    })
+                    .cloned(),
+            );
+            threads.extend(
+                own.into_iter()
+                    .filter(|thread| seen.insert(thread.id.clone())),
+            );
         }
         threads
     }
 
     fn dm(&self, persona_id: &str) -> Option<Thread> {
-        let persona = self.persona(persona_id)?;
+        Some(Self::dm_from(self.persona(persona_id)?))
+    }
+
+    fn dm_from(persona: Persona) -> Thread {
         let binding = persona
             .session_checkpoints
             .iter()
@@ -114,15 +142,15 @@ impl ThreadStore {
                 backend_id: checkpoint.backend_id.clone(),
                 session_id: checkpoint.session_id.clone(),
             });
-        Some(Thread {
-            id: ThreadId::dm(persona_id),
+        Thread {
+            id: ThreadId::dm(&persona.id),
             parent: None,
             participants: vec![Participant::Person, Participant::Persona(persona.id)],
             state: ThreadState::Live,
             title: None,
             binding,
             note: None,
-        })
+        }
     }
 
     fn side(&self, side_id: &str) -> Option<Thread> {
@@ -214,18 +242,22 @@ impl ThreadStore {
 
     /// The link at the head of a thread's own stream, as last written.
     fn link(&self, thread: &ThreadId) -> Option<Link> {
-        Link::find(&self.log.load(&StreamId::of_thread(thread)?), thread)
+        self.log.thread_link(thread)
     }
 
     /// A pair, from its sidecar's key. It is `Live` while the room stream
     /// holds a request of it that an agent is answering, and `Parked` the rest
     /// of the time: a pair's agent lasts one turn.
     fn pair(&self, key: &str) -> Option<Thread> {
+        self.pair_from(key, &self.log.load(&StreamId::Room))
+    }
+
+    fn pair_from(&self, key: &str, events: &[Value]) -> Option<Thread> {
         let (a, b) = thread_participants(key)?;
         if !thread_meta_path(self.log.root(), key)?.exists() {
             return None;
         }
-        let answering = self.log.load(&StreamId::Room).iter().any(|event| {
+        let answering = events.iter().any(|event| {
             event.get("kind").and_then(Value::as_str) == Some("exchange_pair")
                 && event.get("id").and_then(Value::as_str) == Some(key)
                 && crate::session::exchanges::answering(event)
@@ -278,18 +310,6 @@ impl ThreadStore {
             .iter()
             .filter_map(Link::read)
             .filter(|link| link.thread.kind == ThreadKind::Run)
-            .map(|link| link.thread.key)
-            .collect()
-    }
-
-    /// The calls a teammate's tape carries a link for, in the order they
-    /// started.
-    fn call_ids_on_tape(&self, persona_id: &str) -> Vec<String> {
-        self.log
-            .load(&StreamId::Tape(persona_id.to_string()))
-            .iter()
-            .filter_map(Link::read)
-            .filter(|link| link.thread.kind == ThreadKind::Call)
             .map(|link| link.thread.key)
             .collect()
     }

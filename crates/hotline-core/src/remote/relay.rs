@@ -16,8 +16,6 @@ use super::server::{Purpose, Seat, sealed_session};
 use super::*;
 use crate::contract::RemoteRelay;
 use futures_util::{SinkExt, StreamExt};
-use hyper::upgrade::Upgraded;
-use hyper_util::rt::TokioIo;
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio_tungstenite::{
@@ -38,7 +36,7 @@ const RECORD_MAX: usize = 65_535;
 /// Cleanup cannot wait forever on a peer that stops reading.
 const IO_WITHIN: Duration = Duration::from_secs(10);
 
-type Socket = WebSocketStream<TokioIo<Upgraded>>;
+type Socket = WebSocketStream<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>;
 
 pub(super) fn valid_desk(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')

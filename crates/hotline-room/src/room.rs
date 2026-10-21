@@ -369,7 +369,7 @@ pub fn all_jobs(log: &Log) -> Vec<ScheduledJob> {
     jobs(&log.load(&StreamId::Room))
 }
 
-fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
+pub fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
     let mut jobs: Vec<ScheduledJob> = events
         .iter()
         .filter(|event| is_kind(event, "schedule") && !is_deleted(event))
@@ -1031,6 +1031,9 @@ mod tests {
             hotline_support::paths::room_path(log.root()),
             "{\"kind\":\"setting\",\"id\":\"spending\",\"value\":{\"dayUsd\":0,\"monthUsd\":0},\"private\":\"corrupt-room-canary\"\n",
         ).unwrap();
+        // Corruption is a saved-file fixture, outside the live log's one
+        // writer. Reopen it as startup does rather than retain its old fold.
+        let log = Log::open(log.root());
         assert_eq!(
             settings(&log)["spending"],
             json!(SpendingSettings::default())

@@ -63,6 +63,7 @@ async fn seat_snapshot(
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        roster_options: Arc::default(),
         lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),

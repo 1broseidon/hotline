@@ -39,6 +39,7 @@ mod seat;
 mod socket;
 mod subscribe;
 mod threads;
+pub(crate) mod transport;
 
 pub use door::Door;
 pub use hotline_room::room_handle::{AuthStatus, RoomHandle};

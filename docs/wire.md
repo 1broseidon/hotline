@@ -11,26 +11,31 @@ out — fifty milliseconds on the shortage, so that case is not a spin —
 because returning here kills the wire for the life of the process.
 
 One writer task per socket queues whole frames in the order they were
-produced, so answers, snapshots and events never interleave. Commands are
-answered on the read loop, in the order they arrived: the append a
-command makes *is* its answer, and a client that creates a teammate and
-then subscribes must see it. A command that names one teammate — by
-`personaId`, by a `thread` (a DM is its teammate's), by a `sideId`, or as
-the `id` of a `persona.*` command — is answered on that teammate's own lane
-instead: in order with that teammate's other commands, and waiting on
-nobody else's. Starting an agent can take a while, or never finish, and it
-holds up only the commands about that teammate. Its answer may therefore
-arrive after the answers to commands sent after it.
+produced, so answers, snapshots and events never interleave. The reader
+dispatches work without awaiting a command. Global mutations, `ping`, and
+subscription controls share an ordered worker: a client that creates a
+teammate and then subscribes sees the create. `client.hello` is applied on
+the reader before dispatching the next frame, so capability negotiation and
+the lean silence timer take effect immediately.
 
-A read of the whole room that changes nothing — `voice.status`,
-`voice.models`, `images.status`, `websearch.status`, `capabilities.options`,
-`remote.status`, `remote.relays`, `desks.links`, `credential.list`,
-`skills.list` without a teammate, `providers.list`, `models.list`,
-`models.catalog`, `models.efforts`, `search.all`, `schedule.list` — and
-`file.read` and `avatar.read` start once the commands before them have
-finished and answer when they are ready, without holding up the commands
-behind them. Every command that writes keeps its place in the order, and so
-does `ping`, which is how a client learns that what it asked before landed.
+A command that names one teammate — by `personaId`, by a `thread` (a DM is
+its teammate's), by a `sideId`, or as the `id` of a `persona.*` command —
+keeps that teammate's own lane. It waits for that teammate's earlier
+commands, not other teammates or global work. Replies are correlated by id
+and may arrive out of order across lanes.
+
+Independent reads, including provider/model discovery, search, file reads,
+status and catalog queries, run concurrently with global mutations. Link
+previews and desk link/unlink requests also run independently. A read sees
+committed state when it runs; a client needing a preceding mutation must
+await its reply, or an ordered `ping`, before sending that read. `ping`
+orders global writes only; it is not a barrier for teammate lanes or reads.
+
+The reader continues observing cancellation and the lean silence deadline
+while commands wait. Remote work is cancelled on disconnect or revocation;
+already dispatched effects are not rolled back. Accepted desktop mutations
+finish after disconnect. Subscriptions are aborted when the seat ends,
+including when its ordered worker is still awaiting a command.
 
 A frame with no `id` is dropped. `id` is a JSON number (`i64`).
 
@@ -193,7 +198,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
-| `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads), and a remote one as `lean` ([the phone seat](#the-phone-seat)); the desk, owner and phone seats; an unknown name is ignored |
+| `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads), `rosterOptions` ([roster catalog updates](#the-roster-view)), and a remote one as `lean` ([the phone seat](#the-phone-seat)); the desk, owner and phone seats; an unknown name is ignored |
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
@@ -644,7 +649,7 @@ base URL, and are never returned in credential metadata.
 `credential.login` starts sign-in for a provider offering `oauth`, and
 answers with a login id and browser URL. ChatGPT, Copilot and xAI also provide
 a `userCode`; OpenRouter leaves it empty and uses a loopback PKCE callback.
-It is start-then-poll because commands run sequentially per socket.
+It is start-then-poll so a sign-in does not hold the ordered mutation worker.
 `credential.login_status` reports `pending`, `done`, or `failed`; an unknown
 id is an error, and a finished login stays queryable until process exit.
 The login id is the credential id. `credential.login_cancel {loginId}`
@@ -984,8 +989,19 @@ without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls
-behind on the room stream it reloads every row; a lagged burst of
-session-info is ignored.
+behind on the room stream it reloads every row; lagged session-info refreshes
+every row from current session state. Tape projections consume the tape
+broadcast, reseeding from disk only on opening or after tape lag.
+
+A client declaring `rosterOptions` in `client.hello` receives complete
+catalogs in each snapshot and the first row for a new teammate. Subsequent
+rows omit `session.models` and/or `session.slashCommands` when unchanged.
+Omission means retain that list from this subscription's previous row; an
+empty array means clear it. All other fields still replace the previous row.
+Reset the retained lists on a snapshot, and discard them on `removed` or
+unsubscribe. A client without this declaration receives full rows as before.
+The window folds these two fields in its wire layer, separately per
+subscription and desk, before delivering a `RosterEntry`.
 
 ## The schedules view
 
@@ -1097,6 +1113,8 @@ again on a failed turn only where the desk can run it; `schedules` is the schedu
 reading a thread between two teammates the way a tape is read; `threads2` is
 the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
 them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads));
+`rosterOptions` is omission of unchanged roster catalogs for a client that
+declares it ([The roster view](#the-roster-view));
 `lean` is phone-sized frames for a phone that names it in `client.hello`,
 whatever its role: snapshots, events, pages and roster rows cut as a
 companion's are, a subscription `window` ([Subscriptions](#subscriptions)),
@@ -1338,6 +1356,10 @@ while companions retain the 1 MiB output frame limit. Both use a bounded
 take are dropped instead. A frame the peer has not taken within 60 seconds
 also closes the socket, on every seat, so a phone that left the network
 without closing is dropped even when it is quiet and never named `lean`.
+Only a seat that exceeds the write deadline selects zero TCP linger before
+dropping its transport, discarding pending writes and resetting the connection.
+Ordinary WebSocket and HTTP closes retain normal drain-on-close behavior. A complete WebSocket close handshake still closes
+at the application layer; unfinished replies are not guaranteed delivery.
 These limits never widen a seat or fall back to plaintext.
 Rotation prevents a fixed set of anonymous connections from holding all
 reconnect slots, but cannot guarantee availability under sustained connection

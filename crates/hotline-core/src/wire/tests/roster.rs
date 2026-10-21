@@ -734,3 +734,184 @@ async fn a_tool_in_progress_is_the_rosters_activity_while_the_session_is_thinkin
     assert_eq!(idle_row["event"]["session"]["state"], "idle");
     assert!(idle_row["event"].get("activity").is_none(), "{idle_row}");
 }
+
+/// A long tape is seeded once. The same tool burst used to walk its tail
+/// and reach back for the message on every row; neither read is live work.
+#[tokio::test(flavor = "current_thread")]
+async fn live_roster_tools_do_not_read_tails_and_restart_recovers_the_same_row() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let quiet = Arc::new(Quiet::new());
+    let door = Door::bind(
+        log.clone(),
+        "desk-token".into(),
+        quiet.clone(),
+        Parts::default(),
+    )
+    .unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let persona_id = ada["id"].as_str().unwrap();
+    let tape = StreamId::Tape(persona_id.to_string());
+    quiet.set_info(thinking(persona_id));
+    for n in 0..384 {
+        log.append(
+            &tape,
+            &json!({"kind":"thought", "id":format!("old-{n}"), "ts":n, "text":"x".repeat(79_000)}),
+        )
+        .unwrap();
+    }
+    log.append(&tape, &json!({"kind":"agent", "id":"last", "ts":500, "text":"The result", "from":{"kind":"call","key":"call-1"}})).unwrap();
+    let mut card = json!({"kind":"human_action", "id":"card", "ts":501, "actionId":"action", "reason":"Review result", "status":"pending", "delivers":true});
+    log.append(&tape, &card).unwrap();
+    // Put the last message outside the small tail, but inside its next reach.
+    log.append(
+        &tape,
+        &json!({"kind":"thought", "id":"padding", "ts":502, "text":"x".repeat(100_000)}),
+    )
+    .unwrap();
+    let old_tail = crate::store::previews::tail(root.path(), persona_id);
+    let expected =
+        crate::store::previews::preview_reaching(root.path(), persona_id, &old_tail).unwrap();
+    let reads_before = crate::store::previews::reads::count(root.path());
+    let started = std::time::Instant::now();
+    ask(&mut socket, json!({"id":2, "sub":{"view":"roster"}})).await;
+    let first = roster_frame(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    let seed_time = started.elapsed();
+    let reads_after_seed = crate::store::previews::reads::count(root.path());
+    assert_eq!(first["snapshot"][0]["preview"], expected);
+    assert_eq!(first["snapshot"][0]["waiting"], true);
+    let started = std::time::Instant::now();
+    for n in 0..100 {
+        log.append(&tape, &json!({"kind":"tool", "id":"tool", "ts":600+n, "toolCallId":"call", "title":format!("Read {n}"), "status":"in_progress"})).unwrap();
+        let row = roster_frame(&mut socket, |frame| {
+            frame["event"]["activity"] == format!("Read {n}")
+        })
+        .await;
+        assert_eq!(row["event"]["preview"], expected);
+        assert_eq!(row["event"]["latest"], 500);
+        assert_eq!(row["event"]["waiting"], true);
+    }
+    let live_time = started.elapsed();
+    assert_eq!(
+        crate::store::previews::reads::count(root.path()),
+        reads_after_seed,
+        "ordinary tool updates must never read a tape tail"
+    );
+    card["status"] = json!("done");
+    log.append(&tape, &card).unwrap();
+    let settled = roster_frame(&mut socket, |frame| frame["event"]["waiting"] == false).await;
+    let settled = settled["event"].clone();
+    socket.close(None).await.unwrap();
+    server.abort();
+    let _ = server.await;
+
+    // A new Log has neither live projections nor any warmed folds.
+    let restarted = Log::open(root.path());
+    let door = Door::bind(restarted, "desk-token".into(), quiet, Parts::default()).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let mut socket = desk(port).await;
+    ask(&mut socket, json!({"id":3, "sub":{"view":"roster"}})).await;
+    let recovered = roster_frame(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert_eq!(recovered["snapshot"][0], settled);
+    eprintln!(
+        "29 MB roster: seed {seed_time:?}, 100 acknowledged tool rows {live_time:?}, live tail reads 0 (old seed used {reads_before} tail windows)"
+    );
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_lagged_tape_projection_recovers_messages_tools_and_cards() {
+    let (root, log, port) = door("roster-projection-lag");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let tape = StreamId::Tape(ada["id"].as_str().unwrap().to_string());
+    ask(&mut socket, json!({"id":2, "sub":{"view":"roster"}})).await;
+    roster_frame(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    for n in 0..1_200 {
+        log.append(
+            &tape,
+            &json!({"kind":"user", "id":format!("u{n}"), "ts":n, "text":format!("line {n}")}),
+        )
+        .unwrap();
+    }
+    log.append(&tape, &json!({"kind":"human_action", "id":"card", "ts":1201, "actionId":"action", "reason":"Review", "status":"pending"})).unwrap();
+    let recovered = roster_frame(&mut socket, |frame| frame["event"]["waiting"] == true).await;
+    assert_eq!(recovered["event"]["preview"]["text"], "line 1199");
+    assert_eq!(
+        crate::store::previews::reads::count(&root),
+        1,
+        "only lag recovery reads a nonempty tape tail"
+    );
+}
+
+#[tokio::test]
+async fn roster_catalogs_are_sent_on_change_and_on_every_snapshot() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("roster-catalogs", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let persona_id = ada["id"].as_str().unwrap();
+    ask(
+        &mut socket,
+        json!({"id":2, "cmd":"client.hello", "params":{"capabilities":["rosterOptions"]}}),
+    )
+    .await;
+    let hello = roster_frame(&mut socket, |frame| frame["id"] == 2).await;
+    assert!(
+        hello["result"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("rosterOptions"))
+    );
+    ask(&mut socket, json!({"id":3, "sub":{"view":"roster"}})).await;
+    let first = roster_frame(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert_eq!(first["snapshot"][0]["session"]["models"], json!([]));
+    assert_eq!(first["snapshot"][0]["session"]["slashCommands"], json!([]));
+    let mut info = thinking(persona_id);
+    info.models = serde_json::from_value(json!([{"id":"model", "name":"A model"}])).unwrap();
+    info.slash_commands =
+        serde_json::from_value(json!([{"name":"help", "description":"Help"}])).unwrap();
+    quiet.set_info(info.clone());
+    let changed = roster_frame(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(changed["event"]["session"]["models"], json!(info.models));
+    assert_eq!(
+        changed["event"]["session"]["slashCommands"],
+        json!(info.slash_commands)
+    );
+    log.append(
+        &StreamId::Tape(persona_id.to_string()),
+        &json!({"kind":"user", "id":"u", "ts":1, "text":"Hi"}),
+    )
+    .unwrap();
+    let unchanged = roster_frame(&mut socket, |frame| frame["event"].is_object()).await;
+    assert!(unchanged["event"]["session"].get("models").is_none());
+    assert!(unchanged["event"]["session"].get("slashCommands").is_none());
+    info.models.clear();
+    quiet.set_info(info.clone());
+    let cleared = roster_frame(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(cleared["event"]["session"]["models"], json!([]));
+    assert!(cleared["event"]["session"].get("slashCommands").is_none());
+    ask(&mut socket, json!({"id":4, "sub":{"view":"roster"}})).await;
+    let fresh = roster_frame(&mut socket, |frame| {
+        frame["sub"] == 4 && frame["snapshot"].is_array()
+    })
+    .await;
+    assert_eq!(
+        fresh["snapshot"][0]["session"]["slashCommands"],
+        json!(info.slash_commands)
+    );
+}
+
+async fn roster_frame(socket: &mut Socket, wanted: impl Fn(&Value) -> bool) -> Value {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        heard_where(socket, wanted),
+    )
+    .await
+    .expect("the roster frame arrives")
+}

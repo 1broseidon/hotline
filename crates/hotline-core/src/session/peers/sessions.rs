@@ -270,14 +270,18 @@ impl Room {
     /// Whether a peer turn this teammate is answering in has a card waiting on
     /// the person.
     pub(in crate::session) fn peer_cards_waiting(&self, persona_id: &str) -> bool {
-        let keys: Vec<String> = lock(&self.peers.sessions)
+        let sessions: Vec<_> = lock(&self.peers.sessions)
             .values()
             .filter(|live| live.target_id == persona_id)
-            .map(|live| live.thread_key.clone())
+            .cloned()
             .collect();
-        keys.iter().any(|key| {
-            self.peers.answering_in(key).is_some()
-                && crate::session::sides::waiting_on(&self.log.load(&StreamId::Pair(key.clone())))
+        sessions.iter().any(|live| {
+            self.peers.answering_in(&live.thread_key).is_some()
+                && crate::session::threads::cards_waiting(
+                    &self.log,
+                    &ThreadId::pair(&live.thread_key),
+                    &live.roster,
+                )
         })
     }
 
@@ -381,6 +385,7 @@ impl Room {
 
         let now = now_ms();
         let live = Arc::new(PeerSession {
+            roster: Mutex::default(),
             driver: agent.driver.clone(),
             caller_capability: peer_caller_capability,
             target_capability,

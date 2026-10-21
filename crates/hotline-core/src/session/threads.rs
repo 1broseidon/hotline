@@ -269,6 +269,24 @@ impl Room {
     }
 }
 
+/// The live thread owns its projection, so parking it releases the broadcast
+/// and the next activation seeds from the recovered stream again.
+pub(super) fn cards_waiting(
+    log: &crate::log::Log,
+    thread: &ThreadId,
+    kept: &std::sync::Mutex<Option<crate::store::previews::live::Live>>,
+) -> bool {
+    let mut kept = super::lock(kept);
+    let live = kept.get_or_insert_with(|| {
+        crate::store::previews::live::Live::new(
+            log,
+            StreamId::of_thread(thread).expect("a live thread has a stream"),
+        )
+    });
+    live.refresh();
+    live.state.thread_waiting()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,7 +511,7 @@ mod tests {
         room.run(spec(&room, "r1"), CancellationToken::new()).await;
 
         let ids: Vec<String> = ThreadStore::new(&room.log)
-            .all()
+            .list_from(None, &room.log.load(&StreamId::Room))
             .into_iter()
             .map(|thread| thread.id.to_string())
             .collect();

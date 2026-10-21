@@ -148,6 +148,7 @@ pub(super) fn work_preamble(
 
 /// One live side thread.
 pub(super) struct LiveSide {
+    roster: Mutex<Option<crate::store::previews::live::Live>>,
     pub(super) id: String,
     pub(super) thread: ThreadId,
     persona_id: String,
@@ -730,6 +731,7 @@ impl Room {
             })
             .map(|saved| saved.session_id);
         let live = Arc::new(LiveSide {
+            roster: Mutex::default(),
             id: start.thread.key.clone(),
             thread: start.thread,
             persona_id: persona_id.to_string(),
@@ -1134,9 +1136,11 @@ impl Room {
         Ok("Opened in the person's browser on this computer.".into())
     }
 
-    /// The side threads this teammate has live, oldest first, for its roster
-    /// row.
+    /// Whether this work thread has a turn in flight, without listing its history.
     pub(crate) fn work_thread_working(&self, thread: &ThreadId) -> bool {
+        if thread.kind == ThreadKind::Pair {
+            return self.peers.answering_in(&thread.key).is_some();
+        }
         self.sides
             .get(&thread.key)
             .is_some_and(|live| live.thread == *thread && live.working())
@@ -1195,13 +1199,10 @@ impl Room {
     /// Whether a live side thread of this teammate is stopped on a card, for
     /// the roster row.
     pub(super) fn side_cards_waiting(&self, persona_id: &str) -> bool {
-        self.sides.of(persona_id).iter().any(|side| {
-            waiting_on(
-                &self
-                    .log
-                    .load(&StreamId::of_thread(&side.thread).expect("work has a stream")),
-            )
-        })
+        self.sides
+            .of(persona_id)
+            .iter()
+            .any(|side| super::threads::cards_waiting(&self.log, &side.thread, &side.roster))
     }
 
     /// Archives every thread this teammate has: its authority is gone, so

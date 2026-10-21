@@ -164,6 +164,24 @@ importer reads a data directory the shipping Hotline is still using and never
 writes into it: George runs the old app daily until Phase 1 replaces it, and
 this tree becomes the `hotline` repository when it does.
 
+The log owns a shared in-memory fold under its writer lock. The room stays
+resident; other streams share a least-recently-read cache of at most 64 streams
+and 64 MiB of estimated retained memory, including JSON and id-index overhead.
+An oversized stream is read cold. Appends replace an id in its original slot
+and update the latest chapter and message positions before publishing. Prompt
+and idle checks read that chapter state without copying the tape. Compaction
+and migrations invalidate affected folds; restart rebuilds them from disk.
+Unterminated files and partial reads are not retained. Failure-sensitive and
+strict reads still inspect disk, so caching cannot turn a storage error into
+an authoritative answer. Only the log writes streams during its lifetime;
+imports finish before it opens. Event shapes and segment layout are unchanged. Model listing
+resolves vault connections and their discovery/manual records once per request,
+using one room snapshot for credentials and enabled models. No secret survives
+in a listing cache. Thread listing scans the side and pair directories once,
+reads each selected tape once, and asks the shared fold for thread links without
+copying unrelated side histories. Pair working state comes from live sessions,
+not from rebuilding the peer history list.
+
 ### 2. A wire of commands and subscriptions
 
 Hotline's contract is 135 request methods and 14 pushes, gated per method per
@@ -182,6 +200,36 @@ seat. Here the wire is one WebSocket carrying three things:
   last line, that line's ts, the live tool title while thinking, and live
   session state). Unread is the window's: it remembers the latest ts it
   has shown per teammate. A view is a snapshot followed by updates.
+
+The live roster keeps a small projection per watched tape: the last visible
+message, the current tool title and pending card ids. Live work and peer
+sessions likewise keep their pending-card projection for their own lifetime.
+Log seeds these from the folded stream and hands over a broadcast under the
+same writer lock; a lagged receiver replaces both together. This is derived
+state, not another folded-history cache: ordinary tool and session updates
+read no tape tails or peer/side files. The cold tape seed also reads its raw
+tail for tool activity, whose append order differs from folded id order;
+this prevents an overlapping completed tool from resurrecting an older title
+on restart. Message and card recovery is not limited by the old tail windows.
+
+Clients declaring `rosterOptions` keep `session.models` and
+`session.slashCommands` when a row omits them. Every snapshot and new row
+includes both; later rows send each only when it changes, including an empty
+array to clear it. Other fields still replace the previous row. Older clients
+continue receiving complete rows, and the window restores the two lists in
+its wire layer before delivering rows to its callers.
+
+The socket reader dispatches independent reads concurrently with global
+mutations. Global writes, `ping` and subscription controls keep their arrival
+order in a worker; commands naming a teammate keep that teammate's lane.
+Reads observe committed state when they run, so a client needing a prior
+write waits for its reply first. Negotiation stays on the reader, and neither
+command work nor ordering waits suspend cancellation or the silence timer.
+Remote work is cancelled with its seat; accepted desktop writes finish.
+A seat whose frame waits past the write deadline resets its TCP transport,
+discarding queued bytes. Only that timeout selects zero linger: ordinary
+WebSocket closes must drain final pairing and authentication replies, including
+on Windows.
 
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a paired owner has the same command and subscription set. A
@@ -546,6 +594,29 @@ subscription wire; `../hotline/src/mainview` is the reference for which
 screens exist and how they behave, and a component is lifted from it only
 where that is cheaper than writing it. Bun and Node exist only as the UI's
 build tools; nothing runs on them.
+
+The window's shared thread store keeps raw streaming text privately and
+publishes whole reply bubbles, every growing thought, and the presence of a
+reply even before its first bubble is whole (the mark reads that as writing).
+A frame that changes none of those wakes no reader. Queued words and the
+durable event that settles them publish together; only the raw fold settles
+bubble remainders, so a hidden final paragraph cannot be lost. Live timestamps
+are fixed on first arrival. Cadence still controls when whole bubbles appear;
+header controls and work-card follow layout do not rerun for unrelated body
+updates. `ui/tests/streaming-store.test.tsx` exercises this subscription boundary
+and the final rendered reply, alongside the pacing and cadence tests.
+
+Room-wide picker and inspector metadata (backend names, model efforts and
+voice capability choices) shares in-flight and settled reads within one desk
+connection. Room credential/model events, settings changes other than the
+last-used model, and reconnect snapshots discard those reads. An unobserved
+room reloads before serving them again; a replaced endpoint or token owns a
+new cache. No credential read or persona computer status enters this cache.
+The latter still refreshes per teammate and on its existing timer.
+`ui/tests/room-reads.test.tsx` measures twenty teammate selections: model
+efforts 10 → 1, backends 20 → 1, voice status 20 → 1, capabilities 20 → 1,
+with computer status unchanged at 20. It also checks mounted invalidation,
+remote desk isolation and late replies.
 
 Providers use Rig's native clients for inference. Rig also signs ChatGPT and
 Copilot in and refreshes them, through Hotline's own token store over each

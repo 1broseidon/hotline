@@ -640,6 +640,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        roster_options: Arc::default(),
         lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),

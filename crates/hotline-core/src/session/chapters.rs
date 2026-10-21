@@ -27,6 +27,7 @@
 use super::{BUSY_RECHECK_MS, FIRST_SWEEP, Room, SWEEP_EVERY, lock, new_id, now_ms};
 use crate::contract::{ChapterClose, ChapterStatus, ChapterSummary, Persona, TranscriptEvent};
 use crate::driver::HOTLINE_BACKEND_ID;
+use crate::log::StreamId;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::chapters::{is_message, open_chapter, previous_chapter};
@@ -745,7 +746,12 @@ impl Room {
 
     /// Opens a chapter, unless one is already open.
     pub(super) fn begin_chapter(&self, persona_id: &str, backend_id: &str) {
-        if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
+        if self
+            .log
+            .chapter_activity(&StreamId::Tape(persona_id.to_string()))
+            .0
+            .is_some()
+        {
             return;
         }
         self.write(persona_id, &opened(backend_id, new_id(), now_ms()));
@@ -1030,11 +1036,13 @@ impl Room {
     /// room allows, counted from the last thing said in it.
     pub(super) fn went_quiet(&self, persona_id: &str, now: i64) -> bool {
         let idle_ms = idle_ms(&room::settings(&self.log));
-        let events = self.tape(persona_id);
-        let Some(open) = chapter_view::open_chapter(&events) else {
+        let (open, activity) = self
+            .log
+            .chapter_activity(&StreamId::Tape(persona_id.to_string()));
+        let Some(open) = open else {
             return false;
         };
-        let last = chapter_view::last_activity(chapter_view::slice_of(&events, open))
+        let last = activity
             .or_else(|| open.get("ts").and_then(Value::as_i64))
             .unwrap_or(now);
         now - last >= idle_ms

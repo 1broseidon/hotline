@@ -15,5 +15,13 @@ description: |-
   Split the independent former scope into task-46 (roster projections), task-47 (list reads), and task-48 (write locks/indexing). Those tasks remain children of epic-5 and should reuse this cache instead of inventing competing ones.
 
   Migration source: BRO-235, with BRO-237/239/240 now tracked by the split tasks.
-updatedAt: "2026-10-14T20:05:18.410Z"
+updatedAt: "2026-10-21T09:10:49.085Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T09:10:48.958Z"
+  until: done
+  tries: 0
+assignee: codex
 ---

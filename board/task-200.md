@@ -12,6 +12,15 @@ relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common/mod.rs
 createdAt: "2026-10-19T10:27:43.228Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T09:10:49.489Z"
+  until: done
+  tries: 0
+assignee: codex
+updatedAt: "2026-10-21T09:10:49.620Z"
 ---
 
 ## Description

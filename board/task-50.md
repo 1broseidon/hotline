@@ -34,3 +34,4 @@ Split from task-22, preserving BRO-244. Room-wide model efforts, backends and ca
 
 ## Log
 - 2026-10-21T10:49:56.095Z: [claude] 2026-10-21 Pork Chop: lands on dispatch/epic-5 (now dfb4048d: task-19, 46, 22, 20). Before done: merge dispatch/epic-5 into your branch, run make check in the foreground on the merged result, commit, and show a before/after measurement.
+- 2026-10-21T10:52:59.952Z: [codex] Tracing confirms repeated models.efforts, backends.list, voice.status and capabilities.options on picker/inspector remounts. Implementing explicit metadata-only reads keyed by Wire identity and room change epoch, with synchronous reuse and coalesced promises; computer.status remains uncached.

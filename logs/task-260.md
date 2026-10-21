@@ -1,8 +1,6 @@
 ---
 id: task-260
 title: "Legacy: the progress line varies instead of repeating 'I'm still working on that.'"
-column: review
-position: 1
 priority: medium
 tags:
   - voice
@@ -20,10 +18,13 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T19:59:38.896Z"
+    ended: "2026-10-21T20:13:33.530Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T20:13:22.598Z"
+updatedAt: "2026-10-21T20:13:33.530Z"
 decisions:
   - decision-28
+completedAt: "2026-10-21T20:13:33.044Z"
 ---
 
 ## Description
@@ -33,3 +34,4 @@ George, 2026-10-21: vary it. task-256 says 'I'm still working on that.' after ea
 - 2026-10-21T20:00:22.635Z: [codex] Started on dispatch/task-260; release/0.42.0 is already contained in HEAD (no merge needed). Keeping feedback queue/cadence/turn guards; rotating neutral first-person lines and extending paused-clock coverage to three consecutive lines.
 - 2026-10-21T20:09:14.756Z: [codex] Implemented neutral three-line rotation in the existing Legacy speech queue, preserving timing and guards. Unit and real-wire tests now verify three non-repeating lines (both drivers), with completion/hold silence retained. make check passed; make precheck running. Decision-28 updates the wording rule as requested.
 - 2026-10-21T20:13:22.104Z: [codex] Committed e51a1940 on dispatch/task-260: neutral progress lines rotate without consecutive repeats; 20 s cadence and turn guards unchanged. Paused-clock and real-wire tests cover three lines on both drivers. make check and all eight make precheck legs passed (disk exhaustion resolved with cargo clean -p hotline-core). Design and decision-28 updated. Next: reviewer inspect and merge into release/0.42.0; no push or branch switch performed.
+- 2026-10-21T20:13:32.071Z: Landed on release/0.42.0

@@ -248,6 +248,17 @@ fn unfinished_dictation(text: &str, already_open: bool) -> bool {
         || words
             .iter()
             .any(|word| matches!(word.as_str(), "draft" | "say" | "write"));
+    // "Write that." and "a reply to that" are finished: "that" dangles only
+    // where it opens a clause ("saying that…").
+    if let [.., before, last] = words.as_slice()
+        && last == "that"
+    {
+        return dictating
+            && matches!(
+                before.as_str(),
+                "saying" | "says" | "said" | "telling" | "explaining" | "noting" | "so"
+            );
+    }
     // Punctuation from STT is not evidence of completion. These dangling
     // words need their object or clause even when STT adds a full stop.
     dictating
@@ -304,6 +315,9 @@ mod tests {
         for text in [
             "Draft a harbour note.",
             "Write that down.",
+            "Okay, write that.",
+            "Say that.",
+            "Draft a reply to that.",
             "Say hello.",
             "What is that?",
         ] {

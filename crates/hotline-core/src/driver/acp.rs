@@ -39,6 +39,8 @@ use super::{
     CapabilityLease, Driver, DriverInfo, MessageKind, SubagentReport, ToolImage, Update, clip,
     with_image_placeholders,
 };
+use crate::accounts::resolve::ResolvedAccount;
+use crate::accounts::support::account_support;
 use crate::contract::{
     AgentKind, Attachment, NoticeLevel, PermissionOption as CardOption, Persona, Reach,
     SessionCapabilities, SubagentStatus, TokenUsage, ToolSourceKind, ToolState,
@@ -364,6 +366,9 @@ pub struct ChildAgent {
     launch: Mutex<Option<registry::Launch>>,
     start_bounds: StartBounds,
     operation_gate: tokio::sync::Mutex<()>,
+    /// Fixed for the driver's life: a teammate moved to another account gets
+    /// a new driver.
+    account: Option<ResolvedAccount>,
 }
 
 impl ChildAgent {
@@ -393,7 +398,23 @@ impl ChildAgent {
             launch: Mutex::new(None),
             start_bounds: StartBounds::default(),
             operation_gate: tokio::sync::Mutex::new(()),
+            account: None,
         }
+    }
+
+    pub(crate) fn with_account(mut self, account: Option<ResolvedAccount>) -> Self {
+        self.account = account;
+        self
+    }
+
+    fn account_id(&self) -> Option<&str> {
+        self.account.as_ref().map(|account| account.id.as_str())
+    }
+
+    /// From the agent's row whether or not the teammate is on an account, so
+    /// a System default teammate's usage limit is told apart too.
+    fn usage_limit_prefixes(&self) -> &'static [&'static str] {
+        account_support(&self.backend_id).map_or(&[], |support| support.usage_limit_prefixes)
     }
 
     pub(crate) fn with_start_bounds(mut self, bounds: StartBounds) -> Self {
@@ -555,13 +576,18 @@ impl Driver for ChildAgent {
 
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         self.check_capability()?;
+        // Kept before the folder check: a refused start's next prompt restarts
+        // from it, and replays the refusal instead of losing the teammate.
+        *lock(&self.persona) = Some(persona.clone());
+        if let Some(refused) = self.refuse_unavailable_folder(persona) {
+            return Ok(refused);
+        }
         // This start runs on the catalogue it has; a day-old one is fetched
         // again behind it, for the next.
         registry::refresh_in_background(&self.root);
         registry::install(&self.root, &self.backend_id).await?;
         let launch = registry::launch(&self.root, &self.backend_id)?;
         *lock(&self.launch) = Some(launch.clone());
-        *lock(&self.persona) = Some(persona.clone());
         let bound = if registry::started_before(&self.root, &launch) {
             self.start_bounds.known
         } else {
@@ -676,6 +702,8 @@ impl Driver for ChildAgent {
         }
         let live = self.live.clone();
         let capability = self.capability.clone();
+        let usage_limit_prefixes = self.usage_limit_prefixes();
+        let account_id = self.account_id().map(str::to_string);
         tokio::spawn(async move {
             if let Some(capability) = &capability
                 && let Err(error) = capability.check()
@@ -760,8 +788,11 @@ impl Driver for ChildAgent {
                     if !cancelled {
                         let failure = auth::failure(
                             &live,
-                            &format!("{error}{}", live.stderr_hint()),
+                            &error.to_string(),
+                            &live.stderr_hint(),
                             "acp_prompt",
+                            usage_limit_prefixes,
+                            account_id.as_deref(),
                         );
                         let _ = sender
                             .send(Update::Notice {

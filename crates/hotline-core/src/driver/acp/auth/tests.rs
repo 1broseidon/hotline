@@ -1,5 +1,6 @@
+use crate::accounts::support::CLAUDE;
 use crate::driver::acp::tests::{
-    agent_pipes, client_transport, persona, room, scratch, scratch_cwd,
+    agent_pipes, client_transport, persona, resolved, room, scratch, scratch_cwd,
 };
 use crate::driver::acp::*;
 use acp::{
@@ -205,11 +206,19 @@ fn auth_prompt_failures_only_expose_safe_initialized_descriptors() {
     *lock(&live.auth_methods) = vec![acp::AuthMethod::Terminal(
         acp::AuthMethodTerminal::new("login", "Sign in").args(vec!["do-not-persist".into()]),
     )];
-    let notice = auth::failure(&live, "authentication required", "acp_prompt").notice();
+    let notice = auth::failure(
+        &live,
+        "authentication required",
+        "",
+        "acp_prompt",
+        &[],
+        None,
+    )
+    .notice();
     assert_eq!(notice.contains("signIn"), cfg!(unix));
     assert!(!notice.contains("do-not-persist"));
     assert!(
-        !auth::failure(&live, "ordinary failure", "acp_prompt")
+        !auth::failure(&live, "ordinary failure", "", "acp_prompt", &[], None)
             .notice()
             .contains("signIn")
     );
@@ -228,7 +237,10 @@ fn a_harness_too_old_for_its_model_is_named_on_its_card() {
     let notice = auth::failure(
         &live,
         "Internal error: The 'gpt-5.5-codex' model requires a newer version of Codex.",
+        "",
         "acp_prompt",
+        &[],
+        None,
     )
     .notice();
     assert!(
@@ -236,6 +248,60 @@ fn a_harness_too_old_for_its_model_is_named_on_its_card() {
         "{notice}"
     );
     assert!(notice.contains(r#""kind":"harness_outdated""#), "{notice}");
+}
+
+#[tokio::test]
+async fn agent_auth_is_refused_for_a_teammate_on_an_account() {
+    let held = room("auth-account");
+    let driver = Arc::new(
+        ChildAgent::new(
+            scratch("auth-account"),
+            "claude-acp".into(),
+            "fixture".into(),
+            TeammateTools::new(&held, "ada"),
+        )
+        .with_account(Some(resolved("b", scratch("auth-account-folder")))),
+    );
+    assert_eq!(
+        driver
+            .clone()
+            .auth_start("login", CancellationToken::new())
+            .await
+            .unwrap_err(),
+        "Sign in Account 2 from its account instead."
+    );
+    assert!(lock(&driver.live.auth).is_none());
+}
+
+#[test]
+fn an_account_teammates_cards_carry_its_account_and_never_the_harness_methods() {
+    let live = Live::default();
+    *lock(&live.auth_methods) = vec![acp::AuthMethod::Agent(acp::AuthMethodAgent::new(
+        "login",
+        "Harness login",
+    ))];
+    lock(&live.session).info.agent_name = "Claude Code".into();
+    let prefixes = CLAUDE.usage_limit_prefixes;
+    let failure = |text: &str, account_id| {
+        auth::failure(&live, text, "", "acp_prompt", prefixes, account_id).notice()
+    };
+    assert!(failure("authentication required", None).contains("signIn"));
+    let notice = failure("authentication required", Some("b"));
+    assert!(
+        notice.contains(r#""kind":"agent_auth""#)
+            && notice.contains(r#""accountId":"b""#)
+            && !notice.contains("signIn"),
+        "{notice}"
+    );
+    let notice = failure(
+        "Internal error: You've hit your limit · resets 3pm (Europe/Lisbon)",
+        Some("b"),
+    );
+    assert!(
+        notice.starts_with("Claude Code usage limit reached: You've hit your limit")
+            && notice.contains(r#""accountId":"b""#),
+        "{notice}"
+    );
 }
 
 #[test]

@@ -427,6 +427,10 @@ pub struct VoiceBudget {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct VoiceStatus {
+    /// The selected model is live, even when its login or budget is unavailable.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub live_selected: bool,
     #[serde(default)]
     pub capabilities: Vec<String>,
     pub available: bool,
@@ -740,12 +744,14 @@ pub struct VoiceFront {
     pub output_rate: u32,
 }
 
-/// What answers the person on a call. Omission is the pipeline.
+/// What answers the person on a call. Omission follows Settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum VoiceCallMode {
     #[default]
+    Selected,
+    /// An explicit choice to use Legacy voice for this call.
     Pipeline,
     Front,
 }
@@ -793,6 +799,9 @@ pub enum VoiceEndReason {
 pub enum VoiceEvent {
     State {
         state: VoiceState,
+        /// A live call failed; a new Legacy call requires the person to choose it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        live_error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<VoiceEndReason>,
         /// On `thinking`: the teammate's turn is still working and the call
@@ -841,9 +850,7 @@ pub enum VoiceEvent {
     /// answer with `voice.front_barge`, the milliseconds actually played.
     #[serde(rename = "frontStop")]
     FrontStop {},
-    /// Front call: the front is gone, for the rest of the call. The call
-    /// goes on as a pipeline call, taking the utterances and text a pipeline
-    /// call takes.
+    /// Older desks used this to switch to Legacy. Clients must stop instead.
     #[serde(rename = "frontEnded")]
     FrontEnded {},
 }

@@ -326,3 +326,11 @@ async fn a_live_call_moves_onto_a_replacement_before_the_session_ends() {
     assert!(!said_after.trim().is_empty(), "the replacement spoke");
     session.close().await;
 }
+
+#[test]
+fn the_chatgpt_login_never_requests_the_rejected_responses_backend() {
+    let session = session_settings("Use your tools to check the build.", "cove");
+    assert_eq!(session["delegation"], json!({"type":"client"}));
+    assert!(session.get("tools").is_none());
+    assert_eq!(session["model"], MODEL);
+}

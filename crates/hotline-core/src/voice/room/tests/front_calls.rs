@@ -62,11 +62,6 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
     assert!(call.front.is_some(), "{call:?}");
     assert!(
         calls
-            .test_change(&id, |c| Ok(c.speech_services.front_only))
-            .unwrap()
-    );
-    assert!(
-        calls
             .start_call(
                 &id,
                 CallRequest {

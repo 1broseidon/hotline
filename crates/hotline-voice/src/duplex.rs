@@ -251,35 +251,41 @@ impl Calls {
             .map_err(|_| "The front is no longer on the call.".to_string())
     }
 
-    /// The front is gone for the rest of the call, which goes on as a
-    /// pipeline call; a desk with no pipeline to fall back on ends it.
-    pub(super) fn lose_front(&self, id: &str) {
-        let pipeline = self.change(id, |call| {
-            Ok(call
-                .speech_services
-                .front_only
-                .then(|| (call.input_mode, call.target.clone())))
-        });
-        if let Ok(Some((input_mode, target))) = pipeline {
-            if let Ok(services) = self.resolve_speech(input_mode, target.as_deref()) {
-                let _ = self.change(id, |call| {
-                    call.speech_services = services;
-                    Ok(())
-                });
-            } else {
-                let _ = self.finish(id, VoiceEndReason::Error);
-                return;
-            }
-        }
+    /// A failed live call ends visibly. Only a new explicit choice starts Legacy.
+    pub(super) fn fail_front(&self, id: &str, reason: String) {
+        eprintln!("[voice] call {id}: live failed, awaiting explicit Legacy choice: {reason}");
         let _ = self.change(id, |call| {
-            if call.front.take().is_some() {
-                let _ = call.events.send(VoiceEvent::FrontEnded {});
-                if call.state == VoiceState::Speaking {
-                    call.state(call.resting(), None);
-                }
-            }
+            call.live_error = Some(reason);
+            call.state(VoiceState::Ended, Some(VoiceEndReason::Error));
             Ok(())
         });
+    }
+
+    pub(super) fn front_selected(&self) -> bool {
+        if hotline_room::room::settings(&self.log)
+            .get("voice")
+            .and_then(|voice| voice.get("front"))
+            .is_some()
+        {
+            return self.settings().front.is_some();
+        }
+        self.injected.as_ref().map_or_else(
+            || self.settings().front.is_some(),
+            |services| services.realtime.is_some(),
+        )
+    }
+
+    pub(super) fn required_front(&self) -> Result<Arc<dyn Realtime>, String> {
+        let front = self.realtime().ok_or_else(|| {
+            match self.settings().front.map(|front| front.provider) {
+                Some(FrontProvider::GptLive) => "Live voice needs a ChatGPT sign-in in Settings.",
+                Some(FrontProvider::OpenAi) => "Live voice needs an OpenAI API key in Settings.",
+                _ => "Live voice needs an xAI sign-in or API key in Settings.",
+            }
+            .to_string()
+        })?;
+        self.front_ready(front.as_ref())?;
+        Ok(front)
     }
 
     /// The call ended with the person's last words unanswered: they go to
@@ -329,14 +335,22 @@ impl Calls {
         } else {
             front::Speaks::ForDesk
         };
-        let Ok(bridge) = front::Front::open(&self, &id, speaks) else {
-            return;
+        let bridge = match front::Front::open(&self, &id, speaks) {
+            Ok(bridge) => bridge,
+            Err(error) => {
+                self.fail_front(&id, error);
+                return;
+            }
         };
         // A call to a teammate holds the teammate's desk-side tools; a desk
         // call speaks for no one teammate and holds none.
         let desk_tools = match (&persona, self.live_room()) {
             (Some(persona), Some(room)) => {
                 let Ok(reach) = room.front_reach(persona) else {
+                    self.fail_front(
+                        &id,
+                        "Live voice could not open the teammate’s tools.".into(),
+                    );
                     return;
                 };
                 let Some(thread) = lock(&self.calls)
@@ -344,6 +358,7 @@ impl Calls {
                     .find(|call| call.id == id)
                     .and_then(|call| call.thread.clone())
                 else {
+                    self.fail_front(&id, "Live voice could not find the call’s thread.".into());
                     return;
                 };
                 let opened = tokio::select! {
@@ -379,35 +394,105 @@ impl Calls {
             input_rate: FRONT_RATE,
             output_rate: FRONT_RATE,
         };
-        let bridge = bridge.with_desk_tools(desk_tools).with_delegation(mind);
+        let mut bridge = bridge.with_desk_tools(desk_tools).with_delegation(mind);
         let opened = tokio::select! {
             () = cancel.cancelled() => return,
-            opened = realtime.open(config) => opened,
+            opened = realtime.open(config.clone()) => opened,
         };
         let session = match opened {
             Ok(session) => session,
             Err(error) => {
                 eprintln!("[voice] the front could not open: {error}");
-                self.lose_front(&id);
+                self.fail_front(&id, format!("Live voice could not start: {error}"));
                 return;
             }
         };
-        let since = Instant::now();
         let mut kept = Kept::default();
-        let ended = self
-            .carry_front(&id, realtime.as_ref(), session, bridge, &cancel, &mut kept)
-            .await;
-        let rest = since.elapsed().as_secs_f64() % SPEND_EVERY.as_secs_f64();
-        let _ = self.front_spend(realtime.as_ref(), rest);
+        let mut session = session;
+        let mut recovered = false;
+        let ended = loop {
+            eprintln!(
+                "[voice] call {id}: live connected provider={} model={}",
+                realtime.id().provider_id,
+                realtime.id().model_id
+            );
+            let progress = (kept.heard, kept.replies);
+            let since = Instant::now();
+            let ended = self
+                .carry_front(
+                    &id,
+                    realtime.as_ref(),
+                    session,
+                    &mut bridge,
+                    &cancel,
+                    &mut kept,
+                )
+                .await;
+            let rest = since.elapsed().as_secs_f64() % SPEND_EVERY.as_secs_f64();
+            if self.front_spend(realtime.as_ref(), rest).is_err() {
+                break FrontEnd::Budget;
+            }
+            if !matches!(ended, FrontEnd::Lost) {
+                break ended;
+            }
+            if (kept.heard, kept.replies) != progress {
+                recovered = false;
+            }
+            if !self.front_connected(realtime.as_ref()) || recovered {
+                eprintln!(
+                    "[voice] call {id}: reconnect unavailable: login revoked or replacement failed"
+                );
+                break FrontEnd::Lost;
+            }
+            if self.front_ready(realtime.as_ref()).is_err() {
+                break FrontEnd::Budget;
+            }
+            eprintln!("[voice] call {id}: provider lost; reconnecting with call context");
+            let _ = self.change(&id, |call| {
+                if let Some(front) = &mut call.front {
+                    front.input = None;
+                }
+                let _ = call.events.send(VoiceEvent::FrontStop {});
+                Ok(())
+            });
+            let mut replacement = config.clone();
+            replacement.instructions = kept.carry.instructions(&config.instructions);
+            let opened = tokio::select! {
+                () = cancel.cancelled() => break FrontEnd::Call,
+                opened = tokio::time::timeout(Duration::from_secs(30), realtime.open(replacement)) => opened,
+            };
+            match opened {
+                Ok(Ok(fresh)) => {
+                    session = fresh;
+                    recovered = true;
+                }
+                failure => {
+                    eprintln!(
+                        "[voice] call {id}: reconnect failed: {}",
+                        match failure {
+                            Ok(Err(error)) => error.to_string(),
+                            _ => "provider timed out".into(),
+                        }
+                    );
+                    break FrontEnd::Lost;
+                }
+            }
+        };
         match ended {
             FrontEnd::Call => {
                 if let (Some(persona), Some((words, seq))) = (persona, kept.unanswered) {
                     self.follow_up(&id, &persona.id, words, seq);
                 }
             }
-            FrontEnd::Lost => self.lose_front(&id),
+            FrontEnd::Lost => self.fail_front(
+                &id,
+                "Live voice disconnected and could not reconnect.".into(),
+            ),
             FrontEnd::Budget => {
-                let _ = self.finish(&id, VoiceEndReason::Budget);
+                self.fail_front(
+                    &id,
+                    "Live voice stopped because the voice budget is spent.".into(),
+                );
             }
         }
     }
@@ -417,11 +502,16 @@ impl Calls {
         id: &str,
         realtime: &dyn Realtime,
         session: RealtimeSession,
-        mut bridge: front::Front,
+        bridge: &mut front::Front,
         cancel: &CancellationToken,
         kept: &mut Kept,
     ) -> FrontEnd {
-        let Kept { unanswered } = kept;
+        let Kept {
+            unanswered,
+            carry,
+            heard,
+            replies,
+        } = kept;
         let RealtimeSession { input, mut events } = session;
         let connected = self.change(id, |call| {
             call.front
@@ -433,12 +523,10 @@ impl Calls {
             return FrontEnd::Call;
         }
         let mut saying = String::new();
-        let mut replies = 0u32;
-        let mut heard = 0u32;
+
         // `unanswered` is what the person last asked that nothing has
         // answered yet, neither handed to the teammate nor replied to in full
         // by the front, kept current so whichever way the call ends sees it.
-        *unanswered = None;
         let mut minutes =
             tokio::time::interval_at(tokio::time::Instant::now() + SPEND_EVERY, SPEND_EVERY);
         let (answered_tx, mut answered) = mpsc::unbounded_channel::<Delegated>();
@@ -447,6 +535,7 @@ impl Calls {
                 () = cancel.cancelled() => return FrontEnd::Call,
                 _ = minutes.tick() => {
                     if !self.front_connected(realtime) {
+                        eprintln!("[voice] call {id}: provider login disconnected");
                         return FrontEnd::Lost;
                     }
                     if self.front_spend(realtime, SPEND_EVERY.as_secs_f64()).is_err() {
@@ -467,7 +556,7 @@ impl Calls {
                             let _ = input.tool_result(&call_id, &text, true).await;
                         }
                         Delegated::HandOff { call_id, arguments } => {
-                            hand_over(&mut bridge, unanswered, &input, &call_id, &arguments)
+                            hand_over(bridge, unanswered, &input, &call_id, &arguments)
                                 .await;
                         }
                     }
@@ -481,7 +570,10 @@ impl Calls {
                     eprintln!("[voice] the front failed: {error}");
                     return FrontEnd::Lost;
                 }
-                None => return FrontEnd::Lost,
+                None => {
+                    eprintln!("[voice] call {id}: provider events ended");
+                    return FrontEnd::Lost;
+                }
             };
             let seen = match event {
                 RealtimeEvent::Audio(pcm) => self.front_speaks(id, &pcm),
@@ -498,8 +590,9 @@ impl Calls {
                 RealtimeEvent::Heard(text) => {
                     *unanswered =
                         worth_following_up(&text).then(|| (text.clone(), bridge.next_seq()));
-                    let seq = heard;
-                    heard += 1;
+                    let seq = *heard;
+                    *heard += 1;
+                    carry.push("Caller", &text);
                     self.front_heard(id, &text);
                     self.change(id, |call| {
                         call.activity = Instant::now();
@@ -514,7 +607,8 @@ impl Calls {
                 RealtimeEvent::ResponseDone => {
                     let text = std::mem::take(&mut saying);
                     let reply = format!("{FRONT_LINE_PREFIX}{replies}");
-                    replies += 1;
+                    *replies += 1;
+                    carry.push("You", &text);
                     if !text.trim().is_empty() {
                         self.front_said(id, &text);
                         *unanswered = None;
@@ -577,7 +671,7 @@ impl Calls {
                     arguments,
                 } => {
                     if name == crate::realtime::SEND_TO_TEAMMATE {
-                        hand_over(&mut bridge, unanswered, &input, &call_id, &arguments).await;
+                        hand_over(bridge, unanswered, &input, &call_id, &arguments).await;
                     } else {
                         let (output, reply) = bridge.tool_call(&name, &arguments);
                         let _ = input.tool_result(&call_id, &output, reply).await;
@@ -588,7 +682,10 @@ impl Calls {
                     eprintln!("[voice] the front refused a request: {code:?}");
                     Ok(())
                 }
-                RealtimeEvent::Renewed => Ok(()),
+                RealtimeEvent::Renewed => {
+                    eprintln!("[voice] call {id}: provider renewed or reconnected with context");
+                    Ok(())
+                }
             };
             if seen.is_err() {
                 return FrontEnd::Call;
@@ -626,6 +723,9 @@ struct Kept {
     /// What the person last asked that nothing has answered yet, neither
     /// handed to the teammate nor replied to in full by the front.
     unanswered: Option<(String, u32)>,
+    carry: realtime::socket::Carry,
+    heard: u32,
+    replies: u32,
 }
 
 /// The words a `send_to_teammate` call carried.
@@ -657,8 +757,8 @@ pub fn worth_following_up(words: &str) -> bool {
 enum FrontEnd {
     /// The call ended, or went on without needing the front.
     Call,
-    /// The provider failed or closed, or its login was revoked: the call goes
-    /// on as a pipeline call.
+    /// The provider failed or closed, or its login was revoked. Reconnect
+    /// if permitted, otherwise end the live call visibly.
     Lost,
     /// The Voice budget cannot pay for another minute: the call ends.
     Budget,

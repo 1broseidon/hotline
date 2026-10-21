@@ -325,7 +325,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         .unwrap();
     send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 1).await["ok"], true);
-    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"}}}}})).await;
+    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"}}}}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 2).await["ok"], true);
     send(&mut socket, json!({"id":3,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
     let persona = frame_where(&mut socket, |f| f["id"] == 3).await["result"]["id"]
@@ -360,7 +360,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     )
     .await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 7).await["ok"], true);
-    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
+    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 8).await["ok"], true);
     send(
         &mut socket,
@@ -421,6 +421,8 @@ async fn calls_off_refuses_a_call_and_says_why() {
         .as_str()
         .unwrap()
         .to_string();
+    let legacy = answer(&mut socket, 20, json!({"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"}}}}})).await;
+    assert_eq!(legacy["ok"], true);
     send(
         &mut socket,
         json!({"id":3,"cmd":"voice.status","params":{}}),

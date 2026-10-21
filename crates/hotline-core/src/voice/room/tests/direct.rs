@@ -394,6 +394,7 @@ async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends
     assert_eq!(
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {
+            live_error: None,
             state: VoiceState::Thinking,
             reason: None,
             listening: true,
@@ -447,6 +448,7 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
     assert_eq!(
         event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await,
         VoiceEvent::State {
+            live_error: None,
             state: VoiceState::Thinking,
             reason: None,
             listening: true,
@@ -456,6 +458,7 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
     let wire = serde_json::to_value(calls.subscribe(&id).unwrap().0).unwrap();
     assert_eq!(wire["listening"], true);
     let listening = serde_json::to_value(VoiceEvent::State {
+        live_error: None,
         state: VoiceState::Listening,
         reason: None,
         listening: false,
@@ -490,6 +493,7 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
     assert_eq!(
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {
+            live_error: None,
             state: VoiceState::Thinking,
             reason: None,
             listening: false,
@@ -576,6 +580,7 @@ async fn a_call_that_thinks_says_so_again() {
     assert_eq!(
         event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await,
         VoiceEvent::State {
+            live_error: None,
             state: VoiceState::Thinking,
             reason: None,
             listening: true,

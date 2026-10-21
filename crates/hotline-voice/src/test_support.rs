@@ -48,7 +48,10 @@ impl Calls {
         self.ready_for(id)
     }
     pub fn test_lose_front(&self, id: &str) {
-        self.lose_front(id);
+        self.fail_front(
+            id,
+            "Live voice disconnected and could not reconnect.".into(),
+        );
     }
     pub async fn test_say(
         &self,

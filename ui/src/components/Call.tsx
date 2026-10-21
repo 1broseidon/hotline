@@ -129,7 +129,7 @@ export function CallBar({
 				</button>
 			))}
 
-			{state.trouble !== undefined && <CallTrouble text={state.trouble} />}
+			{state.trouble !== undefined && !state.legacyAvailable && <CallTrouble text={state.trouble} />}
 
 			<span className="min-w-0 flex-1" />
 
@@ -180,6 +180,7 @@ export function CallBar({
 				</>
 			)}
 		</aside>
+		{state.legacyAvailable && state.trouble && <LiveFailure call={call} text={state.trouble} />}
 		{transcript && <CallTranscript lines={state.lines} name={target?.name ?? "The desk"} alone={alone} />}
 		</>
 	);
@@ -211,11 +212,17 @@ function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: strin
 	);
 }
 
-/**
- * What went wrong, in two or three words: a call's card is no place for a
- * paragraph. The whole sentence, with what to do about it, is one press of
- * the info key away; its tooltip stays a few words, as every tooltip does.
- */
+/** A live failure needs a visible reason beside the explicit alternative. */
+function LiveFailure({ call, text }: { call: CallSession; text: string }) {
+	return (
+		<div className="call-live-failure" role="alert">
+			<p>{text}</p>
+			<button type="button" className="control" onClick={() => void restartCall(call, true)}>Call with Legacy voice</button>
+		</div>
+	);
+}
+
+/** Other call errors keep the full sentence behind the info key. */
 function CallTrouble({ text }: { text: string }) {
 	const [open, setOpen] = useState(false);
 	return (
@@ -381,11 +388,12 @@ export function DeskCallCard({ call, roster, compact }: { call: CallSession; ros
 				</>
 			) : (
 				<>
+					{state.legacyAvailable && state.trouble && <LiveFailure call={call} text={state.trouble} />}
 					{transcript && <CallTranscript lines={state.lines} name="The desk" alone={false} />}
 					<div className="desk-call-top">
 						{mark}
 						{/* Trouble takes the status's place: the keys' row is too narrow for both. */}
-						{state.trouble !== undefined ? (
+						{state.trouble !== undefined && !state.legacyAvailable ? (
 							<span className="call-bar-status">
 								<span className="desk-call-name">Desk</span>
 								<span className="call-bar-dot" aria-hidden="true" />

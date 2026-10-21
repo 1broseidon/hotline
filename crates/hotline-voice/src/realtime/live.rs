@@ -23,7 +23,7 @@
 //! so far in its instructions, and the driver switches to it between replies
 //! (or after half a minute of a reply), then hangs up the old one. A sideband
 //! that drops is rejoined; a call that has ended, or a peer that fails, ends
-//! the session, and the caller carries on without a front.
+//! the session, and the caller reconnects or ends the live call visibly.
 
 use super::socket::Carry;
 use super::{Command, Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
@@ -195,14 +195,8 @@ impl GptLive {
         offer: String,
         instructions: &str,
         voice: &str,
-        delegation: Value,
     ) -> Result<(String, String), SpeechError> {
-        let session = json!({
-            "model": MODEL,
-            "instructions": instructions,
-            "audio": {"output": {"voice": voice}},
-            "delegation": delegation,
-        });
+        let session = session_settings(instructions, voice);
         let http = crate::speech::http_client().map_err(|_| self.unreachable())?;
         let mut request = http
             .post(&self.calls_url)
@@ -244,20 +238,13 @@ impl GptLive {
         };
         let instructions = carry.instructions(&config.instructions);
         let instructions = self::instructions(&instructions);
-        let delegation = json!({"type": "client"});
         // A server that fails or cannot be reached is asked again, as Codex
         // does; a refused login or plan will not change.
         let mut wait = REJOIN_WAIT;
         let mut attempt = 0;
         let (answer, call) = loop {
             match self
-                .create(
-                    &who,
-                    offer.clone(),
-                    &instructions,
-                    &config.voice,
-                    delegation.clone(),
-                )
+                .create(&who, offer.clone(), &instructions, &config.voice)
                 .await
             {
                 Ok(created) => break created,
@@ -369,6 +356,7 @@ impl Realtime for GptLive {
         } = placed;
         let now = Instant::now();
         let driver = Driver {
+            requests: super::diagnostics::Requests::default(),
             live: self.clone(),
             config,
             who,
@@ -391,6 +379,17 @@ impl Realtime for GptLive {
             events,
         })
     }
+}
+
+/// ChatGPT sign-ins reject a Responses backend during validation. Tools
+/// run desk-side and are answered through client delegation instead.
+fn session_settings(instructions: &str, voice: &str) -> Value {
+    json!({
+        "model": MODEL,
+        "instructions": instructions,
+        "audio": {"output": {"voice": voice}},
+        "delegation": {"type": "client"},
+    })
 }
 
 /// The front's instructions, with how this model reaches its tools: GPT-Live
@@ -523,16 +522,6 @@ impl Heard {
                 }]
             }
             "error" => {
-                // Which setting or field was refused, and the provider's
-                // sentence about it, so a refusal can be fixed: never the
-                // transcript, which the error does not carry.
-                let error = &event["error"];
-                eprintln!(
-                    "[voice] GPT-Live refused: {} param={} {}",
-                    error["code"].as_str().unwrap_or("?"),
-                    error["param"].as_str().unwrap_or("-"),
-                    hotline_room::text::clip(error["message"].as_str().unwrap_or(""), 300),
-                );
                 vec![RealtimeEvent::Refused {
                     code: event["error"]["code"]
                         .as_str()
@@ -767,6 +756,7 @@ enum Next {
 /// Owns one call, then each call that replaces it: its peer, its sideband and
 /// the pacer that feeds the peer.
 struct Driver {
+    requests: super::diagnostics::Requests,
     live: GptLive,
     config: RealtimeConfig,
     who: Identity,
@@ -847,6 +837,12 @@ impl Driver {
                 Next::Read(Some(Ok(Message::Text(text)))) => {
                     let event: Value =
                         serde_json::from_str(&text).map_err(|_| self.live.malformed())?;
+                    if event["type"] == "error" {
+                        eprintln!(
+                            "[voice] GPT-Live refused: {}",
+                            self.requests.refusal(&event, &[&self.who.token])
+                        );
+                    }
                     if event["type"] == "session.started" {
                         self.started(&event["session"]);
                         self.release(sideband).await?;
@@ -1046,6 +1042,8 @@ impl Driver {
             held.push(event);
             return Ok(());
         }
+        let mut event = event;
+        self.requests.stamp(&mut event);
         let text = event.to_string();
         if sideband
             .send(Message::Text(text.clone().into()))

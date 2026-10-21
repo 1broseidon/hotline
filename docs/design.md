@@ -703,6 +703,26 @@ login or subscription refusal returns an error; it never selects a paid speech
 fallback. Subscription STT and TTS record zero estimated paid API spend, while
 the desk dispatcher and agent work retain their ordinary spending rules.
 
+### Live calls keep the selected model
+
+Settings selects the call mode in the core, including when a client omits
+`voice.call_start.mode`. `front` requires a live model; `pipeline` is the
+person's explicit Legacy choice. A missing login, spent budget or failed
+provider never turns a live request into Legacy. `voice.status.liveSelected`
+keeps selection separate from availability. A failed live call keeps its
+one-sentence reason as `state.liveError`, including in its snapshot, so a
+client arriving after the failure still explains it and offers **Call with
+Legacy voice**. That choice starts a new call on the same conversation.
+
+The provider adapters renew and reconnect with their bounded transcript.
+If a session exits, the call runtime makes a bounded replacement attempt
+with the conversation preserved; a replacement that fails before making
+progress ends the live call visibly. A revoked login or spent budget ends
+it without reopening the revoked connection. Start, recovery and refusal
+logs identify their reason. Refusal logs correlate provider `event_id` to
+request type and redact credentials from the provider's message; request
+bodies are never logged. An absent correlation is reported as unknown.
+
 ### 7. Skills, as files every harness reads
 
 A skill is a procedure a teammate reads when the task calls for it: how to

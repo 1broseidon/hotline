@@ -950,24 +950,73 @@ describe("a call through a voice front", () => {
 		expect(r.sent.filter((one) => one.cmd === "voice.front_audio").length).toBeGreaterThan(before);
 	});
 
-	test("a front that goes mid-call leaves the call on Legacy voice", async () => {
+	test("a front that goes mid-call ends without sending Legacy audio", async () => {
 		const r = fronted();
 		await r.call.start();
 		r.desk({ type: "frontEnded" });
-		expect(r.call.current.trouble).toContain("Legacy voice");
+		expect(r.call.current.trouble).toContain("could not reconnect");
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.legacyAvailable).toBe(true);
 		const sent = r.sent.filter((one) => one.cmd === "voice.front_audio").length;
 		r.speak(0.3, 2_000, 2_600);
 		r.speak(0, 2_650, 4_000);
 		expect(r.sent.filter((one) => one.cmd === "voice.front_audio")).toHaveLength(sent);
-		expect(r.sent.filter((one) => one.cmd === "voice.audio").length).toBeGreaterThan(0);
+		expect(r.sent.filter((one) => one.cmd === "voice.audio")).toHaveLength(0);
 	});
 
-	test("a desk that answers without a front keeps the pipeline", async () => {
+	test("a desk that answers without the requested front is rejected", async () => {
 		const r = fronted(null);
 		await r.call.start();
 		r.speak(0.3, 1_000, 1_600);
 		r.speak(0, 1_650, 3_000);
 		expect(r.sent.filter((one) => one.cmd === "voice.front_audio")).toHaveLength(0);
-		expect(r.sent.filter((one) => one.cmd === "voice.audio").length).toBeGreaterThan(0);
+		expect(r.sent.filter((one) => one.cmd === "voice.audio")).toHaveLength(0);
 	});
+});
+
+
+test("a selected live model is requested even when the front is unavailable", async () => {
+    const r = rig();
+    r.status({ liveSelected: true, available: false, capabilities: ["voiceDirectCalls"], unavailable: "Live voice needs an xAI sign-in." });
+    await r.call.start();
+    expect(r.sent.find(one => one.cmd === "voice.call_start")?.params["mode"]).toBe("front");
+    expect(r.call.current.phase).toBe("ended");
+    expect(r.call.current.legacyAvailable).toBe(true);
+    expect(r.sent.some(one => one.cmd === "voice.call_start" && one.params["mode"] === "pipeline")).toBe(false);
+});
+
+test("only an explicit Legacy choice overrides the live selection", async () => {
+    const r = rig({ legacy: true });
+    r.status({ liveSelected: true, available: false, capabilities: ["voiceDirectCalls"] });
+    await r.call.start();
+    expect(r.sent.find(one => one.cmd === "voice.call_start")?.params["mode"]).toBe("pipeline");
+    expect(r.call.current.phase).toBe("listening");
+    r.call.hangUp();
+});
+
+test("a failed live snapshot says why even if the failure preceded subscription", async () => {
+    const r = rig({}, { front: { inputRate: 16000, outputRate: 24000 } }, ["voiceFront"]);
+    await r.call.start();
+    r.snapshot([{ type: "state", state: "ended", reason: "error", liveError: "Live voice provider is unreachable." }]);
+    expect(r.call.current.phase).toBe("ended");
+    expect(r.call.current.trouble).toBe("Live voice provider is unreachable.");
+    expect(r.call.current.legacyAvailable).toBe(true);
+});
+
+
+test("an explicit Legacy selection wins over an available live capability", async () => {
+    const r = rig();
+    r.status({ liveSelected: false, available: true, capabilities: ["voiceFront", "voiceDirectCalls"] });
+    await r.call.start();
+    expect(r.sent.find(one => one.cmd === "voice.call_start")?.params["mode"]).toBeUndefined();
+    expect(r.call.current.phase).toBe("listening");
+    r.call.hangUp();
+    expect(r.call.current.legacyAvailable).not.toBe(true);
+});
+
+test("the explicit retry after a live failure keeps its call thread", async () => {
+    const r = rig({ target: { personaId: "p1", name: "Mack" } }, { personaId: "p1", front: { inputRate: 16000, outputRate: 24000 } }, ["voiceFront", "voiceDirectCalls"]);
+    await r.call.start();
+    r.desk({ type: "state", state: "ended", reason: "error", liveError: "Live voice disconnected." });
+    expect(r.call.redial(true).target?.thread).toEqual({ kind: "call", key: r.call.id });
 });

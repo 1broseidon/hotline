@@ -58,16 +58,27 @@ impl Calls {
             thread: None,
             stream_audio,
             input_mode,
-            mode: VoiceCallMode::Pipeline,
+            mode: VoiceCallMode::Selected,
             mic_rate: None,
         };
         self.start_call(id, request, room)
     }
 
-    /// Starts a call, or answers for one already started. A front is a
-    /// request: the answer says whether the call got one, and a call that
-    /// did not runs on the pipeline.
+    /// Starts a call in the selected mode; live failures never select Legacy.
     pub fn start_call(
+        self: &Arc<Self>,
+        id: &str,
+        request: CallRequest,
+        room: Arc<dyn RoomHandle>,
+    ) -> Result<VoiceCall, String> {
+        let result = self.start_requested(id, request, room);
+        if let Err(reason) = &result {
+            eprintln!("[voice] call {id}: start refused: {reason}");
+        }
+        result
+    }
+
+    fn start_requested(
         self: &Arc<Self>,
         id: &str,
         request: CallRequest,
@@ -81,6 +92,9 @@ impl Calls {
             mode,
             mic_rate,
         } = request;
+        let live = mode == VoiceCallMode::Front
+            || (mode == VoiceCallMode::Selected && self.front_selected());
+        eprintln!("[voice] call {id}: start requested={mode:?} live={live}");
         if self.settings().calls_off {
             return Err(CALLS_OFF.into());
         }
@@ -110,35 +124,31 @@ impl Calls {
                 || call.thread != thread
                 || call.stream_audio != stream_audio
                 || call.input_mode != input_mode
-                || (call.front.is_some() && mode != VoiceCallMode::Front))
+                || (call.front.is_some() != live))
         {
             return Err("A call cannot change its target or input/output mode.".into());
         }
         if !calls.iter().any(|call| call.id == id) {
-            // A front the budget cannot pay for leaves the call on the pipeline.
-            let realtime = self
-                .realtime()
-                .filter(|_| mode == VoiceCallMode::Front)
-                .filter(|front| self.front_ready(front.as_ref()).is_ok());
-            // Direct calls do not need a separate routing model. A front
-            // hears and speaks itself, so with one the pipeline is only what
-            // the call would fall back on, and a desk with none still takes
-            // the call: a ChatGPT login alone runs GPT-Live.
-            let speech_services = match self.resolve_speech(input_mode, target.as_deref()) {
-                Ok(services) => services,
-                Err(error) => match &realtime {
-                    Some(front) => CallSpeech::front(front.as_ref()),
-                    None => return Err(error),
-                },
+            let realtime = if live {
+                Some(self.required_front()?)
+            } else {
+                eprintln!("[voice] call {id}: Legacy selected explicitly or in Settings");
+                None
             };
-            if target.is_none() {
+            let speech_services = match &realtime {
+                Some(front) => CallSpeech::front(front.as_ref()),
+                None => self.resolve_speech(input_mode, target.as_deref())?,
+            };
+            if target.is_none() && !live {
                 self.dispatcher()?;
             }
             // Only the budgets this call would pay into can refuse it.
-            let assistant = self.assistant_for(target.as_deref());
-            self.ledger
-                .ready(&paid_kinds(Some(&speech_services), assistant.as_deref()))
-                .map_err(|e| e.to_string())?;
+            if !live {
+                let assistant = self.assistant_for(target.as_deref());
+                self.ledger
+                    .ready(&paid_kinds(Some(&speech_services), assistant.as_deref()))
+                    .map_err(|e| e.to_string())?;
+            }
             for call in calls
                 .iter_mut()
                 .filter(|call| call.state != VoiceState::Ended)
@@ -184,6 +194,7 @@ impl Calls {
                 }),
                 words: String::new(),
                 front: realtime.is_some().then(|| Front::new(mic_rate)),
+                live_error: None,
             });
             if let Some(realtime) = realtime {
                 tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));

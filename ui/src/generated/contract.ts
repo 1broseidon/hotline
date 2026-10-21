@@ -260,8 +260,8 @@ export type Client = "desktop" | "phone";
  */
 export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, thread?: ThreadId, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, 
 /**
- * `front` asks for a voice front. The answer is in the reply's
- * `front`; a desk that cannot or will not run one leaves it out.
+ * Omitted: use Settings. `front` requires live; `pipeline` is the
+ * person's explicit Legacy choice. A failed live call never changes mode.
  */
 mode?: VoiceCallMode, 
 /**
@@ -2139,13 +2139,17 @@ export type VoiceCall = { callId: string, input: Array<string>, output: string, 
 front?: VoiceFront, };
 
 /**
- * What answers the person on a call. Omission is the pipeline.
+ * What answers the person on a call. Omission follows Settings.
  */
-export type VoiceCallMode = "pipeline" | "front";
+export type VoiceCallMode = "selected" | "pipeline" | "front";
 
 export type VoiceEndReason = "client" | "goodbye" | "budget" | "replaced" | "error" | "idle";
 
-export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEndReason, 
+export type VoiceEvent = { "type": "state", state: VoiceState, 
+/**
+ * A live call failed; a new Legacy call requires the person to choose it.
+ */
+liveError?: string, reason?: VoiceEndReason, 
 /**
  * On `thinking`: the teammate's turn is still working and the call
  * takes what the person says, which steers into that turn. A client
@@ -2221,7 +2225,11 @@ rewritten: number, };
 
 export type VoiceState = "listening" | "thinking" | "speaking" | "held" | "ended";
 
-export type VoiceStatus = { capabilities: Array<string>, available: boolean, 
+export type VoiceStatus = { 
+/**
+ * The selected model is live, even when its login or budget is unavailable.
+ */
+liveSelected?: boolean, capabilities: Array<string>, available: boolean, 
 /**
  * Direct teammate calls need speech and budget, but no desk dispatcher.
  */

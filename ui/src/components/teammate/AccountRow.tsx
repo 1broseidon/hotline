@@ -8,24 +8,8 @@ import { AccountSignIn } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
 import { SYSTEM_DEFAULT } from "../accounts/words";
 
-/** An account this pane added and is signing in now, with the email its sign-in page fills in. */
 type Signing = { view: AccountView; email: string | undefined };
 
-/**
- * The "{agent} account" section of a teammate's pane, for an agent with
- * accounts: which account it runs on, picked here, with the account being
- * added and signed in in place. Nothing switches an account on its own,
- * and a switch waits: for the teammate's work to end (Keep or Stop and
- * switch now in the meantime), and for the account to be signed in. An
- * account added here becomes the teammate's only once its sign-in is
- * confirmed.
- *
- * The checked row is the teammate's record, which `persona.account`
- * writes at once. The session says which account it runs on, the one it
- * moves to (`wanted`, sent only while that differs, so absent falls back
- * to the record) and why a move is held. The section is not drawn when the
- * desk lists no accounts for this agent, or refuses to list them.
- */
 export function AccountRow({
 	persona,
 	session,
@@ -35,14 +19,12 @@ export function AccountRow({
 	persona: Persona;
 	session: SessionInfo;
 	disabled: boolean;
-	/** Opens an account's setup in Settings › Agent accounts. */
 	onSetup?: ((accountId: string) => void) | undefined;
 }) {
 	const [list, setList] = useState<AccountsList | null>(null);
 	const [reads, setReads] = useState(0);
 	const [adding, setAdding] = useState(false);
 	const [signing, setSigning] = useState<Signing | null>(null);
-	/* An account added from a seat that cannot sign in: the section says where to. */
 	const [fromDesk, setFromDesk] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
@@ -71,6 +53,7 @@ export function AccountRow({
 
 	const chosen = persona.agentAccountId ?? SYSTEM_DEFAULT;
 	const running = session.account?.running ?? SYSTEM_DEFAULT;
+	// The session sends `wanted` only while it differs from `running`, and a switch to System default has no id to send.
 	const wanted = session.account?.wanted ?? chosen;
 	const held = session.account?.held;
 	const up = session.state === "ready" || session.state === "thinking";
@@ -93,7 +76,6 @@ export function AccountRow({
 	const pick = (accountId: string) => {
 		if (accountId !== chosen) void assign(accountId);
 	};
-	// The same as Stop, then a start, which comes up on the account chosen (spec §10.4).
 	const stopAndSwitch = () =>
 		void send(async () => {
 			await wire.command("session.stop", { personaId: persona.id });

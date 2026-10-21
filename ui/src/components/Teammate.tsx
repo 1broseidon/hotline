@@ -61,7 +61,6 @@ export function Teammate({
 	onClose(): void;
 	onDeleted(): void;
 	onOpenThread(thread: ThreadRef): void;
-	/** Opens an agent account's setup, from the account section's link. */
 	onAccountSetup?: ((accountId: string) => void) | undefined;
 }) {
 	const servers = useRoomSettings().mcpServers;
@@ -269,7 +268,6 @@ export function Teammate({
 						</div>
 					</div>
 
-					{/* Which sign-in of its agent it runs on, for an agent with accounts. */}
 					{!hotline && <AccountRow persona={persona} session={session} disabled={busy} onSetup={onAccountSetup} />}
 
 					<section>

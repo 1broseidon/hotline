@@ -4,7 +4,6 @@ import type { Root } from "react-dom/client";
 import type { AccountView, PersonaDraft } from "../src/generated/contract";
 import { installDom } from "./dom";
 
-// Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false, addEventListener() {} }) } });
 const { NewTeammateForm } = await import("../src/components/NewTeammate");
 const { wire } = await import("../src/wire");
@@ -62,7 +61,6 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "accounts.login.start") return { id: "l1" };
 	if (cmd === "accounts.login.poll") return { state: "running", output: "" };
 	if (cmd === "accounts.login.cancel" || cmd === "accounts.login.input") return null;
-	// The rest of the form reads a refusal as nothing to offer.
 	throw new Error(`Not in this test: ${cmd}`);
 }
 
@@ -98,7 +96,6 @@ async function mount() {
 		root!.render(<NewTeammateForm models={[]} onCreated={(id) => created.push(id)} />);
 	});
 	await settle();
-	// What it thinks with is folded until asked for.
 	await act(async () => {
 		thinksWith().click();
 	});

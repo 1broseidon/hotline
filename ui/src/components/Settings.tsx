@@ -186,7 +186,6 @@ export function Settings({
 	section: SettingsSection;
 	/** The desk's teammates, for who uses each agent account. */
 	roster: RosterEntry[];
-	/** An agent account to open on, from a teammate's pane. */
 	account?: string | undefined;
 	onSection?: (section: SettingsSection) => void;
 	onBack?: () => void;
@@ -205,7 +204,7 @@ export function Settings({
 	// itself the same way.
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
 	if (section === "accounts") {
-		// Keyed by the account it opens on, so asking for another starts there and not where the last one was left.
+		// Keyed so that opening on another account remounts the section instead of keeping the page it was left on.
 		return <AgentAccountsSection key={account ?? ""} roster={roster} onBack={onBack} {...(account !== undefined ? { opening: account } : {})} />;
 	}
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;

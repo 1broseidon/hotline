@@ -3,8 +3,6 @@ import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 import { installDom } from "./dom";
 
-// Loading the window's modules reads the platform and the media queries it
-// watches from `window`, before any test has a DOM.
 const query = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 Object.assign(globalThis, { window: { matchMedia: query } });
 const { App } = await import("../src/App");
@@ -46,7 +44,6 @@ const ada = {
 	drawing: false,
 };
 
-/** What the core refuses a start with when the teammate's account is not on the desk: the Failure notice, title first. */
 const failure = {
 	kind: "account_unavailable",
 	code: "unknown_account",
@@ -58,11 +55,6 @@ const failure = {
 };
 const refusal = `${failure.title}: ${failure.summary}\n\n${JSON.stringify({ hotlineFailure: failure })}`;
 
-/**
- * A core whose roster holds Ada, on a Claude Code account the desk does not
- * have: `session.start` is refused with the notice, `accounts.list` lists
- * the agent and no account, and every other command is refused.
- */
 class FakeCore {
 	static readonly OPEN = 1;
 	static commands: string[] = [];
@@ -113,7 +105,6 @@ beforeEach(async () => {
 	({ dom, teardown } = installDom({
 		ResizeObserver: NoResize,
 		WebSocket: FakeCore,
-		// The transcript pins its foot a frame later; no frame is waited for here.
 		requestAnimationFrame: () => 0,
 		cancelAnimationFrame: () => {},
 	}));
@@ -169,7 +160,6 @@ test("a start refused for the teammate's account says so as a card with Choose a
 	await settle();
 	expect(FakeCore.commands).toContain("session.start");
 
-	// The band draws the refusal as the account's card, never the raw notice.
 	const band = container.querySelector<HTMLElement>("section.conversation")!;
 	expect(band.textContent).toContain("Pick a Claude Code account");
 	expect(band.textContent).toContain("Pick a Claude Code account for Ada: the one it was set to is not on this desk.");

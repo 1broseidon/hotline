@@ -1,13 +1,6 @@
 import type { AccountView } from "../../generated/contract";
 import { statusWords, SYSTEM_DEFAULT, whoLine } from "./words";
 
-/**
- * The radio rows of a choice of agent account: System default first, then
- * each account with its status, the way New teammate and the teammate's
- * pane both list them. Callers own the `grouped` radiogroup around them and
- * whatever else stands in it (a sign-in, the add form, Add account).
- * `inUse` is the account the live session runs on, when one is up.
- */
 export function AccountChoices({
 	agentName,
 	accounts,
@@ -20,12 +13,9 @@ export function AccountChoices({
 }: {
 	agentName: string;
 	accounts: AccountView[];
-	/** The account chosen, or SYSTEM_DEFAULT. */
 	selected: string;
 	inUse?: string | undefined;
-	/** The account being signed in here, if any. */
 	signing?: string | undefined;
-	/** The radios' group name. */
 	name: string;
 	disabled: boolean;
 	onSelect(accountId: string): void;

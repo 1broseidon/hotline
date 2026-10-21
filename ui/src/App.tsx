@@ -275,8 +275,6 @@ export function App() {
 	const closeDock = useCallback(() => setDock(null), [setDock]);
 	const openThread = useCallback((open: ThreadRef) => openDock({ open }), [openDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
-	/* A teammate's own pane, from the rail's Edit or a card's Choose account.
-	 * One on another desk opens there: the window follows the teammate. */
 	const openPanel = useCallback(
 		(personaId: string, deskId?: string) => {
 			if (deskId !== undefined) {
@@ -289,7 +287,6 @@ export function App() {
 		},
 		[select, setDock, setInspector],
 	);
-	/* The agent account Settings opens on, from a teammate's pane; anywhere else Settings opens as it was. */
 	const [accountPage, setAccountPage] = useState<string | null>(null);
 	useEffect(() => {
 		if (pane !== "settings") setAccountPage(null);

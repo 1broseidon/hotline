@@ -150,9 +150,7 @@ export function Transcript({
 	workOpen?: string | null | undefined;
 	/** Opens Settings › Providers, from a card saying no provider is connected. */
 	onProviders?(): void;
-	/** The teammate's agent, so a card about its account offers the account's way out. */
 	backendId?: string;
-	/** Opens the teammate's pane to choose its account, from such a card. */
 	onChooseAccount?(): void;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
@@ -545,7 +543,6 @@ const Row = memo(function Row({
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenScreen?(): void;
 	onProviders?(): void;
-	/** Given only in the teammate's own conversation, where its account is the one at work. */
 	backendId?: string;
 	onChooseAccount?(): void;
 	onJump(eventId: string): void;

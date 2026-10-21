@@ -35,8 +35,7 @@ type Shared = {
  * one sign-in to an agent's own CLI, kept in a folder of its own; Hotline
  * holds its name and asks the agent whether it is signed in, and never sees
  * a password or token. The list is read on open and again after anything
- * here changes it. `opening` starts on that account's page, its agent's
- * page behind Back, as a teammate's pane asks for its account's setup.
+ * here changes it.
  */
 export function AgentAccountsSection({
 	roster,
@@ -115,7 +114,6 @@ export function AgentAccountsSection({
 		setAccountId(account);
 	};
 
-	// Opened on an account, the agent is the account's until a page is picked here.
 	const agentOf = agentId ?? list?.accounts.find((one) => one.account.id === accountId)?.account.backendId ?? null;
 	const agent = list?.agents.find((one) => one.backendId === agentOf && one.supportsAccounts);
 	const accounts = list?.accounts.filter((one) => one.account.backendId === agent?.backendId) ?? [];

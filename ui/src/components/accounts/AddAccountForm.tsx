@@ -14,9 +14,7 @@ import { nextAccountName, SETUP_CATEGORIES } from "./words";
  *
  * There is no <form> here: New teammate nests this in its own, and a form
  * may not hold another. Enter in the name or the email adds, and every key
- * is a button. `compact` is the inline form of New teammate and the
- * teammate's pane: two unlabelled fields and one line saying what it starts
- * with, whose Change or customize opens the same choices as the full form.
+ * is a button.
  */
 export function AddAccountForm({
 	backendId,
@@ -78,7 +76,6 @@ export function AddAccountForm({
 			return next;
 		});
 
-	// Enter adds from either field, and goes no further: in New teammate it would submit the teammate.
 	const addOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
 		if (event.key !== "Enter") return;
 		event.preventDefault();

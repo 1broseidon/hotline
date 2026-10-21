@@ -7,14 +7,12 @@ import { Refusal, refused, type Refused } from "../ui/Refusal";
 /**
  * The failures a second try can get past: the network, the provider having
  * a bad moment or turning a working sign-in away, a limit that has since
- * lifted, a harness that fell over, an agent's usage limit (on this account
- * or, once switched, on another).
+ * lifted, a harness that fell over.
  * A refused key, a spent quota or a request the model will not take fails
  * the same way again, so it is not offered.
  */
 const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "usage_limit", "unknown"]);
 
-/** What a failure notice says: the core's words, and the facts a card acts on. */
 export type FailureDetails = {
     title: string;
     summary: string;
@@ -22,7 +20,6 @@ export type FailureDetails = {
     context?: string;
     signIn?: AgentSignInAction;
     kind?: string;
-    /** The agent account the failure happened on, when it was on one. */
     accountId?: string;
     code?: string;
 };
@@ -70,12 +67,7 @@ function signInAction(failure: { kind?: unknown; signIn?: unknown }): AgentSignI
     return { harnessName: action.harnessName, methods };
 }
 
-/**
- * Whether a failure is about the teammate's agent account, so its card
- * offers the account's way out: a usage limit, an account the desk cannot
- * use, or a sign-in missing on an account (the harness's own sign-in
- * methods would sign in the System default instead, spec §9.3).
- */
+// A sign-in missing on an account never offers the harness's own methods: they would sign in the System default.
 function aboutAccount(error: FailureDetails): boolean {
     return error.kind === "usage_limit" || error.kind === "account_unavailable" || (error.kind === "agent_auth" && error.accountId !== undefined);
 }
@@ -92,11 +84,8 @@ export function ErrorCard({
 }: {
     text: string;
     personaId?: string;
-    /** The teammate's name, for a card that speaks of it. */
     teammate?: string;
-    /** The teammate's agent: with it, a failure on an account offers the account's way out. */
     backendId?: string;
-    /** Opens the teammate's pane, where its account is chosen. */
     onChooseAccount?(): void;
     onRetry?: () => void;
     /** Runs the failed turn again; offered only on the latest one. */
@@ -116,6 +105,7 @@ export function ErrorCard({
                     personaId={personaId}
                     teammate={teammate}
                     backendId={backendId}
+                    latest={onRunAgain !== undefined}
                     onChooseAccount={onChooseAccount}
                     onRetry={onRetry}
                 />

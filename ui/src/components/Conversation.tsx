@@ -81,7 +81,6 @@ export function Conversation({
 	callBar?: ReactNode;
 	/** Opens Settings › Providers, where a teammate with no provider is fixed. */
 	onProviders(): void;
-	/** Opens this teammate's pane, where its agent account is chosen. */
 	onChooseAccount(): void;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
@@ -326,8 +325,6 @@ export function Conversation({
 	 * so on its own. */
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
-	/* A start or a message the core refused with a failure notice (an account
-	 * it cannot use) is that failure's card, with its way out, not the JSON. */
 	const refusedCard = refused !== null && notice === refused && errorDetails(refused).kind !== undefined;
 	// The call on the line, when it is to this teammate: its face then leads the call card.
 	const liveCall = useCall();

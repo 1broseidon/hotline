@@ -124,13 +124,11 @@ export function NewTeammateForm({
 	const [picture, setPicture] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
-	// The agent accounts, read once an agent other than Hotline Agent is picked; a refusal reads as none.
 	const [accountsList, setAccountsList] = useState<AccountsList | null>(null);
 	const [accountReads, setAccountReads] = useState(0);
 	const [accountId, setAccountId] = useState(SYSTEM_DEFAULT);
 	const [addingAccount, setAddingAccount] = useState(false);
 	const [signingAccount, setSigningAccount] = useState<{ view: AccountView; email: string | undefined } | null>(null);
-	/* An account added from a seat that cannot sign in: the list says where to. */
 	const [accountFromDesk, setAccountFromDesk] = useState<string | null>(null);
 	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
 	// A blank draft runs on what the room prefers, else the first choice.
@@ -159,7 +157,7 @@ export function NewTeammateForm({
 			: (backends.find((one) => one.unavailable === undefined)?.id ?? ""));
 	const onHotline = backendId === HOTLINE_AGENT || backendId === "";
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: read when an agent with a sign-in of its own is first picked, and again as `accountReads` asks.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: read when an agent other than Hotline Agent is first picked, and again on each `accountReads`.
 	useEffect(() => {
 		if (onHotline || simple) return;
 		let cancelled = false;
@@ -176,7 +174,6 @@ export function NewTeammateForm({
 		};
 	}, [onHotline, accountReads]);
 
-	// An account belongs to its agent: another agent starts on its System default, with no form open.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of agent is what resets the choice.
 	useEffect(() => {
 		setAccountId(SYSTEM_DEFAULT);
@@ -189,7 +186,6 @@ export function NewTeammateForm({
 	const agentAccounts = agent === undefined ? [] : (accountsList?.accounts ?? []).filter((one) => one.account.backendId === agent.backendId);
 	const accountName = agentAccounts.find((one) => one.account.id === accountId)?.account.name ?? accountId;
 	const accountAdded = (made: AccountView, email: string | undefined) => {
-		// Selected at once: cancelling its sign-in leaves it chosen and Not signed in (spec §7.2).
 		setAddingAccount(false);
 		setAccountId(made.account.id);
 		setAccountsList((was) => was && { ...was, accounts: [...was.accounts.filter((one) => one.account.id !== made.account.id), made] });

@@ -4,7 +4,6 @@ import type { Root } from "react-dom/client";
 import type { AccountView, Persona, SessionAccount, SessionInfo } from "../src/generated/contract";
 import { installDom } from "./dom";
 
-// Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Teammate } = await import("../src/components/Teammate");
 const { wire } = await import("../src/wire");
@@ -73,7 +72,6 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "accounts.login.start") return { id: "l1" };
 	if (cmd === "accounts.login.poll") return poll;
 	if (cmd === "accounts.login.cancel") return null;
-	// The rest of the pane reads a refusal as nothing to show.
 	throw new Error(`Not in this test: ${cmd}`);
 }
 
@@ -81,7 +79,6 @@ beforeEach(async () => {
 	restores = [];
 	({ dom, teardown } = installDom({ ResizeObserver: NoResize }));
 	(dom as unknown as { __hotlineDesk: unknown }).__hotlineDesk = { platform: "windows" };
-	// A desk with no endpoint: the room's wire never opens, so the pane reads no settings.
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
 	accounts = [a1(), a2(), a3()];
@@ -215,12 +212,10 @@ describe("a teammate's agent account", () => {
 			"On Account 1 · Fresh: a new Claude Code session for this account, handed this conversation. Another account's session is never reopened here.",
 		);
 
-		// A session on System default names no account, and its row is the one in use.
 		await remount(onDefault, sessionOf("ready"));
 		expect(row("System default").textContent).toContain("In use");
 		expect(text()).toContain("On System default · Fresh:");
 
-		// A teammate at rest has nothing in use and no note.
 		await remount(ada, sessionOf("idle"));
 		expect(text()).not.toContain("In use");
 		expect(text()).not.toContain("On Account 1 ·");
@@ -240,13 +235,10 @@ describe("a teammate's agent account", () => {
 		expect(named("session.").map(([cmd]) => cmd)).toEqual(["session.stop", "session.start"]);
 		expect(named("session.").map(([, params]) => params)).toEqual([{ personaId: "ada" }, { personaId: "ada" }]);
 
-		// The session names where it moves to even before the record says so.
 		await remount(ada, sessionOf("thinking", { running: "a1", wanted: "a2" }));
 		expect(text()).toContain("Switches to Account 2 when its work ends.");
-		// A switch to System default leaves `wanted` out; the record says where.
 		await remount(onDefault, sessionOf("thinking", { running: "a1" }));
 		expect(text()).toContain("Switches to System default when its work ends.");
-		// And a session on the account the record names has nothing pending.
 		await remount(ada, sessionOf("thinking", { running: "a1" }));
 		expect(text()).not.toContain("Switches to");
 		expect(row("Account 1").textContent).toContain("In use");

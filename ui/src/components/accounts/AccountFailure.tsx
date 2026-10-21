@@ -10,24 +10,17 @@ import { SYSTEM_DEFAULT } from "./words";
 
 const NONE: AccountsList = { agents: [], accounts: [] };
 
-/**
- * The head and the way out of a failure that is about the teammate's agent
- * account, inside its ErrorCard: a usage limit, a sign-in missing on the
- * account, or an account the desk cannot use. It names the account and
- * offers what fixes it — Continue on another signed-in account, Sign in
- * that account, Choose account — and nothing switches until the person
- * picks. Where the desk does not list the account the card keeps the
- * core's own words.
- *
- * The current account is the one that lists this teammate among its users,
- * else System default, so a card read again after a Continue still says
- * where the teammate went.
- */
+// Read from usedBy rather than kept by the card, so a card mounted again after a Continue still knows where the teammate went.
+function currentAccount(list: AccountsList, backendId: string, personaId: string): string {
+	return list.accounts.find((one) => one.account.backendId === backendId && one.usedBy.includes(personaId))?.account.id ?? SYSTEM_DEFAULT;
+}
+
 export function AccountFailure({
 	error,
 	personaId,
 	teammate,
 	backendId,
+	latest,
 	onChooseAccount,
 	onRetry,
 }: {
@@ -35,6 +28,7 @@ export function AccountFailure({
 	personaId: string;
 	teammate?: string | undefined;
 	backendId: string;
+	latest: boolean;
 	onChooseAccount?: (() => void) | undefined;
 	onRetry?: (() => void) | undefined;
 }) {
@@ -55,8 +49,8 @@ export function AccountFailure({
 			(answer) => {
 				if (cancelled) return;
 				setList(answer);
-				if (kind !== "usage_limit") return;
-				// Which of the others can take the work is asked again now, not read from the cache (spec §10.2).
+				// Each status runs the agent's CLI, so only a card that can still move the teammate asks.
+				if (kind !== "usage_limit" || !latest || currentAccount(answer, backendId, personaId) !== failedOn) return;
 				for (const view of answer.accounts) {
 					const id = view.account.id;
 					if (view.account.backendId !== backendId || id === failedOn) continue;
@@ -75,7 +69,7 @@ export function AccountFailure({
 		return () => {
 			cancelled = true;
 		};
-	}, [kind, backendId, failedOn]);
+	}, [kind, backendId, failedOn, latest, personaId]);
 
 	const known = list ?? NONE;
 	const agent = known.agents.find((one) => one.backendId === backendId);
@@ -115,7 +109,7 @@ export function AccountFailure({
 	let below: ReactNode = null;
 
 	if (kind === "usage_limit") {
-		const current = movedTo ?? accounts.find((one) => one.usedBy.includes(personaId))?.account.id ?? SYSTEM_DEFAULT;
+		const current = movedTo ?? currentAccount(known, backendId, personaId);
 		const switched = list !== null && current !== failedOn;
 		if (failedOn === SYSTEM_DEFAULT) title = "System default hit its usage limit";
 		else if (failed !== undefined) title = `${failed.account.name} hit its usage limit`;

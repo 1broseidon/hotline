@@ -4,13 +4,11 @@ import type { Root } from "react-dom/client";
 import type { AccountView } from "../src/generated/contract";
 import { installDom } from "./dom";
 
-// Loading the window's modules reads the platform and the theme before any test has a DOM.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false, addEventListener() {} }) } });
 const { wire } = await import("../src/wire");
 const { replaceDesks } = await import("../src/desks");
 const { ErrorCard } = await import("../src/components/ErrorCard");
 
-// No desk, socket or shell: the card is driven at its wire boundary, on a Windows desk.
 const agents = [{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true }];
 function account(id: string, name: string, extra: Partial<AccountView> = {}): AccountView {
 	return {
@@ -28,7 +26,6 @@ const a3 = () => account("a3", "Account 3");
 const local = { id: "local", name: "This computer", kind: "local" as const, origin: "", token: "" };
 const remote = { id: "server-1", name: "Studio", kind: "remote" as const, origin: "", token: "" };
 
-/** A failure notice the way the core writes one: its title and summary, then the JSON the card reads. */
 function notice(failure: Record<string, unknown>): string {
 	const full = { title: "Turn failed", summary: "It did not finish.", details: "diagnostic", phase: "acp", ...failure };
 	return `${full.title}: ${full.summary}\n\n${JSON.stringify({ hotlineFailure: full })}`;
@@ -81,7 +78,6 @@ beforeEach(async () => {
 		return respond(cmd, params);
 	}) as typeof wire.command);
 	restores.push(() => command.mockRestore());
-	// React reads the DOM when it loads, so it loads once the DOM is here.
 	act = (await import("react")).act;
 	const { createRoot } = await import("react-dom/client");
 	container = document.createElement("div");
@@ -95,7 +91,7 @@ afterEach(async () => {
 	await teardown();
 });
 
-async function mount(text: string) {
+async function mount(text: string, latest = true) {
 	await act(async () => {
 		root!.render(
 			<ErrorCard
@@ -105,7 +101,7 @@ async function mount(text: string) {
 				backendId="claude-acp"
 				onChooseAccount={() => chosen++}
 				onRetry={() => retried++}
-				onRunAgain={async () => null}
+				{...(latest ? { onRunAgain: async () => null } : {})}
 			/>,
 		);
 	});
@@ -117,14 +113,13 @@ async function unmount() {
 		root = null;
 	});
 }
-async function remount(text: string) {
+async function remount(text: string, latest = true) {
 	await unmount();
 	await act(async () => {
 		root = (await import("react-dom/client")).createRoot(container);
 	});
-	await mount(text);
+	await mount(text, latest);
 }
-/** Lets every answer in flight land, and what it starts. */
 async function settle() {
 	for (let round = 0; round < 6; round++) {
 		await act(async () => {
@@ -152,7 +147,6 @@ describe("an account's failure card", () => {
 		await mount(limit({ accountId: "a1" }));
 		expect(text()).toContain("Account 1 hit its usage limit");
 		expect(text()).toContain("You've hit your limit · resets 5pm");
-		// Which accounts are signed in is asked again when the card opens.
 		expect(calls).toContainEqual(["accounts.status", { accountId: "a2" }]);
 		expect(calls).toContainEqual(["accounts.status", { accountId: "a3" }]);
 		expect(calls).not.toContainEqual(["accounts.status", { accountId: "a1" }]);
@@ -184,12 +178,30 @@ describe("an account's failure card", () => {
 		await click("Continue on Account 1");
 		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "a1" }]);
 
-		// Without the agent, the card is a failed turn's, as before.
 		const { renderToStaticMarkup } = await import("react-dom/server");
 		const html = renderToStaticMarkup(<ErrorCard text={limit({ accountId: "a1" })} personaId="ada" onRunAgain={async () => null} />);
 		expect(html).toContain("Claude Code usage limit reached");
 		expect(html).toContain("Try again");
 		expect(html).not.toContain("Continue on");
+	});
+
+	test("only the latest usage limit, with the teammate still on the failed account, asks for each status", async () => {
+		const probes = () => calls.filter(([cmd]) => cmd === "accounts.status");
+		await mount(limit({ accountId: "a1" }), false);
+		expect(text()).toContain("Account 1 hit its usage limit");
+		expect(probes()).toEqual([]);
+
+		accounts = [a1([]), a2(), a3()];
+		await remount(limit({ accountId: "a1" }));
+		expect(text()).toContain("Now on System default");
+		expect(probes()).toEqual([]);
+
+		accounts = [a1(), a2(), a3()];
+		await remount(limit({ accountId: "a1" }));
+		expect(probes()).toEqual([
+			["accounts.status", { accountId: "a2" }],
+			["accounts.status", { accountId: "a3" }],
+		]);
 	});
 
 	test("an account-bound sign-in failure offers Sign in and Choose account, not the harness methods", async () => {
@@ -214,7 +226,6 @@ describe("an account's failure card", () => {
 		await click("Review failed message");
 		expect(retried).toBe(1);
 
-		// A seat that cannot sign in says where to instead.
 		accounts = [a1(), a2(), { ...a3(), canSignInHere: false }];
 		await remount(failure);
 		expect(buttons()).not.toContain("Sign in Account 3");

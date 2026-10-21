@@ -577,6 +577,17 @@ screens exist and how they behave, and a component is lifted from it only
 where that is cheaper than writing it. Bun and Node exist only as the UI's
 build tools; nothing runs on them.
 
+The window's shared thread store keeps raw streaming text privately and
+publishes whole reply bubbles, every growing thought, and the presence of a
+reply even before its first bubble is whole (the mark reads that as writing).
+A frame that changes none of those wakes no reader. Queued words and the
+durable event that settles them publish together; only the raw fold settles
+bubble remainders, so a hidden final paragraph cannot be lost. Live timestamps
+are fixed on first arrival. Cadence still controls when whole bubbles appear;
+header controls and work-card follow layout do not rerun for unrelated body
+updates. `ui/tests/streaming-store.test.tsx` exercises this subscription boundary
+and the final rendered reply, alongside the pacing and cadence tests.
+
 Providers use Rig's native clients for inference. Rig also signs ChatGPT and
 Copilot in and refreshes them, through Hotline's own token store over each
 login's directory (`providers/rig_login.rs`): ChatGPT's record is the

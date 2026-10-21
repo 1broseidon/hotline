@@ -323,23 +323,15 @@ export function Transcript({
 	// Hooks before the empty-state return, so their order never changes.
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
-	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null)));
-
-	if (empty) {
-		return (
-			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
-				<Avatar id={personaId} name={name} size={48} hash={avatarHash} />
-				<p className="text-lg font-semibold">{name}</p>
-				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
-			</div>
-		);
-	}
+	const queued = hidden.size > 0;
+	const currentActivity = useMemo(() => live || queued ? activityOf(events, streaming, queued) : null, [live, queued, events, streaming]);
+	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.
 	// A job that fired again and again with nothing drawn between is one row,
 	// so this is decided on what is left to draw.
-	const blocks = groupCalls(groupScheduled(
+	const blocks = useMemo(() => groupCalls(groupScheduled(
 		arrived.filter(
 			(block) =>
 				!(
@@ -351,12 +343,12 @@ export function Transcript({
 						(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
 				),
 		),
-	));
-	const underway = onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId);
+	)), [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
+	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId), [onOpenThreads, events, personaId]);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
-	const sides = blocks.map(sideOf);
+	const sides = useMemo(() => blocks.map(sideOf), [blocks]);
 	const sideBefore = (index: number): Side => {
 		for (let at = index - 1; at >= 0; at--) if (sides[at] !== null) return sides[at]!;
 		return null;
@@ -365,6 +357,16 @@ export function Transcript({
 		for (let at = index + 1; at < sides.length; at++) if (sides[at] !== null) return sides[at]!;
 		return null;
 	};
+
+	if (empty) {
+		return (
+			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
+				<Avatar id={personaId} name={name} size={48} hash={avatarHash} />
+				<p className="text-lg font-semibold">{name}</p>
+				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
+			</div>
+		);
+	}
 
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col">

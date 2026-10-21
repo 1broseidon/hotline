@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Attachment, StreamDelta, ThreadAnswer, ThreadId, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import { wholeBubbles } from "./reveal";
 import { bubbleId, pacedLive } from "./pacing";
 import { activeDeskId, wireFor } from "./desks";
 import type { Connection, Target, Wire } from "./wire";
@@ -13,6 +14,8 @@ export type Streaming = {
 	messageId: string;
 	kind: "agent" | "thought";
 	text: string;
+	/** First arrival, kept while the live line grows and settles. */
+	ts: number;
 	/**
 	 * The rest of a streamed reply whose first bubbles the desk has already
 	 * written: it draws as bubbles `index`, `index + 1`, … of `base` until
@@ -135,9 +138,10 @@ export const dmOf = (personaId: string): ThreadId => ({ kind: "dm", key: persona
  *
  * Streaming deltas arrive a word or two at a time, often faster than the
  * screen draws. They are queued and folded once per animation frame, so a
- * reply costs one render per frame, not one per token.
+ * reply publishes at most once per frame, and only when whole bubbles or
+ * visible thoughts change. The first reply delta also signals writing.
  */
-class ThreadStore {
+export class ThreadStore {
 	private held: Held = NOTHING_YET;
 	state: ThreadState = NOTHING_YET;
 	private paging: Promise<void> | null = null;
@@ -188,8 +192,9 @@ class ThreadStore {
 		const next = reduceThread(this.held, fold);
 		if (next === this.held) return;
 		this.held = next;
-		const { events, streaming, loaded, pulling, more } = next;
-		this.state = { events, streaming, loaded, pulling, more };
+		const visible = visibleThread(this.state, next);
+		if (visible === this.state) return;
+		this.state = visible;
 		for (const listener of this.listeners) listener();
 	}
 
@@ -201,7 +206,7 @@ class ThreadStore {
 			},
 			event: (item) => {
 				// Deltas queued before this line belong before it.
-				this.flush();
+				this.drain();
 				this.apply({ type: "event", item });
 			},
 			ephemeral: (delta) => {
@@ -245,6 +250,13 @@ class ThreadStore {
 		this.apply({ type: "left" });
 	}
 
+	private drain() {
+		if (this.frame !== null) cancelAnimationFrame(this.frame);
+		this.frame = null;
+		this.held = reduceThread(this.held, { type: "words", deltas: this.queued });
+		this.queued = [];
+	}
+
 	private flush = () => {
 		if (this.frame !== null) cancelAnimationFrame(this.frame);
 		this.frame = null;
@@ -259,6 +271,26 @@ class ThreadStore {
 		this.frame = null;
 		this.queued = [];
 	}
+}
+
+/** Raw words stay in Held; readers need whole replies, every thought, and
+ * even an empty agent entry to signal that writing has started. Reuse the
+ * published objects while that projection is unchanged. */
+function visibleThread(previous: ThreadState, held: Held): ThreadState {
+	const projected = held.streaming.map((one, index) => {
+		const whole = one.kind === "agent" ? wholeBubbles(one.text).trim() : one.text;
+		// Keep the closing delimiter for withStreaming, without publishing extra blank lines.
+		const text = one.kind === "agent" && whole !== "" ? `${whole}\n\n` : whole;
+		const was = previous.streaming[index];
+		if (was?.messageId === one.messageId && was.kind === one.kind && was.text === text && was.ts === one.ts
+			&& was.bubbleOf?.base === one.bubbleOf?.base && was.bubbleOf?.index === one.bubbleOf?.index) return was;
+		return { ...one, text };
+	});
+	const streaming = projected.length === previous.streaming.length && projected.every((one, index) => one === previous.streaming[index])
+		? previous.streaming : projected;
+	const { events, loaded, pulling, more } = held;
+	if (events === previous.events && streaming === previous.streaming && loaded === previous.loaded && pulling === previous.pulling && more === previous.more) return previous;
+	return { events, streaming, loaded, pulling, more };
 }
 
 const stores = new Map<string, ThreadStore>();
@@ -421,6 +453,7 @@ export function settle(live: Streaming[], item: TranscriptEvent): Streaming[] {
 		next.splice(at, 0, {
 			messageId: bubbleId(base, index + k),
 			kind: "agent",
+			ts: streamed.ts,
 			text: cut.slice(k).join("\n\n"),
 			bubbleOf: { base, index: index + k },
 		});
@@ -433,7 +466,7 @@ export function settle(live: Streaming[], item: TranscriptEvent): Streaming[] {
 export function append(live: Streaming[], delta: ThreadDelta): Streaming[] {
 	const kind = delta.kind === "text" ? "agent" : "thought";
 	const at = live.findIndex((one) => one.messageId === delta.messageId);
-	if (at === -1) return [...live, { messageId: delta.messageId, kind, text: delta.text }];
+	if (at === -1) return [...live, { messageId: delta.messageId, kind, text: delta.text, ts: Date.now() }];
 	const next = live.slice();
 	next[at] = { ...live[at]!, text: live[at]!.text + delta.text };
 	return next;

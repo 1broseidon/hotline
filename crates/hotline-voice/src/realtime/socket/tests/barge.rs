@@ -199,3 +199,51 @@ async fn a_reply_created_before_the_commit_ends_the_caller_turn() {
         finish(server).await;
     }
 }
+
+/// A line given to say is spoken once and its "Say exactly this…" instruction
+/// cannot be read out by a later reply (George's call, 13:11).
+#[tokio::test]
+async fn a_spoken_line_leaves_no_instruction_behind() {
+    for gpt in [false, true] {
+        let (listener, url) = listen().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = accept(&listener).await;
+            handshake(&mut socket).await;
+            let item = receive(&mut socket).await;
+            assert_eq!(item["type"], "conversation.item.create");
+            // The provider names the item, as Grok does, whatever the client sent.
+            let mut created = item["item"].clone();
+            created["id"] = json!("item_provider_7");
+            send(
+                &mut socket,
+                json!({"type":"conversation.item.created", "item": created}),
+            )
+            .await;
+            let id = "item_provider_7";
+            assert_eq!(receive(&mut socket).await["type"], "response.create");
+            send(&mut socket, json!({"type":"response.created"})).await;
+            send(&mut socket, json!({"type":"response.done"})).await;
+            // OpenAI removes the instruction once spoken. Grok says lines only
+            // from user items and cannot delete them; its rules forbid quoting.
+            assert_eq!(item["item"]["role"], if gpt { "system" } else { "user" });
+            if gpt {
+                let deleted = receive(&mut socket).await;
+                assert_eq!(deleted["type"], "conversation.item.delete");
+                assert_eq!(deleted["item_id"], id);
+            }
+            closed(&mut socket).await;
+        });
+        let provider = if gpt { openai(&url) } else { voice(&url) };
+        let mut configuration = config();
+        configuration.input_rate = 24_000;
+        let mut session = provider.open(configuration).await.unwrap();
+        session
+            .input
+            .say("A question for you: ready? Say yes or no.")
+            .await
+            .unwrap();
+        assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
+        session.close().await;
+        finish(server).await;
+    }
+}

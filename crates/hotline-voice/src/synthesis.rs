@@ -72,7 +72,9 @@ impl Calls {
             return Err("The dispatcher returned no words.".into());
         }
         let text = sentences.join(" ");
-        let line = if self.change(id, |call| Ok(call.target.is_some()))? {
+        let line = if self.fronted(id) {
+            uuid::Uuid::new_v4().to_string()
+        } else if self.change(id, |call| Ok(call.target.is_some()))? {
             self.keep(id, Speaker::Voice, &text)
         } else {
             self.record("agent", &text)?

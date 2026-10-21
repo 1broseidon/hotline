@@ -639,6 +639,13 @@ call thread, on the teammate's selected model and harness. The whole call
 so far is its brief. Reads still run beside it; the home session is never
 interrupted. Stop cancels the call's work and drops queued changes. Speech
 from both sides and each read/work tool are written in order on the thread.
+Live text is buffered until completion or a work boundary; repeated updates
+still fold by id. An interruption keeps the generated text before its cut
+notice, and hang-up or provider loss flushes any remaining text. The clone's
+agent messages never become call speech: its tools remain tool entries and
+its completed answer is one `Work result` tool entry. Only the answer after
+the last tool is offered to the live voice; the clone's opening is never
+spoken. The actual voice response is recorded under its own speech id.
 The clone posts drafts and files with a subject, then returns a short spoken
 result. GPT-Live's client delegation uses this same work tool, without a
 call-assistant delegation loop.

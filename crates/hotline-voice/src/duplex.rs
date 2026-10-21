@@ -13,7 +13,6 @@ use super::realtime::{
 };
 use super::settings::FrontProvider;
 use super::*;
-use crate::record::Speaker;
 use hotline_contract::Persona;
 use hotline_store::log::StreamId;
 
@@ -398,6 +397,10 @@ impl Calls {
                     &mut kept,
                 )
                 .await;
+            let _ = self.change(&id, |call| {
+                call.keep_front_speech();
+                Ok(())
+            });
             let rest = since.elapsed().as_secs_f64() % SPEND_EVERY.as_secs_f64();
             if self.front_spend(realtime.as_ref(), rest).is_err() {
                 break FrontEnd::Budget;
@@ -519,15 +522,30 @@ impl Calls {
             };
             let event = match event {
                 Some(Ok(event)) => event,
-                Some(Err(error)) => {
-                    eprintln!("[voice] the front failed: {error}");
-                    return FrontEnd::Lost;
-                }
-                None => {
-                    eprintln!("[voice] call {id}: provider events ended");
+                failure => {
+                    match failure {
+                        Some(Err(error)) => eprintln!("[voice] the front failed: {error}"),
+                        _ => eprintln!("[voice] call {id}: provider events ended"),
+                    }
+                    if !saying.is_empty() {
+                        carry.push(
+                            "You",
+                            &format!("[Speech ended with the connection] {saying}"),
+                        );
+                        *replies += 1;
+                    }
                     return FrontEnd::Lost;
                 }
             };
+            if matches!(
+                event,
+                RealtimeEvent::ToolCall { .. } | RealtimeEvent::Heard(_)
+            ) {
+                let _ = self.change(id, |call| {
+                    call.keep_front_speech();
+                    Ok(())
+                });
+            }
             let seen = match event {
                 RealtimeEvent::Audio(pcm) => {
                     if saying.is_empty() {
@@ -586,12 +604,6 @@ impl Calls {
                 }
                 RealtimeEvent::Saying(piece) => {
                     saying.push_str(&piece);
-                    self.keep_as(
-                        id,
-                        Speaker::Voice,
-                        &format!("{FRONT_LINE_PREFIX}{id}-{replies}"),
-                        &saying,
-                    );
                     self.change(id, |call| {
                         if let Some(front) = &mut call.front {
                             front.responding = true;
@@ -604,6 +616,7 @@ impl Calls {
                 RealtimeEvent::ResponseDone => {
                     let interrupted = self
                         .change(id, |call| {
+                            call.keep_front_speech();
                             Ok(call.front.as_mut().is_some_and(|front| {
                                 front.responding = false;
                                 std::mem::take(&mut front.interrupted)

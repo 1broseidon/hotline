@@ -384,6 +384,9 @@ impl Call {
         }
     }
     pub fn state(&mut self, state: VoiceState, reason: Option<VoiceEndReason>) {
+        if state == VoiceState::Ended {
+            self.keep_front_speech();
+        }
         let ended = self.state == VoiceState::Ended;
         self.state = state;
         self.reason = reason;

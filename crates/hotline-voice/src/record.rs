@@ -124,6 +124,7 @@ pub(super) struct SpeechLine {
     id: String,
     text: String,
     cut: bool,
+    recorded: bool,
     pub(super) pending: Option<String>,
 }
 
@@ -132,6 +133,10 @@ impl SpeechLine {
         if self.id != id {
             self.id = id.into();
             self.cut = false;
+            self.recorded = false;
+        }
+        if self.text != text {
+            self.recorded = false;
         }
         self.text = text.into();
     }
@@ -157,7 +162,20 @@ impl SpeechLine {
 }
 
 impl super::Call {
+    /// Finalize live text before a boundary; unchanged text is never appended twice.
+    pub(super) fn keep_front_speech(&mut self) {
+        if self.front.is_some()
+            && !self.speech_line.recorded
+            && !self.speech_line.text.is_empty()
+            && let Some(record) = &self.record
+        {
+            record.said(Speaker::Voice, &self.speech_line.id, &self.speech_line.text);
+            self.speech_line.recorded = true;
+        }
+    }
+
     pub(super) fn cut_speech(&mut self, played_ms: Option<u32>) {
+        self.keep_front_speech();
         if let Some(line) = self.speech_line.interrupt(played_ms)
             && let Some(record) = &self.record
         {

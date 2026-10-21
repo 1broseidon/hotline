@@ -66,7 +66,7 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
                 config: Mutex::new(None),
             });
             let mut desk = open_with_front(Some(front.clone())).await;
-            let (ada, _) = desk.teammate("Ada", driver, false).await;
+            let (ada, tape) = desk.teammate("Ada", driver, false).await;
             let path = std::path::Path::new(&desk.workspace).join("harbour-plan.txt");
             std::fs::write(&path, "Harbour beacon: use a blue lens.").unwrap();
             let call = uuid::Uuid::new_v4().to_string();
@@ -95,9 +95,10 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
                 RealtimeEvent::Heard("The harbour beacon needs a blue lens.".into()),
             )
             .await;
+            event(&events, RealtimeEvent::Saying("A blue lens for".into())).await;
             event(
                 &events,
-                RealtimeEvent::Saying("A blue lens for the harbour beacon.".into()),
+                RealtimeEvent::Saying(" the harbour beacon.".into()),
             )
             .await;
             event(&events, RealtimeEvent::ResponseDone).await;
@@ -130,9 +131,31 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
                 desk.log
                     .load(&stream)
                     .iter()
-                    .any(|line| line["kind"] == "turn")
+                    .any(|line| line["title"] == "Work result")
             })
             .await;
+            // Only the final result is offered to the realtime provider to say.
+            let spoken = tokio::time::timeout(PATIENCE, async {
+                loop {
+                    if let Some(Command::Say(text)) = asked.recv().await {
+                        break text;
+                    }
+                }
+            })
+            .await
+            .expect("finished result reaches live voice");
+            assert!(
+                spoken.contains("The harbour beacon plan is in the chat."),
+                "{spoken}"
+            );
+            assert!(!spoken.contains("Saving the beacon plan"));
+            event(
+                &events,
+                RealtimeEvent::Saying("The harbour beacon plan is ".into()),
+            )
+            .await;
+            event(&events, RealtimeEvent::Saying("in the chat.".into())).await;
+            event(&events, RealtimeEvent::ResponseDone).await;
             let after = desk.log.load(&StreamId::Tape(ada.clone()));
             assert_eq!(
                 after.iter().filter(|line| line["kind"] == "user").count(),
@@ -148,7 +171,54 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
                 posts[0].to_string().contains("harbour-plan.txt"),
                 "{posts:?}"
             );
+            crate::common::until("voice result is recorded", || {
+                desk.log
+                    .load(&stream)
+                    .iter()
+                    .any(|line| line["text"] == "The harbour beacon plan is in the chat.")
+            })
+            .await;
             let lines = desk.log.load(&stream);
+            let results: Vec<_> = lines
+                .iter()
+                .filter(|line| line["title"] == "Work result")
+                .collect();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0]["kind"], "tool");
+            assert!(
+                results[0]["output"]
+                    .to_string()
+                    .contains("specifies a blue lens")
+            );
+            let speech: Vec<_> = lines
+                .iter()
+                .filter(|line| line["kind"] == "agent")
+                .collect();
+            assert_eq!(
+                speech.len(),
+                4,
+                "only the four actual voice lines: {speech:?}"
+            );
+            assert!(
+                speech
+                    .iter()
+                    .all(|line| line["id"].as_str().unwrap().starts_with("front-"))
+            );
+            let raw = std::fs::read_to_string(
+                desk.root.path().join("calls").join(format!("{call}.jsonl")),
+            )
+            .unwrap();
+            let raw: Vec<Value> = raw
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(
+                raw.iter()
+                    .filter(|line| line["text"] == "A blue lens for the harbour beacon.")
+                    .count(),
+                1
+            );
+            assert!(!raw.iter().any(|line| line["text"] == "A blue lens for"));
             assert!(
                 lines
                     .iter()
@@ -177,18 +247,46 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
                 serde_json::from_value::<hotline_core::contract::TranscriptEvent>(line.clone())
                     .unwrap();
             }
-            // A real lookup still uses the call-bound tools after the work.
-            event(
-                &events,
-                RealtimeEvent::ToolCall {
-                    call_id: "read".into(),
-                    name: "read_thread".into(),
-                    arguments: json!({"thread":format!("call:{call}")}).to_string(),
-                },
-            )
-            .await;
-            let read = result(&mut asked, "read").await;
-            assert!(read.contains("blue lens"), "{read}");
+            // Page through the real reader, within the live tool's output bound.
+            let mut read_lines = Vec::new();
+            let mut cursor = None;
+            while read_lines.len() < lines.len() {
+                let mut args = json!({"thread":format!("call:{call}"), "limit":2});
+                if let Some(after) = cursor {
+                    args["after"] = after;
+                }
+                event(
+                    &events,
+                    RealtimeEvent::ToolCall {
+                        call_id: "read".into(),
+                        name: "read_thread".into(),
+                        arguments: args.to_string(),
+                    },
+                )
+                .await;
+                let read = result(&mut asked, "read").await;
+                let page: Value =
+                    serde_json::from_str(&read[read.find('{').unwrap()..=read.rfind('}').unwrap()])
+                        .expect(&read);
+                let page_lines = page["lines"].as_array().unwrap();
+                assert_ne!(page_lines.len(), 0);
+                cursor = Some(page_lines.last().unwrap()["id"].clone());
+                read_lines.extend(page_lines.clone());
+            }
+            assert_eq!(
+                read_lines
+                    .iter()
+                    .filter(|line| line["kind"] == "agent")
+                    .count(),
+                4
+            );
+            assert_eq!(
+                read_lines
+                    .iter()
+                    .filter(|line| line["title"] == "Work result")
+                    .count(),
+                1
+            );
             assert!(
                 desk.log
                     .load(&stream)
@@ -210,6 +308,19 @@ async fn live_work_uses_its_own_driver_and_posts_its_file_without_touching_home(
             desk.client
                 .call("voice.call_end", json!({"callId":call}))
                 .await;
+            desk.advance(31).await;
+            desk.closing(tape).await;
+            let requests = desk.requests.lock().unwrap();
+            assert!(
+                requests
+                    .iter()
+                    .filter(|request| request["stream"] != true)
+                    .any(|request| {
+                        let text = request.to_string();
+                        text.contains("Work result") && text.contains("specifies a blue lens")
+                    }),
+                "closing summary includes the work even though it was never speech"
+            );
         }
     }
 }

@@ -1,8 +1,6 @@
 ---
 id: task-257
 title: "task-20 follow-up: zero TCP linger on every WebSocket breaks all remote tests on Windows"
-column: review
-position: 2
 priority: high
 tags:
   - performance
@@ -21,10 +19,13 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T11:21:20.348Z"
+    ended: "2026-10-21T11:30:54.830Z"
+    outcome: done
 assignee: codex
-updatedAt: "2026-10-21T11:30:44.906Z"
+updatedAt: "2026-10-21T11:30:54.830Z"
 decisions:
   - decision-24
+completedAt: "2026-10-21T11:30:54.056Z"
 ---
 
 ## Description
@@ -38,3 +39,4 @@ Done when: normal closes drain as before; only a seat dropped for stalling (the 
 - 2026-10-21T11:23:30.974Z: [codex] Confirmed zero linger at all three transport setup paths. Moving reset selection into joined seat teardown only after WRITE_STALL, preserving normal TLS/WebSocket drains. Existing stalled-seat reset harness remains the required proof; pairing/auth and door tests cover final replies.
 - 2026-10-21T11:29:20.755Z: [codex] make check passed in the foreground: 1,240 core unit tests plus workspace/integration suites, including the unchanged stalled-seat TCP-reset proof and new normal-revocation drain regression. make precheck is running; Windows runtime validation remains Pork Chop's CI step.
 - 2026-10-21T11:30:44.630Z: [codex] Committed 069e3444 on dispatch/task-257: zero linger is selected only during timed-out seat teardown; normal accept/dial and WebSocket closes drain. Added normal-revocation TCP regression, preserved stalled-seat reset proof, and updated design/security/wire docs (decision-24). Foreground make check and all 8 make precheck legs passed. Handoff: review/merge this branch into dispatch/epic-5, then Pork Chop runs Windows runtime CI; no push or merge performed here.
+- 2026-10-21T11:30:53.411Z: Landed on dispatch/epic-5

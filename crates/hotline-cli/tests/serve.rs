@@ -5,7 +5,7 @@
 //! again in another mode, every pairing keeps its role. A room it cannot
 //! read is refused with an unsuccessful exit, and left as it was.
 #![cfg(unix)]
-mod common;
+use crate::common;
 
 use common::{desktop, free_address, hotline, listen_args, said, serve, standing, stop, top, wire};
 use hotline_core::credentials::FileStore;

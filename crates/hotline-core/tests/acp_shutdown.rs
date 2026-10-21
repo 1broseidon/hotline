@@ -6,7 +6,7 @@
 //! drives, while the agent is still starting, as Pork Chop's was. Its own test
 //! binary, because ending every agent would end other tests' too.
 #![cfg(unix)]
-mod common;
+use crate::common;
 
 use common::{Client, stalled};
 use hotline_core::wire::Door;

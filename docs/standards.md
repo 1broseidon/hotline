@@ -12,7 +12,8 @@ module map itself is [development.md](development.md#layout).
 - A module with children is `foo.rs` beside `foo/`, the Rust 2018 layout,
   never `foo/mod.rs`. The one exception is `crates/*/tests/common/mod.rs`,
   which is Cargo's idiom for helpers shared by integration tests.
-- `#[path]` is not used.
+- `#[path]` is used only in integration harnesses to keep their existing
+  files and nested modules in place while sharing one test binary.
 - One type's behaviour may be filed by concern across sibling files, the way
   `impl Room` is spread over `session/*`. Do not invent per-concern traits or
   types for that.
@@ -105,9 +106,13 @@ module map itself is [development.md](development.md#layout).
 - Past 2,000 lines, `foo/tests.rs` keeps only the shared fixtures, and the
   tests move to `foo/tests/<topic>.rs`.
 - There is no `_tests.rs` suffix. Integration harnesses are
-  `crates/*/tests/<area>.rs`, one binary per area, with shared helpers in
-  `tests/common`: one bounded `Client`, one desk-and-door helper, one fake
-  model server.
+  `crates/*/tests/<area>.rs`, registered as modules in `tests/integration.rs`
+  with `autotests = false` and one explicit `[[test]]` target per crate.
+  Harnesses that require process isolation stay separate explicit targets,
+  with the reason beside the target in Cargo.toml. Add every new harness to
+  the root (or an explained separate target), or Cargo will not run it. Shared
+  helpers live in `tests/common`: one bounded `Client`, one desk-and-door
+  helper, one fake model server.
 - A test waits on a signal through one `until(what, cond)` with one generous
   deadline. It asserts floors and order, never an elapsed-time ceiling,
   because a loaded runner makes every ceiling flaky.

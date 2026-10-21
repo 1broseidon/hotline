@@ -88,12 +88,23 @@ jobs:
         working-directory: ui
         run: bun install --frozen-lockfile
 
-      - name: Check the core and window on this operating system
+      - name: Check integration-test registration
+        shell: bash
+        run: python3 -m unittest discover -s scripts -p 'test_integration_targets.py' || python -m unittest discover -s scripts -p 'test_integration_targets.py'
+
+      - name: Check Rust formatting and lints
         shell: bash
         run: |
           cargo fmt --all --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
-          cargo test --workspace --locked
+
+      - name: Test on ${{ runner.os }}
+        shell: bash
+        run: cargo test --workspace --locked
+
+      - name: Check the window on this operating system
+        shell: bash
+        run: |
           bun run --cwd ui typecheck
           bun run --cwd ui lint
           bun run --cwd ui knip
@@ -165,6 +176,10 @@ jobs:
       - name: Unpack the speech engine again
         shell: bash
         run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+
+      - name: Check integration-test registration
+        shell: bash
+        run: python3 -m unittest discover -s scripts -p 'test_integration_targets.py' || python -m unittest discover -s scripts -p 'test_integration_targets.py'
 
       - name: Compile the macOS code and its tests
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

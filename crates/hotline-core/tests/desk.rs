@@ -9,7 +9,7 @@
 //! this machine can run (`cursor`, say), pass `--ignored`, and it drives a real
 //! harness as a child.
 
-mod common;
+use crate::common;
 
 use common::Client;
 use hotline_core::wire::Door;

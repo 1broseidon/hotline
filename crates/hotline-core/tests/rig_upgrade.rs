@@ -1,6 +1,6 @@
 //! A 0.42 profile on Rig 0.45, through the same desk and wire as the window.
 //! Only provider origins, speech synthesis and the OS secret store are stubs.
-mod common;
+use crate::common;
 
 use axum::{
     Router,

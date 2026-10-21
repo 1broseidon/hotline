@@ -1,10 +1,29 @@
 [package]
+autotests = false
 name = "hotline-core"
 description = "Hotline's core: the log, the room, sessions and their drivers, tools, and the wire. No Tauri dependency by design."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+# These harnesses install a process-wide PATH stub for the browser opener.
+[[test]]
+name = "processes"
+path = "tests/processes.rs"
+
+[[test]]
+name = "voice"
+path = "tests/voice.rs"
+
+# Proves startup selects TLS before any other test can initialize rustls.
+[[test]]
+name = "tls"
+path = "tests/tls.rs"
 
 [lints]
 workspace = true

@@ -1,12 +1,11 @@
 //! The last thing either side said, for the roster to show under a name.
 //!
-//! Reads the end of a tape rather than the whole of it: this runs for every
-//! local teammate at startup, and a transcript is only bounded by how much
-//! has been said. The tail is read raw, not folded — a chapter marker or a
-//! tool call mutates in place by id, but a message never does, so the id
-//! folding `Log::load` does for the rest of the tape buys nothing here and
-//! costs a second full read. That is why this reads the tape's segments
-//! itself instead of asking the log for the fold.
+//! One-shot readers use bounded raw tails: messages are immutable, so finding
+//! the last one does not need a whole-history fold. The live roster uses
+//! [`live`] instead, seeding once and following the existing log broadcast.
+//! Its cold tool-activity seed still needs the raw tail's append order.
+
+pub mod live;
 
 use crate::log::{parse_lines, segments_of};
 use serde_json::{Value, json};
@@ -14,9 +13,8 @@ use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-/// How far back to look for the last thing said. A message is the last line
-/// in a transcript far more often than not, so the roster's activity and
-/// waiting state are read from this much and no more.
+/// The initial window for one-shot previews and the cold activity seed.
+/// Live cards are seeded from the fold, so an old open card cannot age out.
 const TAIL_BYTES: u64 = 64 * 1024;
 /// How much further a preview looks when that tail holds no message. A turn
 /// that has run for a long time is all tool calls and thoughts, and a roster
@@ -40,7 +38,11 @@ pub fn tape_size(root: &Path, persona_id: &str) -> u64 {
 /// The last `window` bytes of the logical tape — segments concatenated in
 /// epoch order. Starts at the end of the highest-epoch non-empty segment and
 /// walks into earlier ones only while the window still needs bytes.
-fn read_tail_logical(segments: &[(u64, PathBuf)], window: u64) -> Vec<Value> {
+fn read_tail_logical(root: &Path, segments: &[(u64, PathBuf)], window: u64) -> Vec<Value> {
+    #[cfg(feature = "test-support")]
+    reads::record(root);
+    #[cfg(not(feature = "test-support"))]
+    let _ = root;
     let sizes: Vec<u64> = segments
         .iter()
         .map(|(_, path)| segment_size(path))
@@ -122,7 +124,7 @@ pub fn tail(root: &Path, persona_id: &str) -> Vec<Value> {
     if logical_size(&segments) == 0 {
         return Vec::new();
     }
-    read_tail_logical(&segments, TAIL_BYTES)
+    read_tail_logical(root, &segments, TAIL_BYTES)
 }
 
 /// The last thing either side said in one teammate's tape, or nothing for a
@@ -131,7 +133,7 @@ pub fn preview(root: &Path, persona_id: &str) -> Option<Value> {
     preview_from_tail(&tail(root, persona_id))
 }
 
-/// Reuse a tail already read for the roster's activity and waiting state.
+/// Find the latest visible message in an already-read stretch of tape.
 pub fn preview_from_tail(tail: &[Value]) -> Option<Value> {
     tail.iter().rev().find_map(message_preview)
 }
@@ -148,7 +150,7 @@ pub fn preview_reaching(root: &Path, persona_id: &str, tail: &[Value]) -> Option
         if size <= TAIL_BYTES {
             break;
         }
-        if let Some(found) = preview_from_tail(&read_tail_logical(&segments, reach)) {
+        if let Some(found) = preview_from_tail(&read_tail_logical(root, &segments, reach)) {
             return Some(found);
         }
         if size <= reach {
@@ -156,6 +158,36 @@ pub fn preview_reaching(root: &Path, persona_id: &str, tail: &[Value]) -> Option
         }
     }
     None
+}
+
+/// Per-directory instrumentation for the real-wire performance harness.
+#[cfg(feature = "test-support")]
+pub mod reads {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock, PoisonError};
+
+    fn counts() -> &'static Mutex<HashMap<PathBuf, usize>> {
+        static COUNTS: OnceLock<Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
+        COUNTS.get_or_init(Mutex::default)
+    }
+
+    pub(super) fn record(root: &Path) {
+        *counts()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(root.to_path_buf())
+            .or_default() += 1;
+    }
+
+    pub fn count(root: &Path) -> usize {
+        counts()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(root)
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]

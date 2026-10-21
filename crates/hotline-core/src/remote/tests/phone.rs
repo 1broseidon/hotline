@@ -422,6 +422,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
             "threads",
             "runs",
             "threads2",
+            "rosterOptions",
             "lean",
             "thumbnails",
             "turnRetry"

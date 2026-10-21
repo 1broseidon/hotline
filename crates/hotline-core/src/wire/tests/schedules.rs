@@ -217,6 +217,7 @@ async fn a_schedules_view_catches_up_after_falling_behind_and_ends_when_it_canno
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        roster_options: Arc::default(),
         lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),

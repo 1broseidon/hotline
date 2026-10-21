@@ -45,9 +45,11 @@ For cards, verify phone `voice.input_state` and `card.resolved` adoption.
   That's the whole team right now." Named work reached Rex
   directly and `rain.txt` was written.
 - Pork Chop, 2026-10-21, Grok call `790a5312`: `fox.txt` was written and spoken
-  about, closing note worked, file did not reach chat. **task-253** asks George
-  to decide the attachment policy. `send_file` is proved; merely writing a
-  file is not guaranteed to attach it. No automatic attachment is added here.
+  about, closing note worked, file did not reach chat. George subsequently
+  chose core-owned delivery in **task-253**. The implementation now delivers
+  recorded writes/edits, combines explicit sends, and groups batches above
+  three files. Both drivers pass the scripted wire test; confirmation on a
+  real-provider call is still pending.
 - The deck’s push-approval example is broader than the shipped trusted-card
   boundary. Under decision-15, opaque driver approvals wait for the desk;
   exercise a core-owned session collaboration approval or informational
@@ -110,7 +112,7 @@ Device results: Linux — pending; desk — pending; phone — pending.
 
 ### 3. Asking for real work
 
-Scripted: [`call_threads/live_work.rs::live_work_uses_its_own_driver_and_posts_its_file_without_touching_home`](../../crates/hotline-core/tests/call_threads/live_work.rs). Both real drivers, all three front identities, explicit file sending, lookups during work and home isolation. Does not prove automatic attachment: task-253.
+Scripted: [`call_threads/live_work.rs::live_work_uses_its_own_driver_and_posts_its_file_without_touching_home`](../../crates/hotline-core/tests/call_threads/live_work.rs). Both real drivers, all three front identities, explicit file sending, lookups during work and home isolation. Task-253 adds `call_threads/files.rs::call_files_are_delivered_once_and_large_batches_are_one_openable_card` for automatic attachment on both drivers, grouping, deduplication and indexed readback. Real-call confirmation of that change is pending.
 
 Device results: Linux — pending; desk — pending; phone — pending.
 

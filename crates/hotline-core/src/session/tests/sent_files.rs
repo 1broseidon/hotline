@@ -386,3 +386,67 @@ async fn a_file_from_a_work_thread_is_posted_to_the_chat() {
         )]
     );
 }
+
+#[tokio::test]
+async fn automatic_call_files_keep_the_call_lease_reach_and_work_boundary() {
+    let (room, cwd) = workspace("automatic-call-files");
+    room.start("ada").await.unwrap();
+    let lease = room.capability_lease("ada").scoped();
+    let first = ThreadId::call("first");
+    let changed = crate::contract::ChangedFile {
+        path: "report.pdf".into(),
+        created: false,
+    };
+    room.post_call_files("ada", &first, std::slice::from_ref(&changed), &lease)
+        .await;
+    assert_eq!(files_on(&room).len(), 1);
+    std::fs::write(cwd.join("report.pdf"), b"%PDF-1.4\nupdated").unwrap();
+    room.post_call_files("ada", &first, std::slice::from_ref(&changed), &lease)
+        .await;
+    assert_eq!(
+        files_on(&room).len(),
+        2,
+        "a later work result can deliver a correction"
+    );
+    let delivered = files_on(&room);
+    assert_eq!(
+        std::fs::read(delivered[1]["attachments"][0]["path"].as_str().unwrap()).unwrap(),
+        b"%PDF-1.4\nupdated"
+    );
+    let second = ThreadId::call("second");
+    room.post_call_files("ada", &second, &[], &lease).await;
+    assert_eq!(
+        files_on(&room).len(),
+        2,
+        "another call does not replay old records"
+    );
+    room.post_call_files("ada", &second, std::slice::from_ref(&changed), &lease)
+        .await;
+    assert_eq!(files_on(&room).len(), 3, "another call owns its own result");
+    let outside = tempfile::tempdir().unwrap();
+    let path = outside.path().join("secret.txt");
+    std::fs::write(&path, "private").unwrap();
+    room.post_call_files(
+        "ada",
+        &second,
+        &[crate::contract::ChangedFile {
+            path: path.display().to_string(),
+            created: true,
+        }],
+        &lease,
+    )
+    .await;
+    assert_eq!(
+        files_on(&room).len(),
+        3,
+        "a reported path cannot expand reach"
+    );
+    lease.revoke();
+    room.post_call_files("ada", &ThreadId::call("revoked"), &[changed], &lease)
+        .await;
+    assert_eq!(
+        files_on(&room).len(),
+        3,
+        "a revoked call cannot read or post"
+    );
+}

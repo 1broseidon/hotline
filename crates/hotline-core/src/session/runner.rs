@@ -373,6 +373,7 @@ impl Room {
             .threads()
             .turn(
                 Seat {
+                    capability: None,
                     thread: &thread,
                     persona_id: &spec.persona_id,
                     driver: agent.driver.as_ref(),

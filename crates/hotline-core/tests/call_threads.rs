@@ -1,6 +1,7 @@
 mod call_threads {
     mod cards;
     mod closing;
+    mod files;
     mod legacy_feedback;
     mod live_work;
     mod person_name;

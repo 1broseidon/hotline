@@ -44,6 +44,7 @@ pub(super) struct Posting {
     pub(super) detached: bool,
     /// A file is a work result even when its closing words are short prose.
     pub(super) file_sent: bool,
+    pub(super) files: Vec<super::call_files::CallFile>,
 }
 
 /// The turn in flight on a thread, as [`Room::take_post`] finds it.
@@ -108,6 +109,7 @@ impl Room {
                 posted: false,
                 detached: false,
                 file_sent: false,
+                files: Vec::new(),
             },
         );
         PostingTurn {

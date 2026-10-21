@@ -51,10 +51,10 @@ pub(crate) enum Source {
 }
 
 /// A file as it came off its source.
-struct Taken {
-    name: String,
-    bytes: Vec<u8>,
-    origin: String,
+pub(super) struct Taken {
+    pub(super) name: String,
+    pub(super) bytes: Vec<u8>,
+    pub(super) origin: String,
 }
 
 impl Room {
@@ -80,10 +80,10 @@ impl Room {
         let workspace = matches!(&source, Source::Workspace(_));
         let taken = match source {
             Source::GeneratedImage(path) => {
-                from_workspace(&persona, self.log.root(), &path, capability.clone()).await?
+                from_workspace(&persona, self.log.root(), &path, capability.clone(), false).await?
             }
             Source::Workspace(path) => {
-                from_workspace(&persona, self.log.root(), &path, capability.clone()).await?
+                from_workspace(&persona, self.log.root(), &path, capability.clone(), false).await?
             }
             Source::Computer(path) => {
                 let ready = self.computer_to_send_from(persona_id).await?;
@@ -122,11 +122,31 @@ impl Room {
         if let Some(capability) = &capability {
             capability.check()?;
         }
+        // A call publishes one batch when its work finishes, so a model's
+        // explicit sends cannot turn a six-file result into six chat posts.
+        if thread.kind == ThreadKind::Call && !generated {
+            let mut posting = lock(&self.posting);
+            if let Some(turn) = posting.get_mut(thread) {
+                let answer = format!(
+                    "{} is ready and will be posted to the chat when this work finishes.",
+                    file.name
+                );
+                turn.files.push(super::call_files::CallFile {
+                    file,
+                    origin: taken.origin,
+                    created: None,
+                    caption: caption.to_string(),
+                });
+                turn.file_sent = true;
+                return Ok(answer);
+            }
+        }
         let id = new_id();
         let root = self.log.root();
         let path = sent::store(root, persona_id, &id, &file)
             .map_err(|error| format!("The desk could not keep the file: {error}"))?;
         let attachment = Attachment {
+            created: None,
             kind: file.kind,
             name: file.name.clone(),
             path: path.display().to_string(),
@@ -242,11 +262,12 @@ impl Room {
 }
 
 /// A file from the teammate's workspace, found as its read tools find one.
-async fn from_workspace(
+pub(super) async fn from_workspace(
     persona: &Persona,
     root: &Path,
     requested: &str,
     capability: Option<CapabilityLease>,
+    recorded: bool,
 ) -> Result<Taken, String> {
     let workspace = Workspace::open_with_capability(
         PathBuf::from(&persona.cwd),
@@ -258,9 +279,12 @@ async fn from_workspace(
     .map_err(|error| error.to_string())?;
     let requested = requested.to_string();
     tokio::task::spawn_blocking(move || {
-        let (file, size, path) = workspace
-            .open_to_send(&requested)
-            .map_err(|error| error.to_string())?;
+        let (file, size, path) = if recorded {
+            workspace.open_recorded_to_send(Path::new(&requested))
+        } else {
+            workspace.open_to_send(&requested)
+        }
+        .map_err(|error| error.to_string())?;
         let name = file_name(&requested);
         if size > sent::MAX_BYTES {
             return Err(sent::too_large(&name, Some(size)));
@@ -288,7 +312,11 @@ async fn from_workspace(
 
 /// Makes the file what it will be kept as, off the async workers: an image
 /// is decoded and encoded again.
-async fn prepare(name: String, bytes: Vec<u8>, generated: bool) -> Result<Prepared, String> {
+pub(super) async fn prepare(
+    name: String,
+    bytes: Vec<u8>,
+    generated: bool,
+) -> Result<Prepared, String> {
     let permit = DECODERS
         .acquire()
         .await

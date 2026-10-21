@@ -109,6 +109,8 @@ pub(super) struct HandoffLine {
 
 /// The agent a turn is for, and the thread and teammate it answers as.
 pub(super) struct Seat<'a> {
+    /// Work threads retain their own lease for call-file delivery.
+    pub capability: Option<&'a crate::driver::CapabilityLease>,
     pub thread: &'a ThreadId,
     pub persona_id: &'a str,
     pub driver: &'a dyn Driver,
@@ -148,6 +150,7 @@ struct Told<'a, F> {
     open: F,
     voice: Option<crate::voice::Origin>,
     replies: Vec<serde_json::Value>,
+    files: Vec<crate::contract::ChangedFile>,
 }
 
 impl<F: Fn() -> bool> Witness for Told<'_, F> {
@@ -228,6 +231,21 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         if !(self.open)() {
             return;
         }
+        if self.seat.thread.kind == crate::contract::ThreadKind::Call
+            && let TranscriptEvent::Tool {
+                status: crate::contract::ToolStatus::Completed,
+                files: Some(files),
+                ..
+            } = &event
+        {
+            for file in files {
+                if let Some(known) = self.files.iter_mut().find(|known| known.path == file.path) {
+                    known.created |= file.created;
+                } else {
+                    self.files.push(file.clone());
+                }
+            }
+        }
         let live_work = self.voice.as_ref().is_some_and(|origin| origin.front);
         if live_work && matches!(event, TranscriptEvent::Tool { .. }) {
             // Only words after the last tool are the work's result.
@@ -304,6 +322,7 @@ impl Threads<'_> {
         let subject = line.text.clone();
         let mut told = Told {
             replies: Vec::new(),
+            files: Vec::new(),
             voice: voice.clone(),
             threads: Threads { room: self.room },
             seat,
@@ -312,6 +331,14 @@ impl Threads<'_> {
         let mut driven = self
             .drive(driver, line.into(), reach, cancel, None, &mut told)
             .await;
+        if thread.kind == crate::contract::ThreadKind::Call
+            && (told.open)()
+            && let Some(capability) = told.seat.capability
+        {
+            self.room
+                .post_call_files(told.seat.persona_id, &thread, &told.files, capability)
+                .await;
+        }
         if voice.as_ref().is_some_and(|origin| origin.front) && (told.open)() {
             let result_id = super::new_id();
             let text = told
@@ -348,6 +375,7 @@ impl Threads<'_> {
                         crate::contract::ToolStatus::Completed
                     },
                     locations: None,
+                    files: None,
                     output: Some(vec![crate::contract::ToolOutput::Text {
                         text: text.clone(),
                     }]),

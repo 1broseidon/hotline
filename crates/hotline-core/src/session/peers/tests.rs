@@ -1355,6 +1355,7 @@ mod receipts {
             tool_kind: None,
             status: ToolStatus::Completed,
             locations: None,
+            files: None,
             output: None,
         }
     }

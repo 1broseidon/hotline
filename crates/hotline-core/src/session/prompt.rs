@@ -634,6 +634,12 @@ pub(super) fn event_of(
                 }],
             }
         }
+        Update::ToolFiles { call_id, files } => {
+            if let Some(pending) = in_flight.get_mut(&call_id) {
+                pending.files = Some(files);
+            }
+            Vec::new()
+        }
         Update::ToolCall {
             call_id,
             title,
@@ -641,6 +647,7 @@ pub(super) fn event_of(
         } => {
             let pending = PendingTool {
                 ts: now_ms(),
+                files: None,
                 title,
                 kind,
             };
@@ -716,6 +723,7 @@ pub(super) struct PendingTool {
     ts: i64,
     title: String,
     pub(super) kind: String,
+    files: Option<Vec<crate::contract::ChangedFile>>,
 }
 
 impl PendingTool {
@@ -733,6 +741,7 @@ impl PendingTool {
             tool_kind: Some(self.kind.clone()),
             status,
             locations: None,
+            files: self.files.clone(),
             output: output.map(|output| vec![output]),
         }
     }

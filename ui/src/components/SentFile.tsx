@@ -5,6 +5,7 @@ import { onServer, openSent, saveSent, showPath } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { Viewer } from "../ui/Viewer";
 import { wire } from "../wire";
+import { SentPreview } from "./SentPreview";
 
 /**
  * A file a teammate sent with `send_file`, under the words it came with.
@@ -23,11 +24,13 @@ export function SentFile({
 	eventId,
 	index,
 	file,
+	compact = false,
 }: {
 	personaId: string;
 	eventId: string;
 	index: number;
 	file: Attachment;
+	compact?: boolean;
 }) {
 	const sent = { personaId, eventId, index, file };
 	const [error, setError] = useState<string | null>(null);
@@ -39,8 +42,8 @@ export function SentFile({
 	const [viewing, setViewing] = useState(false);
 	const actions = (
 		<span className="sent-actions">
-			{pdf && (
-				<button type="button" className="control btn btn-sm" onClick={() => act(() => openSent(sent))}>
+			{!viewing && (compact || file.kind !== "image") && (
+				<button type="button" className="control btn btn-sm" onClick={() => pdf || file.kind === "image" ? act(() => openSent(sent)) : setViewing(true)}>
 					Open
 				</button>
 			)}
@@ -60,7 +63,7 @@ export function SentFile({
 	);
 	const refused = error !== null && <p className="sent-error">{error}</p>;
 
-	if (file.kind === "image") {
+	if (file.kind === "image" && !compact) {
 		return (
 			<figure className="sent-file" title={file.origin}>
 				<SentPicture
@@ -81,11 +84,12 @@ export function SentFile({
 			</figure>
 		);
 	}
-	const what = [pdf ? "PDF" : kindOf(file), file.size !== undefined ? sizeText(file.size) : undefined]
+	const what = [file.created === undefined ? undefined : file.created ? "Created" : "Edited", pdf ? "PDF" : kindOf(file), file.size !== undefined ? sizeText(file.size) : undefined]
 		.filter((part) => part !== undefined)
 		.join(" · ");
 	return (
 		<div className="sent-file" title={file.origin}>
+			{viewing && <SentPreview sent={sent} actions={actions} onClose={() => setViewing(false)} />}
 			<div className="sent-card">
 				<FileIcon className="shrink-0 text-ink-3" />
 				<span className="min-w-0 flex-1">

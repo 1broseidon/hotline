@@ -37,6 +37,10 @@ export type AgentKind = "hotline" | "acp";
  */
 export type Attachment = { 
 /**
+ * Whether call work created this file (false means edited).
+ */
+created?: boolean, 
+/**
  * Images can be inlined for an agent that takes them, and are drawn in
  * the conversation when a teammate sends one; files are linked.
  */
@@ -225,6 +229,11 @@ export type CatalogModel = { id: string, name: string, releaseDate: string, enab
  * An exact provider/model match exists in the bundled metadata.
  */
 metadataKnown: boolean, contextLimit: number | null, outputLimit: number | null, reasoning: boolean | null, attachment: boolean | null, efforts: Array<string> | null, cost: ModelCost | null, };
+
+/**
+ * A successful file mutation reported by the work's own tool.
+ */
+export type ChangedFile = { path: string, created: boolean, };
 
 /**
  * What ended a chapter.
@@ -1940,7 +1949,7 @@ from?: DeliveryFrom,
 /**
  * A post from a scheduled run: which job it came from.
  */
-scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", 
+scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, } | { "kind": "permission", 
 /**
  * The call that raised this card in the home chat.
  */

@@ -254,6 +254,7 @@ mod tests {
 
     fn attachment(path: &Path) -> Attachment {
         Attachment {
+            created: None,
             kind: AttachmentKind::Image,
             name: "photo.png".into(),
             path: path.display().to_string(),

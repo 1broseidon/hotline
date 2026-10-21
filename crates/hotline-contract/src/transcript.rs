@@ -97,6 +97,8 @@ pub enum TranscriptEvent {
         status: ToolStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         locations: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        files: Option<Vec<ChangedFile>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         output: Option<Vec<ToolOutput>>,
     },
@@ -456,6 +458,9 @@ pub enum TranscriptEvent {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct Attachment {
+    /// Whether call work created this file (false means edited).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<bool>,
     /// Images can be inlined for an agent that takes them, and are drawn in
     /// the conversation when a teammate sends one; files are linked.
     pub kind: AttachmentKind,
@@ -477,6 +482,15 @@ pub struct Attachment {
     /// a screenshot shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+}
+
+/// A successful file mutation reported by the work's own tool.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct ChangedFile {
+    pub path: String,
+    pub created: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

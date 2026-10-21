@@ -210,6 +210,11 @@ async fn answer(
     let mut lines = vec!["RESULTS".to_string()];
     let report = said.contains("REPORT_TOOLS");
     for (tool, arguments) in calls {
+        if matches!(tool.as_str(), "write" | "edit") {
+            lines.push(write_file(connection, session, &tool, &arguments).await);
+            continue;
+        }
+
         let id = uuid::Uuid::new_v4().to_string();
         if report {
             connection
@@ -267,4 +272,66 @@ async fn answer(
     }
     connected.cancel().await.ok();
     lines.join("\n")
+}
+
+/// The fixture's file tool exercises the delegated filesystem and reports the
+/// same structured diff an ACP harness reports for its own successful edit.
+async fn write_file(
+    connection: &ConnectionTo<Client>,
+    session: &SessionId,
+    tool: &str,
+    arguments: &Value,
+) -> String {
+    use agent_client_protocol::schema::v1::{ReadTextFileRequest, WriteTextFileRequest};
+    let path = std::path::PathBuf::from(arguments["path"].as_str().expect("fixture path"));
+    let before = connection
+        .send_request(ReadTextFileRequest::new(session.clone(), path.clone()))
+        .block_task()
+        .await
+        .ok()
+        .map(|reply| reply.content);
+    let after = if tool == "edit" {
+        before.as_deref().unwrap_or_default().replacen(
+            arguments["old_text"].as_str().unwrap(),
+            arguments["new_text"].as_str().unwrap(),
+            1,
+        )
+    } else {
+        arguments["content"].as_str().unwrap().to_string()
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let content = serde_json::from_value(
+        serde_json::json!({"type":"diff", "path":path, "oldText":before, "newText":after}),
+    )
+    .unwrap();
+    connection
+        .send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCall(
+                ToolCall::new(id.clone(), tool)
+                    .kind(agent_client_protocol::schema::v1::ToolKind::Edit)
+                    .status(ToolCallStatus::InProgress)
+                    .content(vec![content]),
+            ),
+        ))
+        .unwrap();
+    let result = connection
+        .send_request(WriteTextFileRequest::new(session.clone(), path, after))
+        .block_task()
+        .await;
+    let status = if result.is_ok() {
+        ToolCallStatus::Completed
+    } else {
+        ToolCallStatus::Failed
+    };
+    connection
+        .send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                id,
+                ToolCallUpdateFields::new().status(status),
+            )),
+        ))
+        .unwrap();
+    format!("{tool}: {status:?}")
 }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import type { Root } from "react-dom/client";
 import type { LinkEvent } from "../src/dock";
 import { installDom } from "./dom";
@@ -96,4 +96,73 @@ test("call cards link home and home cards name and open their call", async () =>
     expect(container.textContent).toContain("Settled: Use blue?");
     await draw("dm", true);
     expect(container.textContent).toContain("Needed you · Yes");
+});
+
+test("a six-file call result is one compact message with every file's actions and metadata", async () => {
+	const event: import("../src/generated/contract").TranscriptEvent = {
+		kind: "agent", id: "files", ts: 1, text: "6 files from the call", from: { kind: "call", thread: "c1" },
+		attachments: Array.from({ length: 6 }, (_, i) => ({ kind: "file", name: `note-${i}.txt`, path: `/files/${i}`, created: i % 2 === 0, size: 8 })),
+	};
+	await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={[event]} streaming={[]} live={false} focus={null} />));
+	expect(container.querySelectorAll(".said-group")).toHaveLength(1);
+	expect(container.textContent).toContain("From the call");
+	const files = [...container.querySelectorAll(".sent-card")];
+	expect(files).toHaveLength(6);
+	for (const [i, file] of files.entries()) {
+		expect(file.textContent).toContain(`note-${i}.txt`);
+		expect(file.textContent).toContain(i % 2 === 0 ? "Created" : "Edited");
+		expect(file.textContent).toContain("8 B");
+		expect([...file.querySelectorAll("button")].map(button => button.textContent)).toContain("Open");
+		expect([...file.querySelectorAll("button")].map(button => button.textContent)).toContain("Save…");
+	}
+});
+
+
+test("every call file opens its own stored bytes as text without executing markup", async () => {
+	const { wire } = await import("../src/wire");
+	const reads: number[] = [];
+	const command = spyOn(wire, "command").mockImplementation((async (name: string, params: { index: number }) => {
+		expect(name).toBe("file.read");
+		reads.push(params.index);
+		return { name: "note.txt", mimeType: "text/plain", data: btoa(`<script>file ${params.index}</script>`) };
+	}) as typeof wire.command);
+	try {
+		const event: import("../src/generated/contract").TranscriptEvent = { kind: "agent", id: "open-files", ts: 1, text: "6 files", from: { kind: "call", thread: "c1" }, attachments: Array.from({ length: 6 }, (_, i) => ({ kind: "file", name: `note-${i}.txt`, path: `/files/${i}`, created: true, size: 8 })) };
+		await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={[event]} streaming={[]} live={false} focus={null} />));
+		for (let index = 0; index < 6; index++) {
+			const card = container.querySelectorAll(".sent-card")[index]!;
+			const open = [...card.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Open")!;
+			await act(async () => open.click());
+			const dialog = document.querySelector('[role="dialog"]')!;
+			expect(dialog.textContent).toContain(`<script>file ${index}</script>`);
+			expect(dialog.querySelector("script")).toBeNull();
+			const close = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Close")!;
+			await act(async () => close.click());
+		}
+		expect(reads).toEqual([0, 1, 2, 3, 4, 5]);
+	} finally { command.mockRestore(); }
+});
+
+test("a stored-file preview pages forward and back and shows binary bytes without opening them", async () => {
+	const { wire } = await import("../src/wire");
+	const { SentPreview } = await import("../src/components/SentPreview");
+	const offsets: number[] = [];
+	const command = spyOn(wire, "command").mockImplementation((async (_name: string, params: { offset: number }) => {
+		offsets.push(params.offset);
+		return params.offset === 0 ? { data: btoa("Bramble"), next: 7 } : { data: btoa("\0\x01\x02") };
+	}) as typeof wire.command);
+	try {
+		await act(async () => root.render(<SentPreview sent={{ personaId: "ada", eventId: "paged", index: 0, file: { kind: "file", name: "data.bin", path: "/files/data.bin" } }} actions={null} onClose={() => {}} />));
+		const press = async (label: string) => {
+			const button = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(item => item.textContent === label)!;
+			await act(async () => button.click());
+		};
+		expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Bramble");
+		await press("Next");
+		expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Binary preview");
+		expect(document.querySelector('[role="dialog"] pre')?.textContent).toBe("00000007  00 01 02");
+		await press("Previous");
+		expect(document.querySelector('[role="dialog"] pre')?.textContent).toBe("Bramble");
+		expect(offsets).toEqual([0, 7, 0]);
+	} finally { command.mockRestore(); }
 });

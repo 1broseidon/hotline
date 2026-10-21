@@ -35,6 +35,7 @@ mod agent;
 mod asking;
 pub(crate) mod avatar;
 mod call_cards;
+mod call_files;
 mod chapters;
 mod computer;
 mod dm;

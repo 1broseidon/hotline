@@ -1,5 +1,6 @@
 use super::*;
 
+/// Scenario: Thinking out loud; Where are we on it?
 #[tokio::test]
 async fn conversation_keeps_one_written_record_and_never_posts_or_points() {
     direct_call_uses_its_thread(
@@ -40,6 +41,7 @@ async fn device_text_uses_the_call_thread_and_preserves_its_spoken_reply() {
 }
 
 /// Legacy streams the agent's own opening; the chat retains the complete reply.
+/// Scenario: Legacy voice on a slower teammate.
 #[tokio::test]
 async fn legacy_speaks_its_own_untagged_opening() {
     direct_call_uses_its_thread(

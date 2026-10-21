@@ -406,7 +406,7 @@ impl Calls {
             .iter()
             .any(|tool| tool.name == "message_teammate")
         {
-            instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. When the person names a teammate to do work, use message_teammate with intent handoff and their words unchanged. Say who has it after acceptance. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
+            instructions.push_str("\nYou are answering the desk as team lead. Answer roster questions yourself with list_teammates. Keep the spoken answer short: names and what each teammate is working on, or idle. Do not recite models, tools or machine reach unless the person asks for those details. When the person names a teammate to do work, use message_teammate with intent handoff and their words unchanged. Say who has it after acceptance. This routing is the exception to work_on_it and to not mentioning handoffs: never send named work through work_on_it. If the name is ambiguous, ask which teammate. You cannot stop or reassign another teammate's work; that stays the person's choice.");
         }
         let config = RealtimeConfig {
             instructions: self.front_context(&id, &instructions, None),

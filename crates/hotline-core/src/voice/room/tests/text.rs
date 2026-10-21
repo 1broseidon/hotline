@@ -228,6 +228,7 @@ async fn device_goodbye_needs_no_fabricated_audio_or_dispatcher() {
     }
 }
 
+/// Scenario: A bad network. Paused time proves resume and expiry on direct and lead calls.
 #[tokio::test(start_paused = true)]
 async fn a_short_transport_drop_resumes_but_twenty_seconds_detaches() {
     for desk_call in [false, true] {

@@ -12,6 +12,10 @@
 
 ## Amendment
 
+The 2026-10-20 decisions are recorded in ADR 0008 §5, including explicit-only
+Legacy after a live failure, call-thread work and the closing note. The
+original decision below is retained as history, subject to that amendment.
+
 The voice keeps conversation and read-only lookups. Its one work tool,
 `work_on_it`, starts or steers its own clone on the call thread, using the
 teammate’s model, harness and standing grants. GPT-Live’s client delegation

@@ -2,12 +2,14 @@
 id: decision-17
 title: Legacy streams the teammate's own opening, sends one soft cue before audio, and speaks bounded…
 type: decision
-status: current
+status: superseded
 claimKey: voice.legacy-feedback
 kind: decision
 recheck: Verify audibility and cadence in physical Linux desk and phone QA; generated clips are not proof of playback.
 supersedes: decision-13
 createdAt: "2026-10-21T08:45:31.035Z"
+supersededBy: decision-28
+updatedAt: "2026-10-21T20:00:39.211Z"
 ---
 
 ## Description

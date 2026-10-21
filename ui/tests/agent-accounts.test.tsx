@@ -63,6 +63,8 @@ class NoResize {
 type Call = [string, Record<string, unknown>];
 let calls: Call[];
 let accounts: AccountView[];
+/** What `accounts.create` makes. */
+let made: AccountView;
 let poll: { state: "running" | "succeeded" | "failed"; output: string; error?: string };
 let checked: AccountView["status"];
 let root: Root | null;
@@ -75,8 +77,8 @@ let teardown: () => Promise<void>;
 function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "accounts.list") return { agents, accounts };
 	if (cmd === "accounts.create") {
-		accounts = [...accounts, a3()];
-		return { account: a3() };
+		accounts = [...accounts, made];
+		return { account: made };
 	}
 	if (cmd === "accounts.login.start") return { id: "l1" };
 	if (cmd === "accounts.login.poll") return poll;
@@ -101,6 +103,7 @@ beforeEach(async () => {
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
 	accounts = [a1(), a2()];
+	made = a3();
 	poll = { state: "running", output: "" };
 	checked = { state: "signed_in", checkedAt: Date.now(), email: "two@example.com", plan: "pro" };
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
@@ -250,6 +253,13 @@ describe("Settings › Agent accounts", () => {
 		await openAgent();
 		await click("Add account");
 		expect(field("Name").placeholder).toBe("Account 3");
+		// The full form says what it is choosing, and the choice itself is labelled Start with.
+		expect([...container.querySelectorAll(".group-title")].map((node) => node.textContent)).toContain("What a new account starts with");
+		expect(text()).toContain("Chosen once, here. After that the account is edited on its own in its Setup, where it can also copy from your setup again.");
+		const choice = container.querySelector('[role="radiogroup"]')!;
+		const label = document.getElementById(choice.getAttribute("aria-labelledby") ?? "");
+		expect(label?.textContent).toBe("Start with");
+		expect(label?.closest('[aria-hidden="true"]') ?? null).toBeNull();
 		await click("Add and sign in");
 		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 3", startWith: "system_default" }]);
 		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a3" }]);
@@ -263,6 +273,19 @@ describe("Settings › Agent accounts", () => {
 		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a3", id: "l1" }]);
 		expect(named("accounts.list").length).toBeGreaterThan(listed);
 		expect(text()).not.toContain("A Claude Code window opened");
+	});
+
+	test("an owner seat adds an account and is told to sign it in from the desk", async () => {
+		made = { ...a3(), canSignInHere: false };
+		await mount();
+		await openAgent();
+		await click("Add account");
+		await click("Add and sign in");
+		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 3", startWith: "system_default" }]);
+		expect(named("accounts.login.start")).toHaveLength(0);
+		expect(container.querySelector('section[aria-label="Harness sign-in"]')).toBeNull();
+		expect(text()).toContain("Sign in from the desk itself");
+		expect(row("Account 3").textContent).not.toContain("Signing in…");
 	});
 
 	test("Customize what is copied sends the ticked; Empty sends none", async () => {

@@ -74,7 +74,10 @@ export function AddAccountForm({
 
 	return (
 		<section>
-			<h3 className="group-title">New {agentName} account</h3>
+			<h3 className="group-title">What a new account starts with</h3>
+			<p className="group-hint mt-0 mb-2">
+				Chosen once, here. After that the account is edited on its own in its Setup, where it can also copy from your setup again.
+			</p>
 			<div className="grouped">
 				<div className="group-row flex-col items-stretch gap-1">
 					<label className="label" htmlFor={`${id}-name`}>
@@ -114,8 +117,10 @@ export function AddAccountForm({
 					</div>
 				)}
 				<div className="group-row flex-col items-stretch gap-2">
-					<span className="label">What a new account starts with</span>
-					<div className="grouped" role="radiogroup" aria-label="Start with">
+					<span className="label" id={`${id}-start`}>
+						Start with
+					</span>
+					<div className="grouped" role="radiogroup" aria-labelledby={`${id}-start`}>
 						<label className="group-row group-row-choice">
 							<input type="radio" className="radio" name={`${id}-start`} checked={mine} disabled={busy} onChange={() => setStartWith("system_default")} />
 							<span className="group-row-text">
@@ -148,7 +153,6 @@ export function AddAccountForm({
 							))}
 						</div>
 					)}
-					<p className="hint">Chosen once, here. After that the account is edited on its own in its Setup, where it can also copy from your setup again.</p>
 				</div>
 				<div className="group-row justify-end gap-2">
 					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>

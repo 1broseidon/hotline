@@ -20,6 +20,7 @@ type Signing = { accountId: string; email: string | undefined; renewing: boolean
 type Shared = {
 	roster: RosterEntry[];
 	signing: Signing | null;
+	fromDesk: string | null;
 	renewed: Set<string>;
 	refusal: string | null;
 	refuse(message: string | null): void;
@@ -42,6 +43,8 @@ export function AgentAccountsSection({ roster, onBack }: { roster: RosterEntry[]
 	const [agentId, setAgentId] = useState<string | null>(null);
 	const [accountId, setAccountId] = useState<string | null>(null);
 	const [signing, setSigning] = useState<Signing | null>(null);
+	/* An account added from a seat that cannot sign in (an owner, on a Windows desk): its row says where to. */
+	const [fromDesk, setFromDesk] = useState<string | null>(null);
 	/* Accounts signed in again here: their teammates start fresh, and the rows say so until the section closes. */
 	const [renewed, setRenewed] = useState<Set<string>>(new Set());
 
@@ -62,6 +65,7 @@ export function AgentAccountsSection({ roster, onBack }: { roster: RosterEntry[]
 	const shared: Shared = {
 		roster,
 		signing,
+		fromDesk,
 		renewed,
 		refusal,
 		refuse: setRefusal,
@@ -97,6 +101,7 @@ export function AgentAccountsSection({ roster, onBack }: { roster: RosterEntry[]
 			void reload();
 		}
 		setRefusal(null);
+		setFromDesk(null);
 		setAgentId(agent);
 		setAccountId(account);
 	};
@@ -134,7 +139,9 @@ export function AgentAccountsSection({ roster, onBack }: { roster: RosterEntry[]
 				onOpen={(id) => go(agent.backendId, id)}
 				onAdded={(made, email) => {
 					setList((was) => was && { ...was, accounts: [...was.accounts.filter((one) => one.account.id !== made.account.id), made] });
-					shared.signIn(made, email);
+					// A sign-in starts only where this seat may run one; elsewhere the row says where to.
+					if (made.canSignInHere) shared.signIn(made, email);
+					else setFromDesk(made.account.id);
 					void reload();
 				}}
 			/>
@@ -302,6 +309,7 @@ function AgentPage({
 												<AccountSignIn account={view} agentName={agent.name} email={shared.signing?.email} onEnd={shared.signInEnded} />
 											</div>
 										)}
+										{shared.fromDesk === view.account.id && <p className="group-row text-sm text-ink-3">Sign in from the desk itself</p>}
 									</Fragment>
 								);
 							})}
@@ -322,7 +330,8 @@ function AgentPage({
  * An account's row: its dot, its name, and one line — the sign-in in
  * flight, a last one that did not finish, or what the agent said, the email
  * and who uses it. The row opens the account's page; the one key beside it
- * is what the line asks for: Check, or Try again.
+ * is what the line asks for: Check, or Try again — or, from a seat that
+ * cannot sign in, where to.
  */
 function AccountRow({ view, shared, signingHere, onOpen }: { view: AccountView; shared: Shared; signingHere: boolean; onOpen(): void }) {
 	const state = dotState(view, signingHere);
@@ -344,13 +353,16 @@ function AccountRow({ view, shared, signingHere, onOpen }: { view: AccountView; 
 					{shared.renewed.has(view.account.id) && <span className="block text-sm text-ink-2">{renewedWords(view.account.name)}</span>}
 				</span>
 			</button>
-			{failed && view.canSignInHere ? (
-				<button type="button" className="control btn-quiet" onClick={() => shared.signIn(view)}>
-					Try again
-				</button>
+			{failed ? (
+				view.canSignInHere ? (
+					<button type="button" className="control btn-quiet" onClick={() => shared.signIn(view)}>
+						Try again
+					</button>
+				) : (
+					<span className="shrink-0 text-sm text-ink-3">Sign in from the desk itself</span>
+				)
 			) : (
 				state !== "signing" &&
-				!failed &&
 				(status.state === "not_checked" || status.state === "unavailable") && (
 					<button type="button" className="control btn-quiet" onClick={() => shared.check(view)}>
 						Check

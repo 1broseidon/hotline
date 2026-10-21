@@ -2,11 +2,13 @@
 id: decision-13
 title: Legacy speaks the teammate's own opening as it streams; one core-supplied soft clip covers a turn…
 type: decision
-status: current
+status: superseded
 claimKey: voice.legacy-feedback
 kind: decision
 recheck: Revisit the delay after the physical desk/phone scenario pass; keep feedback once per turn.
 createdAt: "2026-10-21T06:30:33.596Z"
+supersededBy: decision-17
+updatedAt: "2026-10-21T08:45:31.035Z"
 ---
 
 ## Description

@@ -1,8 +1,6 @@
 ---
 id: task-246
 title: One integration-test binary per crate
-column: review
-position: 1
 priority: high
 tags:
   - ci
@@ -24,9 +22,10 @@ dispatch:
     ended: "2026-10-21T02:33:44.540Z"
     outcome: review
 assignee: codex
-updatedAt: "2026-10-21T02:33:44.540Z"
+updatedAt: "2026-10-21T03:40:45.677Z"
 decisions:
   - decision-7
+completedAt: "2026-10-21T03:40:45.677Z"
 ---
 
 ## Description

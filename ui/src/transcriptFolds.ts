@@ -61,12 +61,13 @@ export function withStreaming(written: Block[], streaming: Streaming[]): Block[]
 			pacedLive(wholeBubbles(one.text)).forEach((text, index) => {
 				blocks.push({
 					kind: "event",
-					event: { kind: "agent", id: bubbleId(base, start + index), ts: Date.now(), text },
+					live: true,
+					event: { kind: "agent", id: bubbleId(base, start + index), ts: one.ts, text },
 				});
 			});
 			continue;
 		}
-		const thought: Step = { kind: "thought", id: one.messageId, ts: Date.now(), text: one.text };
+		const thought: Step = { kind: "thought", id: one.messageId, ts: one.ts, text: one.text };
 		const tail = blocks[blocks.length - 1];
 		if (tail?.kind === "steps") blocks[blocks.length - 1] = { ...tail, items: [...tail.items, thought] };
 		else blocks.push({ kind: "steps", id: thought.id, ts: thought.ts, items: [thought] });

@@ -26,3 +26,6 @@ updatedAt: "2026-10-21T20:00:05.115Z"
 
 ## Description
 George, 2026-10-21: vary it. task-256 says 'I'm still working on that.' after each 20 quiet seconds of a tool-first Legacy turn, word for word. Done when: consecutive progress lines on one turn differ (a small set of short, first-person lines, never a hand-off phrase, e.g. 'Still on it.', 'Nearly there…' only if true is not knowable — keep them neutral), chosen without repeating the previous one; where the turn's latest tool is known, a line may name it plainly ('Still searching the web.'). Same 20 s cadence, still turn-checked. Tests: three lines on one turn are not all the same and none repeats its predecessor. Lands on release/0.42.0. Merge release/0.42.0 first, make check in the foreground, commit before done.
+
+## Log
+- 2026-10-21T20:00:22.635Z: [codex] Started on dispatch/task-260; release/0.42.0 is already contained in HEAD (no merge needed). Keeping feedback queue/cadence/turn guards; rotating neutral first-person lines and extending paused-clock coverage to three consecutive lines.

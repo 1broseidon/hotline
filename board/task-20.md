@@ -24,7 +24,7 @@ description: |-
   ## Status (2026-10-11 review)
 
   Per-teammate lanes landed in 0.35.2 (wire/mod.rs ~1187-1260). Left: commands not tied to a teammate (models.list, settings.update, search) still run inline (~1226).
-updatedAt: "2026-10-21T10:23:11.888Z"
+updatedAt: "2026-10-21T10:31:25.391Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -38,6 +38,8 @@ dispatch:
     pid: 94104
     at: "2026-10-21T10:22:51.912Z"
 assignee: codex
+decisions:
+  - decision-22
 ---
 
 ## Log

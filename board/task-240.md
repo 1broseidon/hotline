@@ -1,8 +1,8 @@
 ---
 id: task-240
 title: "Interrupting: speech stops at once, what was cut is known, and the teammate never hears itself"
-column: in-progress
-position: 1
+column: review
+position: 0
 priority: high
 tags:
   - voice
@@ -10,7 +10,7 @@ parentId: epic-21
 createdAt: "2026-10-20T20:13:09.138Z"
 dependsOn:
   - task-223
-updatedAt: "2026-10-21T05:17:40.843Z"
+updatedAt: "2026-10-21T05:25:05.919Z"
 dispatch:
   agent: codex
   model: gpt-6-astra

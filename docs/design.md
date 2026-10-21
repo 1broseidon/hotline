@@ -226,6 +226,10 @@ Reads observe committed state when they run, so a client needing a prior
 write waits for its reply first. Negotiation stays on the reader, and neither
 command work nor ordering waits suspend cancellation or the silence timer.
 Remote work is cancelled with its seat; accepted desktop writes finish.
+A seat whose frame waits past the write deadline resets its TCP transport,
+discarding queued bytes. Only that timeout selects zero linger: ordinary
+WebSocket closes must drain final pairing and authentication replies, including
+on Windows.
 
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a paired owner has the same command and subscription set. A

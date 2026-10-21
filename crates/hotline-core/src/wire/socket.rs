@@ -3,6 +3,7 @@
 use super::phone::{effort_config, phone_budget};
 use super::seat::{PLAIN_REASONS, PRIVATE_REASON, Seat};
 use super::subscribe::subscribe;
+use super::transport::AbortiveClose;
 use super::{Agents, RoomHandle, commands, files, threads};
 use crate::contract::Command;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
@@ -114,6 +115,7 @@ pub(crate) async fn seated_phone_v2<S>(
 where
     S: Stream<Item = Result<Message, Error>>
         + Sink<Message, Error = Error>
+        + AbortiveClose
         + Unpin
         + Send
         + 'static,
@@ -153,7 +155,7 @@ pub(super) async fn seated<S>(
     desk: Agents,
 ) -> Result<(), Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: AsyncRead + AsyncWrite + AbortiveClose + Unpin + Send + 'static,
 {
     seated_inner(socket, seat, desk, None).await
 }
@@ -167,6 +169,7 @@ async fn seated_inner<S>(
 where
     S: Stream<Item = Result<Message, Error>>
         + Sink<Message, Error = Error>
+        + AbortiveClose
         + Unpin
         + Send
         + 'static,
@@ -204,19 +207,28 @@ where
     };
     let writer_cancel = cancel.clone();
     let writer = tokio::spawn(async move {
-        while let Some(text) = outbox.recv().await {
-            // A peer that stopped reading without closing (a phone that left
-            // the network) takes no more bytes, and TCP may keep the socket
-            // up for many minutes before it says so. A frame it has not taken
-            // in this long ends the seat: a queue that never fills, because
-            // the seat is quiet, cannot end it, nor can a silence timer the
-            // client never asked for.
-            let sent = tokio::time::timeout(WRITE_STALL, sink.send(Message::text(text))).await;
-            if !matches!(sent, Ok(Ok(()))) {
-                break;
-            }
+        let mut stalled = false;
+        tokio::select! {
+            biased;
+            () = writer_cancel.cancelled() => {},
+            () = async {
+                while let Some(text) = outbox.recv().await {
+                    // A peer that stopped reading without closing (a phone that left
+                    // the network) takes no more bytes, and TCP may keep the socket
+                    // up for many minutes before it says so. A frame it has not taken
+                    // in this long ends the seat: a queue that never fills, because
+                    // the seat is quiet, cannot end it, nor can a silence timer the
+                    // client never asked for.
+                    let sent = tokio::time::timeout(WRITE_STALL, sink.send(Message::text(text))).await;
+                    if !matches!(sent, Ok(Ok(()))) {
+                        stalled = sent.is_err();
+                        break;
+                    }
+                }
+            } => {},
         }
         writer_cancel.cancel();
+        (sink, stalled)
     });
 
     let ordered = open_ordered(seat, desk.clone(), sender.clone(), phone.clone());
@@ -284,8 +296,14 @@ where
     {
         let _ = remote.cancel_pairing(&id);
     }
-    writer.abort();
-    let _ = writer.await;
+    if let Ok((sink, true)) = writer.await {
+        let socket = sink
+            .reunite(incoming)
+            .expect("the reader and writer came from the same seated socket");
+        // Normal closes must drain their final replies, especially on Windows.
+        // Only a write timeout discards bytes the peer has stopped taking.
+        socket.abortive_close()?;
+    }
     result
 }
 

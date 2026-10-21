@@ -779,6 +779,33 @@ async fn a_poisoned_remote_still_admits_its_phones_and_still_revokes_them() {
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
+/// Revocation ends a healthy seat without discarding its buffered replies.
+#[tokio::test]
+async fn a_revoked_seat_drains_tcp_instead_of_resetting_it() {
+    use tokio::io::AsyncReadExt;
+
+    let h = Harness::new().await;
+    let grant = h.pair().await;
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    assert_eq!(read(&mut phone).await["protocolVersion"], 2);
+    h.remote.revoke(&grant.id).unwrap();
+
+    let tcp = phone.socket.get_mut().get_mut().0;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut bytes = [0; 65536];
+        while tcp
+            .read(&mut bytes)
+            .await
+            .expect("a normal close must not reset TCP")
+            != 0
+        {}
+    })
+    .await
+    .expect("the revoked transport drains and closes");
+    drop(phone);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
 /// A phone that leaves the network stops reading without closing, and TCP
 /// may keep its socket up for many minutes. The desk ends the seat itself
 /// once a frame has waited past the write bound, though the seat is quiet

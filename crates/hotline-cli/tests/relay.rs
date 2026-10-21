@@ -5,7 +5,7 @@
 //! stands in, and is refused at every door of the desk with
 //! `role_not_permitted`, never as a revoked key.
 #![cfg(unix)]
-mod common;
+use crate::common;
 
 use common::{
     PATIENCE, desktop, free_address, hotline, listen_args, said, serve, standing, stop, top, wire,

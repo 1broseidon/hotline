@@ -264,6 +264,22 @@ impl Access {
         Ok(self)
     }
 
+    /// Credentials a provider might echo in an error, for log redaction only.
+    pub(crate) fn diagnostic_secrets(&self) -> Vec<String> {
+        let mut secrets: Vec<String> = self.endpoint.key.iter().cloned().collect();
+        if let Some(login) = &self.subscription
+            && let Ok(Some(bytes)) = login.tokens.read()
+            && let Ok(record) = serde_json::from_slice::<Value>(&bytes)
+        {
+            for field in ["access_token", "refresh_token", "id_token"] {
+                if let Some(token) = record[field].as_str() {
+                    secrets.push(token.into());
+                }
+            }
+        }
+        secrets
+    }
+
     pub(crate) fn is_subscription(&self) -> bool {
         self.subscription.is_some()
     }

@@ -11,11 +11,12 @@ use crate::contract::{SpendingSettings, SpendingSummary};
 use crate::imagegen;
 use crate::log::Log;
 use crate::vault::Vault;
-use crate::voice::dispatcher::{ProviderDispatcher, is_chat};
+use crate::voice::connected;
 use crate::voice::ledger::Spent;
 use crate::voice::metering::Budget;
+use crate::voice::room::dispatcher as ProviderDispatcher;
 use crate::voice::settings::{Choice, VoiceSettings};
-use crate::voice::speech;
+use hotline_voice::dispatcher::is_chat;
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
@@ -34,7 +35,7 @@ pub async fn options(
     let images: ImageSettings =
         serde_json::from_value(settings["images"].clone()).unwrap_or_default();
     let image_options = imagegen::options(vault);
-    let speech = speech::options(vault).await;
+    let speech = connected::options(vault).await;
 
     CapabilityOptions {
         images: CapabilityJob {

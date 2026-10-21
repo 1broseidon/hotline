@@ -131,9 +131,9 @@ decision for George, not a bug fix.
   native store, and a desk started on the other store refuses the room
   instead of starting empty. There is no encryption layer of its own: a key
   handed in by systemd (`LoadCredentialEncrypted=`) would protect only these
-  files, while the ChatGPT and Copilot login tokens Rig keeps in
-  `vault/logins/` are already plain owner-only files. What protects all of
-  them is the service account and the disk. Root on the machine, or a copy
+  files. ChatGPT and Copilot login tokens use this same selected backend
+  (see [ChatGPT and Copilot sign-ins](#chatgpt-and-copilot-sign-ins)). What
+  protects them is the service account and the disk. Root on the machine, or a copy
   of its disk, snapshots or backups, reads every one: encrypt the volume and
   its backups (`docs/serve.md`).
 - **The person is asked nothing at call time.** There are no approval cards
@@ -187,29 +187,28 @@ GPT-Live the login's bearer goes to `chatgpt.com` to create the call and to
 media is a WebRTC peer the desk opens with host candidates only). Legacy
 voice turns it off, and a client asks for it per call. The Grok login is
 only ever sent to xAI's voice origin, and GPT Realtime refuses it. GPT-Live
-has no tools at all: its one way to reach the teammate is a client
-delegation, which the core answers as `send_to_teammate`. Its whole reach is two tools enforced in the core
-(`voice/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
-owner-seat, sequence-gated, call-origin path as `voice.text`, so the
-teammate's session keeps its own grants and approval gates; `remain_silent`
-does nothing. No other tool name is honoured, the person's own input is
-refused while a front is on the call, and a relay is refused on a call
-without one. Its starting prompt is a scrubbed, budgeted slice of the DM
-(`front_prompt.rs`), never tool output, code or credentials. Its lease is the
-call's: hanging up or replacing the call closes its socket, a paid front
-needs Voice budget room to open and ends the call when a minute cannot be
-paid, and a revoked login is noticed within a minute and drops the front.
-Residual risk: the front is a model, so it can misrepresent the person's
-words in what it relays or say something the teammate did not; the teammate
-is told the input is a transcript behind an intermediary, and the call's
-thread keeps what the front heard and said for review.
+uses client delegation to invoke the same `work_on_it` handler as the other
+fronts. The front holds read-only lookups and one work tool. The core binds
+reads to the call thread and the teammate's current capability lease; writes,
+MCP calls and shell work run on the call's independently leased clone. The
+front has no direct posting or raw MCP tools. A policy change revokes both
+paths. `validate_call_thread` checks ownership and lifecycle before work or
+cancellation; `work_on_it` refuses a held or non-live call. The clone uses the
+teammate's own model and harness without steering the home session.
+Its starting prompt is a scrubbed, budgeted slice of the DM and identity, never credentials. Mid-call instruction updates add bounded scrubbed speech, interruption notices, running work and confirmed posts from the same call. Speech-to-speech audio cannot be filtered before it is heard: the identity prompt, tool framing and opt-in live scripted-front regression deck enforce phrasing, rather than a runtime audio filter.
+The work brief includes the whole call transcript, including tools. Hanging
+up closes the voice socket but leaves accepted work running. Budget exhaustion
+or a revoked login ends the front visibly. Residual risk: the front can
+misinterpret a request; its recorded words and tool calls permit review.
+ACP harness tools retain their existing sandbox boundary. Draft-versus-send
+intent is a model instruction; it does not grant new capability.
 
 Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the
-headless `tests/voice/direct.rs::device_text_reuses_the_direct_agent_session_and_call_origin`,
-`tests/voice/front.rs::a_front_call_relays_to_the_teammate_and_says_its_spoken_line`,
+headless `tests/voice/direct.rs::device_text_uses_the_call_thread_and_preserves_its_spoken_reply`,
+`tests/voice/front.rs::a_front_call_works_on_its_thread_and_says_its_spoken_line`,
 direct-call and dispatcher-unavailable readiness tests, and the finalized-text
 replay, pending, mode, bounds, budget, STT-accounting, direct origin, live commit,
-cancellation and streaming failure tests in `voice::tests` and
+cancellation and streaming failure tests in `voice::room::tests` and
 `session::tests`. Provider adapter tests use local HTTP/WebSocket fixtures;
 live provider and iPhone compatibility still require device verification.
 
@@ -325,8 +324,8 @@ The adapter rechecks the caller's lease after authentication refresh and
 immediately before dispatch, so stopping the teammate during refresh sends
 neither prompt nor references. Refresh timeouts report a retryable delay,
 not an invalid login.
-`imagegen::tests` proves the JSON request and account headers against localhost,
-login rereads and safe refusals; resolver tests prove subscriptions first and
+`imagegen::tests` proves the JSON request and the login's token and account
+headers against localhost, and safe refusals; resolver tests prove subscriptions first and
 no paid fallback. `session::generate::tests` proves subscription output and
 unchanged dollar accounting even with disabled or exhausted budgets.
 `imagegen::chatgpt::tests` covers revocation during refresh with a local HTTP
@@ -347,6 +346,74 @@ durably reserved estimate. Generated files
 and chat copies share the existing retention policy; no automatic cleanup
 is added. Voice will use the same spending interface when its branch is
 integrated; it is not charged by this image-only branch yet.
+
+## ChatGPT and Copilot sign-ins
+
+The upgrade harness compiles `provider_fixture` under the core's dev-only
+`test-support` feature. It can replace Anthropic's origin for one fixture key
+and ChatGPT's model and sign-out origins for one fixture login directory
+with a loopback HTTP server. This code is absent from normal builds, has no
+wire or settings entry point, and keeps the real signing and vault paths in
+the test.
+
+Rig reads and writes a ChatGPT or GitHub Copilot sign-in only through a token
+store the host hands it. Hotline's `LoginDirStore` (`providers/rig_login.rs`)
+uses the vault's `CredentialFile`: tokens live in the OS credential store,
+with a private reference in `vault/logins/<id>/`. A desk explicitly started
+with `--store file` uses its file backend for these tokens too.
+
+- **Default.** A person signed in stays signed in. The first read moves
+  plaintext `auth.json` (ChatGPT) or `copilot.json` (Copilot) into the selected
+  store, verifies every chunk, then atomically replaces the plaintext with a
+  reference. Copilot's older `access-token` and `api-key.json` move directly
+  into that store, field for field; both old files remain until the write
+  succeeds. A keychain failure preserves the plaintext and refuses to use it
+  as a fallback. New logins start with an empty directory and write their
+  first record through the vault. No token is in the room stream, on the
+  wire, in a contract type or a failure card.
+- **Grant source.** The person's device sign-in on the desk, as before. A
+  teammate is never handed a token: the core signs its model requests as
+  they leave (`providers/outgoing.rs`), to the origin Rig addresses for that
+  provider, with redirects disabled.
+- **Enforcement points.** One authenticator per login directory serves turns,
+  voice, image generation, discovery and the failure probe. Clients share a
+  refresh and an in-memory token; the store's per-record lock coordinates
+  other authenticators, including device sign-in. Only the two known record
+  keys are accepted. The vault registers its configured backend by login
+  root so every caller uses the same store. Credential reads, writes and
+  deletes run under `spawn_blocking`; `CredentialFile` verifies chunks before
+  swapping references. Abandoning or deleting a login deletes both records'
+  chunks before removing the directory. `AuthError::Store` reaches the
+  failure card as “Unlock your keychain”, including through Rig's HTTP error
+  wrapper, rather than asking for a new sign-in.
+  Revoke, delete and abandoned sign-in evict the shared authenticator;
+  ChatGPT also calls Rig's `forget()`. The guarded `CredentialSource` checks
+  the directory and room record before and after resolving a token, including
+  on a retained Copilot transport's next request. Copilot has no `forget()`
+  API: invalidation drops its authenticator from every retained guard.
+  Local token reads and writes serialize with revoke/delete, so a refresh
+  cannot restore a deleted record or save tokens for a revoked login.
+  Deleting a ChatGPT login
+  first revokes it locally, then calls Rig's `sign_out` with a ten-second
+  bound, then removes it locally even if provider revocation failed. Deletes
+  serialize per login; Rig revokes each stored refresh and access token once.
+  Copilot has no provider revoke API for this sign-in; Settings offers
+  “Revoke at GitHub” to open the person's GitHub applications settings.
+- **Tests.** The sign-ins row of the [regression matrix](#the-regression-matrix),
+  including `rig_vault_*` tests on an injected `MemoryStore` and a failing
+  wrapper, plus `rig_revoke_*` tests for retained transports and deletion
+  through the real wire handler against successful and failing revoke endpoints.
+- **Residual risk.** An unread legacy login remains plaintext until first
+  use; a failed migration deliberately preserves it. The explicit file
+  backend remains owner-only plaintext. Native keychain prompts and access
+  depend on the OS and application signing; George checks a signed-in macOS
+  profile before release. A request already dispatched cannot be recalled.
+  Failed or timed-out ChatGPT revocation may leave a provider token usable
+  outside Hotline; Copilot access at GitHub lasts until the person revokes it
+  there. Sign-out needs readable token storage to revoke at the provider;
+  local storage failures still surface to the person. Older
+  Hotline versions cannot read the references and require sign-in after a
+  downgrade.
 
 ## Operator actions are not agent capabilities
 
@@ -669,9 +736,10 @@ extend; when a change adds a boundary, it adds a row.
 
 | Must hold | Proof | Needs |
 | --- | --- | --- |
-| Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice/direct.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/tests/text.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`; `voice/tests/budgets.rs` `text_input_keeps_budget_gating_before_dispatch` | — |
+| Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies stay on the call thread and retain their spoken version, with no new grants or remote STT spend | `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice/direct.rs` `device_text_uses_the_call_thread_and_preserves_its_spoken_reply`; `voice/room/tests/text.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`; `voice/room/tests/budgets.rs` `text_input_keeps_budget_gating_before_dispatch` | — |
 | The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests/owner_handler.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `hotline-voice/src/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Running processes: a command still running when the teammate replies ends the turn at once and outlives it; a later turn is told of it and stops it; one that ends on its own wakes the teammate once, and on a live call the front says that turn's reply; a session stop and a grant change kill it; a fifth command is refused naming the four; a process is never waited on and a stop asked for wakes nobody, taking its whole process group; a call goes listening at the reply and is given no progress line while a process runs | `tests/processes.rs` `running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it`, `running_process_that_ends_on_its_own_wakes_the_teammate_once`, `running_process_dies_with_its_stopped_session`, `running_process_dies_when_its_grant_is_revoked`; `running_process_serve_open_and_stop_end_to_end`; `tests/voice/processes.rs` `running_process_that_ends_during_a_call_is_said_on_the_call`, `running_process_a_server_started_on_a_call_leaves_the_call_listening`; `session/jobs.rs` `running_process_a_fifth_command_is_refused_naming_the_four`, `running_process_is_inspected_and_cancelled_later_but_never_waited_on`, `running_process_that_ends_before_its_route_moves_still_wakes_once`; `tests/processes.rs` `process_chip_a_process_is_on_the_session_until_the_person_stops_it`, `process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it`, `process_chip_output_is_the_latest_of_what_it_wrote`; `wire/tests/seats.rs` `process_chip_only_the_desk_and_the_owner_reach_a_process` | Unix |
+| ChatGPT and Copilot sign-ins migrate to the vault without signing out; failed writes preserve plaintext; deletion removes chunks; concurrent refresh spends a token once; missing sign-ins never start device flow | `providers/rig_login/tests.rs` `rig_login_a_0_42_copilot_dir_migrates_to_copilot_json_and_stays_signed_in`, `rig_login_a_failed_copilot_write_keeps_the_0_42_files`, `rig_login_a_0_42_chatgpt_auth_json_keeps_its_tokens`, `rig_login_two_clients_refreshing_at_once_spend_the_refresh_token_once`; `providers/rig_login/tests/vault.rs` `rig_vault_plaintext_auth_becomes_a_reference_on_first_read`, `rig_vault_keychain_failure_keeps_plaintext_and_asks_to_unlock`, `rig_vault_delete_removes_every_chunk`, `rig_vault_abandon_removes_copilot_chunks_and_reference`, `rig_vault_0_42_copilot_migrates_straight_into_the_keychain`, `rig_vault_s1_plaintext_copilot_migrates_into_the_keychain`, `rig_vault_failed_legacy_copilot_migration_keeps_both_files`; `tests/rig_upgrade.rs` `rig_upgrade_a_042_profile_keeps_both_signins_and_leaves_no_plaintext_tokens`; `tests/desk/logins.rs` `rig_vault_deleting_a_login_over_the_wire_removes_its_chunks`; `vault.rs` `a_copilot_login_begins_with_no_record`; `driver/rig/tests.rs` `a_chatgpt_turn_without_a_login_refuses_instead_of_starting_one`, `a_copilot_turn_without_a_login_refuses_instead_of_starting_one` | file-permission failure: Unix; native macOS keychain: manual before release |
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk/workspace.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
 | Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `hotline-tools/src/workspace/tests.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `hotline-tools/src/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `hotline-tools/src/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp/tests/session_new.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/tests.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests/preamble.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `hotline-tools/src/workspace/tests.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
@@ -684,6 +752,7 @@ extend; when a change adds a boundary, it adds a row.
 | A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `hotline-mcp/src/lib.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
+| Revocation evicts cached logins and retained Copilot transports refuse the next request; ChatGPT delete revokes each stored token once and deletes locally even if the provider fails | `providers/rig_login/tests/revoke.rs` `rig_revoke_copilot_retained_transport_stops_on_its_next_request`, `rig_revoke_chatgpt_forgets_retained_tokens_and_refuses_a_new_lookup`, `rig_revoke_a_refresh_in_flight_cannot_restore_the_login`; `tests/desk/logins.rs` `rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails` | Provider revocation is best effort; already dispatched requests can finish |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
@@ -1474,8 +1543,9 @@ it lets a colleague use another's tools.
 
 `voice.*` commands and `{"call":"id"}` subscriptions are restricted to the local
 desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
-`voice-dispatcher` tape is also refused as a companion subscription. No microphone
-audio is written to the tape: only transcriptions and spoken text are indexed.
+historical `voice-dispatcher` tape is also refused as a companion subscription.
+New calls never write it. No microphone audio is stored: calls keep only
+transcriptions, spoken text and tool events.
 
 `voice.text` is an additive finalized-transcript input on an explicitly
 negotiated text call; omitted input mode retains audio. The same socket-bound
@@ -1483,10 +1553,12 @@ call cancellation, monotonically increasing sequence and pending-turn gate
 apply. There is no remote transcription request or STT reservation for text,
 and it adds no permission, grant or caller-controlled origin.
 
-The dispatcher executes a fixed command allowlist in `voice::dispatcher::Context`.
-It cannot answer permission/human/passkey cards, edit policies, read arbitrary
-files, or change credentials. Text handoffs use the ordinary session commands;
-those commands retain the teammate's existing permissions and approval gates.
+Without a lead, the fallback assistant executes bounded named operations in
+`voice::dispatcher::Context` through typed room methods, never the wire command
+table. It cannot answer permission/human/passkey cards, edit policies, read
+arbitrary files, or change credentials. Its text handoffs retain the teammate's
+existing permissions and approval gates. With a lead, the desk uses that
+teammate's own call thread and the lead-call grant described below.
 Disconnect/revocation cancels the call's authority to dispatch further actions,
 while already accepted teammate work continues. Clip queues are bounded; an
 out-of-date subscriber is disconnected instead of losing audio silently.
@@ -1508,13 +1580,13 @@ out-of-call push: a reply too long to say is summarised for its push only when
 a voice handoff asked for it, and a typed prompt's reply is pushed as written.
 A held call sends normal pushes.
 
-Proofs: `voice::tests::voice_schedules_require_a_grant_and_cannot_escape_the_call_scope`,
+Proofs: `voice::room::tests::voice_schedules_require_a_grant_and_cannot_escape_the_call_scope`,
 `a_heard_turn_can_queue_only_three_handoffs_without_waiting_for_startup`,
 `session::tests::voice::a_long_reply_is_summarised_for_its_push_only_when_a_voice_handoff_asked_for_it`,
 `short_voice_handoff_replies_keep_their_text_without_an_extra_model`,
 `wire::tests::voice_is_owner_only_through_the_real_handler`, the voice
 state-machine text/sequence/cancellation/accounting tests,
-`voice::dispatcher::tests`, and the WebSocket scripted client
+`voice::room::dispatcher::tests`, and the WebSocket scripted client
 in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.
@@ -1539,7 +1611,7 @@ thread it came from.
   second post in a turn, and so a second wake; `wake` from the DM itself; any
   argument but `text` and `wake`, so no other teammate's chat can be named;
   and a revoked lease. A voice front's `post_to_chat` is the call's own
-  (`voice/front_tools.rs`), under the teammate's current lease.
+  (`hotline-voice/src/front_tools.rs`), under the teammate's current lease.
 - **Enforcement:** `TeammateTools::call` checks the session's capability
   lease first, as for every tool, and refuses a run `post_to_chat`,
   `send_file` and `generate_image` by name. A job's file
@@ -1742,3 +1814,261 @@ upstream operation is still driving it. Tests: `computer/gate.rs`
 `a_release_while_a_call_is_in_flight_keeps_the_computer_until_it_ends`. The gate forwards only to the URL the thread was already
 granted, so a thread never has a computer wider than the teammate's grants, and a
 teammate's lease never covers another teammate's computer.
+
+
+## Call-thread agents (S5 and S6)
+
+- **Default and grant source:** a call uses the selected teammate's
+  tools and standing grants, without chapter moves. Its independent lease
+  survives a home-session chapter change and is revoked by the existing
+  work-thread stop, policy-change and removal paths. Voice grants nothing.
+- **Enforcement:** `Room::thread_agent` builds both drivers under the Call
+  policy; the shared work occupant checks its lease at admission and the
+  real tool handlers check it on use. `validate_call_thread` refuses another
+  teammate's thread, archived threads and nonexistent attachments. A call's
+  `post_to_chat` uses the same turn-scoped posting gate as a work thread.
+- **Proof:** `tests/call_threads.rs`
+  `a_call_has_only_its_teammates_grants_and_cannot_attach_another_teammates_thread`
+  proves denied scheduling without Background work, allowed posting, and
+  refused cross-teammate attachment on Hotline Agent and ACP;
+  `calling_on_a_thread_under_way_queues_speech_on_that_same_thread` proves
+  attachment and queued speech through the desk wire. Existing work-thread
+  lease tests continue to cover the shared revocation path.
+- **Residual risk:** an ACP harness's own tools remain outside Hotline's
+  sandbox, as for its work threads. A failed summary is reported explicitly with the thread
+  link, rather than fabricated.
+
+
+## Reading a teammate's own threads
+
+- **Default and grant source:** `read_thread` is an own-conversation tool on
+  Hotline's MCP server for both drivers, including runs, jobs and voice
+  fronts. It adds no policy field or migration. A DM's key must be the
+  caller's persona; a call, work thread, job or run must have that persona's
+  DM as its parent. A pair must include the caller. Being the opener of
+  another teammate's work thread does not grant its transcript.
+- **Enforcement:** `TeammateTools::call` checks the calling session's lease
+  before dispatch, in process and over the ACP endpoint. `thread_reader::read`
+  resolves the key with `ThreadStore` and checks ownership before returning
+  any events. Pages follow folded event order using event ids, never a
+  caller-supplied path; records are fenced as conversation data. A stop,
+  policy change or deletion revokes the same handles as the other tools.
+- **Proofs:** the matrix row below covers allowed reads, another teammate's
+  refused record, paging without losing text or tool updates, and revocation.
+- **Residual risk:** the caller can read its entire own record, including
+  tool output. Pages bound event count, not bytes; one event can be large.
+  The log currently folds the whole stream for each page. Recorded speech
+  is the transcript kept by the call engine, not recovered audio.
+
+| Boundary | Tests | Platform |
+| --- | --- | --- |
+| Own-thread reads use both drivers' shared handler; cross-teammate reads and stale leases fail; pages retain full text and tools in order | `tests/call_threads/reader.rs` `the_home_agent_reads_the_call_transcript_to_recover_a_detail_only_said_there`, `thread_reads_page_in_order_and_refuse_another_teammates_thread_on_both_drivers`, `work_and_job_threads_are_read_by_the_keys_the_home_agent_receives`; `session/tests/reading.rs` `thread_pages_keep_full_text_order_and_one_line_per_tool`; `session/tests/posting.rs` `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`; `session/sides/tests.rs` `stopping_the_teammate_archives_its_side_threads_as_stopped` | — |
+
+
+| Boundary | Tests | Platform |
+| --- | --- | --- |
+| Live work uses its own driver/model and call transcript, posts its file, and leaves the home agent running through correction and cancellation | `tests/call_threads/live_work.rs` `live_work_uses_its_own_driver_and_posts_its_file_without_touching_home`, `changing_and_dropping_live_work_keeps_one_call_agent_and_home_keeps_running` | Both drivers; scripted Grok, GPT Realtime and GPT-Live |
+| Front reads refuse revoked grants and direct writes; GPT-Live uses the same work admission | `tests/voice/front_tools.rs` `a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refused`, `gpt_live_delegation_uses_the_same_call_thread_work_tool` | — |
+
+
+## Desk calls on the team lead
+
+- **Default and grant source:** the roster's current `teamLead`, plus a live
+  call placed to the desk, grant local `handoff` requests without first-contact
+  approval. No policy field or permanent collaboration grant is installed.
+  A direct call to the lead and its other threads get no new grant. Old
+  exchange records carry none.
+- **Enforcement:** `Calls::lead_call` checks target, live call and current lead.
+  `TeammateTools::call` checks the capability lease and limits the front to
+  lookups plus `message_teammate` with `handoff` on that desk call. The exchange
+  records the source call only for a local recipient and rechecks both leases
+  and the lead/call before starting or resuming the handoff. A queued request
+  whose call or lead ended fails explicitly, including after restart. Stop,
+  policy change and deletion retain the ordinary lease revocation. No tool
+  for stopping or reassigning another teammate is added.
+- **Proof:** `tests/voice/lead.rs`
+  `the_desk_lead_looks_up_the_roster_and_hands_named_words_straight_on` proves
+  roster lookup without a working-model request, unchanged named handoff
+  without a first-contact card or dispatcher call, and denied ask, stop and
+  former-lead use through the real handlers;
+  `a_direct_call_to_the_lead_does_not_get_the_desks_handoff_grant` proves the
+  direct-call refusal; `a_no_lead_front_knows_the_person_and_roster` proves
+  fallback context; `session/exchanges/tests.rs`
+  `a_saved_desk_handoff_cannot_recreate_a_live_calls_grant` proves recovery
+  fails the old grant before creating work;
+  `voice/room/tests/desk_calls.rs`
+  `hanging_up_removes_the_leads_handoff_tool_from_an_existing_handle` proves
+  a retained handler loses routing authority on hang-up. Existing front-tools
+  tests prove lease revocation.
+- **Residual risk:** the model selects the recipient and words. Prompt
+  injection can misuse this bounded routing authority during the call; the
+  core cannot prove that speech really named a recipient. Accepted work uses
+  the recipient's own grants and continues after hang-up once started.
+  Linked recipients retain ordinary collaboration consent. The fallback
+  assistant remains only for desks with no lead, with its existing bounded
+  operations; old dispatcher tapes remain owner-only historical data.
+
+
+## Resuming a dropped call
+
+- **Default and grant source:** the existing call and subscription seat checks
+  remain. A socket drop permits twenty seconds of reattachment by the same
+  authenticated device id (local desk sockets share the desk owner).
+- **Enforcement:** `wire/socket.rs` binds the call to the socket and separately
+  to its pairing's revocation token. `wire/subscribe.rs` reattaches through
+  `Calls::bind_connection`, which refuses another device. Revocation bypasses
+  the grace period; expiry takes the normal hang-up path.
+- **Tests:** `voice/room/tests/text.rs`
+  `a_short_transport_drop_resumes_but_twenty_seconds_detaches` proves the
+  grace period and wrong-device refusal, and that a desk lead’s routing grant
+  survives reattachment but ends on expiry; `pairing_revocation_during_a_drop_ends_without_the_grace_period`
+  proves revocation during the hold. `tests/voice/front.rs`
+  `a_wire_drop_resumes_the_same_live_call_and_announces_it` drives resumption
+  through the real socket subscription handler. `wire/tests/owner_handler.rs`
+  `a_call_subscription_cannot_resume_another_devices_transport` proves allowed
+  and denied owners through the subscription handler.
+- **Residual risk:** a dropped call keeps its provider connection for up to
+  twenty seconds and can incur that connection's normal cost. This does not
+  restore a revoked grant or cancel work already admitted on its thread.
+
+### Automatic written call results
+
+A live call's own turn posts a written result through `Room::post` when its
+text contains code, a table, a link, a list of four or more items, or a write-up
+over 120 words. Sent attachments use the existing file-post path. This is on
+by default for an attached call and grants no new tool or destination: the
+turn's originating persona and thread supply both, and the existing open-turn
+and live-call checks guard the write. Detached work retains the bounded
+in-flight completion rule. The model cannot choose another chat through this
+path. Conversation equal to its speech is not posted again.
+
+`tests/voice/direct.rs` `conversation_keeps_one_written_record_and_never_posts_or_points`,
+`a_direct_call_uses_its_thread_agent_without_dispatching`, and
+`legacy_speaks_its_own_untagged_opening` exercise the real core over the wire:
+conversation stays on the call; tables and code reach the owning chat.
+The existing thread-lease and revoked-post tests still cover tool authority.
+Residual risk: classification is syntactic; a model can mislabel or omit useful
+content, and its spoken wording can ignore an instruction. A missing or failed
+narrator leaves the written result available without a new spoken pointer.
+
+## Cards answered on a call
+
+- **Default and grant source:** a card is desk-only. A live core-owned
+  collaboration wait can accept yes for this session or no; voice never
+  grants standing collaboration. `ask_question` creates an informational
+  yes/no card under the requesting session's capability lease. Its answer
+  conveys information, not permission for an operation. A core-owned
+  `set_person_name` card can also accept yes/no by voice, solely to save its
+  bound preferred name (see below). `request_human`,
+  passkeys and opaque driver permissions remain desk-only, including requests
+  involving credentials, 2FA, screens, payments and deletions. Older cards
+  have no question marker; after restart no saved marker recreates a lease.
+- **Enforcement:** `session/call_cards.rs` checks the actual card, live call,
+  owner, pending status, expiry and question lease (including a name card), or the core's actual
+  collaboration wait and both participant leases. The normal card handler
+  then settles it once. A `question` or `voice` argument cannot promote an
+  action card. The voice front has no answer tool or wire command access:
+  only a finalized caller transcript equal to yes or no selects the last
+  announced card. Holding or ending the call removes that input authority.
+  Local Legacy capture reports its floor through owner-only
+  `voice.input_state`; provider onset events do the same for live calls.
+  A changed grant or stopped requesting session revokes question authority;
+  withdrawal and a desk answer remove the queued/active card. Answers leave
+  a record in the teammate's chat identifying the call. Call-thread cards
+  are stored in that home chat with a core-stamped `from` origin and mirrored
+  by id to the call transcript. Home answers route to the original wait or
+  driver; moving the card grants no voice permission. Home-session cleanup
+  cannot expire a call driver's pending card.
+- **Proof:** `tests/call_threads/cards.rs`
+  `legacy_answers_a_question_once_and_records_yes_and_no_from_the_call`,
+  `live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`, and
+  `spoken_collaboration_approval_is_only_for_this_session`, and
+  `a_home_answer_settles_the_call_question_and_removes_its_voice_notice` drive the real
+  wire and handlers, with both drivers and the three live provider seams.
+  `session/threads.rs` `a_call_permission_is_pushed_and_answered_in_home_chat`
+  proves driver settlement and home notification routing without a live call.
+  `voice/room/tests/cards.rs`
+  `the_card_handler_refuses_actions_forged_questions_and_stale_authority`
+  proves the five desk-action categories, forged flags, wrong owner, held
+  and ended calls, and revoked question leases through the real handler;
+  `duplicate_cards_are_said_once_and_withdrawn_cards_are_not_said` proves
+  deduplication and withdrawal. `push.rs`
+  `a_call_replaces_the_card_push_until_it_is_held_or_ended` proves notification
+  routing; `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`
+  also refuses a companion's input-state signal.
+- **Residual risk:** speech recognition may mishear yes/no; there is no
+  speaker authentication. An informational answer can influence subsequent
+  model work within its existing grants, but cannot settle a separate
+  operation card or grant permission. Free-form question prose is not a
+  trusted description of an operation, and the core does not classify it as
+  one. Driver approvals need trusted operation metadata before their voice
+  support can expand. Live providers generate the spoken announcement;
+  physical playback/echo and microphone timing still need the device pass.
+
+
+## Files produced by call work
+
+- **Default and grant source:** successful write/edit records on a call's own
+  turn are automatically delivered to that teammate's home chat. Explicit sends
+  join the batch. This adds no model tool, filesystem grant or destination.
+- **Enforcement:** `session/call_files.rs` reads only the recorded paths through
+  `files::from_workspace` and checks the call's scoped capability lease before
+  reads, storage and posting. Failed tools supply no automatic result. A stopped
+  or revoked call cannot regain authority from a saved record. File readback
+  selects the stored copy by message id and index; separate indexed directories
+  prevent equal basenames from colliding. Other documents open as inert text
+  or binary previews through `file.read`; the native image/PDF-only opener
+  remains unchanged and markup is never executed.
+- **Proof:** `tests/call_threads/files.rs`
+  `call_files_are_delivered_once_and_large_batches_are_one_openable_card` covers
+  both real drivers over the wire, one/three/six files, explicit sends, empty
+  work, unrelated workspace files and readback of every indexed result.
+  `session/tests/sent_files.rs`
+  `automatic_call_files_keep_the_call_lease_reach_and_work_boundary`
+  exercises the real publishing handler with allowed files, an outside path,
+  revoked authority, later corrections and separate calls.
+- **Residual risk:** ACP reports its own mutations, as it reports tool results;
+  those reports do not widen Hotline's read reach. Tools without explicit file
+  metadata (including shell commands) do not produce automatic attachments.
+  The file is read when the turn finishes, so another authorized writer can
+  change it before capture. Real-provider and physical-device behavior still
+  requires the separate call QA pass.
+
+
+## Saving the person's name
+
+- **Default and grant source:** `personName` is absent until the person saves
+  it in Settings → General or approves a `set_person_name` card. The shared
+  tool is available to both drivers and the live front, under their session
+  lease; subagent runs and colleague threads cannot ask. Each proposal, including a change, asks
+  “Save your name as George?” with the proposed name. The person's desk answer
+  or finalized yes on the matching active call grants only that write.
+- **Enforcement:** `TeammateTools::call` checks the lease and dispatches only
+  the name argument. `Room::ask_person_name` validates a nonempty name of at
+  most 100 characters, with no control characters, and binds it and the lease
+  to a core-generated approval id before publishing the card. `answer_later`
+  serializes settlement with withdrawal and expiry; `settle_person_name`
+  rechecks the pending operation, lease and expiry and appends only the
+  `personName` setting on approval. Decline writes no setting. Duplicate,
+  wrong-owner, expired, withdrawn and revoked answers cannot save a name.
+  A restart loses the operation authority; the persisted card cannot restore
+  it. Ordinary question text and extra tool arguments cannot authorize a
+  setting change. Settings uses the same name normalization and may clear it.
+- **Proof:** `tests/call_threads/person_name.rs`
+  `a_name_is_saved_only_by_its_approved_card_on_both_drivers` drives proposals,
+  decline, approve, repeated approval, change and revocation through both real
+  drivers and the wire, and checks the current Settings name reaches home.
+  `a_live_call_saves_a_name_only_after_spoken_yes` covers yes/no across all
+  three live provider seams. `voice/room/tests/cards.rs`
+  `a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_it`
+  covers the front handler, held calls, withdrawal, revocation, validation and
+  forged operation arguments. `session/tests/cards.rs`
+  `a_name_approval_cannot_survive_expiry_or_room_restart` proves expiry,
+  wrong-owner refusal and restart refusal. `ui/tests/person-name.test.tsx`
+  proves the General field's read, write, clear and room-update round trip.
+- **Residual risk:** the model proposes the spelling and speech recognition
+  can mishear approval; voice does not authenticate the speaker. The trusted
+  card displays the exact bounded name to be stored. Approval is specific to
+  that proposal, but two separately approved proposals can overwrite each
+  other in settlement order. The saved name is prompt data, not instructions;
+  no name proposal can write another setting or create a standing grant.

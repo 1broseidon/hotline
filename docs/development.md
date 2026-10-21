@@ -86,7 +86,13 @@ crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the sup
   lib.rs                     the servers settings name, a teammate's grant, the live connections
   tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
   oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
-crates/hotline-voice/src/     the voice engines; on the contract, the support and the room
+crates/hotline-voice/src/     calls and voice engines; the room is reached through CallRoom
+  call_room.rs               the core's callbacks, with temporary operations labelled by removal slice
+  lib.rs, call.rs, input.rs   call ownership, lifecycle and bounded input
+  duplex.rs, front*.rs        live sound, the front's conversation and its leased tools
+  dispatcher.rs              the legacy desk assistant and its metering
+  turn.rs, synthesis.rs       turns, streamed replies and spoken clips
+  record.rs, replies.rs       the call's record and spoken-reply counts
   speech.rs                  the Speech seam: a clip heard, a reply spoken, and the errors either gives
   speech/                    the providers' adapters, which one a call uses, the desk's own models
   realtime.rs                the Realtime seam: one live spoken conversation that renews itself
@@ -104,7 +110,7 @@ crates/hotline-core/src/
   mcp/                       Hotline's own teammate tools, and the vault's side of the client
   skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
   computer/                  runtime detection and one container per teammate
-  voice/                     the owner's call: its turns, the front, the dispatcher, the vault's side of the engines
+  voice/                     the room's CallRoom implementation and the vault's engine glue
   imagegen/                  making images over whichever connected provider the owner has
   link_preview.rs            a link's card, read from the page's head
   desk.rs                    the room, vault and log behind the wire
@@ -713,8 +719,8 @@ can run (`cursor`, say) and they drive a real harness as a child, including
 a line sent mid-turn.
 
 ```bash
-HOTLINE_HARNESS_ANTHROPIC_KEY=… cargo test -p hotline-core --test desk -- --ignored a_turn_with_a_real_key
-HOTLINE_HARNESS_ACP=cursor cargo test -p hotline-core --test desk -- --ignored real_acp_harness
+HOTLINE_HARNESS_ANTHROPIC_KEY=… cargo test -p hotline-core --test integration -- --ignored a_turn_with_a_real_key
+HOTLINE_HARNESS_ACP=cursor cargo test -p hotline-core --test integration -- --ignored real_acp_harness
 ```
 
 A harness that wants state in a stream asks the core over the wire, or

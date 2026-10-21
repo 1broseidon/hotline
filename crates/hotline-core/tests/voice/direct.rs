@@ -1,55 +1,64 @@
 use super::*;
 
+/// Scenario: Thinking out loud; Where are we on it?
 #[tokio::test]
-async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching() {
-    direct_call_uses_existing_conversation(
+async fn conversation_keeps_one_written_record_and_never_posts_or_points() {
+    direct_call_uses_its_thread(
+        true,
+        "<spoken>Yes, that works.</spoken><written>Yes, I think that will work.</written>",
+        "Yes, that works.",
+        "Yes, that works.",
+        Some("Yes, that works."),
+        "both",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_direct_call_uses_its_thread_agent_without_dispatching() {
+    direct_call_uses_its_thread(
         false,
         TAGGED_REPLY,
-        "The checks passed.",
+        "The checks passed. You can review the result in our chat.",
         TAGGED_WRITTEN,
-        Some("The checks passed."),
+        Some("The checks passed. You can review the result in our chat."),
         "both",
     )
     .await;
 }
 
 #[tokio::test]
-async fn device_text_reuses_the_direct_agent_session_and_call_origin() {
-    direct_call_uses_existing_conversation(
+async fn device_text_uses_the_call_thread_and_preserves_its_spoken_reply() {
+    direct_call_uses_its_thread(
         true,
         TAGGED_REPLY,
-        "The checks passed.",
+        "The checks passed. You can review the result in our chat.",
         TAGGED_WRITTEN,
-        Some("The checks passed."),
+        Some("The checks passed. You can review the result in our chat."),
         "both",
     )
     .await;
 }
 
-/// An agent that ignores the tags wrote to be read: the call assistant says
-/// it again to be heard, that is said and kept as what was said for it, and
-/// the chat shows all of the reply.
+/// Legacy streams the agent's own opening; the chat retains the complete reply.
+/// Scenario: Legacy voice on a slower teammate.
 #[tokio::test]
-async fn a_reply_without_tags_is_rewritten_to_be_heard() {
-    direct_call_uses_existing_conversation(
+async fn legacy_speaks_its_own_untagged_opening() {
+    direct_call_uses_its_thread(
         true,
         UNTAGGED_REPLY,
-        REWRITTEN,
+        "Here is the fix: You can review the result in our chat.",
         UNTAGGED_REPLY,
-        Some(REWRITTEN),
-        "rewritten",
+        Some("Here is the fix: You can review the result in our chat."),
+        "untagged",
     )
     .await;
 }
 
-/// One brain, two outputs: what is said on a call to a teammate is a turn of
-/// the teammate's own conversation (the person's exact words on its tape,
-/// marked as said on the call, in its open chapter), the agent is handed the
-/// contract after the words, the call says the reply's spoken version, and
-/// the chat shows its written version, with what was said kept beside it.
-/// No call assistant is asked anything, and the teammate's turn is metered
-/// as Chat.
-async fn direct_call_uses_existing_conversation(
+/// Legacy voice uses the thread agent, gives it the speech contract and keeps
+/// both versions in that thread. Speech and text input share this path, and
+/// the turn is metered as the teammate's Chat work.
+async fn direct_call_uses_its_thread(
     device_text: bool,
     reply: &'static str,
     spoken: &str,
@@ -188,17 +197,33 @@ async fn direct_call_uses_existing_conversation(
         .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
         .filter(|message| message["role"] == "user")
         .map(|message| message["content"].to_string())
-        .find(|content| content.contains("[Voice call: answer twice"))
+        .find(|content| content.contains("[Voice call: answer naturally"))
         .expect("the turn's input carries the contract");
     assert!(asked.contains(&words), "{asked}");
+    assert!(asked.contains("Make that result stand alone."), "{asked}");
+
     assert!(
-        asked.contains("Do not assume the reader heard the spoken version."),
+        asked.contains("1 turns in; last pointer turn: None"),
         "{asked}"
     );
+    if hotline_core::voice::spoken::carries_more(written) {
+        common::until("the core posts the written result", || {
+            log.load(&hotline_core::log::StreamId::Tape(persona.clone()))
+                .iter()
+                .any(|event| is_call_post(event) && event["text"] == written)
+        })
+        .await;
+    } else {
+        assert!(
+            !log.load(&hotline_core::log::StreamId::Tape(persona.clone()))
+                .iter()
+                .any(is_call_post)
+        );
+    }
 
     // What was said is kept beside the reply as soon as the reply is
     // written, which for a rewrite may be just after it is said.
-    let tape = hotline_core::log::StreamId::Tape(persona.clone());
+    let tape = hotline_core::log::StreamId::Call(call.clone());
     common::until("what was said is kept beside the reply", || {
         log.load(&tape)
             .iter()
@@ -209,17 +234,16 @@ async fn direct_call_uses_existing_conversation(
     let tape = log.load(&tape);
     assert_eq!(
         tape.iter().filter(|v| v["kind"] == "chapter").count(),
-        1,
+        0,
         "{tape:?}"
     );
     let user = tape.iter().find(|v| v["kind"] == "user").unwrap();
     assert_eq!(tape.iter().filter(|v| v["kind"] == "user").count(), 1);
     assert_eq!(user["text"], words, "the person's words, as they said them");
     assert!(
-        user["id"]
-            .as_str()
-            .unwrap()
-            .starts_with(&format!("voice:{call}:1:agent:"))
+        !log.load(&hotline_core::log::StreamId::Tape(persona.clone()))
+            .iter()
+            .any(|event| event["kind"] == "user")
     );
     let agents: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "agent").collect();
     let shown: Vec<&str> = agents.iter().map(|v| v["text"].as_str().unwrap()).collect();
@@ -243,7 +267,7 @@ async fn direct_call_uses_existing_conversation(
     );
     assert!(
         !log.load(&hotline_core::log::StreamId::Tape(
-            hotline_core::voice::TAPE_ID.into()
+            "voice-dispatcher".into()
         ))
         .iter()
         .any(|v| matches!(v["kind"].as_str(), Some("user" | "agent")))
@@ -330,7 +354,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         .unwrap();
     send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 1).await["ok"], true);
-    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"}}}}})).await;
+    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"}}}}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 2).await["ok"], true);
     send(&mut socket, json!({"id":3,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
     let persona = frame_where(&mut socket, |f| f["id"] == 3).await["result"]["id"]
@@ -343,17 +367,14 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     )
     .await;
     let status = frame_where(&mut socket, |f| f["id"] == 4).await;
-    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["available"], true);
     assert_eq!(status["result"]["directAvailable"], true);
     send(
         &mut socket,
         json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string()}}),
     )
     .await;
-    assert_eq!(
-        frame_where(&mut socket, |f| f["id"] == 5).await["ok"],
-        false
-    );
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 5).await["ok"], true);
     let call = Uuid::new_v4().to_string();
     send(&mut socket, json!({"id":6,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
     let started = frame_where(&mut socket, |f| f["id"] == 6).await;
@@ -365,7 +386,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     )
     .await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 7).await["ok"], true);
-    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
+    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 8).await["ok"], true);
     send(
         &mut socket,
@@ -373,7 +394,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     )
     .await;
     let status = frame_where(&mut socket, |f| f["id"] == 9).await;
-    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["available"], true);
     assert_eq!(status["result"]["directAvailable"], true);
     assert!(status["result"].get("stt").is_none());
     send(
@@ -383,7 +404,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     .await;
     assert_eq!(
         frame_where(&mut socket, |f| f["id"] == 10).await["ok"],
-        false
+        true
     );
     let text_call = Uuid::new_v4().to_string();
     send(&mut socket, json!({"id":11,"cmd":"voice.call_start","params":{"callId":text_call,"personaId":persona,"inputMode":"text","streamAudio":true}})).await;
@@ -426,6 +447,8 @@ async fn calls_off_refuses_a_call_and_says_why() {
         .as_str()
         .unwrap()
         .to_string();
+    let legacy = answer(&mut socket, 20, json!({"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"}}}}})).await;
+    assert_eq!(legacy["ok"], true);
     send(
         &mut socket,
         json!({"id":3,"cmd":"voice.status","params":{}}),

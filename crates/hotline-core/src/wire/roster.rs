@@ -372,6 +372,7 @@ fn roster_entry(
         subagents: room.subagents(&persona.id),
         sides: room.sides(&persona.id),
         working_jobs: room.working_jobs(&persona.id),
+        working_calls: room.working_calls(&persona.id),
         session,
         preview,
         latest,

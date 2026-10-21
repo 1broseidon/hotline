@@ -22,9 +22,10 @@ mod policy;
 mod store;
 
 pub use hotline_store::link::{AgentBinding, Link, Opener, ThreadState};
-pub use policy::{Answer, Computer, Idle, Lease, Policy, Restart, Resume, Tools};
+pub(crate) use policy::QUIET_MS;
 #[cfg(test)]
-pub(crate) use policy::{QUIET_MS, SIDE_IDLE_MS};
+pub(crate) use policy::SIDE_IDLE_MS;
+pub use policy::{Answer, Computer, Idle, Lease, Policy, Restart, Resume, Tools};
 pub use store::ThreadStore;
 
 use crate::contract::{ThreadId, ThreadKind};

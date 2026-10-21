@@ -24,6 +24,8 @@ pub use hotline_store::log;
 pub mod mcp;
 pub mod models;
 pub(crate) mod pricing;
+#[cfg(feature = "test-support")]
+pub mod provider_fixture;
 mod providers;
 pub(crate) mod push;
 pub mod remote;

@@ -273,7 +273,13 @@ export function App() {
 		setDock(next);
 	}, [setInspector, setDock]);
 	const closeDock = useCallback(() => setDock(null), [setDock]);
-	const openThread = useCallback((open: ThreadRef) => openDock({ open }), [openDock]);
+	const openThread = useCallback((open: ThreadRef) => {
+        if (open.thread.kind === "dm") {
+            select(open.thread.key);
+            setDock(null);
+            if (open.eventId !== undefined) setFocus({ eventId: open.eventId, at: Date.now() });
+        } else openDock({ open });
+    }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
 	/* A caption or the mark, pressed again with its work already open, closes it. */
@@ -376,7 +382,8 @@ export function App() {
 	 * rail, whether or not this desk has been set up. */
 	const welcome = empty && setUp !== true && Object.values(elsewhere).every((entries) => entries.length === 0);
 	const call = useCall();
-	const callPhase = useCallSnapshot(call).phase;
+	const callState = useCallSnapshot(call);
+	const callPhase = callState.phase;
 	const calling = call !== null && callPhase !== "ended";
 	const { available: voice, directCalls } = useVoiceSupport(connection);
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
@@ -468,7 +475,9 @@ export function App() {
 	const conversationShown = pane === null && selected !== null;
 	const teamRail = railSize.open && pane !== "settings";
 	const deskCalling = call !== null && call.target === undefined;
-	const callBar = call === null || (deskCalling && teamRail) ? undefined : (
+	// A failure needs its sentence and choice: use the pane when the rail is faces only.
+	const deskInRail = deskCalling && teamRail && !(faces && callState.legacyAvailable);
+	const callBar = call === null || deskInRail ? undefined : (
 		<CallBar
 			call={call}
 			names={nameOf}
@@ -538,7 +547,7 @@ export function App() {
 				compact={faces}
 				search={teamSearch(faces ? "beside" : "dock")}
 				deskKey={deskCallKey()}
-				deskCard={deskCalling && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
+				deskCard={deskInRail && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
 			/>
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
@@ -632,7 +641,7 @@ export function App() {
 					{dock !== null && pane !== "settings" && (
 						<Dock
 							state={dock}
-							onState={setDock}
+							onState={(next) => next.open?.thread.kind === "dm" ? openThread(next.open) : setDock(next)}
 							onClose={closeDock}
 							entry={selected}
 							roster={roster}

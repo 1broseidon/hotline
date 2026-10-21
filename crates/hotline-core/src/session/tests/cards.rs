@@ -444,10 +444,12 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
     room.write(
         "ada",
         &TranscriptEvent::HumanAction {
+            from: None,
             id: "human:old".to_string(),
             ts: now_ms() - i64::from(ASK_HOURS) * 60 * 60_000 - 1,
             action_id: "old".to_string(),
             reason: "Approve the deploy".to_string(),
+            question: None,
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
@@ -458,10 +460,12 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
     room.write(
         "ada",
         &TranscriptEvent::HumanAction {
+            from: None,
             id: "human:fresh".to_string(),
             ts: now_ms(),
             action_id: "fresh".to_string(),
             reason: "Approve the other deploy".to_string(),
+            question: None,
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
@@ -863,4 +867,62 @@ async fn a_failed_turn_is_retried_on_the_same_line_without_writing_it_again() {
             .contains("no failed turn"),
         "a turn that answered was retried"
     );
+}
+
+#[tokio::test]
+async fn a_name_approval_cannot_survive_expiry_or_room_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    enrol(&log, &persona("ada"));
+    let agents = Fake::new(Scripted::new(vec![]));
+    let room = Room::with_agents(log.clone(), Arc::new(DeskKeys), agents.clone());
+    let epoch = CapabilityEpoch::default();
+    let peer = TeammateTools::new(&room, "ada")
+        .for_peer(ThreadId::pair("ada-bob"))
+        .with_capability(epoch.lease());
+    assert!(!peer.tool_names().contains(&"set_person_name"));
+    assert!(
+        peer.call("set_person_name", &json!({"name":"George"}))
+            .await
+            .is_err()
+    );
+    let tools = TeammateTools::new(&room, "ada").with_capability(epoch.lease());
+    tools
+        .call("set_person_name", &json!({"name":"George"}))
+        .await
+        .unwrap();
+    let card = room
+        .tape("ada")
+        .into_iter()
+        .find(|e| e["kind"] == "human_action")
+        .unwrap();
+    let id = card["actionId"].as_str().unwrap();
+    assert!(
+        room.answer_human("someone-else", id, HumanAnswer::Done, None)
+            .is_err()
+    );
+    room.expire_stale_asks(now_ms() + 3 * 60 * 60_000);
+    assert!(
+        room.answer_human("ada", id, HumanAnswer::Done, None)
+            .is_err()
+    );
+    tools
+        .call("set_person_name", &json!({"name":"George"}))
+        .await
+        .unwrap();
+    let card = room
+        .tape("ada")
+        .into_iter()
+        .find(|e| e["kind"] == "human_action" && e["status"] == "pending")
+        .unwrap();
+    let id = card["actionId"].as_str().unwrap();
+    drop(tools);
+    drop(room);
+    let restarted = Room::with_agents(log.clone(), Arc::new(DeskKeys), agents);
+    assert!(
+        restarted
+            .answer_human("ada", id, HumanAnswer::Done, None)
+            .is_err()
+    );
+    assert!(crate::room::settings(&log).get("personName").is_none());
 }

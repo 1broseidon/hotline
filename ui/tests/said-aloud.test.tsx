@@ -6,6 +6,7 @@ import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
+const { AgentSay } = await import("../src/components/transcript/Bubbles");
 const { Transcript, SaidAloud } = await import("../src/components/Transcript");
 
 const reply: Extract<TranscriptEvent, { kind: "agent" }> = {
@@ -45,6 +46,8 @@ describe("a post from another thread", () => {
 		const posted = { kind: "agent", id: "p1", ts: 2, text: "the scheduler fix is in" } as const;
 		const fromCall = transcript([{ ...posted, from: { thread: "c1", kind: "call" } }]);
 		expect(fromCall).toContain("From the call");
+		expect(transcript([{ ...posted, from: { thread: "c1", kind: "call", title: "Call" } }])).toContain("From the call");
+		expect(transcript([{ ...posted, from: { thread: "c1", kind: "call", title: "Harbour plan" } }])).toContain("From Harbour plan");
 		expect(fromCall.indexOf("From the call")).toBeLessThan(fromCall.indexOf("speech said-them"));
 		const scheduled = { jobId: "j1", kind: "loop", name: "Crane check", operatorCreated: true, quiet: true } as const;
 		expect(transcript([{ ...posted, scheduled }])).toContain("From a scheduled job");
@@ -72,6 +75,28 @@ describe("the transcript line", () => {
 		await teardown();
 	});
 
+	test("Open the call opens the full source thread of a summary", async () => {
+		const opened: unknown[] = [];
+		await act(async () => root.render(<AgentSay personaId="ada" event={{ kind: "agent", id: "summary", ts: 2, text: "Eddystone history: four towers guarded the reef.", from: { kind: "call", thread: "eddystone" } }} run={{ top: true, bottom: true }} reactions={undefined} onOpenThread={(thread) => opened.push(thread)} />));
+		const button = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Open the call") as HTMLButtonElement;
+		expect(button).toBeDefined();
+		await act(async () => button.click());
+		expect(opened).toEqual([{ thread: { kind: "call", key: "eddystone" } }]);
+		expect(container.textContent).toContain("From the call");
+		expect(container.textContent).not.toContain("From Call");
+	});
+
+	test("a combined note opens every source call", async () => {
+		const opened: unknown[] = [];
+		await act(async () => root.render(<AgentSay personaId="ada" event={{ kind: "agent", id: "summary", ts: 2, text: "Beacon repair agreed.", from: { kind: "call", thread: "second", sources: [{ kind: "call", key: "first" }, { kind: "call", key: "second" }] } }} run={{ top: true, bottom: true }} reactions={undefined} onOpenThread={(thread) => opened.push(thread)} />));
+		for (const label of ["Open call 1", "Open call 2"]) {
+			const button = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === label) as HTMLButtonElement;
+			expect(button).toBeDefined();
+			await act(async () => button.click());
+		}
+		expect(opened).toEqual([{ thread: { kind: "call", key: "first" } }, { thread: { kind: "call", key: "second" } }]);
+	});
+
 	test("is one line until pressed, then the whole of what was said, and folds again", async () => {
 		await act(async () => root.render(<SaidAloud text={reply.spoken ?? ""} />));
 		const line = container.querySelector("button.said-aloud") as unknown as HTMLButtonElement;
@@ -84,4 +109,29 @@ describe("the transcript line", () => {
 		await act(async () => line.click());
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 	});
+});
+
+
+describe("a call thread is a transcript", () => {
+    test("names both speakers and shows every tool inline in order", () => {
+        const events: TranscriptEvent[] = [
+            { kind: "user", id: "u", ts: 1, text: "Check the mascot." },
+            { kind: "agent", id: "a", ts: 2, text: "The written plan.", spoken: "I will check Bramble." },
+            { kind: "tool", id: "t1", ts: 3, toolCallId: "tc1", title: "Read mascot.txt", toolKind: "read_file", status: "completed", output: [{ type: "text", text: "Bramble, a wiry terrier.\nMore detail." }] },
+            { kind: "tool", id: "t2", ts: 4, toolCallId: "tc2", title: "Save the plan", toolKind: "write_file", status: "completed", output: [{ type: "text", text: "Saved mascot.txt." }] },
+            { kind: "agent", id: "a2", ts: 5, text: "Ready to implement." },
+        ];
+        const html = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "call", key: "c1" }} events={events} streaming={[]} live={false} focus={null} />);
+        expect(html).toContain("You");
+        expect(html).toContain("Ada");
+        expect(html).toContain("I will check Bramble.");
+        expect(html).toContain("Bramble, a wiry terrier. More detail.");
+        expect(html).not.toContain(">2 steps<");
+        expect(html).not.toContain("steps-caption");
+        expect(html.indexOf("I will check Bramble.")).toBeLessThan(html.indexOf("read_file"));
+        expect(html.indexOf("read_file")).toBeLessThan(html.indexOf("write_file"));
+        expect(html.indexOf("write_file")).toBeLessThan(html.indexOf("Ready to implement."));
+        const work = renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={{ kind: "side", key: "s1" }} events={events} streaming={[]} live={false} focus={null} />);
+        expect(work).toContain("2 steps");
+    });
 });

@@ -200,6 +200,7 @@ const READ: Powers = { say: false, close: false, resume: false, stop: false };
 export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false): Powers {
 	// A job's thread is spoken in by the person, who is the desktop; a closed one is the record of an ended job.
 	if (kind === "job") return state === "closed" ? READ : { ...READ, say: true };
+	if (kind === "call") return state === "closed" ? READ : { ...READ, say: true, stop: true };
 	if (kind !== "side") return READ;
 	if (handedOver) return { ...READ, stop: state !== "closed" };
 	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true };

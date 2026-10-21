@@ -1,6 +1,6 @@
 //! Active input through the real core and real Rig adapters, with disposable
 //! HTTP model endpoints. No native steering events or live credentials.
-mod common;
+use crate::common;
 
 use axum::{Router, body::Bytes, routing::post};
 use common::Client;

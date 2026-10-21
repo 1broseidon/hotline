@@ -81,6 +81,8 @@ impl<T> Turns<T> {
 /// One line for a thread's agent: the words as the driver is to hear them,
 /// already stamped, with what came attached.
 pub(super) struct Line {
+    /// Captured when accepted, so reattaching voice cannot speak an older turn.
+    pub voice: Option<crate::voice::Origin>,
     pub text: String,
     pub attachments: Vec<Attachment>,
     /// Set when the turn this line starts is a handoff's: the exchange's
@@ -107,6 +109,8 @@ pub(super) struct HandoffLine {
 
 /// The agent a turn is for, and the thread and teammate it answers as.
 pub(super) struct Seat<'a> {
+    /// Work threads retain their own lease for call-file delivery.
+    pub capability: Option<&'a crate::driver::CapabilityLease>,
     pub thread: &'a ThreadId,
     pub persona_id: &'a str,
     pub driver: &'a dyn Driver,
@@ -144,10 +148,73 @@ struct Told<'a, F> {
     threads: Threads<'a>,
     seat: Seat<'a>,
     open: F,
+    voice: Option<crate::voice::Origin>,
+    replies: Vec<serde_json::Value>,
+    files: Vec<crate::contract::ChangedFile>,
 }
 
 impl<F: Fn() -> bool> Witness for Told<'_, F> {
+    fn heard(
+        &mut self,
+        update: &Update,
+        _: &mut std::collections::HashMap<String, super::prompt::PendingTool>,
+    ) {
+        if self.voice.is_none()
+            || !(self.open)()
+            || !self.threads.room.on_the_call(self.seat.thread)
+        {
+            return;
+        }
+        if let Update::Message {
+            kind: MessageKind::Agent,
+            id,
+            text,
+        } = update
+        {
+            let versions = crate::voice::spoken::versions(text);
+            if versions.spoken.as_deref() != Some(versions.written.as_str())
+                && crate::voice::spoken::carries_more(&versions.written)
+            {
+                // Classify the whole reply before pacing divides it into bubbles,
+                // and write it before completion releases the spoken pointer.
+                let post = super::Post {
+                    id: format!("call-result:{}:{id}", self.seat.thread.key),
+                    ..super::Post::words(&versions.written)
+                };
+                if let Err(error) =
+                    self.threads
+                        .room
+                        .post(self.seat.persona_id, self.seat.thread, post)
+                {
+                    eprintln!("[voice] could not post call result: {error}");
+                }
+            }
+        }
+    }
+
+    fn said_on_call(&self) -> bool {
+        self.voice.is_some()
+    }
+
+    fn keep_written(&self) -> bool {
+        self.voice.as_ref().is_some_and(|origin| origin.front)
+            || lock(&self.threads.room.posting)
+                .get(self.seat.thread)
+                .is_some_and(|turn| turn.file_sent)
+    }
+
     fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
+        // Live work is reported once when the turn ends, never as speech deltas.
+        if self.voice.as_ref().is_some_and(|origin| origin.front) {
+            return;
+        }
+        if let Some(origin) = &self.voice
+            && kind == MessageKind::Agent
+            && !muted
+            && let Some(voice) = lock(&self.threads.room.voice).upgrade()
+        {
+            voice.reply_delta(self.seat.persona_id, message_id, words.written, origin);
+        }
         if words.shown.is_empty() || !(self.open)() {
             return;
         }
@@ -164,9 +231,63 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         if !(self.open)() {
             return;
         }
-        let written = self
-            .threads
-            .write(self.seat.thread, self.seat.persona_id, &event);
+        if self.seat.thread.kind == crate::contract::ThreadKind::Call
+            && let TranscriptEvent::Tool {
+                status: crate::contract::ToolStatus::Completed,
+                files: Some(files),
+                ..
+            } = &event
+        {
+            for file in files {
+                if let Some(known) = self.files.iter_mut().find(|known| known.path == file.path) {
+                    known.created |= file.created;
+                } else {
+                    self.files.push(file.clone());
+                }
+            }
+        }
+        let live_work = self.voice.as_ref().is_some_and(|origin| origin.front);
+        if live_work && matches!(event, TranscriptEvent::Tool { .. }) {
+            // Only words after the last tool are the work's result.
+            self.replies.clear();
+        }
+        let written = if live_work && matches!(event, TranscriptEvent::Agent { .. }) {
+            super::threads::Written::default()
+        } else {
+            self.threads
+                .write(self.seat.thread, self.seat.persona_id, &event)
+        };
+        if let TranscriptEvent::Agent {
+            id, text, spoken, ..
+        } = &event
+        {
+            let room = self.threads.room;
+            if let Some(origin) = &self.voice
+                && !origin.front
+                && let Some(voice) = lock(&room.voice).upgrade()
+            {
+                let answer = spoken.as_ref().map_or_else(
+                    || text.clone(),
+                    |spoken| format!("<spoken>{spoken}</spoken><written>{text}</written>"),
+                );
+                voice.delivery(
+                    self.seat.persona_id,
+                    id,
+                    self.seat.persona_id,
+                    &answer,
+                    true,
+                    Some(origin),
+                );
+            }
+            if let Ok(value) = serde_json::to_value(&event) {
+                if let Some(previous) = self.replies.iter_mut().find(|reply| reply["id"] == *id) {
+                    *previous = value;
+                } else {
+                    self.replies.push(value);
+                }
+            }
+        }
+
         for refusal in written.refused {
             refusal.deliver(self.seat.driver);
         }
@@ -194,7 +315,15 @@ impl Threads<'_> {
         let driver = seat.driver;
         let thread = seat.thread.clone();
         let _posting = self.room.open_posting(&thread, job);
+        let voice = line
+            .voice
+            .clone()
+            .or_else(|| self.room.attached_voice(&thread));
+        let subject = line.text.clone();
         let mut told = Told {
+            replies: Vec::new(),
+            files: Vec::new(),
+            voice: voice.clone(),
             threads: Threads { room: self.room },
             seat,
             open,
@@ -202,6 +331,92 @@ impl Threads<'_> {
         let mut driven = self
             .drive(driver, line.into(), reach, cancel, None, &mut told)
             .await;
+        if thread.kind == crate::contract::ThreadKind::Call
+            && (told.open)()
+            && let Some(capability) = told.seat.capability
+        {
+            self.room
+                .post_call_files(told.seat.persona_id, &thread, &told.files, capability)
+                .await;
+        }
+        if voice.as_ref().is_some_and(|origin| origin.front) && (told.open)() {
+            let result_id = super::new_id();
+            let text = told
+                .replies
+                .iter()
+                .filter_map(|line| line["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            let failed = driven.cancelled || driven.failure.is_some();
+            let text = if text.is_empty() {
+                driven.failure.clone().unwrap_or_else(|| {
+                    if driven.cancelled {
+                        "Work stopped; unfinished actions remain unfinished."
+                    } else {
+                        "Work ended without a written result."
+                    }
+                    .into()
+                })
+            } else {
+                text
+            };
+            self.write(
+                &thread,
+                told.seat.persona_id,
+                &TranscriptEvent::Tool {
+                    id: result_id.clone(),
+                    ts: super::now_ms(),
+                    tool_call_id: result_id.clone(),
+                    title: "Work result".into(),
+                    tool_kind: Some("work_result".into()),
+                    status: if failed {
+                        crate::contract::ToolStatus::Failed
+                    } else {
+                        crate::contract::ToolStatus::Completed
+                    },
+                    locations: None,
+                    files: None,
+                    output: Some(vec![crate::contract::ToolOutput::Text {
+                        text: text.clone(),
+                    }]),
+                },
+            );
+            if !failed
+                && let Some(origin) = &voice
+                && let Some(calls) = lock(&self.room.voice).upgrade()
+                && !told.replies.is_empty()
+            {
+                let spoken = told
+                    .replies
+                    .iter()
+                    .filter_map(|line| line["spoken"].as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let answer = if spoken.is_empty() {
+                    text
+                } else {
+                    format!("<spoken>{spoken}</spoken><written>{text}</written>")
+                };
+                calls.delivery(
+                    told.seat.persona_id,
+                    &result_id,
+                    told.seat.persona_id,
+                    &answer,
+                    true,
+                    Some(origin),
+                );
+            }
+        }
+        if let Some(origin) = voice
+            && let Some(voice) = lock(&self.room.voice).upgrade()
+        {
+            voice.turn_ended(told.seat.persona_id, &origin);
+        }
+        if (told.open)() {
+            self.room
+                .post_detached_reply(told.seat.persona_id, &thread, &subject, &told.replies)
+                .await;
+        }
         driven.posted = self.room.has_posted(&thread);
         driven
     }

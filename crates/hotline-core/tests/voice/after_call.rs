@@ -5,7 +5,7 @@ use super::*;
 /// teammate as a line from the call, told the call is over so it answers in
 /// writing with nothing to say aloud; a goodbye left hanging does not.
 #[tokio::test]
-async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing() {
+async fn an_unanswered_question_stays_on_the_call_and_does_not_start_home_work() {
     let mut desk = front_desk(true, 64).await;
     let root = desk.root.path().to_path_buf();
     let socket = &mut desk.socket;
@@ -60,52 +60,13 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
     .await;
     assert_eq!(ended["ok"], true);
 
-    let tape = hotline_core::log::StreamId::Tape(persona.clone());
-    common::until(
-        "the teammate answers the question the call ended on",
-        || {
-            desk.log
-                .load(&tape)
-                .iter()
-                .any(|v| v["kind"] == "agent" && !is_call_post(v))
-        },
-    )
-    .await;
-    let tape = desk.log.load(&tape);
-    let users: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "user").collect();
-    assert_eq!(users.len(), 1, "{tape:?}");
-    assert_eq!(users[0]["text"], words, "the person's words, unrephrased");
+    let tape = desk.log.load(&hotline_core::log::StreamId::Tape(persona));
+    assert!(!tape.iter().any(|v| v["kind"] == "user"));
+    let transcript = desk.log.load(&hotline_core::log::StreamId::Call(call));
+    assert!(transcript.iter().any(|v| v["text"] == words));
     assert!(
-        users[0]["id"]
-            .as_str()
-            .unwrap()
-            .starts_with(&format!("voice:{call}:"))
-    );
-    let agent = tape
-        .iter()
-        .find(|v| v["kind"] == "agent" && !is_call_post(v))
-        .unwrap();
-    assert_eq!(agent["text"], "The release checklist has two items left.");
-    assert!(agent.get("spoken").is_none(), "written only: {agent}");
-
-    let asked = requests
-        .lock()
-        .unwrap()
-        .iter()
-        .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
-        .filter(|message| message["role"] == "user")
-        .map(|message| message["content"].as_str().unwrap_or_default().to_string())
-        .find(|content| content.contains("ended before it was answered"))
-        .expect("the teammate was told the call ended on the question");
-    assert!(
-        asked.contains(&format!(
-            "{words}\n\n[This came from a voice call that ended"
-        )),
-        "{asked}"
-    );
-    assert!(
-        !asked.contains("[Voice call: answer twice"),
-        "no spoken version: {asked}"
+        requests.lock().unwrap().is_empty(),
+        "hang-up must not invent a work request"
     );
 }
 
@@ -197,6 +158,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .await["ok"],
         true
     );
+    closing_note_due(&desk.log, &call).await;
     common::until("the call's summary is posted", || {
         desk.log.load(&tape).iter().any(is_call_post)
     })
@@ -209,8 +171,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .collect();
     assert_eq!(summaries.len(), 1, "{summaries:?}");
     let text = summaries[0]["text"].as_str().unwrap();
-    assert!(text.starts_with("You asked"), "{text}");
-    assert!(text.contains("what did we fix on the scheduler?"), "{text}");
+    assert_eq!(text, CALL_NOTE);
     assert!(text.contains(answered), "{text}");
     assert!(
         !text.contains("search_thread") && !text.contains("working session"),

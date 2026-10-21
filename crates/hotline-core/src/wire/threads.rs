@@ -59,7 +59,7 @@ pub(super) async fn prompt(
             }
             Ok(Value::Null)
         }
-        ThreadKind::Side => {
+        ThreadKind::Side | ThreadKind::Call => {
             room.side_prompt(&thread.key, text, reply_to, attachments)
                 .await?;
             Ok(Value::Null)
@@ -77,13 +77,13 @@ pub(super) async fn prompt(
 pub(super) fn cancel(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Value, String> {
     match thread.kind {
         ThreadKind::Dm => room.cancel(&thread.key)?,
-        ThreadKind::Side => room.side_cancel(&thread.key)?,
+        ThreadKind::Side | ThreadKind::Call => room.side_cancel(&thread.key)?,
         ThreadKind::Job => room.job_cancel(&thread.key)?,
         ThreadKind::Pair => {
             let (a, b) = pair_of(thread)?;
             room.stop_exchange(a, b)?;
         }
-        _ => return Err(not_here(thread, "Cancelling")),
+        ThreadKind::Run => return Err(not_here(thread, "Cancelling")),
     }
     Ok(Value::Null)
 }
@@ -163,7 +163,7 @@ pub(super) async fn answer(
                 .await?;
         }
         (
-            ThreadKind::Side,
+            ThreadKind::Side | ThreadKind::Call,
             ThreadAnswer::Permission {
                 request_id,
                 option_id,
@@ -193,7 +193,7 @@ pub(super) async fn answer(
                 .await?;
         }
         (
-            ThreadKind::Dm | ThreadKind::Side,
+            ThreadKind::Dm | ThreadKind::Side | ThreadKind::Call,
             ThreadAnswer::Human {
                 action_id,
                 status,
@@ -208,7 +208,7 @@ pub(super) async fn answer(
         (_, ThreadAnswer::Human { .. }) => {
             return Err(not_here(thread, "A request for the person"));
         }
-        (ThreadKind::Run | ThreadKind::Call, _) => {
+        (ThreadKind::Run, _) => {
             return Err(not_here(thread, "Answering a card"));
         }
     }
@@ -379,7 +379,7 @@ fn summarize(
             .any(|pair| pair.thread_key == thread.id.key && pair.working_persona_id.is_some()),
         ThreadKind::Job => room.working_jobs(&persona_id).contains(&thread.id.key),
         ThreadKind::Run => state == LinkState::Live,
-        ThreadKind::Call => false,
+        ThreadKind::Call => room.thread_working(&thread.id),
     };
 
     ThreadSummary {

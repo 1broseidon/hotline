@@ -1,6 +1,6 @@
 //! A pairing invitation belongs to the live CLI connection, not its process id.
 #![cfg(unix)]
-mod common;
+use crate::common;
 
 use common::{free_address, hotline, until};
 use std::{

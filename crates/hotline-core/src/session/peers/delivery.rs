@@ -143,6 +143,7 @@ impl Room {
                 &caller_capability,
                 &target_capability,
                 false,
+                None,
             )
             .await?;
         if let Err(error) = thread::ensure(self.log.root(), &key) {
@@ -268,6 +269,7 @@ impl Room {
         caller_capability: &CapabilityLease,
         target_capability: &CapabilityLease,
         handoff: bool,
+        origin: Option<&crate::contract::ThreadId>,
     ) -> Result<CollaborationAuthorization, String> {
         caller_capability.check()?;
         target_capability.check()?;
@@ -336,9 +338,17 @@ impl Room {
             request_id: request_id.clone(),
             card_on: card_on.clone(),
         };
-        self.write(
+        let home = origin
+            .filter(|thread| {
+                caller.node.is_none() && thread.kind == crate::contract::ThreadKind::Call
+            })
+            .cloned()
+            .unwrap_or_else(|| crate::contract::ThreadId::dm(&card_on));
+        self.write_home(
             &card_on,
+            &home,
             &TranscriptEvent::Permission {
+                from: None,
                 id: format!("perm:{request_id}"),
                 ts: now_ms(),
                 request_id: request_id.clone(),
@@ -434,6 +444,7 @@ impl Room {
         self.write(
             &wait.card_on,
             &TranscriptEvent::Permission {
+                from: None,
                 id: format!("perm:{}", wait.request_id),
                 ts: now_ms(),
                 request_id: wait.request_id.clone(),

@@ -27,7 +27,7 @@ import {
 	withStreaming,
 } from "../transcriptFolds";
 import { useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
-import { Steps } from "./transcript/Steps";
+import { CallTools, Steps } from "./transcript/Steps";
 import { AgentSay, NamedSay, UserBubble, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
@@ -87,6 +87,7 @@ export function Transcript({
 	streaming,
 	live,
 	cornered = false,
+	workingCalls,
 	focus,
 	speakers,
 	onReply,
@@ -120,6 +121,8 @@ export function Transcript({
 	 * and the way back down sits above it.
 	 */
 	cornered?: boolean;
+	/** Call thread IDs with a turn in flight, from the roster. */
+	workingCalls?: readonly string[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
@@ -402,7 +405,9 @@ export function Transcript({
 								<ScheduledGroup name={block.name} runs={block.runs} />
 							) : block.kind === "calls" ? (
 								<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
-							) : block.kind === "steps" ? (
+							) : block.kind === "steps" ? (thread?.kind === "call" ? (
+								<CallTools items={block.items} />
+							) : (
 								<Steps
 									id={block.id}
 									items={block.items}
@@ -410,12 +415,13 @@ export function Transcript({
 									shown={workShown}
 									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 								/>
-							) : (
+							)) : (
 								<Row
 									personaId={personaId}
 									thread={rowThread}
 									ownerName={name}
 									event={block.event}
+									working={block.event.kind === "link" && block.event.threadKind === "call" && (workingCalls?.includes(block.event.thread) ?? false)}
 									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
 									top={run.top}
 									bottom={run.bottom}
@@ -499,6 +505,7 @@ const Row = memo(function Row({
 	thread,
 	ownerName,
 	event,
+	working,
 	quote,
 	top,
 	bottom,
@@ -519,6 +526,7 @@ const Row = memo(function Row({
 	/** Whose tape this is: the teammate, so a card can speak of it in the third person. */
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
+	working: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
 	quote: string | undefined;
 	top: boolean;
@@ -540,8 +548,34 @@ const Row = memo(function Row({
 	const run: Run = { top, bottom };
 	const own = event.kind === "user" || event.kind === "agent" ? event.reactions : undefined;
 	const worn = reactions === undefined ? own : [...(own ?? []), ...reactions];
+	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask") && event.from?.kind === "call") {
+		const origin = event.from;
+		const settled = event.kind === "permission" ? event.decision !== undefined : event.status !== "pending";
+		const label = event.kind === "permission" ? event.title : event.kind === "human_action" ? event.reason : event.name;
+		if (thread.kind === "call") return (
+			<button type="button" className="rule-line rule-line-plain"
+				onClick={() => onOpenThread?.({ thread: { kind: "dm", key: personaId }, eventId: event.id })}>
+				{settled ? "Settled" : "Needs you"}: {label} · Open card in home chat
+			</button>
+		);
+		return (
+			<div>
+				<button type="button" className="said-name"
+					onClick={() => onOpenThread?.({ thread: { kind: "call", key: origin.thread }, ...(origin.title ? { title: origin.title } : {}) })}>
+					From the call{origin.title ? ` · ${origin.title}` : ""}
+				</button>
+				{event.kind === "permission" && <Permission thread={thread} event={event} />}
+				{event.kind === "human_action" && <HumanAction thread={thread} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />}
+				{event.kind === "passkey_ask" && <PasskeyAskCard personaId={personaId} event={event} />}
+			</div>
+		);
+	}
 	switch (event.kind) {
 		case "user":
+			if (thread.kind === "call") return <>
+                <p className="said-name text-right">You</p>
+                <UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
+            </>;
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
 			) : speakers !== undefined ? (
@@ -551,6 +585,20 @@ const Row = memo(function Row({
 			);
 
 		case "agent":
+            if (thread.kind === "call") {
+                const { spoken, ...written } = event;
+                const heard = spoken?.trim() ? spoken : event.text;
+                return <>
+                    <p className="said-name">{ownerName}</p>
+                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} run={run} reactions={worn}
+                        {...(onReply !== undefined ? { onReply } : {})} {...(onReact !== undefined ? { onReact } : {})}
+                        {...(onOpenThread !== undefined ? { onOpenThread } : {})} />
+                    {heard !== event.text && <details className="my-2 text-sm text-ink-3">
+                        <summary>Written reply</summary>
+                        <NamedSay name={ownerName} mine={false} text={event.text} />
+                    </details>}
+                </>;
+            }
 			return speakers !== undefined ? (
 				<NamedSay
 					name={speakers.mine === "agent" ? speakers.me : speakers.them}
@@ -559,6 +607,7 @@ const Row = memo(function Row({
 				/>
 			) : (
 				<AgentSay
+                    {...(onOpenThread !== undefined ? { onOpenThread } : {})}
 					personaId={personaId}
 					event={event}
 					run={run}
@@ -678,10 +727,10 @@ const Row = memo(function Row({
 					type="button"
 					className="rule-line rule-line-plain w-full"
 					style={linkFailed(event) ? { color: "var(--warn)" } : undefined}
-					aria-label={`${linkLine(event, personaId, people)}. Open it`}
+					aria-label={`${linkLine(event, personaId, people, working)}. Open it`}
 					onClick={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })}
 				>
-					<span className="min-w-0 truncate">{linkLine(event, personaId, people)}</span>
+					<span className="min-w-0 truncate">{linkLine(event, personaId, people, working)}</span>
 					<span className="shrink-0">· Open</span>
 				</button>
 			);
@@ -705,6 +754,7 @@ const Row = memo(function Row({
 
 /** What opens a thread from a line: the thread, and what the line knew about it. */
 export type ThreadRef = {
+	eventId?: string;
 	thread: ThreadId;
 	/** What a link called it. */
 	title?: string;

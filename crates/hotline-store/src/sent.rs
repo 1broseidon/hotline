@@ -241,6 +241,26 @@ pub fn store(
     Ok(path)
 }
 
+/// Each position has its own directory, so equal basenames cannot collide.
+pub fn store_indexed(
+    root: &Path,
+    persona_id: &str,
+    event_id: &str,
+    index: usize,
+    file: &Prepared,
+) -> io::Result<PathBuf> {
+    let dir = paths::sent_file_dir(root, persona_id, event_id)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a message id"))?
+        .join("attachments")
+        .join(index.to_string());
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(&file.name);
+    let mut out = File::create_new(&path)?;
+    out.write_all(&file.bytes)?;
+    out.sync_all()?;
+    Ok(path)
+}
+
 /// Forgets the copy of a file whose message never reached the tape.
 pub fn discard(root: &Path, persona_id: &str, event_id: &str) {
     if let Some(dir) = paths::sent_file_dir(root, persona_id, event_id) {
@@ -251,6 +271,10 @@ pub fn discard(root: &Path, persona_id: &str, event_id: &str) {
 /// The one file a message's directory holds.
 fn kept(root: &Path, persona_id: &str, event_id: &str) -> Option<PathBuf> {
     let dir = paths::sent_file_dir(root, persona_id, event_id)?;
+    only_file(&dir)
+}
+
+fn only_file(dir: &Path) -> Option<PathBuf> {
     let mut files = fs::read_dir(dir)
         .ok()?
         .flatten()
@@ -393,8 +417,7 @@ pub async fn read_message_thumb(
 }
 
 /// Where a message's file is kept, what it is called, and whether it may
-/// only be a picture: one the person attached is read by its index, one a
-/// teammate sent is the message's only file.
+/// only be a picture. Indexed copies coexist with older single-file messages.
 struct Source {
     path: std::path::PathBuf,
     name: Option<String>,
@@ -434,6 +457,23 @@ fn message_source(
             name: Some(name.to_string()),
             image_only: true,
         });
+    }
+    if let Some(event) = event.filter(|event| event["kind"] == "agent") {
+        let attachment = event["attachments"]
+            .as_array()
+            .and_then(|files| files.get(index as usize))
+            .ok_or_else(missing)?;
+        let dir = paths::sent_file_dir(log.root(), persona_id, event_id)
+            .ok_or_else(missing)?
+            .join("attachments")
+            .join(index.to_string());
+        if dir.exists() {
+            return Ok(Source {
+                path: only_file(&dir).ok_or_else(missing)?,
+                name: attachment["name"].as_str().map(str::to_string),
+                image_only: false,
+            });
+        }
     }
     if index != 0 {
         return Err("A teammate's file has only attachment index zero.".to_string());

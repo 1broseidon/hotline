@@ -9,6 +9,7 @@
 //! conversation's transcript across, so the caller sees one session for the
 //! whole call. Dropping every [`RealtimeInput`] closes it.
 
+mod diagnostics;
 pub mod live;
 pub mod socket;
 
@@ -19,9 +20,9 @@ pub use socket::RealtimeSocket;
 /// has a channel for speech and is handed the line alone.
 pub const SAY_THIS: &str = "Say exactly this to the person, word for word, and add nothing: ";
 
-/// The front's tool that hands the person's words to the teammate. GPT-Live
+/// The front's own work tool on the call thread. GPT-Live
 /// has no session tools, and reports each of its hand-offs under this name.
-pub const SEND_TO_TEAMMATE: &str = "send_to_teammate";
+pub const WORK_ON_IT: &str = "work_on_it";
 
 use super::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;
@@ -81,6 +82,8 @@ pub enum RealtimeEvent {
     /// dropped connection. Audio of an unfinished reply is lost, and the new
     /// session knows the conversation only from its transcript.
     Renewed,
+    /// Recovery is in progress; cleared by Renewed or a terminal error.
+    Reconnecting,
 }
 
 /// What a caller asks of a live session; the driver task carries it out.
@@ -94,6 +97,8 @@ pub enum Command {
         reply: bool,
     },
     Text(String),
+    /// Replace the standing prompt without starting a reply.
+    Instructions(String),
     /// A line for the model to say to the person as given.
     Say(String),
     Truncate {
@@ -114,6 +119,10 @@ impl RealtimeInput {
             .send(command)
             .await
             .map_err(|_| SpeechError::Cancelled)
+    }
+
+    pub async fn instructions(&self, text: &str) -> Result<(), SpeechError> {
+        self.send(Command::Instructions(text.into())).await
     }
 
     /// One frame of microphone PCM at the input rate.
@@ -233,7 +242,7 @@ pub trait Realtime: Send + Sync {
     /// Subscription sessions do not incur an additional metered charge.
     fn is_subscription(&self) -> bool;
     /// Whether the model calls no session tools of its own and hands every
-    /// request over as `send_to_teammate`, for the caller to answer with its
+    /// request over as `work_on_it`, for the caller to answer with its
     /// tools or pass on.
     fn delegates(&self) -> bool {
         false
@@ -242,3 +251,6 @@ pub trait Realtime: Send + Sync {
     /// provider is unreachable, refuses the login or rejects the config.
     async fn open(&self, config: RealtimeConfig) -> Result<RealtimeSession, SpeechError>;
 }
+
+#[cfg(test)]
+mod scripted_front;

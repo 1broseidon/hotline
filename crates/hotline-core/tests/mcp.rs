@@ -7,7 +7,7 @@
 //! not start. As a server: `post_to_chat`, on both drivers
 //! (`mcp/post_to_chat.rs`).
 
-mod common;
+use crate::common;
 
 use common::Client;
 use hotline_core::log::{Log, StreamId};

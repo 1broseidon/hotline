@@ -1,11 +1,12 @@
 //! Credential metadata belongs to the room; secret values belong to the OS store.
-//! Rig-owned ChatGPT/Copilot caches remain private files until Rig exposes a store hook.
+//! ChatGPT and Copilot sign-ins are in it too, behind reference files in their
+//! login directories, read and written by Rig through Hotline's store
+//! ([`crate::providers::rig_login`]).
 
 use crate::contract::{Credential, CredentialKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
 use crate::log::{Log, StreamId};
 use crate::mcp::McpOAuthRegistration;
-use crate::models::Client;
 use crate::providers::discovery::{self, ListedModel};
 use crate::session::ProviderAuth;
 use async_trait::async_trait;
@@ -203,6 +204,11 @@ impl Vault {
             mcp_token_locks: Mutex::new(HashMap::new()),
         };
         vault.check_layout()?;
+        crate::providers::rig_login::keep_logins_in(
+            vault.logins_dir(),
+            vault.files.clone(),
+            vault.log.clone(),
+        );
         // The one pass that moves MCP launch values into the credential
         // store. A locked keychain or an unreadable room line must not keep
         // Settings from opening: each source it could not move shows there
@@ -258,6 +264,10 @@ impl Vault {
         if credential.provider_id == "xai" && credential.credential_kind == CredentialKind::Oauth {
             self.abandon_login(id)?;
         }
+        let dir = self.login_dir(id);
+        let lock = crate::providers::rig_login::login_lock(&dir);
+        let _login_write = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::providers::rig_login::forget(&dir);
         credential.revoked = true;
         credential.updated_at = now_ms();
         self.log.append(&StreamId::Room, &event(&credential))?;
@@ -284,24 +294,16 @@ impl Vault {
         Ok(())
     }
 
-    /// Makes the directory and files for a fresh login, and returns the
-    /// credential id and that directory. No event yet — the row lands only
-    /// once the login succeeds, the same order `create` keeps (secret first,
-    /// then the fact of it).
-    pub fn begin_login(&self, provider_id: &str) -> io::Result<(String, PathBuf)> {
+    /// Makes the directory for a fresh login, and returns the credential id
+    /// and that directory. No record and no event yet: the sign-in writes the
+    /// tokens, and the row lands only once it succeeds, the same order
+    /// `create` keeps (secret first, then the fact of it).
+    pub fn begin_login(&self) -> io::Result<(String, PathBuf)> {
         let id = uuid::Uuid::new_v4().to_string();
         let dir = self.login_dir(&id);
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         self.check_layout()?;
         make_private_directory(&dir)?;
-        match crate::models::wiring(provider_id).map(|wiring| wiring.client) {
-            Some(Client::ChatGpt) => write_private(&dir.join("auth.json"), b"{}")?,
-            Some(Client::Copilot) => {
-                write_private(&dir.join("api-key.json"), b"{}")?;
-                write_private(&dir.join("access-token"), b"")?;
-            }
-            _ => {}
-        }
         Ok((id, dir))
     }
 
@@ -324,10 +326,20 @@ impl Vault {
         Ok(credential)
     }
 
-    /// Removes a login that did not finish, so a failed attempt leaves nothing.
+    /// Removes a login that did not finish, so a failed attempt leaves nothing:
+    /// each record's entries in the credential store, then the directory of
+    /// references. Copilot keeps its record beside the one every other login
+    /// keeps, and its entries are deleted the same way, or nothing could name
+    /// them again.
     pub fn abandon_login(&self, id: &str) -> io::Result<()> {
         let dir = self.login_dir(id);
+        let lock = crate::providers::rig_login::login_lock(&dir);
+        let _login_write = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::providers::rig_login::forget(&dir);
         self.login_tokens(id).delete()?;
+        self.files
+            .file(dir.join(crate::providers::rig_login::COPILOT_RECORD))
+            .delete()?;
         match fs::remove_dir_all(&dir) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -602,7 +614,7 @@ impl Vault {
     }
 
     pub(crate) fn connect_local(&self, base_url: &str, ids: &[String]) -> io::Result<Credential> {
-        let (id, dir) = self.begin_login("ollama")?;
+        let (id, dir) = self.begin_login()?;
         let now = now_ms();
         let credential = Credential {
             id: id.clone(),
@@ -767,11 +779,11 @@ impl Vault {
             .join(format!("{}.json", mcp_path_component(server_id)))
     }
 
-    fn login_dir(&self, id: &str) -> PathBuf {
+    pub(crate) fn login_dir(&self, id: &str) -> PathBuf {
         self.logins_dir().join(id)
     }
 
-    fn find(&self, id: &str) -> io::Result<Credential> {
+    pub(crate) fn find(&self, id: &str) -> io::Result<Credential> {
         self.list()
             .into_iter()
             .find(|credential| credential.id == id)
@@ -1151,9 +1163,7 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
     options.open(path)
 }
 
-/// A 0600 file whose contents Rig will overwrite in place, so the mode it
-/// is created with is the mode it keeps. JSON records start as `{}` because
-/// Rig treats an empty file as a parse error, not as absent.
+/// A 0600 file, private from its first byte.
 pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     let mut file = create_private_file(path)?;
     file.write_all(contents)?;
@@ -1384,7 +1394,7 @@ mod tests {
                 .set_manual_models(&first.id, &["stale".into()])
                 .is_err()
         );
-        let (id, _) = vault.begin_login("github-copilot").unwrap();
+        let (id, _) = vault.begin_login().unwrap();
         vault
             .finish_login(&id, "github-copilot", "Copilot")
             .unwrap();
@@ -1744,11 +1754,14 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let vault = vault("login-roundtrip");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(dir.clone()), 0o700);
-        assert_eq!(mode(dir.join("auth.json")), 0o600);
-        assert_eq!(fs::read_to_string(dir.join("auth.json")).unwrap(), "{}");
+        assert_eq!(
+            fs::read_dir(&dir).unwrap().count(),
+            0,
+            "the sign-in writes the record"
+        );
         assert!(vault.list().is_empty(), "no event until the login finishes");
         assert!(vault.provider_auth().is_empty());
 
@@ -1763,25 +1776,28 @@ mod tests {
         assert!(!room(&vault).contains("access_token"), "{:?}", room(&vault));
     }
 
-    #[cfg(unix)]
+    /// A login's tokens are the sign-in's to write, into the credential
+    /// store. A record made before it would be a plain file Rig reads as an
+    /// empty sign-in, and moves into the keychain as one.
     #[test]
-    fn a_copilot_login_precreates_the_files_rig_will_write() {
-        use std::os::unix::fs::PermissionsExt;
-
+    fn a_copilot_login_begins_with_no_record() {
         let vault = vault("login-copilot");
-        let (_id, dir) = vault.begin_login("github-copilot").unwrap();
-        let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(dir.clone()), 0o700);
-        assert_eq!(mode(dir.join("api-key.json")), 0o600);
-        assert_eq!(mode(dir.join("access-token")), 0o600);
-        assert_eq!(fs::read_to_string(dir.join("api-key.json")).unwrap(), "{}");
-        assert_eq!(fs::read_to_string(dir.join("access-token")).unwrap(), "");
+        let (_id, dir) = vault.begin_login().unwrap();
+        assert!(dir.is_dir());
+        for name in [
+            crate::providers::rig_login::COPILOT_RECORD,
+            crate::providers::rig_login::CHATGPT_RECORD,
+            "access-token",
+            "api-key.json",
+        ] {
+            assert!(!dir.join(name).exists(), "{name}");
+        }
     }
 
     #[test]
     fn abandoning_a_login_leaves_nothing() {
         let vault = vault("login-abandon");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault.abandon_login(&id).unwrap();
         assert!(!dir.exists());
         assert_eq!(vault.list(), [] as [Credential; 0]);
@@ -1791,7 +1807,7 @@ mod tests {
     #[test]
     fn deleting_a_login_removes_its_directory() {
         let vault = vault("login-delete");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
         assert!(dir.is_dir());
         vault.delete(&id).unwrap();
@@ -1803,7 +1819,7 @@ mod tests {
     #[test]
     fn a_revoked_login_is_not_auth() {
         let vault = vault("login-revoke");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
         vault.revoke(&id).unwrap();
         assert!(dir.is_dir(), "revoke leaves the files, as for keys");
@@ -1814,7 +1830,7 @@ mod tests {
     }
 
     fn copilot_login(vault: &Vault) -> (String, PathBuf) {
-        let (id, dir) = vault.begin_login("github-copilot").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault
             .finish_login(&id, "github-copilot", "GitHub Copilot")
             .unwrap();

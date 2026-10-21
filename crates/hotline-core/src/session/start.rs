@@ -42,25 +42,23 @@ impl Room {
         self.capability_epoch(persona_id).lease()
     }
 
-    /// What a voice front may reach for this teammate, under the teammate's
-    /// current authority: its desk-side tools, the MCP servers its policy
-    /// grants, and the protected store those servers' logins are read from.
+    /// Read-only tools bound to the call under the teammate's authority.
     /// The lease is the teammate's own, so changing its grants on the card
     /// refuses the front's next call.
-    pub(crate) fn front_reach(self: &Arc<Self>, persona: &Persona) -> FrontReach {
+    pub(crate) fn front_reach(
+        self: &Arc<Self>,
+        persona: &Persona,
+        thread: &ThreadId,
+    ) -> Result<FrontReach, String> {
+        self.validate_call_thread(&persona.id, thread)?;
         let capability = self.capability_lease(&persona.id);
-        let granted = mcp::grant(
-            &mcp::servers(&room::settings(&self.log)),
-            &persona.mcp_policy,
-        );
-        FrontReach {
+        Ok(FrontReach {
             tools: TeammateTools::new(self, persona.id.clone())
                 .with_capability(capability.clone())
+                .for_call(thread.clone())
                 .for_front(),
-            servers: granted.servers,
-            vault: self.vault.clone(),
             capability,
-        }
+        })
     }
 
     pub(super) fn current_session(&self, candidate: &Arc<Session>) -> bool {

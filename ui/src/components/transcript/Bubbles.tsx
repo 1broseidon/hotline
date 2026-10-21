@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import type { TranscriptEvent } from "../../generated/contract";
+import type { ThreadId, TranscriptEvent } from "../../generated/contract";
 import { LinkCard } from "../LinkCard";
 import { onlyLink, previewLink } from "../../linkPreview";
 import { chordKeys } from "../../chords";
@@ -24,6 +24,7 @@ function runClass(run: Run): string {
  * work thread, a scheduled job. The stamp says it; the words do not.
  */
 function postedFrom(event: Extract<TranscriptEvent, { kind: "agent" }>): string | null {
+	if (event.from?.title && !(event.from.kind === "call" && event.from.title === "Call")) return `From ${event.from.title}`;
 	if (event.scheduled !== undefined) return "From a scheduled job";
 	switch (event.from?.kind) {
 		case "call":
@@ -55,8 +56,10 @@ export function AgentSay({
 	reactions,
 	onReply,
 	onReact,
+    onOpenThread,
 }: {
 	personaId: string;
+    onOpenThread?(open: { thread: ThreadId; title?: string }): void;
 	event: Extract<TranscriptEvent, { kind: "agent" }>;
 	run: Run;
 	reactions: string[] | undefined;
@@ -74,7 +77,7 @@ export function AgentSay({
 	const origin = postedFrom(event);
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
-			{origin !== null && <p className="said-name">{origin}</p>}
+			{origin !== null && (event.from !== undefined && onOpenThread !== undefined ? <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: event.from!.kind, key: event.from!.thread }, ...(event.from!.title !== undefined ? { title: event.from!.title } : {}) })}>{origin}</button> : <p className="said-name">{origin}</p>)}
 			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: the bubble is text; focus is there so R replies and the menu key opens its menu. */}
 			<div
@@ -92,11 +95,12 @@ export function AgentSay({
 			>
 				{event.text.trim() !== "" && <Markdown text={event.text} />}
 				{event.attachments?.map((file, index) => (
-					<SentFile key={file.path} personaId={personaId} eventId={event.id} index={index} file={file} />
+					<SentFile compact={event.from?.kind === "call" && (event.attachments?.length ?? 0) > 3} key={file.path} personaId={personaId} eventId={event.id} index={index} file={file} />
 				))}
 				<Reactions emoji={reactions} />
 				<BubbleActions {...actions} />
 			</div>
+			{event.from !== undefined && onOpenThread !== undefined && (event.from.sources?.length ? event.from.sources : event.from.kind === "call" ? [{ kind: event.from.kind, key: event.from.thread }] : []).map((thread, index, sources) => <button key={`${thread.kind}:${thread.key}`} type="button" className="said-name" onClick={() => onOpenThread({ thread })}>{sources.length > 1 ? `Open call ${index + 1}` : "Open the call"}</button>)}
 			{link !== null && <LinkCard url={link} always={onlyLink(event.text, link)} />}
 		</div>
 	);

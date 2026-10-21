@@ -76,6 +76,30 @@ impl Room {
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
         let _working = self.working()?;
+        if let Some(answered) = &reply_to
+            && let Some(from) = self
+                .tape(persona_id)
+                .iter()
+                .find(|event| event["id"] == *answered)
+                .and_then(|event| {
+                    serde_json::from_value::<crate::contract::DeliveryFrom>(event["from"].clone())
+                        .ok()
+                })
+            && matches!(
+                from.kind,
+                crate::contract::ThreadKind::Call | crate::contract::ThreadKind::Side
+            )
+        {
+            let thread = from.thread();
+            if self
+                .link_of(&thread)
+                .is_some_and(|link| link.persona_id.as_deref() == Some(persona_id))
+            {
+                return self
+                    .prompt_side_replying(&thread.key, text, None, attachments)
+                    .await;
+            }
+        }
         let (session, _held) = self.in_this_chapter(persona_id).await?;
         self.heard_from_person(persona_id);
         if let Some(answered) = reply_to {
@@ -89,28 +113,13 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    // A turn said on a call to this teammate asks for the reply
-                    // twice, a version to say and a version to show. That is
-                    // for the agent alone; the conversation shows what the
-                    // person said.
-                    text: match crate::wire::commands::voice_origin() {
-                        Some(origin) if origin.direct => {
-                            crate::voice::spoken::voice_turn(text, origin.front, origin.ended)
-                        }
-                        _ => text.to_string(),
-                    },
+                    text: self.with_person_name(text),
                     attachments: attachments.clone().unwrap_or_default(),
-                    steer: !crate::wire::commands::from_voice()
-                        || crate::wire::commands::voice_origin()
-                            .is_some_and(|origin| origin.direct),
+                    steer: !crate::wire::commands::from_voice(),
                     said: None,
-                    from: crate::wire::commands::voice_origin().and_then(|origin| origin.from()),
-                    voice: crate::wire::commands::voice_origin(),
-                    // A question the call ended on is answered only in writing.
-                    spoken: (crate::wire::commands::from_voice()
-                        || crate::wire::commands::voice_origin().is_some())
-                        && !crate::wire::commands::voice_origin()
-                            .is_some_and(|origin| origin.ended),
+                    from: None,
+                    voice: None,
+                    spoken: crate::wire::commands::from_voice(),
                     unprompted: None,
                     retry: false,
                 },
@@ -234,10 +243,8 @@ impl Room {
     /// the invariant: what was said is a fact the moment somebody said it, and
     /// a turn that fails must not lose the message that started it.
     async fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
-        // The opaque event ID carries provenance through queued turns and restarts.
-        let id = if let Some(origin) = crate::wire::commands::voice_origin() {
-            origin.event_id(&new_id())
-        } else if crate::wire::commands::from_voice() {
+        // Desk calls retain their provenance until task-203 replaces the dispatcher.
+        let id = if crate::wire::commands::from_voice() {
             format!("voice:{}", new_id())
         } else {
             new_id()
@@ -571,6 +578,7 @@ pub(super) fn event_of(
     update: Update,
     in_flight: &mut HashMap<String, PendingTool>,
     on_call: bool,
+    keep_written: bool,
 ) -> Vec<TranscriptEvent> {
     match update {
         Update::Chapter { boundary } => {
@@ -579,7 +587,15 @@ pub(super) fn event_of(
         }
         Update::Delta { .. } | Update::Parked => Vec::new(),
         Update::Message { kind, id, text } => {
-            let versions = crate::voice::spoken::versions(&text);
+            let mut versions = crate::voice::spoken::versions(&text);
+            if on_call
+                && !keep_written
+                && !crate::voice::spoken::carries_more(&versions.written)
+                && let Some(spoken) = &versions.spoken
+            {
+                versions.written.clone_from(spoken);
+                versions.lazy = None;
+            }
             match kind {
                 MessageKind::Agent => {
                     let mut spoken = versions.spoken.filter(|_| on_call);
@@ -605,6 +621,7 @@ pub(super) fn event_of(
                             ring: None,
                             receipt: None,
                             spoken: spoken.take(),
+                            silent: None,
                             from: None,
                             scheduled: None,
                         })
@@ -617,6 +634,12 @@ pub(super) fn event_of(
                 }],
             }
         }
+        Update::ToolFiles { call_id, files } => {
+            if let Some(pending) = in_flight.get_mut(&call_id) {
+                pending.files = Some(files);
+            }
+            Vec::new()
+        }
         Update::ToolCall {
             call_id,
             title,
@@ -624,6 +647,7 @@ pub(super) fn event_of(
         } => {
             let pending = PendingTool {
                 ts: now_ms(),
+                files: None,
                 title,
                 kind,
             };
@@ -665,6 +689,7 @@ pub(super) fn event_of(
             title,
             options,
         } => vec![TranscriptEvent::Permission {
+            from: None,
             // The card is superseded by this id when it is answered, so the
             // decision lands on the line already drawn rather than adding a
             // second one below it.
@@ -698,6 +723,7 @@ pub(super) struct PendingTool {
     ts: i64,
     title: String,
     pub(super) kind: String,
+    files: Option<Vec<crate::contract::ChangedFile>>,
 }
 
 impl PendingTool {
@@ -715,6 +741,7 @@ impl PendingTool {
             tool_kind: Some(self.kind.clone()),
             status,
             locations: None,
+            files: self.files.clone(),
             output: output.map(|output| vec![output]),
         }
     }

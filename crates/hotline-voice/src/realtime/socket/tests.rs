@@ -93,7 +93,7 @@ fn config() -> RealtimeConfig {
         instructions: "You are the front.".into(),
         voice: "eve".into(),
         tools: vec![RealtimeTool {
-            name: "hand_off".into(),
+            name: "work_on_it".into(),
             description: "Give the teammate the caller's words.".into(),
             parameters: json!({"type": "object", "properties": {"words": {"type": "string"}}}),
         }],
@@ -150,7 +150,7 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
             })
         );
         assert_eq!(session["tools"][0]["type"], "function");
-        assert_eq!(session["tools"][0]["name"], "hand_off");
+        assert_eq!(session["tools"][0]["name"], "work_on_it");
         assert_eq!(session["tools"][0]["parameters"]["type"], "object");
 
         let append = receive(&mut socket).await;
@@ -175,12 +175,25 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
         .await;
         send(&mut socket, json!({"type": "response.done"})).await;
 
-        let truncate = receive(&mut socket).await;
+        let mut truncate = receive(&mut socket).await;
+        assert!(
+            truncate
+                .as_object_mut()
+                .unwrap()
+                .remove("event_id")
+                .is_some()
+        );
         assert_eq!(
             truncate,
             json!({"type": "conversation.item.truncate", "item_id": "item_1", "content_index": 0, "audio_end_ms": 120})
         );
 
+        send(
+            &mut socket,
+            json!({"type": "input_audio_buffer.speech_stopped"}),
+        )
+        .await;
+        send(&mut socket, json!({"type": "input_audio_buffer.committed"})).await;
         send(
             &mut socket,
             json!({"type": "conversation.item.input_audio_transcription.completed", "transcript": " Fix the build. "}),
@@ -189,11 +202,12 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
         send(&mut socket, json!({"type": "response.created"})).await;
         send(
             &mut socket,
-            json!({"type": "response.function_call_arguments.done", "call_id": "c1", "name": "hand_off", "arguments": "{\"words\":\"Fix the build.\"}"}),
+            json!({"type": "response.function_call_arguments.done", "call_id": "c1", "name": "work_on_it", "arguments": "{\"words\":\"Fix the build.\"}"}),
         )
         .await;
         // The result arrives mid-reply: the next reply waits for this one.
-        let result = receive(&mut socket).await;
+        let mut result = receive(&mut socket).await;
+        assert!(result.as_object_mut().unwrap().remove("event_id").is_some());
         assert_eq!(
             result,
             json!({"type": "conversation.item.create", "item": {"type": "function_call_output", "call_id": "c1", "output": "{\"ok\":true}"}})
@@ -236,7 +250,7 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
         next(&mut session).await,
         RealtimeEvent::ToolCall {
             call_id: "c1".into(),
-            name: "hand_off".into(),
+            name: "work_on_it".into(),
             arguments: "{\"words\":\"Fix the build.\"}".into(),
         }
     );
@@ -427,6 +441,7 @@ async fn a_dropped_connection_reconnects_with_the_transcript_carried() {
         RealtimeEvent::Saying("it.".into())
     );
     assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
+    assert_eq!(next(&mut session).await, RealtimeEvent::Reconnecting);
     assert_eq!(next(&mut session).await, RealtimeEvent::Renewed);
     session.input.push_audio(vec![7, 0]).await.unwrap();
     session.close().await;
@@ -464,6 +479,7 @@ async fn a_lost_provider_is_retried_then_reported_unreachable() {
         drop(listener);
     });
     let mut session = voice(&url).open(config()).await.unwrap();
+    assert_eq!(next(&mut session).await, RealtimeEvent::Reconnecting);
     let error = timeout(Duration::from_secs(10), session.events.recv())
         .await
         .unwrap()
@@ -565,15 +581,15 @@ async fn gpt_realtime_asks_for_its_model_and_puts_voice_turns_and_transcription_
             json!({"type": "audio/pcm", "rate": 24_000})
         );
         assert_eq!(
-            session["audio"]["input"]["turn_detection"]["type"],
-            "server_vad"
+            session["audio"]["input"]["turn_detection"],
+            json!({"type":"semantic_vad", "eagerness":"low"})
         );
         assert_eq!(
             session["audio"]["input"]["transcription"]["model"],
             OPENAI_TRANSCRIBE
         );
         assert!(session.get("voice").is_none() && session.get("turn_detection").is_none());
-        assert_eq!(session["tools"][0]["name"], "hand_off");
+        assert_eq!(session["tools"][0]["name"], "work_on_it");
 
         // The same events as Grok's carry the call.
         send(
@@ -721,3 +737,79 @@ async fn a_reply_refused_for_one_in_progress_follows_that_reply() {
     session.close().await;
     finish(server).await;
 }
+
+#[tokio::test]
+async fn a_tap_cancels_generation_before_truncating_playback() {
+    let (listener, url) = listen().await;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = accept(&listener).await;
+        handshake(&mut socket).await;
+        send(&mut socket, json!({"type":"response.created"})).await;
+        send(
+            &mut socket,
+            json!({"type":"response.output_audio.delta", "item_id":"cut", "delta":pcm(&[1, 0])}),
+        )
+        .await;
+        assert_eq!(receive(&mut socket).await["type"], "response.cancel");
+        let truncated = receive(&mut socket).await;
+        assert_eq!(truncated["type"], "conversation.item.truncate");
+        assert_eq!(truncated["audio_end_ms"], 80);
+        send(&mut socket, json!({"type":"response.done"})).await;
+        closed(&mut socket).await;
+    });
+    let mut session = voice(&url).open(config()).await.unwrap();
+    assert!(matches!(next(&mut session).await, RealtimeEvent::Audio(_)));
+    session.input.truncate(80).await.unwrap();
+    assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
+    drop(session);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn instructions_refresh_without_starting_speech_and_survive_reconnect() {
+    for openai in [false, true] {
+        let (listener, url) = listen().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = accept(&listener).await;
+            handshake(&mut socket).await;
+            let update = receive(&mut socket).await;
+            assert_eq!(update["type"], "session.update");
+            assert_eq!(
+                update["session"]["instructions"],
+                "Work running. Already said: inspecting tests."
+            );
+            socket.close(None).await.unwrap();
+            let (mut socket, _) = accept(&listener).await;
+            let fresh = handshake(&mut socket).await;
+            assert_eq!(
+                fresh["instructions"],
+                "Work running. Already said: inspecting tests."
+            );
+            closed(&mut socket).await;
+        });
+        let endpoint = Endpoint {
+            provider_id: if openai { "openai" } else { "xai" }.into(),
+            base_url: url,
+            key: Some("fixture".into()),
+        };
+        let provider = if openai {
+            RealtimeSocket::openai(endpoint)
+        } else {
+            RealtimeSocket::grok(endpoint)
+        };
+        let mut configuration = config();
+        configuration.input_rate = 24_000;
+        let mut session = provider.open(configuration).await.unwrap();
+        session
+            .input
+            .instructions("Work running. Already said: inspecting tests.")
+            .await
+            .unwrap();
+        assert_eq!(next(&mut session).await, RealtimeEvent::Reconnecting);
+        assert_eq!(next(&mut session).await, RealtimeEvent::Renewed);
+        session.close().await;
+        finish(server).await;
+    }
+}
+
+mod barge;

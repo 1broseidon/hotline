@@ -222,6 +222,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
 
     /// The side threads this teammate has live, for the roster row.
+    fn thread_working(&self, _thread: &hotline_contract::ThreadId) -> bool {
+        false
+    }
+
     fn sides(&self, _persona_id: &str) -> Vec<hotline_contract::RunningSide> {
         Vec::new()
     }
@@ -229,6 +233,11 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// The jobs of this teammate with a turn running, by id, for the roster
     /// row.
     fn working_jobs(&self, _persona_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Call threads with a turn in flight, by id, for the roster row.
+    fn working_calls(&self, _persona_id: &str) -> Vec<String> {
         Vec::new()
     }
 
@@ -338,7 +347,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         secret: &str,
     ) -> Result<hotline_contract::Credential, String>;
     fn credential_revoke(&self, id: &str) -> Result<(), String>;
-    fn credential_delete(&self, id: &str) -> Result<(), String>;
+    async fn credential_delete(&self, id: &str) -> Result<(), String>;
     /// Starts provider sign-in. Returns the prompt as soon as the provider
     /// issues a code; the login keeps running until the person signs in.
     async fn credential_login(

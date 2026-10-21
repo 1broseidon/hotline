@@ -183,9 +183,11 @@ impl Desk {
     }
 
     /// The next event on subscription `sub` that `wanted` picks, live or in
-    /// the snapshot the subscription opened with.
+    /// the snapshot the subscription opened with. A turn that ended before
+    /// the subscription arrives whole in its snapshot, so the snapshot goes
+    /// back to the inbox less the event taken, for the next wait to read.
     async fn event(&mut self, sub: i64, wanted: impl Fn(&Value) -> bool) -> Value {
-        let frame = self
+        let mut frame = self
             .client
             .next_where(PATIENCE, |frame| {
                 frame["sub"] == sub
@@ -195,10 +197,13 @@ impl Desk {
                             .is_some_and(|events| events.iter().any(&wanted)))
             })
             .await;
-        match frame["snapshot"].as_array() {
-            Some(events) => events.iter().find(|event| wanted(event)).unwrap().clone(),
-            None => frame["event"].clone(),
-        }
+        let Some(events) = frame["snapshot"].as_array_mut() else {
+            return frame["event"].clone();
+        };
+        let at = events.iter().position(&wanted).unwrap();
+        let event = events.remove(at);
+        self.client.inbox.push_front(frame);
+        event
     }
 
     /// A quiet one-shot job for `persona_id` that fires in a moment, and the
@@ -296,7 +301,14 @@ async fn the_dm_may_not_post_and_a_quiet_job_posts_once(driver: Driver) {
         .await;
     assert_eq!(posted["scheduled"]["jobId"], job_id.as_str());
     assert_eq!(posted["scheduled"]["quiet"], true);
-    assert_eq!(posted["from"], json!({"thread": job_id, "kind": "job"}));
+    assert_eq!(posted["from"]["thread"], job_id);
+    assert_eq!(posted["from"]["kind"], "job");
+    assert!(
+        posted["from"]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("CALL ")
+    );
     let quiet = desk.results(thread).await;
     says(&quiet, 0, "your own chat only");
     says(&quiet, 1, "Posted to the chat.");
@@ -454,9 +466,10 @@ async fn a_work_threads_file_lands_in_the_chat(driver: Driver) {
         })
         .await;
     assert_eq!(posted["attachments"][0]["name"], "winch.txt", "{posted}");
+    assert_eq!(posted["from"]["thread"], thread["key"], "{posted}");
+    assert_eq!(posted["from"]["kind"], "side", "{posted}");
     assert_eq!(
-        posted["from"],
-        json!({"thread": thread["key"], "kind": "side"}),
+        posted["from"]["title"], opened["result"]["title"],
         "{posted}"
     );
     desk.event(side, |event| {
@@ -493,7 +506,14 @@ async fn a_quiet_jobs_file_is_its_one_post(driver: Driver) {
         .await;
     assert_eq!(posted["attachments"][0]["name"], "winch.txt", "{posted}");
     assert_eq!(posted["scheduled"]["jobId"], job_id.as_str());
-    assert_eq!(posted["from"], json!({"thread": job_id, "kind": "job"}));
+    assert_eq!(posted["from"]["thread"], job_id);
+    assert_eq!(posted["from"]["kind"], "job");
+    assert!(
+        posted["from"]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("CALL ")
+    );
     let quiet = desk.results(thread).await;
     says(&quiet, 0, "Sent winch.txt (14 bytes).");
     says(&quiet, 1, "one per turn");

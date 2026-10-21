@@ -1,10 +1,9 @@
-//! OpenAI-compatible connections use Rig's native request and streaming code,
-//! over a transport that repairs loose Responses frames ([`super::compat`]).
+//! OpenAI-compatible connections use Rig's native request and streaming code.
+//! Rig reads loose Responses frames directly, without a repair transport.
 
 use crate::contract::CustomProviderDraft;
-use rig::client::{ApiKey, ClientBuilder, ProviderBuilder};
-use rig::http_client::{self, HttpClientExt};
-use rig::providers::openai;
+use rig::providers::openai::wire::{Auth, Dialect};
+use rig::providers::openai::{OpenAI, OpenAIConfig, Route};
 use std::time::Duration;
 
 pub(crate) fn server_url(input: &str) -> Result<String, String> {
@@ -45,61 +44,38 @@ fn model_ids(ids: Vec<String>) -> Result<Vec<String>, String> {
     super::discovery::validate_ids(&ids)
 }
 
-struct OptionalKey(Option<String>);
-impl ApiKey for OptionalKey {
-    fn into_header(
-        self,
-    ) -> Option<http_client::Result<(http::header::HeaderName, http::HeaderValue)>> {
-        self.0.map(http_client::make_auth_header)
-    }
+/// A server Hotline knows only by its address. It speaks OpenAI's wire, and
+/// its own name keeps Rig's catalogue of OpenAI's models from describing a
+/// model that only shares an id with one of them. A keyless server receives
+/// no fabricated authorization header.
+const COMPATIBLE: Dialect = {
+    let mut dialect = Dialect::gateway("custom", "", "");
+    dialect.quirks.auth = Auth::OptionalBearer;
+    dialect.quirks.completion_route = Route::Responses;
+    dialect
+};
+
+fn config(base_url: &str, key: Option<&str>) -> OpenAIConfig {
+    OpenAIConfig::with_key(&COMPATIBLE, key.unwrap_or_default()).with_base_url(base_url)
 }
 
-// Rig's OpenAI builder requires a bearer. This builder changes only that
-// requirement, so a keyless server receives no fabricated authorization header.
-#[derive(Clone, Default)]
-struct CompatibleBuilder;
-impl ProviderBuilder for CompatibleBuilder {
-    type ApiKey = OptionalKey;
-    type Extension<H>
-        = openai::OpenAIResponsesExt
-    where
-        H: HttpClientExt;
-    const BASE_URL: &'static str = "";
-
-    fn build<H: HttpClientExt>(
-        _: &ClientBuilder<Self, Self::ApiKey, H>,
-    ) -> http_client::Result<Self::Extension<H>> {
-        Ok(openai::OpenAIResponsesExt::default())
-    }
-}
-
-pub(crate) fn client(
-    base_url: &str,
-    key: Option<&str>,
-) -> Result<openai::Client<super::compat::Http>, String> {
+/// A client on `route` for the server at `base_url`.
+pub(crate) fn client(base_url: &str, key: Option<&str>, route: Route) -> Result<OpenAI, String> {
     let base_url = server_url(base_url)?;
     let http = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| "Could not prepare the custom connection.".to_string())?;
-    ClientBuilder::<CompatibleBuilder>::default()
-        .api_key(OptionalKey(key.map(str::to_string)))
-        .base_url(&base_url)
-        .http_client(super::compat::Http::new(http))
-        .build()
-        .map_err(|_| "Could not prepare the custom connection. Check the API key.".into())
+    Ok(config(&base_url, key)
+        .with_route(route)
+        .connect(rig::http_client::ReqwestClient::from(http)))
 }
 
 pub(crate) async fn discover(base_url: &str, key: Option<&str>) -> Result<Vec<String>, String> {
     let base_url = server_url(base_url)?;
-    let client = ClientBuilder::<CompatibleBuilder>::default()
-        .api_key(OptionalKey(key.map(str::to_string)))
-        .base_url(&base_url)
-        .http_client(super::discovery::DiscoveryHttp::new()?)
-        .build()
-        .map_err(|_| "Could not prepare model discovery.".to_string())?;
-    Ok(super::discovery::collect(&client)
+    let client = config(&base_url, key).connect(super::discovery::DiscoveryHttp::new()?);
+    Ok(super::discovery::collect(client.list_models())
         .await?
         .into_iter()
         .map(|model| model.id)

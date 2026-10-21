@@ -286,7 +286,7 @@ chapter sweep and the scheduler's clock start on the same open; those are
 
 ## The vault
 
-Hotline-owned provider keys, OpenRouter/Grok logins and MCP credentials use
+Hotline-owned provider keys, subscription logins and MCP credentials use
 macOS Keychain, Windows Credential Manager or Linux Secret Service through
 `keyring`. Vault files hold versioned, opaque references and integrity digests,
 not their secret values. Each reference is bound to its exact data-root path
@@ -314,12 +314,14 @@ are hidden and cannot connect until replaced in Settings. Replacing or deleting
 sources also compacts their old room history. Failed migrations preserve the
 original files for recovery; this does not erase copies in external backups.
 
-ChatGPT and Copilot are the explicit exception: Rig owns their OAuth file
-persistence until it provides an injectable store. Unix vault directories use
-`0700` and files `0600`. Windows creates directories with a protected DACL for
-the current user and SYSTEM, repairs existing vault ACLs through handles, and
-rejects reparse points. Rig's token files inherit that protection. These files
-are permission-restricted plaintext, not OS credential-store records.
+ChatGPT and Copilot use Rig's injectable token store, backed by the vault's
+`CredentialFile`. Their `auth.json` and `copilot.json` become references on
+first read; older Copilot `access-token` and `api-key.json` are removed only
+after their combined record is stored and verified. The explicitly selected
+`--store file` backend applies to these logins too. Unix vault directories
+use `0700` and files `0600`. Windows creates directories with a protected
+DACL for the current user and SYSTEM, repairs existing vault ACLs through
+handles, and rejects reparse points.
 
 Create writes the secret first, then the room event. Delete takes the secret
 first, then the tombstone. Shared locks serialize mutation and OAuth refresh.

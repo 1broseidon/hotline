@@ -1,5 +1,5 @@
 //! Making images (BRO-174): `generate(request)` over whichever connected
-//! provider the owner has, the way `voice::speech` hears and speaks.
+//! provider the owner has, the way `hotline_voice::speech` hears and speaks.
 //!
 //! There is never a new key. A provider counts only if the owner already
 //! connected it, and [`resolve`] picks the first that can draw unless

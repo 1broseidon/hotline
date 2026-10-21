@@ -118,7 +118,7 @@ impl Threads<'_> {
         persona_id: &str,
         event: &impl Serialize,
     ) -> Written {
-        let event = match serde_json::to_value(event) {
+        let mut event = match serde_json::to_value(event) {
             Ok(event) => event,
             Err(error) => {
                 eprintln!("an event for the {thread} could not be written: {error}");
@@ -135,6 +135,19 @@ impl Threads<'_> {
             | ThreadKind::Call
             | ThreadKind::Pair
             | ThreadKind::Job => {}
+        }
+        // Call cards live on the home tape; the call retains the same id as
+        // a linked status line. The core, never the model, stamps the origin.
+        if thread.kind == ThreadKind::Call && super::call_cards::is_card(&event) {
+            let mut from = crate::contract::DeliveryFrom::new(thread, None);
+            from.title = self.room.link_of(thread).map(|link| link.title);
+            event["from"] = serde_json::to_value(from).expect("a call origin serializes");
+            self.room.write_value(persona_id, &event);
+            if let Some(card) = Card::raised_by(&event) {
+                self.push(persona_id, &ThreadId::dm(persona_id), &card);
+            }
+            self.wake_roster(persona_id);
+            return Written::default();
         }
         let Some(stream) = StreamId::of_thread(thread) else {
             return Written::default();
@@ -156,6 +169,12 @@ impl Threads<'_> {
             }
         }
         let mut written = Written::default();
+        if matches!(event["kind"].as_str(), Some("human_action" | "passkey_ask"))
+            && policy.surface.mirror_to_call
+            && let Some(voice) = super::lock(&self.room.voice).upgrade()
+        {
+            voice.card(persona_id, &event);
+        }
         if !is_card(&event) {
             return written;
         }
@@ -197,9 +216,19 @@ impl Threads<'_> {
         for expired in
             crate::log::expire_orphaned_permissions(&self.room.log.load(&stream), now_ms())
         {
-            if expired.get("kind").and_then(Value::as_str) == Some("permission") {
-                self.write(thread, persona_id, &expired);
+            if expired.get("kind").and_then(Value::as_str) != Some("permission") {
+                continue;
             }
+            // A driver ending its turn owns neither a core collaboration
+            // wait nor a card mirrored here from another thread's driver.
+            if expired["requestId"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(super::peers::COLLAB_REQUEST_PREFIX))
+                || (thread.kind == ThreadKind::Dm && expired["from"]["kind"] == "call")
+            {
+                continue;
+            }
+            self.write(thread, persona_id, &expired);
         }
     }
 
@@ -523,6 +552,76 @@ mod tests {
             .await
             .unwrap();
         assert!(!room.threads_waiting("ada"), "answered, so not waiting");
+    }
+
+    #[tokio::test]
+    async fn a_call_permission_is_pushed_and_answered_in_home_chat() {
+        let gate = Arc::new(Semaphore::new(1));
+        let agents = Fake::new(Scripted::new(vec![card("allow_once"), turn()]).gated(gate));
+        agents.awaiting("r1");
+        let room = room("call-home-permission", agents.clone());
+        pair_a_phone(&room);
+        let thread = ThreadId {
+            kind: ThreadKind::Call,
+            key: "call-home".into(),
+        };
+        let (_live, launch) = room
+            .bring_up(
+                "ada",
+                super::super::sides::Start {
+                    thread: thread.clone(),
+                    title: "Release checks".into(),
+                    started: now_ms(),
+                    opener: None,
+                    fresh: true,
+                    saved: None,
+                    handoff: None,
+                },
+            )
+            .unwrap();
+        room.prompt_side(&thread.key, "Run the tests", None)
+            .await
+            .unwrap();
+        room.launch(launch);
+        until("the call permission in home chat", || {
+            room.tape("ada").iter().any(|e| e["kind"] == "permission")
+        })
+        .await;
+        let card = room
+            .tape("ada")
+            .into_iter()
+            .find(|e| e["kind"] == "permission")
+            .unwrap();
+        assert_eq!(card["from"]["kind"], "call");
+        assert_eq!(card["from"]["title"], "Release checks");
+        let sent = room.sent_voice_pushes();
+        assert_eq!(sent.len(), 1);
+        assert!(
+            sent[0]["data"]["sideId"].is_null(),
+            "the phone answers in home chat"
+        );
+        room.settle_permissions("ada");
+        room.threads().expire_asked(&ThreadId::dm("ada"), "ada");
+        assert!(
+            room.tape("ada")
+                .iter()
+                .any(|e| e["id"] == card["id"] && e["decision"].is_null())
+        );
+        room.answer_permission("ada", "r1", "choice").await.unwrap();
+        assert_eq!(agents.waiting(), [] as [String; 0]);
+        for stream in [
+            StreamId::Tape("ada".into()),
+            StreamId::of_thread(&thread).unwrap(),
+        ] {
+            let settled = room
+                .log
+                .load(&stream)
+                .into_iter()
+                .find(|e| e["id"] == card["id"])
+                .unwrap();
+            assert_eq!(settled["decision"], "choice");
+            assert_eq!(settled["from"], card["from"]);
+        }
     }
 
     #[tokio::test]

@@ -319,7 +319,7 @@ impl RoomHandle for CoreHandle {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
-    fn credential_delete(&self, _id: &str) -> Result<(), String> {
+    async fn credential_delete(&self, _id: &str) -> Result<(), String> {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
@@ -699,7 +699,7 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    fn credential_delete(&self, _id: &str) -> Result<(), String> {
+    async fn credential_delete(&self, _id: &str) -> Result<(), String> {
         Ok(())
     }
 
@@ -1043,6 +1043,8 @@ async fn remote_control_answer(
 ) -> Value {
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),

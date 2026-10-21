@@ -1,6 +1,6 @@
 [package]
 name = "hotline-voice"
-description = "Hotline's voice engines: speech to text and text to speech over the providers the owner connected and the desk's own models, and the realtime models that front a call. Depends on hotline-contract, hotline-support and hotline-room, and never on hotline-core or Tauri, by design."
+description = "Hotline calls, speech engines and realtime fronts, behind the call-room interface; never depends on hotline-core or Tauri."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,16 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
+hotline-store = { path = "../hotline-store" }
+hotline-tools = { path = "../hotline-tools" }
+rig.workspace = true
+regex = "1"
+chrono.workspace = true
+tempfile = "3"
 hotline-contract = { path = "../hotline-contract" }
 hotline-support = { path = "../hotline-support" }
 hotline-room = { path = "../hotline-room" }
@@ -52,4 +61,3 @@ symphonia = { version = "0.6", default-features = false, features = ["aac", "iso
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
-tempfile = "3"

@@ -27,6 +27,7 @@ import { useModelsRevision, useRawSetting } from "../room";
 
 export type CallPhase =
 	| "connecting"
+	| "reconnecting"
 	| "listening"
 	| "hearing"
 	| "thinking"
@@ -54,6 +55,7 @@ export type CallSnapshot = {
 	trouble?: string | undefined;
 	/** This Mac heard no words and the desk would hear the call with its own model, free: worth offering. */
 	deskModel?: boolean;
+	legacyAvailable?: boolean;
 };
 
 /** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
@@ -128,9 +130,6 @@ const NO_TRANSCRIPTION = "Speech recognition on this Mac could not start. Check 
 /** How much audio before the detector is sure it heard speech is kept, so a word's first sound is not clipped. */
 const PREROLL_MS = 400;
 
-/** How often the blip-blip repeats while the desk works and says nothing. */
-const WORKING_EVERY_MS = 1800;
-
 /** Recognized words corroborate a short answer such as "yes", so a text call's onset can be shorter than a clip's. */
 const TEXT_MIN_SPEECH_MS = 100;
 
@@ -140,12 +139,12 @@ const TEXT_ONSET_PREROLL_MS = 500;
 /** A voice front hears 16 kHz PCM, sent in 40 ms frames as it is spoken. */
 const FRONT_FRAME_SAMPLES = WAV_RATE / 25;
 
-const FRONT_GONE = "The voice front stopped. The call carries on with Legacy voice.";
+const FRONT_GONE = "Live voice disconnected and could not reconnect.";
 
 type Names = (personaId: string) => string | undefined;
 
-export type CallTarget = { personaId: string; name: string; avatarHash?: string | undefined };
-export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined };
+export type CallTarget = { thread?: import("../generated/contract").ThreadId; personaId: string; name: string; avatarHash?: string | undefined };
+export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined; legacy?: boolean };
 
 /** Remove only a stable recognized prefix known to predate the speaker's onset. */
 function afterRecognizedPrefix(text: string, prefix: string): string {
@@ -169,15 +168,17 @@ function speechLevel(rms: number): number {
 
 /** Whether the desk can put a voice front on a call: it says so in `voice.status`. */
 function offersFront(status: unknown): boolean {
+	const selection = (status as { liveSelected?: boolean } | null)?.liveSelected;
+	if (selection !== undefined) return selection;
 	const capabilities = (status as { capabilities?: unknown } | null)?.capabilities;
 	return Array.isArray(capabilities) && capabilities.includes("voiceFront");
 }
 
 export function supportsDirectCalls(status: unknown): boolean {
 	if (typeof status !== "object" || status === null) return false;
-	const value = status as { capabilities?: unknown; directAvailable?: unknown; available?: unknown };
+	const value = status as { capabilities?: unknown; directAvailable?: unknown; available?: unknown; liveSelected?: boolean };
 	return Array.isArray(value.capabilities) && value.capabilities.includes("voiceDirectCalls") &&
-		(value.directAvailable ?? value.available) === true;
+		(value.liveSelected === true || (value.directAvailable ?? value.available) === true);
 }
 
 export class Call {
@@ -202,6 +203,8 @@ export class Call {
 	private unwatch: (() => void) | null = null;
 	/** Whether the desk has made the call; before it, there is nothing to hang up there. */
 	private started = false;
+	private providerReconnecting = false;
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	/** The desk's own word on where the call stands. */
 	private desk: "listening" | "thinking" | "speaking" | "held" = "listening";
 	/**
@@ -229,8 +232,6 @@ export class Call {
 	private level = 0;
 	private shown = 0;
 	private raf = 0;
-	/** While the desk works, a blip-blip every so often says it still is. */
-	private working: ReturnType<typeof setInterval> | null = null;
 
 	/**
 	 * A text call: this Mac recognizes the speech and the desk gets finished
@@ -256,9 +257,10 @@ export class Call {
 	/**
 	 * A front call: a realtime model on the desk hears and speaks, so the
 	 * microphone streams all the time and its speech plays as it comes.
-	 * Null is the pipeline, also after the front has gone mid-call.
+	 * Null is a Legacy call; a failed live call ends.
 	 */
 	private front: VoiceFront | null = null;
+	private liveRequested = false;
 	private frontSeq = 0;
 	private frontResampler: PcmResampler | null = null;
 	private frontSamples: number[] = [];
@@ -286,7 +288,13 @@ export class Call {
 	nameOf(personaId: string): string | undefined { return this.names(personaId); }
 	readonly readAvatar = (personaId: string, hash: string, offset: number): Promise<FileChunk> =>
 		this.transport.command("avatar.read", { personaId, hash, offset }) as Promise<FileChunk>;
-	redial(): Call { return new Call(this.transport, this.names, undefined, undefined, this.options, this.transcription); }
+	redial(legacy = false): Call {
+		const target = this.target === undefined ? undefined : {
+			...this.target,
+			...(this.started && this.snapshot.legacyAvailable ? { thread: this.target.thread ?? { kind: "call" as const, key: this.id } } : {}),
+		};
+		return new Call(this.transport, this.names, undefined, undefined, { ...this.options, target, legacy }, this.transcription);
+	}
 
 	watch(listener: () => void): () => void {
 		this.listeners.add(listener);
@@ -319,14 +327,16 @@ export class Call {
 			if (this.ended) return;
 			if (this.target !== undefined) status = await this.transport.command("voice.status", asked);
 			// A desk call asks to learn whether the desk fronts calls or takes text; not knowing keeps it on audio.
-			else status = await this.transport.command("voice.status", asked).catch(() => null);
+			else status = await this.transport.command("voice.status", asked);
 			if (this.ended) return;
-			if (this.target !== undefined && !supportsDirectCalls(status)) throw new Error(
+			if (this.target !== undefined && !this.options.legacy && !supportsDirectCalls(status)) throw new Error(
 				(status as { unavailable?: string } | null)?.unavailable ?? "This desk needs an update before it can call a teammate directly.",
 			);
 			// A front hears the call itself, so this Mac's recognition is not asked for.
-			this.textInput = offersFront(status) ? false : await this.transcribes(status);
-			if (offersFront(status)) this.front = { inputRate: WAV_RATE, outputRate: 0 };
+			const live = !this.options.legacy && offersFront(status);
+			this.liveRequested = live;
+			if (live) this.front = { inputRate: WAV_RATE, outputRate: 0 };
+			this.textInput = live ? false : await this.transcribes(status);
 			if (this.ended) return;
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
@@ -347,9 +357,9 @@ export class Call {
 			const response = await this.transport.command("voice.call_start", {
 				callId: this.id,
 				streamAudio: true,
-				...(this.target !== undefined ? { personaId: this.target.personaId } : {}),
+				...(this.target !== undefined ? { personaId: this.target.personaId, ...(this.target.thread !== undefined ? { thread: this.target.thread } : {}) } : {}),
 				...(this.textInput ? { inputMode: "text" } : {}),
-				...(this.front !== null ? { mode: "front", inputRate: WAV_RATE } : {}),
+				...(this.front !== null ? { mode: "front", inputRate: WAV_RATE } : this.options.legacy ? { mode: "pipeline" } : {}),
 			}) as { input?: string[]; personaId?: string; front?: VoiceFront } | null;
 			this.started = true;
 			if (this.target !== undefined && response?.personaId !== this.target.personaId) {
@@ -359,7 +369,10 @@ export class Call {
 				throw new Error("The desk did not accept on-device transcription. Update it and call again.");
 			}
 			this.pcm = !this.textInput && response?.input?.includes("audio/pcm") === true;
-			// Asked for and not given (Legacy voice, no xAI login, an older desk): the pipeline.
+			// A live call is never accepted as Legacy, even from an older desk.
+			if (this.front !== null && response?.front?.inputRate !== WAV_RATE) {
+				throw new Error("The desk could not start live voice.");
+			}
 			this.front = response?.front !== undefined && response.front.inputRate === WAV_RATE ? response.front : null;
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
@@ -375,6 +388,10 @@ export class Call {
 			{
 				// A snapshot is where the call stands, never audio to play again.
 				snapshot: (items) => {
+					if (this.reconnectTimer !== null && items.some((item) => (item as CallEvent).type === "state")) {
+						clearTimeout(this.reconnectTimer);
+						this.reconnectTimer = null;
+					}
 					for (const item of items) if ((item as CallEvent).type === "state") this.receive(item as CallEvent);
 				},
 				event: (item) => this.receive(item as CallEvent),
@@ -456,9 +473,14 @@ export class Call {
 		if (this.closing !== null) return this.end(this.closing);
 		// A front is cut off by a barge-in, as if the person had talked over it.
 		if (this.front !== null) {
-			if (this.audio.playing) this.bargeFront();
+			this.bargeFront();
 			return;
 		}
+		this.silenceLegacy();
+		this.settle();
+	}
+
+	private silenceLegacy(): void {
 		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
 		for (const id of this.seen) this.muted.add(id);
 		this.deferred = [];
@@ -466,8 +488,7 @@ export class Call {
 		this.endpoint = null;
 		this.audio.stopPlayback();
 		this.awaiting = false;
-		// Work the desk has not finished keeps it thinking; it says when it can listen.
-		this.settle();
+
 	}
 
 	dismissCard(requestId: string): void {
@@ -481,6 +502,13 @@ export class Call {
 		if (this.ended) return;
 		switch (event.type) {
 			case "state": {
+				this.providerReconnecting = event.reconnecting === true;
+				if (event.liveError) {
+					this.set({ trouble: event.liveError, legacyAvailable: true });
+					if (this.audio.playing || this.outputLines.size > 0) { this.closing = "error"; this.settle(); }
+					else this.end("error");
+					return;
+				}
 				const listens = event.state === "thinking" && event.listening === true;
 				// The desk answers an utterance with a state that has the floor. A thinking that listens,
 				// said again while the teammate works, may be from before the utterance reached it.
@@ -505,6 +533,7 @@ export class Call {
 				return;
 			}
 			case "heard":
+				this.frontMuted = false;
 				this.line({ kind: "you", id: `heard-${event.seq}`, text: event.text });
 				return;
 			case "delivery":
@@ -541,33 +570,32 @@ export class Call {
 				this.settle();
 				return;
 			case "card":
+				if (event.resolved) { this.dismissCard(event.requestId); return; }
 				if (this.snapshot.cards.some((card) => card.requestId === event.requestId)) return;
 				this.set({ cards: [...this.snapshot.cards, { personaId: event.personaId, requestId: event.requestId, kind: event.kind }] });
 				return;
 			case "frontAudio":
-				if (this.front === null || this.held) return;
+				if (this.front === null || this.held || this.frontMuted) return;
 				try { this.audio.playPcm(event.data, this.front.outputRate); }
 				catch (error) { this.fail(error instanceof Error ? error.message : String(error)); return; }
 				this.settle();
 				return;
 			case "frontStop":
 				// The front heard the person over itself: what is still queued goes, and the desk learns how much was heard.
-				if (this.front !== null) this.bargeFront();
+				if (this.front !== null && this.audio.playing && !this.frontMuted) this.bargeFront();
 				return;
 			case "frontEnded":
 				if (this.front === null) return;
-				this.front = null;
-				this.frontResampler = null;
-				this.frontSamples = [];
-				this.audio.stopPlayback();
-				this.detector.reset(this.now());
-				this.set({ trouble: FRONT_GONE });
-				this.settle();
+				this.set({ legacyAvailable: true });
+				this.fail(FRONT_GONE);
 				return;
 		}
 	}
 
+	private frontMuted = false;
+
 	private bargeFront(): void {
+		this.frontMuted = true;
 		const playedMs = this.audio.playedMs();
 		this.audio.stopPlayback();
 		void this.transport.command("voice.front_barge", { callId: this.id, playedMs }).catch(() => {});
@@ -595,8 +623,18 @@ export class Call {
 		if (this.closing !== null && !this.audio.playing && this.outputLines.size === 0) return this.end(this.closing);
 		// Until the desk has made the call and it is watched, it is still connecting.
 		if (this.unsubscribe === null) return;
+		if (this.reconnectTimer !== null || this.providerReconnecting) return this.set({ phase: "reconnecting" });
 		if (this.held) return this.set({ phase: "held" });
-		if (this.audio.playing) return this.set({ phase: "speaking" });
+		if (this.audio.playing) {
+			if (this.snapshot.phase !== "speaking" && this.snapshot.phase !== "hearing") {
+				this.detector.reset(this.now());
+				this.frames = [];
+				this.heard = false;
+			}
+			this.set({ phase: "speaking" });
+			if (this.textInput && !this.recognizing) this.listen();
+			return;
+		}
 		// A front listens all the time; it says when the teammate is working.
 		if (this.front !== null) return this.set({ phase: this.desk === "thinking" ? "thinking" : "listening" });
 		const phase = this.snapshot.phase;
@@ -605,7 +643,7 @@ export class Call {
 		// A teammate still working on a call that listens while it thinks leaves the mic open.
 		const deskBusy = this.desk === "speaking" || (this.desk === "thinking" && !this.deskListens);
 		if (this.awaiting || this.outputLines.size > 0 || deskBusy) return this.set({ phase: "thinking" });
-		// Still listening: the blip-blip follows whether the teammate is working.
+		// Keep listening while the teammate works.
 		if (phase === "listening") return this.set({});
 		this.cancelInput();
 		this.detector.reset(this.now());
@@ -616,8 +654,16 @@ export class Call {
 	private connection(state: Reach): void {
 		if (this.ended) return;
 		if (state === "gone") return this.fail("This desk is no longer paired with this computer.");
-		// The desk ends a call whose connection drops, so there is nothing to wait for.
-		if (state === "closed") this.fail(LOST);
+		if (state === "closed" && this.reconnectTimer === null) {
+			this.cancelInput();
+			this.audio.stopPlayback();
+			this.deferred = [];
+			this.outputLines.clear();
+			this.awaiting = false;
+			this.reconnectTimer = setTimeout(() => this.fail(LOST), 20_000);
+			this.set({ phase: "reconnecting" });
+		}
+		// An open socket is not yet an attached call; its snapshot clears the hold.
 	}
 
 
@@ -634,9 +680,10 @@ export class Call {
 
 	/** Exposed for tests; the microphone is the only caller in the window. */
 	hear(block: Float32Array, rate: number): void {
+		if (this.snapshot.phase === "reconnecting") return;
 		if (this.front !== null) return this.hearFront(block, rate);
 		const phase = this.snapshot.phase;
-		if (phase !== "listening" && phase !== "hearing") return;
+		if (phase !== "listening" && phase !== "hearing" && phase !== "speaking") return;
 		this.rate = rate;
 		const level = rms(block);
 		this.level = level;
@@ -651,6 +698,8 @@ export class Call {
 		for (const turn of this.detector.push(level, this.now())) {
 			switch (turn.kind) {
 				case "start":
+					this.inputState(true);
+					if (this.audio.playing) this.silenceLegacy();
 					this.heard = true;
 					this.set({ phase: "hearing" });
 					if (this.pcm) {
@@ -685,6 +734,10 @@ export class Call {
 	private hearFront(block: Float32Array, rate: number): void {
 		if (this.held || this.ended || this.unsubscribe === null) return;
 		this.level = rms(block);
+		for (const turn of this.detector.push(this.level, this.now())) {
+			if (turn.kind === "start" && this.audio.playing) this.bargeFront();
+			if (turn.kind === "end") this.detector.reset(this.now());
+		}
 		if (this.frontResampler === null || this.rate !== rate) {
 			this.rate = rate;
 			this.frontResampler = new PcmResampler(rate);
@@ -707,7 +760,6 @@ export class Call {
 			const input = this.input;
 			this.awaiting = true;
 			this.settle();
-			this.audio.chime("think");
 			void input.finish().then(() => {
 				if (this.input === input) this.input = null;
 				if (!this.ended && this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
@@ -730,7 +782,6 @@ export class Call {
 		const seq = ++this.seq;
 		this.awaiting = true;
 		this.settle();
-		this.audio.chime("think");
 		this.transport
 			.command("voice.utterance", {
 				callId: this.id,
@@ -748,6 +799,7 @@ export class Call {
 
 	/** The desk turned an utterance down: say why, and listen again. */
 	private refused(error: unknown): void {
+		this.inputState(false);
 		if (this.ended || this.held) return;
 		this.endpoint = null;
 		this.awaiting = false;
@@ -755,7 +807,12 @@ export class Call {
 		this.settle();
 	}
 
+	private inputState(speaking: boolean): void {
+		if (this.front === null) void this.transport.command("voice.input_state", { callId: this.id, speaking }).catch(() => {});
+	}
+
 	private cancelInput(): void {
+		if (this.heard) this.inputState(false);
 		this.input?.cancel();
 		this.input = null;
 		this.frames = [];
@@ -806,6 +863,8 @@ export class Call {
 					if (this.wordless.turn(turn)) return this.unheard();
 					switch (turn.kind) {
 						case "start":
+							this.inputState(true);
+							if (this.audio.playing) this.silenceLegacy();
 							this.heard = true;
 							// Words the engine had before the onset were the room's, not the speaker's.
 							for (const snapshot of this.textSnapshots) {
@@ -898,6 +957,7 @@ export class Call {
 		// Held, cut in on or hung up while the engine finished: those words are not sent.
 		if (session !== this.textSession || this.ended || this.held) return;
 		if (text === "") {
+			this.inputState(false);
 			// A cough or a tap: nothing to say, and what the desk said meanwhile is said.
 			this.endpoint = null;
 			this.awaiting = false;
@@ -907,8 +967,6 @@ export class Call {
 		this.cutIn();
 		const seq = ++this.seq;
 		this.line({ kind: "you", id: `heard-${seq}`, text });
-		// After the engine let the microphone go, so the blip-blip is never transcribed.
-		this.audio.chime("think");
 		this.transport
 			.command("voice.text", { callId: this.id, seq, text })
 			.then(() => this.delivered(), (error: unknown) => this.refused(error));
@@ -992,12 +1050,14 @@ export class Call {
 	private fail(trouble: string): void {
 		if (this.ended) return;
 		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
-		this.set({ trouble });
+		this.set({ trouble, legacyAvailable: this.liveRequested });
 		this.end("error");
 	}
 
 	private end(reason: EndReason): void {
 		if (this.ended) return;
+		if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = null;
 		this.holdGeneration++;
 		this.cancelInput();
 		this.deferred = [];
@@ -1019,32 +1079,11 @@ export class Call {
 		const tone = this.audio.chime("end");
 		setTimeout(() => this.audio.close(), tone * 1000 + 80);
 	}
-
-	/**
-	 * One blip-blip. The microphone may be open, so the detector does not take
-	 * it for the person: the webview's mic skips it, and this Mac's engine's
-	 * levels are let go of until it and its tail have played.
-	 */
-	private blip(): void {
-		const tone = this.audio.chime("think");
-		this.quietUntil = Math.max(this.quietUntil, this.now() + tone * 1000 + 120);
-	}
-
 	private set(patch: Partial<CallSnapshot>): void {
 		this.snapshot = { ...this.snapshot, ...patch };
-		// The desk has the floor or the call is held: the engine lets the microphone go, so it never hears the desk.
-		if (this.recognizing && this.snapshot.phase !== "listening" && this.snapshot.phase !== "hearing") this.stopListening();
-		// The first blip-blip goes with the utterance; these repeat it while the desk is quiet and busy,
-		// and while the teammate works on a call that listens meanwhile.
-		const phase = this.snapshot.phase;
-		// A front says itself that the teammate is working, so it gets no blip-blip.
-		const working = this.front === null && (phase === "thinking" || (phase === "listening" && this.desk === "thinking" && this.deskListens));
-		if (working && this.working === null) {
-			this.working = setInterval(() => this.blip(), WORKING_EVERY_MS);
-		} else if (!working && this.working !== null) {
-			clearInterval(this.working);
-			this.working = null;
-		}
+		// Recognition stays open through playback for barge-in; native voice processing removes echo.
+		if (this.recognizing && this.snapshot.phase !== "listening" && this.snapshot.phase !== "hearing" && this.snapshot.phase !== "speaking") this.stopListening();
+		// The core supplies one waiting sound over the same clip channel as speech.
 		for (const listener of this.listeners) listener();
 	}
 }
@@ -1065,9 +1104,9 @@ export async function startCall(names?: Names, target?: CallTarget): Promise<Cal
 }
 
 /** Retry the original desk and target, even after the window moved elsewhere. */
-export async function restartCall(previous: Call): Promise<Call> {
+export async function restartCall(previous: Call, legacy = false): Promise<Call> {
 	active?.hangUp();
-	const call = previous.redial();
+	const call = previous.redial(legacy);
 	active = call;
 	for (const holder of holders) holder();
 	await call.start();
@@ -1130,7 +1169,7 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 		void hearsOnThisMac()
 			.then((here) => wireTransport.command("voice.status", here && hearOnThisMac() ? { inputMode: "text" } : {}))
 			.then((status) => {
-				if (current) setSupport({ available: (status as { available?: boolean } | null)?.available === true, directCalls: supportsDirectCalls(status) });
+				if (current) setSupport({ available: (status as { available?: boolean; liveSelected?: boolean } | null)?.available === true || (status as { liveSelected?: boolean } | null)?.liveSelected === true, directCalls: supportsDirectCalls(status) });
 			})
 			.catch(() => {
 				if (current) setSupport({ available: false, directCalls: false });

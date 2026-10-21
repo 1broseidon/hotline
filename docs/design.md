@@ -147,7 +147,9 @@ file folded by id, exactly the tape's model:
 The roster is a fold over `room`. Settings are a fold over `room`. A delete
 is a tombstone event. Secrets are never events: Hotline-owned provider and MCP values live in the
 operating system credential store; the vault files hold opaque references.
-Rig-owned ChatGPT and Copilot OAuth caches remain permission-restricted files.
+ChatGPT and Copilot sign-ins use that same vault through Hotline's token
+store for Rig. Their login directories hold references; existing plaintext
+records migrate on first use, preserving the original on a failed store write.
 The log holds only credential metadata. Replication, when it returns, is shipping a stream's
 bytes, which the tape's segment model already does.
 
@@ -348,16 +350,37 @@ boundary once. A continuation that still cannot fit fails explicitly. ACP owns
 its own internal request loop and context management; Hotline does not interrupt an
 opaque child turn using a guessed token count.
 
+The loop writes each round's request itself (`turn::round_request`), so a
+turn sends the same settings an agent's answer would (`build::RequestSettings`:
+the output ceiling, the effort, the cache it asks for). Rig keeps the system
+prompt as a request's first message, and the loop rebuilds each round's
+conversation from its history, so the prompt is put back on every round
+rather than carried from the first.
+
 Claude over the API caches nothing unless a request asks, and every round of a
 turn resends the tools, the preamble and the history. A turn therefore asks: the
-tools and the preamble carry cache markers, and a top-level breakpoint moves
-forward with the conversation. Claude through OpenRouter gets the preamble's
-marker, which is the one OpenRouter passes on. A one-shot answer such as a
-chapter's note asks for nothing, because a cache write costs more than a plain
-read that nothing follows. Anthropic reports cached input beside its input
-tokens rather than inside them, so a round's usage is counted whole before it
-meets the context threshold or the turn's record, which keeps cache reads and
-writes as counts of their own.
+tools and the preamble carry cache markers, and the request's cache is a
+top-level breakpoint that moves forward with the conversation. Claude through
+OpenRouter gets that request-level marker and, on its way out, one on the
+preamble, which OpenRouter passes on (`build::openrouter_model`). A one-shot
+answer such as a chapter's note asks for nothing, because a cache write costs
+more than a plain read that nothing follows. Rig counts every provider's cache
+reads and writes inside its input tokens, Anthropic's included, so a round's
+usage is already whole when it meets the context threshold or the turn's
+record, which keeps cache reads and writes as counts of their own; adding
+Anthropic's again would price each cached token twice and fill the context
+early. That count is `pricing::Tokens::of`, the one place Rig's usage is read,
+so turns and the call assistant meter it alike. A response counted at no
+tokens at all reported nothing, and keeps what it reserved.
+
+Every Hotline request accepts a finish reason Rig does not know as an ordinary
+stop. Rig 0.44 began failing a reply whose finish reason was outside its list,
+and marking it never to be sent again. A gateway that passes its upstream's own
+reason through would then fail a spoken answer that arrived whole, and a
+turn's reply would drop out of every later request while the results of its
+tool calls stayed in. Hotline ended a reply on any reason it was not told was
+a truncation or a filter before, and still does: a length or content-filter
+finish, or a reply the provider says failed, runs none of its tool calls.
 
 An ACP prompt failure never automatically reissues that prompt. The next operator
 message replaces the failed child only after the old process exits, opens a fresh
@@ -413,6 +436,18 @@ on `rmcp`. Hotline Agent gets its workspace tools natively plus every MCP
 server the teammate's policy grants, connected by Hotline as the client. A
 child driver is handed the same list, Hotline's server included, in the form
 ACP takes. One tool surface, one policy, one ledger.
+
+`read_thread(thread, after?, limit?)` reads a teammate's own thread from its
+beginning, in folded log order, with full events and an event-id cursor for
+following pages (50 events by default, at most 100). A call's thread **is its
+transcript**, including the spoken and written versions of replies and each
+tool call in its own position. Search hits and posts name the same key and
+say this explicitly, so the home agent can read what “like we said on the
+call” refers to. Both drivers use the same lease-checked handler; ownership
+comes from the thread's parent, or membership for a pair. The window shows
+a call's speakers and tools inline, with the written version available when
+it differs from what was spoken, and keeps the composer for continuing it.
+No tape events or segment layouts change.
 
 The global MCP configuration is the operator's gateway. New teammates get
 no gateway servers; the operator grants selected servers or all servers on
@@ -512,8 +547,23 @@ screens exist and how they behave, and a component is lifted from it only
 where that is cheaper than writing it. Bun and Node exist only as the UI's
 build tools; nothing runs on them.
 
-Providers use Rig's native clients for inference. Rig also owns ChatGPT and
-Copilot login and refresh. OpenRouter offers pasted keys and browser PKCE
+Providers use Rig's native clients for inference. Rig also signs ChatGPT and
+Copilot in and refreshes them, through Hotline's own token store over each
+login's directory (`providers/rig_login.rs`): ChatGPT's record is the
+`auth.json` it has always been, and Copilot's is `copilot.json`, into which a
+login made before Rig 0.45 is moved once from its `access-token` and
+`api-key.json`, those removed only after the new record is written. Both
+records use the vault's `CredentialFile`: plaintext moves to the configured
+credential store on first read, verified before a reference replaces it. A
+failed migration preserves the plaintext and refuses its use; it never
+falls back from the keychain to a file. One
+authenticator per credential serves turns, voice, image generation and
+discovery, sharing one refresh and one in-memory token, and the store locks
+each record file, never a provider, for any other authenticator over it (a
+sign-in), so a rotated refresh token is spent once and a Copilot device flow
+waiting on a person holds only its own login. Their models go through a
+transport (`providers/outgoing.rs`) that signs each request with the live
+token as it leaves. OpenRouter offers pasted keys and browser PKCE
 sign-in; Hotline exchanges the code for a private API key and hands that key to
 Rig's OpenRouter client. Ollama Local takes a server URL, while Ollama Cloud
 takes an API key for `https://ollama.com`. Both use Rig's Ollama client for
@@ -533,12 +583,13 @@ separate API-key connections using Rig's native Z.ai endpoints.
 Custom OpenAI-compatible connections have stable, separate provider ids, a
 name, base URL, optional key, API choice, and an editable model list. Rig's
 native OpenAI Responses and Chat Completions clients own inference and model
-discovery. A small Rig provider builder makes bearer authentication optional.
-Inference runs over a thin transport (`providers/compat.rs`) that repairs
-Responses frames compatible servers send more loosely than OpenAI (missing
-sequence numbers or item ids and statuses, a float `created_at`, echoed
-`instructions` items, an empty `error`) before Rig's strict decode reads them,
-and logs once any frame it still cannot read. Keys are privately bound to the exact
+discovery, on a dialect of the connection's own that makes bearer
+authentication optional and keeps Rig's catalogue of OpenAI's models from
+describing a model that only shares an id with one of them. Inference runs
+over a thin transport (`providers/compat.rs`) that repairs Responses frames
+compatible servers send more loosely than OpenAI (missing sequence numbers or
+item ids and statuses, a float `created_at`, echoed `instructions` items, an
+empty `error`) before Rig reads them. Keys are privately bound to the exact
 endpoint, so editing a URL requires explicitly supplying or removing its key.
 Discovery fills the form without changing a saved connection until Save.
 Provider discovery supplies current model IDs wherever Rig has a supported
@@ -561,9 +612,68 @@ check or install updates.
 
 ### Voice calls: desk first, teammate second
 
+
+Legacy voice attaches to an agent thread (ADR 0008 §5). A new call has a
+Call thread; `voice.call_start.thread` attaches to an existing work or call
+thread owned by the selected teammate. Both use the work-thread occupant,
+`Room::thread_agent` and `Room::run_queue`: one queue, independent revocable
+lease, tools and checkpoint restoration, on Hotline Agent and ACP. Spoken
+lines never enter the home DM. Hang-up detaches speech and leaves accepted
+work running; only the turn in flight at hang-up posts its completed reply
+as one chat message, and only if this call has not already delivered a result
+or file to chat. Otherwise the closing note accounts for its late reply.
+Replies over 900 characters or three paragraphs post
+a short subject-first summary, with the full text kept on the call thread;
+if summarising fails, a short notice points there instead. Later typed turns
+stay on the thread unless they explicitly post. Calls and work threads
+can be continued by text and called again.
+
+Two minutes after hang-up (`CALL_CLOSING_DELAY`), once all the run's queues
+are idle, the chapter summariser writes one subject-first account of the
+discussion, decisions and finished work. A new call to the same teammate
+invalidates the pending note, including one being generated, and retains its
+source threads for the next note. One post links every source thread through
+optional `from.sources`; older readers still use `from.thread`. Each source
+then parks. These additive fields leave tape segments and the importer unchanged.
+The summary receives the results already delivered to chat. Interrupted speech
+or clipped model context is never evidence of a missing written result; a note
+claiming a result was cut off is replaced with a factual pointer to the results.
+A notice in the thread marks the covered interval by log position, so a later
+note includes only new work even when timestamps tie. New input during the
+summary causes it to be retried before publication; queue admission and final
+parking share a gate. If no summariser answers, the post explicitly says so
+and links to the transcript. The front's Digest and five-minute summaries
+are gone. Live voices use `work_on_it` to start or steer one clone on the
+call thread, on the teammate's selected model and harness. The whole call
+so far is its brief. Reads still run beside it; the home session is never
+interrupted. Stop cancels the call's work and drops queued changes. Speech
+from both sides and each read/work tool are written in order on the thread.
+Live text is buffered until completion or a work boundary; repeated updates
+still fold by id. An interruption keeps the generated text before its cut
+notice, and hang-up or provider loss flushes any remaining text. The clone's
+agent messages never become call speech: its tools remain tool entries and
+its completed answer is one `Work result` tool entry. Only the answer after
+the last tool is offered to the live voice; the clone's opening is never
+spoken. The actual voice response is recorded under its own speech id.
+The clone posts drafts and files with a subject, then returns a short spoken
+result. GPT-Live's client delegation uses this same work tool, without a
+call-assistant delegation loop.
+
+The call's chat row reads parked once its thread parks. The roster carries
+`workingCalls`, the call thread ids with a turn in flight, so the row says
+running only during a turn; an open thread between turns reads open.
+
+Posts carry optional `from.title` and `silent` fields. A post made while the
+person is on that thread's call is kept silently even after hang-up; later
+posts update the preview, unread rail and notifications. These fields are
+additive, leave the segment layout unchanged and are ignored by older tape
+readers, including the reference importer. Replies to a post route to its
+source thread. A fresh home-chat line stays with the home agent, receiving
+all posts since it last spoke and source thread ids for its reading tools.
+
 A call belongs to one owner connection and its selected desk. The desk is the
-primary entry point; an optional teammate target reuses that teammate's real
-session, tape and standing grants. Call and utterance ids correlate replies,
+primary entry point; an optional teammate target uses that teammate's standing grants and its
+call thread. Call and utterance ids correlate replies,
 so unrelated work or an old reply never speaks on a direct call. Hold, hangup,
 interrupt and connection revocation cancel voice input and output; an agent
 instruction already accepted by the session keeps working.
@@ -581,27 +691,49 @@ hold and an unfinished preceding turn are refused before work is queued.
 There is no remote STT request or STT budget reservation for device text.
 Dispatcher and speaking costs keep their existing budget and ledger rules.
 
-A teammate on a direct call answers twice, a `<spoken>` version to be heard
-and a `<written>` version to be read, each standing alone, rather than one
-reply split by a marker: a split reads to a model as an opener and a body, and
-the chat then showed one answer cut in two. The written version is the chat's
-message; the spoken one is kept beside it as an optional `spoken` field on the
-reply's first `agent` event, so the tape and segment layout are unchanged, a
-tape from the reference tree reads as before, and an older client shows the
-written text. Hotline Agent's rebuilt history shows the model both, tagged
-([One brain, two outputs](voice.md#one-brain-two-outputs)).
+A conversational call answer is said once: its `<spoken>` words are also
+its written record. Only a result speech cannot preserve needs a standalone
+`<written>` version. The core recognizes code, tables, links, sent files,
+lists of four or more items and write-ups over 120 words, and posts written
+results through `Room::post`. Short conversation does not generate a second
+chat message. The existing in-flight hang-up post and one closing note remain.
 
-A reply on a direct call that writes no spoken version is not read by its
-opening while it streams. Once it is whole, the call assistant says it again
-to be heard, and that is said and kept as the reply's `spoken`, superseding
-the event the session wrote. The opening of a reply written to be read was
-rarely the answer, and a phone call needs the answer first; holding the
-reply until it is whole is what keeps the person from hearing an opening and
-then the rewrite. One short line is said as written, since it is the line the
-contract asks for before a tool. The rewrite is a fallback, never a gate: no
-call assistant, a refused Chat budget, a failure or six seconds without an
-answer says the opening as before, and the call goes on
-([A reply written only to be read](voice.md#a-reply-written-only-to-be-read)).
+The core permits a contextual chat pointer at most once in three caller turns.
+The teammate streams its own opening without a pointer; once the result is
+known, the narrator can add a brief pointer in its own words. No stock phrase
+or fixed word cap is requested. Legacy and narrator instructions carry the
+turn count, last pointer turn and three recent generated spoken lines; live
+voice receives the same state. Reservations count even if speech is cut or
+generation fails, conservatively avoiding a repeated reminder. A conversational
+turn never reserves one. Generated speech remains distinct from proof of hearing.
+The optional `spoken` field and tape segment layout are unchanged.
+
+Legacy speaks the teammate's own first sentence as it arrives, including an
+untagged prose opening, and streams the spoken reply. It never waits for a
+rewrite before saying that opening. If no speech has begun after 1.8 seconds,
+the core sends one soft, wordless WAV on the ordinary clip wire, to desk and
+phone alike. Only an audio clip suppresses that cue, not text awaiting TTS.
+There is no repeating client chime or stock opening acknowledgement. While a
+teammate is still working, twenty seconds without audio queues a short core-owned
+first-person line in the same speech queue as its answer. Neutral lines rotate
+without consecutive repeats; they claim no result, impending completion or
+specific tool activity. The queue checks the turn again;
+finished, interrupted, held or superseded turns cannot start that line.
+Interruption cancels queued speech as before. Live work that has no spoken
+version can still be rewritten before the live model says it.
+
+The live model is the teammate: its name and goal (including manner), up to
+4,000 characters of chapter context and 32 recent chat lines within 12,000
+characters. The prompt teaches the kinds of turn, fresh lookups for state,
+code and results, short answers and an explicitly requested longer answer.
+Call-state refreshes replace the instructions through `session.update`, at
+turn/tool boundaries and when durable state changes (checked every half
+second). They include budgeted call speech, interruption notices, running
+work, eight recent already-said lines and eight confirmed chat posts from
+this thread. All injected prose is scrubbed as the starting context is.
+The prompt and tool framing forbid relay language and repeated acknowledgements;
+the fixed spoken regression deck checks all three live models when credentials
+are supplied. Speech-to-speech audio cannot be filtered before it is heard.
 
 A finalized transcript that is wholly a goodbye speaks `Goodbye.` and ends
 either kind of call. Audio goodbye still requires enough genuine audio to
@@ -631,6 +763,91 @@ stored xAI login. Automatic speech keeps selecting API providers. A missing
 login or subscription refusal returns an error; it never selects a paid speech
 fallback. Subscription STT and TTS record zero estimated paid API spend, while
 the desk dispatcher and agent work retain their ordinary spending rules.
+
+### Interruptions describe playback, not generation
+
+The desk keeps its microphone open during Legacy speech as it does for live
+voice. Confirmed local speech onset and a tap stop playback locally before
+waiting for the wire. Late clips from the cut Legacy line are discarded;
+live audio remains muted until the caller's next transcript arrives. Browser
+capture requests echo cancellation, and native Mac recognition enables voice
+processing. Physical speaker cancellation, especially across the native
+recognizer and webview playback, still needs the task-206 scenario pass;
+these switches alone do not prove that the teammate cannot hear itself.
+
+An interruption writes a notice on the call thread with the generated line,
+its speech id and the played milliseconds when the live client supplies them.
+It explicitly says that the line was not heard to its end and that the last
+heard word is unknown: generation and elapsed audio do not establish a word
+boundary. The notice metadata is additive; older readers keep its text, and the tape
+segment layout and importer are unchanged. The written reply remains intact.
+The next Legacy thread turn gets
+the interruption as playback context, separately from the saved caller text,
+and live providers receive truncation or interruption context. Cutting a
+streamed reply also prevents its late completion from starting speech again.
+The phone uses the same wire commands; its client-side onset and speaker
+checks are a separate task-206 verification, not established by desk tests.
+
+The Grok Voice and GPT Realtime socket adapters leave VAD in charge of
+committing caller audio and starting its answer. From `speech_started`
+through `input_audio_buffer.committed` until the automatic `response.created`,
+a late tool result or line to say adds context without sending `response.create`.
+The automatic answer consumes that context once. Playback truncation after
+provider-detected speech does not send a second cancellation; a tap without
+provider-detected speech still cancels active generation. No interruption
+clears or manually commits the microphone buffer. Boundary traces identify
+the socket session, elapsed milliseconds and turn state without audio,
+transcripts, tool contents or provider identifiers. They show whether a stalled
+turn reached speech stop, commit and response creation; scripted ordering tests
+do not establish real-provider VAD timing, which needs the Linux audio QA pass.
+
+Live work admission also checks the caller's finalized words. English dictation
+opened by “draft”, “say” or “write” and ending in a dangling connector, article
+or verb (such as “saying that” or “the fog horn should”) stays unfinished across
+provider turns. A `work_on_it` attempt receives a silent wait result, even if
+its arguments invent a complete sentence. Silence alone never releases it;
+caller continuation closes the phrase, and the front requests the complete
+work again. Stop remains available. When a tool beats transcription after
+speech onset, admission waits for that transcript. This is a bounded lexical
+check, not a general sentence parser; complete requests keep ordinary latency.
+Scripted fronts prove the four-second pause on both Grok Voice and GPT Realtime;
+real microphone timing and other languages still require audio QA.
+
+### A transport drop holds the call for twenty seconds
+
+A lost client socket holds its call for twenty seconds. Replaying the call
+subscription from the same paired device resumes the existing call and thread,
+with one “We're back on the same call.” line. A different device cannot take
+it over, and another subscription does not transfer an active call's lifetime.
+Revoking the pairing ends the call immediately, including during the hold.
+Expiry uses the ordinary hang-up transition, so S5 detaches voice and preserves
+ongoing thread work and its closing note. An explicit user hold stays held on
+reconnection. The window shows Reconnecting during its socket retry or the
+provider's reported recovery; terminal snapshots clear it. Phone adoption and
+the physical relay scenario remain to be verified in the phone tree.
+
+### Live calls keep the selected model
+
+Settings selects the call mode in the core, including when a client omits
+`voice.call_start.mode`. `front` requires a live model; `pipeline` is the
+person's explicit Legacy choice. A missing login, spent budget or failed
+provider never turns a live request into Legacy. `voice.status.liveSelected`
+keeps selection separate from availability. A failed live call keeps its
+one-sentence reason as `state.liveError`, including in its snapshot, so a
+client arriving after the failure still explains it and offers **Call with
+Legacy voice**. That choice starts a new call on the same conversation.
+
+The provider adapters renew and reconnect with their bounded transcript.
+If a session exits, the call runtime makes a bounded replacement attempt
+with the conversation preserved; a replacement that fails before making
+progress ends the live call visibly. Fixed local recordings explain a failed
+live connection or spent Voice budget once and offer an explicit Legacy
+choice, without asking the unavailable provider to speak. The call card keeps
+the reason, while spoken notices contain no provider error codes. A revoked login or spent budget ends
+it without reopening the revoked connection. Start, recovery and refusal
+logs identify their reason. Refusal logs correlate provider `event_id` to
+request type and redact credentials from the provider's message; request
+bodies are never logged. An absent correlation is reported as unknown.
 
 ### 7. Skills, as files every harness reads
 
@@ -801,8 +1018,17 @@ teammate lead (which moves the role) or clears it with `persona.lead`, owner
 only. Clearing a desk of one is refused, since the next open would put it
 back, and `settings.update` cannot name a lead around these rules. Being lead
 changes nothing else about a teammate: its own model, memory and tools stay
-its own. Desk calls reach the lead, and the lead hands work on, in later
-work ([ADR 0008](adr/0008-one-agent-thread-layer.md#5-voice-under-this-design)).
+its own. A desk call opens the lead's own call thread and voice front. The
+front answers roster questions with `list_teammates` and passes named work
+straight through `message_teammate`, intent `handoff`, saying who has it. The
+live desk call and current lead together grant local handoffs without a
+first-contact card; a direct call, DM, stopped call or former lead does not
+carry that grant. The queue checks it again before starting work. Stopping or
+reassigning colleagues remains the person's choice. With no lead the fallback
+call assistant remains, with the roster and optional `personName` setting,
+using bounded named tools rather than the wire command table. No new
+`voice-dispatcher` tape is written; each fallback call keeps its own transcript
+([ADR 0008](adr/0008-one-agent-thread-layer.md#5-voice-under-this-design)).
 
 ### Linked desks
 
@@ -843,3 +1069,53 @@ another desk makes that desk the one the window talks to, so its settings,
 computer and files are that desk's, and nothing is switched by hand. A desk
 that cannot be reached keeps its teammates listed, dimmed, as they last
 were.
+
+### Cards use the call without moving their authority into the model
+
+A card is announced once at a break on the matching active call instead of
+sending a phone push. The caller's finalized yes/no, not a model tool,
+answers the last announced card and leaves a chat record from the call.
+The handler allows core-owned collaboration approvals for this session only
+and informational `ask_question` cards under the requesting session's live
+lease. `set_person_name` adds one core-owned operation: the proposed name
+and lease are bound to its card before publication, and only approval writes
+`personName`. Settings → General also reads and writes it as **Your name**.
+The home agent receives the current name with each prompt; live voice reads
+it when the call opens and hears the name card's answer during the call.
+An informational answer never grants an operation. Existing action
+cards, passkeys and opaque driver approvals stay at the desk: their words
+cannot establish that an action is safe for voice. This includes credentials,
+2FA, screen interaction, payment and deletion. Replayed cards without their
+live authority cannot regain it from a saved marker.
+
+`human_action.question` is an optional additive field; absence means an
+ordinary action, and the tape segment layout and importer are unchanged.
+Call-thread cards live in the home chat, stamped `from` the call with its
+title and thread key. This optional additive field on permission,
+human-action and passkey cards leaves older tapes and the importer unchanged.
+The call stream keeps the same id as a linked status line; settlement updates
+both views. Answers from the home chat still reach the original call agent,
+and the voice handler keeps exactly the same authority checks. The call
+queue keeps request identities across provider reconnection and removes
+settled cards; interrupted generation is still not proof of what was heard.
+
+
+### Files produced by call work reach the home chat
+
+The core collects successful write/edit records from the call's own work turn.
+Hotline Agent preserves its workspace mutation's path and created/edited status;
+ACP preserves diff paths and creation status (location-only edit reports count
+as edited). The optional `files` field on a tool event and `created` field on an
+attachment are additive; existing tapes, segment layout and importer are unchanged.
+The core reads through the existing workspace reach under the call's revocable
+lease. It never scans directories or infers paths from the conversation or shell
+commands. Missing, oversized or inaccessible files leave a warning on the call.
+
+At work completion, explicit `send_file` calls join the recorded mutations in
+one batch. Each file is delivered once per work result, stamped From the call: up to
+three as separate attachments, more as one message with a compact list. Every
+entry opens and saves its stored copy. Text and other documents open in an inert
+text or binary preview; PDFs retain the native viewer. Indexed storage keeps equal basenames
+separate and addresses readback by message and attachment position, never by a
+caller-supplied source path. A later correction can deliver the updated file; a later call owns its own results. Work that survives
+hang-up still delivers while its lease is valid; revocation prevents delivery.

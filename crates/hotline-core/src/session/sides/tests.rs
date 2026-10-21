@@ -99,7 +99,7 @@ async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
         .bring_up(
             "ada",
             Start {
-                side_id: new_id(),
+                thread: ThreadId::side(new_id()),
                 title: "Wire the gateway".to_string(),
                 started: now_ms(),
                 opener: Some(Opener {
@@ -489,6 +489,8 @@ async fn stopping_the_teammate_archives_its_side_threads_as_stopped() {
     let tools = TeammateTools::new(&room, "ada")
         .for_work(summary.side_id.clone())
         .with_capability(lease);
+    let read = serde_json::json!({"thread": format!("side:{}", summary.side_id)});
+    assert!(tools.call("read_thread", &read).await.is_ok());
     room.stop("ada").unwrap();
     assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
     assert_eq!(tape(&room)[0]["archivedBy"], "stopped");
@@ -503,6 +505,10 @@ async fn stopping_the_teammate_archives_its_side_threads_as_stopped() {
             .await
             .is_err(),
         "the thread's tool handles are dead"
+    );
+    assert!(
+        tools.call("read_thread", &read).await.is_err(),
+        "the reader dies with the thread's lease"
     );
     assert!(agents.cancel_count() >= 1, "its agent was stopped");
 }

@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "hotline-core"
 description = "Hotline's core: the log, the room, sessions and their drivers, tools, and the wire. No Tauri dependency by design."
 version.workspace = true
@@ -6,8 +7,34 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+# Shutdown kills every ACP child registered in this process, including other tests' agents.
+[[test]]
+name = "acp_shutdown"
+path = "tests/acp_shutdown.rs"
+
+# These harnesses install a process-wide PATH stub for the browser opener.
+[[test]]
+name = "processes"
+path = "tests/processes.rs"
+
+[[test]]
+name = "voice"
+path = "tests/voice.rs"
+
+# Proves startup selects TLS before any other test can initialize rustls.
+[[test]]
+name = "tls"
+path = "tests/tls.rs"
+
 [lints]
 workspace = true
+
+[features]
+test-support = []
 
 [dependencies]
 hotline-contract = { path = "../hotline-contract" }
@@ -101,6 +128,11 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # `test-util`: a test whose time the code controls runs on a paused clock, so
 # waiting out a 30 s token lifetime or a 10 s deadline costs nothing.
 [dev-dependencies]
+hotline-voice = { path = "../hotline-voice", features = ["test-support"] }
+# Fixed provider origins become local stubs only in harness builds.
+hotline-core = { path = ".", features = ["test-support"] }
+# `test-utils`: the turn loop's tests run on Rig's scripted completion wire.
+rig = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["test-util"] }
 # The tests that read a contract type's TypeScript declaration.
 ts-rs.workspace = true

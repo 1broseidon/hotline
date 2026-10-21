@@ -634,6 +634,8 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     };
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),

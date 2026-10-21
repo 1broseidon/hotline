@@ -1,6 +1,6 @@
 # ADR 0005: The live voice is a full agent on the call
 
-- Status: Accepted (0.39)
+- Status: Amended by [ADR 0008 §5–6](0008-one-agent-thread-layer.md) (S6, task-225)
 - Date: 2026-10-16
 - Supersedes: the relay-only guardrails of
   [ADR 0004](0004-live-calls-get-a-voice-front.md) ("The front relays and
@@ -9,6 +9,18 @@
   [security.md](../security.md)
 - Tracking: epic-7 (task-74 tools, task-79 GPT-Live's tool loop, task-75
   summaries, task-77 prompt and settings, task-78 the proving call)
+
+## Amendment
+
+The 2026-10-20 decisions are recorded in ADR 0008 §5, including explicit-only
+Legacy after a live failure, call-thread work and the closing note. The
+original decision below is retained as history, subject to that amendment.
+
+The voice keeps conversation and read-only lookups. Its one work tool,
+`work_on_it`, starts or steers its own clone on the call thread, using the
+teammate’s model, harness and standing grants. GPT-Live’s client delegation
+uses that same tool. Direct writes, raw MCP tools and the call-assistant
+delegation loop are removed from the front. The home session is untouched.
 
 ## Context
 

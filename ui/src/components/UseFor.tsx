@@ -292,7 +292,7 @@ function LiveCalls({
 								? "Calls hear you, think, then speak, one step at a time."
 								: login === undefined
 									? `${chosen.connect}. Until then, calls use Legacy voice.`
-									: `A full agent: talks with you, looks things up and hands heavy work to your teammate. ${login.detail}.`}
+									: `Talks with you as your teammate, looks things up, and does real work on your teammate’s own model. ${login.detail}.`}
 						</span>
 					</span>
 					<Picker

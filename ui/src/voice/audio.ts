@@ -24,7 +24,7 @@ export interface CallAudio {
 	/** The loudness of what is playing now, as RMS. */
 	outputLevel(): number;
 	/** A soft tone; answers its length in seconds. */
-	chime(kind: "connect" | "think" | "end"): number;
+	chime(kind: "connect" | "end"): number;
 	close(): void;
 }
 
@@ -131,11 +131,10 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 		chime(kind) {
 			const context = ctx;
 			if (!context || context.state !== "running") return 0;
-			// "think" is a blip-blip: the desk heard you and is working on it.
-			const notes = { connect: [587.33, 880], think: [1174.66, 1174.66], end: [880, 587.33] }[kind];
-			const peak = kind === "think" ? 0.035 : 0.06;
-			const length = kind === "think" ? 0.05 : 0.11;
-			const step = kind === "think" ? 0.1 : 0.09;
+			const notes = { connect: [587.33, 880], end: [880, 587.33] }[kind];
+			const peak = 0.06;
+			const length = 0.11;
+			const step = 0.09;
 			const t0 = context.currentTime + 0.02;
 			notes.forEach((frequency, i) => {
 				const at = t0 + i * step;

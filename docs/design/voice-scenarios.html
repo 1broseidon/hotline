@@ -1,0 +1,847 @@
+<!-- Folio · slug: voice-deck · kind: slides · bundle: single-file · host: local · source: Pork Chop workspace voice-scenarios.html -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice scenarios · Hotline 0.42</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f8f68'/%3E%3Cpath d='M9 13v6M13 10v12M17 12v8M21 14v4' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: dark;
+  --font-display: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-paper:      oklch(17% 0.008 165);
+  --color-paper-2:    oklch(21% 0.009 165);
+  --color-rule:       oklch(31% 0.010 165);
+  --color-ink:        oklch(95% 0.005 165);
+  --color-ink-2:      oklch(80% 0.010 165);
+  --color-muted:      oklch(67% 0.010 165);
+  --color-accent:     oklch(76% 0.120 162);
+  --color-accent-wash: oklch(30% 0.050 162);
+  --color-slate:      oklch(28% 0.012 235);
+  --color-warn:       oklch(78% 0.110 65);
+  --color-warn-wash:  oklch(28% 0.040 65);
+  --color-danger:     oklch(74% 0.130 25);
+  --color-focus:      oklch(76% 0.120 162);
+
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px;
+  --space-6: 32px; --space-7: 48px; --space-8: 64px;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px;
+
+  --type-xs: 12px;
+  --type-sm: 14px;
+  --type-md: 16px;
+  --type-lg: 20px;
+  --type-xl: 25px;
+  --type-2xl: 31px;
+  --type-3xl: 39px;
+  --leading-tight: 1.15;
+  --leading-body: 1.6;
+  --measure: 66ch;
+  --rail: 264px;
+  --page-max: 1120px;
+}
+* { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+body {
+  margin: 0; background: var(--color-paper); color: var(--color-ink);
+  font: 400 var(--type-md)/var(--leading-body) var(--font-body);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { font-family: var(--font-display); font-style: normal; margin: 0; line-height: var(--leading-tight); overflow-wrap: anywhere; min-width: 0; }
+p, li { max-width: var(--measure); }
+code { font-family: var(--font-mono); font-size: 0.88em; }
+.mono { font-family: var(--font-mono); font-size: var(--type-xs); letter-spacing: 0.04em; line-height: 1.4; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+/* Frame */
+.frame { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); min-height: 100dvh; }
+.rail { border-right: 1px solid var(--color-rule); padding: var(--space-6) var(--space-4); position: sticky; top: 0; height: 100dvh; overflow-y: auto; }
+.rail .title { font-weight: 700; font-size: var(--type-md); padding: 0 var(--space-3); }
+.rail .sub { color: var(--color-muted); padding: 2px var(--space-3) 0; }
+.rail ol { list-style: none; margin: var(--space-5) 0 0; padding: 0; }
+.rail .group { color: var(--color-muted); padding: var(--space-5) var(--space-3) var(--space-1); }
+.rail .group:first-child { padding-top: 0; }
+.rail li > button {
+  all: unset; box-sizing: border-box; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--space-2);
+  width: 100%; padding: 6px var(--space-3); border-radius: var(--radius-sm); cursor: pointer;
+  color: var(--color-ink-2); font-size: var(--type-sm); line-height: 1.4;
+}
+.rail li > button span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail li > button .n { color: var(--color-muted); font-family: var(--font-mono); font-size: var(--type-xs); padding-top: 2px; }
+.rail li > button:hover { background: var(--color-paper-2); color: var(--color-ink); }
+.rail li > button[aria-current="true"] { background: var(--color-accent-wash); color: var(--color-ink); }
+.rail li > button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+
+.stage { min-width: 0; display: flex; flex-direction: column; }
+.bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-7); background: var(--color-paper); border-bottom: 1px solid var(--color-rule); }
+.bar .where { flex: 1; min-width: 0; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn { border: 1px solid var(--color-rule); background: var(--color-paper-2); border-radius: var(--radius-sm); padding: 6px 14px; cursor: pointer; font-size: var(--type-sm); font-weight: 500; white-space: nowrap; min-height: 34px; }
+.btn:hover:not(:disabled) { border-color: var(--color-muted); }
+.btn:disabled { color: var(--color-muted); cursor: default; }
+.slide { width: 100%; max-width: var(--page-max); padding: var(--space-8) var(--space-7) var(--space-8); }
+
+/* Slide type */
+.eyebrow { color: var(--color-accent); margin-bottom: var(--space-3); }
+.slide h2 { font-size: var(--type-2xl); font-weight: 700; letter-spacing: -0.01em; max-width: 26ch; }
+.lede { color: var(--color-ink-2); font-size: var(--type-lg); line-height: 1.5; margin: var(--space-4) 0 0; max-width: 58ch; }
+.chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-5); }
+.chip { font-family: var(--font-mono); font-size: var(--type-xs); letter-spacing: 0.04em; color: var(--color-ink-2); background: var(--color-paper-2); border: 1px solid var(--color-rule); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.label { color: var(--color-muted); margin: 0 0 var(--space-4); text-transform: none; }
+.pager { display: flex; gap: var(--space-2); margin-top: var(--space-6); }
+.pager button { all: unset; cursor: pointer; font-size: var(--type-sm); color: var(--color-muted); padding-bottom: 4px; border-bottom: 2px solid transparent; }
+.pager button[aria-current="true"] { color: var(--color-ink); border-bottom-color: var(--color-accent); font-weight: 500; }
+.pager button + button { margin-left: var(--space-4); }
+
+/* The call */
+.call { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-7); margin-top: var(--space-6); align-items: start; }
+.tape { display: flex; flex-direction: column; gap: var(--space-3); }
+.line { display: flex; flex-direction: column; max-width: 82%; }
+.line .who { color: var(--color-muted); margin-bottom: 4px; }
+.line .say { padding: 10px 14px; border-radius: 14px; font-size: var(--type-md); line-height: 1.5; }
+.line.you { align-self: flex-end; align-items: flex-end; }
+.line.you .say { background: var(--color-slate); border-bottom-right-radius: 4px; }
+.line.mate .say { background: var(--color-paper); border: 1px solid var(--color-rule); border-bottom-left-radius: 4px; }
+.line.cut .say { border-style: dashed; color: var(--color-ink-2); }
+.line.cut .say::after { content: " —"; }
+.machine { display: flex; gap: var(--space-2); align-items: baseline; color: var(--color-muted); padding: 2px 0 2px var(--space-1); }
+.machine::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); transform: translateY(-1px); }
+.machine.warn::before { background: var(--color-warn); }
+.machine b { color: var(--color-ink-2); font-weight: 500; }
+.gapnote { color: var(--color-muted); text-align: center; padding: var(--space-1) 0; }
+.after { background: var(--color-paper-2); border-radius: var(--radius-lg); padding: var(--space-5); }
+.after .empty { color: var(--color-muted); margin: 0; font-size: var(--type-sm); }
+.post { background: var(--color-paper); border: 1px solid var(--color-rule); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); font-size: var(--type-sm); line-height: 1.55; }
+.post + .post { margin-top: var(--space-3); }
+.post .from { color: var(--color-muted); margin-bottom: 6px; }
+.post .title { font-weight: 700; margin-bottom: 2px; }
+.post ul { margin: 0; padding-left: 18px; }
+.post li + li { margin-top: 4px; }
+.post .open { color: var(--color-accent); margin-top: var(--space-3); }
+.mocknote { color: var(--color-muted); margin-top: var(--space-5); }
+
+/* The rules for a scenario */
+.musts { counter-reset: must; list-style: none; padding: 0; margin: var(--space-6) 0 0; display: grid; gap: var(--space-4); }
+.musts li { counter-increment: must; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: var(--space-3); font-size: var(--type-lg); line-height: 1.45; max-width: 64ch; }
+.musts li::before { content: counter(must, decimal-leading-zero); font-family: var(--font-mono); font-size: var(--type-xs); color: var(--color-accent); padding-top: 7px; }
+.notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); margin-top: var(--space-7); }
+.note { border-radius: var(--radius-lg); padding: var(--space-5); font-size: var(--type-md); }
+.note h3 { font-size: var(--type-sm); font-weight: 700; margin-bottom: var(--space-3); }
+.note ul { margin: 0; padding-left: 18px; }
+.note li + li { margin-top: var(--space-2); }
+.note.today { background: var(--color-warn-wash); }
+.note.today h3 { color: var(--color-warn); }
+.note.decide { border: 1px solid var(--color-rule); }
+.note.decide h3 { color: var(--color-accent); }
+
+/* Overview slides */
+.cover { padding-top: var(--space-7); }
+.cover h2 { font-size: var(--type-3xl); max-width: 22ch; }
+.rulebig { margin-top: var(--space-7); padding: var(--space-5) var(--space-6); border: 1px solid var(--color-rule); border-radius: var(--radius-lg); font-size: var(--type-lg); line-height: 1.5; max-width: 60ch; }
+.rulebig .mono { display: block; color: var(--color-accent); margin-bottom: var(--space-2); }
+.hint { color: var(--color-muted); margin-top: var(--space-6); }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6) var(--space-7); margin-top: var(--space-6); }
+.grid2 > div { min-width: 0; }
+.grid2 h3 { font-size: var(--type-lg); font-weight: 700; margin-bottom: var(--space-3); }
+.grid2 p { color: var(--color-ink-2); margin: 0 0 var(--space-3); }
+.grid2 ul { margin: 0; padding-left: 18px; }
+.grid2 li + li { margin-top: var(--space-2); }
+.grid2 .where { color: var(--color-muted); margin-top: var(--space-3); }
+.say-no { color: var(--color-danger); }
+.journey { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-6) var(--space-6); margin-top: var(--space-6); counter-reset: step; }
+.journey > div { border-top: 2px solid var(--color-rule); padding-top: var(--space-4); min-width: 0; }
+.journey > div:first-child { border-top-color: var(--color-accent); }
+.journey .mono { color: var(--color-accent); }
+.journey h3 { font-size: var(--type-xl); font-weight: 700; margin: var(--space-2) 0 var(--space-3); }
+.journey ul { margin: 0; padding-left: 18px; color: var(--color-ink-2); }
+.journey li + li { margin-top: 4px; }
+.tablewrap { overflow-x: auto; margin-top: var(--space-6); }
+table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: var(--type-sm); }
+th, td { text-align: left; vertical-align: top; padding: var(--space-3) var(--space-4) var(--space-3) 0; border-bottom: 1px solid var(--color-rule); }
+th { font-family: var(--font-mono); font-size: var(--type-xs); letter-spacing: 0.04em; font-weight: 500; color: var(--color-muted); }
+td.k { font-weight: 700; white-space: nowrap; }
+.qjump { all: unset; cursor: pointer; color: var(--color-accent); }
+.qjump:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+@media (max-width: 1080px) {
+  .call { grid-template-columns: minmax(0, 1fr); gap: var(--space-6); }
+  .journey { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .frame { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .bar { padding: var(--space-3) var(--space-4); }
+  .slide { padding: var(--space-6) var(--space-4) var(--space-7); }
+  .notes, .grid2, .journey { grid-template-columns: minmax(0, 1fr); }
+  .slide h2 { font-size: var(--type-xl); }
+  .cover h2 { font-size: var(--type-2xl); }
+  .lede, .musts li, .rulebig { font-size: var(--type-md); }
+  .line { max-width: 92%; }
+}
+</style>
+</head>
+<body>
+<div class="frame">
+  <nav class="rail" aria-label="Slides">
+    <div class="title">Voice scenarios</div>
+    <div class="sub mono">Hotline 0.42 · 2026-10-20</div>
+    <ol id="index"></ol>
+  </nav>
+  <div class="stage">
+    <div class="bar">
+      <span class="where mono" id="where" aria-live="polite"></span>
+      <button class="btn" type="button" id="prev">Back</button>
+      <button class="btn" type="button" id="next">Next</button>
+    </div>
+    <main class="slide" id="slide" tabindex="-1"></main>
+  </div>
+</div>
+<script>
+const S = (o) => ({ kind: "scenario", ...o });
+const you = (t) => ({ t: "you", s: t });
+const mate = (t, who) => ({ t: "mate", s: t, who });
+const cut = (t, who) => ({ t: "cut", s: t, who });
+const run = (label, s, warn) => ({ t: "machine", label, s, warn });
+const post = (from, s) => ({ t: "post", from, s });
+// Something the call made, written to stand on its own in the chat.
+const art = (from, title, s) => ({ t: "art", from, title, s });
+// The call's closing note: what was discussed, decided and made, and the way into the call.
+const note = (who, items) => ({ t: "note", who, items });
+const pause = (s) => ({ t: "gap", s });
+
+const slides = [
+  { kind: "cover", group: "Start", title: "Voice scenarios" },
+  { kind: "points", group: "Start", title: "Your three points" },
+  { kind: "journey", group: "Start", title: "The journey" },
+  { kind: "types", group: "Start", title: "Kinds of conversation" },
+
+  S({ group: "Talking", title: "A quick question on the go",
+    lede: "The commonest call: one question, one answer, gone. The live voice answers it from a lookup, at the speed of its own thinking.",
+    setting: ["Phone", "Walking", "Live voice", "Goldie (Hotline Agent)"],
+    tape: [
+      you("Did Rex finish the release notes?"),
+      run("lookup", "search_thread · list_chapters on Rex's work thread"),
+      mate("Not yet. He's on the last section, the Copilot fixes, and asked nothing of you.", "Goldie"),
+      you("Okay, thanks."),
+      mate("Talk soon.", "Goldie"),
+      pause("hang up"),
+      run("after 30 s", "closing note posted, thread parks"),
+    ],
+    chat: [note("Call with Goldie · 1 min", ["Rex's 0.42 release notes aren't finished; he's on the Copilot section and needs nothing from you."])],
+    must: [
+      "The answer comes from a lookup. A question about state, code or results is never answered from memory.",
+      "No pointer to the chat: nothing here is in it.",
+      "The first words follow the question at once; a lookup that takes a moment is covered by a few words naming it (\"Let me look\"), never by silence.",
+      "Small talk stays on the call's own thread. The chat gets one closing note, not the exchange.",
+    ],
+    gap: ["The front sometimes answers state it hasn't looked up (task-204)."],
+    ask: ["Is a closing note worth posting for a call this short, or should a call under a few turns with no work post nothing?"],
+  }),
+
+  S({ group: "Talking", title: "Where are we on it?",
+    lede: "A status check-in. The answer is short when spoken, and a list goes to the chat only when it really is a list.",
+    setting: ["Desk window", "Live voice", "Pork Chop (Claude Code)"],
+    tape: [
+      you("Where are we on 0.42?"),
+      run("lookup", "the board: epic-22 and its children; CI on release/0.42.0"),
+      mate("Everything on the Rig upgrade has landed and CI is green. The last thing is your Grok Voice call, and then it's ready to cut.", "Pork Chop"),
+      you("What did QA find today?"),
+      mate("Three bugs, all fixed: Sonnet stopping after a tool call, Codex failing on every turn, and the model picker making you switch off every model one by one.", "Pork Chop"),
+      you("Good. Anything blocked?"),
+      mate("No.", "Pork Chop"),
+    ],
+    chat: [note("Call with Pork Chop · 2 min", ["0.42 is ready to cut once you've made the Grok Voice check.", "Today's QA found three bugs, all fixed. Nothing is blocked."])],
+    must: [
+      "Three items are said, not posted. A list goes to the chat only when it is longer than a few items, or holds links or code.",
+      "A one-word answer is allowed when one word is the answer.",
+      "Follow-ups stay on the call; nothing is re-asked of the person.",
+    ],
+    gap: ["\"Details are in the chat\" comes out nearly every turn (task-207), even when the chat holds nothing more."],
+  }),
+
+  S({ group: "Work", title: "Asking for real work",
+    lede: "Anything that writes or changes something goes to a clone of the teammate on its own model and harness. The call goes on; the result comes back into the call, and what it made goes to the chat.",
+    setting: ["Desk window", "Live voice", "Pork Chop (Claude Code)"],
+    tape: [
+      you("Write up the release notes for 0.42."),
+      mate("Let me write those up.", "Pork Chop"),
+      run("work", "a clone of Pork Chop on Claude Code, focused on the notes, on the call's thread"),
+      you("While that runs, did the phone build go through?"),
+      run("lookup", "EAS build list"),
+      mate("Yes, build 35 is on TestFlight.", "Pork Chop"),
+      pause("the clone finishes"),
+      mate("The notes are written: the Rig upgrade, the Copilot fixes and the model picker. They're in the chat.", "Pork Chop"),
+      run("post_to_chat", "docs/releases/0.42.0.md, from the call"),
+    ],
+    chat: [art("From the call", "Release notes for 0.42.0", "The Rig 0.45 upgrade, the two Copilot fixes and the model picker. docs/releases/0.42.0.md is attached."), note("Call with Pork Chop · 4 min", ["You asked for the 0.42.0 release notes; they're written, above.", "The iOS build went through and is on TestFlight."])],
+    must: [
+      "The voice is the teammate: its name, its manner, its recent chat and the call so far. It says what it will do in its own words, often with no announcement at all (\"I'll keep it to a page\").",
+      "Said as the teammate's own action, in the first person. Never \"handing that off\", \"passing that on\", \"I'll get someone on it\".",
+      "The acknowledgement names what was asked, in a few words, and is not one the call has already used.",
+      "The person can keep talking while the work runs; lookups still answer.",
+      "The home agent is never interrupted. The work is done by the teammate's own model and harness, as if typed.",
+      "The pointer to the chat is said once, because there is a file in it.",
+    ],
+    gap: [
+      "Today the desk call narrates the hand-off and the live front sends the work into the DM through send_to_teammate, interrupting the home agent.",
+    ],
+  }),
+
+  S({ group: "Work", title: "Changing your mind mid-work",
+    lede: "The person steers work already running, the way a second typed line steers a turn in flight.",
+    setting: ["Desk window", "Live voice", "continues the last slide"],
+    tape: [
+      you("Write up the release notes for 0.42."),
+      mate("Let me write those up.", "Pork Chop"),
+      run("work", "clone started"),
+      you("Actually, keep it under a page and lead with the Copilot fixes."),
+      run("work", "the line goes to the running clone's thread"),
+      mate("Under a page, Copilot first.", "Pork Chop"),
+      pause("the clone finishes"),
+      mate("Done, one page, Copilot fixes first. It's in the chat.", "Pork Chop"),
+    ],
+    chat: [art("From the call", "Release notes for 0.42.0, one page", "Rewritten to fit one page, leading with the Copilot fixes, as you asked on the call. The file is attached.")],
+    must: [
+      "A change to running work steers it; it does not start a second clone.",
+      "The confirmation repeats back what changed, in a few words, so the person knows it was understood.",
+    ],
+    ask: [
+      "Does the front get a way to steer a clone (a line onto its thread), or does asking the work tool again with the same task count as steering?",
+      "Can the person stop work by voice (\"never mind, drop it\")? I'd say yes, and it should say what was left unfinished.",
+    ],
+  }),
+
+  S({ group: "Talking", title: "Thinking out loud",
+    lede: "A long back-and-forth with no tools at all. It should sound like a conversation, not a series of reports.",
+    setting: ["Phone", "Driving", "Live voice", "Goldie"],
+    tape: [
+      you("I'm trying to work out what to call the clone when it runs on a call. Work thread? Arm?"),
+      mate("The ADR calls the whole family arms. From your side it's just the teammate doing it, so maybe it needs no name on the call at all.", "Goldie"),
+      you("Right, but on the card?"),
+      mate("The card could name the task, not the mechanism: \"Writing the release notes\".", "Goldie"),
+      you("I like that. What if two things are running?"),
+      mate("Two rows, each with its task and a dot that breathes while it runs.", "Goldie"),
+      you("Okay, write that down as a proposal."),
+      mate("Writing it up.", "Goldie"),
+      run("work", "clone: write the proposal from this conversation"),
+    ],
+    chat: [art("From the call", "Proposal: name a call's work by its task", "From our call about naming: the call card names the task (\"Writing the release notes\"), not the mechanism, and two tasks show as two rows. The proposal is attached."), note("Call with Goldie · 6 min", ["We settled that a call's running work is named by its task on the card, with one row per task.", "The proposal is written, above."])],
+    must: [
+      "No pointer to the chat on a conversational turn, ever.",
+      "A conversational turn's written version is the spoken words; there is no second answer to invent.",
+      "Lengths follow the talk: a short reply to a short line.",
+      "When it ends in \"write that down\", it becomes the work scenario, carrying the whole conversation as its brief.",
+    ],
+    gap: ["Every turn gets the same two-version instruction with its 40-word cap and chat pointer, whatever kind of turn it is (task-207)."],
+  }),
+
+  S({ group: "Talking", title: "Give me the rundown, I have time",
+    lede: "The person asks for length. The usual short-reply rule relaxes, and the teammate checks in rather than reading a wall.",
+    setting: ["Phone", "Commute", "Live voice", "Pork Chop"],
+    tape: [
+      you("Give me the rundown on today. I've got ten minutes."),
+      run("lookup", "today's chapters, board moves, CI runs"),
+      mate("Three things. First, 0.42's Rig upgrade landed and passed QA. Second, I fixed two Copilot bugs and the model picker. Third, voice is next, and you asked for a scenario deck first. Want more on any of them?", "Pork Chop"),
+      you("The Copilot ones."),
+      mate("Sonnet would stop after a tool call because Copilot ends an empty reply without saying it's finished. And Codex failed on every turn because Copilot refuses one schema word our schedule tool uses.", "Pork Chop"),
+      cut("The first one was a stream that ends with", "Pork Chop"),
+      you("Got it, skip the details."),
+      mate("Okay. That's today.", "Pork Chop"),
+    ],
+    chat: [],
+    must: [
+      "\"I've got time\" or \"give me the overview\" relaxes the length cap for that answer only.",
+      "A long answer is spoken in numbered parts with a check-in, so the person can steer it.",
+      "Interrupting stops the speech at once; the next reply answers the interruption, not the rest of the old one.",
+    ],
+  }),
+
+  S({ group: "Work", title: "Dictating something",
+    lede: "The person talks for a while, with pauses, and wants it written. The ear must not jump in at the first pause.",
+    setting: ["Desk window", "Hotkey from any app", "Live voice", "Goldie"],
+    tape: [
+      you("Draft a reply to Sam. Say thanks for the report… the numbers look right… and we'll ship on Thursday unless QA finds something."),
+      run("ear", "pauses under a couple of seconds inside one utterance are held, not answered"),
+      mate("Drafting it.", "Goldie"),
+      run("work", "clone drafts the email"),
+      mate("It's drafted: thanks, the numbers check out, Thursday unless QA objects. It's in the chat for you to send.", "Goldie"),
+    ],
+    chat: [art("From the call", "Draft reply to Sam", "Thanks for the report; the numbers check out; we ship Thursday unless QA finds something. Not sent: it's yours to send.")],
+    must: [
+      "A pause mid-dictation is not the end of the turn. \"Draft…\", \"say…\", \"write…\" open a longer listening window.",
+      "The draft is read back as a summary, not in full; the full text is in the chat.",
+      "Nothing is sent on the person's behalf without them saying so.",
+    ],
+    ask: ["Read the draft back in full, or the summary as shown? Full is safer for an email; summary is better for anything over a few lines."],
+  }),
+
+  S({ group: "Work", title: "Something needs you during the call",
+    lede: "A card that would wake the person in the chat is said on the call instead, since they are already there.",
+    setting: ["Phone", "Live voice", "Goldie", "Rex is working in the background"],
+    tape: [
+      you("Can you check the weather in Austin for Friday?"),
+      run("lookup", "web_search"),
+      mate("Sunny, high of 78.", "Goldie"),
+      run("card", "Rex: approval to push release/0.42.0", true),
+      mate("Also, Rex is asking to push the release branch. Want me to let him?", "Goldie"),
+      you("Yes, go ahead."),
+      run("card", "approved by voice, from the call"),
+      mate("Done, he's pushing.", "Goldie"),
+    ],
+    chat: [note("Call with Goldie · 2 min", ["You approved Rex's push of release/0.42.0.", "Austin on Friday: sunny, high of 78."])],
+    must: [
+      "A card is said once, at a natural break, not over the person.",
+      "A yes or no by voice answers it, and the answer is written to the chat so there is a record.",
+      "Anything needing a credential, a 2FA tap or a screen is never done by voice: it is said, and waits for the desk.",
+    ],
+    ask: ["Which cards may be answered by voice? I'd allow approvals and simple questions, and never credentials, payments or deletions."],
+  }),
+
+  S({ group: "Desk", title: "Calling the desk",
+    lede: "The \"Call the desk\" shortcut reaches the team lead, who knows the roster and answers about it, and hands a named teammate's work straight to them.",
+    setting: ["Desk window", "Hotkey from any app", "Live voice", "Nova (team lead)"],
+    tape: [
+      you("Who's working on the phone app?"),
+      run("lookup", "roster: teammates, states, goals"),
+      mate("Goldie has the voice front on the phone; Rex is idle.", "Nova"),
+      you("Tell Goldie to rerun the iOS build."),
+      run("message_teammate", "Goldie, handoff: rerun the iOS build"),
+      mate("Goldie's got it.", "Nova"),
+      you("And what's left for 0.42?"),
+      mate("One check, your Grok Voice call. Nothing else is open.", "Nova"),
+    ],
+    chat: [note("Call with Nova · 2 min", ["Goldie is rerunning the iOS build.", "0.42 waits only on your Grok Voice check."])],
+    must: [
+      "The lead answers roster questions itself, from a lookup.",
+      "When the person names a teammate, the lead hands the words straight to them; saying who is right here, because routing is the lead's job.",
+      "No separate dispatcher model when the owner is clear.",
+      "With no lead set, today's desk call, but it knows the person's name and the roster.",
+    ],
+    gap: ["You called the desk call the worst of them: it runs a separate dispatcher with its own command table and narrates every step."],
+  }),
+
+  S({ group: "After", title: "Hanging up while work runs",
+    lede: "Hanging up takes the voice away; it does not stop the work. What would have been said is posted instead.",
+    setting: ["Phone", "Live voice", "Pork Chop"],
+    tape: [
+      you("Write up the release notes for 0.42."),
+      mate("Let me write those up.", "Pork Chop"),
+      run("work", "clone started"),
+      you("I have to go, bye."),
+      pause("hang up, the clone keeps working"),
+      run("post_to_chat", "the clone's result, posted instead of said"),
+      run("after 30 s with no turn in flight", "closing note posted, thread parks"),
+    ],
+    chat: [
+      art("From the call", "Release notes for 0.42.0", "Finished after you hung up: the Rig 0.45 upgrade, the two Copilot fixes and the model picker. The file is attached."),
+      note("Call with Pork Chop · 1 min", ["You asked for the 0.42.0 release notes; they were finished after you hung up and are above."]),
+    ],
+    must: [
+      "A turn in flight at hang-up finishes; its reply goes to the chat.",
+      "The closing note comes 30 seconds after hang-up once no turn is in flight, so it covers the finished work.",
+      "Once the call is down, a post lights the rail and notifies as any reply does.",
+    ],
+  }),
+
+  S({ group: "After", title: "Picking it back up",
+    lede: "Back at the desk, the call's thread is still open. The person keeps going by text, and can call again on the same thread.",
+    setting: ["Desk window", "Text, then voice", "Pork Chop"],
+    tape: [
+      pause("opens the call's thread from the closing note"),
+      you("Make the second section shorter."),
+      mate("Done. It's down to four lines; the new file is in the chat.", "Pork Chop"),
+      pause("presses Call on the same thread"),
+      you("Read me the first line."),
+      mate("\"Hotline 0.42 moves to Rig 0.45 and fixes three bugs found in QA.\"", "Pork Chop"),
+    ],
+    chat: [art("From the call", "Release notes for 0.42.0, shorter", "The second section is down to four lines. The file is attached.")],
+    must: [
+      "The thread keeps its agent and its whole context after hang-up; typing in it is talking to the same agent.",
+      "Calling from a thread attaches voice to it again; nothing starts from scratch.",
+      "The next hang-up's closing note covers only what is new since the last one.",
+    ],
+  }),
+
+  S({ group: "After", title: "Following up in the chat",
+    tapeTitle: "In the chat, after the call",
+    lede: "The person carries on by text about something from a call. Whoever answers must know what \"it\" is, because the call does.",
+    setting: ["Desk window", "Text", "Pork Chop"],
+    tape: [
+      pause("replies to the release-notes post from the call"),
+      you("Make it less formal."),
+      run("reply", "a reply on a call's post continues in that call's thread, with the whole call as context"),
+      mate("Done: plainer wording, same three sections. The new file is in the chat.", "Pork Chop"),
+      pause("later, a new line in the chat, not a reply"),
+      you("Did the notes mention the picker?"),
+      run("home agent", "it was handed the call's posts and closing note; it opens the call's thread for the rest"),
+      mate("Yes, the third section covers Chosen and All on / All off.", "Pork Chop"),
+    ],
+    chat: [art("From the call", "Release notes for 0.42.0, plainer", "Same three sections in less formal wording. The file is attached.")],
+    must: [
+      "Every post names what it is about. None leans on the call with \"it\" or \"that one\"; it reads right to someone who wasn't on the call.",
+      "A reply on a call's post goes to that call's thread, where the context is.",
+      "Scenario-pass check (task-244): say only on the call that the mascot is Bramble, a wiry terrier, then hang up. From the home chat ask 'Like we said on the call, use the mascot exactly that way.' On both drivers the agent must use read_thread on the call key and recover that detail from the full transcript, without asking you to repeat it or relying on a search snippet.",
+      "Open the call: both speakers appear in order and every tool call is inline with its name and one line of what it did. The composer remains available.",
+      "The home agent is handed a call's posts and closing note before its next line, and opens the call's thread when it needs more. It never answers \"I don't know what it is\" when the call knows.",
+    ],
+    gap: ["The front writes into the chat as if the chat had heard the call, so the home agent answers \"I don't know what 'it' is\" while the call knows exactly."],
+    ask: ["A reply on a call's post: continue in the call's thread (my pick, since it has the whole call), or go to the home agent with the call attached?"],
+  }),
+
+  S({ group: "After", title: "Calling on a thread already under way",
+    lede: "The reverse: voice attaches to a work thread, so what is said lands there, with that thread's context.",
+    setting: ["Desk window", "Work thread \"QA for 0.42\"", "Live voice", "Pork Chop"],
+    tape: [
+      pause("presses Call in the work thread"),
+      you("Where did we leave the picker bug?"),
+      run("lookup", "this thread's own history"),
+      mate("Fixed and pushed: Chosen starts with every model off, with All on and All off.", "Pork Chop"),
+      you("Try it with xAI too."),
+      mate("Trying it with xAI.", "Pork Chop"),
+      run("work", "clone on this work thread"),
+    ],
+    chat: [art("From QA for 0.42", "Model picker with xAI", "Chosen, All on and All off work with xAI's catalogue too.")],
+    must: [
+      "The call is the work thread with voice attached; it opens no new call thread.",
+      "Posts read \"From QA for 0.42\", not \"From the call\".",
+      "If the thread's agent is mid-turn, the spoken line waits or steers, as a typed one would.",
+    ],
+  }),
+
+  S({ group: "Trouble", title: "Interrupting",
+    lede: "The person talks over the teammate, or taps. The teammate stops at once and answers the correction.",
+    setting: ["Phone", "Speaker", "Live voice", "Goldie"],
+    tape: [
+      you("Which teammate has the most open tasks?"),
+      cut("Rex has six, mostly the voice slices, then Goldie with", "Goldie"),
+      you("No, I meant this week."),
+      mate("This week, Goldie: three, all phone work.", "Goldie"),
+    ],
+    chat: [],
+    must: [
+      "Speech stops the moment the person starts talking, or taps.",
+      "What was cut is recorded as cut, so the teammate knows what the person did not hear.",
+      "On speaker, the teammate never hears itself: echo cancellation covers its own speech, on the desk and the phone.",
+    ],
+    gap: ["Echo cancellation on speaker is unverified on both the desk and the phone."],
+  }),
+
+  S({ group: "Trouble", title: "A bad network",
+    lede: "On the phone over the relay, the line drops for a few seconds. The call should survive a blip and end cleanly after a real loss.",
+    setting: ["Phone", "5G through the relay", "Live voice", "Goldie"],
+    tape: [
+      you("What's on my calendar after lunch?"),
+      run("network", "the relay connection drops", true),
+      pause("the phone shows Reconnecting"),
+      run("network", "back within the hold window: same call, same thread"),
+      mate("Sorry, I lost you for a second. After lunch you have the design review at two.", "Goldie"),
+    ],
+    chat: [],
+    must: [
+      "A short drop resumes the same call on the same thread, and the teammate says one line about it.",
+      "A drop longer than the hold window is a hang-up, with everything a hang-up does.",
+      "The phone says Reconnecting only while it really is.",
+    ],
+    ask: ["How long should a dropped call be held before it counts as a hang-up? I'd start at 20 seconds."],
+    gap: ["You dropped a call on the relay recently; the cause isn't known yet (I asked for the Pi's journalctl)."],
+  }),
+
+  S({ group: "Trouble", title: "When the live voice goes away",
+    lede: "With live selected, a failed start says why. A dropped connection reconnects with context; if it cannot, the card offers an explicit Legacy call.",
+    setting: ["Phone", "Live voice; Legacy by choice", "Goldie"],
+    tape: [
+      you("Summarise what Rex did today."),
+      run("live voice", "the connection fails", true),
+      run("live voice", "reconnect with the call’s context; if that fails, say why once"),
+      you("Call with Legacy voice"),
+      mate("Rex finished the release notes and fixed one test.", "Goldie"),
+      run("legacy voice", "the call's ear transcribes; Goldie's own model answers; speech streams"),
+      you("Thanks."),
+    ],
+    chat: [],
+    must: [
+      "A live call never silently becomes Legacy; retry with context first.",
+      "If live cannot start or reconnect, the card says why and offers Call with Legacy voice.",
+      "A spent budget is said once, with what the person can do about it.",
+    ],
+  }),
+
+  S({ group: "Talking", title: "Legacy voice on a slower teammate",
+    lede: "No live model: the teammate's own model answers every line. The first sentence and a soft sound carry the wait.",
+    setting: ["Desk window", "Legacy voice", "Pork Chop (Claude Code)"],
+    tape: [
+      you("Why did the Codex turns fail?"),
+      mate("Let me look at the error.", "Pork Chop"),
+      run("tools", "Claude Code reads copilot.rs and the error"),
+      run("sound", "a soft sound while nothing is said"),
+      mate("Copilot refuses tool schemas with uniqueItems, and our schedule tool had one. It's fixed on the release branch.", "Pork Chop"),
+    ],
+    chat: [],
+    must: [
+      "The first thing said is the agent's own first sentence, before its tools.",
+      "A turn that says nothing first gets one soft sound, never filler words.",
+      "The reply is spoken as it streams, and can be interrupted at any time.",
+    ],
+    ask: ["Legacy voice is used only when selected, or explicitly chosen after a live failure."],
+  }),
+
+  { kind: "rules", group: "Rules", title: "Rules every scenario shares" },
+  { kind: "removes", group: "Rules", title: "What the refactor removes" },
+  { kind: "questions", group: "Rules", title: "Questions for you" },
+];
+
+// Scenarios grouped in the index's order; the order within a group stays.
+const ORDER = ["Start", "Talking", "Work", "Desk", "After", "Trouble", "Rules"];
+slides.sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group));
+
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const list = (items) => `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`;
+
+/* A scenario is two pages: the call, then what must be true of it. */
+const pages = [];
+let scenarioNo = 0;
+slides.forEach((s, i) => {
+  if (s.kind === "scenario") {
+    s.no = ++scenarioNo;
+    pages.push({ slide: i, part: "call" }, { slide: i, part: "rules" });
+  } else {
+    pages.push({ slide: i, part: null });
+  }
+});
+
+function tapeHtml(tape) {
+  return tape.map((l) => {
+    if (l.t === "you") return `<div class="line you"><span class="who mono">You</span><div class="say">${esc(l.s)}</div></div>`;
+    if (l.t === "mate" || l.t === "cut") return `<div class="line mate${l.t === "cut" ? " cut" : ""}"><span class="who mono">${esc(l.who)}${l.t === "cut" ? " · cut off" : ""}</span><div class="say">${esc(l.s)}</div></div>`;
+    if (l.t === "machine") return `<div class="machine mono${l.warn ? " warn" : ""}"><span><b>${esc(l.label)}</b> · ${esc(l.s)}</span></div>`;
+    if (l.t === "gap") return `<div class="gapnote mono">${esc(l.s)}</div>`;
+    return "";
+  }).join("");
+}
+
+function chatHtml(p) {
+  if (p.t === "note") return `<div class="post"><div class="from mono">${esc(p.who)} · closing note</div><ul>${p.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul><div class="open mono">Open the call →</div></div>`;
+  if (p.t === "art") return `<div class="post"><div class="from mono">${esc(p.from)}</div><div class="title">${esc(p.title)}</div>${esc(p.s)}</div>`;
+  return `<div class="post"><div class="from mono">${esc(p.from)}</div>${esc(p.s)}</div>`;
+}
+
+function scenarioHead(s, part) {
+  return `
+    <div class="eyebrow mono">Scenario ${s.no} · ${esc(s.group)}</div>
+    <h2>${esc(s.title)}</h2>
+    <p class="lede">${esc(s.lede)}</p>
+    <div class="chips">${s.setting.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>
+    <div class="pager" role="tablist" aria-label="Parts of this scenario">
+      <button type="button" data-part="call" aria-current="${part === "call"}">${esc(s.tapeTitle ?? "The call")}</button>
+      <button type="button" data-part="rules" aria-current="${part === "rules"}">What must be true</button>
+    </div>`;
+}
+
+function scenarioCall(s) {
+  const after = s.chat.length ? s.chat.map(chatHtml).join("") : `<p class="empty">Nothing. The call's own thread holds it.</p>`;
+  return `${scenarioHead(s, "call")}
+    <div class="call">
+      <div>
+        <div class="tape">${tapeHtml(s.tape)}</div>
+        <p class="mocknote mono">The lines are illustrative, written to show the flow.</p>
+      </div>
+      <aside class="after" aria-label="In the chat afterwards">
+        <p class="label mono">In the chat afterwards</p>
+        ${after}
+      </aside>
+    </div>`;
+}
+
+function scenarioRules(s) {
+  const notes = [
+    s.gap ? `<div class="note today"><h3>Today</h3>${list(s.gap)}</div>` : "",
+    s.ask ? `<div class="note decide"><h3>For you to decide</h3>${list(s.ask)}</div>` : "",
+  ].join("");
+  return `${scenarioHead(s, "rules")}
+    <ol class="musts">${s.must.map((m) => `<li><span>${esc(m)}</span></li>`).join("")}</ol>
+    ${notes ? `<div class="notes">${notes}</div>` : ""}`;
+}
+
+const views = {
+  cover: () => `
+    <div class="cover">
+      <div class="eyebrow mono">0.42 · voice on the agent thread layer</div>
+      <h2>How talking to a teammate should go, scenario by scenario</h2>
+      <p class="lede">Each scenario is a call as you'd have it: where you are, what's said, what happens underneath, what the chat holds after, and what must be true. Together they're the acceptance set for the voice refactor (epic-21). Where a scenario needs a decision from you, it says so.</p>
+      <div class="rulebig"><span class="mono">The rule</span>Voice changes how you talk to the teammate, never who does the work. The live voice talks and looks things up; anything that writes or changes something is done by the teammate's own model and harness, as if you had typed it.</div>
+      <p class="hint mono">← → to move · each scenario has two pages: the call, then what must be true</p>
+    </div>`,
+
+  points: () => `
+    <div class="eyebrow mono">Start</div>
+    <h2>Your three points, and what changes for each</h2>
+    <p class="lede">What you found on today's calls. All three come from the same root: the voice is a separate front that relays into the chat, rather than the teammate talking on its own thread.</p>
+    <div class="grid2">
+      ${[
+        ["1 · The chat doesn't know what \"it\" is",
+          "The front writes a line into the chat as if the chat had heard the call. The home agent hasn't, so it answers \"I don't know what 'it' is\".",
+          ["Work asked for on a call runs on the call's own thread, whose agent has heard the whole call, so \"it\" resolves.", "Every post to the chat is written to stand alone: it names its subject.", "A reply on a call's post continues in the call's thread; the home agent is handed the call's posts and closing note, and opens the call's thread when it needs more."],
+          "Asking for real work · Following up in the chat"],
+        ["2 · \"On it\", \"passing that along\"",
+          "The front is told it delegates, its tool is send_to_teammate, and its prompt carries example phrases, so it narrates a hand-off on almost every request.",
+          ["The voice is given the teammate's identity: its name, manner, recent chat and the call so far, and told it is the teammate, with no one behind it.", "Its work tool is a first-person verb (write, change, run), not a send. No stock phrases; its last few acknowledgements are fed back; a scripted test fails on relay phrasing.", "Speed stays: the live model still talks and looks things up itself. Only work that writes goes to the clone, and the tool returns at once."],
+          "Asking for real work · Thinking out loud · Rules"],
+        ["3 · The call's post is a blob",
+          "Five-minute summaries and a mechanical digest list the turns: you said, I said, you asked.",
+          ["Both go. One closing note, 30 seconds after hang-up once idle: a summary of what was discussed, decided and made.", "It opens the call: the transcript lives on the call's thread, never in the chat.", "A call that only chatted gets a one-line note, or none (a question for you)."],
+          "Every scenario's chat panel · Hanging up while work runs"],
+      ].map(([t, why, fix, where]) => `<div><h3>${t}</h3><p>${why}</p><ul>${fix.map((f) => `<li>${f}</li>`).join("")}</ul><p class="where mono">Shown in: ${where}</p></div>`).join("")}
+    </div>`,
+
+  journey: () => `
+    <div class="eyebrow mono">Start</div>
+    <h2>The journey of one call</h2>
+    <p class="lede">Every scenario is a path through these six steps. The refactor puts all of them on the one agent thread path from ADR 0008.</p>
+    <div class="journey">
+      ${[
+        ["1", "Reach", ["Call button in the window", "\"Call your agent\" from any app", "\"Call the desk\" from any app", "The phone, at home or through the relay"]],
+        ["2", "Attach", ["A new call thread on the teammate", "An existing thread: a work thread or an earlier call", "The desk: a call thread on the team lead"]],
+        ["3", "Talk", ["The live voice answers, with lookups", "Legacy voice: the teammate's own model", "Interrupt at any time"]],
+        ["4", "Work", ["Lookups answer inline", "Writing or changing goes to a clone", "Cards are said on the call"]],
+        ["5", "Hang up", ["Voice detaches; work keeps going", "A reply in flight is posted, not said"]],
+        ["6", "After", ["Closing note 30 s later, once idle", "Continue the thread by text", "Call again on the same thread"]],
+      ].map(([n, t, items]) => `<div><span class="mono">Step ${n}</span><h3>${t}</h3><ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>`).join("")}
+    </div>`,
+
+  types: () => `
+    <div class="eyebrow mono">Start</div>
+    <h2>Kinds of conversation, and how each is handled</h2>
+    <p class="lede">The kind of turn decides who answers, how long the reply is, and whether anything reaches the chat. Today every turn gets the same treatment, which is where most of the unnatural moments come from.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Kind</th><th>Example</th><th>Who answers</th><th>Spoken length</th><th>Reaches the chat</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Small talk</td><td>"Okay, thanks."</td><td>The voice itself</td><td>A few words</td><td>Never</td></tr>
+        <tr><td class="k">Quick question</td><td>"Did Rex finish?"</td><td>The voice, after a lookup</td><td>One or two sentences</td><td>Closing note only</td></tr>
+        <tr><td class="k">Status</td><td>"Where are we on 0.42?"</td><td>The voice, after lookups</td><td>Two or three sentences</td><td>A list, only if long</td></tr>
+        <tr><td class="k">Thinking out loud</td><td>"What should we call it?"</td><td>The voice</td><td>Matches the person</td><td>Never, until "write it down"</td></tr>
+        <tr><td class="k">Rundown</td><td>"Give me the overview, I have time"</td><td>The voice, after lookups</td><td>Long, in parts, with check-ins</td><td>Closing note only</td></tr>
+        <tr><td class="k">Real work</td><td>"Write up the notes"</td><td>A clone on the teammate's model</td><td>Short acknowledgement, then the result</td><td>What it made</td></tr>
+        <tr><td class="k">Steering</td><td>"Keep it under a page"</td><td>The running clone</td><td>A few words confirming</td><td>The changed result</td></tr>
+        <tr><td class="k">Dictation</td><td>"Draft a reply to Sam…"</td><td>A clone</td><td>A summary read back</td><td>The draft</td></tr>
+        <tr><td class="k">A card</td><td>Rex wants to push</td><td>The person, by voice</td><td>One question</td><td>The answer, as a record</td></tr>
+        <tr><td class="k">Routing</td><td>"Tell Goldie to rerun it"</td><td>The lead, to the named teammate</td><td>Who has it</td><td>The handoff</td></tr>
+      </tbody>
+    </table></div>`,
+
+  rules: () => `
+    <div class="eyebrow mono">Rules</div>
+    <h2>Rules every scenario shares</h2>
+    <div class="grid2">
+      <div><h3>Acknowledgements</h3><ul>
+        <li>A few words naming what was asked: "Let me write those up", "Let me look at the error".</li>
+        <li>No stock list to copy from; the call's last few are fed back as already said, so none repeats.</li>
+        <li>Often no acknowledgement at all: the teammate just says what it will do, as anyone would.</li>
+        <li>Never: <span class="say-no">"handing that off"</span>, <span class="say-no">"passing that on"</span>, <span class="say-no">"let me check that for you"</span>.</li>
+      </ul></div>
+      <div><h3>The chat</h3><ul>
+        <li>The pointer to the chat is said only when the chat holds something speech can't carry: a file, code, a table, links, a long list.</li>
+        <li>At most once every few turns, never on a conversational turn.</li>
+        <li>Small talk stays on the call's thread. The chat gets results, records and one closing note.</li>
+        <li>Every post stands alone: it names its subject and never leans on the call.</li>
+        <li>The closing note summarises what was discussed, decided and made, and opens the call. It is never a transcript.</li>
+      </ul></div>
+      <div><h3>Silence and length</h3><ul>
+        <li>Never dead air: a few words naming the lookup, or one soft sound when work goes out and nothing was said.</li>
+        <li>Short by default; long when asked, in parts, with check-ins.</li>
+        <li>A one-word answer when one word is the answer.</li>
+      </ul></div>
+      <div><h3>Truth and reach</h3><ul>
+        <li>State, code and results are looked up, never guessed.</li>
+        <li>Voice narrows what the person hears, never what the teammate can reach: the call's lease is the thread's.</li>
+        <li>Nothing is sent, deleted or paid for without the person saying so; credentials never by voice.</li>
+      </ul></div>
+    </div>`,
+
+  removes: () => `
+    <div class="eyebrow mono">Rules</div>
+    <h2>What the refactor removes</h2>
+    <p class="lede">From ADR 0008 §5. Each of these is behind one or more of today's gaps in the scenarios.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Goes</th><th>Replaced by</th><th>Scenario it fixes</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><code>send_to_teammate</code> into the DM, the relay</td><td>One first-person work tool running a clone on the call's thread</td><td>Asking for real work</td></tr>
+        <tr><td class="k">The call assistant's delegation loop</td><td>The same work tool, for GPT-Live too</td><td>Asking for real work</td></tr>
+        <tr><td class="k">The dispatcher's desk role and its command table</td><td>A call thread on the team lead</td><td>Calling the desk</td></tr>
+        <tr><td class="k">Five-minute summaries and the mechanical digest</td><td>Posts as things happen, and one closing note</td><td>Hanging up while work runs</td></tr>
+        <tr><td class="k">The follow-up of an unanswered question at hang-up</td><td>The turn finishes and its reply is posted</td><td>Hanging up while work runs</td></tr>
+        <tr><td class="k">One spoken instruction for every turn</td><td>An instruction that knows the kind of turn and what was already said</td><td>Thinking out loud, Status</td></tr>
+        <tr><td class="k">Example acknowledgement phrases in the prompt</td><td>A description of a good one, and the last few fed back</td><td>Every scenario</td></tr>
+      </tbody>
+    </table></div>`,
+
+  questions: () => {
+    const qs = slides.map((s, i) => [s, i]).filter(([s]) => s.ask);
+    return `
+    <div class="eyebrow mono">Rules</div>
+    <h2>Questions for you</h2>
+    <p class="lede">Collected from the scenarios. Each answer becomes a line in a task's description before the slices are dispatched.</p>
+    <div class="grid2">${qs.map(([s, i]) => `<div><h3><button type="button" class="qjump" data-slide="${i}">${esc(s.title)}</button></h3>${list(s.ask)}</div>`).join("")}</div>`;
+  },
+};
+
+
+
+const index = document.getElementById("index");
+const slideEl = document.getElementById("slide");
+const where = document.getElementById("where");
+let current = 0;
+
+let lastGroup = null;
+slides.forEach((s, i) => {
+  if (s.group !== lastGroup) {
+    const g = document.createElement("li");
+    g.className = "group mono";
+    g.textContent = s.group;
+    index.appendChild(g);
+    lastGroup = s.group;
+  }
+  const li = document.createElement("li");
+  const b = document.createElement("button");
+  b.type = "button";
+  b.dataset.slide = i;
+  b.innerHTML = `<span class="n">${s.no ?? "·"}</span><span>${esc(s.title)}</span>`;
+  b.addEventListener("click", () => show(pages.findIndex((p) => p.slide === i)));
+  li.appendChild(b);
+  index.appendChild(li);
+});
+
+function show(next) {
+  current = Math.max(0, Math.min(pages.length - 1, next));
+  const page = pages[current];
+  const s = slides[page.slide];
+  slideEl.innerHTML = page.part === "call" ? scenarioCall(s) : page.part === "rules" ? scenarioRules(s) : views[s.kind]();
+  where.textContent = `${current + 1} / ${pages.length} · ${s.title}${page.part === "rules" ? " · what must be true" : ""}`;
+  document.getElementById("prev").disabled = current === 0;
+  document.getElementById("next").disabled = current === pages.length - 1;
+  index.querySelectorAll("li > button").forEach((b) => b.setAttribute("aria-current", String(Number(b.dataset.slide) === page.slide)));
+  slideEl.querySelectorAll(".pager button").forEach((b) => b.addEventListener("click", () => show(pages.findIndex((p) => p.slide === page.slide && p.part === b.dataset.part))));
+  slideEl.querySelectorAll(".qjump").forEach((b) => b.addEventListener("click", () => show(pages.findIndex((p) => p.slide === Number(b.dataset.slide) && p.part !== "call"))));
+  history.replaceState(null, "", `#${current + 1}`);
+  window.scrollTo(0, 0);
+}
+document.getElementById("prev").addEventListener("click", () => show(current - 1));
+document.getElementById("next").addEventListener("click", () => show(current + 1));
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "ArrowRight") show(current + 1);
+  if (e.key === "ArrowLeft") show(current - 1);
+});
+
+show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+
+</script>
+</body>
+</html>

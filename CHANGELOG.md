@@ -8,6 +8,53 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-10-21
+
+### Added
+
+- Your name, in Settings › General › You. Tell a teammate what to call you
+  and it asks "Save your name as George?" on a card; only a yes saves it. A
+  live call greets you by it.
+- Files a call's work writes reach your chat, stamped with the call, whether
+  or not the teammate sent them: each file on its own, or one card listing
+  them all when there are more than three.
+
+### Changed
+
+- On a live voice the voice is the teammate: its name and manner, real work
+  done on its own model in the first person, and no "passing that along".
+  Calls keep their own thread, with results in chat and one closing note
+  after hang-up. Continue by text or call the same thread again; "like we
+  said on the call" in your chat reads the call's thread and acts on it.
+- Calling the desk reaches its team lead: short roster answers and named work
+  sent straight to the teammate.
+- A card raised on a call lands in your chat. Yes/no questions, and a
+  teammate asking approval of its own plan, can be answered by voice;
+  credentials, 2FA, screens, payments and deletions wait for you at the desk.
+- Calls close together share one closing note, two minutes after the last
+  hang-up, and a reply that lands after hang-up is not posted again when its
+  result is already in the chat.
+- A short connection drop holds the same call for twenty seconds. A live
+  voice that can't connect says why and offers Legacy; it never switches
+  silently.
+- Legacy voice plays one soft sound when the teammate starts working, then a
+  short, varied line every twenty seconds while it keeps working.
+- A provider's "Only some" models is now "Chosen": it starts with none
+  picked unless a filter was saved, with All on and All off for the models
+  shown.
+- ChatGPT and GitHub Copilot sign-ins move into your operating system's
+  credential store the first time they are used, without signing you out; a
+  locked keychain is asked to unlock first, and the old credential stays
+  until the move completes. Once moved, an older Hotline cannot read them and
+  asks you to sign in again. Removing a ChatGPT sign-in asks ChatGPT to revoke
+  its tokens, and a revoked sign-in cannot sign another request.
+- Hotline Agent runs on Rig 0.45. A ChatGPT or GitHub Copilot sign-in made
+  before stays signed in: Copilot's is moved once into a single record
+  beside the login, and turns, calls, images and model lists now share one
+  refresh of a sign-in instead of each refreshing it on its own. A tool that
+  failed is marked as failed in what the model is sent, and a provider's
+  unfamiliar reason for ending a reply no longer fails it.
+
 ### Fixed
 
 - An ACP teammate (Codex, Claude and the rest) starts in a folder whose
@@ -16,6 +63,20 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   session with "Mutating files through symbolic links is not allowed";
   it now leaves the link and its target alone, as it does any
   hand-written `AGENTS.md`, and still writes nothing through it.
+- A long spoken answer no longer ends the call with "The desk sent more
+  voice audio than Hotline can play", on a live voice or on Legacy.
+- Talking over the voice with a question is heard at once, including after
+  the teammate looked something up.
+- A pause in the middle of dictation no longer starts work on half a
+  sentence.
+- Speaking from the phone after a reply has finished no longer counts as
+  cutting the teammate off.
+- A card tapped without a note tells the teammate whether it was yes or no.
+- TLS refuses the distrusted emSign intermediates (rustls-webpki 0.103.16,
+  webpki-roots 1.0.10; RUSTSEC-2026-0381, 0382 and 0383).
+- GitHub Copilot: chat models no longer return empty replies, and Codex
+  models on the Responses route no longer fail with "uniqueItems is not
+  permitted".
 
 ## [0.41.0] - 2026-10-20
 

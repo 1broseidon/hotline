@@ -384,20 +384,24 @@ impl Room {
         }
         let stored = self.stored_secrets();
         let build = |view: &Persona, transcript: Option<String>| {
+            let mut preamble = preamble_of(
+                thread.kind,
+                view,
+                reach,
+                &stored,
+                Joining {
+                    opener: opened_by.as_ref(),
+                    context: context.clone(),
+                    transcript,
+                    note: note.clone(),
+                },
+            );
+            if self.lead_call(&view.id, &thread) {
+                preamble.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use message_teammate, intent handoff, with the person's words unchanged and say who has it. Do not stop or reassign another teammate's work.");
+            }
             self.agents.agent(
                 view,
-                preamble_of(
-                    thread.kind,
-                    view,
-                    reach,
-                    &stored,
-                    Joining {
-                        opener: opened_by.as_ref(),
-                        context: context.clone(),
-                        transcript,
-                        note: note.clone(),
-                    },
-                ),
+                preamble,
                 history.clone(),
                 tools_of(self, &thread, &view.id, &lease),
                 extra_mcp.clone(),
@@ -514,6 +518,7 @@ fn tools_of(
     let tools = TeammateTools::new(room, persona_id).with_capability(lease.clone());
     match Policy::of(thread.kind).tools {
         Tools::Teammate => tools.with_subagents(),
+        Tools::Work if thread.kind == ThreadKind::Call => tools.for_call(thread.clone()),
         Tools::Work => tools.for_work(thread.key.clone()),
         Tools::Run => tools.for_run(),
         Tools::Job => tools.for_job(thread.key.clone()),
@@ -606,10 +611,7 @@ mod tests {
         ] {
             assert!(computer(kind), "{kind:?}");
         }
-        assert!(
-            !computer(ThreadKind::Call),
-            "a call has no agent of its own"
-        );
+        assert!(computer(ThreadKind::Call));
     }
 
     #[test]
@@ -741,7 +743,7 @@ mod tests {
 
     #[test]
     fn every_kind_with_an_agent_of_its_own_is_granted_the_computer() {
-        assert!(!Policy::of(ThreadKind::Call).has_computer());
+        assert!(Policy::of(ThreadKind::Call).has_computer());
         for kind in [
             ThreadKind::Dm,
             ThreadKind::Side,

@@ -485,6 +485,7 @@ impl Room {
         self.write(
             persona_id,
             &TranscriptEvent::PasskeyAsk {
+                from: None,
                 id: format!("passkey-ask:{}", ask.id),
                 ts: now_ms(),
                 ask_id: ask.id.clone(),

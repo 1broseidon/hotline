@@ -57,3 +57,25 @@ test("ChatGPT images require a picker selection, Automatic clears it, and with n
 		await teardown();
 	}
 });
+
+test("live model copy describes the teammate doing its own work", async () => {
+	const { teardown } = installDom();
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { UseFor } = await import("../src/components/UseFor");
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container);
+	const options: CapabilityOptions = { images: { options: [] }, stt: { options: [] }, tts: { options: [] }, dispatcher: { options: [] }, spending: { budgets: [] } };
+	try {
+		for (const [provider, credential] of [["grok", "xai"], ["openai", "openai"], ["gpt-live", "openai-codex"]]) {
+			await act(async () => root.render(<UseFor options={options} voice={{ front: { provider, credential } }} connected={[credential!]} onChanged={() => {}} />));
+			expect(container.textContent).toContain("Talks with you as your teammate");
+			expect(container.textContent).toContain("does real work on your teammate’s own model");
+			expect(container.textContent).not.toMatch(/hands heavy work|hand.off|passing|relaying/i);
+		}
+	} finally {
+		await act(async () => root.unmount());
+		await teardown();
+	}
+});

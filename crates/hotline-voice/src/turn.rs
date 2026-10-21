@@ -30,7 +30,9 @@ impl Calls {
 
     pub(super) fn emit(&self, id: &str, event: VoiceEvent) {
         let _ = self.change(id, |call| {
-            if let VoiceEvent::Said { id, text } = &event {
+            if let VoiceEvent::Said { id, text } = &event
+                && call.front.is_none()
+            {
                 call.speech_line.update(id, text);
             }
             let _ = call.events.send(event);
@@ -569,7 +571,10 @@ impl Calls {
         match rewritten {
             Ok(Ok(text)) if !spoken::speech_text(&text).is_empty() => {
                 let text = text.trim().to_string();
-                if let Some(persona) = persona {
+                // A live result is work; the provider records the words it actually says.
+                if let Some(persona) = persona
+                    && !self.fronted(id)
+                {
                     let thread = self
                         .change(id, |call| Ok(call.thread.clone()))
                         .ok()

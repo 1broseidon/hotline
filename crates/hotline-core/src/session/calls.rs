@@ -138,11 +138,7 @@ impl Room {
                             .is_some_and(|id| id.starts_with(SUMMARY_CURSOR))
                     })
                     .map_or(0, |at| at + 1);
-                let slice: Vec<_> = all
-                    .into_iter()
-                    .skip(after)
-                    .filter(crate::store::chapters::is_message)
-                    .collect();
+                let slice: Vec<_> = all.into_iter().skip(after).filter(call_content).collect();
                 let through = slice.last().map(|event| event["id"].clone());
                 if !slice.is_empty() {
                     let Ok(persona_view) = room.persona(&persona) else {
@@ -168,7 +164,7 @@ impl Room {
                             .load(&stream)
                             .iter()
                             .rev()
-                            .find(|event| crate::store::chapters::is_message(event))
+                            .find(|event| call_content(event))
                             .map(|event| event["id"].clone())
                             != through
                     {
@@ -268,4 +264,9 @@ fn short_call_post(text: &str) -> bool {
             .filter(|part| !part.trim().is_empty())
             .count()
             <= 3
+}
+
+/// Finished work belongs in the closing account even when no voice read it aloud.
+fn call_content(event: &Value) -> bool {
+    crate::store::chapters::is_message(event) || event["toolKind"] == "work_result"
 }

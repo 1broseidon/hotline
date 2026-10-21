@@ -97,7 +97,10 @@ fn model(request: &Value) -> String {
             "name":tool,"arguments":arguments
         }});
         return streamed(vec![
-            chunk(json!({"role":"assistant","tool_calls":[call]}), None),
+            chunk(
+                json!({"role":"assistant","content": if text_of(&messages[asked_at]).contains("harbour-plan.txt") { "Saving the beacon plan." } else { "" },"tool_calls":[call]}),
+                None,
+            ),
             chunk(json!({}), Some("tool_calls")),
         ]);
     }

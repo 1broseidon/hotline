@@ -1004,10 +1004,31 @@ async fn a_live_cut_is_recorded_and_late_audio_cannot_resume_it() {
             .unwrap()
             .contains("The old explanation.")
     );
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("One last unfinished line".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::Audio(vec![4; 480])))
+        .await
+        .unwrap();
+    frame_where(socket, |f| f["event"]["type"] == "frontAudio").await;
     answer(
         socket,
         5,
         json!({"cmd":"voice.call_end","params":{"callId":call}}),
     )
     .await;
+    let lines = desk.log.load(&stream);
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line["text"] == "One last unfinished line")
+            .count(),
+        1
+    );
+    assert_eq!(
+        lines.iter().filter(|line| line["kind"] == "agent").count(),
+        3
+    );
 }

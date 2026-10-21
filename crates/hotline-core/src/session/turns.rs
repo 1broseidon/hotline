@@ -156,6 +156,10 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
     }
 
     fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
+        // Live work is reported once when the turn ends, never as speech deltas.
+        if self.voice.as_ref().is_some_and(|origin| origin.front) {
+            return;
+        }
         if let Some(origin) = &self.voice
             && kind == MessageKind::Agent
             && !muted
@@ -179,15 +183,24 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         if !(self.open)() {
             return;
         }
-        let written = self
-            .threads
-            .write(self.seat.thread, self.seat.persona_id, &event);
+        let live_work = self.voice.as_ref().is_some_and(|origin| origin.front);
+        if live_work && matches!(event, TranscriptEvent::Tool { .. }) {
+            // Only words after the last tool are the work's result.
+            self.replies.clear();
+        }
+        let written = if live_work && matches!(event, TranscriptEvent::Agent { .. }) {
+            super::threads::Written::default()
+        } else {
+            self.threads
+                .write(self.seat.thread, self.seat.persona_id, &event)
+        };
         if let TranscriptEvent::Agent {
             id, text, spoken, ..
         } = &event
         {
             let room = self.threads.room;
             if let Some(origin) = &self.voice
+                && !origin.front
                 && let Some(voice) = lock(&room.voice).upgrade()
             {
                 let answer = spoken.as_ref().map_or_else(
@@ -254,6 +267,73 @@ impl Threads<'_> {
         let mut driven = self
             .drive(driver, line.into(), reach, cancel, None, &mut told)
             .await;
+        if voice.as_ref().is_some_and(|origin| origin.front) && (told.open)() {
+            let result_id = super::new_id();
+            let text = told
+                .replies
+                .iter()
+                .filter_map(|line| line["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            let failed = driven.cancelled || driven.failure.is_some();
+            let text = if text.is_empty() {
+                driven.failure.clone().unwrap_or_else(|| {
+                    if driven.cancelled {
+                        "Work stopped; unfinished actions remain unfinished."
+                    } else {
+                        "Work ended without a written result."
+                    }
+                    .into()
+                })
+            } else {
+                text
+            };
+            self.write(
+                &thread,
+                told.seat.persona_id,
+                &TranscriptEvent::Tool {
+                    id: result_id.clone(),
+                    ts: super::now_ms(),
+                    tool_call_id: result_id.clone(),
+                    title: "Work result".into(),
+                    tool_kind: Some("work_result".into()),
+                    status: if failed {
+                        crate::contract::ToolStatus::Failed
+                    } else {
+                        crate::contract::ToolStatus::Completed
+                    },
+                    locations: None,
+                    output: Some(vec![crate::contract::ToolOutput::Text {
+                        text: text.clone(),
+                    }]),
+                },
+            );
+            if !failed
+                && let Some(origin) = &voice
+                && let Some(calls) = lock(&self.room.voice).upgrade()
+                && !told.replies.is_empty()
+            {
+                let spoken = told
+                    .replies
+                    .iter()
+                    .filter_map(|line| line["spoken"].as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let answer = if spoken.is_empty() {
+                    text
+                } else {
+                    format!("<spoken>{spoken}</spoken><written>{text}</written>")
+                };
+                calls.delivery(
+                    told.seat.persona_id,
+                    &result_id,
+                    told.seat.persona_id,
+                    &answer,
+                    true,
+                    Some(origin),
+                );
+            }
+        }
         if let Some(origin) = voice
             && let Some(voice) = lock(&self.room.voice).upgrade()
         {

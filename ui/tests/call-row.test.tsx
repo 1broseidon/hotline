@@ -46,3 +46,22 @@ test("a call row follows its own turn and then its parked link, and still opens 
 	// A resumed turn can arrive before the rewritten link.
 	expect((await draw(["c1"])).textContent).toBe("Release checks · running· Open");
 });
+
+test("a call thread folds speech updates and opens work results as work", async () => {
+	const { NOTHING_YET, reduceThread } = await import("../src/tape");
+	const said = (text: string): import("../src/generated/contract").TranscriptEvent => ({ kind: "agent", id: "front-c1-0", ts: 1, text });
+	let held = reduceThread(NOTHING_YET, { type: "snapshot", items: [said("Done."), said("Done. Saved in crane.txt.")] });
+	held = reduceThread(held, { type: "event", item: said("Done. Saved in crane.txt. It’s in the chat.") });
+	held = reduceThread(held, { type: "event", item: { kind: "tool", id: "work-result", ts: 2, toolCallId: "work-result", title: "Work result", status: "completed", output: [{ type: "text", text: "Farmer Crane tends the field.\nThe corn bows in the wind.\nEvening brings him home." }] } });
+	await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={held.events} streaming={held.streaming} live={false} focus={null} />));
+	expect(container.textContent?.match(/Done\./g)).toHaveLength(1);
+	expect(container.textContent).toContain("It’s in the chat.");
+	// Work is disclosed by the same working control as a tool's output.
+	const steps = container.querySelector<HTMLButtonElement>(".steps-caption");
+	if (steps) await act(async () => steps.click());
+	const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Work result");
+	expect(result).toBeDefined();
+	await act(async () => result!.click());
+	expect(container.querySelector(".step-out")?.textContent).toContain("Farmer Crane tends the field.");
+	expect(container.textContent?.match(/Farmer Crane/g)).toHaveLength(1);
+});

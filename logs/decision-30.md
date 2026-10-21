@@ -2,10 +2,12 @@
 id: decision-30
 title: Files written or edited by a call's own work reach the home chat through the core, stamped From…
 type: decision
-status: current
+status: superseded
 claimKey: voice.call-files
 kind: decision
 createdAt: "2026-10-21T20:04:43.390Z"
+supersededBy: decision-31
+updatedAt: "2026-10-21T20:17:47.302Z"
 ---
 
 ## Description

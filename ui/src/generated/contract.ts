@@ -480,7 +480,11 @@ about: string, };
  * answers when it answers one. It is a field of the delivery, so the turn that
  * takes it never has to read an id to find out.
  */
-export type DeliveryFrom = { title?: string, 
+export type DeliveryFrom = { 
+/**
+ * All source threads of a combined call note. Older readers use `thread`.
+ */
+sources?: Array<ThreadId>, title?: string, 
 /**
  * The thread's key: see [`ThreadId`].
  */

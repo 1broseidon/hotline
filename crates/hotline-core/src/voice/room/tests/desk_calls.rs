@@ -72,6 +72,19 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
             listening: false,
         }
     );
+    until("the disconnect is recorded", || {
+        desk.log
+            .load(&StreamId::Call(id.clone()))
+            .iter()
+            .any(|event| {
+                event["kind"] == "notice"
+                    && event["text"] == "Voice disconnected. This thread stays open."
+            })
+    })
+    .await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(121)).await;
+    tokio::time::resume();
     until("the detached thread", || {
         call_link(&desk, &persona).is_some_and(|link| link["state"] == "parked")
     })

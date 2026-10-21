@@ -620,15 +620,24 @@ thread owned by the selected teammate. Both use the work-thread occupant,
 lease, tools and checkpoint restoration, on Hotline Agent and ACP. Spoken
 lines never enter the home DM. Hang-up detaches speech and leaves accepted
 work running; only the turn in flight at hang-up posts its completed reply
-as one chat message. Replies over 900 characters or three paragraphs post
+as one chat message, and only if this call has not already delivered a result
+or file to chat. Otherwise the closing note accounts for its late reply.
+Replies over 900 characters or three paragraphs post
 a short subject-first summary, with the full text kept on the call thread;
 if summarising fails, a short notice points there instead. Later typed turns
 stay on the thread unless they explicitly post. Calls and work threads
 can be continued by text and called again.
 
-Thirty seconds after hang-up, once the queue is idle, the chapter summariser
-writes one subject-first account of the discussion, decisions and finished
-work. It is posted with a link to the source thread, then the thread parks.
+Two minutes after hang-up (`CALL_CLOSING_DELAY`), once all the run's queues
+are idle, the chapter summariser writes one subject-first account of the
+discussion, decisions and finished work. A new call to the same teammate
+invalidates the pending note, including one being generated, and retains its
+source threads for the next note. One post links every source thread through
+optional `from.sources`; older readers still use `from.thread`. Each source
+then parks. These additive fields leave tape segments and the importer unchanged.
+The summary receives the results already delivered to chat. Interrupted speech
+or clipped model context is never evidence of a missing written result; a note
+claiming a result was cut off is replaced with a factual pointer to the results.
 A notice in the thread marks the covered interval by log position, so a later
 note includes only new work even when timestamps tie. New input during the
 summary causes it to be retried before publication; queue admission and final

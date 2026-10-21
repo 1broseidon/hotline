@@ -6,6 +6,15 @@ use crate::thread::{Link, ThreadState};
 use serde_json::{Value, json};
 use std::time::Duration;
 
+pub(super) const CALL_CLOSING_DELAY: Duration = Duration::from_secs(120);
+
+#[derive(Clone)]
+pub(super) struct CallClosing {
+    ticket: String,
+    threads: Vec<ThreadId>,
+    posted_after: usize,
+}
+
 const SUMMARY_CURSOR: &str = "call-closing-note";
 
 impl Room {
@@ -50,7 +59,19 @@ impl Room {
     }
 
     pub(crate) fn call_began(&self, thread: &ThreadId, persona: &str, ts: i64) {
-        lock(&self.call_closings).remove(thread);
+        let mut closings = lock(&self.call_closings);
+        let closing = closings
+            .entry(persona.into())
+            .or_insert_with(|| CallClosing {
+                ticket: new_id(),
+                threads: Vec::new(),
+                posted_after: self.tape(persona).len(),
+            });
+        closing.ticket = new_id();
+        if !closing.threads.contains(thread) {
+            closing.threads.push(thread.clone());
+        }
+        drop(closings);
         if self.link_of(thread).is_some() {
             return;
         }
@@ -121,96 +142,139 @@ impl Room {
     ) {
         let Some(room) = self.this() else { return };
         let ticket = new_id();
-        lock(&self.call_closings).insert(thread.clone(), ticket.clone());
+        {
+            let mut closings = lock(&self.call_closings);
+            let Some(closing) = closings.get_mut(persona) else {
+                return;
+            };
+            closing.ticket.clone_from(&ticket);
+        }
         let thread = thread.clone();
         let persona = persona.to_string();
-        let due = tokio::time::Instant::now() + Duration::from_secs(30);
+        let due = tokio::time::Instant::now() + CALL_CLOSING_DELAY;
         self.threads().write(&thread, &persona, &json!({"kind":"notice", "id":new_id(), "ts":super::now_ms(), "level":"info", "text":"Voice disconnected. This thread stays open."}));
         tokio::spawn(async move {
             tokio::time::sleep_until(due).await;
             loop {
-                if lock(&room.call_closings).get(&thread) != Some(&ticket) {
+                let Some(closing) = lock(&room.call_closings)
+                    .get(&persona)
+                    .cloned()
+                    .filter(|closing| closing.ticket == ticket)
+                else {
                     return;
-                }
-                if room.on_the_call(&thread) {
-                    return;
-                }
-                if room
-                    .sides
-                    .get(&thread.key)
-                    .is_some_and(|live| live.working())
+                };
+                if closing
+                    .threads
+                    .iter()
+                    .any(|thread| room.on_the_call(thread) || room.work_thread_working(thread))
                 {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 }
-                let Some(stream) = StreamId::of_thread(&thread) else {
-                    return;
-                };
-                let all = room.log.load(&stream);
-                let after = all
+                let intervals: Vec<_> = closing
+                    .threads
                     .iter()
-                    .rposition(|event| {
-                        event["id"]
-                            .as_str()
-                            .is_some_and(|id| id.starts_with(SUMMARY_CURSOR))
-                    })
-                    .map_or(0, |at| at + 1);
-                let slice: Vec<_> = all.into_iter().skip(after).filter(call_content).collect();
-                let through = slice.last().map(|event| event["id"].clone());
-                if !slice.is_empty() {
+                    .map(|thread| room.call_interval(thread))
+                    .collect();
+                let mut slice: Vec<_> = intervals.iter().flatten().cloned().collect();
+                let posted = room.call_posts(&persona, &closing);
+                if !posted.is_empty() {
+                    slice.push(json!({"kind":"user", "text":format!("Already delivered to the person's chat (complete written results, independent of speech playback): {}", posted.iter().map(crate::sent::message_text).collect::<Vec<_>>().join("\n\n"))}));
+                }
+                let note = if slice.is_empty() {
+                    None
+                } else {
                     let Ok(persona_view) = room.persona(&persona) else {
                         return;
                     };
-                    let note = room.call_note(&persona_view, &slice).await.unwrap_or_else(|| super::chapters::Note {
-                        title: room.link_of(&thread).map_or_else(|| "Call".into(), |link| link.title),
-                        note: "The call ended, but I could not prepare its summary. Open this thread for the conversation and finished work.".into(),
+                    let mut note = room.call_note(&persona_view, &slice).await.unwrap_or_else(|| super::chapters::Note {
+                        title: "Call".into(),
+                        note: "The calls ended, but I could not prepare their summary. Open the linked calls for the conversation and finished work.".into(),
                         status: crate::contract::ChapterStatus::InProgress,
                         tags: Vec::new(),
                     });
-                    let _admission = room.sides.waking.lock().await;
-                    let current = lock(&room.call_closings).get(&thread) == Some(&ticket);
-                    if !current || room.on_the_call(&thread) {
-                        return;
+                    // A model cannot infer missing work from an interrupted spoken rendition.
+                    if !posted.is_empty() && claims_missing_result(&note.note) {
+                        note.note = "The calls finished. The written results are already in this chat; the linked calls keep the conversation.".into();
                     }
-                    if room
-                        .sides
-                        .get(&thread.key)
-                        .is_some_and(|live| live.working())
-                        || room
-                            .log
-                            .load(&stream)
-                            .iter()
-                            .rev()
-                            .find(|event| call_content(event))
-                            .map(|event| event["id"].clone())
-                            != through
-                    {
-                        continue;
-                    }
-                    if room
-                        .post(&persona, &thread, Post::words(&note.note))
-                        .is_err()
-                    {
-                        return;
-                    }
-                    room.threads().write(&thread, &persona, &json!({"kind":"notice", "id":format!("{SUMMARY_CURSOR}:{}", new_id()), "ts":super::now_ms(), "level":"info", "text":note.note.clone()}));
-                    room.park_after_call(&thread, Some(note));
-                    lock(&room.call_closings).remove(&thread);
-                    return;
-                }
+                    Some(note)
+                };
                 let _admission = room.sides.waking.lock().await;
-                let current = lock(&room.call_closings).get(&thread) == Some(&ticket);
-                if !current || room.on_the_call(&thread) {
-                    return;
-                }
-                if room.work_thread_working(&thread) {
+                if closing
+                    .threads
+                    .iter()
+                    .any(|thread| room.on_the_call(thread) || room.work_thread_working(thread))
+                    || closing
+                        .threads
+                        .iter()
+                        .zip(&intervals)
+                        .any(|(thread, before)| room.call_interval(thread) != *before)
+                    || room.call_posts(&persona, &closing) != posted
+                {
                     continue;
                 }
-                room.park_after_call(&thread, None);
-                lock(&room.call_closings).remove(&thread);
+                // Claim publication atomically with call admission, without holding this
+                // lock across voice lookups (call start holds the voice lock first).
+                {
+                    let mut closings = lock(&room.call_closings);
+                    if closings
+                        .get(&persona)
+                        .is_none_or(|closing| closing.ticket != ticket)
+                    {
+                        return;
+                    }
+                    closings.remove(&persona);
+                }
+                if let Some(note) = &note {
+                    let post = Post {
+                        sources: closing.threads.clone(),
+                        ..Post::words(&note.note)
+                    };
+                    if room.post(&persona, &thread, post).is_err() {
+                        return;
+                    }
+                    for source in &closing.threads {
+                        room.threads().write(source, &persona, &json!({"kind":"notice", "id":format!("{SUMMARY_CURSOR}:{}", new_id()), "ts":super::now_ms(), "level":"info", "text":note.note}));
+                    }
+                }
+                for source in &closing.threads {
+                    if !room.on_the_call(source) {
+                        room.park_after_call(source, note.clone());
+                    }
+                }
                 return;
             }
         });
+    }
+
+    fn call_interval(&self, thread: &ThreadId) -> Vec<Value> {
+        let Some(stream) = StreamId::of_thread(thread) else {
+            return Vec::new();
+        };
+        let all = self.log.load(&stream);
+        let after = all
+            .iter()
+            .rposition(|event| {
+                event["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with(SUMMARY_CURSOR))
+            })
+            .map_or(0, |at| at + 1);
+        all.into_iter().skip(after).filter(call_content).collect()
+    }
+
+    fn call_posts(&self, persona: &str, closing: &CallClosing) -> Vec<Value> {
+        self.tape(persona)
+            .into_iter()
+            .skip(closing.posted_after)
+            .filter(|event| {
+                event["kind"] == "agent"
+                    && closing.threads.iter().any(|thread| {
+                        event["from"]["thread"] == thread.key
+                            && event["from"]["kind"] == thread.kind.name()
+                    })
+            })
+            .collect()
     }
 
     /// Only the turn caught by hang-up reports automatically. Its complete
@@ -225,7 +289,13 @@ impl Room {
         let detached = lock(&self.posting)
             .get(thread)
             .is_some_and(|turn| turn.detached);
-        if !detached || replies.is_empty() {
+        let closing = lock(&self.call_closings).get(persona).cloned();
+        let already_delivered = closing.as_ref().is_some_and(|closing| {
+            self.call_posts(persona, closing)
+                .iter()
+                .any(|event| event["from"]["thread"] == thread.key)
+        });
+        if !detached || replies.is_empty() || already_delivered {
             return;
         }
         let text = replies
@@ -286,4 +356,18 @@ fn short_call_post(text: &str) -> bool {
 /// Finished work belongs in the closing account even when no voice read it aloud.
 fn call_content(event: &Value) -> bool {
     crate::store::chapters::is_message(event) || event["toolKind"] == "work_result"
+}
+
+fn claims_missing_result(note: &str) -> bool {
+    let lower = note.to_lowercase();
+    [
+        "cut off",
+        "cut short",
+        "truncat",
+        "incomplete",
+        "missing",
+        "not delivered",
+    ]
+    .iter()
+    .any(|claim| lower.contains(claim))
 }

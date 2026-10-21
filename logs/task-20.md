@@ -2,8 +2,6 @@
 id: task-20
 title: "Core: answer a socket's commands concurrently"
 parentId: epic-5
-column: review
-position: 2
 priority: high
 tags:
   - improvement
@@ -24,7 +22,7 @@ description: |-
   ## Status (2026-10-11 review)
 
   Per-teammate lanes landed in 0.35.2 (wire/mod.rs ~1187-1260). Left: commands not tied to a teammate (models.list, settings.update, search) still run inline (~1226).
-updatedAt: "2026-10-21T10:43:36.019Z"
+updatedAt: "2026-10-21T10:43:47.923Z"
 dispatch:
   agent: codex
   model: gpt-6-astra
@@ -37,9 +35,12 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-21T10:22:51.912Z"
+    ended: "2026-10-21T10:43:47.923Z"
+    outcome: done
 assignee: codex
 decisions:
   - decision-22
+completedAt: "2026-10-21T10:43:47.182Z"
 ---
 
 ## Log
@@ -49,3 +50,4 @@ decisions:
 - 2026-10-21T10:33:02.800Z: [codex] Measured providers.list behind the same simulated 1s credential login over a real socket: baseline 1.008877084s, concurrent dispatch 5.259542ms. Concurrency/silence/disconnect proofs pass; all 82 remote tests pass, including TCP-reset assertion for a stalled seat. Recorded decision-22 for read/write ordering. make check running in foreground on dispatch/epic-5 merged result.
 - 2026-10-21T10:37:48.924Z: [codex] Committed implementation as ca0aeb01; merged dispatch/epic-5 at 0f07f6df (task-22 streaming changes) cleanly after it advanced during validation. First make check passed. Final checks include the late desktop pairing cleanup regression and the merged epic result.
 - 2026-10-21T10:43:35.746Z: [codex] Ready for review on dispatch/task-20: ca0aeb01 implements concurrent independent socket commands, ordered writes/subscriptions, live silence cancellation, TCP reset on dropped WebSocket transports, and late-pairing cleanup; d9569a53 merges dispatch/epic-5 through 0f07f6df. make check passed in the foreground on the committed merged tree; make precheck passed all 8 legs. Real-socket measurement behind a 1s login: providers.list 1008.877ms before, 5.260ms after. Working tree clean. Next: review and merge the branch; task intentionally not completed.
+- 2026-10-21T10:43:46.518Z: Landed on dispatch/epic-5

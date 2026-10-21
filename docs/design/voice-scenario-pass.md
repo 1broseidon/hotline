@@ -18,7 +18,7 @@ GPT-Live and explicitly selected Legacy where applicable. The ignored
 `hotline-voice` scripted_front provider tests are optional additional evidence,
 not a substitute for this pass and not run by ordinary `make check`.
 
-- Linux QA / Pork Chop: pending complete pass.
+- Linux QA / Pork Chop: done 2026-10-21 with the results below; failures filed or noted.
 - Desk / George: pending complete pass, including browser audio and native Mac recognition.
 - Phone / George: pending complete pass, including speaker and relay.
 
@@ -41,7 +41,8 @@ For cards, verify phone `voice.input_state` and `card.resolved` adoption.
 
 - Pork Chop, 2026-10-21, desk call `61d35a97`: roster lookup answered, but
   recited model/tools/machine reach. This branch changes the lead instruction
-  to names and current work; live recheck is pending. Named work reached Rex
+  to names and current work; rechecked live on `2735d01a`: "Rex is idle.
+  That's the whole team right now." Named work reached Rex
   directly and `rain.txt` was written.
 - Pork Chop, 2026-10-21, Grok call `790a5312`: `fox.txt` was written and spoken
   about, closing note worked, file did not reach chat. **task-253** asks George
@@ -51,6 +52,34 @@ For cards, verify phone `voice.input_state` and `card.resolved` adoption.
   boundary. Under decision-15, opaque driver approvals wait for the desk;
   exercise a core-owned session collaboration approval or informational
   question for the allowed path and an opaque push card for the denied path.
+
+## Linux QA pass, Pork Chop, 2026-10-21
+
+Linux QA computer, Hotline Agent teammate Rex on Grok 4.7, Grok Voice
+(subscription) unless stated, speech from espeak-ng through a virtual
+microphone, so no speaker, echo or phone checks. Builds `1f3a2cae` to
+`2735d01a`; each line names the build it was seen on. Boxes below stay open
+until George's desk and phone pass.
+
+| Scenario | Result | Seen |
+|---|---|---|
+| 1. A quick question | Pass. "Capital of Portugal" answered in one line; lookups say a few words first ("Looking up the workspace files."). | `6722376c`, `61d35a97` |
+| 2. Where are we on it? | Partial. Three files said, not posted, from a lookup; but the three were wrong (not the newest) and it added more than asked. | `2735d01a` |
+| 3. Asking for real work | Pass. First person ("Saving the poem…", "Saved as fox.txt."), no hand-off words, one short acknowledgement, work as a clone on Rex's own model. Pointer said once only when a post exists. | `1f3a2cae`–`790a5312` |
+| 4. Changing your mind | Pass. "Stop. Just tell me the keeper's name." steered the running work ("Stopping the story."), no second clone. | `2735d01a` |
+| 5. Thinking out loud | Pass. Conversational replies, no work, no pointer; "Write that down" became work with the whole call as its brief, and the note was posted. | `2735d01a` |
+| 6. The rundown | Pass for length and numbered parts. Interrupting it with a question: **fail**, see task-254. | `2735d01a` |
+| 7. Dictating | **Fail, recovered** (task-255). A 3.5 s pause inside "Draft a message to the harbour master saying that…" ended the turn; work started on the half sentence with guessed content, then the second half steered it. | `2735d01a` |
+| 8. Something needs you | Pass. Action card said and left for the desk; question card said ("A question for you: … Say yes or no."), answered "Yes"/"No" by voice and recorded ("Answered on the call: Yes — …"). After the card the voice repeated the ask once. | `2d173ee7`, `a180a43d` |
+| 9. Calling the desk | Pass. Roster from list_teammates, now short ("Rex is idle. That's the whole team right now."); named work went straight to Rex ("Rex has it."). The first words of the first line are clipped on desk calls ("… team"). | `61d35a97`, `2735d01a` |
+| 10. Hanging up while work runs | Pass. The turn in flight finished after hang-up, its reply posted to the chat, closing note 30 s later. | `2735d01a` |
+| 11. Picking it back up | Pass. Calling again on a call's thread kept its context; closing notes cover only new work. | `1f3a2cae` |
+| 12. Following up in the chat | Pass. "Like we said on the call" from the home chat used the call's words via read_thread (dog.txt written word for word). Files written on a call don't always reach the chat: task-253. | `e837fc29`, `790a5312` |
+| 13. Calling on a work thread | Pass for answering from the work thread's own history; the "From <title>" label not checked. | `a185fff1` |
+| 14. Interrupting | Pass when no lookup preceded the speech (cut at once, cut recorded, next reply answers it). Fail after lookups: task-254. Echo on speaker not testable here. | `1f3a2cae`, `2735d01a` |
+| 15. A bad network | Not testable on the desk window (calls run in-process; a reload kept the call up). Core wire tests cover the 20 s hold; phone and relay are George's. | `6722376c` |
+| 16. Live voice goes away | Not forced: no safe way to break the live provider here. | — |
+| 17. Legacy voice | **Fail on the first sentence** (task-256): a tool-heavy turn (web search) went straight to tools with no spoken first sentence for over a minute. The soft cue can't be heard here. The espeak voice was misheard ("Bell Rock" as "Male Rock"), which made the turn long. | `a180a43d` |
 
 ## Scripted evidence and requirement checklist
 

@@ -20,7 +20,7 @@ dependsOn:
   - task-239
   - task-240
   - task-241
-updatedAt: "2026-10-21T07:50:07.295Z"
+updatedAt: "2026-10-21T07:50:09.451Z"
 decisions:
   - decision-9
 dispatch:
@@ -29,7 +29,12 @@ dispatch:
   by: cli
   at: "2026-10-21T07:50:07.154Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-21T07:50:09.451Z"
 ---
 
 ## Description

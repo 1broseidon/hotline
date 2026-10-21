@@ -11,6 +11,15 @@ parentId: epic-21
 dependsOn:
   - task-242
 createdAt: "2026-10-21T01:32:33.014Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-21T01:32:43.986Z"
+  until: done
+  tries: 0
+assignee: codex
+updatedAt: "2026-10-21T01:32:44.112Z"
 ---
 
 ## Description

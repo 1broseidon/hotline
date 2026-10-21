@@ -224,9 +224,11 @@ impl Desk {
     }
 
     /// The next event on subscription `sub` that `wanted` picks, live or in
-    /// the snapshot the subscription opened with.
+    /// the snapshot the subscription opened with. A turn that ended before
+    /// the subscription arrives whole in its snapshot, so the snapshot goes
+    /// back to the inbox less the event taken, for the next wait to read.
     async fn event(&mut self, sub: i64, wanted: impl Fn(&Value) -> bool) -> Value {
-        let frame = self
+        let mut frame = self
             .client
             .next_where(PATIENCE, |frame| {
                 frame["sub"] == sub
@@ -236,10 +238,13 @@ impl Desk {
                             .is_some_and(|events| events.iter().any(&wanted)))
             })
             .await;
-        match frame["snapshot"].as_array() {
-            Some(events) => events.iter().find(|event| wanted(event)).unwrap().clone(),
-            None => frame["event"].clone(),
-        }
+        let Some(events) = frame["snapshot"].as_array_mut() else {
+            return frame["event"].clone();
+        };
+        let at = events.iter().position(&wanted).unwrap();
+        let event = events.remove(at);
+        self.client.inbox.push_front(frame);
+        event
     }
 
     /// The teammate's messages in its chat, from its tape on disk.

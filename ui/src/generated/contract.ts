@@ -634,7 +634,12 @@ family: string, profiles: Array<BrowserProfile>,
  * app without Full Disk Access). It is listed with no profiles so the
  * window can say what to allow, rather than leaving it out as if absent.
  */
-blocked: boolean, };
+blocked: boolean, 
+/**
+ * The desk's explanation and remedy, naming the app whose access must
+ * change (including the bare binary when running a development build).
+ */
+blockedReason?: string, };
 
 export type HumanActionStatus = "pending" | "done" | "dismissed" | "expired" | "withdrawn";
 

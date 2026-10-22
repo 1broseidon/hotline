@@ -639,7 +639,10 @@ pub struct Room {
     /// finds it made, a cancel, or the computer's own ten minutes run out.
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
     #[cfg(test)]
-    pub(crate) cookie_sources: Mutex<Vec<crate::computer::cookies::lending::Source>>,
+    pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
+    /// A host permission failure is said once per browser for this desk run,
+    /// across teammates and session restarts.
+    cookie_access_notices: Mutex<HashSet<String>>,
     secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
     captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
@@ -772,7 +775,8 @@ impl Room {
             passkey_armings: Mutex::new(HashMap::new()),
             secret_uses: Mutex::default(),
             #[cfg(test)]
-            cookie_sources: Mutex::default(),
+            cookie_candidates: Mutex::default(),
+            cookie_access_notices: Mutex::default(),
             captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),

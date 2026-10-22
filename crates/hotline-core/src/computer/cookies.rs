@@ -65,7 +65,7 @@ enum Confinement {
 
 /// One browser Hotline knows how to read, whether or not it is installed.
 #[derive(Clone)]
-struct Candidate {
+pub(crate) struct Candidate {
     id: &'static str,
     name: &'static str,
     family: Family,
@@ -113,7 +113,7 @@ fn resolve_binary(names: &[&str]) -> Vec<PathBuf> {
 /// Every browser Hotline can read on this platform, installed or not. The
 /// caller keeps only those whose `root` exists and holds a profile with a
 /// cookie store.
-fn candidates() -> Vec<Candidate> {
+pub(crate) fn candidates() -> Vec<Candidate> {
     let home = home();
     let mut out = Vec::new();
 
@@ -372,15 +372,46 @@ impl Candidate {
             return None;
         }
         let profiles = self.profiles();
-        let blocked = profiles.is_empty() && self.refused();
+        let blocked = profiles.is_empty() && self.root.is_dir() && self.refused();
         (!profiles.is_empty() || blocked).then(|| HostBrowser {
             id: self.id.to_owned(),
             name: self.name.to_owned(),
             family: self.family.wire().to_owned(),
             profiles,
             blocked,
+            blocked_reason: blocked.then(|| access_notice(self.name, None)),
         })
     }
+}
+
+/// Both the chat and the picker name the process whose access must change.
+/// The dev runner launches a bare `hotline-app-dev`, not Hotline.app.
+pub(crate) fn access_notice(browser: &str, site: Option<&str>) -> String {
+    let session = site.map_or_else(
+        || "your sessions".into(),
+        |site| format!("your session for {site}"),
+    );
+    let remedy = if cfg!(target_os = "macos") {
+        let executable = std::env::current_exe().unwrap_or_default();
+        let app = access_app_name(&executable);
+        format!(
+            "Allow {app} in System Settings → Privacy & Security → Full Disk Access, then reopen Hotline."
+        )
+    } else {
+        "Allow Hotline to read this browser's data, then reopen Hotline.".into()
+    };
+    format!("Hotline can't read {browser}'s cookies, so it can't offer {session}. {remedy}")
+}
+
+fn access_app_name(executable: &Path) -> String {
+    executable
+        .ancestors()
+        .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .and_then(Path::file_stem)
+        .or_else(|| executable.file_name())
+        .and_then(|name| name.to_str())
+        .unwrap_or("Hotline")
+        .to_owned()
 }
 
 /// The Chromium profiles under a user-data directory, named the way the

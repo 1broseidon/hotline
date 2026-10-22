@@ -193,6 +193,10 @@ pub struct HostBrowser {
     /// window can say what to allow, rather than leaving it out as if absent.
     #[serde(default)]
     pub blocked: bool,
+    /// The desk's explanation and remedy, naming the app whose access must
+    /// change (including the bare binary when running a development build).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
 }
 
 /// One profile within a host browser. Only profiles that have a cookie store

@@ -82,21 +82,34 @@ impl Source {
     }
 }
 
-#[cfg(not(test))]
-pub(crate) fn discover() -> Vec<Source> {
-    let mut candidates = candidates();
+pub(crate) struct Discovery {
+    pub(crate) sources: Vec<Source>,
+    pub(crate) refused: Vec<HostBrowser>,
+}
+
+pub(crate) fn discover(mut candidates: Vec<Candidate>) -> Discovery {
     // Deterministic first choice; one card per site even with several profiles.
     candidates.sort_by_key(|c| c.id);
-    candidates
-        .into_iter()
-        .flat_map(|candidate| {
-            let profiles = candidate.profiles();
-            profiles.into_iter().map(move |profile| Source {
-                candidate: candidate.clone(),
-                profile,
-            })
-        })
-        .collect()
+    let mut discovery = Discovery {
+        sources: Vec::new(),
+        refused: Vec::new(),
+    };
+    for candidate in candidates {
+        let Some(browser) = candidate.listed() else {
+            continue;
+        };
+        if browser.blocked && candidate.first_binary().is_some() {
+            discovery.refused.push(browser);
+        } else {
+            discovery
+                .sources
+                .extend(browser.profiles.into_iter().map(move |profile| Source {
+                    candidate: candidate.clone(),
+                    profile,
+                }));
+        }
+    }
+    discovery
 }
 
 pub(crate) fn registrable(host: &str) -> Option<String> {

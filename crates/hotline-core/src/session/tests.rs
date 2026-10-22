@@ -851,14 +851,24 @@ pub(crate) async fn cookie_offer_room(
     firefox: bool,
 ) -> (ComputerRoom, tempfile::TempDir) {
     let profiles = tempfile::tempdir().unwrap();
-    let source = crate::computer::cookies::lending::tests::fixture(profiles.path(), firefox);
+    let candidate =
+        crate::computer::cookies::lending::tests::candidate_fixture(profiles.path(), firefox);
+    let fixture = cookie_offer_room_with_candidates(name, vec![candidate]).await;
+    (fixture, profiles)
+}
+
+#[cfg(unix)]
+pub(crate) async fn cookie_offer_room_with_candidates(
+    name: &str,
+    candidates: Vec<crate::computer::cookies::Candidate>,
+) -> ComputerRoom {
     let fixture = computer_room(name, Some("0.11.2"), TWO_RELEASES, true).await;
-    *lock(&fixture.room.cookie_sources) = vec![source];
+    *lock(&fixture.room.cookie_candidates) = candidates;
     fixture.room.start("ada").await.unwrap();
     *fixture.taken.pages.lock().unwrap() = vec![
         json!({"origin":"https://porkbun.com"}),
         json!({"origin":"https://account.porkbun.com"}),
         json!({"origin":"https://no-cookies.example"}),
     ];
-    (fixture, profiles)
+    fixture
 }

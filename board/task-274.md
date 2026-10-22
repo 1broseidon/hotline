@@ -19,3 +19,6 @@ Done when:
 - The door lists the open top-level pages and drops a closed one: contract test (tests/contract.rs).
 - Non-web targets (chrome://, the extension, devtools) are never listed: unit test.
 - make check passes; image built as rc.8 and the door checked against it.
+
+## Log
+- 2026-10-22T15:36:53.783Z: [claude] Built as rc.8 on hotline-computer ext/v3 (3b9e527, not pushed). GET /pages answers {"pages":[{origin,url,title,openedAt}]}, bearer-only, http/https page targets only, newest first; read from DevTools /json/list on 127.0.0.1:9222 so the desk's poll never waits behind a running browser action; {"pages":[]} when no browser runs; 502 on a DevTools error; 404 from older computers. make check 152 tests; contract test green against hotline-computer:0.11.0-rc.8.

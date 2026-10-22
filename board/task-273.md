@@ -21,7 +21,9 @@ dispatch:
     pid: 59533
     at: "2026-10-22T15:31:16.600Z"
 assignee: codex
-updatedAt: "2026-10-22T15:31:52.219Z"
+updatedAt: "2026-10-22T15:45:21.965Z"
+decisions:
+  - decision-36
 ---
 
 ## Description

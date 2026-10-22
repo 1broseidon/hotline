@@ -1,14 +1,14 @@
 ---
 id: task-265
 title: "Credential scenarios deck: the acceptance set for epic-24"
-column: todo
-position: 1
 priority: high
 tags:
   - credentials
   - design
 parentId: epic-24
 createdAt: "2026-10-22T03:09:07.586Z"
+completedAt: "2026-10-22T04:35:57.296Z"
+updatedAt: "2026-10-22T04:35:57.296Z"
 ---
 
 ## Description

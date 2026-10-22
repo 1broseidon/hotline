@@ -20,7 +20,7 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 
@@ -73,6 +73,8 @@ const STATUS_OUTPUT_LIMIT: u64 = 64 * 1024;
 pub(crate) struct AccountStatuses {
     bounds: StartBounds,
     entries: Mutex<HashMap<String, Entry>>,
+    /// Told of each answer recorded, so a switch the last answer held can go.
+    room: OnceLock<Weak<Room>>,
 }
 
 #[derive(Default)]
@@ -89,7 +91,12 @@ impl AccountStatuses {
         Self {
             bounds,
             entries: Mutex::new(HashMap::new()),
+            room: OnceLock::new(),
         }
+    }
+
+    pub(crate) fn report_to(&self, room: Weak<Room>) {
+        let _ = self.room.set(room);
     }
 
     pub(crate) async fn check(&self, root: &Path, account: &ResolvedAccount) -> AccountStatusView {
@@ -133,14 +140,17 @@ impl AccountStatuses {
         run: impl FnOnce() -> F,
     ) -> AccountStatusView {
         let (gate, runs_before) = self.gate(account_id);
-        let _running = gate.lock().await;
+        let running = gate.lock().await;
         if let Some(entry) = lock(&self.entries).get(account_id)
             && entry.runs != runs_before
             && let Some(view) = &entry.view
         {
             return view.clone();
         }
-        self.record(account_id, run().await)
+        let view = self.record(account_id, run().await);
+        drop(running);
+        self.recorded(account_id);
+        view
     }
 
     /// For a question asked after something changed the folder, such as
@@ -152,8 +162,18 @@ impl AccountStatuses {
         run: impl FnOnce() -> F,
     ) -> AccountStatusView {
         let (gate, _) = self.gate(account_id);
-        let _running = gate.lock().await;
-        self.record(account_id, run().await)
+        let running = gate.lock().await;
+        let view = self.record(account_id, run().await);
+        drop(running);
+        self.recorded(account_id);
+        view
+    }
+
+    /// Only once the gate is let go: until then the account reads as checking.
+    fn recorded(&self, account_id: &str) {
+        if let Some(room) = self.room.get().and_then(Weak::upgrade) {
+            room.retry_switches_to(account_id);
+        }
     }
 
     fn gate(&self, account_id: &str) -> (Arc<tokio::sync::Mutex<()>>, u64) {

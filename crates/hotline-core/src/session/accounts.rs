@@ -96,7 +96,7 @@ impl Room {
 
     /// `persona.account`: records the choice, and applies it at once when
     /// nothing holds it back. Choosing the running account cancels a switch
-    /// and rebuilds nothing.
+    /// and rebuilds nothing, except the rebuild a newer sign-in still owes.
     pub(crate) async fn assign_account(
         self: &Arc<Self>,
         persona_id: &str,
@@ -117,17 +117,17 @@ impl Room {
                     .get(persona_id)
                     .map_or(previous, |pending| pending.from.clone())
             });
-            if account_id != current {
+            let relogin = switches
+                .get(persona_id)
+                .is_some_and(|pending| pending.relogin);
+            if account_id != current || relogin {
                 let switch = PendingAccount {
                     from: current,
                     wanted: account_id.clone(),
-                    relogin: false,
+                    relogin,
                 };
                 switches.insert(persona_id.to_string(), switch);
-            } else if !switches
-                .get(persona_id)
-                .is_some_and(|pending| pending.relogin)
-            {
+            } else {
                 switches.remove(persona_id);
             }
             switches.get(persona_id).cloned()
@@ -145,8 +145,6 @@ impl Room {
         }))
     }
 
-    /// Writes the choice on the teammate's record, checked again under the
-    /// record's lock, and answers the account the record named before.
     fn record_account(
         &self,
         persona_id: &str,
@@ -196,40 +194,28 @@ impl Room {
             .then_some(pending)
     }
 
-    /// The switch that may apply now, taken, with the backend whose
-    /// checkpoints it clears. The caller holds the start gate, so no start
-    /// or new DM turn is under way. A switch for a teammate that is gone or
-    /// is now on an agent without accounts is dropped.
-    fn take_ready_switch(&self, persona_id: &str) -> Option<(PendingAccount, String)> {
+    /// The switch that may apply now, with the backend whose checkpoints it
+    /// clears. The caller holds the start gate, so no start or new DM turn is
+    /// under way. A switch for a teammate that is gone or is now on an agent
+    /// without accounts is dropped.
+    fn switch_to_apply(&self, persona_id: &str) -> Option<(PendingAccount, String)> {
         let pending = self.ready_switch(persona_id)?;
         let backend_id = self
             .persona(persona_id)
             .ok()
             .map(|persona| persona.backend_id)
             .filter(|backend_id| account_support(backend_id).is_some());
-        {
-            let mut switches = lock(&self.accounts.switches);
-            if switches.get(persona_id) != Some(&pending) {
-                return None;
-            }
-            switches.remove(persona_id);
+        if backend_id.is_none() {
+            self.switch_applied(persona_id, &pending);
         }
         backend_id.map(|backend_id| (pending, backend_id))
     }
 
-    fn clear_switched_checkpoints(
-        &self,
-        persona_id: &str,
-        pending: &PendingAccount,
-        backend_id: &str,
-    ) -> Result<(), String> {
-        match pending.wanted.as_deref().filter(|_| pending.relogin) {
-            // The sign-in cleared these already; this one catches a checkpoint
-            // the old session wrote while it landed.
-            Some(account_id) => {
-                room::clear_checkpoint(&self.log, persona_id, backend_id, Some(account_id))
-            }
-            None => room::clear_backend_checkpoints(&self.log, persona_id, backend_id),
+    /// One changed while it applied stays, for its own apply to settle.
+    fn switch_applied(&self, persona_id: &str, pending: &PendingAccount) {
+        let mut switches = lock(&self.accounts.switches);
+        if switches.get(persona_id) == Some(pending) {
+            switches.remove(persona_id);
         }
     }
 
@@ -237,13 +223,34 @@ impl Room {
         let _working = self.working()?;
         let gate = self.start_gate(persona_id);
         let _held = gate.lock().await;
-        let Some((pending, backend_id)) = self.take_ready_switch(persona_id) else {
+        // A stopped DM has no lease to revoke, and revoking one now would
+        // refuse a Start already waiting at this gate.
+        if !lock(&self.sessions).contains_key(persona_id) {
+            return self.apply_switch_without_session(persona_id);
+        }
+        let Some((pending, backend_id)) = self.switch_to_apply(persona_id) else {
             return Ok(());
         };
         // Before the clear: a late turn on the old lease writes no checkpoint.
         self.invalidate(persona_id)?;
-        self.clear_switched_checkpoints(persona_id, &pending, &backend_id)?;
+        room::clear_backend_checkpoints(&self.log, persona_id, &backend_id)?;
+        self.switch_applied(persona_id, &pending);
         self.reattach_held(persona_id).await?;
+        let _ = self.info_changes.send(self.info(persona_id));
+        Ok(())
+    }
+
+    /// The caller holds the start gate and no DM session runs, so nothing
+    /// can write a checkpoint for this teammate meanwhile.
+    fn apply_switch_without_session(&self, persona_id: &str) -> Result<(), String> {
+        let Some((pending, backend_id)) = self.switch_to_apply(persona_id) else {
+            return Ok(());
+        };
+        self.drop_sides(persona_id);
+        self.let_go_of_jobs(Some(persona_id));
+        self.drop_peer_sessions(persona_id);
+        room::clear_backend_checkpoints(&self.log, persona_id, &backend_id)?;
+        self.switch_applied(persona_id, &pending);
         let _ = self.info_changes.send(self.info(persona_id));
         Ok(())
     }
@@ -259,14 +266,17 @@ impl Room {
         };
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
-            // A restart that fails says why on the teammate's band itself.
-            let _ = room.apply_pending_account(&persona_id).await;
+            if let Err(error) = room.apply_pending_account(&persona_id).await {
+                let mut info = room.info(&persona_id);
+                info.error = Some(error);
+                let _ = room.info_changes.send(info);
+            }
         });
     }
 
     /// After a confirmed sign-in (spec §10.3): each session that started on
-    /// this account before it is rebuilt once its teammate is idle, and each
-    /// switch waiting for it is looked at again.
+    /// this account before it is rebuilt once its teammate is idle, even if
+    /// a switch is pending for it meanwhile.
     pub(crate) fn account_signed_in(&self, account_id: &str) {
         let login_at = room::agent_accounts(&self.log)
             .into_iter()
@@ -280,31 +290,36 @@ impl Room {
             })
             .map(|session| session.persona_id.clone())
             .collect();
-        let waiting: Vec<String> = {
+        {
             let mut switches = lock(&self.accounts.switches);
             for persona_id in started_before {
                 switches
                     .entry(persona_id)
+                    .and_modify(|pending| pending.relogin = true)
                     .or_insert_with(|| PendingAccount {
                         from: Some(account_id.to_string()),
                         wanted: Some(account_id.to_string()),
                         relogin: true,
                     });
             }
-            switches
-                .iter()
-                .filter(|(_, pending)| pending.wanted.as_deref() == Some(account_id))
-                .map(|(persona_id, _)| persona_id.clone())
-                .collect()
-        };
+        }
+        self.retry_switches_to(account_id);
+    }
+
+    /// Whenever a hold on this account may have ended: a sign-in attempt
+    /// finished, or a status answer was recorded.
+    pub(crate) fn retry_switches_to(&self, account_id: &str) {
+        let waiting: Vec<String> = lock(&self.accounts.switches)
+            .iter()
+            .filter(|(_, pending)| pending.wanted.as_deref() == Some(account_id))
+            .map(|(persona_id, _)| persona_id.clone())
+            .collect();
         for persona_id in waiting {
             let _ = self.info_changes.send(self.info(&persona_id));
             self.apply_account_when_idle(&persona_id);
         }
     }
 
-    /// The teammate as a thread's agent is built for it: on the account its
-    /// session runs on until a switch applies.
     pub(super) fn on_running_account(&self, mut persona: Persona) -> Persona {
         if let Some(pending) = lock(&self.accounts.switches).get(&persona.id) {
             persona.agent_account_id.clone_from(&pending.from);
@@ -312,23 +327,35 @@ impl Room {
         persona
     }
 
-    /// A switch that may apply as a session starts is taken by that start,
-    /// so a start after a stop never reopens a checkpoint the switch clears.
-    /// The caller holds the start gate.
+    /// A start applies a switch that may apply, so a start after a stop
+    /// never reopens a checkpoint the switch clears. The caller holds the
+    /// start gate.
     pub(super) fn apply_account_at_start(&self, persona_id: &str) -> Result<(), String> {
-        match self.take_ready_switch(persona_id) {
-            Some((pending, backend_id)) => {
-                self.clear_switched_checkpoints(persona_id, &pending, &backend_id)
-            }
-            None => Ok(()),
+        if lock(&self.accounts.switches).contains_key(persona_id) {
+            return self.apply_switch_without_session(persona_id);
         }
+        self.clear_lost_switch(persona_id)
+    }
+
+    /// With no switch pending, a checkpoint on this backend for an account
+    /// other than the record's is one a switch lost to a restart never
+    /// cleared: it never heard what was said since.
+    fn clear_lost_switch(&self, persona_id: &str) -> Result<(), String> {
+        let persona = self.persona(persona_id)?;
+        let account_id = crate::accounts::account_of(&persona);
+        if persona.session_checkpoints.iter().any(|checkpoint| {
+            checkpoint.backend_id == persona.backend_id
+                && checkpoint.account_id.as_deref() != account_id
+        }) {
+            room::clear_backend_checkpoints(&self.log, persona_id, &persona.backend_id)?;
+        }
+        Ok(())
     }
 
     pub(super) fn forget_account_switch(&self, persona_id: &str) {
         lock(&self.accounts.switches).remove(persona_id);
     }
 
-    /// A teammate now on an agent without accounts has nothing to switch.
     pub(super) fn settle_account_switch(&self, persona: &Persona) {
         if account_support(&persona.backend_id).is_none() {
             self.forget_account_switch(&persona.id);

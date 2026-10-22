@@ -351,19 +351,21 @@ async fn a_stale_lease_cannot_write_a_checkpoint_after_the_switch() {
 #[tokio::test]
 async fn signing_in_again_rebuilds_sessions_that_started_before_it() {
     let agents = Fake::new(Scripted::new(Vec::new()));
-    let (room, a, b) = on_accounts("switch-relogin", agents.clone());
-    room::checkpoint_session(&room.log, "ada", "claude-acp", Some(&b), "s-b").unwrap();
+    let (room, a, _b) = on_accounts("switch-relogin", agents.clone());
     started(&room).await;
     signed_in_at(&room.log, &a, 2);
+    room::checkpoint_session(&room.log, "ada", "claude-acp", Some(&a), "s-a-late").unwrap();
     room.account_signed_in(&a);
     until("rebuilt on the new sign-in", || {
         room.session("ada")
             .is_ok_and(|session| session.account_login_at == Some(2))
     })
     .await;
-    assert_eq!(agents.views().len(), 2);
+    let views = agents.views();
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[1].session_checkpoints, []);
     assert_eq!(running(&room), Some(a));
-    assert_eq!(saved(&room), [("s-b".to_string(), Some(b))]);
+    assert_eq!(saved(&room), []);
 }
 
 #[tokio::test]
@@ -437,4 +439,91 @@ async fn a_pending_switch_is_dropped_when_its_teammate_is_removed_or_changes_age
     gate.add_permits(10);
     assert_eq!(room.info("ada").account, None);
     assert_eq!(agents.views().last().unwrap().backend_id, "hotline");
+}
+
+#[tokio::test]
+async fn stop_and_switch_now_starts_while_the_switch_holds_the_gate() {
+    let (agents, _gate) = gated();
+    let (room, _a, b) = on_accounts("switch-stop-gate", agents);
+    started(&room).await;
+    mid_turn(&room).await;
+    room.assign_account("ada", Some(b.clone())).await.unwrap();
+    let start_gate = room.start_gate("ada");
+    let holding = start_gate.clone().lock_owned().await;
+    room.stop("ada").unwrap();
+    until("the switch waits at the gate", || {
+        Arc::strong_count(&start_gate) == 4
+    })
+    .await;
+    let starting = tokio::spawn({
+        let room = room.clone();
+        async move { room.start("ada").await }
+    });
+    until("the start waits behind it", || {
+        Arc::strong_count(&start_gate) == 5
+    })
+    .await;
+    drop(holding);
+    starting.await.unwrap().unwrap();
+    assert_eq!(running(&room), Some(b));
+}
+
+#[tokio::test]
+async fn a_switch_lost_to_a_restart_starts_fresh_on_the_chosen_account() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let log = scratch("switch-lost");
+    accounts(&log, 1);
+    let mut ada = on_account(&log, B);
+    ada.session_checkpoints = vec![checkpoint(A, "s-a1"), checkpoint(B, "s-b-old")];
+    enrol(&log, &ada);
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    started(&room).await;
+    let view = agents.views().pop().unwrap();
+    assert_eq!(
+        (view.agent_account_id, view.session_checkpoints),
+        (Some(B.to_string()), Vec::new())
+    );
+    assert_eq!(saved(&room), []);
+}
+
+#[tokio::test]
+async fn a_switch_taken_at_a_start_lets_go_of_idle_threads_on_the_old_account() {
+    let agents = Fake::new(Scripted::new(saying("1", "Done.")));
+    let (room, _a, b) = on_accounts("switch-start-sides", agents);
+    room.start_side("ada", "Task").await.unwrap();
+    until("the side is idle", || {
+        room.sides("ada").first().is_some_and(|side| !side.working)
+    })
+    .await;
+    room.account_statuses()
+        .put(&b, status(AccountStatusState::SignedOut));
+    room.assign_account("ada", Some(b.clone())).await.unwrap();
+    assert_eq!(room.sides("ada").len(), 1);
+    room.account_statuses()
+        .put(&b, status(AccountStatusState::SignedIn));
+    room.start("ada").await.unwrap();
+    assert!(room.sides("ada").is_empty());
+    assert_eq!(running(&room), Some(b));
+}
+
+#[tokio::test]
+async fn a_rebuild_owed_to_a_sign_in_survives_a_switch_that_was_kept() {
+    let (agents, gate) = gated();
+    let (room, a, b) = on_accounts("switch-relogin-kept", agents);
+    started(&room).await;
+    mid_turn(&room).await;
+    signed_in_at(&room.log, &a, 2);
+    room.account_signed_in(&a);
+    room.assign_account("ada", Some(b)).await.unwrap();
+    assert_eq!(
+        room.assign_account("ada", Some(a.clone())).await.unwrap(),
+        switching(&a, &a, None)
+    );
+    gate.add_permits(10);
+    until("rebuilt on the new sign-in", || {
+        room.session("ada")
+            .is_ok_and(|session| session.account_login_at == Some(2))
+    })
+    .await;
+    assert_eq!(running(&room), Some(a));
 }

@@ -10,8 +10,8 @@ use crate::contract::{
 pub(crate) struct PendingAccount {
     pub(crate) from: Option<String>,
     pub(crate) wanted: Option<String>,
-    /// The same account signed in again: its sessions restart, and its other
-    /// accounts' checkpoints stay.
+    /// A newer sign-in owes the running session a restart, even when the
+    /// teammate stays on its account.
     pub(crate) relogin: bool,
 }
 

@@ -190,6 +190,8 @@ impl AccountLogins {
         // Only now: a running attempt holds every switch to this account.
         if confirmed {
             room.account_signed_in(&run.account.id);
+        } else {
+            room.retry_switches_to(&run.account.id);
         }
     }
 }

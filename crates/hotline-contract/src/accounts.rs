@@ -208,7 +208,8 @@ pub struct SessionAccount {
     /// The account the live session started with. Absent is System default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub running: Option<String>,
-    /// The account the teammate is set to, when it is not the running one.
+    /// The account the teammate is set to: the running one, unless a switch
+    /// to another is still pending.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wanted: Option<String>,
     /// Why the switch to `wanted` has not happened.

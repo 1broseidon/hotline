@@ -409,7 +409,35 @@ pub(super) fn update_persona(
     if patch.get("agentAccountId").is_some() {
         return Err("A teammate's account is set with persona.account.".into());
     }
-    let mut record = json!(previous);
+    let mut checked = patched(&previous, id, patch)?;
+    // Checked here, before anything is revoked or written, so a refused
+    // folder leaves the teammate exactly as it was.
+    if patch.get("folders").is_some() {
+        checked.folders = checked_folders(checked.folders.take(), &checked.cwd, log.root())?;
+    }
+    let reattaches = persona_update_reattaches(patch, &previous, &checked);
+    if reattaches {
+        room.invalidate(id)?;
+    }
+    let updated = {
+        // A checkpoint may have been written or cleared since the first read:
+        // the patch goes over the record as it is now, under its writers' lock.
+        let _writes = room::persona_write_lock();
+        let mut updated = patched(&living(log, id)?, id, patch)?;
+        if patch.get("folders").is_some() {
+            updated.folders = checked.folders;
+        }
+        room::append_persona(log, &updated)?;
+        updated
+    };
+    if updated.avatar.is_none() {
+        crate::session::avatar::remove_except(log.root(), id, None);
+    }
+    Ok((json!(updated), reattaches))
+}
+
+fn patched(record: &Persona, id: &str, patch: &Value) -> Result<Persona, String> {
+    let mut record = json!(record);
     let fields = record
         .as_object_mut()
         .expect("a teammate serializes as an object");
@@ -421,23 +449,8 @@ pub(super) fn update_persona(
     }
     fields.insert("id".into(), Value::from(id));
     fields.insert("updatedAt".into(), Value::from(now()));
-
-    let mut updated: Persona = serde_json::from_value(record)
-        .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
-    // Checked here, before anything is revoked or written, so a refused
-    // folder leaves the teammate exactly as it was.
-    if patch.get("folders").is_some() {
-        updated.folders = checked_folders(updated.folders.take(), &updated.cwd, log.root())?;
-    }
-    let reattaches = persona_update_reattaches(patch, &previous, &updated);
-    if reattaches {
-        room.invalidate(id)?;
-    }
-    room::append_persona(log, &updated)?;
-    if updated.avatar.is_none() {
-        crate::session::avatar::remove_except(log.root(), id, None);
-    }
-    Ok((json!(updated), reattaches))
+    serde_json::from_value(record)
+        .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))
 }
 
 /// Whether this update restarts a live session. The computer's own

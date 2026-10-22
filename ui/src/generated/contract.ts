@@ -1515,7 +1515,8 @@ export type SessionAccount = {
  */
 running?: string, 
 /**
- * The account the teammate is set to, when it is not the running one.
+ * The account the teammate is set to: the running one, unless a switch
+ * to another is still pending.
  */
 wanted?: string, 
 /**

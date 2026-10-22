@@ -783,6 +783,7 @@ impl Room {
             closing: std::sync::atomic::AtomicBool::new(false),
         });
         *lock(&room.me) = Arc::downgrade(&room);
+        room.account_statuses().report_to(Arc::downgrade(&room));
         room.settle();
         // What the person said that was still waiting when the last desk
         // stopped, and what came back to a job that had not heard it yet, is

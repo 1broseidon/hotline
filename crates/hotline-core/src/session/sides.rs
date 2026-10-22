@@ -749,14 +749,17 @@ impl Room {
             {
                 Ok(()) => {
                     let first = lock(&side.turns).next_line();
-                    match first {
-                        Some(line) => room.clone().run_queue(side, line).await,
-                        None => {
-                            let _ = room.info_changes.send(room.info(&side.persona_id));
-                        }
+                    if let Some(line) = first {
+                        room.clone().run_queue(side, line).await;
+                    } else {
+                        let _ = room.info_changes.send(room.info(&side.persona_id));
+                        room.apply_account_when_idle(&side.persona_id);
                     }
                 }
-                Err(error) => room.start_failed(&launch, &error),
+                Err(error) => {
+                    room.start_failed(&launch, &error);
+                    room.apply_account_when_idle(&side.persona_id);
+                }
             }
         });
     }

@@ -114,7 +114,7 @@ impl Desk {
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
     }
 
-    async fn switch_to_a_while_it_signs_in(&self) {
+    async fn switch_to_a(&self, held: AccountHold) {
         let mut ada = roster(&self.log)
             .into_iter()
             .find(|persona| persona.id == "ada")
@@ -126,7 +126,7 @@ impl Desk {
             Ok(SessionAccount {
                 running: None,
                 wanted: Some(A.to_string()),
-                held: Some(AccountHold::SigningIn),
+                held: Some(held),
             })
         );
         assert_eq!(self.sessions(), ["s1", "s2", "s3"]);
@@ -420,7 +420,7 @@ async fn a_sign_in_is_judged_by_its_own_status_not_one_already_running() {
 async fn a_switch_held_for_a_running_sign_in_applies_once_it_is_confirmed() {
     let desk = desk();
     let attempt = desk.logins.admit(A, CancellationToken::new()).unwrap();
-    desk.switch_to_a_while_it_signs_in().await;
+    desk.switch_to_a(AccountHold::SigningIn).await;
     desk.plant_credentials();
     desk.logins
         .conclude(
@@ -436,11 +436,47 @@ async fn a_switch_held_for_a_running_sign_in_applies_once_it_is_confirmed() {
 }
 
 #[tokio::test]
+async fn a_hold_that_ends_without_a_new_sign_in_still_applies_the_switch() {
+    {
+        let desk = desk();
+        desk.room.account_statuses().put(A, view(SignedOut));
+        desk.switch_to_a(AccountHold::NotSignedIn).await;
+        desk.logins
+            .statuses
+            .check_with(A, || async { view(SignedIn) })
+            .await;
+        until("a status answer releases the switch", || {
+            desk.sessions().is_empty()
+        })
+        .await;
+    }
+    {
+        let desk = desk();
+        let attempt = desk.logins.admit(A, CancellationToken::new()).unwrap();
+        desk.switch_to_a(AccountHold::SigningIn).await;
+        desk.plant_credentials();
+        desk.logins
+            .conclude(
+                &desk.room,
+                &desk.run("ok", PATIENCE),
+                &attempt,
+                Outcome::Stopped(CANCELLED),
+            )
+            .await;
+        until("a cancelled sign-in releases the switch", || {
+            desk.sessions().is_empty()
+        })
+        .await;
+        assert_eq!(desk.login_at(A), Some(5));
+    }
+}
+
+#[tokio::test]
 #[cfg_attr(windows, ignore = "opens a console window")]
 async fn a_real_sign_in_releases_the_switch_it_held() {
     let desk = desk();
     let signing = desk.sign("ok", PATIENCE, CancellationToken::new());
-    desk.switch_to_a_while_it_signs_in().await;
+    desk.switch_to_a(AccountHold::SigningIn).await;
     signing.await;
     until("the switch applies", || desk.sessions().is_empty()).await;
     assert_eq!(desk.outcome(), Some((Succeeded, None)));

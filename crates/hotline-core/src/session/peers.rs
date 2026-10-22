@@ -280,7 +280,6 @@ impl Peers {
             .map(|(_, target_id)| target_id.clone())
     }
 
-    /// Whether this teammate is mid-reply in any thread.
     pub(super) fn answering_for(&self, persona_id: &str) -> bool {
         lock(&self.answering)
             .iter()

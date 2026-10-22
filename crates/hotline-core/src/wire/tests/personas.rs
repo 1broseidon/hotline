@@ -581,3 +581,53 @@ async fn an_account_is_set_only_by_persona_account() {
     assert_eq!(retried["id"], json!(id));
     assert!(retried.get("agentAccountId").is_none(), "{retried}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_update_and_a_checkpoint_write_never_undo_each_other() {
+    use super::accounts::run;
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let mut ada = crate::session::tests::persona("ada");
+    ada.session_checkpoints = vec![crate::contract::SessionCheckpoint {
+        backend_id: "claude-acp".to_string(),
+        session_id: "s1".to_string(),
+        account_id: None,
+    }];
+    crate::session::tests::enrol(&log, &ada);
+    let (held, holding) = std::sync::mpsc::channel();
+    let (go, going) = std::sync::mpsc::channel::<()>();
+    let checkpoint_write = std::thread::spawn({
+        let log = log.clone();
+        move || {
+            let _writes = room::persona_write_lock();
+            let mut ada = room::roster(&log).pop().unwrap();
+            held.send(()).unwrap();
+            going.recv().unwrap();
+            ada.session_checkpoints.clear();
+            room::append_persona(&log, &ada).unwrap();
+        }
+    });
+    holding.recv().unwrap();
+    let update = tokio::spawn({
+        let (log, room) = (log.clone(), room.clone());
+        async move {
+            run(
+                &log,
+                &room,
+                "persona.update",
+                json!({"id":"ada","patch":{"name":"Ada Lovelace"}}),
+            )
+            .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    go.send(()).unwrap();
+    checkpoint_write.join().unwrap();
+    update.await.unwrap().unwrap();
+    let ada = room::roster(&log).pop().unwrap();
+    assert_eq!(
+        (ada.name.as_str(), ada.session_checkpoints),
+        ("Ada Lovelace", Vec::new())
+    );
+}

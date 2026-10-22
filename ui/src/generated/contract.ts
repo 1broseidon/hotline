@@ -690,7 +690,13 @@ export type LinkedDelivery = { "kind": "request", requestId: string, fromPersona
 /**
  * ask or handoff.
  */
-intent: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, };
+intent: string, 
+/**
+ * For a handoff into the work thread an earlier one opened: the
+ * request id of that earlier handoff. A desk that predates this
+ * opens a new thread instead.
+ */
+continues?: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, };
 
 /**
  * What a linked desk publishes about one of its teammates: exactly what

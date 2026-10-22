@@ -538,6 +538,9 @@ pub struct Sent {
     pub to: String,
     /// Stable correlation for the request and its eventual result.
     pub request_id: String,
+    /// For a handoff, the name of the work thread it runs in, which a later
+    /// handoff passes to continue it.
+    pub thread: Option<String>,
 }
 
 // A request's scoped leases cover approval, startup and execution, including

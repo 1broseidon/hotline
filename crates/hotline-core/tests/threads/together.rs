@@ -515,3 +515,107 @@ async fn a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart() {
     assert_eq!(last["from"]["kind"], "job");
     drop(first);
 }
+
+/// Every exchange request on the room stream, as its pair last saved it.
+fn requests(log: &Log) -> Vec<Value> {
+    let mut pairs: Vec<Value> = Vec::new();
+    for pair in log
+        .load(&StreamId::Room)
+        .into_iter()
+        .filter(|event| event["kind"] == "exchange_pair")
+    {
+        pairs.retain(|kept| kept["id"] != pair["id"]);
+        pairs.push(pair);
+    }
+    pairs
+        .iter()
+        .flat_map(|pair| pair["requests"].as_array().cloned().unwrap_or_default())
+        .collect()
+}
+
+/// A follow-up handed into the thread a handoff ran in. Ada hands Bob work;
+/// once the result is back she hands him more, naming the thread the first
+/// ran in, and it lands in that same work thread of Bob's, with the first
+/// brief still in it, and its result comes back to her as the first did.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_follow_up_handoff_lands_in_the_thread_the_first_ran_in() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    desk.teammate("Bob", false).await;
+    let result_for = |desk: &Desk, id: &str| {
+        desk.log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .find(|event| event["kind"] == "delivery" && event["cause"]["requestId"] == id)
+    };
+
+    let first =
+        json!({"to": "Bob", "intent": "handoff", "message": "SAY The password is hunter2."});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL message_teammate {first}")}),
+    )
+    .await;
+    let card = || {
+        desk.log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .find(|event| event["kind"] == "permission" && event.get("decision").is_none())
+            .and_then(|event| event["requestId"].as_str().map(str::to_string))
+    };
+    until("the first handoff asks the person", || card().is_some()).await;
+    let card = card().unwrap();
+    desk.ok(
+        "session.answer_permission",
+        json!({"personaId": ada, "requestId": card, "optionId": "allow_always"}),
+    )
+    .await;
+    until("the first handoff is queued", || {
+        !requests(&desk.log).is_empty()
+    })
+    .await;
+    let first_id = requests(&desk.log)[0]["id"].as_str().unwrap().to_owned();
+    until("the first result is back", || {
+        result_for(&desk, &first_id).is_some()
+    })
+    .await;
+
+    let follow_up = json!({
+        "to": "Bob", "intent": "handoff", "thread": first_id,
+        "message": "SAY Logged in with it.",
+    });
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL message_teammate {follow_up}")}),
+    )
+    .await;
+    until("the follow-up is queued", || requests(&desk.log).len() == 2).await;
+    let second_id = requests(&desk.log)[1]["id"].as_str().unwrap().to_owned();
+    until("the follow-up's result is back", || {
+        result_for(&desk, &second_id).is_some()
+    })
+    .await;
+
+    let saved = requests(&desk.log);
+    assert_eq!(saved[1]["continues"], first_id.as_str());
+    let thread = saved[0]["thread"]
+        .as_str()
+        .expect("a work thread")
+        .to_owned();
+    assert_eq!(saved[1]["thread"], thread.as_str(), "one thread for both");
+    let briefs: Vec<String> = desk
+        .log
+        .load(&StreamId::Side(thread))
+        .into_iter()
+        .filter(|event| event["kind"] == "delivery" && event["cause"]["kind"] == "handoff")
+        .filter_map(|event| event["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(
+        briefs,
+        ["SAY The password is hunter2.", "SAY Logged in with it."]
+    );
+    assert_eq!(
+        result_for(&desk, &second_id).unwrap()["cause"]["status"],
+        "done"
+    );
+}

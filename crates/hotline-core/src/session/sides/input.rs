@@ -35,7 +35,7 @@ impl Room {
         let _admission = self.sides.waking.lock().await;
         let (side, launch) = match self.live_side(&thread.key) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(&thread.key, false)?,
+            Err(_) => self.wake_work(&thread.key, false, None)?,
         };
         let stream = StreamId::of_thread(thread).ok_or("The call has no transcript.")?;
         let transcript = self.log.load(&stream);
@@ -100,7 +100,7 @@ impl Room {
         self.refuse_handed_over(side_id)?;
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(side_id, false)?,
+            Err(_) => self.wake_work(side_id, false, None)?,
         };
         self.say_in_side(&side, text, reply_to, attachments);
         if let Some(launch) = launch {

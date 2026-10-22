@@ -1310,12 +1310,31 @@ moved on, from the work thread. A handoff to a recipient whose three work
 threads are all mid-turn stays queued until one is free. Neither intent expands the recipient's permissions.
 There is no link record, roster link, or chapter-scoped relationship.
 
+**Continuing a work thread.** A handoff's tool result carries `thread`: the
+request id of the handoff that opened its thread. Passing that id, or the id of
+any handoff that ran in the thread, as `message_teammate`'s `thread` hands the
+new brief into the same thread instead of a new one. The sender's desk checks
+the id against the pair's record before queuing (it must be a handoff from the
+same sender to the same recipient) and refuses an ask that names one; a request
+crossing a link carries the id as `continues`, and the recipient's desk checks
+it against its own copy of the record before dispatch. The thread closes with
+each result, as before, unless another handoff is already waiting in it; the
+next one brings it back from its saved session, or its own stream when the
+harness cannot reopen that, the way a parked thread wakes. A continuation sent
+before the handoff that opened the thread has started follows it in. A thread
+whose opening handoff was stopped before it ran is opened by the first
+continuation that is taken up.
+
 The existing collaboration card now explains both intents. A legacy grant
 still permits Ask but needs informed approval before Handoff. Revocation
 stops queued work and the affected exchange without cancelling unrelated
 work the person is directing.
 
-A durable `exchange_pair` record holds the queue and count. Requests and
+A durable `exchange_pair` record holds the queue and count. The pair's worker
+takes every request as far as it can each time it looks, rather than only the
+first, so a handoff at work in a thread, or waiting on the person or on a linked
+desk, holds up nothing behind it in either direction; an ask is answered while
+the worker waits, so asks still take turns. Requests and
 replies share the twelve-message brake across intents; receipts do not
 count. At twelve, both tapes receive an `exchange_paused` card. Further
 queued requests and completed results wait without being discarded.

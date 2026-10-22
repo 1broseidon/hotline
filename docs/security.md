@@ -851,6 +851,35 @@ made it so.
   inspect side effects before retrying. Stopping a handoff cancels its active
   turn but cannot undo completed effects.
 
+### Continuing a handoff's work thread
+
+- **Default:** a handoff without `thread` opens a new work thread, as before.
+  Old requests have no `continues` and old desks ignore it, so a continuation
+  sent to an older desk opens a new thread there.
+- **Grant source:** none new. A continuation is a handoff and passes the same
+  directional collaboration check, against the same live leases, before it
+  runs.
+- **Enforcement:** `enqueue_exchange` refuses a `thread` on an ask, and one
+  that names no handoff from the same sender to the same recipient in the
+  pair's record. On the recipient's desk `Pair::place` resolves the name
+  against that desk's own record, scoped to the request's sender and
+  recipient, and fails the request when it names none; a linked desk's id is
+  never used as a thread id or a path. The thread is brought back under the
+  recipient's current authority (`Room::bring_up`), never the one it had
+  before, and the person still only reads a handed-over thread.
+- **Tests:** `session/exchanges/tests.rs`
+  `a_handoff_naming_its_thread_continues_it_and_one_without_opens_another`,
+  `only_the_teammate_that_opened_a_thread_continues_it_and_only_by_handing_off`,
+  `a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread`;
+  `session/links/tests.rs`
+  `a_handoff_naming_its_thread_continues_it_on_the_recipients_desk`; over the
+  wire, `tests/threads/together.rs`
+  `a_follow_up_handoff_lands_in_the_thread_the_first_ran_in`.
+- **Residual risk:** the recipient hears everything said in the thread before,
+  including what an earlier brief carried (a password, say), for as long as
+  the thread lasts; that is the point of continuing it, and a sender that wants
+  a clean context opens a new one.
+
 
 ### Human-gated handoff continuation (BRO-128)
 

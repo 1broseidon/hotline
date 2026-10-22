@@ -369,7 +369,8 @@ impl Occupant for LiveSide {
             // The handoff's result is what the teammate said when it was
             // done. The thread closes with it unless the turn stopped to
             // wait for the person, in which case it is the person's answer
-            // that carries it on.
+            // that carries it on, or another handoff is already waiting in
+            // it, which carries it on now.
             let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
                 matches!(
                     reason,
@@ -381,7 +382,8 @@ impl Occupant for LiveSide {
             } else {
                 driven.replies.join("\n\n")
             };
-            if !room.finish_handoff(&request, reply, failed) {
+            if !room.finish_handoff(&request, reply, failed) && lock(&side.turns).waiting.is_empty()
+            {
                 room.finish_side(side, if failed { End::Failed } else { End::Agent }, None);
                 return Then::Stop;
             }
@@ -652,7 +654,7 @@ impl Room {
     ) -> Result<SideThreadSummary, String> {
         let _working = self.working()?;
         self.refuse_handed_over(side_id)?;
-        let (side, launch) = self.wake_side(side_id, true).await?;
+        let (side, launch) = self.wake_side(side_id, true, None).await?;
         if let Some(launch) = launch {
             self.launch(launch);
         }
@@ -905,19 +907,24 @@ impl Room {
     /// The thread is answered as soon as it is published, still starting, with
     /// the [`Launch`] to run once the caller has said what it came back for.
     /// A thread that was live already has none.
-    async fn wake_side(
+    ///
+    /// `handoff` is the exchange a colleague's handoff brings it back for,
+    /// whose sender is told if the thread cannot start.
+    pub(super) async fn wake_side(
         self: &Arc<Self>,
         side_id: &str,
         continuing: bool,
+        handoff: Option<HandoffStart>,
     ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         let _one_at_a_time = self.sides.waking.lock().await;
-        self.wake_work(side_id, continuing)
+        self.wake_work(side_id, continuing, handoff)
     }
 
     fn wake_work(
         self: &Arc<Self>,
         side_id: &str,
         continuing: bool,
+        handoff: Option<HandoffStart>,
     ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         if let Ok(side) = self.live_side(side_id) {
             return Ok((side, None));
@@ -948,7 +955,7 @@ impl Room {
                 opener: link.opener,
                 fresh: false,
                 saved: link.binding,
-                handoff: None,
+                handoff,
             },
         )?;
         Ok((side, Some(launch)))
@@ -1351,7 +1358,7 @@ impl Room {
         let _admission = self.sides.waking.lock().await;
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(side_id, true)?,
+            Err(_) => self.wake_work(side_id, true, None)?,
         };
         // What came back is queued before the agent is started, so it is the
         // first thing the agent hears however fast the start goes.

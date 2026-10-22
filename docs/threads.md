@@ -120,7 +120,9 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 | Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
 
 A handoff is a side thread: opened by a teammate instead of the person, with the
-sender as its opener. Its result returns to the opener as a delivery.
+sender as its opener. Its result returns to the opener as a delivery. A later
+handoff from the same opener that names the thread (`message_teammate`'s
+`thread`) continues it rather than opening another.
 
 Chapters stay specific to the DM. A side thread long enough to need chapters
 should become a teammate.
@@ -406,7 +408,8 @@ Where this differs from the design above:
   copy of the link on the opener's tape (`<id>@<opener>`), so both DMs carry a
   marker with title, state and outcome.
 - **Result.** When the handoff turn ends and no human gate is open, the thread
-  closes (`End::Agent` or `End::Failed`) and the result is delivered to the
+  closes (`End::Agent` or `End::Failed`), unless a follow-up handoff is already
+  waiting in it (see [sessions.md](sessions.md)), and the result is delivered to the
   sender's DM, or to the sender's work thread when it was sent from one
   (`reply_thread`), from the work thread (`delivery_source`). The `handoff:` and
   `exchange-result:` ids are only idempotency keys; the turn loop reads

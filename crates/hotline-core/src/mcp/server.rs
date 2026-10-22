@@ -463,7 +463,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             MESSAGE_TEAMMATE,
-            "Send another teammate in this room a message. It returns as soon as the message is sent, and their answer arrives later as its own message in your conversation, so carry on meanwhile and do not poll. (Answering a colleague in a private thread, you wait for the reply instead.) Choose intent: ask (default) for a bounded answer or review in a side session with none of the recipient’s main conversation; handoff to implement or continue work in a work thread of their own, which starts from their main context, and report back automatically. Neither expands permissions. Say everything they need; they cannot see your conversation. Workspace callers need the operator's first-contact approval before the recipient uses its workspace and enabled tools; Whole machine Hotline Agent callers can initiate directly. They are started if they are not running. The two of you have a standing private thread, and they can see what was said in it before.",
+            "Send another teammate in this room a message. It returns as soon as the message is sent, and their answer arrives later as its own message in your conversation, so carry on meanwhile and do not poll. (Answering a colleague in a private thread, you wait for the reply instead.) Choose intent: ask (default) for a bounded answer or review in a side session with none of the recipient’s main conversation; handoff to implement or continue work in a work thread of their own, which starts from their main context, and report back automatically. What this returns for a handoff names its `thread`; to add to that work later (a follow-up, a correction, something they asked you for), hand off again with that `thread` and it lands in the same thread, where they still have everything said there. Without `thread` a handoff starts a new thread that knows nothing of earlier ones. Neither expands permissions. Say everything they need; they cannot see your conversation. Workspace callers need the operator's first-contact approval before the recipient uses its workspace and enabled tools; Whole machine Hotline Agent callers can initiate directly. They are started if they are not running. The two of you have a standing private thread, and they can see what was said in it before.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -473,6 +473,10 @@ fn descriptors() -> Vec<Tool> {
                     },
                     "message": { "type": "string", "minLength": 1, "maxLength": crate::session::TEAMMATE_MESSAGE_MAX },
                     "intent": {"type":"string", "enum":["ask","handoff"], "default":"ask"},
+                    "thread": {
+                        "type": "string",
+                        "description": "Handoff only: the `thread` (or any requestId) of a handoff you sent this teammate, to continue that work thread instead of starting a new one.",
+                    },
                 },
                 "required": ["to", "message"],
                 "additionalProperties": false,
@@ -876,18 +880,25 @@ impl TeammateTools {
                     }
                     _ => return Err("intent must be ask or handoff".into()),
                 };
+                let thread = match arguments.get("thread") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(thread)) => Some(thread.as_str()),
+                    Some(_) => {
+                        return Err("thread is the requestId of a handoff you sent.".into());
+                    }
+                };
                 if self.front && intent != crate::session::exchanges::Intent::Handoff {
                     return Err("A lead's voice front can only hand named work on.".into());
                 }
+                let outgoing = crate::session::exchanges::Outgoing {
+                    to,
+                    message,
+                    intent,
+                    thread,
+                };
                 if self.peer {
                     let answered = room
-                        .send_peer_waiting(
-                            &self.persona_id,
-                            to,
-                            message,
-                            intent,
-                            self.capability.clone(),
-                        )
+                        .send_peer_waiting(&self.persona_id, &outgoing, self.capability.clone())
                         .await?;
                     return Ok(
                         json!({ "from": answered.from, "reply": answered.reply }).to_string()
@@ -895,25 +906,29 @@ impl TeammateTools {
                 }
                 let sent = room.send_intent(
                     &self.persona_id,
-                    to,
-                    message,
-                    intent,
+                    &outgoing,
                     self.capability.clone(),
                     &self.thread,
                 )?;
-                let note = if self.thread.kind != ThreadKind::Dm {
+                let arrives = if self.thread.kind != ThreadKind::Dm {
                     "Accepted into the durable exchange queue. Their answer will arrive in this thread as a delivery matching this requestId. Carry on, or end your reply to wait. A paused pair waits for the person; do not resend or poll."
                 } else {
                     "Accepted into the durable exchange queue. Their answer will arrive as a delivery matching this requestId. Carry on, or end your reply to wait. A paused pair waits for the person; do not resend or poll."
                 };
-                Ok(json!({
+                let mut sent_json = json!({
                     "sent": true,
                     "to": sent.to,
                     "requestId": sent.request_id,
                     "intent": intent,
-                    "note": note,
-                })
-                .to_string())
+                    "note": arrives,
+                });
+                if let Some(thread) = sent.thread {
+                    sent_json["note"] = json!(format!(
+                        "{arrives} The work runs in their thread {thread}: to add to it later (a follow-up, a correction, something they asked for), hand off again with thread \"{thread}\", and they take it up with everything said there. Leave thread out to start unrelated work in a new thread."
+                    ));
+                    sent_json["thread"] = json!(thread);
+                }
+                Ok(sent_json.to_string())
             }
             SET_PERSON_NAME => {
                 if self.peer {

@@ -1057,6 +1057,14 @@ is not tool-free: the recipient uses its own workspace and granted tools.
 `handoff` opens a work thread of the recipient's own, which starts from its
 main conversation's context, to implement or continue work there; the main
 conversation is never interrupted by it.
+The handoff's request id names that thread to its sender, the way an agent's
+id does in Claude Code. A later handoff that passes it as `thread` lands in the
+same thread, behind any turn in flight there, and the recipient takes it up
+with everything said in the thread before; a handoff without `thread` opens a
+new one. Asking the sender to choose, rather than guessing from timing or
+topic, keeps a colleague's unrelated work out of a thread and a follow-up out
+of a fresh one. Only the teammate that opened a thread on that recipient
+continues it, and only by handing off.
 The recipient never silently promotes an Ask. Neither intent overrides the
 person or expands the recipient's permissions.
 
@@ -1075,6 +1083,12 @@ intents, pause the pair. Receipts do not count. Queued requests and completed
 results wait without loss. The person's Keep going resets the counter; Stop
 exchange settles outstanding work and writes an explicit notice. Hearing from
 the person also resets the pair. These actions do not create new grants.
+
+The queue is not single file. Each time the pair is looked at, every request
+goes as far as it can, so a handoff at work in its thread, or one waiting on
+the person or on a linked desk, holds up nothing behind it, in either
+direction. An ask is answered while its pair waits, so it is the one request
+that holds up what follows it, and asks still take turns on the pair's thread.
 
 Restart recovery preserves paused queues and completed results. Work known to
 have started is not blindly replayed: an interrupted turn returns an explicit

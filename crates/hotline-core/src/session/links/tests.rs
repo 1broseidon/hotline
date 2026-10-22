@@ -333,6 +333,40 @@ async fn a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_
 }
 
 #[tokio::test]
+async fn a_handoff_naming_its_thread_continues_it_on_the_recipients_desk() {
+    let (laptop, grizzly) = pair("handoff-continues");
+    let _channel = Channel::open(&laptop, &grizzly);
+    grizzly
+        .allow_sender("lou", &format!("{LAPTOP}/clementine"))
+        .unwrap();
+    let first = message(&laptop, "clementine", "Lou", "handoff")
+        .await
+        .unwrap();
+    until("the first result", || {
+        delivered(&laptop, "clementine", &first).is_some()
+    })
+    .await;
+    let sent = TeammateTools::new(&laptop, "clementine")
+        .call(
+            "message_teammate",
+            &json!({"to": "Lou", "message": "And the staging runners.", "intent": "handoff", "thread": first}),
+        )
+        .await
+        .unwrap();
+    let second = serde_json::from_str::<Value>(&sent).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("the second result", || {
+        delivered(&laptop, "clementine", &second).is_some()
+    })
+    .await;
+    let thread = |id: &str| request(&grizzly, id).unwrap()["thread"].clone();
+    assert!(thread(&first).is_string());
+    assert_eq!(thread(&second), thread(&first));
+}
+
+#[tokio::test]
 async fn a_message_waits_for_the_link_and_an_answer_waits_for_the_sender_to_come_back() {
     let (laptop, grizzly) = pair("offline");
     // Lou is known by name from before, so a message can be addressed and
@@ -615,6 +649,7 @@ async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at
         to: "lou".into(),
         message: "Check the CI runners.".into(),
         intent: "ask".into(),
+        continues: None,
     };
     assert_eq!(
         grizzly

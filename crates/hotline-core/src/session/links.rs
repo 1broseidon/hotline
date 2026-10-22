@@ -278,20 +278,9 @@ impl Room {
         let record =
             linked::record(&self.log, desk_id).ok_or("This desk is not linked with that one.")?;
         match delivery {
-            LinkedDelivery::Request {
-                request_id,
-                from_persona_id,
-                to,
-                message,
-                intent,
-            } => self.receive_linked_request(
-                &record,
-                &request_id,
-                &from_persona_id,
-                &to,
-                &message,
-                &intent,
-            ),
+            request @ LinkedDelivery::Request { .. } => {
+                self.receive_linked_request(&record, request)
+            }
             LinkedDelivery::Result {
                 request_id,
                 reply,
@@ -309,21 +298,37 @@ impl Room {
     fn receive_linked_request(
         self: &Arc<Self>,
         record: &Record,
-        request_id: &str,
-        from_persona_id: &str,
-        to: &str,
-        message: &str,
-        intent: &str,
+        request: LinkedDelivery,
     ) -> Result<Value, String> {
-        let intent = match intent {
+        let LinkedDelivery::Request {
+            request_id,
+            from_persona_id,
+            to,
+            message,
+            intent,
+            continues,
+        } = request
+        else {
+            return Err("That is not a message for a teammate.".into());
+        };
+        let intent = match intent.as_str() {
             "ask" => Intent::Ask,
             "handoff" => Intent::Handoff,
             _ => return Err("intent must be ask or handoff".into()),
         };
-        if !linked::valid_persona_id(request_id) || !linked::valid_persona_id(from_persona_id) {
+        if !linked::valid_persona_id(&request_id) || !linked::valid_persona_id(&from_persona_id) {
             return Err("That message does not say plainly who sent it.".into());
         }
-        let from = linked::qualified(&record.desk_id, from_persona_id);
+        // The thread a handoff continues is named by an earlier request's
+        // id, looked up in this desk's own record of the pair when it is
+        // taken up.
+        if continues
+            .as_deref()
+            .is_some_and(|id| intent != Intent::Handoff || !linked::valid_persona_id(id))
+        {
+            return Err("Only a handoff continues a work thread, named by a request's id.".into());
+        }
+        let from = linked::qualified(&record.desk_id, &from_persona_id);
         self.participant(&from).map_err(|_| {
             "That teammate is not on the roster its desk published here.".to_string()
         })?;
@@ -334,9 +339,9 @@ impl Room {
             ));
         }
         let target = self
-            .persona(to)
+            .persona(&to)
             .map_err(|_| "There is no such teammate on this desk.".to_string())?;
-        self.accept_linked_request(request_id, &from, &target.id, message, intent)?;
+        self.accept_linked_request(&request_id, &from, &target.id, message, intent, continues)?;
         Ok(json!({"accepted": true}))
     }
 
@@ -364,6 +369,7 @@ impl Room {
         to: &str,
         message: &str,
         intent: Intent,
+        continues: Option<&str>,
     ) -> Result<bool, String> {
         let (desk_id, persona_id) =
             linked::split(to).ok_or("That teammate is not on a linked desk.")?;
@@ -378,6 +384,7 @@ impl Room {
                 Intent::Handoff => "handoff",
             }
             .to_string(),
+            continues: continues.map(str::to_string),
         };
         match self
             .links

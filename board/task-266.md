@@ -53,3 +53,6 @@ Done when:
 - A spoken yes or done does not answer a credential card. (named test in hotline-voice; scene: On a call)
 - Once stored, the voice hears only "Stored as GITHUB_LOGIN" and says it in a few words. (named test; scene: On a call)
 - make check passes.
+
+## Log
+- 2026-10-22T05:08:24.908Z: [codex] Read design, security method, scenario contract and epic decisions. Implementing a lease-bound credential card, one owner/phone capture command, metadata-only outcomes, existing vault/grant/delivery and passkey arming, and desk-only call routing. Same-turn repeat requests will be refused in core.

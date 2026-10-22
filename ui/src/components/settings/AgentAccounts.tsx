@@ -8,7 +8,7 @@ import { BackKey, Band } from "../../ui/Band";
 import { Refusal } from "../../ui/Refusal";
 import { Scroll } from "../../ui/Scroll";
 import { wire } from "../../wire";
-import { AccountSignIn } from "../accounts/AccountSignIn";
+import { AccountSignIn, settledAccounts } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
 import { namesList, statusWords, whoLine } from "../accounts/words";
 import { AccountSetup } from "./AccountSetup";
@@ -51,6 +51,7 @@ export function AgentAccountsSection({
 	const [agentId, setAgentId] = useState<string | null>(null);
 	const [accountId, setAccountId] = useState<string | null>(opening ?? null);
 	const [signing, setSigning] = useState<Signing | null>(null);
+	const [settling, setSettling] = useState<{ accountId: string } | null>(null);
 	/* An account added from a seat that cannot sign in (an owner, on a Windows desk): its row says where to. */
 	const [fromDesk, setFromDesk] = useState<string | null>(null);
 	/* Accounts signed in again here: their teammates start fresh, and the rows say so until the section closes. */
@@ -66,6 +67,21 @@ export function AgentAccountsSection({
 	useEffect(() => {
 		void reload();
 	}, []);
+
+	useEffect(() => {
+		if (settling === null) return;
+		let cancelled = false;
+		settledAccounts(settling.accountId, () => !cancelled)
+			.then((settled) => {
+				if (settled !== null) setList(settled);
+			})
+			.catch((error: Error) => {
+				if (!cancelled) setRefusal(error.message);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [settling]);
 
 	const patch = (id: string, change: (view: AccountView) => AccountView) =>
 		setList((was) => was && { ...was, accounts: was.accounts.map((one) => (one.account.id === id ? change(one) : one)) });
@@ -96,9 +112,10 @@ export function AgentAccountsSection({
 		},
 		signInEnded: (signedIn) => {
 			const ended = signing;
-			if (signedIn && ended?.renewing) setRenewed((was) => new Set(was).add(ended.accountId));
+			if (ended === null) return;
+			if (signedIn && ended.renewing) setRenewed((was) => new Set(was).add(ended.accountId));
 			setSigning(null);
-			void reload();
+			setSettling({ accountId: ended.accountId });
 		},
 	};
 
@@ -106,7 +123,7 @@ export function AgentAccountsSection({
 	const go = (agent: string | null, account: string | null) => {
 		if (signing !== null) {
 			setSigning(null);
-			void reload();
+			setSettling({ accountId: signing.accountId });
 		}
 		setRefusal(null);
 		setFromDesk(null);
@@ -239,7 +256,7 @@ function renewedWords(name: string): string {
 /** The dot's state: the sign-in in flight, then a last one that failed, then what the agent said; none before anyone asked. */
 function dotState(view: AccountView, signingHere: boolean): string | undefined {
 	if (signingHere || view.attempt?.state === "running") return "signing";
-	if (view.attempt?.state === "failed") return "failed";
+	if (view.attempt?.state === "failed" && view.status.state !== "signed_in") return "failed";
 	return view.status.state === "not_checked" ? undefined : view.status.state;
 }
 
@@ -350,7 +367,7 @@ function AccountRow({ view, shared, signingHere, onOpen }: { view: AccountView; 
 		state === "signing"
 			? "Signing in…"
 			: failed
-				? `Sign-in did not finish${view.attempt?.error ? `: ${view.attempt.error}` : ""}`
+				? `${status.state === "signed_in" ? "Signed in · " : ""}Sign-in did not finish${view.attempt?.error ? `: ${view.attempt.error}` : ""}`
 				: `${statusWords(status.state)}${status.state === "signed_in" && status.email ? ` · ${status.email}` : ""} · ${usedByWords(namesOf(view.usedBy, shared.roster))}`;
 	return (
 		<div className="group-row agent-account-row">
@@ -417,6 +434,7 @@ function AccountPage({
 	const name = view.account.name;
 	const status = view.status;
 	const signingHere = shared.signing?.accountId === view.account.id;
+	const signing = signingHere || view.attempt?.state === "running";
 	const signedIn = status.state === "signed_in";
 	const who = signedIn ? whoLine(status) : "";
 	const users = namesOf(view.usedBy, shared.roster);
@@ -497,7 +515,7 @@ function AccountPage({
 								)}
 								<span className="flex items-center gap-2 text-sm text-ink-2">
 									{state === undefined ? null : <span className="agent-account-dot" data-state={state} aria-hidden="true" />}
-									{signingHere ? "Signing in…" : statusWords(status.state)} · {agent.name}
+									{signing ? "Signing in…" : statusWords(status.state)} · {agent.name}
 								</span>
 							</span>
 						</div>
@@ -510,7 +528,7 @@ function AccountPage({
 									<span className="group-row-title">{who !== "" ? who : statusWords(status.state)}</span>
 									{checkedLine !== undefined && <span className="group-row-detail">{checkedLine}</span>}
 								</span>
-								{!signingHere && (
+								{!signing && (
 									<button type="button" className="control btn-quiet" disabled={status.state === "checking"} onClick={() => shared.check(view)}>
 										{status.state === "checking" ? "Checking…" : "Check"}
 									</button>
@@ -598,7 +616,7 @@ function AccountPage({
 						{!view.canSignInHere ? (
 							<span className="text-sm text-ink-3">Sign in from the desk itself</span>
 						) : (
-							!signingHere && (
+							!signing && (
 								<button type="button" className="control btn btn-primary" onClick={() => shared.signIn(view)}>
 									{signedIn ? "Sign in again" : "Sign in"}
 								</button>

@@ -26,7 +26,7 @@ function account(id: string, name: string, extra: Partial<AccountView> = {}): Ac
 const a1 = () => account("a1", "Account 1", { status: { state: "signed_in", checkedAt: 1, email: "dev@example.com", plan: "max" }, usedBy: ["ada"] });
 const a2 = () => account("a2", "Account 2", { status: { state: "signed_in", checkedAt: 1, email: "reviewer@example.com", plan: "pro" } });
 const a3 = () => account("a3", "Account 3");
-const a4 = () => account("a4", "Account 4");
+const a4 = () => account("a4", "Account 4", { status: { state: "not_checked" } });
 
 const ada: Persona = {
 	id: "ada", name: "Ada", goal: "", backendId: "claude-acp", cwd: "/work/ada", agentAccountId: "a1",
@@ -61,6 +61,10 @@ let act: typeof import("react").act;
 let restores: (() => void)[];
 let teardown: () => Promise<void>;
 
+function change(id: unknown, edit: (view: AccountView) => AccountView) {
+	accounts = accounts.map((one) => (one.account.id === id ? edit(one) : one));
+}
+
 function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "accounts.list") return { agents, accounts };
 	if (cmd === "persona.account") return { running: "a1", ...(params["accountId"] ? { wanted: params["accountId"] } : {}) };
@@ -69,9 +73,25 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 		if (!accounts.some((one) => one.account.id === "a4")) accounts = [...accounts, a4()];
 		return { account: a4() };
 	}
-	if (cmd === "accounts.login.start") return { id: "l1" };
-	if (cmd === "accounts.login.poll") return poll;
-	if (cmd === "accounts.login.cancel") return null;
+	if (cmd === "accounts.login.start") {
+		change(params["accountId"], (one) => ({ ...one, attempt: { id: "l1", state: "running" } }));
+		return { id: "l1" };
+	}
+	if (cmd === "accounts.login.poll") {
+		change(params["accountId"], (one) => ({ ...one, attempt: { id: "l1", state: poll.state, ...(poll.error === undefined ? {} : { error: poll.error }) } }));
+		return poll;
+	}
+	if (cmd === "accounts.login.cancel") {
+		change(params["accountId"], (one) =>
+			one.attempt?.state === "running" ? { ...one, attempt: { id: "l1", state: "failed", error: "Sign-in cancelled." }, status: { state: "checking" } } : one,
+		);
+		return null;
+	}
+	if (cmd === "accounts.status") {
+		const checked = { state: "signed_out", checkedAt: 2 } as const;
+		change(params["accountId"], (one) => ({ ...one, status: checked }));
+		return checked;
+	}
 	throw new Error(`Not in this test: ${cmd}`);
 }
 
@@ -278,6 +298,23 @@ describe("a teammate's agent account", () => {
 		await click("Add account");
 		await click("Add and sign in");
 		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "a4" }]);
+	});
+
+	test("a cancelled sign-in leaves the new account as the core checked it after", async () => {
+		await mount(ada, onA1);
+		await click("Add account");
+		await click("Add and sign in");
+		expect(row("Account 4").textContent).toContain("Signing in…");
+		const panel = container.querySelector('section[aria-label="Harness sign-in"]')!;
+		const cancel = [...panel.querySelectorAll("button")].find((node) => node.textContent === "Cancel")!;
+		await act(async () => {
+			cancel.click();
+		});
+		await settle();
+		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a4", id: "l1" }]);
+		expect(calls.findIndex(([cmd]) => cmd === "accounts.status")).toBeGreaterThan(calls.findIndex(([cmd]) => cmd === "accounts.login.cancel"));
+		expect(row("Account 4").textContent).toContain("Not signed in · sign in to use it");
+		expect(named("persona.account")).toHaveLength(0);
 	});
 
 	test("the setup link opens the account's setup", async () => {

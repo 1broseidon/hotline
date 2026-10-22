@@ -1,11 +1,10 @@
 import { useMemo } from "react";
-import type { AccountView } from "../../generated/contract";
+import type { AccountsList, AccountView } from "../../generated/contract";
 import { platform } from "../../native";
 import { onServer } from "../../serverFiles";
 import { wire } from "../../wire";
 import { type SignInJob, SignInTerminal } from "../AgentSignIn";
 
-/** An account's sign-in, as the terminal drives it. The email goes only when there is one. */
 export function accountJob(accountId: string, email?: string): SignInJob {
 	return {
 		start: () => wire.command("accounts.login.start", email === undefined ? { accountId } : { accountId, email }),
@@ -20,13 +19,27 @@ export function accountJob(accountId: string, email?: string): SignInJob {
 }
 
 /**
- * Signing an agent account in, in place under the row that asked. A
- * Windows desk opens the agent's own console window on its screen, so this
- * window says so and keeps only Cancel; elsewhere the agent's sign-in runs
- * in the terminal here. Hotline checks by itself when the sign-in ends, and
- * `onEnd` says whether it did: true only when the agent confirmed it.
- * Mounted only where `canSignInHere`; unmounting cancels the sign-in.
+ * The core answers a cancel before its attempt ends, then checks the account
+ * again: the list is read until the attempt is over and that check has
+ * answered, or null once `alive` is false. Run it from an effect, so it starts
+ * after the closed sign-in's cleanup has sent the cancel.
  */
+export async function settledAccounts(accountId: string, alive: () => boolean): Promise<AccountsList | null> {
+	const viewIn = (list: AccountsList) => list.accounts.find((one) => one.account.id === accountId);
+	let list = await wire.command("accounts.list", {});
+	while (alive() && viewIn(list)?.attempt?.state === "running") {
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		if (!alive()) return null;
+		list = await wire.command("accounts.list", {});
+	}
+	if (alive() && viewIn(list)?.status.state === "checking") {
+		await wire.command("accounts.status", { accountId }).catch(() => {});
+		if (alive()) list = await wire.command("accounts.list", {});
+	}
+	return alive() ? list : null;
+}
+
+/** Mounted only where `canSignInHere`; unmounting cancels the sign-in. */
 export function AccountSignIn({
 	account,
 	agentName,

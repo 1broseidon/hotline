@@ -10,7 +10,7 @@ import { Fold } from "../ui/Fold";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { AccountChoices } from "./accounts/AccountChoices";
-import { AccountSignIn } from "./accounts/AccountSignIn";
+import { AccountSignIn, settledAccounts } from "./accounts/AccountSignIn";
 import { AddAccountForm } from "./accounts/AddAccountForm";
 import { SYSTEM_DEFAULT } from "./accounts/words";
 import { BackendPicker } from "./BackendPicker";
@@ -125,7 +125,7 @@ export function NewTeammateForm({
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [accountsList, setAccountsList] = useState<AccountsList | null>(null);
-	const [accountReads, setAccountReads] = useState(0);
+	const [accountSettling, setAccountSettling] = useState<{ accountId: string } | null>(null);
 	const [accountId, setAccountId] = useState(SYSTEM_DEFAULT);
 	const [addingAccount, setAddingAccount] = useState(false);
 	const [signingAccount, setSigningAccount] = useState<{ view: AccountView; email: string | undefined } | null>(null);
@@ -157,13 +157,15 @@ export function NewTeammateForm({
 			: (backends.find((one) => one.unavailable === undefined)?.id ?? ""));
 	const onHotline = backendId === HOTLINE_AGENT || backendId === "";
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: read when an agent other than Hotline Agent is first picked, and again on each `accountReads`.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: read when an agent other than Hotline Agent is first picked, and again once each sign-in here has ended.
 	useEffect(() => {
 		if (onHotline || simple) return;
 		let cancelled = false;
-		void wire.command("accounts.list", {}).then(
+		const read =
+			accountSettling === null ? wire.command("accounts.list", {}) : settledAccounts(accountSettling.accountId, () => !cancelled);
+		void read.then(
 			(answer) => {
-				if (!cancelled) setAccountsList(answer);
+				if (!cancelled && answer !== null) setAccountsList(answer);
 			},
 			() => {
 				if (!cancelled) setAccountsList(null);
@@ -172,7 +174,7 @@ export function NewTeammateForm({
 		return () => {
 			cancelled = true;
 		};
-	}, [onHotline, accountReads]);
+	}, [onHotline, accountSettling]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of agent is what resets the choice.
 	useEffect(() => {
@@ -193,8 +195,8 @@ export function NewTeammateForm({
 		else setAccountFromDesk(made.account.id);
 	};
 	const accountSignInEnded = () => {
+		if (signingAccount !== null) setAccountSettling({ accountId: signingAccount.view.account.id });
 		setSigningAccount(null);
-		setAccountReads((was) => was + 1);
 	};
 
 	const submit = async () => {

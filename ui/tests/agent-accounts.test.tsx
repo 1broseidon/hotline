@@ -67,6 +67,7 @@ let accounts: AccountView[];
 let made: AccountView;
 let poll: { state: "running" | "succeeded" | "failed"; output: string; error?: string };
 let checked: AccountView["status"];
+let cancelLands: boolean;
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
@@ -74,16 +75,37 @@ let act: typeof import("react").act;
 let restores: (() => void)[];
 let teardown: () => Promise<void>;
 
+function change(id: unknown, edit: (view: AccountView) => AccountView) {
+	accounts = accounts.map((one) => (one.account.id === id ? edit(one) : one));
+}
+function cancelled(view: AccountView): AccountView {
+	if (view.attempt?.state !== "running") return view;
+	return { ...view, attempt: { id: view.attempt.id, state: "failed", error: "Sign-in cancelled." }, status: { state: "checking" } };
+}
+
 function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "accounts.list") return { agents, accounts };
 	if (cmd === "accounts.create") {
 		accounts = [...accounts, made];
 		return { account: made };
 	}
-	if (cmd === "accounts.login.start") return { id: "l1" };
-	if (cmd === "accounts.login.poll") return poll;
-	if (cmd === "accounts.login.input" || cmd === "accounts.login.cancel") return null;
-	if (cmd === "accounts.status") return checked;
+	if (cmd === "accounts.login.start") {
+		change(params["accountId"], (one) => ({ ...one, attempt: { id: "l1", state: "running" } }));
+		return { id: "l1" };
+	}
+	if (cmd === "accounts.login.poll") {
+		change(params["accountId"], (one) => ({ ...one, attempt: { id: "l1", state: poll.state, ...(poll.error === undefined ? {} : { error: poll.error }) } }));
+		return poll;
+	}
+	if (cmd === "accounts.login.cancel") {
+		if (cancelLands) change(params["accountId"], cancelled);
+		return null;
+	}
+	if (cmd === "accounts.login.input") return null;
+	if (cmd === "accounts.status") {
+		change(params["accountId"], (one) => ({ ...one, status: checked }));
+		return checked;
+	}
 	if (cmd === "accounts.rename") {
 		accounts = accounts.map((one) => (one.account.id === params["accountId"] ? { ...one, account: { ...one.account, name: String(params["name"]) } } : one));
 		return accounts.find((one) => one.account.id === params["accountId"]);
@@ -106,6 +128,7 @@ beforeEach(async () => {
 	made = a3();
 	poll = { state: "running", output: "" };
 	checked = { state: "signed_in", checkedAt: Date.now(), email: "two@example.com", plan: "pro" };
+	cancelLands = true;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -268,11 +291,58 @@ describe("Settings › Agent accounts", () => {
 		expect(container.querySelector("[data-private-terminal]")).toBeNull();
 		const panel = container.querySelector('section[aria-label="Harness sign-in"]')!;
 		expect([...panel.querySelectorAll("button")].map((node) => node.textContent)).toEqual(["Cancel"]);
-		const listed = named("accounts.list").length;
+		checked = { state: "signed_out", checkedAt: Date.now() };
 		await click("Cancel", panel);
 		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a3", id: "l1" }]);
-		expect(named("accounts.list").length).toBeGreaterThan(listed);
+		expect(calls.findIndex(([cmd]) => cmd === "accounts.status")).toBeGreaterThan(calls.findIndex(([cmd]) => cmd === "accounts.login.cancel"));
 		expect(text()).not.toContain("A Claude Code window opened");
+		expect(row("Account 3").textContent).toContain("Sign-in did not finish: Sign-in cancelled.");
+		expect(row("Account 3").textContent).not.toContain("Signing in…");
+		expect(button("Try again", row("Account 3"))).toBeDefined();
+	});
+
+	test("Back mid sign-in leaves the row as the cancelled attempt ended", async () => {
+		checked = { state: "signed_out", checkedAt: Date.now() };
+		await mount();
+		await openAgent();
+		await openAccount("Account 2");
+		await click("Sign in");
+		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a2" }]);
+		await click("Back to the team");
+		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a2", id: "l1" }]);
+		expect(row("Account 2").textContent).toContain("Sign-in did not finish: Sign-in cancelled.");
+		expect(row("Account 2").textContent).not.toContain("Signing in…");
+		expect(button("Try again", row("Account 2"))).toBeDefined();
+	});
+
+	test("a list that still says signing in after a cancel is read again", async () => {
+		checked = { state: "signed_out", checkedAt: Date.now() };
+		cancelLands = false;
+		await mount();
+		await openAgent();
+		await openAccount("Account 2");
+		await click("Sign in");
+		await click("Back to the team");
+		expect(row("Account 2").textContent).not.toContain("Sign-in did not finish");
+		expect(named("accounts.status")).toHaveLength(0);
+		const listed = named("accounts.list").length;
+		change("a2", cancelled);
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		});
+		await settle();
+		expect(named("accounts.list").length).toBeGreaterThan(listed);
+		expect(row("Account 2").textContent).toContain("Sign-in did not finish: Sign-in cancelled.");
+	});
+
+	test("an attempt running elsewhere reads Signing in… on the account page, with neither Sign in nor Check", async () => {
+		accounts = [a1(), { ...a2(), attempt: { id: "l0", state: "running" } }];
+		await mount();
+		await openAgent();
+		await openAccount("Account 2");
+		expect(container.querySelector(".nt-card")?.textContent).toContain("Signing in…");
+		expect(hasButton("Sign in")).toBe(false);
+		expect(hasButton("Check")).toBe(false);
 	});
 
 	test("an owner seat adds an account and is told to sign it in from the desk", async () => {
@@ -397,10 +467,16 @@ describe("Settings › Agent accounts", () => {
 	});
 
 	test("a sign-in that did not finish says why on its row and offers Try again", async () => {
-		accounts = [a1(), { ...a2(), attempt: { id: "l0", state: "failed", error: "Claude Code closed before it was signed in." } }];
+		accounts = [
+			{ ...a1(), attempt: { id: "l0", state: "failed", error: "Sign-in cancelled." } },
+			{ ...a2(), attempt: { id: "l0", state: "failed", error: "Claude Code closed before it was signed in." } },
+		];
 		await mount();
 		await openAgent();
+		expect(row("Account 1").textContent).toContain("Signed in · Sign-in did not finish: Sign-in cancelled.");
+		expect(row("Account 1").querySelector(".agent-account-dot")?.getAttribute("data-state")).toBe("signed_in");
 		expect(row("Account 2").textContent).toContain("Sign-in did not finish: Claude Code closed before it was signed in.");
+		expect(row("Account 2").textContent).not.toContain("Signed in ·");
 		expect(row("Account 2").querySelector(".agent-account-dot")?.getAttribute("data-state")).toBe("failed");
 		await click("Try again", row("Account 2"));
 		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a2" }]);

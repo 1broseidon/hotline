@@ -30,7 +30,7 @@ function account(id: string, name: string, extra: Partial<AccountView> = {}): Ac
 }
 const a1 = () => account("a1", "Account 1", { status: { state: "signed_in", checkedAt: 1, email: "dev@example.com", plan: "max" }, usedBy: ["ada"] });
 const a2 = () => account("a2", "Account 2");
-const a3 = () => account("a3", "Account 3");
+const a3 = () => account("a3", "Account 3", { status: { state: "not_checked" } });
 
 class NoResize {
 	observe() {}
@@ -49,6 +49,10 @@ let act: typeof import("react").act;
 let restores: (() => void)[];
 let teardown: () => Promise<void>;
 
+function change(id: unknown, edit: (view: AccountView) => AccountView) {
+	accounts = accounts.map((one) => (one.account.id === id ? edit(one) : one));
+}
+
 function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "backends.list") return backends;
 	if (cmd === "accounts.list") return { agents, accounts };
@@ -58,9 +62,23 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 		accounts = [...accounts, a3()];
 		return { account: a3() };
 	}
-	if (cmd === "accounts.login.start") return { id: "l1" };
+	if (cmd === "accounts.login.start") {
+		change(params["accountId"], (one) => ({ ...one, attempt: { id: "l1", state: "running" } }));
+		return { id: "l1" };
+	}
 	if (cmd === "accounts.login.poll") return { state: "running", output: "" };
-	if (cmd === "accounts.login.cancel" || cmd === "accounts.login.input") return null;
+	if (cmd === "accounts.login.cancel") {
+		change(params["accountId"], (one) =>
+			one.attempt?.state === "running" ? { ...one, attempt: { id: "l1", state: "failed", error: "Sign-in cancelled." }, status: { state: "checking" } } : one,
+		);
+		return null;
+	}
+	if (cmd === "accounts.login.input") return null;
+	if (cmd === "accounts.status") {
+		const checked = { state: "signed_out", checkedAt: 2 } as const;
+		change(params["accountId"], (one) => ({ ...one, status: checked }));
+		return checked;
+	}
 	throw new Error(`Not in this test: ${cmd}`);
 }
 
@@ -234,6 +252,7 @@ describe("a new teammate's agent account", () => {
 
 		await click("Sign in later");
 		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a3", id: "l1" }]);
+		expect(calls.findIndex(([cmd]) => cmd === "accounts.status")).toBeGreaterThan(calls.findIndex(([cmd]) => cmd === "accounts.login.cancel"));
 		expect(radio("Account 3").checked).toBe(true);
 		expect(row("Account 3").textContent).toContain("Not signed in · sign in to use it");
 

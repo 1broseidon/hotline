@@ -4,7 +4,7 @@ import { PlusIcon } from "../../icons";
 import { Refusal } from "../../ui/Refusal";
 import { wire } from "../../wire";
 import { AccountChoices } from "../accounts/AccountChoices";
-import { AccountSignIn } from "../accounts/AccountSignIn";
+import { AccountSignIn, settledAccounts } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
 import { SYSTEM_DEFAULT } from "../accounts/words";
 
@@ -22,19 +22,19 @@ export function AccountRow({
 	onSetup?: ((accountId: string) => void) | undefined;
 }) {
 	const [list, setList] = useState<AccountsList | null>(null);
-	const [reads, setReads] = useState(0);
+	const [settling, setSettling] = useState<{ accountId: string } | null>(null);
 	const [adding, setAdding] = useState(false);
 	const [signing, setSigning] = useState<Signing | null>(null);
 	const [fromDesk, setFromDesk] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: each read is asked for by bumping `reads`.
 	useEffect(() => {
 		let cancelled = false;
-		void wire.command("accounts.list", {}).then(
+		const read = settling === null ? wire.command("accounts.list", {}) : settledAccounts(settling.accountId, () => !cancelled);
+		void read.then(
 			(answer) => {
-				if (!cancelled) setList(answer);
+				if (!cancelled && answer !== null) setList(answer);
 			},
 			() => {
 				if (!cancelled) setList(null);
@@ -43,8 +43,7 @@ export function AccountRow({
 		return () => {
 			cancelled = true;
 		};
-	}, [reads]);
-	const reload = () => setReads((was) => was + 1);
+	}, [settling]);
 
 	const agent = list?.agents.find((one) => one.backendId === persona.backendId && one.supportsAccounts);
 	if (list === null || agent === undefined) return null;
@@ -91,8 +90,9 @@ export function AccountRow({
 	const signInEnded = (signedIn: boolean) => {
 		const ended = signing;
 		setSigning(null);
-		if (signedIn && ended !== null) void assign(ended.view.account.id);
-		reload();
+		if (ended === null) return;
+		if (signedIn) void assign(ended.view.account.id);
+		setSettling({ accountId: ended.view.account.id });
 	};
 
 	const title = `${agent.name} account`;

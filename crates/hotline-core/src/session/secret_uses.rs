@@ -43,9 +43,23 @@ impl Room {
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) async fn poll_secret_uses(self: &Arc<Self>, persona: &str) {
         let watch = self.use_watch(persona);
         let mut watch = watch.lock().await;
+        self.look_at_secret_uses(persona, &mut watch).await;
+    }
+
+    async fn look_at_secret_uses(self: &Arc<Self>, persona: &str, watch: &mut UseWatch) {
+        let granted = self.ask_me_secrets(persona);
+        if granted.is_empty()
+            && watch
+                .cards
+                .values()
+                .all(|card| card.status != SecretUseStatus::Pending)
+        {
+            return;
+        }
         let ready = self.computers.running(persona).await;
         if ready != watch.ready {
             for card in watch.cards.values_mut() {
@@ -55,7 +69,6 @@ impl Room {
             watch.ready.clone_from(&ready);
             watch.old = false;
         }
-        let granted = self.ask_me_secrets(persona);
         for card in watch.cards.values_mut() {
             if now_ms() >= card.held.expires_at
                 || !card.capability.is_current()
@@ -301,12 +314,13 @@ pub(super) fn watch(room: Weak<Room>) {
             }
             // Each computer has its own lock and deadline; an unavailable one
             // cannot delay a different teammate's card.
-            let mut polls = tokio::task::JoinSet::new();
             for persona in personas {
+                let Ok(mut watch) = room.use_watch(&persona).try_lock_owned() else {
+                    continue;
+                };
                 let room = room.clone();
-                polls.spawn(async move { room.poll_secret_uses(&persona).await });
+                tokio::spawn(async move { room.look_at_secret_uses(&persona, &mut watch).await });
             }
-            while polls.join_next().await.is_some() {}
         }
     });
 }

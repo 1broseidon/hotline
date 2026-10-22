@@ -1306,3 +1306,41 @@ async fn laptop_cookies_reach_the_computer_but_never_the_room_or_tape() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_slow_secret_use_poll_does_not_delay_another_computers_next_card() {
+    let fixture = secret_use_room(
+        "use-independent-polls",
+        "0.11.2",
+        crate::contract::SecretUse::Ask,
+    )
+    .await;
+    let room = &fixture.room;
+    // An in-flight poll or answer owns this lock while its computer is slow.
+    let busy = room.use_watch("another-computer");
+    let _held = busy.lock().await;
+    let first = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
+    until("the first use is offered", || {
+        tape(room, "ada").iter().any(|event| {
+            event["kind"] == "secret_use_ask"
+                && event["useId"] == first
+                && event["status"] == "pending"
+        })
+    })
+    .await;
+    fixture.taken.uses.expire(&first);
+    let second = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
+    until("the next round still reaches this computer", || {
+        tape(room, "ada").iter().any(|event| {
+            event["kind"] == "secret_use_ask"
+                && event["useId"] == second
+                && event["status"] == "pending"
+        })
+    })
+    .await;
+    assert!(
+        tape(room, "ada")
+            .iter()
+            .any(|event| event["useId"] == first && event["status"] == "expired")
+    );
+}

@@ -61,6 +61,7 @@ pub(crate) mod capture;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;
+mod secret_uses;
 mod secrets;
 mod sides;
 mod start;
@@ -636,6 +637,7 @@ pub struct Room {
     /// the name it will be stored under and the site, until the poll that
     /// finds it made, a cancel, or the computer's own ten minutes run out.
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
+    secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
     captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
@@ -765,6 +767,7 @@ impl Room {
             computers,
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
+            secret_uses: Mutex::default(),
             captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
@@ -772,6 +775,7 @@ impl Room {
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
+        secret_uses::watch(Arc::downgrade(&room));
         // What the person said that was still waiting when the last desk
         // stopped, and what came back to a job that had not heard it yet, is
         // handed on once, now that the room is up.

@@ -1243,14 +1243,26 @@ impl RoomHandle for Desk {
         username: &str,
         password: &str,
         totp: Option<&str>,
+        usage: Option<crate::contract::SecretUse>,
     ) -> Result<crate::contract::SharedSecret, String> {
         let updates = self.room.policy_update_lock();
         let held = updates.lock().await;
+        let usage = match usage {
+            Some(usage) => usage,
+            None => self
+                .vault
+                .shared_secrets()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|secret| secret.name == name)
+                .map(|secret| secret.r#use)
+                .unwrap_or_default(),
+        };
         self.vault
             .set_shared(
                 name,
                 crate::vault::StoredSecret::Login {
-                    ask: false,
+                    r#use: usage,
                     sites: sites.to_vec(),
                     username: username.to_owned(),
                     password: password.to_owned(),
@@ -1268,6 +1280,37 @@ impl RoomHandle for Desk {
         drop(held);
         self.room.secrets_changed().await;
         Ok(stored)
+    }
+
+    async fn secrets_use_set(
+        &self,
+        name: &str,
+        usage: crate::contract::SecretUse,
+    ) -> Result<crate::contract::SharedSecret, String> {
+        let updates = self.room.policy_update_lock();
+        let held = updates.lock().await;
+        self.vault
+            .set_secret_use(name, usage)
+            .map_err(|error| error.to_string())?;
+        let secret = self
+            .vault
+            .shared_secrets()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|s| s.name == name)
+            .ok_or("The secret is no longer stored.")?;
+        drop(held);
+        self.room.secrets_changed().await;
+        Ok(secret)
+    }
+
+    async fn secrets_use_answer(
+        &self,
+        persona: &str,
+        id: &str,
+        answer: crate::contract::SecretUseAnswer,
+    ) -> Result<(), String> {
+        self.room.secrets_use_answer(persona, id, answer).await
     }
 
     async fn secrets_capture_answer(

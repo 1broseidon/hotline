@@ -831,6 +831,16 @@ pub enum Command {
     /// The single owner/phone door for a live credential card.
     #[serde(rename = "secrets.capture.answer")]
     SecretsCaptureAnswer(CredentialAnswer),
+    /// Changes only a login or passkey's use policy; desk/owner only.
+    #[serde(rename = "secrets.use.set")]
+    SecretsUseSet { name: String, r#use: SecretUse },
+    /// Answers one live computer use; desk, owner and phone only.
+    #[serde(rename = "secrets.use.answer")]
+    SecretsUseAnswer {
+        persona_id: String,
+        use_id: String,
+        answer: SecretUseAnswer,
+    },
     #[serde(rename = "secrets.list")]
     SecretsList {},
     /// Stores a secret under `name`, or replaces the one there, and hands the
@@ -849,6 +859,8 @@ pub enum Command {
     /// seat only.
     #[serde(rename = "secrets.login.set")]
     SecretsLoginSet {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        r#use: Option<SecretUse>,
         name: String,
         sites: Vec<String>,
         username: String,

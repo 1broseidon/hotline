@@ -262,7 +262,7 @@ impl Room {
                         username: values.username,
                         password: values.password,
                         totp: values.totp,
-                        ask: answer.ask,
+                        r#use: answer.ask.into(),
                     };
                     vault.set_shared(&name, login).map_err(
                         |_| "The login could not be stored. Check the fields and unlock the vault.",

@@ -1156,14 +1156,6 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
     options.open(path)
 }
 
-/// A 0600 file, private from its first byte.
-pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let mut file = create_private_file(path)?;
-    file.write_all(contents)?;
-    file.sync_all()?;
-    Ok(())
-}
-
 pub(crate) fn read_model_file(path: &Path) -> io::Result<Vec<u8>> {
     if !path.symlink_metadata()?.is_file() {
         return Err(io::Error::other("Model cache must be a regular file."));

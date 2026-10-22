@@ -136,6 +136,7 @@ pub(crate) mod fake {
     /// stands: the record a test reads and drives.
     #[derive(Clone, Default)]
     pub(crate) struct Taken {
+        pub(crate) uses: crate::computer::uses::fake::Door,
         sets: Arc<Mutex<Vec<BTreeMap<String, Value>>>>,
         arming: Arc<Mutex<Option<FakeArming>>>,
         /// How many requests pages have parked, so each gets its own id.
@@ -260,6 +261,7 @@ pub(crate) mod fake {
         }
         match serde_json::from_str::<BTreeMap<String, Value>>(&body) {
             Ok(set) => {
+                taken.uses.replace(&set);
                 taken.sets.lock().unwrap().push(set);
                 axum::http::StatusCode::NO_CONTENT
             }
@@ -684,6 +686,17 @@ pub(crate) mod fake {
         }
         if version.is_some_and(has_logins_door) {
             app = app.route("/logins/{name}", axum::routing::delete(forget_login));
+        }
+        if version == Some("0.11.2") {
+            app = app
+                .route(
+                    "/secrets/uses",
+                    axum::routing::get(crate::computer::uses::fake::held),
+                )
+                .route(
+                    "/secrets/uses/answer",
+                    axum::routing::post(crate::computer::uses::fake::answer),
+                );
         }
         let app = app.with_state(taken.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

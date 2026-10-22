@@ -45,6 +45,7 @@ impl Calls {
         let (key, pending) = match kind {
             "permission" => ("requestId", event["decision"].is_null()),
             "human_action" | "credential_ask" => ("actionId", event["status"] == "pending"),
+            "secret_use_ask" => ("useId", event["status"] == "pending"),
             "passkey_ask" => ("askId", event["status"] == "pending"),
             _ => return,
         };

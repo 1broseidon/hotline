@@ -46,6 +46,18 @@ impl Room {
                 answerable: true,
             });
         }
+        if card.kind == "secret_use_ask" {
+            let pending = self.tape(&card.persona).iter().any(|event| {
+                event["kind"] == "secret_use_ask"
+                    && event["useId"] == card.request
+                    && event["status"] == "pending"
+            });
+            return pending.then(|| Notice {
+                text: "A key-use approval waits on the desk and phone. Please answer it there."
+                    .into(),
+                answerable: false,
+            });
+        }
         if card.kind == "credential_ask" {
             let pending = self.tape(&card.persona).iter().any(|e| {
                 e["kind"] == "credential_ask"

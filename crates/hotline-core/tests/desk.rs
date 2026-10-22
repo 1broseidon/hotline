@@ -82,6 +82,7 @@ mod desk {
     mod connections;
     mod logins;
     mod real_agents;
+    mod secret_uses;
     mod skills;
     mod teammates;
     #[cfg(any(target_os = "linux", target_os = "macos"))]

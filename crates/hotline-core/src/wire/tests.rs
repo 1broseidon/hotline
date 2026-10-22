@@ -1141,6 +1141,8 @@ mod phone_pressure;
 mod roster;
 mod schedules;
 mod seats;
+#[cfg(unix)]
+mod secret_uses;
 mod settings;
 mod threads;
 mod windows;

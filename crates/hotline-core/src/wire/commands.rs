@@ -795,6 +795,18 @@ pub(crate) async fn run(
             .secrets_capture_answer(answer)
             .await
             .map(|()| Value::Null),
+        Command::SecretsUseSet { name, r#use } => room
+            .secrets_use_set(&name, r#use)
+            .await
+            .map(|secret| json!(secret)),
+        Command::SecretsUseAnswer {
+            persona_id,
+            use_id,
+            answer,
+        } => room
+            .secrets_use_answer(&persona_id, &use_id, answer)
+            .await
+            .map(|()| Value::Null),
         Command::SecretsList {} => room.secrets_list().map(|secrets| json!(secrets)),
         Command::SecretsSet { name, value } => room
             .secrets_set(&name, &value)
@@ -802,13 +814,14 @@ pub(crate) async fn run(
             .map(|secret| json!(secret)),
         Command::SecretsDelete { name } => room.secrets_delete(&name).await.map(|()| Value::Null),
         Command::SecretsLoginSet {
+            r#use,
             name,
             sites,
             username,
             password,
             totp,
         } => room
-            .secrets_login_set(&name, &sites, &username, &password, totp.as_deref())
+            .secrets_login_set(&name, &sites, &username, &password, totp.as_deref(), r#use)
             .await
             .map(|secret| json!(secret)),
         Command::SecretsPasskeyRegister {

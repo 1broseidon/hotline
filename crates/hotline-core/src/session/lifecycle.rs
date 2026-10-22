@@ -216,6 +216,18 @@ impl Room {
         for stream in streams {
             let events = self.log.load(&stream);
             let mut settled = crate::log::expire_orphaned_permissions(&events, now);
+            settled.extend(
+                events
+                    .iter()
+                    .filter(|event| {
+                        event["kind"] == "secret_use_ask" && event["status"] == "pending"
+                    })
+                    .map(|event| {
+                        let mut expired = event.clone();
+                        expired["status"] = serde_json::json!("expired");
+                        expired
+                    }),
+            );
             if let StreamId::Tape(owner) = &stream {
                 settled.extend(self.settle_links(owner, &events, now, &mut closed));
             }

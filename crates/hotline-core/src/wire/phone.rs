@@ -2,7 +2,7 @@
 
 use super::RoomHandle;
 use crate::contract::SessionConfigCategory;
-use crate::log::{Log, StreamId};
+use crate::log::StreamId;
 use crate::thread::Link;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -11,8 +11,7 @@ use std::sync::Arc;
 /// written beside them. A thread's link is sent as the marker its kind has
 /// always had (see [`Link::wire`]), or as itself to a client that declared
 /// `threads2` (see [`Link::threads2`]).
-fn public_snapshot(log: &Log, stream: &StreamId, threads2: bool) -> Vec<Value> {
-    let events = log.load(stream);
+fn public_snapshot(events: Vec<Value>, stream: &StreamId, threads2: bool) -> Vec<Value> {
     if *stream == StreamId::Room {
         events
             .into_iter()
@@ -161,13 +160,13 @@ pub(super) fn phone_budget(events: Vec<Value>) -> Vec<Value> {
 /// A stream's opening lines as this socket is sent them. A phone gets a
 /// window of `window` lines (or [`PHONE_WINDOW`]), cut and within budget.
 pub(super) fn snapshot_shaped(
-    log: &Log,
+    events: Vec<Value>,
     stream: &StreamId,
     phone: bool,
     window: Option<usize>,
     threads2: bool,
 ) -> Vec<Value> {
-    let events = public_snapshot(log, stream, threads2);
+    let events = public_snapshot(events, stream, threads2);
     if !phone {
         // The desk and its owner device open a tape on its last lines and
         // page back with `tape.page`; a whole tape is too much to draw.

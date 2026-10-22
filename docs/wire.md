@@ -84,11 +84,10 @@ land:
 {"sub": 7, "event": { … }}
 ```
 
-The broadcast is subscribed to **before** the fold is loaded for the
-snapshot, so nothing can land in the gap. An event that lands in both is
-harmless: every client folds by event id, and the second copy of a line
-supersedes the first with itself. A stream subscriber that falls behind
-is sent a second snapshot rather than the events it missed.
+The stream's fold and broadcast receiver are captured under the same writer
+lock, so nothing lands in a gap or replays an older revision after the
+snapshot. A stream subscriber that falls behind is sent a second snapshot
+with a fresh receiver from that same boundary.
 
 An unsubscribe, naming the subscription's id:
 
@@ -820,7 +819,10 @@ events are cut the same way, and so is a page. The same is sent to any
 remote socket that declared `lean` ([the phone seat](#the-phone-seat)). Such
 a socket may name a smaller window with the subscription,
 `{"id": n, "sub": {"tape": "<personaId>"}, "window": 50}`, from 1 to 200; the
-desk ignores `window` on any other socket. A companion phone may hold at most
+desk ignores `window` on any other socket. After stream lag the phone gets
+the full 200-line window again, within the same byte budget, rather than its
+smaller opening window. Events resume from a fresh broadcast subscription so
+older revisions cannot overwrite the recovered state. A companion phone may hold at most
 eight subscriptions open at once: a ninth is refused with `"A phone can open
 at most eight subscriptions."`
 
@@ -1352,8 +1354,13 @@ hello. Clients use their normal reconnect backoff.
 The first Noise message is limited to 4096 bytes and WebSocket records to
 65535. Reassembly is capped at 32 MiB; the owner wire permits 32 MiB frames,
 while companions retain the 1 MiB output frame limit. Both use a bounded
-256-frame outbox: a full one closes the socket, though live words it cannot
-take are dropped instead. A frame the peer has not taken within 60 seconds
+256-frame outbox. Pending roster rows for the same subscription and teammate
+coalesce, preserving omitted catalogs without crossing a required frame.
+A full queue evicts older tool updates or live deltas to admit newer frames;
+if none can be evicted, incoming tool updates and deltas are dropped, while
+a required frame closes the socket. Tool history remains in the log; chat,
+cards, snapshots and command replies are never silently dropped.
+A frame the peer has not taken within 60 seconds
 also closes the socket, on every seat, so a phone that left the network
 without closing is dropped even when it is quiet and never named `lean`.
 Only a seat that exceeds the write deadline selects zero TCP linger before

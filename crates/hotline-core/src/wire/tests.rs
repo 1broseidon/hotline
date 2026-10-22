@@ -1129,6 +1129,7 @@ mod mobile_computer;
 mod models;
 mod owner_handler;
 mod personas;
+mod phone_pressure;
 mod roster;
 mod schedules;
 mod seats;
@@ -1137,7 +1138,13 @@ mod threads;
 mod windows;
 
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {
-    snapshot_shaped(log, stream, seat == Seat::Phone, None, threads2)
+    snapshot_shaped(
+        log.load(stream),
+        stream,
+        seat == Seat::Phone,
+        None,
+        threads2,
+    )
 }
 
 mod concurrency;

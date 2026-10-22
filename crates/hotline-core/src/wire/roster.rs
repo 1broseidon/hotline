@@ -209,7 +209,7 @@ pub(super) async fn view(
                     let Some(watch) = watched.get(&persona_id) else { continue; };
                     let row = shaped(&sender, roster_entry(watch, &handle, persona.clone(), &pins, lead.as_deref()));
                     let row = catalogs(&sender, watch, row, false);
-                    if !send(&sender, json!({ "sub": id, "event": row })) {
+                    if sender.send_roster(id, row).is_err() {
                         return;
                     }
                 }

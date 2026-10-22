@@ -1057,3 +1057,60 @@ async fn discovery_answers_while_a_settings_command_waits_on_the_policy_gate() {
     );
     serving.abort();
 }
+
+/// Lag recovery on the real core keeps a client's recent history and
+/// resumes live delivery on the same connection.
+#[tokio::test]
+async fn a_lagging_client_recovers_its_window_and_keeps_receiving_the_core() {
+    use hotline_core::log::StreamId;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(common::open_desk(root.path()).unwrap());
+    let tape = StreamId::Tape("ada".into());
+    for n in 0..300 {
+        desk.log
+            .append(
+                &tape,
+                &json!({"kind":"user","id":format!("m{n}"),"ts":n,"text":"line"}),
+            )
+            .unwrap();
+    }
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone(), desk.parts()).unwrap();
+    let port = door.port();
+    let serving = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    let sub = client.subscribe(json!({"tape":"ada"})).await;
+    let seed = client
+        .next_where(common::ANSWER, |frame| is_sub(frame, sub, "snapshot"))
+        .await;
+    assert_eq!(seed["snapshot"].as_array().unwrap().len(), 300);
+
+    // The core remains the only writer. With no await on this runtime, its
+    // subscriber necessarily falls behind the 1024-event broadcast ring.
+    for n in 300..1500 {
+        desk.log
+            .append(
+                &tape,
+                &json!({"kind":"user","id":format!("m{n}"),"ts":n,"text":"line"}),
+            )
+            .unwrap();
+    }
+    let recovered = client
+        .next_where(common::ANSWER, |frame| is_sub(frame, sub, "snapshot"))
+        .await;
+    let lines = recovered["snapshot"].as_array().unwrap();
+    assert_eq!(lines.len(), 400);
+    assert_eq!(lines[0]["id"], "m1100");
+    assert_eq!(lines[399]["id"], "m1499");
+    desk.log
+        .append(
+            &tape,
+            &json!({"kind":"agent","id":"after","ts":1500,"text":"Still here"}),
+        )
+        .unwrap();
+    let after = client
+        .next_where(common::ANSWER, |frame| is_sub(frame, sub, "event"))
+        .await;
+    assert_eq!(after["event"]["id"], "after");
+    assert_eq!(client.call("ping", json!({})).await["ok"], true);
+    serving.abort();
+}

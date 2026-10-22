@@ -18,8 +18,8 @@ use tokio::task::JoinHandle;
 /// The acknowledgement is queued before the task that forwards the stream
 /// exists, because a task the runtime starts on another thread would
 /// otherwise be free to queue its snapshot first, and a client is promised
-/// `ok`, then one snapshot, then events. Inside that task the broadcast is
-/// subscribed to before the fold is loaded, so nothing lands in between.
+/// `ok`, then one snapshot, then events. Inside that task the fold and its
+/// broadcast receiver come from the same writer lock, with no gap or overlap.
 pub(super) fn subscribe(
     id: i64,
     frame: &Value,
@@ -235,7 +235,7 @@ async fn stream_events(
     room: Arc<dyn RoomHandle>,
     sender: Outbox,
 ) {
-    let mut events = log.subscribe(&stream);
+    let (initial, mut events) = log.snapshot(&stream);
     let mut deltas = match &stream {
         StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) | StreamId::Job(_) => {
             Some(room.subscribe_deltas())
@@ -244,11 +244,14 @@ async fn stream_events(
     };
     let scope = delta_scope(&stream);
     let phone = || seat == Seat::Phone || sender.lean();
-    let snapshot = |sender: &Outbox| {
+    let snapshot = |events, window| {
         let window = if phone() { window } else { None };
-        snapshot_shaped(&log, &stream, phone(), window, sender.threads2())
+        snapshot_shaped(events, &stream, phone(), window, sender.threads2())
     };
-    if !send(&sender, json!({ "sub": id, "snapshot": snapshot(&sender) })) {
+    if !send(
+        &sender,
+        json!({ "sub": id, "snapshot": snapshot(initial, window) }),
+    ) {
         return;
     }
 
@@ -263,15 +266,24 @@ async fn stream_events(
             event = events.recv() => match event {
                 Ok(event) => {
                     let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { link_as_sent(event, sender.threads2()) };
-                    if !send(&sender, json!({ "sub": id, "event": if phone() { phone_event(event) } else { event } })) {
+                    let tool = event["kind"] == "tool";
+                    let frame = json!({ "sub": id, "event": if phone() { phone_event(event) } else { event } });
+                    let sent = if tool {
+                        sender.send_droppable(frame.to_string()).is_ok()
+                    } else {
+                        send(&sender, frame)
+                    };
+                    if !sent {
                         return;
                     }
                 }
                 // Too far behind to be told what it missed, so it is told
-                // everything instead: a second snapshot, which a client that
-                // folds by id absorbs the same way it absorbed the first.
+                // the current window instead. A phone replaces its snapshot,
+                // so recover its full window, not a small background seed.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    if !send(&sender, json!({ "sub": id, "snapshot": snapshot(&sender) })) {
+                    let (current, following) = log.snapshot(&stream);
+                    events = following;
+                    if !send(&sender, json!({ "sub": id, "snapshot": snapshot(current, None) })) {
                         return;
                     }
                 }

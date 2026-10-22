@@ -56,3 +56,4 @@ Done when:
 
 ## Log
 - 2026-10-22T05:08:24.908Z: [codex] Read design, security method, scenario contract and epic decisions. Implementing a lease-bound credential card, one owner/phone capture command, metadata-only outcomes, existing vault/grant/delivery and passkey arming, and desk-only call routing. Same-turn repeat requests will be refused in core.
+- 2026-10-22T05:23:10.693Z: [codex] Cross-repo acceptance gap found by reading hotline-computer/src/secrets.rs: Origin::permits accepts same scheme/port and same host OR subdomains. Desk capture binds sites to [the exact requested origin], but strict origin-only filling cannot be enforced by this desk branch; computer counterpart must tighten its origin check. Ask me is persisted/delivered here; use approval enforcement remains task-267/task-268 as planned.

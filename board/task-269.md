@@ -1,8 +1,8 @@
 ---
 id: task-269
 title: "Spike: can the desk ask macOS (and Windows) for a passkey for any site?"
-column: todo
-position: 5
+column: review
+position: 0
 priority: medium
 tags:
   - credentials
@@ -10,7 +10,7 @@ tags:
   - macos
 parentId: epic-24
 createdAt: "2026-10-22T03:09:09.744Z"
-updatedAt: "2026-10-22T04:35:55.763Z"
+updatedAt: "2026-10-22T05:17:17.323Z"
 ---
 
 ## Description

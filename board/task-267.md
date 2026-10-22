@@ -48,3 +48,6 @@ The computer door (shared contract between task-267 and task-268; both build to 
 - browser fill with secret on an ask-me login does not wait: it holds a use and answers at once with an error saying it is waiting for the person to approve NAME on SITE (use id), and to try again after they answer. The retry after "approve" fills once; after "allow" fills for 10 minutes.
 - The desk polls GET /secrets/uses every 2 s for each running computer whose granted set has an ask-me key, raises one SecretUseAsk card per held use id, and settles the card as Expired when the id disappears unanswered.
 - An older computer answers 404 on /secrets/uses: the desk then treats every key as automatic for it and says so once on stderr.
+
+## Log
+- 2026-10-22T06:35:35.531Z: [codex] Implemented enum use policy through vault sidecars and computer delivery, Settings controls, and secret_use_ask cards with desk/phone answer command. Adding fake-door acceptance and security regressions; capture Ask me input remains compatible and maps into the enum.

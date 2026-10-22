@@ -41,3 +41,6 @@ Done when:
 - A container made before the label falls back to the image reference: named test with an inspection fixture per runtime.
 - Check now on such a computer shows 'X is available' and Update works: manual check in the dev window after a restart.
 - make check passes.
+
+## Log
+- 2026-10-22T16:17:27.080Z: [codex] Implemented release recovery (guide → creation label → inspected image reference), including stopped containers. Added per-runtime inspection coverage and a real-wire restart/Check now/Update regression; running verification next.

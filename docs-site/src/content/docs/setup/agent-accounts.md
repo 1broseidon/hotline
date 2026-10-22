@@ -97,16 +97,18 @@ before repeating anything.
 ## Setup
 
 An account's page under **Settings → Agent accounts**, and the **…'s setup**
-link in the teammate's pane, show the account's setup: **Instructions**,
-**Settings**, **Skills**, **Plugins** and **MCP servers**, with counts.
+link in the teammate's pane, show the account's setup: **Instructions** and
+**Settings**, then **Skills**, **Plugins** and **MCP servers**, each with how
+many it holds.
 
 - **Open**, on the desk itself, opens the file in your editor or the folder
   in your file manager. A setup item that is missing is made first, directly
-  in the account's folder: an empty `CLAUDE.md`, a `{}` `settings.json`, or
-  the folder; nothing that runs.
-- Hotline does not read or check what you write there. It applies from the
-  next session of the teammates on that account, and every teammate on the
-  account shares it.
+  in the account's folder: an empty `.md`, a `{}` `.json`, or the folder
+  (`CLAUDE.md`, `settings.json` or `.claude.json`, `skills/` or
+  `plugins/`); nothing that runs.
+- Hotline counts what is there, but does not check or act on what you write.
+  It applies from the next session of the teammates on that account, and
+  every teammate on the account shares it.
 - **Copy again from System default** brings over what you changed in your
   own setup since the account was made. The ticked items replace the
   account's, including your changes to them; **Settings** is unticked unless

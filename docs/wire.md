@@ -31,6 +31,12 @@ A read of the whole room that changes nothing — `voice.status`,
 finished and answer when they are ready, without holding up the commands
 behind them. Every command that writes keeps its place in the order, and so
 does `ping`, which is how a client learns that what it asked before landed.
+The exceptions wait on something slow and are answered when they finish,
+holding up nothing behind them: `desks.link` and `desks.unlink`, and the
+agent-account commands `accounts.list`, `accounts.create`,
+`accounts.rename`, `accounts.remove`, `accounts.status`,
+`accounts.setup.list`, `accounts.setup.copy` and `accounts.login.start`. A
+`ping` sent after one of them may be answered first.
 
 A frame with no `id` is dropped. `id` is a JSON number (`i64`).
 
@@ -312,10 +318,14 @@ now, so a rotation or a revocation lands without a restart (see
 one sign-in to an agent's own CLI in a folder of its own
 ([security.md](security.md#agent-accounts)). The companion, a linked desk
 and agent tools cannot reach them, and `persona.update`, `settings.update`
-and `mobile.persona_update` cannot set an account. Status, sign-in and setup
-are answered off the read loop, like `link.preview`, since an agent's CLI
-can take seconds to answer. The desk rechecks the accounts in use once when
-it opens. `persona.account` stores the choice at once; the switch applies
+and `mobile.persona_update` cannot set an account. `accounts.list`,
+`accounts.create`, `accounts.rename`, `accounts.remove`, `accounts.status`,
+`accounts.setup.list`, `accounts.setup.copy` and `accounts.login.start` are
+answered off the read loop, like `link.preview`, since an agent's CLI, a
+copy or a wait for the policy lock can take seconds, so a `ping` sent after
+one may be answered first. `accounts.login.poll`, `.input` and `.cancel` are
+answered on the read loop, and `persona.account` on its teammate's lane. The
+desk rechecks the accounts in use once when it opens. `persona.account` stores the choice at once; the switch applies
 once the whole teammate is idle (no DM turn, and no side thread, job,
 subagent or pair mid-turn) and the account is not held. `held` says why it
 waits: `not_signed_in` while the account's cached status is signed out,

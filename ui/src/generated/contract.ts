@@ -1625,7 +1625,7 @@ export type SetupCategoryView = { id: string,
  */
 count: number, 
 /**
- * What "Open" opens. Desk only.
+ * What "Open" opens. Desk and owner only; only the desk's window offers Open.
  */
 path?: string, };
 

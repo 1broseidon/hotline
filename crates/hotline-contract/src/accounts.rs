@@ -161,7 +161,7 @@ pub struct SetupCategoryView {
     pub id: String,
     /// How many items the folder holds in it.
     pub count: u32,
-    /// What "Open" opens. Desk only.
+    /// What "Open" opens. Desk and owner only; only the desk's window offers Open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }

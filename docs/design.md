@@ -418,8 +418,9 @@ additive and optional: `Persona.agentAccountId`, `SessionCheckpoint.accountId`,
 `TranscriptEvent::{Chapter, Side, Link}.accountId`, the `link` line's
 `accountId` (`hotline-store/src/link.rs`) and the room setting
 `agentAccounts`. Absent, each is System default, the behaviour from before
-accounts. The importer copies them unchanged, because the reference tree has
-no accounts. An older build that rewrites a teammate's record drops the
+accounts. The importer writes none of these fields, because the reference
+tree has no accounts, so an imported teammate is on System default. An older
+build that rewrites a teammate's record drops the
 field, and the teammate returns to System default. An older window draws a
 generic card for `usage_limit` and `account_unavailable`; the
 `account_unavailable` notice carries `accountId` and `code`.

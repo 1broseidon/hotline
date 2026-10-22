@@ -16,6 +16,7 @@ struct StateData {
     uses: Vec<Value>,
     answers: Vec<Value>,
     allows: BTreeMap<(String, String), Instant>,
+    #[cfg(unix)]
     next: u64,
     polls: usize,
 }

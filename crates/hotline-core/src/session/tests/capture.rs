@@ -305,7 +305,7 @@ async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_repla
 #[tokio::test]
 async fn capture_passkey_keeps_approval_origin_name_and_ask_setting() {
     let ComputerRoom { room, taken, .. } =
-        computer_room("capture-passkey", Some("0.10.3"), TWO_RELEASES, true).await;
+        computer_room("capture-passkey", Some("0.11.2"), TWO_RELEASES, true).await;
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
     tools(&room, CapabilityEpoch::default().lease())
         .call("request_credential", &request("passkey"))

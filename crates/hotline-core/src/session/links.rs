@@ -474,13 +474,16 @@ impl Room {
     async fn forget_linked_grants(&self, desk_id: &str) -> Result<(), String> {
         let theirs = |id: &str| linked::split(id).is_some_and(|(desk, _)| desk == desk_id);
         let _held = self.policy_updates.lock().await;
-        for mut persona in room::roster(&self.log) {
-            if !persona.allowed_senders.iter().any(|id| theirs(id)) {
-                continue;
+        {
+            let _writes = room::persona_write_lock();
+            for mut persona in room::roster(&self.log) {
+                if !persona.allowed_senders.iter().any(|id| theirs(id)) {
+                    continue;
+                }
+                persona.allowed_senders.retain(|id| !theirs(id));
+                persona.updated_at = super::now_ms();
+                room::append_persona(&self.log, &persona)?;
             }
-            persona.allowed_senders.retain(|id| !theirs(id));
-            persona.updated_at = super::now_ms();
-            room::append_persona(&self.log, &persona)?;
         }
         for mut event in self.log.load(&crate::log::StreamId::Room) {
             let informed = event["kind"] == "collaboration_informed"

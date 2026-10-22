@@ -610,10 +610,13 @@ pub(super) fn delete_persona(
 ) -> Result<Value, String> {
     living(log, id)?;
     room.invalidate(id)?;
-    append(
-        log,
-        &json!({ "kind": "persona", "id": id, "deleted": true }),
-    )?;
+    {
+        let _writes = room::persona_write_lock();
+        append(
+            log,
+            &json!({ "kind": "persona", "id": id, "deleted": true }),
+        )?;
+    }
     // The roster already ignores a pin on a teammate who is gone; settling
     // the stored list keeps it honest and frees the slot.
     let settled = room::pinned_teammates(log);

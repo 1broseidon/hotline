@@ -520,17 +520,21 @@ impl Room {
         vault
             .set_shared(&arming.name, credential)
             .map_err(|error| error.to_string())?;
-        let mut persona = self.persona(persona_id)?;
-        if let Some(computer) = persona.computer.as_mut() {
-            let mut granted = computer.secrets.take().unwrap_or_default();
-            if !granted.contains(&arming.name) {
-                granted.push(arming.name.clone());
-                granted.sort();
+        let persona = {
+            let _writes = room::persona_write_lock();
+            let mut persona = self.persona(persona_id)?;
+            if let Some(computer) = persona.computer.as_mut() {
+                let mut granted = computer.secrets.take().unwrap_or_default();
+                if !granted.contains(&arming.name) {
+                    granted.push(arming.name.clone());
+                    granted.sort();
+                }
+                computer.secrets = Some(granted);
             }
-            computer.secrets = Some(granted);
-        }
-        persona.updated_at = now_ms();
-        room::append_persona(&self.log, &persona)?;
+            persona.updated_at = now_ms();
+            room::append_persona(&self.log, &persona)?;
+            persona
+        };
         self.hand_secrets(&persona, ready).await;
         if let Err(error) = crate::computer::passkeys::disarm(ready).await {
             self.write(

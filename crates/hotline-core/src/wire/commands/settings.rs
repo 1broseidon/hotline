@@ -143,6 +143,7 @@ fn server_ids(log: &Log) -> Vec<String> {
 /// older build goes too.
 fn forget_removed_servers(log: &Log) -> Result<(), String> {
     let servers = server_ids(log);
+    let _writes = room::persona_write_lock();
     for mut persona in room::roster(log) {
         let granted = persona.mcp_policy.server_ids.len();
         persona

@@ -6,6 +6,7 @@ use crate::driver::acp::registry::Launch;
 use crate::log::Log;
 use crate::room::{agent_accounts, write_agent_accounts};
 use crate::{paths, private_dir};
+use std::sync::mpsc;
 use std::time::Duration;
 
 /// How long a test waits for something before calling it lost. Generous,
@@ -63,4 +64,30 @@ pub(crate) fn account_on_disk(
     private_dir::make_private_directory(&paths::agent_account_dir(log.root(), id).unwrap())
         .unwrap();
     resolve::account(log.root(), log, id).unwrap()
+}
+
+/// A checkpoint clear that has read `persona_id`'s record under
+/// `persona_write_lock`, and appends it without checkpoints once `go` is sent.
+pub(crate) fn clearing_checkpoints(
+    log: &Log,
+    persona_id: &str,
+) -> (mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+    let (held, holding) = mpsc::channel();
+    let (go, going) = mpsc::channel::<()>();
+    let clearing = std::thread::spawn({
+        let (log, persona_id) = (log.clone(), persona_id.to_string());
+        move || {
+            let _writes = crate::room::persona_write_lock();
+            let mut persona = crate::room::roster(&log)
+                .into_iter()
+                .find(|persona| persona.id == persona_id)
+                .unwrap();
+            held.send(()).unwrap();
+            going.recv().unwrap();
+            persona.session_checkpoints.clear();
+            crate::room::append_persona(&log, &persona).unwrap();
+        }
+    });
+    holding.recv().unwrap();
+    (go, clearing)
 }

@@ -417,6 +417,7 @@ impl Room {
         target_id: &str,
         sender_id: &str,
     ) -> Result<(), String> {
+        let _writes = room::persona_write_lock();
         let mut target = self.persona(target_id)?;
         self.log.append(&StreamId::Room, &serde_json::json!({"kind":"collaboration_informed",
             "id":format!("collaboration:{sender_id}:{target_id}"), "from":sender_id, "to":target_id}))

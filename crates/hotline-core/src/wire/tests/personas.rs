@@ -595,20 +595,7 @@ async fn an_update_and_a_checkpoint_write_never_undo_each_other() {
         account_id: None,
     }];
     crate::session::tests::enrol(&log, &ada);
-    let (held, holding) = std::sync::mpsc::channel();
-    let (go, going) = std::sync::mpsc::channel::<()>();
-    let checkpoint_write = std::thread::spawn({
-        let log = log.clone();
-        move || {
-            let _writes = room::persona_write_lock();
-            let mut ada = room::roster(&log).pop().unwrap();
-            held.send(()).unwrap();
-            going.recv().unwrap();
-            ada.session_checkpoints.clear();
-            room::append_persona(&log, &ada).unwrap();
-        }
-    });
-    holding.recv().unwrap();
+    let (go, checkpoint_write) = crate::test_support::clearing_checkpoints(&log, "ada");
     let update = tokio::spawn({
         let (log, room) = (log.clone(), room.clone());
         async move {
@@ -621,7 +608,10 @@ async fn an_update_and_a_checkpoint_write_never_undo_each_other() {
             .await
         }
     });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    crate::test_support::until("the update holds the policy gate", || {
+        room.policy_update_lock().try_lock().is_err() || update.is_finished()
+    })
+    .await;
     go.send(()).unwrap();
     checkpoint_write.join().unwrap();
     update.await.unwrap().unwrap();
@@ -629,5 +619,53 @@ async fn an_update_and_a_checkpoint_write_never_undo_each_other() {
     assert_eq!(
         (ada.name.as_str(), ada.session_checkpoints),
         ("Ada Lovelace", Vec::new())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn removing_a_tool_source_and_a_checkpoint_write_never_undo_each_other() {
+    use super::accounts::run;
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    log.append(
+        &StreamId::Room,
+        &json!({ "kind": "setting", "id": "mcpServers", "value": [
+            { "id": "prism", "type": "http", "name": "Prism", "url": "http://127.0.0.1:9086/mcp" },
+        ] }),
+    )
+    .unwrap();
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let mut ada = crate::session::tests::persona("ada");
+    ada.mcp_policy.server_ids = vec!["prism".to_string()];
+    ada.session_checkpoints = vec![crate::contract::SessionCheckpoint {
+        backend_id: "claude-acp".to_string(),
+        session_id: "s1".to_string(),
+        account_id: None,
+    }];
+    crate::session::tests::enrol(&log, &ada);
+    let (go, checkpoint_write) = crate::test_support::clearing_checkpoints(&log, "ada");
+    let update = tokio::spawn({
+        let (log, room) = (log.clone(), room.clone());
+        async move {
+            run(
+                &log,
+                &room,
+                "settings.update",
+                json!({"patch":{"mcpServers":[]}}),
+            )
+            .await
+        }
+    });
+    crate::test_support::until("the update holds the policy gate", || {
+        room.policy_update_lock().try_lock().is_err() || update.is_finished()
+    })
+    .await;
+    go.send(()).unwrap();
+    checkpoint_write.join().unwrap();
+    update.await.unwrap().unwrap();
+    let ada = room::roster(&log).pop().unwrap();
+    assert_eq!(
+        (ada.mcp_policy.server_ids, ada.session_checkpoints),
+        (Vec::new(), Vec::new())
     );
 }

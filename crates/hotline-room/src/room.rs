@@ -610,13 +610,14 @@ pub fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
 /// only one of them.
 static PERSONA_WRITES: Mutex<()> = Mutex::new(());
 
-/// The lock that keeps those changes from overwriting each other.
+/// The lock that keeps those changes from overwriting each other. Every
+/// writer of a whole record takes it.
 ///
 /// It is the innermost lock: never held across an `.await`, and only the
 /// log's own locks are taken under it. The four checkpoint functions below
-/// take it themselves, so a holder never calls them. `persona.account`'s
-/// append is such a holder, and takes it under `policy_update_lock`;
-/// `Room::checkpoint` reaches it while holding `lifecycle`.
+/// take it themselves, so a holder never calls them, and `Room::checkpoint`
+/// reaches it while holding `lifecycle`. Every other writer but a minted
+/// passkey's grant takes it under `policy_update_lock`.
 pub fn persona_write_lock() -> MutexGuard<'static, ()> {
     PERSONA_WRITES
         .lock()

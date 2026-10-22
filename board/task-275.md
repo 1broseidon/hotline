@@ -13,13 +13,18 @@ relatedFiles:
   - crates/hotline-core/src/session/computer.rs
 createdAt: "2026-10-22T16:12:00.496Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:12:02.217Z"
+updatedAt: "2026-10-22T16:12:03.081Z"
 dispatch:
   agent: codex
   by: cli
   at: "2026-10-22T16:12:02.063Z"
   until: review
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59533
+    at: "2026-10-22T16:12:03.081Z"
 assignee: codex
 ---
 

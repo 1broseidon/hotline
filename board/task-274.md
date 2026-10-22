@@ -1,8 +1,8 @@
 ---
 id: task-274
 title: "Computer (hotline-computer): GET /pages lists the sites its browser has open, for the desk's cookie offer"
-column: todo
-position: 3
+column: review
+position: 2
 priority: high
 tags:
   - credentials
@@ -10,6 +10,7 @@ tags:
   - hotline-computer
 parentId: epic-24
 createdAt: "2026-10-22T15:31:07.467Z"
+updatedAt: "2026-10-22T15:36:54.286Z"
 ---
 
 ## Description

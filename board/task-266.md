@@ -8,7 +8,7 @@ tags:
   - credentials
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.125Z"
-updatedAt: "2026-10-22T05:53:56.020Z"
+updatedAt: "2026-10-22T05:54:32.440Z"
 dispatch:
   agent: codex
   by: cli
@@ -25,6 +25,13 @@ dispatch:
 assignee: codex
 decisions:
   - decision-33
+pullRequest:
+  number: 200
+  url: https://github.com/1broseidon/hotline/pull/200
+  state: open
+  base: release/0.43.0
+  head: dispatch/task-266
+  at: "2026-10-22T05:54:32.327Z"
 ---
 
 ## Description
@@ -64,3 +71,4 @@ Done when:
 - 2026-10-22T05:37:49.674Z: [codex-task-266] Core/UI flow is implemented, including owner/phone single-command capture, exact requested-origin storage, grant/redelivery, terminal outcomes, existing-key grants, passkey approval/expiry, and value-free call notices. Regression tests cover cross-seat settlement, sink scanning, form clearing, and accepted answers surviving phone disconnect. Running make check and precheck before committing the review handoff; strict-origin filling remains the documented Hotline Computer counterpart gap.
 - 2026-10-22T05:51:06.299Z: [codex-task-266] 5a6e6663 commits the capture implementation on dispatch/task-266. make check and make precheck (including Windows and isolated UI files) passed. Final review found a passkey approval denial was labeled Expired; correcting it to Declined under the capture lock, with an added regression test, and rerunning the checks before the Review handoff.
 - 2026-10-22T05:53:44.337Z: [codex-task-266] Review handoff on dispatch/task-266, commits 5a6e6663 and 07fbb7e4: implemented the credential tool/card, vault-only answer, grants/redelivery, terminal outcomes, passkey approval and value-free call notices. make check, make ui-check (500 tests), and make precheck (all 8 legs, including Windows) pass; the known-value log scan is clear and the worktree is clean. Next: review the branch and coordinate Hotline Computer's strict-origin enforcement before accepting the fills-nowhere-else criterion; its current subdomain allowance is documented in design/security. Phone UI remains hotline-mobile task-49.
+- 2026-10-22T05:54:32.440Z: Opened pull request #200 from dispatch/task-266 into release/0.43.0: https://github.com/1broseidon/hotline/pull/200

@@ -1,7 +1,8 @@
 //! The real seat handler, host SQLite fixtures and authenticated computer fake.
 use super::*;
-use crate::contract::CookieOfferStatus;
-use crate::session::tests::cookie_offer_room;
+use crate::computer::cookies::lending::tests::{RefusingBrowser, candidate_fixture};
+use crate::contract::{CookieOffer, CookieOfferStatus};
+use crate::session::tests::{cookie_offer_room, cookie_offer_room_with_candidates};
 use crate::test_support::until;
 
 fn desk(room: &Arc<Room>) -> Arc<dyn RoomHandle> {
@@ -28,6 +29,125 @@ async fn answer(room: &Arc<Room>, id: &str, choice: &str) -> Value {
         json!({"personaId":"ada","id":id,"answer":choice}),
     )
     .await
+}
+
+async fn cookie_notices(room: &Arc<Room>, persona: &str) -> Vec<String> {
+    super::asks::seat_snapshot(Seat::Desk, &desk(room), room.log(), json!({"tape":persona}))
+        .await
+        .into_iter()
+        .filter(|event| event["kind"] == "notice")
+        .filter_map(|event| event["text"].as_str().map(str::to_owned))
+        .filter(|text| text.starts_with("Hotline can't read "))
+        .collect()
+}
+
+#[tokio::test]
+async fn refused_browsers_raise_one_notice_each_per_desk_run_and_no_offer() {
+    let profiles = tempfile::tempdir().unwrap();
+    let brave = RefusingBrowser::new(profiles.path(), false);
+    let firefox = RefusingBrowser::new(profiles.path(), true);
+    let fixture = cookie_offer_room_with_candidates(
+        "offers-refused-once",
+        vec![brave.candidate.clone(), firefox.candidate.clone()],
+    )
+    .await;
+    let room = &fixture.room;
+    room.poll_secret_uses("ada").await;
+    let notices = cookie_notices(room, "ada").await;
+    assert_eq!(notices.len(), 2);
+    assert!(notices[0].starts_with(
+        "Hotline can't read Brave's cookies, so it can't offer your session for porkbun.com. "
+    ));
+    assert!(notices[1].starts_with(
+        "Hotline can't read Firefox's cookies, so it can't offer your session for porkbun.com. "
+    ));
+    assert_eq!(room.computer_cookie_offers("ada"), [] as [CookieOffer; 0]);
+
+    *fixture.taken.pages.lock().unwrap() = vec![json!({"origin":"https://another.example"})];
+    room.poll_secret_uses("ada").await;
+    room.stop("ada").unwrap();
+    room.start("ada").await.unwrap();
+    room.poll_secret_uses("ada").await;
+    assert_eq!(cookie_notices(room, "ada").await, notices);
+    let mut other = crate::room::roster(room.log())
+        .into_iter()
+        .find(|p| p.id == "ada")
+        .unwrap();
+    other.id = "bob".into();
+    crate::room::append_persona(room.log(), &other).unwrap();
+    room.start("bob").await.unwrap();
+    room.poll_secret_uses("bob").await;
+    assert_eq!(cookie_notices(room, "bob").await, [] as [String; 0]);
+    assert_eq!(room.computer_cookie_offers("bob"), [] as [CookieOffer; 0]);
+    assert!(fixture.taken.uploads.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_refused_site_is_offered_after_access_appears_without_reopening_the_page() {
+    let profiles = tempfile::tempdir().unwrap();
+    let browser = RefusingBrowser::new(profiles.path(), false);
+    let fixture = cookie_offer_room_with_candidates(
+        "offers-access-restored",
+        vec![browser.candidate.clone()],
+    )
+    .await;
+    let room = &fixture.room;
+    room.poll_secret_uses("ada").await;
+    assert_eq!(room.computer_cookie_offers("ada"), [] as [CookieOffer; 0]);
+    assert_eq!(cookie_notices(room, "ada").await.len(), 1);
+    browser.grant();
+    // Only the host permission changes: same session, computer and /pages.
+    room.poll_secret_uses("ada").await;
+    room.poll_secret_uses("ada").await;
+    let cards = room.computer_cookie_offers("ada");
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].site, "porkbun.com");
+    assert_eq!(cards[0].browser_name, "Brave");
+    assert_eq!(cards[0].status, CookieOfferStatus::Pending);
+    assert_eq!(cookie_notices(room, "ada").await.len(), 1);
+    assert!(fixture.taken.uploads.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_granted_browser_offers_once_even_when_another_browser_is_refused() {
+    let profiles = tempfile::tempdir().unwrap();
+    let brave = RefusingBrowser::new(profiles.path(), false);
+    let firefox = candidate_fixture(profiles.path(), true);
+    let fixture = cookie_offer_room_with_candidates(
+        "offers-partly-readable",
+        vec![brave.candidate.clone(), firefox],
+    )
+    .await;
+    let room = &fixture.room;
+    room.poll_secret_uses("ada").await;
+    room.poll_secret_uses("ada").await;
+    let cards = room.computer_cookie_offers("ada");
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].browser_name, "Firefox");
+    assert_eq!(cards[0].status, CookieOfferStatus::Pending);
+    assert_eq!(cookie_notices(room, "ada").await.len(), 1);
+    assert!(fixture.taken.uploads.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_refused_browser_does_not_raise_a_notice_for_a_never_site() {
+    let profiles = tempfile::tempdir().unwrap();
+    let browser = RefusingBrowser::new(profiles.path(), false);
+    browser.grant();
+    let fixture =
+        cookie_offer_room_with_candidates("offers-never-refused", vec![browser.candidate.clone()])
+            .await;
+    let room = &fixture.room;
+    room.poll_secret_uses("ada").await;
+    let id = room.computer_cookie_offers("ada")[0].id.clone();
+    assert_eq!(answer(room, &id, "never").await["ok"], true);
+    *fixture.taken.pages.lock().unwrap() = vec![json!({"origin":"https://porkbun.com"})];
+    browser.refuse();
+    room.stop("ada").unwrap();
+    room.start("ada").await.unwrap();
+    room.poll_secret_uses("ada").await;
+    assert_eq!(cookie_notices(room, "ada").await, [] as [String; 0]);
+    assert_eq!(room.computer_cookie_offers("ada").len(), 1);
 }
 
 #[tokio::test]

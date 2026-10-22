@@ -1299,6 +1299,15 @@ browser nor asks its keychain to decrypt. A missing `/pages` door offers
 nothing. If several profiles have the site, the first browser by id and its
 first profile supplies one offer; the card names that browser and profile.
 
+An installed browser whose data folder the host refuses is not an empty
+cookie inventory. For an otherwise eligible site, the first affected
+teammate's chat says why once per browser per desk run, with the Full Disk
+Access remedy on macOS. Settings' blocked import picker uses the same
+explanation, naming Hotline's app bundle or the actual development binary.
+Refused discovery leaves sites eligible for the next poll, so the same open
+page can get an offer after access becomes available; a readable browser
+can still supply its one card while another is refused.
+
 The additive `cookie_offer` event is one shared desk/phone card. Use always
 asks: it says the teammate will be signed in as the person. Only an explicit
 `computer.cookies.answer` with `use`, bound to the source, teammate, site,

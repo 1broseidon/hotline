@@ -22,6 +22,13 @@ pub(crate) fn fixture(root: &Path, firefox: bool) -> Source {
         // succeed by reading hosts. The binary is deliberately unlaunchable.
         "CREATE TABLE cookies (host_key TEXT); INSERT INTO cookies VALUES ('.porkbun.com'), ('account.porkbun.com'), ('unrelated.com');"
     }).unwrap();
+    if firefox {
+        std::fs::write(
+            dir.join("profiles.ini"),
+            "[Profile0]\nName=Default\nPath=Default\n",
+        )
+        .unwrap();
+    }
     Source {
         candidate: Candidate {
             id: if firefox { "firefox" } else { "brave" },
@@ -35,6 +42,107 @@ pub(crate) fn fixture(root: &Path, firefox: bool) -> Source {
             id: "Default".into(),
             name: "Default".into(),
         },
+    }
+}
+
+#[cfg(unix)]
+pub(crate) fn candidate_fixture(root: &Path, firefox: bool) -> Candidate {
+    fixture(root, firefox).candidate
+}
+
+/// Refuse the real directory probe, and restore access even after a failed
+/// assertion so the temporary profile can be removed.
+#[cfg(unix)]
+pub(crate) struct RefusingBrowser {
+    pub(crate) candidate: Candidate,
+}
+
+#[cfg(unix)]
+impl RefusingBrowser {
+    pub(crate) fn new(root: &Path, firefox: bool) -> Self {
+        let browser = Self {
+            candidate: candidate_fixture(root, firefox),
+        };
+        browser.refuse();
+        browser
+    }
+
+    pub(crate) fn refuse(&self) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&self.candidate.root, std::fs::Permissions::from_mode(0o000))
+            .unwrap();
+        assert!(
+            self.candidate.refused(),
+            "the refusing fixture requires an unprivileged test runner"
+        );
+    }
+
+    pub(crate) fn grant(&self) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&self.candidate.root, std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+    }
+}
+
+#[cfg(unix)]
+impl Drop for RefusingBrowser {
+    fn drop(&mut self) {
+        self.grant();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn discovery_keeps_refused_installed_browsers_and_finds_their_profiles_after_access_is_granted() {
+    let root = tempfile::tempdir().unwrap();
+    for firefox in [false, true] {
+        let browser = RefusingBrowser::new(root.path(), firefox);
+        let discovery = discover(vec![browser.candidate.clone()]);
+        assert!(discovery.sources.is_empty());
+        assert_eq!(discovery.refused.len(), 1);
+        assert_eq!(discovery.refused[0].name, browser.candidate.name);
+        assert_eq!(
+            discovery.refused[0].blocked_reason,
+            Some(access_notice(browser.candidate.name, None))
+        );
+        let mut absent = browser.candidate.clone();
+        absent.binaries.clear();
+        assert_eq!(discover(vec![absent]).refused, [] as [HostBrowser; 0]);
+        browser.grant();
+        let discovery = discover(vec![browser.candidate.clone()]);
+        assert_eq!(discovery.refused, [] as [HostBrowser; 0]);
+        assert_eq!(discovery.sources.len(), 1);
+        assert!(
+            discovery.sources[0]
+                .sites()
+                .unwrap()
+                .contains("porkbun.com")
+        );
+    }
+    let mut absent = candidate_fixture(&root.path().join("absent-profile"), false);
+    absent.root = root.path().join("missing");
+    assert_eq!(discover(vec![absent]).refused, [] as [HostBrowser; 0]);
+}
+
+#[test]
+fn full_disk_access_names_the_installed_app_or_the_actual_dev_binary() {
+    for (path, name) in [
+        (
+            "/Applications/Hotline.app/Contents/MacOS/hotline-app",
+            "Hotline",
+        ),
+        ("/checkout/target/debug/hotline-app-dev", "hotline-app-dev"),
+    ] {
+        assert_eq!(access_app_name(Path::new(path)), name);
+    }
+    let message = access_notice("Brave", Some("porkbun.com"));
+    assert!(message.starts_with(
+        "Hotline can't read Brave's cookies, so it can't offer your session for porkbun.com. "
+    ));
+    if cfg!(target_os = "macos") {
+        assert!(message.contains(
+            "in System Settings → Privacy & Security → Full Disk Access, then reopen Hotline."
+        ));
     }
 }
 

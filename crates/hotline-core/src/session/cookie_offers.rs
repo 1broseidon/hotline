@@ -44,14 +44,14 @@ impl Room {
         };
         let sites: Vec<_> = sites
             .into_iter()
-            .filter(|site| watch.seen.insert(site.clone()))
+            .filter(|site| !watch.seen.contains(site))
             .collect();
         if sites.is_empty() {
             return;
         }
         let blocked = self.blocked_cookie_sites(persona);
         let lent = self.computer_cookie_offers(persona);
-        let sites: Vec<_> = sites
+        let mut sites: Vec<_> = sites
             .into_iter()
             .filter(|site| {
                 !blocked.contains(site)
@@ -67,24 +67,29 @@ impl Room {
         if sites.is_empty() {
             return;
         }
+        let mut unique = HashSet::new();
+        sites.retain(|site| unique.insert(site.clone()));
         #[cfg(test)]
-        let sources = lock(&self.cookie_sources).clone();
-        let Ok(found) = tokio::task::spawn_blocking(move || {
+        let candidates = lock(&self.cookie_candidates).clone();
+        let Ok((found, refused, sites)) = tokio::task::spawn_blocking(move || {
             #[cfg(not(test))]
-            let sources = lending::discover();
-            let inventory: Vec<_> = sources
+            let candidates = crate::computer::cookies::candidates();
+            let discovery = lending::discover(candidates);
+            let inventory: Vec<_> = discovery
+                .sources
                 .into_iter()
                 .filter_map(|s| s.sites().ok().map(|sites| (s, sites)))
                 .collect();
-            sites
-                .into_iter()
+            let found = sites
+                .iter()
                 .filter_map(|site| {
                     inventory
                         .iter()
-                        .find(|(_, sites)| sites.contains(&site))
-                        .map(|(source, _)| (site, source.clone()))
+                        .find(|(_, sites)| sites.contains(site))
+                        .map(|(source, _)| (site.clone(), source.clone()))
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (found, discovery.refused, sites)
         })
         .await
         else {
@@ -92,6 +97,27 @@ impl Room {
         };
         if !capability.is_current() {
             return;
+        }
+        // A refused discovery says nothing about whether this site has a
+        // session. Leave it eligible so the same open page is retried.
+        if refused.is_empty() {
+            watch.seen.extend(sites.iter().cloned());
+        }
+        for browser in refused {
+            if lock(&self.cookie_access_notices).insert(browser.id) {
+                self.write(
+                    persona,
+                    &TranscriptEvent::Notice {
+                        id: new_id(),
+                        ts: now_ms(),
+                        level: NoticeLevel::Warn,
+                        text: crate::computer::cookies::access_notice(
+                            &browser.name,
+                            Some(&sites[0]),
+                        ),
+                    },
+                );
+            }
         }
         for (site, source) in found {
             let id = new_id();
@@ -108,6 +134,7 @@ impl Room {
             if self.write_cookie_offer(&card).is_err() {
                 continue;
             }
+            watch.seen.insert(card.site.clone());
             self.push.notify(&self.needs_you(persona), &format!("Use your existing cookie from {} for {}? The teammate will be signed in as you.", card.browser_name, card.site), persona,
                 Some(crate::push::Waiting::CookieOffer { id: card.id.clone() }));
             watch.cards.insert(card.id.clone(), (card, source));

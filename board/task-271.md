@@ -12,7 +12,14 @@ relatedFiles:
   - crates/hotline-core/tests/steering.rs
 createdAt: "2026-10-22T07:37:09.827Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T07:37:17.144Z"
+updatedAt: "2026-10-22T07:37:18.169Z"
+dispatch:
+  agent: codex
+  by: cli
+  at: "2026-10-22T07:37:18.021Z"
+  until: review
+  tries: 0
+assignee: codex
 ---
 
 ## Description

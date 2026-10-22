@@ -1,8 +1,8 @@
 ---
 id: task-276
 title: "Cookie offer: say once when macOS won't let the desk read your browsers, instead of offering nothing"
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: high
 tags:
   - bug
@@ -15,7 +15,7 @@ relatedFiles:
 parentId: epic-24
 createdAt: "2026-10-22T16:27:07.323Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:27:17.411Z"
+updatedAt: "2026-10-22T16:27:40.980Z"
 dispatch:
   agent: codex
   by: cli

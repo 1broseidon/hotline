@@ -1,0 +1,34 @@
+---
+id: task-277
+title: "Settings: cookie offers on or off (on by default), for all sites or a selected list, like a provider's model filter"
+column: todo
+position: 2
+priority: high
+tags:
+  - cookies
+  - settings
+  - 0.43.0
+relatedFiles:
+  - crates/hotline-core/src/session/cookie_offers.rs
+  - ui/src/components/settings/Computer.tsx
+  - ui/src/components/settings/Providers.tsx
+parentId: epic-24
+createdAt: "2026-10-22T21:03:38.914Z"
+---
+
+## Description
+George, 2026-10-22 16:02. A room setting for task-273's cookie offers, modelled on the enabledModels filter (ui/src/components/settings/Providers.tsx modelsShownText and ProviderPage; contract session.rs enabledModels):
+
+- cookieOffers: {enabled: bool (default true), sites?: [registrable domain]}. sites absent means all sites; a list means only those. Ticking every site removes the list rather than writing one that means all.
+- Settings → Computer: a switch 'Offer your browser cookies' and a row 'Sites: All sites | N sites' that opens a page listing the sites the person's browsers hold cookies for (from lending discovery: registrable domain plus which browser and profile), searchable, a tick per site, Save and Back, as the provider page does. The same page lists the 'Never for this site' blocks (computer_cookie_blocked) with Undo.
+- Off means off: look_at_cookie_offers returns before discovery, so no browser data is read, not even site names; pending offers expire with a line saying offers are off. The list page reads site names only when the person opens it.
+- Desk and owner seats change it; the phone may read it.
+- The page notes that account-wide sites (google.com, apple.com, microsoft.com) lend the whole account.
+
+Done when:
+- Off: no discovery runs and pending offers expire: named test (a discovery fixture that records calls).
+- A selected list offers only its sites; all sites offers any: named tests.
+- Ticking every site saves no list: named test, as with models.
+- The setting survives restart and a never-for-this-site block can be undone from the page: named tests.
+- UI tests for the switch, the row's words (All sites / 1 site / N sites) and the page.
+- make check passes.

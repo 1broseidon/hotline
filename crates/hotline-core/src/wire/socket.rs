@@ -429,7 +429,7 @@ fn open_ordered(
 /// `accounts.*` write can wait seconds on a status run, a copy, the policy
 /// lock or the agent's package, so a `ping` sent after one may be answered
 /// first.
-fn independent(frame: &Value) -> bool {
+pub(super) fn independent(frame: &Value) -> bool {
     matches!(
         read_command(frame),
         Ok(Command::LinkPreview { .. }
@@ -918,7 +918,10 @@ fn owns(
 /// The field of this command's answer that names an account.
 fn hidden_from_phones(command: &Command) -> Option<&'static str> {
     match command {
-        Command::SessionSetModel { .. } | Command::SessionSetConfig { .. } => Some("account"),
+        Command::SessionStart { .. }
+        | Command::SessionSetMode { .. }
+        | Command::SessionSetModel { .. }
+        | Command::SessionSetConfig { .. } => Some("account"),
         Command::MobilePersonaAccess { .. } | Command::MobilePersonaComputer { .. } => {
             Some("agentAccountId")
         }

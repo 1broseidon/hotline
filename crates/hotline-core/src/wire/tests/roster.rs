@@ -1051,6 +1051,9 @@ async fn a_phone_reply_never_carries_an_account() {
         "params":{"personaId":"ada","modelId":"anthropic/claude"}});
     let access = json!({"id":2,"cmd":"mobile.persona_access",
         "params":{"id":"ada","backgroundWork":true}});
+    let start = json!({"id":3,"cmd":"session.start","params":{"personaId":"ada"}});
+    let set_mode = json!({"id":4,"cmd":"session.set_mode",
+        "params":{"personaId":"ada","modeId":"plan"}});
     for (seat, lean, kept) in [
         (Seat::Desk, false, true),
         (Seat::Owner, false, true),
@@ -1065,6 +1068,15 @@ async fn a_phone_reply_never_carries_an_account() {
             "{seat:?} {lean} {answer}"
         );
         if seat != Seat::Phone {
+            for frame in [&start, &set_mode] {
+                let answer = answered_on(seat, lean, &desk, frame.clone()).await;
+                assert_eq!(answer["ok"], true, "{answer}");
+                assert_eq!(
+                    answer["result"].get("account").is_some(),
+                    kept,
+                    "{seat:?} {lean} {answer}"
+                );
+            }
             let answer = answered_on(seat, lean, &desk, access.clone()).await;
             assert_eq!(answer["ok"], true, "{answer}");
             assert_eq!(

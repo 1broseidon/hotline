@@ -604,7 +604,13 @@ impl RoomHandle for Quiet {
     }
 
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
-        let mut info = idle(persona_id);
+        let mut info = self
+            .states
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(persona_id)
+            .cloned()
+            .unwrap_or_else(|| idle(persona_id));
         info.current_model_id = Some("anthropic/claude".to_string());
         self.set_info(info.clone());
         Ok(info)

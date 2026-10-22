@@ -53,3 +53,4 @@ The computer door (shared contract between task-267 and task-268; both build to 
 
 ## Log
 - 2026-10-22T06:35:35.531Z: [codex] Implemented enum use policy through vault sidecars and computer delivery, Settings controls, and secret_use_ask cards with desk/phone answer command. Adding fake-door acceptance and security regressions; capture Ask me input remains compatible and maps into the enum.
+- 2026-10-22T07:02:53.752Z: [codex] Implemented Auto/Ask vault policy, live computer delivery, Settings controls, shared desk/phone use cards and answers, expiry/denial delivery, ten-minute allowance forwarding, and old-computer fallback. Added fake-door, vault, UI, restart and voice-denial proofs. make check and all 8 make precheck legs pass. Committed on dispatch/task-267 (HEAD 93e9bd27); clean worktree. Handoff: review this branch with the task-268 door and task-50 phone contract.

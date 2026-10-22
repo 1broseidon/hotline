@@ -201,12 +201,11 @@ impl AccountStatuses {
     }
 
     pub(crate) fn cached(&self, account_id: &str) -> AccountStatusView {
-        let entries = lock(&self.entries);
-        let Some(entry) = entries.get(account_id) else {
-            return not_checked();
-        };
-        let last = entry.view.clone().unwrap_or_else(not_checked);
-        if entry.gate.try_lock().is_err() {
+        let last = self.last_answer(account_id);
+        let checking = lock(&self.entries)
+            .get(account_id)
+            .is_some_and(|entry| entry.gate.try_lock().is_err());
+        if checking {
             AccountStatusView {
                 state: AccountStatusState::Checking,
                 ..last
@@ -214,6 +213,14 @@ impl AccountStatuses {
         } else {
             last
         }
+    }
+
+    /// Without the `Checking` a run in flight shows.
+    pub(crate) fn last_answer(&self, account_id: &str) -> AccountStatusView {
+        lock(&self.entries)
+            .get(account_id)
+            .and_then(|entry| entry.view.clone())
+            .unwrap_or_else(not_checked)
     }
 
     /// Never-checked is not stale: such an account waits for a person to ask.
@@ -314,7 +321,7 @@ fn not_checked() -> AccountStatusView {
     only(AccountStatusState::NotChecked)
 }
 
-fn unavailable() -> AccountStatusView {
+pub(super) fn unavailable() -> AccountStatusView {
     only(AccountStatusState::Unavailable)
 }
 

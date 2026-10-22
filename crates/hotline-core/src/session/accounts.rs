@@ -176,9 +176,14 @@ impl Room {
         Ok(previous)
     }
 
+    /// From the last answer recorded: a switch the last answer held stays
+    /// held while that account is checked again.
     fn account_hold(&self, wanted: Option<&str>) -> Option<AccountHold> {
-        let (status, attempt) = self.account_live(wanted?);
-        switch::hold(&status, attempt.as_ref())
+        let wanted = wanted?;
+        switch::hold(
+            &self.account_statuses().last_answer(wanted),
+            self.account_logins().view(wanted).as_ref(),
+        )
     }
 
     pub(super) fn session_account(

@@ -1,13 +1,13 @@
 use super::*;
 use crate::accounts::support::CLAUDE;
-use crate::contract::AccountStatusState::{SignedIn, SignedOut, Unavailable};
+use crate::contract::AccountStatusState::{Checking, SignedIn, SignedOut, Unavailable};
 use crate::contract::LoginAttemptState::{Failed, Running, Succeeded};
 use crate::contract::{AccountHold, Persona, SessionAccount};
 use crate::driver::acp::StartBounds;
 use crate::log::Log;
 use crate::room::{checkpoint_session, roster};
 use crate::session::tests::{DeskKeys, enrol, persona};
-use crate::test_support::{PATIENCE, account_on_disk, acp_fixture_launch, until};
+use crate::test_support::{PATIENCE, account_on_disk, acp_fixture_launch, link, until};
 use std::future::Future;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
@@ -469,6 +469,86 @@ async fn a_hold_that_ends_without_a_new_sign_in_still_applies_the_switch() {
         .await;
         assert_eq!(desk.login_at(A), Some(5));
     }
+}
+
+#[tokio::test]
+async fn a_stopped_sign_in_is_failed_while_its_status_is_checked_again() {
+    let desk = desk();
+    let attempt = desk.logins.admit(A, CancellationToken::new()).unwrap();
+    let run = Run {
+        launch: acp_fixture_launch(&[("FIXTURE_STATUS_MODE", "hang")]),
+        status_bound: Duration::from_millis(500),
+        ..desk.run("ok", PATIENCE)
+    };
+    let concluding = tokio::spawn({
+        let (logins, room) = (desk.logins.clone(), desk.room.clone());
+        async move {
+            logins
+                .conclude(&room, &run, &attempt, Outcome::Stopped(CANCELLED))
+                .await;
+        }
+    });
+    until("the status runs again", || {
+        desk.logins.statuses.checks_in_line(A) == 1
+    })
+    .await;
+    assert_eq!(desk.outcome(), Some((Failed, Some(CANCELLED.into()))));
+    assert_eq!(desk.room.account_live(A).0.state, Checking);
+    concluding.await.unwrap();
+    assert_eq!(desk.logins.statuses.cached(A).state, Unavailable);
+}
+
+#[tokio::test]
+async fn a_folder_swapped_for_a_link_during_a_sign_in_is_not_signed_in() {
+    let desk = desk();
+    let attempt = desk.logins.admit(A, CancellationToken::new()).unwrap();
+    let moved = desk.a.dir.with_file_name("moved");
+    std::fs::rename(&desk.a.dir, &moved).unwrap();
+    link(&moved, &desk.a.dir);
+    std::fs::write(
+        moved.join(".credentials.json"),
+        r#"{"email":"ada@example.com"}"#,
+    )
+    .unwrap();
+    desk.logins
+        .conclude(
+            &desk.room,
+            &desk.run("ok", PATIENCE),
+            &attempt,
+            Outcome::Exited(Ok(())),
+        )
+        .await;
+    assert_eq!(desk.outcome().map(|(state, _)| state), Some(Failed));
+    assert_eq!(desk.login_at(A), Some(5));
+    assert_eq!(desk.sessions(), ["s1", "s2", "s3"]);
+    assert_ne!(desk.logins.statuses.cached(A).state, SignedIn);
+}
+
+#[tokio::test]
+async fn a_switch_held_signed_out_stays_held_while_that_account_is_checked_again() {
+    let desk = desk();
+    desk.room.account_statuses().put(A, view(SignedOut));
+    let (release, held) = oneshot::channel::<()>();
+    let statuses = desk.logins.statuses.clone();
+    let checking = tokio::spawn(async move {
+        statuses
+            .check_with(A, move || async move {
+                held.await.ok();
+                view(SignedIn)
+            })
+            .await
+    });
+    until("a check holds the gate", || {
+        desk.logins.statuses.checks_in_line(A) == 1
+    })
+    .await;
+    desk.switch_to_a(AccountHold::NotSignedIn).await;
+    release.send(()).unwrap();
+    checking.await.unwrap();
+    until("the recorded answer releases the switch", || {
+        desk.sessions().is_empty()
+    })
+    .await;
 }
 
 #[tokio::test]

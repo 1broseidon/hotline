@@ -4,6 +4,7 @@ use crate::paths::{agent_account_dir, agent_accounts_dir};
 use crate::private_dir::make_private_directory;
 use crate::room::write_agent_accounts;
 use crate::session::tests::persona;
+use crate::test_support::link;
 use tempfile::TempDir;
 
 const ID: &str = "89bbac55-e7ac-4409-a709-115f33bb12f0";
@@ -50,25 +51,6 @@ fn ada(account: Option<&str>, backend_id: &str) -> Persona {
         agent_account_id: account.map(str::to_string),
         backend_id: backend_id.to_string(),
         ..persona("ada")
-    }
-}
-
-/// Makes `at` another way to reach `target`: a symlink, or on Windows a
-/// junction, which `mklink /J` makes without the privilege a directory
-/// symlink needs. `at` must not exist yet and its parent must.
-fn link(target: &Path, at: &Path) {
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(target, at).unwrap();
-    #[cfg(windows)]
-    {
-        let status = std::process::Command::new("cmd.exe")
-            .args(["/d", "/c", "mklink", "/J"])
-            .arg(at)
-            .arg(target)
-            .output()
-            .unwrap()
-            .status;
-        assert!(status.success(), "mklink /J {at:?} {target:?}");
     }
 }
 

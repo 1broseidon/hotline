@@ -7,7 +7,7 @@
 
 use super::env::env_plan;
 use super::resolve::{AccountRefusal, ResolvedAccount};
-use super::status::{AccountStatuses, run_status};
+use super::status::{AccountStatuses, run_status, unavailable};
 use super::support::AccountSupport;
 use crate::contract::{AccountStatusState, AccountStatusView, LoginAttemptState, LoginAttemptView};
 use crate::driver::acp::registry::{self, Launch};
@@ -166,25 +166,37 @@ impl AccountLogins {
     }
 
     async fn conclude(&self, room: &Arc<Room>, run: &Run, attempt: &Attempt, outcome: Outcome) {
+        let root = room.log().root();
         let status = self
             .statuses
             .recheck_with(&run.account.id, || {
-                run_status(&run.launch, &run.account, run.status_bound)
+                // A stop fails whatever the status says, so it is failed as
+                // soon as the recheck holds the gate, not after it.
+                if let Outcome::Stopped(sentence) = outcome {
+                    attempt.finish(Err(sentence.to_string()));
+                }
+                async move {
+                    match private_dir::checked_account_dir(root, &run.account.id) {
+                        Ok(dir) if dir == run.account.dir => {
+                            run_status(&run.launch, &run.account, run.status_bound).await
+                        }
+                        _ => unavailable(),
+                    }
+                }
             })
             .await;
-        let result = match outcome {
-            Outcome::Stopped(sentence) => Err(sentence.to_string()),
-            Outcome::Exited(exited) => {
-                let exited = exited.map_err(|error| {
-                    if error == COMMAND_FAILED {
-                        format!("{} closed before it was signed in.", run.agent)
-                    } else {
-                        error
-                    }
-                });
-                settle(room, &run.account, exited, &status, &run.agent).await
-            }
+        let Outcome::Exited(exited) = outcome else {
+            room.retry_switches_to(&run.account.id);
+            return;
         };
+        let exited = exited.map_err(|error| {
+            if error == COMMAND_FAILED {
+                format!("{} closed before it was signed in.", run.agent)
+            } else {
+                error
+            }
+        });
+        let result = settle(room, &run.account, exited, &status, &run.agent).await;
         let confirmed = result.is_ok();
         attempt.finish(result);
         // Only now: a running attempt holds every switch to this account.

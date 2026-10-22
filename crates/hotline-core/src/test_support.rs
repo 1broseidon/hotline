@@ -6,6 +6,7 @@ use crate::driver::acp::registry::Launch;
 use crate::log::Log;
 use crate::room::{agent_accounts, write_agent_accounts};
 use crate::{paths, private_dir};
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -64,6 +65,25 @@ pub(crate) fn account_on_disk(
     private_dir::make_private_directory(&paths::agent_account_dir(log.root(), id).unwrap())
         .unwrap();
     resolve::account(log.root(), log, id).unwrap()
+}
+
+/// Makes `at` another way to reach `target`: a symlink, or on Windows a
+/// junction, which `mklink /J` makes without the privilege a directory
+/// symlink needs. `at` must not exist yet and its parent must.
+pub(crate) fn link(target: &Path, at: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, at).unwrap();
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(at)
+            .arg(target)
+            .output()
+            .unwrap()
+            .status;
+        assert!(status.success(), "mklink /J {at:?} {target:?}");
+    }
 }
 
 /// A checkpoint clear that has read `persona_id`'s record under

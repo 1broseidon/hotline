@@ -9,6 +9,14 @@ tags:
   - cookies
 parentId: epic-24
 createdAt: "2026-10-22T15:31:06.921Z"
+dispatch:
+  agent: codex
+  by: cli
+  at: "2026-10-22T15:31:13.865Z"
+  until: review
+  tries: 0
+assignee: codex
+updatedAt: "2026-10-22T15:31:13.984Z"
 ---
 
 ## Description

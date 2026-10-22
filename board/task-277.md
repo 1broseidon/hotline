@@ -15,7 +15,14 @@ relatedFiles:
 parentId: epic-24
 createdAt: "2026-10-22T21:03:38.914Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T21:03:39.457Z"
+updatedAt: "2026-10-22T21:03:40.405Z"
+dispatch:
+  agent: codex
+  by: cli
+  at: "2026-10-22T21:03:40.273Z"
+  until: review
+  tries: 0
+assignee: codex
 ---
 
 ## Description

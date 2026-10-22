@@ -41,3 +41,6 @@ Done when:
 - Remove drops the site's cookies from the computer through DELETE /logins/{name} and says so to the agent: named test against the computer fake.
 - No cookie value reaches the tape, the agent or logs: sink test.
 - Manual check: porkbun.com signed in from Brave on George's Mac, then Remove signs the teammate out.
+
+## Log
+- 2026-10-22T15:40:03.080Z: [codex] Implemented host-only site discovery, PSL-bounded explicit lends, durable removal records, shared card/phone handlers and Settings undo. Task-274's /pages response shape is confirmed; older computers return no offers. Now adding real-handler/fake-computer and UI proofs.

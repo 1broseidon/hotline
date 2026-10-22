@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/wire/transport.rs
 createdAt: "2026-10-22T22:44:26.174Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T22:45:10.145Z"
+updatedAt: "2026-10-22T22:53:24.313Z"
 dispatch:
   agent: codex
   by: cli
@@ -28,6 +28,8 @@ dispatch:
     pid: 47499
     at: "2026-10-22T22:44:29.114Z"
 assignee: codex
+decisions:
+  - decision-40
 ---
 
 ## Description

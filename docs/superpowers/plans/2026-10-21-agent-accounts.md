@@ -1967,3 +1967,6 @@ Desvios em relação à spec e ao plano, registrados pelo coordenador durante a 
 13. **A validação real usa `bun run --cwd ui dev` + `cargo run -p hotline-app`**, sem instalar o `tauri-cli`.
 14. **A linha de suporte `CLAUDE` é um `static`, não `const`** (CONTRACT_SHEET), para que `&CLAUDE` tenha um só endereço e a comparação por `ptr::eq` valha.
 15. **A lista de itens que o "Open" aceita é a união das linhas de suporte**, porque o shell recebe só o caminho; com uma linha (`claude-acp`) é idêntica à lista do agente.
+16. **A troca pendente vive só em memória.** Se o Hotline reinicia com uma troca retida, o teammate sobe na conta escolhida (mesmo sem login) e o primeiro prompt mostra o cartão de login. Quando a partida encontra um checkpoint de outra conta naquele backend (só uma troca perdida deixa isso), apaga os checkpoints do backend, para nunca dizer "Restored" à toa.
+17. **`persona.update` grava o registro também sob o lock curto do registro** (`persona_write_lock`), para não desfazer nem ser desfeito pela limpeza de checkpoints de uma troca.
+18. **Um novo login apaga os checkpoints do backend do teammate**, não só os da conta; com a regra do item 16 eles só nomeiam a conta do registro, então o efeito é o mesmo.

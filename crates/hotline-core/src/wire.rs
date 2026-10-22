@@ -14,12 +14,11 @@
 //! - `{"id": m, "unsub": n}`, which ends subscription `n`.
 //!
 //! The ordering rule is the whole reason a subscription is not simply "load,
-//! then listen": the broadcast is subscribed to BEFORE the fold is loaded for
-//! the snapshot, so no event can land in the gap between them. An event that
-//! lands in both is harmless, because every client folds a stream by event id
-//! and the second copy of a line supersedes the first with itself.
+//! then listen": the stream's fold and broadcast receiver are captured under
+//! the same writer lock, so no event lands in a gap or replays an older
+//! revision after its snapshot. Lag recovery uses the same boundary.
 //!
-//! One writer task per socket, fed by an mpsc: answers, snapshots and events
+//! One writer task per socket, fed by a queue: answers, snapshots and events
 //! are whole frames in the order they were queued, and never interleave.
 //! Commands are answered on the read loop, in the order they arrived, because
 //! the append a command makes IS its answer and a client that creates a
@@ -32,6 +31,7 @@ pub(crate) mod commands;
 mod door;
 mod files;
 mod phone;
+mod queue;
 mod relay_door;
 mod roster;
 mod schedules;

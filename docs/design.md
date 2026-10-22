@@ -231,6 +231,16 @@ discarding queued bytes. Only that timeout selects zero linger: ordinary
 WebSocket closes must drain final pairing and authentication replies, including
 on Windows.
 
+A remote socket's 256-frame queue sheds tool updates and live deltas before
+disconnecting. Pending roster rows coalesce per subscription and teammate,
+carrying forward any omitted catalogs; required frames are ordering barriers.
+Chat, cards, snapshots and replies can evict tool chatter, but an outbox full
+of required frames still disconnects. The log keeps every tool event. After
+stream lag, a phone receives its full 200-line window within the existing byte
+budget, even if it opened with a smaller background window. The fold and a
+new broadcast receiver are captured under the log's writer lock, so older
+queued revisions cannot undo that snapshot.
+
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a paired owner has the same command and subscription set. A
 companion keeps the limited phone seat. A linked desk's channel has the link

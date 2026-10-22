@@ -1,6 +1,7 @@
 //! One seated socket: its outbox, its lanes and the commands it answers.
 
 use super::phone::{effort_config, phone_budget};
+use super::queue;
 use super::seat::{PLAIN_REASONS, PRIVATE_REASON, Seat};
 use super::subscribe::subscribe;
 use super::transport::AbortiveClose;
@@ -45,11 +46,11 @@ pub(super) struct Outbox {
 #[derive(Clone)]
 pub(super) enum Outgoing {
     Desk(mpsc::UnboundedSender<String>),
-    Phone(mpsc::Sender<String>),
+    Phone(queue::Sender),
 }
 enum IncomingOutput {
     Desk(mpsc::UnboundedReceiver<String>),
-    Phone(mpsc::Receiver<String>),
+    Phone(queue::Receiver),
 }
 impl IncomingOutput {
     async fn recv(&mut self) -> Option<String> {
@@ -73,19 +74,23 @@ impl Outbox {
         self.lean.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// A frame that may be lost without harm: live words the durable line
-    /// will carry anyway. A phone's queue that is full drops it rather than
-    /// the connection, so a slow link falls behind on typing, not offline.
+    /// Live words or tool activity may be shed on a slow link. Their durable
+    /// record remains in the log; chat, cards and replies retain their place.
     pub(super) fn send_droppable(&self, text: String) -> Result<(), ()> {
         match &self.sender {
-            Outgoing::Phone(sender) if text.len() <= self.max => match sender.try_send(text) {
-                Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    self.cancel.cancel();
-                    Err(())
-                }
-            },
-            _ => self.send(text),
+            Outgoing::Phone(sender) => {
+                self.sent(sender.send(queue::Frame::Droppable(text), self.max))
+            }
+            Outgoing::Desk(_) => self.send(text),
+        }
+    }
+
+    pub(super) fn send_roster(&self, sub: i64, row: Value) -> Result<(), ()> {
+        match &self.sender {
+            Outgoing::Phone(sender) => {
+                self.sent(sender.send(queue::Frame::Roster { sub, row }, self.max))
+            }
+            Outgoing::Desk(_) => self.send(json!({ "sub": sub, "event": row }).to_string()),
         }
     }
 
@@ -94,13 +99,18 @@ impl Outbox {
         let failed = oversized
             || match &self.sender {
                 Outgoing::Desk(sender) => sender.send(text).is_err(),
-                Outgoing::Phone(sender) => sender.try_send(text).is_err(),
+                Outgoing::Phone(sender) => {
+                    sender.send(queue::Frame::Required(text), self.max).is_err()
+                }
             };
-        if failed {
+        self.sent(if failed { Err(()) } else { Ok(()) })
+    }
+
+    fn sent(&self, result: Result<(), ()>) -> Result<(), ()> {
+        if result.is_err() {
             self.cancel.cancel();
-            return Err(());
         }
-        Ok(())
+        result
     }
 }
 
@@ -177,7 +187,7 @@ where
     let (mut sink, mut incoming) = socket.split();
     let cancel = phone.as_ref().map(|p| p.cancel.clone()).unwrap_or_default();
     let (sender, mut outbox) = if seat.is_remote() {
-        let (tx, rx) = mpsc::channel::<String>(256);
+        let (tx, rx) = queue::channel();
         (Outgoing::Phone(tx), IncomingOutput::Phone(rx))
     } else {
         let (tx, rx) = mpsc::unbounded_channel::<String>();

@@ -12,7 +12,7 @@ relatedFiles:
   - crates/hotline-core/tests/steering.rs
 createdAt: "2026-10-22T07:37:09.827Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T07:48:58.746Z"
+updatedAt: "2026-10-22T07:49:05.631Z"
 dispatch:
   agent: codex
   by: cli
@@ -24,6 +24,8 @@ dispatch:
     runner: cli
     pid: 93526
     at: "2026-10-22T07:37:21.018Z"
+    ended: "2026-10-22T07:49:05.631Z"
+    outcome: review
 assignee: codex
 decisions:
   - decision-35

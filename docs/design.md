@@ -1226,10 +1226,9 @@ the importer are unchanged.
 
 A login is stored with `sites: [requested_origin]`, granted to the requester
 and delivered through the existing whole-set computer door before the agent
-hears the outcome. Existing keys keep their values and policy. Ask me defaults
-to false on old and new records; capture saves it with a login or minted
-passkey and includes it in delivery. Use-time approval is the separate
-credential-policy work (task-267 and task-268), not a capture operation.
+hears the outcome. Existing keys keep their values and policy. Use defaults
+to `auto` on old and new records; capture maps its Ask me choice to `ask`
+and saves it with a login or minted passkey.
 The computer currently allows same-scheme/port subdomains of a configured
 login host; capture does not tighten that computer-side rule. Strict
 origin-only filling remains a counterpart acceptance gap for task-266.
@@ -1247,3 +1246,35 @@ announces once that the desk and phone are waiting, without reading the
 request's free-form reason. Spoken yes or done has no authority here. A
 stored outcome delivered to the call says only `Stored as NAME`; its card
 queues that fixed spoken notice once, independently of the agent’s reply.
+
+
+### Each login and passkey chooses when to ask
+
+The vault sidecar owns `use: auto | ask`; absent means automatic. Settings →
+Secrets changes this metadata without reading or rewriting the keychain value.
+The capture card sets it for a new login or captured passkey; granting an
+existing key keeps that key's policy. There is no built-in list of sensitive
+sites. The whole set sent to a running computer carries `use` on logins and
+passkeys only, so changing the choice takes effect without restarting it.
+
+Every two seconds the desk polls the authenticated `/secrets/uses` door of
+each running computer granted an Ask me key. The computer owns the hold,
+its deadline, and the ten-minute allowance for one key on one site on that
+teammate's computer. The desk writes one additive `secret_use_ask` card per
+held id, with the key, kind, site, path and teammate, to the home tape. Desk
+and phone subscribe to that same card. Approve, Allow 10 min and Deny travel
+through `secrets.use.answer` to `/secrets/uses/answer`; they never travel
+through voice. The card contains no credential values. Existing event shapes,
+tape segments and the importer are unchanged.
+
+One per-computer lock serializes set delivery, polling and card answers;
+without it, racing seats could settle a card twice or an old set could arrive
+after a policy change. Answers also check the bound capability lease,
+current computer and current grant under the policy lock. A missing held id,
+expired deadline, revoked lease or stopped computer expires the card. The
+teammate receives the outcome in a delivery, including a plain decline or
+lapse and a reminder to retry a waiting login fill after approval. A desk
+restart expires saved cards; the saved event alone has no answer authority.
+A computer returning 404 on the use door gets automatic policy for all keys,
+with one stderr explanation per running endpoint; the vault keeps the person's
+choice for a newer computer.

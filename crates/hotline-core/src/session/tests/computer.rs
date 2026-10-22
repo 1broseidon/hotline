@@ -345,7 +345,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
         .set_shared(
             "GITHUB_LOGIN",
             crate::vault::StoredSecret::Login {
-                ask: false,
+                r#use: crate::contract::SecretUse::Auto,
                 sites: vec!["https://github.com".to_string()],
                 username: "george".to_string(),
                 password: "correct-horse-battery".to_string(),

@@ -125,6 +125,7 @@ pub mod login;
 pub mod passkeys;
 pub mod releases;
 pub mod secrets;
+pub(crate) mod uses;
 
 /// The image the desk's own release line is published as, at `release`.
 pub fn image_at(release: &str) -> String {

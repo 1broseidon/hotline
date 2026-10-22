@@ -102,6 +102,7 @@ impl Seat {
                     | Command::SessionRetry { .. }
                     | Command::HumanAnswer { .. }
                     | Command::SecretsPasskeyAnswer { .. }
+                    | Command::SecretsUseAnswer { .. }
                     | Command::SecretsCaptureAnswer(..)
                     | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }

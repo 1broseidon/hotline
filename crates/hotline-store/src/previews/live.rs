@@ -40,6 +40,7 @@ impl State {
                 | "human_action"
                 | "credential_ask"
                 | "passkey_ask"
+                | "secret_use_ask"
                 | "exchange_paused"
         ) {
             return kind == "delivery";
@@ -82,6 +83,9 @@ impl State {
             }
             TranscriptEvent::CredentialAsk { id, status, .. } => {
                 self.set_card(id, status == hotline_contract::CredentialStatus::Pending);
+            }
+            TranscriptEvent::SecretUseAsk { id, status, .. } => {
+                self.set_card(id, status == hotline_contract::SecretUseStatus::Pending);
             }
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 self.set_card(id, status == PasskeyAskStatus::Pending);

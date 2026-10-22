@@ -580,6 +580,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         _username: &str,
         _password: &str,
         _totp: Option<&str>,
+        _use: Option<hotline_contract::SecretUse>,
     ) -> Result<hotline_contract::SharedSecret, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
@@ -590,6 +591,21 @@ pub trait RoomHandle: Send + Sync + 'static {
         _answer: hotline_contract::CredentialAnswer,
     ) -> Result<(), String> {
         Err("Credential capture is unavailable on this room.".into())
+    }
+    async fn secrets_use_set(
+        &self,
+        _name: &str,
+        _use: hotline_contract::SecretUse,
+    ) -> Result<hotline_contract::SharedSecret, String> {
+        Err("Stored secrets are unavailable on this room.".into())
+    }
+    async fn secrets_use_answer(
+        &self,
+        _persona: &str,
+        _id: &str,
+        _answer: hotline_contract::SecretUseAnswer,
+    ) -> Result<(), String> {
+        Err("No secret use is waiting on this room.".into())
     }
     async fn secrets_passkey_register(
         &self,

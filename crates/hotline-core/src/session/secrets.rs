@@ -11,13 +11,15 @@ impl Room {
     /// answer. The values pass vault → this process → container and are
     /// written nowhere on the way.
     pub(super) async fn hand_secrets(&self, persona: &Persona, ready: &crate::computer::Ready) {
+        let watch = self.use_watch(&persona.id);
+        let watch = watch.lock().await;
         let notice = |text: String| eprintln!("{}: {text}", persona.name);
         let granted: Vec<String> = persona
             .computer
             .as_ref()
             .and_then(|computer| computer.secrets.clone())
             .unwrap_or_default();
-        let (values, missing) = match &self.vault {
+        let (mut values, missing) = match &self.vault {
             Some(vault) => match vault.shared_secret_values(&granted) {
                 Ok(read) => read,
                 Err(error) => {
@@ -37,6 +39,9 @@ impl Room {
                 persona.name,
                 missing.join(", ")
             ));
+        }
+        if watch.old && watch.ready.as_ref() == Some(ready) {
+            super::secret_uses::make_automatic(&mut values);
         }
         let names: Vec<&str> = values.keys().map(String::as_str).collect();
         match crate::computer::secrets::deliver(ready, &values).await {
@@ -655,8 +660,8 @@ impl Room {
             {
                 return Err("That passkey name was stored meanwhile. Choose another name.".into());
             }
-            if let crate::vault::StoredSecret::Passkey { ask, .. } = &mut credential {
-                *ask = capture.ask;
+            if let crate::vault::StoredSecret::Passkey { r#use, .. } = &mut credential {
+                *r#use = capture.ask.into();
             }
         }
         vault

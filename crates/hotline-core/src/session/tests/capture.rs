@@ -120,7 +120,7 @@ async fn capture_stores_grants_and_delivers_without_values_in_any_sink() {
     let login = &sets.last().unwrap()["CHOSEN_LOGIN"];
     assert_eq!(login["sites"], json!(["https://github.com"]));
     assert_eq!(login["password"], "capture-password-sentinel");
-    assert_eq!(login["ask"], false);
+    assert_eq!(login["use"], "auto");
     assert_eq!(
         room.vault.as_ref().unwrap().shared_secrets().unwrap()[0].sites,
         Some(vec!["https://github.com".into()])
@@ -257,7 +257,7 @@ async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_repla
                 username: "existing".into(),
                 password: "existing-password".into(),
                 totp: None,
-                ask: true,
+                r#use: crate::contract::SecretUse::Ask,
             },
         )
         .unwrap();
@@ -269,7 +269,7 @@ async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_repla
                 username: "other".into(),
                 password: "other-password".into(),
                 totp: None,
-                ask: false,
+                r#use: crate::contract::SecretUse::Auto,
             },
         )
         .unwrap();
@@ -290,14 +290,15 @@ async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_repla
     grant.name = Some("OLD".into());
     room.answer_credential(grant).await.unwrap();
     assert_eq!(card(&room)["storedAs"], "OLD");
-    assert!(
+    assert_eq!(
         vault
             .shared_secrets()
             .unwrap()
             .iter()
             .find(|s| s.name == "OLD")
             .unwrap()
-            .ask
+            .r#use,
+        crate::contract::SecretUse::Ask
     );
 }
 
@@ -352,7 +353,7 @@ async fn capture_passkey_keeps_approval_origin_name_and_ask_setting() {
         .shared_secrets()
         .unwrap()
         .remove(0);
-    assert!(secret.ask);
+    assert_eq!(secret.r#use, crate::contract::SecretUse::Ask);
     assert_eq!(
         super::super::secrets::describe_secret(&secret),
         "a passkey for github.com"
@@ -362,7 +363,7 @@ async fn capture_passkey_keeps_approval_origin_name_and_ask_setting() {
             .unwrap()
             .contains(crate::computer::guide::fake::KEY_BASE64)
     );
-    assert_eq!(taken.sets().last().unwrap()["GH_PASSKEY"]["ask"], true);
+    assert_eq!(taken.sets().last().unwrap()["GH_PASSKEY"]["use"], "ask");
 }
 
 #[tokio::test]

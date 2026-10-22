@@ -224,6 +224,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.cookies.push` | `{personaId, transfer: {sourceId, browserId, profileId, domains, cookies}}` | `[{domain, cookies}]`; the cookies a window read from its own computer's browser, for a desk on a server ([serve.md](serve.md)) |
 | `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
 | `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
+| `secrets.use.set` | `{name, use: "auto"\|"ask"}` | `SharedSecret`; desk/owner only, changes metadata and delivers the new set to running computers |
+| `secrets.use.answer` | `{personaId, useId, answer: "approve"\|"allow"\|"deny"}` | none; desk/owner/phone, answers one live `secret_use_ask` card. Allow covers one key/site/teammate for ten minutes on the computer |
 | `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |
 | `secrets.set` | `{name, value}` | the `SharedSecret` stored, a variable; the value is never answered back |
 | `secrets.login.set` | `{name, sites, username, password, totp?}` | the `SharedSecret` stored, a login; the password and seed are never answered back |

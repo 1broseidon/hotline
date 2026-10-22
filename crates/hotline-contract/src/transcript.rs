@@ -213,6 +213,21 @@ pub enum TranscriptEvent {
         #[serde(default)]
         armed: bool,
     },
+    /// A granted login or passkey is waiting at the computer's use door.
+    /// Both seats settle the same event; no secret value enters this card.
+    SecretUseAsk {
+        id: String,
+        ts: i64,
+        use_id: String,
+        secret: String,
+        secret_kind: CaptureKind,
+        site: String,
+        path: String,
+        teammate: String,
+        asked_at: i64,
+        expires_at: i64,
+        status: SecretUseStatus,
+    },
     /// A site asked the teammate's browser to make a passkey, under an
     /// arming the person started for that site: the request waits in the
     /// browser until the person answers here. Pending renders the card

@@ -142,7 +142,7 @@ mod tests {
         set.insert(
             "GITHUB".to_owned(),
             StoredSecret::Login {
-                ask: false,
+                r#use: crate::contract::SecretUse::Auto,
                 sites: vec!["https://github.com".to_owned()],
                 username: "george".to_owned(),
                 password: "correct horse battery".to_owned(),
@@ -211,7 +211,7 @@ mod tests {
         };
         let serving = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let secret = StoredSecret::Login {
-            ask: false,
+            r#use: crate::contract::SecretUse::Auto,
             sites: vec!["https://github.com".into()],
             username: "capture-private-user".into(),
             password: "capture-private-password".into(),

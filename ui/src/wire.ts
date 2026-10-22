@@ -278,6 +278,8 @@ type Results = {
 	/** Names, kinds and what each is for; never a value. */
 	"secrets.capture.answer": null;
 	"secrets.list": SharedSecret[];
+	"secrets.use.set": SharedSecret;
+	"secrets.use.answer": null;
 	"secrets.set": SharedSecret;
 	"secrets.login.set": SharedSecret;
 	"secrets.delete": null;

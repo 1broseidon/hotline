@@ -77,6 +77,19 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
         assert_eq!(pending(&desk, &persona)["id"], event["id"]);
         room.withdraw_human(&persona, &card.request).unwrap();
     }
+    for yes in [true, false] {
+        let card = Card {
+            persona: persona.clone(),
+            kind: "secret_use_ask".into(),
+            request: "held-use".into(),
+        };
+        assert!(
+            room.answer_call_card(&card, &call, yes)
+                .await
+                .unwrap_err()
+                .contains("voice cannot answer")
+        );
+    }
     for kind in ["permission", "passkey_ask"] {
         let pending = if kind == "permission" {
             json!({"kind":kind,"id":"perm:opaque","ts":1,"requestId":"opaque","title":"Approve deletion","options":[]})

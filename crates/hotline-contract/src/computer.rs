@@ -249,6 +249,42 @@ pub enum SharedSecretKind {
     Passkey,
 }
 
+/// Whether a login or passkey may be used without the person's answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SecretUse {
+    #[default]
+    Auto,
+    Ask,
+}
+
+impl From<bool> for SecretUse {
+    fn from(ask: bool) -> Self {
+        if ask { Self::Ask } else { Self::Auto }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SecretUseAnswer {
+    Approve,
+    Allow,
+    Deny,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SecretUseStatus {
+    Pending,
+    Approved,
+    Allowed,
+    Denied,
+    Expired,
+}
+
 /// A secret the operator stored for teammates to use, kept in the OS
 /// credential store under a name spelled like an environment variable. This
 /// is all the window ever sees of one — the value is written once and never
@@ -264,7 +300,7 @@ pub struct SharedSecret {
     pub kind: SharedSecretKind,
     /// Missing on older records means automatic.
     #[serde(default)]
-    pub ask: bool,
+    pub r#use: SecretUse,
     /// A login's sites: the origins its fields are typed on, and no other.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sites: Option<Vec<String>>,

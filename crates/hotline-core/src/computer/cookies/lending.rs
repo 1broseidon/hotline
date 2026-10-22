@@ -87,6 +87,32 @@ pub(crate) struct Discovery {
     pub(crate) refused: Vec<HostBrowser>,
 }
 
+pub(crate) struct Inventory {
+    pub(crate) sources: Vec<(Source, HashSet<String>)>,
+    pub(crate) refused: Vec<HostBrowser>,
+    pub(crate) unavailable: Vec<String>,
+}
+
+pub(crate) fn inventory(candidates: Vec<Candidate>) -> Inventory {
+    let discovery = discover(candidates);
+    let mut inventory = Inventory {
+        sources: Vec::new(),
+        refused: discovery.refused,
+        unavailable: Vec::new(),
+    };
+    for source in discovery.sources {
+        match source.sites() {
+            Ok(sites) => inventory.sources.push((source, sites)),
+            Err(_) => inventory.unavailable.push(format!(
+                "Could not read cookie sites from {} · {}.",
+                source.browser_name(),
+                source.profile_name()
+            )),
+        }
+    }
+    inventory
+}
+
 pub(crate) fn discover(mut candidates: Vec<Candidate>) -> Discovery {
     // Deterministic first choice; one card per site even with several profiles.
     candidates.sort_by_key(|c| c.id);

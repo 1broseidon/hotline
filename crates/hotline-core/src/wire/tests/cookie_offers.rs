@@ -413,3 +413,199 @@ async fn failed_delivery_keeps_a_removal_handle_and_never_echoes_a_cookie_in_err
         CookieOfferStatus::Removed
     );
 }
+
+async fn set_offers(room: &Arc<Room>, settings: Value) {
+    let reply = command(
+        room,
+        Seat::Desk,
+        "settings.update",
+        json!({"patch":{"cookieOffers":settings}}),
+    )
+    .await;
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+#[tokio::test]
+async fn cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_explanation() {
+    use std::sync::atomic::Ordering;
+    let (fixture, _profiles) = cookie_offer_room("offers-disabled", false).await;
+    let room = &fixture.room;
+    set_offers(room, json!({"enabled":false})).await;
+    let calls = room.cookie_discovery_calls.load(Ordering::SeqCst);
+    room.poll_secret_uses("ada").await;
+    assert_eq!(room.cookie_discovery_calls.load(Ordering::SeqCst), calls);
+    assert_eq!(room.computer_cookie_offers("ada"), [] as [CookieOffer; 0]);
+
+    set_offers(room, json!({"enabled":true})).await;
+    room.poll_secret_uses("ada").await;
+    let offer = room.computer_cookie_offers("ada")[0].clone();
+    assert_eq!(offer.status, CookieOfferStatus::Pending);
+    let calls = room.cookie_discovery_calls.load(Ordering::SeqCst);
+    assert!(calls > 0, "the fixture records actual discovery calls");
+    set_offers(room, json!({"enabled":false})).await;
+    // The update settles the card before acknowledging, without another poll.
+    assert_eq!(
+        room.computer_cookie_offers("ada")[0].status,
+        CookieOfferStatus::Expired
+    );
+    assert!(
+        room.log()
+            .load(&StreamId::Tape("ada".into()))
+            .iter()
+            .any(|e| e["kind"] == "notice"
+                && e["text"] == "Browser cookie offers are off. Pending offers have expired.")
+    );
+    assert_eq!(answer(room, &offer.id, "use").await["ok"], false);
+    *fixture.taken.pages.lock().unwrap() = vec![json!({"origin":"https://unrelated.com"})];
+    room.poll_secret_uses("ada").await;
+    assert_eq!(room.cookie_discovery_calls.load(Ordering::SeqCst), calls);
+    assert!(fixture.taken.uploads.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn cookie_offers_selected_sites_only_offer_matches_and_expire_deselected_cards() {
+    let (fixture, _profiles) = cookie_offer_room("offers-selected", false).await;
+    let room = &fixture.room;
+    set_offers(room, json!({"enabled":true,"sites":["unrelated.com"]})).await;
+    *fixture.taken.pages.lock().unwrap() = vec![
+        json!({"origin":"https://porkbun.com"}),
+        json!({"origin":"https://www.unrelated.com"}),
+    ];
+    room.poll_secret_uses("ada").await;
+    let offers = room.computer_cookie_offers("ada");
+    assert_eq!(offers.len(), 1);
+    assert_eq!(offers[0].site, "unrelated.com");
+    set_offers(room, json!({"enabled":true,"sites":["porkbun.com"]})).await;
+    assert_eq!(
+        room.computer_cookie_offers("ada")[0].status,
+        CookieOfferStatus::Expired
+    );
+    assert_eq!(answer(room, &offers[0].id, "use").await["ok"], false);
+    room.poll_secret_uses("ada").await;
+    let offers = room.computer_cookie_offers("ada");
+    assert_eq!(offers.len(), 2);
+    assert_eq!(offers[1].site, "porkbun.com");
+    assert_eq!(offers[1].status, CookieOfferStatus::Pending);
+}
+
+#[tokio::test]
+async fn cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_offers_none() {
+    use std::sync::atomic::Ordering;
+    let (fixture, _profiles) = cookie_offer_room("offers-all", false).await;
+    let room = &fixture.room;
+    set_offers(room, json!({"enabled":true,"sites":[]})).await;
+    *fixture.taken.pages.lock().unwrap() = vec![
+        json!({"origin":"https://porkbun.com"}),
+        json!({"origin":"https://unrelated.com"}),
+    ];
+    let calls = room.cookie_discovery_calls.load(Ordering::SeqCst);
+    room.poll_secret_uses("ada").await;
+    assert_eq!(room.computer_cookie_offers("ada"), [] as [CookieOffer; 0]);
+    assert_eq!(room.cookie_discovery_calls.load(Ordering::SeqCst), calls);
+    // Clearing the override restores the old-room default: enabled, all sites.
+    set_offers(room, Value::Null).await;
+    room.poll_secret_uses("ada").await;
+    let offers = room.computer_cookie_offers("ada");
+    assert_eq!(
+        offers.iter().map(|c| c.site.as_str()).collect::<Vec<_>>(),
+        ["porkbun.com", "unrelated.com"]
+    );
+}
+
+#[tokio::test]
+async fn cookie_offer_settings_are_owner_written_phone_read_and_site_discovery_is_explicit() {
+    use std::sync::atomic::Ordering;
+    let profiles = tempfile::tempdir().unwrap();
+    let fixture = cookie_offer_room_with_candidates(
+        "offers-settings-seats",
+        vec![
+            candidate_fixture(profiles.path(), true),
+            candidate_fixture(profiles.path(), false),
+        ],
+    )
+    .await;
+    let room = &fixture.room;
+    let settings = json!({"enabled":false,"sites":["porkbun.com"]});
+    for seat in [Seat::Desk, Seat::Owner] {
+        assert_eq!(
+            command(
+                room,
+                seat,
+                "settings.update",
+                json!({"patch":{"cookieOffers":settings}})
+            )
+            .await["ok"],
+            true
+        );
+    }
+    let calls = room.cookie_discovery_calls.load(Ordering::SeqCst);
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        assert_eq!(
+            command(room, seat, "computer.cookies.settings", json!({})).await["result"],
+            settings
+        );
+    }
+    for seat in [Seat::Phone, Seat::Link] {
+        assert_eq!(
+            command(
+                room,
+                seat,
+                "settings.update",
+                json!({"patch":{"cookieOffers":{"enabled":true}}})
+            )
+            .await["ok"],
+            false
+        );
+        assert_eq!(
+            command(room, seat, "computer.cookies.sites", json!({})).await["ok"],
+            false
+        );
+    }
+    assert_eq!(room.cookie_discovery_calls.load(Ordering::SeqCst), calls);
+    for seat in [Seat::Desk, Seat::Owner] {
+        let response = command(room, seat, "computer.cookies.sites", json!({})).await;
+        assert_eq!(response["ok"], true);
+        assert_eq!(
+            response["result"]["sites"],
+            json!([
+                {"site":"porkbun.com","sources":[{"browserName":"Brave","profileName":"Default"},{"browserName":"Firefox","profileName":"Default"}]},
+                {"site":"unrelated.com","sources":[{"browserName":"Brave","profileName":"Default"},{"browserName":"Firefox","profileName":"Default"}]}
+            ])
+        );
+        assert!(!response.to_string().contains("sentinel-273"));
+    }
+    assert_eq!(
+        room.cookie_discovery_calls.load(Ordering::SeqCst),
+        calls + 2
+    );
+    assert!(fixture.taken.uploads.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changing_the_setting() {
+    let (fixture, _profiles) = cookie_offer_room("offers-validation", false).await;
+    let room = &fixture.room;
+    set_offers(room, json!({"enabled":false})).await;
+    for bad in [
+        json!({"enabled":"yes"}),
+        json!({"sites":"porkbun.com"}),
+        json!({"sites":["account.porkbun.com"]}),
+        json!({"sites":["https://porkbun.com"]}),
+        json!({"sites":["com"]}),
+        json!({"sites":["127.0.0.1"]}),
+        json!([]),
+    ] {
+        let response = command(
+            room,
+            Seat::Owner,
+            "settings.update",
+            json!({"patch":{"cookieOffers":bad}}),
+        )
+        .await;
+        assert_eq!(response["ok"], false, "{bad}: {response}");
+    }
+    assert_eq!(
+        command(room, Seat::Phone, "computer.cookies.settings", json!({})).await["result"],
+        json!({"enabled":false})
+    );
+}

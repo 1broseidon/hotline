@@ -225,6 +225,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
 | `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
 | `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — metadata-only cards, including accepted lends that remain removable after restart; desk and phone |
+| `computer.cookies.settings` | `{}` | `{enabled, sites?}` — the room's `cookieOffers` preference; defaults to enabled, absent sites means all, empty means none; desk, owner and phone |
+| `computer.cookies.sites` | `{}` | `{sites: [{site, sources: [{browserName, profileName}]}], unavailable: string[]}` — on-demand host-name discovery, including while offers are off; desk and owner only |
 | `computer.cookies.answer` | `{personaId, id, answer: "use"\|"not_now"\|"never"}` | none; a live, core-bound card is required, and only Use reads values; desk and phone |
 | `computer.cookies.remove` | `{personaId, id}` | none; removes a Lent or Unconfirmed offer's site from the computer; desk and phone |
 | `computer.cookies.blocked` | `{}` | `CookieOfferBlock[]` `{teammate, name, site}`; Never choices, owner or desk only |

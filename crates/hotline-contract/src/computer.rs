@@ -409,6 +409,64 @@ pub struct ComputerReleases {
     pub error: Option<String>,
 }
 
+/// Offers default to on for all sites, including rooms saved before this
+/// setting existed. This permits discovery, never lending without Use.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSettings {
+    pub enabled: bool,
+    /// Absent means all sites; an empty list means none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sites: Option<Vec<String>>,
+}
+
+impl Default for CookieOfferSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sites: None,
+        }
+    }
+}
+
+impl CookieOfferSettings {
+    pub fn allows(&self, site: &str) -> bool {
+        self.enabled
+            && self
+                .sites
+                .as_ref()
+                .is_none_or(|sites| sites.iter().any(|s| s == site))
+    }
+}
+
+/// Site names only, read when the person opens the settings page.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSites {
+    pub sites: Vec<CookieOfferSite>,
+    /// A refused or unreadable browser is not an empty inventory.
+    pub unavailable: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSite {
+    pub site: String,
+    pub sources: Vec<CookieOfferSource>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSource {
+    pub browser_name: String,
+    pub profile_name: String,
+}
+
 /// A host-cookie offer carries metadata only, including after settlement.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

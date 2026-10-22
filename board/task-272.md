@@ -8,10 +8,12 @@ tags:
   - flaky
   - tests
   - remote
+  - 0.43.0
 relatedFiles:
   - crates/hotline-core/src/remote/tests/phone.rs
 createdAt: "2026-10-22T08:26:53.752Z"
-updatedAt: "2026-10-22T22:04:46.453Z"
+updatedAt: "2026-10-22T22:04:46.960Z"
+landsOn: release/0.43.0
 ---
 
 ## Description

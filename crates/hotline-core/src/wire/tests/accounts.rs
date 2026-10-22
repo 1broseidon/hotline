@@ -80,16 +80,50 @@ async fn a_name_still_being_created_is_refused_before_a_second_folder_is_made() 
 
     let (first, second) = tokio::join!(create("Reviewer"), create("reviewer"));
 
-    assert!(first.is_ok(), "{first:?}");
+    let first = first.unwrap();
     assert_eq!(
         second.unwrap_err(),
-        "There is already an account named reviewer for that agent."
+        "An account named reviewer is still being made for that agent."
     );
     let folders = std::fs::read_dir(paths::agent_accounts_dir(root.path()))
         .unwrap()
         .count();
     assert_eq!(folders, 1);
-    created(&log, &room, "Second").await;
+    let id = first["account"]["account"]["id"].as_str().unwrap();
+    run(&log, &room, "accounts.remove", json!({"accountId": id}))
+        .await
+        .unwrap();
+    created(&log, &room, "reviewer").await;
+}
+
+#[tokio::test]
+async fn renaming_to_a_name_still_being_created_is_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let personal = created(&log, &room, "Personal").await;
+    let id = personal["account"]["account"]["id"].as_str().unwrap();
+
+    let (made, renamed) = tokio::join!(
+        run(
+            &log,
+            &room,
+            "accounts.create",
+            json!({"backendId":"claude-acp","name":"Work","startWith":"empty"}),
+        ),
+        run(
+            &log,
+            &room,
+            "accounts.rename",
+            json!({"accountId": id, "name": "work"}),
+        ),
+    );
+
+    assert!(made.is_ok(), "{made:?}");
+    assert_eq!(
+        renamed.unwrap_err(),
+        "An account named work is still being made for that agent."
+    );
 }
 
 #[tokio::test]

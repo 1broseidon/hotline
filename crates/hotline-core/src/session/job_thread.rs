@@ -1021,7 +1021,12 @@ impl Room {
                 self.log
                     .load(&StreamId::Job(job.id))
                     .into_iter()
-                    .filter(|event| event["kind"] == "human_action")
+                    .filter(|event| {
+                        matches!(
+                            event["kind"].as_str(),
+                            Some("human_action" | "credential_ask")
+                        )
+                    })
                     .map(move |event| (event, thread.clone()))
             })
             .collect()

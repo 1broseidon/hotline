@@ -585,6 +585,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     /// Arms a teammate's computer to make one passkey, to be stored under
     /// `name` and ticked for that teammate.
+    async fn secrets_capture_answer(
+        &self,
+        _answer: hotline_contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        Err("Credential capture is unavailable on this room.".into())
+    }
     async fn secrets_passkey_register(
         &self,
         _name: &str,

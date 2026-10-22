@@ -791,6 +791,10 @@ pub(crate) async fn run(
                 .await
                 .map(|imports| json!(imports))
         }
+        Command::SecretsCaptureAnswer(answer) => room
+            .secrets_capture_answer(answer)
+            .await
+            .map(|()| Value::Null),
         Command::SecretsList {} => room.secrets_list().map(|secrets| json!(secrets)),
         Command::SecretsSet { name, value } => room
             .secrets_set(&name, &value)

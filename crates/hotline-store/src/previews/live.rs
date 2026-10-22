@@ -34,14 +34,22 @@ impl State {
         let kind = event["kind"].as_str().unwrap_or_default();
         if !matches!(
             kind,
-            "tool" | "turn" | "permission" | "human_action" | "passkey_ask" | "exchange_paused"
+            "tool"
+                | "turn"
+                | "permission"
+                | "human_action"
+                | "credential_ask"
+                | "passkey_ask"
+                | "exchange_paused"
         ) {
             return kind == "delivery";
         }
         if let Some(id) = event["id"].as_str() {
             match kind {
                 "permission" => self.set_thread_card(id, event.get("decision").is_none()),
-                "human_action" => self.set_thread_card(id, event["status"] == "pending"),
+                "human_action" | "credential_ask" => {
+                    self.set_thread_card(id, event["status"] == "pending");
+                }
                 _ => {}
             }
         }
@@ -71,6 +79,9 @@ impl State {
             }
             TranscriptEvent::HumanAction { id, status, .. } => {
                 self.set_card(id, status == HumanActionStatus::Pending);
+            }
+            TranscriptEvent::CredentialAsk { id, status, .. } => {
+                self.set_card(id, status == hotline_contract::CredentialStatus::Pending);
             }
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 self.set_card(id, status == PasskeyAskStatus::Pending);

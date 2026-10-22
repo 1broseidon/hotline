@@ -58,7 +58,7 @@ const RESERVED: [&str; 12] = [
 /// same JSON on both sides of the wire, so what the vault reads is what
 /// `PUT /secrets` sends. A variable is kept as its bare value, which is
 /// what every record from before kinds is.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum StoredSecret {
     Variable {
@@ -66,6 +66,8 @@ pub enum StoredSecret {
     },
     #[serde(rename_all = "camelCase")]
     Login {
+        #[serde(default)]
+        ask: bool,
         /// Origins, `https://host[:port]`, or `http://` on localhost.
         sites: Vec<String>,
         username: String,
@@ -76,6 +78,8 @@ pub enum StoredSecret {
     },
     #[serde(rename_all = "camelCase")]
     Passkey {
+        #[serde(default)]
+        ask: bool,
         rp_id: String,
         credential_id: String,
         /// PKCS#8, base64; the one part that is a secret.
@@ -87,6 +91,14 @@ pub enum StoredSecret {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         user_display_name: Option<String>,
     },
+}
+
+impl std::fmt::Debug for StoredSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoredSecret")
+            .field("kind", &self.kind())
+            .finish_non_exhaustive()
+    }
 }
 
 impl StoredSecret {
@@ -109,6 +121,7 @@ impl StoredSecret {
                 Ok(StoredSecret::Variable { value })
             }
             StoredSecret::Login {
+                ask,
                 sites,
                 username,
                 password,
@@ -144,6 +157,7 @@ impl StoredSecret {
                     .map(check_totp_seed)
                     .transpose()?;
                 Ok(StoredSecret::Login {
+                    ask,
                     sites,
                     username,
                     password,
@@ -151,6 +165,7 @@ impl StoredSecret {
                 })
             }
             StoredSecret::Passkey {
+                ask,
                 rp_id,
                 credential_id,
                 private_key,
@@ -175,6 +190,7 @@ impl StoredSecret {
                     bytes("userHandle", handle)?;
                 }
                 Ok(StoredSecret::Passkey {
+                    ask,
                     rp_id,
                     credential_id,
                     private_key,
@@ -194,15 +210,21 @@ impl StoredSecret {
                 sites,
                 username,
                 totp,
+                ask,
                 ..
             } => Some(About::Login {
+                ask: *ask,
                 sites: sites.clone(),
                 username: username.clone(),
                 totp: totp.is_some(),
             }),
             StoredSecret::Passkey {
-                rp_id, user_name, ..
+                rp_id,
+                user_name,
+                ask,
+                ..
             } => Some(About::Passkey {
+                ask: *ask,
                 rp_id: rp_id.clone(),
                 user_name: user_name.clone(),
             }),
@@ -235,12 +257,16 @@ impl StoredSecret {
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum About {
     Login {
+        #[serde(default)]
+        ask: bool,
         sites: Vec<String>,
         username: String,
         totp: bool,
     },
     #[serde(rename_all = "camelCase")]
     Passkey {
+        #[serde(default)]
+        ask: bool,
         rp_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         user_name: Option<String>,
@@ -486,6 +512,7 @@ impl Vault {
             name: name.to_owned(),
             updated_at,
             kind: SharedSecretKind::Variable,
+            ask: false,
             sites: None,
             username: None,
             totp: None,
@@ -495,16 +522,23 @@ impl Vault {
         match about {
             None => {}
             Some(About::Login {
+                ask,
                 sites,
                 username,
                 totp,
             }) => {
+                secret.ask = ask;
                 secret.kind = SharedSecretKind::Login;
                 secret.sites = Some(sites);
                 secret.username = Some(username);
                 secret.totp = Some(totp);
             }
-            Some(About::Passkey { rp_id, user_name }) => {
+            Some(About::Passkey {
+                rp_id,
+                user_name,
+                ask,
+            }) => {
+                secret.ask = ask;
                 secret.kind = SharedSecretKind::Passkey;
                 secret.rp_id = Some(rp_id);
                 secret.user_name = user_name;
@@ -625,6 +659,7 @@ mod tests {
 
     fn login(sites: &[&str], totp: Option<&str>) -> StoredSecret {
         StoredSecret::Login {
+            ask: false,
             sites: sites.iter().map(|site| (*site).to_owned()).collect(),
             username: "george".to_owned(),
             password: "correct horse battery".to_owned(),
@@ -636,6 +671,7 @@ mod tests {
 
     pub(crate) fn passkey(rp_id: &str) -> StoredSecret {
         StoredSecret::Passkey {
+            ask: false,
             rp_id: rp_id.to_owned(),
             credential_id: "AQID".to_owned(),
             private_key: KEY_BASE64.to_owned(),
@@ -694,6 +730,7 @@ mod tests {
             .set_shared(
                 "GITHUB",
                 StoredSecret::Login {
+                    ask: false,
                     sites: vec![
                         "https://GitHub.com/".to_owned(),
                         " http://localhost:8123 ".to_owned(),
@@ -754,6 +791,7 @@ mod tests {
         assert_eq!(
             values["GITHUB"],
             StoredSecret::Login {
+                ask: false,
                 sites: vec![
                     "https://github.com".to_owned(),
                     "http://localhost:8123".to_owned()
@@ -841,6 +879,7 @@ mod tests {
             assert!(refused.to_string().contains(expect), "{what}: {refused}");
         }
         let short = StoredSecret::Login {
+            ask: false,
             sites: vec!["https://github.com".to_owned()],
             username: "george".to_owned(),
             password: "hunter2".to_owned(),
@@ -852,6 +891,7 @@ mod tests {
             "{refused}"
         );
         let nobody = StoredSecret::Login {
+            ask: false,
             sites: vec!["https://github.com".to_owned()],
             username: "  ".to_owned(),
             password: "correct horse battery".to_owned(),
@@ -870,6 +910,7 @@ mod tests {
             unreachable!("passkey() builds a passkey")
         };
         let keyless = StoredSecret::Passkey {
+            ask: false,
             rp_id,
             credential_id,
             private_key: "AQID".to_owned(),

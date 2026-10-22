@@ -78,6 +78,7 @@ async fn said_this_turn(client: &mut Client, tape: i64, patience: Duration) -> S
 mod desk {
     use super::*;
 
+    mod capture;
     mod connections;
     mod logins;
     mod real_agents;

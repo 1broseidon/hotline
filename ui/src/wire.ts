@@ -276,6 +276,7 @@ type Results = {
 	"computer.cookies.list": CookieImport[];
 	"computer.cookies.forget": CookieImport[];
 	/** Names, kinds and what each is for; never a value. */
+	"secrets.capture.answer": null;
 	"secrets.list": SharedSecret[];
 	"secrets.set": SharedSecret;
 	"secrets.login.set": SharedSecret;

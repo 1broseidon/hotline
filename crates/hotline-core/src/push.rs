@@ -171,6 +171,9 @@ pub enum Waiting {
     Human {
         action_id: String,
     },
+    Credential {
+        action_id: String,
+    },
     Passkey {
         ask_id: String,
     },
@@ -182,6 +185,7 @@ impl Waiting {
         match self {
             Self::Permission { .. } => "permission",
             Self::Human { .. } => "human_action",
+            Self::Credential { .. } => "credential_ask",
             Self::Passkey { .. } => "passkey_ask",
         }
     }
@@ -190,6 +194,7 @@ impl Waiting {
         match self {
             Self::Permission { request_id, .. } => request_id,
             Self::Human { action_id } => action_id,
+            Self::Credential { action_id } => action_id,
             Self::Passkey { ask_id } => ask_id,
         }
     }

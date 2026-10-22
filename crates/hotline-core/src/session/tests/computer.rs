@@ -345,6 +345,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
         .set_shared(
             "GITHUB_LOGIN",
             crate::vault::StoredSecret::Login {
+                ask: false,
                 sites: vec!["https://github.com".to_string()],
                 username: "george".to_string(),
                 password: "correct-horse-battery".to_string(),
@@ -361,7 +362,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
     assert_eq!(
         sets[0]["GITHUB_LOGIN"],
         serde_json::json!({
-            "kind": "login", "sites": ["https://github.com"],
+            "kind": "login", "ask": false, "sites": ["https://github.com"],
             "username": "george", "password": "correct-horse-battery",
         })
     );
@@ -492,7 +493,7 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
 /// Polls the registration until it answers `state`, since the room's own
 /// watch may be storing the passkey at the moment a poll arrives.
 async fn registration_until(
-    room: &Room,
+    room: &Arc<Room>,
     persona_id: &str,
     state: crate::contract::PasskeyRegistrationState,
 ) -> crate::contract::PasskeyRegistration {

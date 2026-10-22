@@ -458,6 +458,9 @@ pub(crate) fn waiting_on(tail: &[Value]) -> bool {
             TranscriptEvent::HumanAction { id, status, .. } => {
                 open.insert(id, status == HumanActionStatus::Pending);
             }
+            TranscriptEvent::CredentialAsk { id, status, .. } => {
+                open.insert(id, status == crate::contract::CredentialStatus::Pending);
+            }
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 open.insert(id, status == PasskeyAskStatus::Pending);
             }

@@ -1208,6 +1208,8 @@ impl RoomHandle for Desk {
         name: &str,
         value: &str,
     ) -> Result<crate::contract::SharedSecret, String> {
+        let updates = self.room.policy_update_lock();
+        let held = updates.lock().await;
         self.vault
             .set_shared_secret(name, value)
             .map_err(|error| error.to_string())?;
@@ -1218,14 +1220,18 @@ impl RoomHandle for Desk {
             .into_iter()
             .find(|secret| secret.name == name)
             .ok_or_else(|| format!("{name} was stored but is not listed; check the vault."))?;
+        drop(held);
         self.room.secrets_changed().await;
         Ok(stored)
     }
 
     async fn secrets_delete(&self, name: &str) -> Result<(), String> {
+        let updates = self.room.policy_update_lock();
+        let held = updates.lock().await;
         self.vault
             .delete_shared_secret(name)
             .map_err(|error| error.to_string())?;
+        drop(held);
         self.room.secrets_changed().await;
         Ok(())
     }
@@ -1238,10 +1244,13 @@ impl RoomHandle for Desk {
         password: &str,
         totp: Option<&str>,
     ) -> Result<crate::contract::SharedSecret, String> {
+        let updates = self.room.policy_update_lock();
+        let held = updates.lock().await;
         self.vault
             .set_shared(
                 name,
                 crate::vault::StoredSecret::Login {
+                    ask: false,
                     sites: sites.to_vec(),
                     username: username.to_owned(),
                     password: password.to_owned(),
@@ -1256,10 +1265,17 @@ impl RoomHandle for Desk {
             .into_iter()
             .find(|secret| secret.name == name)
             .ok_or_else(|| format!("{name} was stored but is not listed; check the vault."))?;
+        drop(held);
         self.room.secrets_changed().await;
         Ok(stored)
     }
 
+    async fn secrets_capture_answer(
+        &self,
+        answer: crate::contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        self.room.answer_credential(answer).await
+    }
     async fn secrets_passkey_register(
         &self,
         name: &str,

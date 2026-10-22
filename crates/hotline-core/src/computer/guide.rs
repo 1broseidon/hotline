@@ -123,6 +123,7 @@ pub(crate) mod fake {
     /// the browser has since "minted" one.
     #[derive(Clone, Debug)]
     struct FakeArming {
+        expires_at: i64,
         rp_id: String,
         ask: Option<(Value, Option<bool>)>,
         minted: bool,
@@ -289,14 +290,16 @@ pub(crate) mod fake {
                 json!({"error": format!("{rp_id:?} is not a site for a passkey")}),
             );
         }
+        let expires_at = crate::session::now_ms() + 10 * 60_000;
         *taken.arming.lock().unwrap() = Some(FakeArming {
+            expires_at,
             rp_id: rp_id.clone(),
             ask: None,
             minted: false,
         });
         json_answer(
             axum::http::StatusCode::OK,
-            json!({"state": "armed", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64}),
+            json!({"state": "armed", "rpId": rp_id, "expiresAt": expires_at}),
         )
     }
 
@@ -313,7 +316,7 @@ pub(crate) mod fake {
             (false, None) => "armed",
         };
         let mut status =
-            json!({"state": state, "rpId": arming.rp_id, "expiresAt": 1_700_000_600_000_i64});
+            json!({"state": state, "rpId": arming.rp_id, "expiresAt": arming.expires_at});
         if let Some((ask, _)) = &arming.ask {
             status["ask"] = ask.clone();
         }

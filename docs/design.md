@@ -1200,3 +1200,49 @@ text or binary preview; PDFs retain the native viewer. Indexed storage keeps equ
 separate and addresses readback by message and attachment position, never by a
 caller-supplied source path. A later correction can deliver the updated file; a later call owns its own results. Work that survives
 hang-up still delivers while its lease is valid; revocation prevents delivery.
+
+### Credentials are entered in a card, never in a conversation
+
+`request_credential {site, reason, kind, name?}` proposes a login or passkey
+for one full origin. The core binds the card to its requesting teammate,
+thread and a child of that session's capability lease. It grants nothing.
+The tool returns immediately; a later delivery names the stored key, its
+site and how to fill it, or says why the request stopped. A thread can ask
+for an origin once per turn. A pending card expires after thirty minutes;
+withdrawal or a revoked session also ends its authority. A saved card cannot
+recreate a lease after restart.
+
+The desk form sends `secrets.capture.answer` once. It carries the action id,
+chosen name, optional login values and Ask me choice. No name means decline;
+a name without values grants a matching existing key or arms a passkey.
+Neither a different origin nor a different teammate can be sent. The phone
+seat may send this command, but no other secret write, including the generic
+thread-answer equivalent. A request lock settles racing seats once. An accepted answer finishes even
+if the phone disconnects during delivery. The
+form clears typed fields on submit, dismiss and settlement, and expires
+locally even when its connection has gone away. The transcript's additive
+`credential_ask` event holds only metadata and outcome; tape segments and
+the importer are unchanged.
+
+A login is stored with `sites: [requested_origin]`, granted to the requester
+and delivered through the existing whole-set computer door before the agent
+hears the outcome. Existing keys keep their values and policy. Ask me defaults
+to false on old and new records; capture saves it with a login or minted
+passkey and includes it in delivery. Use-time approval is the separate
+credential-policy work (task-267 and task-268), not a capture operation.
+The computer currently allows same-scheme/port subdomains of a configured
+login host; capture does not tighten that computer-side rule. Strict
+origin-only filling remains a counterpart acceptance gap for task-266.
+
+A passkey has no value fields. Make a passkey arms the existing computer
+flow, then the site's separate approval card still needs the person. A
+captured passkey requires that operator approval and the card's exact origin;
+a computer's report of approval cannot grant it. Minted storage uses the
+capture's lock and live lease too, so withdrawal cannot later become a grant.
+The card settles when the passkey is stored, or expires with an unused arming.
+
+On a call, the card lives in home chat and the call mirrors its status. Voice
+announces once that the desk and phone are waiting, without reading the
+request's free-form reason. Spoken yes or done has no authority here. A
+stored outcome delivered to the call says only `Stored as NAME`; its card
+queues that fixed spoken notice once, independently of the agent’s reply.

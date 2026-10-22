@@ -72,13 +72,11 @@ pub async fn deliver(
     if status == reqwest::StatusCode::NOT_FOUND {
         return Err(Refusal::TooOld);
     }
-    let reason = response.text().await.unwrap_or_default();
-    let reason = reason.trim();
-    Err(Refusal::Failed(if reason.is_empty() {
-        format!("The computer refused them ({status}).")
-    } else {
-        format!("The computer refused them ({status}): {reason}")
-    }))
+    // An upstream error may echo the submitted body. Its status is enough
+    // to report failure without copying a password into the desk's logs.
+    Err(Refusal::Failed(format!(
+        "The computer refused them ({status})."
+    )))
 }
 
 #[cfg(test)]
@@ -144,6 +142,7 @@ mod tests {
         set.insert(
             "GITHUB".to_owned(),
             StoredSecret::Login {
+                ask: false,
                 sites: vec!["https://github.com".to_owned()],
                 username: "george".to_owned(),
                 password: "correct horse battery".to_owned(),
@@ -167,7 +166,7 @@ mod tests {
                     ),
                     (
                         "GITHUB".to_owned(),
-                        serde_json::json!({"kind": "login", "sites": ["https://github.com"], "username": "george", "password": "correct horse battery"})
+                        serde_json::json!({"kind": "login", "ask": false, "sites": ["https://github.com"], "username": "george", "password": "correct horse battery"})
                     ),
                 ]),
                 BTreeMap::new()
@@ -196,6 +195,37 @@ mod tests {
             "{refused:?}"
         );
         assert!(fake.taken.lock().unwrap().is_empty());
+        serving.abort();
+    }
+
+    #[tokio::test]
+    async fn capture_delivery_failure_cannot_echo_values_into_the_desk_log() {
+        let app = axum::Router::new().route(
+            "/secrets",
+            put(|body: String| async move { (StatusCode::BAD_REQUEST, body) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ready = Ready {
+            url: format!("http://{}/mcp", listener.local_addr().unwrap()),
+            token: "test-token".into(),
+        };
+        let serving = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let secret = StoredSecret::Login {
+            ask: false,
+            sites: vec!["https://github.com".into()],
+            username: "capture-private-user".into(),
+            password: "capture-private-password".into(),
+            totp: None,
+        };
+        let debug = format!("{secret:?}");
+        let error = deliver(&ready, &BTreeMap::from([("GITHUB_LOGIN".into(), secret)]))
+            .await
+            .unwrap_err();
+        assert!(matches!(&error, Refusal::Failed(reason) if reason.contains("400")));
+        for sink in [debug, format!("{error:?}")] {
+            assert!(!sink.contains("capture-private-user"));
+            assert!(!sink.contains("capture-private-password"));
+        }
         serving.abort();
     }
 }

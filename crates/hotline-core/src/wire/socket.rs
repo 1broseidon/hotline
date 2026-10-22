@@ -841,8 +841,16 @@ pub(super) fn read_command(frame: &Value) -> Result<Command, String> {
             .cloned()
             .unwrap_or_else(|| Value::Object(serde_json::Map::new())),
     );
-    serde_json::from_value(Value::Object(envelope))
-        .map_err(|error| format!("This room cannot read that command: {error}."))
+    serde_json::from_value(Value::Object(envelope)).map_err(|error| {
+        if frame["cmd"] == "secrets.capture.answer"
+            || (frame["cmd"] == "thread.answer"
+                && frame["params"]["answer"]["kind"] == "credential")
+        {
+            "This room cannot read that credential answer. Check its fields.".to_string()
+        } else {
+            format!("This room cannot read that command: {error}.")
+        }
+    })
 }
 
 pub(super) fn reply(sender: &Outbox, id: i64, result: Result<Value, String>) {

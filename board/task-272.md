@@ -22,3 +22,6 @@ remote::tests::phone::a_seat_that_stops_reading_is_closed_once_a_frame_waits_pas
 Done when:
 - The drain is bounded by bytes or progress (keep waiting while reads make progress), not a fixed 5 s, and the test still fails if the desk closes with a FIN instead of a reset: named test unchanged in intent.
 - 20 consecutive runs pass on the Mac.
+
+## Log
+- 2026-10-22T22:04:47.473Z: [claude] Failed again on PR #201 head 6036a4d8 (macos job, run 39857519772, 2026-10-22 21:37 UTC): two of the last four macOS runs. Pulled into 0.43.

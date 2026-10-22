@@ -1,8 +1,6 @@
 ---
 id: task-277
 title: "Settings: cookie offers on or off (on by default), for all sites or a selected list, like a provider's model filter"
-column: review
-position: 3
 priority: high
 tags:
   - cookies
@@ -15,7 +13,7 @@ relatedFiles:
 parentId: epic-24
 createdAt: "2026-10-22T21:03:38.914Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T21:23:17.535Z"
+updatedAt: "2026-10-22T21:24:10.953Z"
 dispatch:
   agent: codex
   by: cli
@@ -32,6 +30,7 @@ dispatch:
 assignee: codex
 decisions:
   - decision-39
+completedAt: "2026-10-22T21:24:10.953Z"
 ---
 
 ## Description
@@ -56,3 +55,4 @@ Done when:
 - 2026-10-22T21:15:49.397Z: [codex] Implemented room cookieOffers, phone preference read, on-demand grouped browser/profile sites, Computer switch/Sites page, filtering and immediate pending expiry, Undo and account-wide wording. All 15 cookie-offer core tests, 2 restart harness tests and 6 UI tests pass. Full check required patching transitive DOMPurify 3.4.16→3.4.17 (committed separately as f1fd6262); fixing the one new Clippy finding and rerunning required checks.
 - 2026-10-22T21:21:17.710Z: [codex] make check passes on dispatch/task-277: full UI/type/lint/dependency gates, Python checks, Rust fmt/Clippy/workspace tests and named cookie/restart tests. Commits f1fd6262, 4abd42c6 and 9c45e19d; working tree clean. Running make precheck for the review hand-off.
 - 2026-10-22T21:23:11.152Z: [codex] Ready for review on dispatch/task-277 (HEAD 9c45e19d; feature 4abd42c6; dependency patch f1fd6262). Added default-on cookieOffers settings, automatic discovery/answer enforcement and pending expiry, on-demand searchable Computer → Sites with browser/profile sources, all/selected normalization, Undo and account-wide wording. Named core, restart and UI tests pass; make check and all 8 make precheck legs pass, including Windows and isolated UI files. Working tree clean; nothing pushed or merged. Next action: review and merge the branch; task remains for a person to complete.
+- 2026-10-22T21:24:10.545Z: Landed on release/0.43.0

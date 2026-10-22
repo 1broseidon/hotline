@@ -41,3 +41,18 @@ Order:
 
 ## Log
 - 2026-10-22T03:09:24.551Z: [claude] Phone tasks on the hotline-mobile board: task-49 (capture card), task-50 (approval card). Computer task here: task-268 (tagged hotline-computer, since that repo has no board).
+- 2026-10-22T04:35:32.931Z: [claude] Decisions (George, 2026-10-21 23:32: "Agree with your leans"):
+1. The agent proposes the key's name; the person can edit it on the card.
+2. When the person already has a key for that site, the card offers "Grant NAME instead".
+3. Ask me is off by default: a new key is Automatic until the person flips it.
+4. A credential card expires after 30 minutes.
+5. After a decline, the teammate does not ask again for that site in the same turn.
+6. Make a passkey keeps the site's own approval card: nothing is made without Approve.
+7. Allow 10 min covers one key, one site, one teammate.
+8. On the phone, Approve and Allow 10 min need Face ID.
+9. The approval card shows the page's path, not just the site.
+10. No built-in list of sensitive sites; the agent may suggest Ask me.
+11. Nothing about credentials is answered by voice, ask-me approvals included. If the person starts saying a password on a call, the voice cuts in and points to the card.
+12. OS vault: no phone fallback when the Mac is away; the passkey card offers "Keep in your passwords app" as a second choice; macOS before Windows.
+
+Acceptance set committed: docs/design/credential-scenarios.html on release/0.43.0 (e8f68de8). Each story's Done when now carries the deck's must-be-true lines. Lands on release/0.43.0.

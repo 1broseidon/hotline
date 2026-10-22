@@ -1,8 +1,8 @@
 ---
 id: task-275
 title: Update available isn't offered for a computer the desk didn't start itself (after a desk restart)
-column: in-progress
-position: 0
+column: review
+position: 3
 priority: high
 tags:
   - bug
@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/session/computer.rs
 createdAt: "2026-10-22T16:12:00.496Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:18:13.139Z"
+updatedAt: "2026-10-22T16:27:36.583Z"
 dispatch:
   agent: codex
   by: cli

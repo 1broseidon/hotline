@@ -362,7 +362,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
     assert_eq!(
         sets[0]["GITHUB_LOGIN"],
         serde_json::json!({
-            "kind": "login", "ask": false, "sites": ["https://github.com"],
+            "kind": "login", "use": "auto", "sites": ["https://github.com"],
             "username": "george", "password": "correct-horse-battery",
         })
     );

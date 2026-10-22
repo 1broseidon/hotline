@@ -166,7 +166,7 @@ mod tests {
                     ),
                     (
                         "GITHUB".to_owned(),
-                        serde_json::json!({"kind": "login", "ask": false, "sites": ["https://github.com"], "username": "george", "password": "correct horse battery"})
+                        serde_json::json!({"kind": "login", "use": "auto", "sites": ["https://github.com"], "username": "george", "password": "correct horse battery"})
                     ),
                 ]),
                 BTreeMap::new()

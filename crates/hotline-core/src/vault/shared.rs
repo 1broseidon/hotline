@@ -55,8 +55,8 @@ const RESERVED: [&str; 12] = [
 ];
 
 /// A stored secret as the keychain holds it and a computer takes it: the
-/// same JSON on both sides of the wire, so what the vault reads is what
-/// `PUT /secrets` sends. A variable is kept as its bare value, which is
+/// shape on both sides of the wire; the sidecar supplies its current use
+/// policy before `PUT /secrets` sends it. A variable is kept as its bare value, which is
 /// what every record from before kinds is.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]

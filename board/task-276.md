@@ -47,3 +47,4 @@ Done when:
 
 ## Log
 - 2026-10-22T16:28:54.584Z: [codex] Confirmed discovery discards refused candidates and the watch inserts sites into seen before discovery. Keeping refusal metadata, a room-lifetime browser notice set, and retryable sites; sharing the core's blocked-browser explanation with the Settings picker so it names the actual app/binary.
+- 2026-10-22T16:38:49.233Z: [codex] Implemented shared core-generated blocked-browser wording (including hotline-app-dev), room-lifetime notice deduplication, and retryable discovery. Added real refused-directory Chromium/Firefox fixtures and wire-handler tests for repeat polls, session restart, another teammate, permission recovery without navigation, mixed access, and Never suppression. Settings DOM tests pass; full check and precheck are underway; physical macOS FDA/Porkbun check requested separately.

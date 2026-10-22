@@ -5,8 +5,9 @@ async fn secret_use_policy_survives_a_real_desk_restart_and_saved_cards_cannot_a
     use hotline_core::log::{Log, StreamId};
     let root = tempfile::tempdir().unwrap();
     let log = Log::open(root.path());
-    log.append(&StreamId::Room, &json!({"kind":"persona","id":"ada","name":"Ada","cwd":root.path(),"goal":"Test","backendId":"hotline","createdAt":1,"updatedAt":1})).unwrap();
+    log.append(&StreamId::Room, &json!({"kind":"persona","id":"ada","name":"Ada","cwd":root.path(),"goal":"Test","backendId":"hotline","mcpPolicy":{"mode":"none","serverIds":[]},"sessionCheckpoints":[],"createdAt":1,"updatedAt":1})).unwrap();
     log.append(&StreamId::Tape("ada".into()), &json!({"kind":"secret_use_ask","id":"saved-use","useId":"old-id","ts":1,"askedAt":1,"expiresAt":9_999_999_999_999_i64,"secret":"GH_PASSKEY","secretKind":"passkey","site":"github.com","path":"/login","teammate":"ada","status":"pending"})).unwrap();
+    assert_eq!(hotline_core::room::roster(&log).len(), 1);
     drop(log);
     let desk = common::open_desk(root.path()).unwrap();
     let log = desk.log.clone();

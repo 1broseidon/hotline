@@ -42,3 +42,4 @@ Done when:
 
 ## Log
 - 2026-10-22T01:10:14.285Z: [codex] Confirmed current paths are wire/socket.rs and wire/subscribe.rs. Keeping the bounded queue and write deadline; adding tool/delta eviction and roster-row coalescing (retaining negotiated catalogs), plus full PHONE_WINDOW recovery after log lag. Existing wire decisions remain in force.
+- 2026-10-22T01:15:24.813Z: [codex] Four wire regression tests pass, including 1,000 tool updates with a stalled writer for companion and lean owner seats, full-window lag recovery, queue bounds and roster catalog coalescing. Review tightened recovery to Log.snapshot's atomic fold/receiver boundary so stale queued revisions cannot replay. make check is running; real-core lean recovery harness added.

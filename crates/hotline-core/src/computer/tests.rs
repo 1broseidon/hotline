@@ -1,6 +1,6 @@
 use super::container::{
-    PullTally, create_args, host_time_zone, memory_of, mount_args, parse_apple, pids_of,
-    token_from_environment,
+    PullTally, create_args, host_time_zone, memory_of, mount_args, parse_apple, parse_inspect,
+    pids_of, token_from_environment,
 };
 use super::fixtures::*;
 use super::*;
@@ -515,6 +515,91 @@ fn apple_inspection_recovers_only_the_computer_environment_token() {
     assert!(
         token_from_environment(Some(&serde_json::json!(["HOTLINE_COMPUTER_TOKEN="]))).is_none()
     );
+}
+
+#[test]
+fn a_container_made_before_release_labels_recovers_its_image_tag_on_each_runtime() {
+    // Only the fields inspection reads, preserving each runtime's shape.
+    // Docker and Podman's top-level Image is deliberately an image ID.
+    let fixtures = [
+        (
+            Runtime::AppleContainer,
+            serde_json::json!({
+                "status": {"state": "running"},
+                "configuration": {
+                    "labels": {},
+                    "image": {"reference": "hotline-computer:0.11.0-rc.7"}
+                }
+            }),
+        ),
+        (
+            Runtime::Docker,
+            serde_json::json!({
+                "State": {"Running": true},
+                "Image": "sha256:container-image-id",
+                "Config": {"Labels": null, "Image": "hotline-computer:0.11.0-rc.7"}
+            }),
+        ),
+        (
+            Runtime::Podman,
+            serde_json::json!({
+                "State": {"Running": true},
+                "Image": "container-image-id",
+                "ImageName": "localhost/hotline-computer:0.11.0-rc.7",
+                "Config": {"Labels": {}}
+            }),
+        ),
+    ];
+    for (runtime, mut fixture) in fixtures {
+        let inspect = |fixture: &Value| {
+            parse_inspect(runtime, &serde_json::json!([fixture]).to_string()).unwrap()
+        };
+        let seen = inspect(&fixture);
+        assert_eq!(seen.release.as_deref(), Some("0.11.0-rc.7"), "{runtime:?}");
+        assert_eq!(
+            status_of(seen, None).release.as_deref(),
+            Some("0.11.0-rc.7")
+        );
+
+        let labels = if runtime == Runtime::AppleContainer {
+            &mut fixture["configuration"]["labels"]
+        } else {
+            &mut fixture["Config"]["Labels"]
+        };
+        *labels = serde_json::json!({"hotline.release": "0.11.0-rc.6"});
+        let mut seen = inspect(&fixture);
+        assert_eq!(
+            seen.release.as_deref(),
+            Some("0.11.0-rc.6"),
+            "label wins: {runtime:?}"
+        );
+        seen.running = false;
+        assert_eq!(
+            status_of(seen, None).release.as_deref(),
+            Some("0.11.0-rc.6")
+        );
+    }
+}
+
+#[test]
+fn every_runtime_records_the_release_when_creating_a_computer() {
+    let ada = persona("ada", "/tmp");
+    for runtime in [Runtime::AppleContainer, Runtime::Docker, Runtime::Podman] {
+        let args = create_args(
+            runtime,
+            "test",
+            "registry:5000/computer:0.11.0-rc.7",
+            "token",
+            "/tmp",
+            &ada,
+        )
+        .unwrap();
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--label", "hotline.release=0.11.0-rc.7"]),
+            "{runtime:?}: {args:?}"
+        );
+    }
 }
 
 #[tokio::test]

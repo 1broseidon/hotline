@@ -20,8 +20,10 @@ dispatch:
     runner: cli
     pid: 59533
     at: "2026-10-22T15:31:16.600Z"
+    ended: "2026-10-22T15:58:36.517Z"
+    outcome: review
 assignee: codex
-updatedAt: "2026-10-22T15:58:32.288Z"
+updatedAt: "2026-10-22T15:58:36.517Z"
 decisions:
   - decision-36
 ---

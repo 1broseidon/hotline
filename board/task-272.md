@@ -12,7 +12,7 @@ tags:
 relatedFiles:
   - crates/hotline-core/src/remote/tests/phone.rs
 createdAt: "2026-10-22T08:26:53.752Z"
-updatedAt: "2026-10-22T22:17:03.343Z"
+updatedAt: "2026-10-22T22:17:07.199Z"
 landsOn: release/0.43.0
 dispatch:
   agent: codex
@@ -25,6 +25,8 @@ dispatch:
     runner: cli
     pid: 47499
     at: "2026-10-22T22:04:50.537Z"
+    ended: "2026-10-22T22:17:07.199Z"
+    outcome: review
 assignee: codex
 ---
 

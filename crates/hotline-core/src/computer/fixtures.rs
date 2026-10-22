@@ -102,17 +102,23 @@ if [ -f "${STATE}.token" ]; then add HOTLINE_COMPUTER_TOKEN=fixture-persisted-to
 if [ -f "${STATE}.folders" ]; then add "$(cat "${STATE}.folders")"; fi
 if [ -f "${STATE}.limits" ]; then add "$(cat "${STATE}.limits")"; fi
 environment="[$entries]"
-printf '[{"Config":{"Env":%s},"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$environment" "$running" "$MCP"
+release=''
+image=''
+if [ -f "${STATE}.release" ]; then release=$(cat "${STATE}.release"); fi
+if [ -f "${STATE}.image" ]; then image=$(cat "${STATE}.image"); fi
+printf '[{"Config":{"Env":%s,"Labels":{"hotline.release":"%s"},"Image":"%s"},"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$environment" "$release" "$image" "$running" "$MCP"
 exit 0
 ;;
   create)
-rm -f "${STATE}.folders" "${STATE}.limits"
+rm -f "${STATE}.folders" "${STATE}.limits" "${STATE}.release"
 for a in "$@"; do
   case "$a" in
     HOTLINE_FOLDERS=?*) printf '%s' "$a" > "${STATE}.folders" ;;
     HOTLINE_LIMITS=*) printf '%s' "$a" > "${STATE}.limits" ;;
+    hotline.release=*) printf '%s' "${a#hotline.release=}" > "${STATE}.release" ;;
   esac
 done
+printf '%s' "$a" > "${STATE}.image"
 echo stopped > "$STATE"; exit 0 ;;
   start) echo running > "$STATE"; exit 0 ;;
   stop) echo stopped > "$STATE"; exit 0 ;;

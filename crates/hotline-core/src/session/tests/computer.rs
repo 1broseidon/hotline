@@ -740,10 +740,10 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     assert_eq!(status.available.as_deref(), Some("test"));
 }
 
-/// An image too old to serve a guide leaves no skill and no stale one: the
-/// teammate is told to ask the computer itself, and the tape says why.
+/// An image too old to serve a guide leaves no stale skill. The teammate
+/// asks the computer directly, while status still knows the release.
 #[tokio::test]
-async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask_it() {
+async fn a_held_computer_without_a_guide_reports_its_label_and_leaves_no_stale_skill() {
     let ComputerRoom {
         room, agents, cwd, ..
     } = computer_room("computer-no-guide", None, TWO_RELEASES, true).await;
@@ -767,7 +767,7 @@ async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask
         "a missing guide is not the conversation's: {notices:?}"
     );
     let status = room.computer_status("ada").await.unwrap();
-    assert_eq!(status.release, None);
+    assert_eq!(status.release.as_deref(), Some("test"));
     assert_eq!(status.available, None);
 }
 

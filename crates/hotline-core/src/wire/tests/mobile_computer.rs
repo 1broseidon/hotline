@@ -1,5 +1,96 @@
 use super::*;
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_computer_from_before_desk_restart_reports_its_release_and_offers_an_update() {
+    use crate::computer::{Computer, fixtures, guide, releases};
+
+    let root = tempfile::tempdir().unwrap();
+    let (health_port, _) = guide::fake::serve_taking(None).await;
+    fixtures::fake_runtime(root.path(), health_port);
+    std::fs::write(root.path().join("state"), "absent").unwrap();
+    let log = Log::open(root.path().join("desk"));
+    let mut persona: Persona = serde_json::from_value(json!({
+        "id":"ada", "name":"Ada", "goal":"", "backendId":"hotline",
+        "cwd":root.path(), "mcpPolicy":{"mode":"none","serverIds":[]},
+        "backgroundWork":false, "sessionCheckpoints":[], "createdAt":1, "updatedAt":1,
+        "computer":{"enabled":true,"image":"hotline-computer:0.11.0-rc.7"}
+    }))
+    .unwrap();
+    let original = Computer::with_path(root.path().as_os_str());
+    original
+        .ensure_running(&persona, &persona.cwd, None, None, |_| {})
+        .await
+        .unwrap();
+    drop(original);
+
+    persona.computer.as_mut().unwrap().image = Some("hotline-computer:0.11.0-rc.8".into());
+    let mut event = serde_json::to_value(&persona).unwrap();
+    event["kind"] = json!("persona");
+    log.append(&StreamId::Room, &event).unwrap();
+    let (releases_url, _) = releases::fake::serve(r#"[{"tag_name":"v0.10.3"}]"#).await;
+    let restarted = Computer::with_path(root.path().as_os_str()).with_releases(&releases_url);
+    let room = Room::with_agents_and_computers(
+        log.clone(),
+        Arc::new(NoKeys),
+        Arc::new(NoAgents),
+        restarted.clone(),
+    );
+    let door = Door::bind(
+        log,
+        "desk-token".into(),
+        Arc::new(CoreHandle { room }),
+        Parts::default(),
+    )
+    .unwrap();
+    let mut socket = {
+        let port = door.port();
+        tokio::spawn(door.run());
+        desk(port).await
+    };
+
+    ask(
+        &mut socket,
+        json!({"id":1,"cmd":"computer.releases.check","params":{}}),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 1).await["ok"], true);
+    ask(
+        &mut socket,
+        json!({"id":2,"cmd":"computer.status","params":{"personaId":"ada"}}),
+    )
+    .await;
+    let status = answered(&mut socket, 2).await;
+    assert_eq!(status["ok"], true, "{status}");
+    assert_eq!(status["result"]["release"], "0.11.0-rc.7");
+    assert_eq!(status["result"]["available"], "0.11.0-rc.8");
+
+    ask(
+        &mut socket,
+        json!({"id":3,"cmd":"computer.update","params":{"personaId":"ada"}}),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 3).await["ok"], true);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("state"))
+            .unwrap()
+            .trim(),
+        "absent"
+    );
+    restarted
+        .ensure_running(&persona, &persona.cwd, None, None, |_| {})
+        .await
+        .unwrap();
+    ask(
+        &mut socket,
+        json!({"id":4,"cmd":"computer.status","params":{"personaId":"ada"}}),
+    )
+    .await;
+    let updated = answered(&mut socket, 4).await;
+    assert_eq!(updated["result"]["release"], "0.11.0-rc.8");
+    assert_eq!(updated["result"]["available"], Value::Null);
+}
+
 #[test]
 fn mobile_persona_computer_contract_distinguishes_absent_null_and_number() {
     for (params, expected) in [

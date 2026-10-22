@@ -1002,6 +1002,13 @@ and a preamble that tells the teammate to ask it directly. It is never in the
 gateway, because the right guide is the one the running release ships, not
 one the operator keeps.
 
+Computer status prefers the release learned from that guide. A container also
+records its image tag in the `hotline.release` label at creation, so status
+can recover the release after a desk restart or a failed guide fetch. Older
+containers fall back to the image reference reported by their runtime. The
+current image setting only determines the offered update, never the release
+of an existing container.
+
 Not yet: gateway sources from git or a registry, promoting a workspace skill
 to the gateway from the pane, and honouring `allowed-tools` — a skill runs
 with the teammate's reach and grants, no more.

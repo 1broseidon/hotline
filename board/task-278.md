@@ -15,7 +15,14 @@ relatedFiles:
   - crates/hotline-core/src/wire/transport.rs
 createdAt: "2026-10-22T22:44:26.174Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T22:44:26.683Z"
+updatedAt: "2026-10-22T22:44:27.607Z"
+dispatch:
+  agent: codex
+  by: cli
+  at: "2026-10-22T22:44:27.482Z"
+  until: review
+  tries: 0
+assignee: codex
 ---
 
 ## Description

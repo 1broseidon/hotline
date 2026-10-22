@@ -9,7 +9,14 @@ tags:
   - policy
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.664Z"
-updatedAt: "2026-10-22T05:06:07.843Z"
+updatedAt: "2026-10-22T06:26:03.001Z"
+dispatch:
+  agent: codex
+  by: cli
+  at: "2026-10-22T06:26:02.881Z"
+  until: review
+  tries: 0
+assignee: codex
 ---
 
 ## Description

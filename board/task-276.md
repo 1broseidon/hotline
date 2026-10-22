@@ -14,6 +14,8 @@ relatedFiles:
   - crates/hotline-core/src/computer/cookies/lending.rs
 parentId: epic-24
 createdAt: "2026-10-22T16:27:07.323Z"
+landsOn: release/0.43.0
+updatedAt: "2026-10-22T16:27:07.908Z"
 ---
 
 ## Description

@@ -25,7 +25,10 @@ like, the email of the Claude account. The email only fills in Claude Code's
 sign-in page, so the right account is used; Hotline does not keep it.
 **Add and sign in** makes the account and starts its sign-in. One added in
 **New teammate** is picked for the new teammate at once; one added in the
-pane is given to the teammate once it is signed in.
+pane is given to the teammate once it is signed in. Copying a large setup,
+such as plugins with their own dependencies, can take a few minutes; until
+it ends the button reads **Adding…**, and the same name can't be added
+anywhere else.
 
 ### What a new account starts with
 

@@ -850,21 +850,21 @@ async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound()
         tokio::time::resume();
     }
     // Draining the bytes already received ends in a TCP reset, not a FIN
-    // left waiting behind the desk's unsent frame.
+    // left waiting behind the desk's unsent frame. Bound each wait for
+    // progress: draining the whole frame can take longer on a loaded runner.
     use tokio::io::AsyncReadExt;
     let tcp = phone.socket.get_mut().get_mut().0;
-    let reset = tokio::time::timeout(Duration::from_secs(5), async {
-        let mut bytes = [0; 65536];
-        loop {
-            match tcp.read(&mut bytes).await {
-                Ok(0) => panic!("the stalled seat closed without resetting TCP"),
-                Ok(_) => {}
-                Err(error) => break error,
-            }
+    let mut bytes = [0; 65536];
+    let reset = loop {
+        match tokio::time::timeout(Duration::from_secs(5), tcp.read(&mut bytes))
+            .await
+            .expect("the stalled transport makes progress until it resets")
+        {
+            Ok(0) => panic!("the stalled seat closed without resetting TCP"),
+            Ok(_) => {}
+            Err(error) => break error,
         }
-    })
-    .await
-    .expect("the stalled transport resets");
+    };
     assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
     drop(phone);
     h.remote.configure(false, network::ALL).await.unwrap();

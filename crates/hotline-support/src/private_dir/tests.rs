@@ -4,9 +4,6 @@ use tempfile::TempDir;
 
 const ID: &str = "89bbac55-e7ac-4409-a709-115f33bb12f0";
 
-/// A fresh scratch directory, the data directory under it, and the account
-/// folder under that. The data directory's name has spaces and a non-ASCII
-/// letter, as a profile name can, and does not exist until a test makes it.
 fn fixture() -> (TempDir, PathBuf, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("Conta Teste ção");
@@ -14,14 +11,10 @@ fn fixture() -> (TempDir, PathBuf, PathBuf) {
     (tmp, root, dir)
 }
 
-/// Where `root`'s account folder really is: `root` resolved first, then named.
 fn canonical(root: &Path) -> PathBuf {
     agent_account_dir(&dunce::canonicalize(root).unwrap(), ID).unwrap()
 }
 
-/// Makes `at` another way to reach `target`: a symlink, or on Windows a
-/// junction, which `mklink /J` makes without the privilege a directory
-/// symlink needs. `at` must not exist yet and its parent must.
 fn link(target: &Path, at: &Path) {
     #[cfg(unix)]
     std::os::unix::fs::symlink(target, at).unwrap();
@@ -53,8 +46,6 @@ fn a_real_account_folder_answers_its_canonical_path() {
 
 #[test]
 fn a_root_reached_through_a_link_still_finds_its_folder() {
-    // macOS keeps /var behind a link to /private/var, and a data directory can
-    // be a junction: the folder is the legitimate one, only spelled another way.
     let (tmp, root, dir) = fixture();
     make_private_directory(&dir).unwrap();
     let via = tmp.path().join("via");
@@ -64,6 +55,7 @@ fn a_root_reached_through_a_link_still_finds_its_folder() {
 
 #[cfg(windows)]
 #[test]
+#[ignore = "needs a volume with 8.3 names"]
 fn a_root_reached_by_its_8_3_short_name_still_finds_its_folder() {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
@@ -79,11 +71,8 @@ fn a_root_reached_by_its_8_3_short_name_still_finds_its_folder() {
         let written = GetShortPathNameW(long.as_ptr(), buffer.as_mut_ptr(), needed);
         PathBuf::from(std::ffi::OsString::from_wide(&buffer[..written as usize]))
     };
-    // A volume with 8.3 names switched off answers the long name back, and
-    // then there is no second spelling to prove anything with.
-    if short != root {
-        assert_eq!(checked_account_dir(&short, ID).unwrap(), canonical(&root));
-    }
+    assert_ne!(short, root, "this volume has no 8.3 names");
+    assert_eq!(checked_account_dir(&short, ID).unwrap(), canonical(&root));
 }
 
 #[test]
@@ -94,13 +83,11 @@ fn a_folder_that_is_missing_a_file_a_link_or_elsewhere_is_refused_by_kind() {
     fs::create_dir_all(&root).unwrap();
     assert_eq!(kind(&root, ID), io::ErrorKind::NotFound);
 
-    // A file where the folder should be.
     let (_tmp, root, dir) = fixture();
     fs::create_dir_all(agent_accounts_dir(&root)).unwrap();
     fs::write(&dir, b"not a folder").unwrap();
     assert_eq!(kind(&root, ID), io::ErrorKind::NotADirectory);
 
-    // A link where the folder should be, to a folder that exists.
     let (tmp, root, dir) = fixture();
     let elsewhere = tmp.path().join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
@@ -108,8 +95,6 @@ fn a_folder_that_is_missing_a_file_a_link_or_elsewhere_is_refused_by_kind() {
     link(&elsewhere, &dir);
     assert_eq!(kind(&root, ID), io::ErrorKind::PermissionDenied);
 
-    // A link where `agent-accounts` should be, to one that holds a real
-    // private folder of that name: the folder is real, but not where it was made.
     let (tmp, root, _dir) = fixture();
     let elsewhere = tmp.path().join("elsewhere");
     make_private_directory(&elsewhere.join(ID)).unwrap();
@@ -120,9 +105,6 @@ fn a_folder_that_is_missing_a_file_a_link_or_elsewhere_is_refused_by_kind() {
 
 #[test]
 fn a_root_that_is_an_alias_does_not_excuse_a_link_in_place_of_the_folder() {
-    // The two halves of the check together: the data directory reached through
-    // a link is fine, and a link standing where the account folder or its
-    // parent should be is refused through that same link.
     let (tmp, root, _dir) = fixture();
     let (via, elsewhere) = (tmp.path().join("via"), tmp.path().join("elsewhere"));
     make_private_directory(&elsewhere.join(ID)).unwrap();

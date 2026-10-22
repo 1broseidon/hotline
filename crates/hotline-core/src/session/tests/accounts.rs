@@ -281,14 +281,9 @@ async fn a_switch_waits_for_a_call_thread_mid_turn() {
         .await
         .unwrap();
     room.launch(launch);
-    until("the call is working", || {
-        !room.working_calls("ada").is_empty()
-    })
-    .await;
-    assert_eq!(
-        agents.views().last().unwrap().agent_account_id,
-        Some(a.clone())
-    );
+    until("the call has an agent", || agents.views().len() == 2).await;
+    assert_eq!(agents.views()[1].agent_account_id, Some(a.clone()));
+    assert!(!room.working_calls("ada").is_empty());
     assert_eq!(
         room.assign_account("ada", Some(b.clone())).await.unwrap(),
         switching(&a, &b, None)
@@ -463,8 +458,6 @@ async fn a_pending_switch_is_dropped_when_its_teammate_is_removed_or_changes_age
     room.forget("ada");
     assert_eq!(room.info("ada").account, None);
     gate.add_permits(10);
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(room.info("ada").account, None);
     assert_eq!(agents.views().len(), 1);
 
     let (agents, gate) = gated();

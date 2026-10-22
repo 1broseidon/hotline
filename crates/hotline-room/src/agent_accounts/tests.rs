@@ -29,6 +29,8 @@ fn a_bad_account_entry_costs_only_itself() {
         entry(&id(6), "claude-acp", "ACCOUNT 1"),
         entry(&id(7), "codex-acp", "Account 1"),
         entry(&id(8), "claude-acp", &"x".repeat(64)),
+        entry(&id(9), "claude-acp", "Not a uuid"),
+        entry(&id(3), "claude-acp", "Three"),
         json!(42),
     ]);
     assert_eq!(
@@ -37,6 +39,8 @@ fn a_bad_account_entry_costs_only_itself() {
             (id(1), "Account 1".to_string()),
             (id(7), "Account 1".to_string()),
             (id(8), "x".repeat(64)),
+            (id(9), "Not a uuid".to_string()),
+            (id(3), "Three".to_string()),
         ]
     );
     assert!(normalize_accounts(&Value::Null).is_empty());
@@ -57,8 +61,6 @@ fn an_account_name_is_measured_in_characters_not_bytes() {
     ]);
     assert!(normalize_accounts(&too_long).is_empty());
 
-    // Case is folded by character too, so the accented capitals of the
-    // second name make it the first one again.
     let duplicates = json!([
         entry(&id(1), "claude-acp", "Conta Teste ção"),
         entry(&id(2), "claude-acp", "conta teste ÇÃO"),

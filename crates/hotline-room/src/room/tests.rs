@@ -249,24 +249,20 @@ fn agent_accounts_default_to_empty_and_read_back_what_was_written() {
     assert_eq!(settings(&log)[AGENT_ACCOUNTS], json!([]));
 
     let (one, two) = (account(1, "Work"), account(2, "Personal"));
-    let before = log.load(&StreamId::Room).len();
+    let mut written = log.subscribe(&StreamId::Room);
     write_agent_accounts(&log, &[one.clone(), two.clone()]).unwrap();
-    let events = log.load(&StreamId::Room);
-    assert_eq!(
-        events.len(),
-        before + 1,
+    assert_eq!(written.try_recv().unwrap()["kind"], "setting");
+    assert!(
+        written.try_recv().is_err(),
         "one setting event, not one per account"
     );
-    assert_eq!(events.last().unwrap()["kind"], "setting");
     assert_eq!(agent_accounts(&log), [one.clone(), two]);
 
-    // A line a person edited by hand costs its bad entry and nothing else.
     append(&log, &setting(AGENT_ACCOUNTS, json!([{"id": "bad"}, one])));
     assert_eq!(agent_accounts(&log), std::slice::from_ref(&one));
     assert_eq!(settings(&log)[AGENT_ACCOUNTS], json!([one]));
 }
 
-/// A teammate's checkpoints as (backend, account, session), in order.
 fn checkpoints_of(log: &Log, id: &str) -> Vec<(String, Option<String>, String)> {
     roster(log)
         .into_iter()
@@ -378,7 +374,6 @@ fn clearing_an_account_reaches_every_teammate_and_clearing_a_backend_every_accou
         "one record for each teammate it changed"
     );
 
-    // An account nobody holds a checkpoint on writes nothing.
     clear_account_checkpoints(&log, "acc-9").unwrap();
     assert!(written.try_recv().is_err());
 

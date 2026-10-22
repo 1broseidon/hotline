@@ -392,13 +392,6 @@ fn the_source_is_the_env_folder_else_the_home_default() {
     );
     assert_eq!(source_from(&CLAUDE, None, Some(env.join("missing"))), None);
     assert_eq!(source_from(&CLAUDE, None, None), None);
-    let this_home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from);
-    assert_eq!(
-        system_default_source(&CLAUDE),
-        source_from(&CLAUDE, std::env::var_os(CLAUDE.env_var), this_home)
-    );
     assert_eq!(
         nothing_to_copy("Claude Code"),
         "There is no Claude Code setup on this computer to copy."

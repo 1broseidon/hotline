@@ -14,11 +14,14 @@
 //! `ENV <name>=<value>` or `ENV <name> unset` line per name, then the same
 //! lines, each after `CHILD_ENV `, as printed by a child of its own run with
 //! `--print-env <name>...`, so a harness sees what the agent and its
-//! subprocesses inherit.
+//! subprocesses inherit. A value is printed only under the agent-accounts
+//! harness, which sets `HOTLINE_TEST_AGENT_ACCOUNTS`; elsewhere a name that is
+//! set reads `ENV <name> set`.
 //!
 //! With `--cli` anywhere in its arguments it is instead the agent's own command
 //! line for an account, `auth status [--json]` and `auth login …`, answered
-//! from the folder in `CLAUDE_CONFIG_DIR`. Every run there writes the names of
+//! from the folder in `CLAUDE_CONFIG_DIR`; a sign-in writes only into a folder
+//! inside `agent-accounts`. Every run there writes the names of
 //! its environment, never a value, to `<that folder>/fixture-<status|login>-env.json`;
 //! without the variable it writes nothing, so it never reaches the home folder.
 //! `FIXTURE_LOGIN_MODE` (`ok`, `fail`, `silent`, `hang`, `prompt`) picks how a
@@ -37,7 +40,7 @@ use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -434,7 +437,9 @@ fn auth_status(dir: Option<&Path>) -> i32 {
 }
 
 fn auth_login(dir: Option<&Path>, args: &[&str]) -> i32 {
-    let Some(dir) = dir else {
+    let Some(dir) = dir
+        .filter(|dir| dir.parent().and_then(Path::file_name) == Some(OsStr::new("agent-accounts")))
+    else {
         return 1;
     };
     report_env_names(dir, "login");
@@ -484,7 +489,10 @@ fn print_env(names: &[OsString]) {
 
 fn env_line(name: &str) -> String {
     match std::env::var_os(name) {
-        Some(value) => format!("{name}={}", value.to_string_lossy()),
+        Some(value) if std::env::var_os("HOTLINE_TEST_AGENT_ACCOUNTS").is_some() => {
+            format!("{name}={}", value.to_string_lossy())
+        }
+        Some(_) => format!("{name} set"),
         None => format!("{name} unset"),
     }
 }

@@ -178,9 +178,28 @@ mod tests {
         );
         assert_eq!(row.login_args, ["--cli", "auth", "login", "--claudeai"]);
         assert_eq!(row.status_args, ["--cli", "auth", "status", "--json"]);
-        assert_eq!(row.scrub.len(), 18);
-        assert!(
-            row.scrub.contains(&row.env_var) && row.scrub.contains(&"ANTHROPIC_CUSTOM_HEADERS")
+        assert_eq!(
+            row.scrub,
+            [
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_CUSTOM_HEADERS",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+                "CLAUDE_CODE_OAUTH_SCOPES",
+                "ANTHROPIC_BASE_URL",
+                "CLAUDE_CODE_USE_BEDROCK",
+                "CLAUDE_CODE_USE_VERTEX",
+                "CLAUDE_CODE_USE_FOUNDRY",
+                "ANTHROPIC_PROFILE",
+                "ANTHROPIC_FEDERATION_RULE_ID",
+                "ANTHROPIC_ORGANIZATION_ID",
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+                "CLAUDE_CODE_SIMPLE",
+                "CLAUDECODE",
+                "CLAUDE_CODE_ENTRYPOINT",
+                "CLAUDE_CONFIG_DIR",
+            ]
         );
         assert_eq!(row.usage_limit_prefixes.len(), 12);
         assert!(

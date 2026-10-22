@@ -282,7 +282,7 @@ async fn start_refuses_before_anything_is_spawned() {
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "opens a console window")]
+#[cfg_attr(windows, ignore = "needs a console window")]
 async fn a_real_sign_in_succeeds_only_on_exit_zero_with_a_confirming_status() {
     for (mode, signed_before, error) in [
         (
@@ -334,7 +334,7 @@ async fn a_real_sign_in_succeeds_only_on_exit_zero_with_a_confirming_status() {
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "opens a console window")]
+#[cfg_attr(windows, ignore = "needs a console window")]
 async fn cancel_disconnect_and_timeout_end_a_sign_in_as_failed() {
     for (end, error) in [
         ("cancel", CANCELLED),
@@ -374,7 +374,7 @@ async fn cancel_disconnect_and_timeout_end_a_sign_in_as_failed() {
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "opens a console window")]
+#[cfg_attr(windows, ignore = "needs a console window")]
 async fn a_sign_in_is_judged_by_its_own_status_not_one_already_running() {
     for (mode, in_flight, state, error) in [
         ("ok", SignedOut, Succeeded, None),
@@ -552,7 +552,7 @@ async fn a_switch_held_signed_out_stays_held_while_that_account_is_checked_again
 }
 
 #[tokio::test]
-#[cfg_attr(windows, ignore = "opens a console window")]
+#[cfg_attr(windows, ignore = "needs a console window")]
 async fn a_real_sign_in_releases_the_switch_it_held() {
     let desk = desk();
     let signing = desk.sign("ok", PATIENCE, CancellationToken::new());

@@ -25,6 +25,12 @@ const INHERITED: [(&str, &str); 6] = [
 
 async fn isolated(name: &str) -> Option<PathBuf> {
     if let Some(sentinel) = std::env::var_os(CASE) {
+        for (variable, fake) in INHERITED {
+            assert!(
+                std::env::var(variable).as_deref() == Ok(fake),
+                "{variable} is not the harness's fake"
+            );
+        }
         return Some(PathBuf::from(sentinel));
     }
     let shims = tempfile::tempdir().unwrap();
@@ -476,10 +482,9 @@ async fn a_teammate_set_to_an_account_not_on_this_desk_is_refused_and_never_fall
             json!({"personaId": ada, "text": "REPORT_ENV CLAUDE_CONFIG_DIR"}),
         )
         .await;
-    assert!(
-        prompted["ok"] == false && leaks_nothing(prompted["error"].as_str().unwrap(), root),
-        "{prompted}"
-    );
+    assert_eq!(prompted["ok"], false, "{prompted}");
+    assert_eq!(prompted["error"], "That teammate is not running.");
+    assert!(leaks_nothing(prompted["error"].as_str().unwrap(), root));
     assert_eq!(desk.reported(&ada), None);
     assert!(!paths::agent_account_dir(root, &a).unwrap().exists());
     drop(desk.close().await);

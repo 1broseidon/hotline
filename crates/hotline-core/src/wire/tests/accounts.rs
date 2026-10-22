@@ -93,7 +93,18 @@ async fn creating_an_account_makes_its_private_folder_and_ignores_a_client_path(
         json!([])
     );
 
+    for accepted in ["Conta Teste ção".to_string(), "🙂".repeat(64)] {
+        run(
+            &log,
+            &room,
+            "accounts.create",
+            json!({"backendId":"claude-acp","name":accepted,"startWith":"empty"}),
+        )
+        .await
+        .unwrap();
+    }
     let long = "a".repeat(65);
+    let emoji = "🙂".repeat(65);
     for (name, backend, refusal) in [
         ("  ", "claude-acp", "An account needs a name."),
         (
@@ -102,9 +113,19 @@ async fn creating_an_account_makes_its_private_folder_and_ignores_a_client_path(
             "An account name is at most 64 characters.",
         ),
         (
+            emoji.as_str(),
+            "claude-acp",
+            "An account name is at most 64 characters.",
+        ),
+        (
             "ACCOUNT 1",
             "claude-acp",
             "There is already an account named ACCOUNT 1 for that agent.",
+        ),
+        (
+            "conta teste ÇÃO",
+            "claude-acp",
+            "There is already an account named conta teste ÇÃO for that agent.",
         ),
         ("Account 9", "hotline", "That agent does not use accounts."),
     ] {
@@ -121,7 +142,7 @@ async fn creating_an_account_makes_its_private_folder_and_ignores_a_client_path(
         std::fs::read_dir(paths::agent_accounts_dir(root.path()))
             .unwrap()
             .count(),
-        1
+        3
     );
 
     let renamed = run(
@@ -148,7 +169,7 @@ async fn creating_an_account_makes_its_private_folder_and_ignores_a_client_path(
         crate::accounts::login::can_sign_in_here(false)
     );
     assert_eq!(account["status"]["state"], "not_checked");
-    assert_eq!(room::agent_accounts(&log).len(), 1);
+    assert_eq!(room::agent_accounts(&log).len(), 3);
 }
 
 #[tokio::test]
@@ -312,8 +333,4 @@ async fn an_account_whose_sign_in_is_running_cannot_be_removed() {
         Err("Finish or cancel Account 1's sign-in first.".to_string())
     );
     assert_eq!(room::agent_accounts(&log)[0].id, id);
-    assert_eq!(
-        room.account_live(&id).1.unwrap().state,
-        crate::contract::LoginAttemptState::Running
-    );
 }

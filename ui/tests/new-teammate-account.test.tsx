@@ -251,10 +251,12 @@ describe("a new teammate's agent account", () => {
 		expect(row("Account 3").textContent).toContain("Signing in…");
 		expect(text()).toContain("A Claude Code window opened for Account 3.");
 		expect(button("Add teammate").disabled).toBe(true);
+		const enter = new window.Event("submit", { bubbles: true, cancelable: true });
 		await act(async () => {
-			container.querySelector("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+			container.querySelector("form")!.dispatchEvent(enter);
 		});
 		await settle();
+		expect(enter.defaultPrevented).toBe(true);
 		expect(named("persona.create")).toHaveLength(0);
 		expect(named("accounts.login.cancel")).toHaveLength(0);
 

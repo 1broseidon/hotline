@@ -320,9 +320,11 @@ describe("Settings › Agent accounts", () => {
 		expect(named("accounts.status")).toHaveLength(0);
 		const listed = named("accounts.list").length;
 		change("a2", cancelled);
-		await act(async () => {
-			await new Promise((resolve) => setTimeout(resolve, 250));
-		});
+		for (let round = 0; round < 100 && named("accounts.list").length === listed; round++) {
+			await act(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			});
+		}
 		await settle();
 		expect(named("accounts.list").length).toBeGreaterThan(listed);
 		expect(row("Account 2").textContent).toContain("Sign-in did not finish: Sign-in cancelled.");

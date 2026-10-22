@@ -66,6 +66,8 @@ const FOLDERS_ENV: &str = "HOTLINE_FOLDERS";
 /// The environment entry that records the memory and CPU limits a
 /// container was made with, which only a new container can change.
 const LIMITS_ENV: &str = "HOTLINE_LIMITS";
+/// The image's release survives the desk that created the container.
+const RELEASE_LABEL: &str = "hotline.release";
 /// The glibc image seeds a writable store; old Alpine volumes remain available.
 const NIX_VOLUME: &str = "hotline-nix-glibc";
 const DEFAULT_MEMORY: &str = "4g";
@@ -592,7 +594,7 @@ impl Computer {
             };
             let limits_changed = limits_changed(&inspection, persona, live.runtime);
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
-            status.release.clone_from(&live.release);
+            status.release = live.release.or(status.release);
             status.limits_changed = limits_changed;
             return Ok(status);
         }
@@ -676,6 +678,8 @@ struct Inspection {
     /// The memory and CPU limits it was made with; `None` for one made
     /// before they were recorded.
     limits: Option<String>,
+    /// The creation label, or the runtime's image tag for older containers.
+    release: Option<String>,
 }
 
 /// Whether a running computer was made with other limits than the
@@ -708,7 +712,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             state: ComputerState::Stopped,
             url: None,
             viewer: None,
-            release: None,
+            release: inspection.release,
             available: None,
             update_failed: None,
             limits_changed: false,
@@ -717,7 +721,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
     let mcp = inspection.mcp_port.or(known.map(|known| known.0));
     ComputerStatus {
         state: ComputerState::Running,
-        release: None,
+        release: inspection.release,
         available: None,
         update_failed: None,
         limits_changed: false,

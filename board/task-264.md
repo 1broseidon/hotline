@@ -37,3 +37,6 @@ Done when:
 - A full phone queue drops or coalesces tool-call update frames before it cancels the connection: named test in wire (a burst of 1000 tool updates keeps a slow phone connected).
 - A lagging phone is re-snapshotted with its full phone window: named test.
 - make check passes.
+
+## Log
+- 2026-10-22T01:10:14.285Z: [codex] Confirmed current paths are wire/socket.rs and wire/subscribe.rs. Keeping the bounded queue and write deadline; adding tool/delta eviction and roster-row coalescing (retaining negotiated catalogs), plus full PHONE_WINDOW recovery after log lag. Existing wire decisions remain in force.

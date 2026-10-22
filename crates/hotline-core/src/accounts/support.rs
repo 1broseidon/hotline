@@ -4,9 +4,9 @@
 //! inherit, how to ask it who is signed in and how to sign it in, and what of
 //! its user-level setup an account folder holds.
 //!
-//! Nothing outside a row and its own tests names the agent it describes
-//! (spec §9.1.1); giving another agent accounts is a row, a parser for its
-//! status answer and the tests of both.
+//! Nothing outside a row and its own tests names the agent it describes;
+//! giving another agent accounts is a row, a parser for its status answer and
+//! the tests of both.
 
 use crate::contract::AccountStatusView;
 use std::path::Path;
@@ -28,8 +28,8 @@ pub(crate) struct AccountSupport {
     /// was run for. Whatever it cannot vouch for, for that folder, is unavailable.
     pub(crate) parse_status: fn(&[u8], &Path) -> AccountStatusView,
     /// Every variable an account's process must not inherit, because it would
-    /// replace or change which sign-in the agent uses, in spec §9.2's order. It
-    /// ends with `env_var`, which the account's folder takes over.
+    /// replace or change which sign-in the agent uses. It ends with `env_var`,
+    /// which the account's folder takes over.
     pub(crate) scrub: &'static [&'static str],
     /// How the agent's out-of-usage messages begin, so a failed turn that says
     /// one of them can be told from any other failure.
@@ -59,7 +59,6 @@ pub(crate) struct SetupCategory {
     pub(crate) open: &'static str,
 }
 
-/// The row for `backend_id`, or `None` for an agent that cannot run under an account.
 pub(crate) fn account_support(backend_id: &str) -> Option<&'static AccountSupport> {
     ROWS.iter()
         .find(|(id, _)| *id == backend_id)

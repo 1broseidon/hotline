@@ -4,8 +4,8 @@
 //! The answer comes from the agent's own process, run with the account's
 //! folder, so an environment variable the scrub list does not know could still
 //! change whose sign-in answers. That is why the answer is accepted only when it
-//! names the folder it was asked about (spec §10.2). The raw answer is read and
-//! dropped: it never reaches a log, a tape or the wire.
+//! names the folder it was asked about. The raw answer is read and dropped: it
+//! never reaches a log, a tape or the wire.
 
 use super::env::env_plan;
 use super::resolve::{self, ResolvedAccount};

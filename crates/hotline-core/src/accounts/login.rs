@@ -2,8 +2,8 @@
 //! folder under the account's environment.
 //!
 //! An attempt succeeds only when the process exits 0 and the status run that
-//! follows says this folder is signed in (spec §10.3): the browser can
-//! authorize another account, and a window closed by hand can still exit 0.
+//! follows says this folder is signed in: the browser can authorize another
+//! account, and a window closed by hand can still exit 0.
 
 use super::env::env_plan;
 use super::resolve::{AccountRefusal, ResolvedAccount};

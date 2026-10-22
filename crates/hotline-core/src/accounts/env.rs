@@ -5,7 +5,7 @@
 //! removal of every inherited credential, then the account's folder last. The
 //! removal comes after everything that could bring a removed variable back, and
 //! the folder after the removal, so that nothing but the account's own sign-in
-//! is left for the agent to find (spec §9.2).
+//! is left for the agent to find.
 //!
 //! Without an account the plan removes nothing and adds nothing: a launch runs
 //! exactly as it did before accounts existed.
@@ -27,7 +27,7 @@ pub(crate) struct EnvPlan {
 ///
 /// A name the account scrubs, or its folder variable, is dropped from both
 /// lists whatever its case: Windows ignores the case of an environment name,
-/// so `anthropic_base_url` would otherwise bring the removed variable back.
+/// so a lowercase spelling of a scrubbed name would otherwise bring it back.
 pub(crate) fn env_plan(
     catalogue: &[(String, String)],
     method: &[(String, String)],

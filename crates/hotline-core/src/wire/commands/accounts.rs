@@ -305,8 +305,6 @@ async fn setup_copy(
     Ok(json!(report))
 }
 
-/// `name` trimmed, or why it cannot name an account of `backend_id` other
-/// than `except`.
 fn checked_name(
     accounts: &[AgentAccount],
     backend_id: &str,

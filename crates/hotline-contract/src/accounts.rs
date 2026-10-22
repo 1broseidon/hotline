@@ -19,7 +19,6 @@ pub struct AgentAccount {
     /// A v4 UUID, stable for the account's life and the name of its folder.
     pub id: String,
     pub backend_id: String,
-    /// The operator's label.
     pub name: String,
     pub created_at: i64,
     /// When a sign-in last finished here, so a session can tell its login
@@ -39,7 +38,6 @@ pub struct AgentAccount {
 pub struct AccountSetupOrigin {
     pub from: SetupFrom,
     pub at: i64,
-    /// The ids of the categories that were copied.
     pub categories: Vec<String>,
 }
 
@@ -80,7 +78,6 @@ pub struct AccountStatusView {
     pub plan: Option<String>,
 }
 
-/// How a sign-in attempt stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
@@ -111,7 +108,6 @@ pub struct AccountView {
     pub status: AccountStatusView,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attempt: Option<LoginAttemptView>,
-    /// Ids of the teammates assigned this account.
     pub used_by: Vec<String>,
     /// Where the account's folder is. Desk and owner only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,7 +129,6 @@ pub struct AccountAgent {
     pub takes_email: bool,
 }
 
-/// What `accounts.list` answers: the agents and every account.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -182,7 +177,6 @@ pub struct AccountSetupView {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct SetupCopyReport {
-    /// The ids of the categories that were copied.
     pub copied: Vec<String>,
     /// Sign-in settings left out of the copied settings, by key.
     pub removed_keys: Vec<String>,
@@ -200,7 +194,7 @@ pub enum AccountHold {
 }
 
 /// Which account a teammate's session runs on and which it will move to.
-/// Ids only: a name or a path is not for a phone.
+/// Ids only.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]

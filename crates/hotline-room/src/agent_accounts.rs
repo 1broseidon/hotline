@@ -9,7 +9,6 @@ use serde_json::Value;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-/// The longest an account's name can be, in characters.
 const MAX_NAME_CHARS: usize = 64;
 
 /// The accounts in the stored list, with every entry that cannot be used

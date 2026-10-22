@@ -67,9 +67,8 @@ pub(crate) fn account_on_disk(
     resolve::account(log.root(), log, id).unwrap()
 }
 
-/// Makes `at` another way to reach `target`: a symlink, or on Windows a
-/// junction, which `mklink /J` makes without the privilege a directory
-/// symlink needs. `at` must not exist yet and its parent must.
+/// On Windows a junction, which `mklink /J` makes without the privilege a
+/// directory symlink needs.
 pub(crate) fn link(target: &Path, at: &Path) {
     #[cfg(unix)]
     std::os::unix::fs::symlink(target, at).unwrap();

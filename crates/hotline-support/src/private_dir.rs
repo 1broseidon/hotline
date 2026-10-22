@@ -46,9 +46,9 @@ pub fn make_private_directory(path: &Path) -> io::Result<()> {
 /// One agent account's folder under `root`, as the real directory Hotline made,
 /// and its canonical path, which is the one to use from here on.
 ///
-/// Run before every spawn, status, login and setup write (spec §8.2): the
-/// folder can be swapped for a link between one use and the next, and a swapped
-/// folder would send an account's sign-in somewhere else. A `root` that is
+/// Run before every spawn, status, login and setup write: the folder can be
+/// swapped for a link between one use and the next, and a swapped folder
+/// would send an account's sign-in somewhere else. A `root` that is
 /// itself reached through a link, or a Windows 8.3 short name, is resolved
 /// first, so that spelling alone never refuses the legitimate folder.
 ///

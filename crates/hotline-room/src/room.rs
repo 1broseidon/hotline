@@ -353,7 +353,6 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
             .unwrap_or(&Value::Array(Vec::new())),
     );
     settings.insert("mcpServers".into(), Value::Array(normalised));
-    // The same for accounts, one entry at a time: a bad one costs only itself.
     let accounts = crate::agent_accounts::normalize_accounts(
         settings.get(AGENT_ACCOUNTS).unwrap_or(&Value::Null),
     );

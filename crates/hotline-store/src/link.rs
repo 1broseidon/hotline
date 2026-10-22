@@ -472,8 +472,6 @@ mod tests {
             "the marker a client that knows no links is sent keeps it"
         );
 
-        // System default writes no key at all, and a line from before accounts
-        // has none to read.
         let default = closed_side();
         assert!(default.event().get("accountId").is_none());
         assert_eq!(

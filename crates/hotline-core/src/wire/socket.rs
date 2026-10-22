@@ -425,10 +425,10 @@ fn open_ordered(
 
 /// These commands do not order room writes or subscription controls. A read
 /// sees committed state when it runs; callers needing a preceding write must
-/// await that write's reply (or the ordered `ping`) before asking. An
-/// `accounts.*` write can wait seconds on a status run, a copy, the policy
-/// lock or the agent's package, so a `ping` sent after one may be answered
-/// first.
+/// await that write's reply (or the ordered `ping`) before asking. One of
+/// the account commands below can wait seconds on a status run, a copy, the
+/// policy lock or the agent's package, so a `ping` sent after one may be
+/// answered first.
 pub(super) fn independent(frame: &Value) -> bool {
     matches!(
         read_command(frame),
@@ -915,7 +915,6 @@ fn owns(
             .is_some_and(|owned| owned == attempt_id)
 }
 
-/// The field of this command's answer that names an account.
 fn hidden_from_phones(command: &Command) -> Option<&'static str> {
     match command {
         Command::SessionStart { .. }

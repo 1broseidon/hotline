@@ -1187,8 +1187,6 @@ mod tests {
         );
     }
 
-    /// The account a chapter ran on is part of what it is, so closing it must
-    /// not forget it: a resume compares that account with the teammate's.
     #[test]
     fn a_close_keeps_the_account_its_chapter_ran_on() {
         let open = json!({

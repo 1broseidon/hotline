@@ -108,7 +108,6 @@ const A: &str = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 #[test]
 fn agent_account_fields_are_additive_and_absent_is_system_default() {
     let config = ts_rs::Config::default();
-    // A checkpoint written before accounts reads, and writes back, as it was.
     let old = json!({"backendId":"claude-acp","sessionId":"s1"});
     let c: SessionCheckpoint = serde_json::from_value(old.clone()).unwrap();
     assert_eq!(c.account_id, None);
@@ -119,7 +118,6 @@ fn agent_account_fields_are_additive_and_absent_is_system_default() {
             .unwrap(),
         on
     );
-    // So does a chapter line, with and without the account it ran on.
     for line in [
         json!({"kind":"chapter","id":"c1","ts":1,"backendId":"claude-acp","sessionId":"s1"}),
         json!({"kind":"chapter","id":"c1","ts":1,"backendId":"claude-acp","accountId":A}),
@@ -147,13 +145,13 @@ fn agent_account_fields_are_additive_and_absent_is_system_default() {
     assert!(PersonaDraft::decl(&config).contains("agentAccountId?: string"));
     assert!(SessionInfo::decl(&config).contains("account?: SessionAccount"));
     let events = TranscriptEvent::decl(&config);
-    assert!(events.contains("backendId: string, accountId?: string")); // chapter
+    assert!(events.contains("backendId: string, accountId?: string"));
     assert_eq!(
         events
             .matches("backendId?: string, accountId?: string")
             .count(),
         2
-    ); // side, link
+    );
 }
 
 #[test]
@@ -182,7 +180,6 @@ fn account_commands_round_trip_under_their_wire_names() {
         let command = serde_json::from_value::<Command>(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(&command).unwrap(), value);
     }
-    // Absent and null both mean System default; null is what the window sends.
     assert!(matches!(
         serde_json::from_value::<Command>(
             json!({"cmd":"persona.account","params":{"personaId":"ada"}})

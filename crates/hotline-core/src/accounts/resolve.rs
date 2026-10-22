@@ -2,8 +2,8 @@
 //! the account's checked folder or to a refusal that says why not.
 //!
 //! The room stores only the account's row; the folder is derived from its id
-//! and checked here every time (spec §8.2), because a folder swapped for a link
-//! would send an account's sign-in somewhere else.
+//! and checked here every time, because a folder swapped for a link would
+//! send an account's sign-in somewhere else.
 
 use super::support::{AccountSupport, account_support};
 use crate::contract::Persona;
@@ -50,6 +50,14 @@ impl AccountRefusal {
             Self::UnknownAccount { .. } => format!(
                 "Pick a {agent} account for {teammate}: the one it was set to is not on this desk."
             ),
+            Self::FolderUnavailable { .. } => self.account_sentence(),
+        }
+    }
+
+    /// For the desk and its owner when no teammate is involved.
+    pub(crate) fn account_sentence(&self) -> String {
+        match self {
+            Self::UnknownAccount { .. } => super::NOT_ON_THIS_DESK.into(),
             Self::FolderUnavailable {
                 name, path, kind, ..
             } => format!(

@@ -7,14 +7,10 @@ use tempfile::TempDir;
 
 const ID: &str = "89bbac55-e7ac-4409-a709-115f33bb12f0";
 
-/// The one agent with a row. Every variable name below comes from it, so this
-/// file never spells one.
 fn support() -> &'static AccountSupport {
     account_support("claude-acp").expect("the one row")
 }
 
-/// An account whose folder is the canonical `<scratch>/Conta Teste ção/<uuid>`:
-/// spaces and a non-ASCII letter, as a profile name can have.
 fn account() -> (TempDir, ResolvedAccount) {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("Conta Teste ção").join(ID);
@@ -107,9 +103,6 @@ fn the_command_applier_removes_then_sets() {
     let mut command = tokio::process::Command::new("agent");
     command.env(row.scrub[0], "inherited");
     plan.apply(&mut command);
-    // `get_envs` is sorted by name, so the order is asserted on `plan.set`;
-    // here a removed name is an entry holding `None`, and the folder, which
-    // the plan both removes and sets, must have survived the removal.
     let envs: BTreeMap<&OsStr, Option<&OsStr>> = command.as_std().get_envs().collect();
     assert_eq!(envs.get(OsStr::new(row.scrub[0])), Some(&None));
     assert_eq!(

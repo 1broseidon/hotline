@@ -32,11 +32,7 @@ export type AccountHold = "not_signed_in" | "signing_in";
  * Where an account folder's setup came from, written on creation and again
  * on each "Copy again".
  */
-export type AccountSetupOrigin = { from: SetupFrom, at: number, 
-/**
- * The ids of the categories that were copied.
- */
-categories: Array<string>, };
+export type AccountSetupOrigin = { from: SetupFrom, at: number, categories: Array<string>, };
 
 /**
  * What `accounts.setup.list` answers: where the setup came from, and what
@@ -58,11 +54,7 @@ export type AccountStatusView = { state: AccountStatusState, checkedAt?: number,
  * An account as the desk lists it: the stored record with its sign-in state
  * and who uses it. Answered only to the desk and an owner.
  */
-export type AccountView = { account: AgentAccount, status: AccountStatusView, attempt?: LoginAttemptView, 
-/**
- * Ids of the teammates assigned this account.
- */
-usedBy: Array<string>, 
+export type AccountView = { account: AgentAccount, status: AccountStatusView, attempt?: LoginAttemptView, usedBy: Array<string>, 
 /**
  * Where the account's folder is. Desk and owner only.
  */
@@ -73,9 +65,6 @@ folder?: string,
  */
 canSignInHere: boolean, };
 
-/**
- * What `accounts.list` answers: the agents and every account.
- */
 export type AccountsList = { agents: Array<AccountAgent>, accounts: Array<AccountView>, };
 
 /**
@@ -86,11 +75,7 @@ export type AgentAccount = {
 /**
  * A v4 UUID, stable for the account's life and the name of its folder.
  */
-id: string, backendId: string, 
-/**
- * The operator's label.
- */
-name: string, createdAt: number, 
+id: string, backendId: string, name: string, createdAt: number, 
 /**
  * When a sign-in last finished here, so a session can tell its login
  * from a newer one.
@@ -787,9 +772,6 @@ model: string | null,
  */
 effort: string | null, capabilities: Capabilities, };
 
-/**
- * How a sign-in attempt stands.
- */
 export type LoginAttemptState = "running" | "succeeded" | "failed";
 
 /**
@@ -1160,8 +1142,7 @@ folders?: Array<FolderGrant>, modelId?: string, effortId?: string, computer?: Pe
 backgroundWork?: boolean, 
 /**
  * The agent account to start on. Absent means System default; the id is
- * kept but ignored on an agent without accounts. Only `persona.account`
- * and `persona.create` write it.
+ * kept but ignored on an agent without accounts.
  */
 agentAccountId?: string, };
 
@@ -1525,7 +1506,7 @@ export type SealedPairing = { payload: PairingPayload, link: string, id: string,
 
 /**
  * Which account a teammate's session runs on and which it will move to.
- * Ids only: a name or a path is not for a phone.
+ * Ids only.
  */
 export type SessionAccount = { 
 /**
@@ -1650,11 +1631,7 @@ path?: string, };
 /**
  * What a copy of the System default did.
  */
-export type SetupCopyReport = { 
-/**
- * The ids of the categories that were copied.
- */
-copied: Array<string>, 
+export type SetupCopyReport = { copied: Array<string>, 
 /**
  * Sign-in settings left out of the copied settings, by key.
  */

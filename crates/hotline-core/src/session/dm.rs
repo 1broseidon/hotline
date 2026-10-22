@@ -426,9 +426,9 @@ impl Room {
 
 impl Room {
     /// Whether the teammate's record still names the account this session
-    /// started on, signed in as it was then (spec §8.4). A session that
-    /// outlived a switch, or a sign-in replaced under it, must not leave a
-    /// checkpoint the account's next session would reopen.
+    /// started on, signed in as it was then. A session that outlived a
+    /// switch, or a sign-in replaced under it, must not leave a checkpoint the
+    /// account's next session would reopen.
     pub(super) fn checkpoint_still_ours(&self, session: &Session) -> bool {
         let Ok(persona) = self.persona(&session.persona_id) else {
             return false;

@@ -10,9 +10,6 @@ use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
-/// The canonical `<scratch>/Conta Teste ção`: spaces and a non-ASCII letter,
-/// as a profile name can have. It exists, because the parser resolves both
-/// sides of the comparison.
 fn folder() -> (TempDir, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("Conta Teste ção");
@@ -21,13 +18,10 @@ fn folder() -> (TempDir, PathBuf) {
     (tmp, dir)
 }
 
-/// The agent's answer as bytes. Built from `json!`, so a Windows path keeps
-/// its backslashes escaped, as the real answer does.
 fn said(answer: &Value) -> Vec<u8> {
     answer.to_string().into_bytes()
 }
 
-/// A subscription login in `dir`, as the agent words it.
 fn signed_in_at(dir: &Path) -> Value {
     json!({
         "loggedIn": true,
@@ -64,8 +58,6 @@ fn signed_in_needs_a_first_party_claude_ai_login_in_this_folder() {
         signed_in
     );
 
-    // The folder spelled another way, a null key source and the newline the
-    // CLI ends with are still that login.
     let respelled = dir.join("..").join("Conta Teste ção");
     assert_eq!(
         parse_claude_status(&said(&signed_in_at(&respelled)), &dir),
@@ -120,7 +112,6 @@ fn any_other_answer_is_unavailable_and_says_nothing_more() {
         answer["authMethod"] = json!("third_party");
         answer["apiProvider"] = json!("bedrock");
     });
-    // The account's own settings replacing the login (spec §7.6).
     with("a key helper", &|answer| {
         answer["apiKeySource"] = json!("apiKeyHelper");
     });

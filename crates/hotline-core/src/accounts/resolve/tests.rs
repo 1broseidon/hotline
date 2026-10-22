@@ -8,14 +8,9 @@ use crate::test_support::link;
 use tempfile::TempDir;
 
 const ID: &str = "89bbac55-e7ac-4409-a709-115f33bb12f0";
-/// An account of an agent with no row.
 const OTHER: &str = "0b7d1e1c-35f6-4f0c-8a47-6a0e2f1b9c33";
-/// A well-formed id that no account has.
 const UNKNOWN: &str = "5d0c6a8e-91b4-4c1d-b3a2-7e4f8a2d6c10";
 
-/// A data directory whose name has spaces and a non-ASCII letter, as a profile
-/// name can, with two accounts on its desk: the one with a row, and one of an
-/// agent that has none.
 struct Desk {
     tmp: TempDir,
     root: PathBuf,
@@ -45,7 +40,6 @@ fn desk() -> Desk {
     Desk { tmp, root, log }
 }
 
-/// Ada, set to `account` on `backend_id`.
 fn ada(account: Option<&str>, backend_id: &str) -> Persona {
     Persona {
         agent_account_id: account.map(str::to_string),
@@ -60,7 +54,6 @@ fn unknown(account_id: &str) -> AccountRefusal {
     }
 }
 
-/// What both entry points must answer for the folder of `ID`.
 fn unavailable(root: &Path, kind: io::ErrorKind) -> AccountRefusal {
     AccountRefusal::FolderUnavailable {
         account_id: ID.to_string(),
@@ -112,8 +105,6 @@ fn an_account_this_desk_does_not_have_is_refused_in_both_sentences() {
         account(&desk.root, &desk.log, UNKNOWN).unwrap_err(),
         unknown(UNKNOWN)
     );
-    // The account is on the desk, but it belongs to an agent with no row, and
-    // a teammate on another agent's account does not get it either.
     assert_eq!(
         resolve(&desk.root, &desk.log, &on_its_agent(OTHER)).unwrap_err(),
         unknown(OTHER)
@@ -140,7 +131,6 @@ fn a_missing_or_replaced_folder_is_refused_with_its_kind() {
     let path = agent_account_dir(&desk.root, ID).unwrap();
     let on_its_agent = ada(Some(ID), "claude-acp");
 
-    // No folder at all.
     let missing = unavailable(&desk.root, io::ErrorKind::NotFound);
     assert_eq!(
         resolve(&desk.root, &desk.log, &on_its_agent).unwrap_err(),
@@ -154,7 +144,6 @@ fn a_missing_or_replaced_folder_is_refused_with_its_kind() {
             path.display()
         )
     );
-    // What a teammate or a phone is told never carries the path or the name.
     let public = missing.public_sentence("Ada", "Claude Code");
     assert_eq!(
         public,
@@ -162,7 +151,6 @@ fn a_missing_or_replaced_folder_is_refused_with_its_kind() {
     );
     assert!(!public.contains(&*path.to_string_lossy()) && !public.contains("Account 1"));
 
-    // A junction or symlink where the folder should be, to a folder that exists.
     let elsewhere = desk.tmp.path().join("elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     std::fs::create_dir_all(agent_accounts_dir(&desk.root)).unwrap();

@@ -338,7 +338,7 @@ fn catalogs(sender: &Outbox, watch: &Watched, mut row: Value, snapshot: bool) ->
 /// is every model on the desk, which the phone already has from
 /// `models.list`; slash commands and checkpoints are the desk's; the
 /// preview is a line in a list. Neither a companion nor a lean phone is
-/// shown which account a teammate runs under (spec §8.3).
+/// shown which account a teammate runs under.
 pub(super) fn shaped(sender: &Outbox, seat: Seat, mut row: Value) -> Value {
     if seat == Seat::Phone || sender.lean() {
         if let Some(persona) = row.get_mut("persona").and_then(Value::as_object_mut) {

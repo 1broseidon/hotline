@@ -5,18 +5,7 @@
 //! at. Everything here is the same for every agent and parameterized by that
 //! agent's row in [`support`]; a new agent joins by getting a row, a parser for
 //! its status answer and the tests of both, and nothing else in this module
-//! changes (spec §9.1.1).
-//!
-//! The pieces, in the order a spawn meets them:
-//! - [`resolve`] turns a teammate's chosen account into its checked folder, or
-//!   a refusal, before any process starts. A teammate with no account, or on an
-//!   agent with no row, resolves to nothing, which is the agent's own default.
-//! - [`env`] plans the process environment: the launch's, with every inherited
-//!   credential removed and the folder set last, so the account's sign-in is
-//!   the only one the agent can find. No account plans nothing, byte for byte
-//!   what a launch did before accounts existed.
-//! - [`status`] reads what the agent says about a folder's sign-in and trusts
-//!   it only when it names exactly that folder.
+//! changes.
 
 pub(crate) mod env;
 pub(crate) mod login;
@@ -28,13 +17,13 @@ pub(crate) mod switch;
 
 use crate::contract::Persona;
 use crate::log::Log;
-use resolve::{AccountRefusal, ResolvedAccount};
+use resolve::ResolvedAccount;
 
 pub(crate) const NOT_ON_THIS_DESK: &str = "That account is not on this desk.";
 pub(crate) const NO_ACCOUNTS: &str = "That agent does not use accounts.";
 
 /// The account `persona` runs under. A choice stays stored on an agent that
-/// cannot run under one, and is ignored there (spec §8.3).
+/// cannot run under one, and is ignored there.
 pub(crate) fn account_of(persona: &Persona) -> Option<&str> {
     persona
         .agent_account_id
@@ -67,9 +56,5 @@ pub(crate) fn check_choice(
 /// The account with its folder checked, for the desk and its owner: the
 /// refusal names the account and where its folder is.
 pub(crate) fn resolved(log: &Log, account_id: &str) -> Result<ResolvedAccount, String> {
-    resolve::account(log.root(), log, account_id).map_err(|refusal| match &refusal {
-        AccountRefusal::UnknownAccount { .. } => NOT_ON_THIS_DESK.into(),
-        // This sentence names the account alone, never a teammate or an agent.
-        AccountRefusal::FolderUnavailable { .. } => refusal.private_sentence("", ""),
-    })
+    resolve::account(log.root(), log, account_id).map_err(|refusal| refusal.account_sentence())
 }

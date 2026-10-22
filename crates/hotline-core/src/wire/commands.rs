@@ -266,7 +266,6 @@ pub(crate) async fn run(
         Command::RemoteBecomeRelay {} => {
             Err("Only a paired device changes its own pairing.".into())
         }
-        // A phone neither sets nor sees a teammate's account.
         Command::MobilePersonaCreate {
             request_id,
             name,

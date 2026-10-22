@@ -2,11 +2,10 @@
 //! last status, its sign-in attempt, and each teammate's switch still to
 //! apply, in memory only.
 //!
-//! A switch applies like any policy change (spec §10.4): only when the
-//! teammate has no work in flight anywhere and the account it wants is not
-//! held, and then the old lease dies, that backend's checkpoints go, and the
-//! session is rebuilt. Until then every thread is built on the account the
-//! switch is from.
+//! A switch applies like any policy change: only when the teammate has no
+//! work in flight anywhere and the account it wants is not held, and then the
+//! old lease dies, that backend's checkpoints go, and the session is rebuilt.
+//! Until then every thread is built on the account the switch is from.
 
 use super::{Room, lock, now_ms};
 use crate::accounts::check_choice;
@@ -294,9 +293,9 @@ impl Room {
         });
     }
 
-    /// After a confirmed sign-in (spec §10.3): each session that started on
-    /// this account before it is rebuilt once its teammate is idle, even if
-    /// a switch is pending for it meanwhile.
+    /// After a confirmed sign-in: each session that started on this account
+    /// before it is rebuilt once its teammate is idle, even if a switch is
+    /// pending for it meanwhile.
     pub(crate) fn account_signed_in(&self, account_id: &str) {
         let login_at = room::agent_accounts(&self.log)
             .into_iter()
@@ -326,8 +325,7 @@ impl Room {
         self.retry_switches_to(account_id);
     }
 
-    /// Whenever a hold on this account may have ended: a sign-in attempt
-    /// finished, or a status answer was recorded.
+    /// Whenever a hold on this account may have ended.
     pub(crate) fn retry_switches_to(&self, account_id: &str) {
         let waiting: Vec<String> = lock(&self.accounts.switches)
             .iter()

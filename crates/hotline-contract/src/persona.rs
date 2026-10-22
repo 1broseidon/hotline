@@ -422,8 +422,7 @@ pub struct PersonaDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_work: Option<bool>,
     /// The agent account to start on. Absent means System default; the id is
-    /// kept but ignored on an agent without accounts. Only `persona.account`
-    /// and `persona.create` write it.
+    /// kept but ignored on an agent without accounts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_account_id: Option<String>,
 }

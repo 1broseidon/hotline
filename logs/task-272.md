@@ -1,8 +1,6 @@
 ---
 id: task-272
 title: "Flaky on CI macOS: a stalled phone seat's TCP reset must arrive within 5 s while draining 24 MB"
-column: review
-position: 3
 priority: low
 tags:
   - flaky
@@ -12,7 +10,7 @@ tags:
 relatedFiles:
   - crates/hotline-core/src/remote/tests/phone.rs
 createdAt: "2026-10-22T08:26:53.752Z"
-updatedAt: "2026-10-22T22:17:07.199Z"
+updatedAt: "2026-10-22T22:17:44.910Z"
 landsOn: release/0.43.0
 dispatch:
   agent: codex
@@ -28,6 +26,7 @@ dispatch:
     ended: "2026-10-22T22:17:07.199Z"
     outcome: review
 assignee: codex
+completedAt: "2026-10-22T22:17:44.910Z"
 ---
 
 ## Description
@@ -42,3 +41,4 @@ Done when:
 - 2026-10-22T22:06:09.024Z: [codex] Replaced the whole-drain deadline with a fresh inactivity timeout for each TCP read; EOF still panics and only ConnectionReset passes. No production behavior changed; verifying the named test and FIN rejection on macOS.
 - 2026-10-22T22:14:37.192Z: [codex] Verified 20/20 consecutive runs of the named test on this Mac; make check passed (2,312 Rust tests). A temporary set_linger(None) mutation failed on the expected EOF assertion, then production transport was restored byte for byte. Running the required handoff precheck.
 - 2026-10-22T22:17:03.062Z: [codex] Committed 76a49433 on dispatch/task-272: TCP drain waits on per-read progress while preserving EOF failure and ConnectionReset assertion. 20 consecutive Mac runs passed; FIN mutation rejected as expected; make check and all 8 make precheck legs passed. Clean worktree; ready for review.
+- 2026-10-22T22:17:44.510Z: Landed on release/0.43.0

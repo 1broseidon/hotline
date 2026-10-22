@@ -10,10 +10,18 @@ tags:
   - mobile
   - 0.43.0
 relatedFiles:
-  - crates/hotline-core/src/wire/mod.rs
+  - crates/hotline-core/src/wire/queue.rs
+  - crates/hotline-core/src/wire/socket.rs
+  - crates/hotline-core/src/wire/subscribe.rs
+  - crates/hotline-core/src/wire/roster.rs
+  - crates/hotline-core/src/wire/phone.rs
+  - crates/hotline-core/src/wire/tests/phone_pressure.rs
+  - crates/hotline-core/tests/desk/connections.rs
+  - docs/design.md
+  - docs/wire.md
 createdAt: "2026-10-22T01:04:57.301Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T01:15:24.517Z"
+updatedAt: "2026-10-22T01:17:28.848Z"
 dispatch:
   agent: codex
   by: cli

@@ -14,7 +14,7 @@ const ARCHIVE: &str = "https://example.invalid/acp-fixture.tar.gz";
 
 /// The fixture's binary. Cargo sets its path at run time on this toolchain;
 /// when it does not, the bin is one directory up from this test's own `deps`.
-fn built() -> PathBuf {
+pub fn built() -> PathBuf {
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_hotline-acp-fixture") {
         return PathBuf::from(path);
     }

@@ -8,6 +8,12 @@
 //! per call, `<tool> ok: <text>` or `<tool> refused: <text>`. A prompt with no
 //! calls is answered "On it."
 //!
+//! A prompt line `REPORT_ENV <name>...` is answered instead with one
+//! `ENV <name>=<value>` or `ENV <name> unset` line per name, then the same
+//! lines, each after `CHILD_ENV `, as printed by a child of its own run with
+//! `--print-env <name>...`, so a harness sees what the agent and its
+//! subprocesses inherit.
+//!
 //! With `--cli` anywhere in its arguments it is instead the agent's own command
 //! line for an account, `auth status [--json]` and `auth login …`, answered
 //! from the folder in `CLAUDE_CONFIG_DIR`. Every run there writes the names of
@@ -45,7 +51,11 @@ type Sessions = Arc<Mutex<HashMap<String, Desk>>>;
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<OsString> = std::env::args_os().collect();
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--print-env") {
+        print_env(&args[1..]);
+        return;
+    }
     if let Some(at) = args.iter().position(|arg| arg == "--cli") {
         std::process::exit(cli(&args[at + 1..]));
     }
@@ -155,6 +165,9 @@ fn calls(said: &str) -> Vec<(String, Value)> {
 
 /// Makes the calls the prompt asks for and says what came back.
 async fn answer(said: &str, desk: Option<Desk>) -> String {
+    if let Some(names) = reported(said) {
+        return report(&names).await;
+    }
     let calls = calls(said);
     if calls.is_empty() {
         return "On it.".to_string();
@@ -312,4 +325,54 @@ fn auth_login(dir: Option<&Path>, args: &[&str]) -> i32 {
         }
         _ => 2,
     }
+}
+
+fn print_env(names: &[OsString]) {
+    for name in names {
+        println!("{}", env_line(&name.to_string_lossy()));
+    }
+}
+
+fn env_line(name: &str) -> String {
+    match std::env::var_os(name) {
+        Some(value) => format!("{name}={}", value.to_string_lossy()),
+        None => format!("{name} unset"),
+    }
+}
+
+fn reported(said: &str) -> Option<Vec<String>> {
+    let line = said.lines().find(|line| line.contains("REPORT_ENV "))?;
+    let names = &line[line.find("REPORT_ENV ")? + "REPORT_ENV ".len()..];
+    Some(names.split_whitespace().map(str::to_string).collect())
+}
+
+async fn report(names: &[String]) -> String {
+    let mut lines: Vec<String> = names
+        .iter()
+        .map(|name| format!("ENV {}", env_line(name)))
+        .collect();
+    match printed_by_a_child(names).await {
+        Ok(printed) => lines.extend(printed.lines().map(|line| format!("CHILD_ENV {line}"))),
+        Err(error) => lines.push(format!("CHILD_ENV failed: {error}")),
+    }
+    lines.join("\n")
+}
+
+async fn printed_by_a_child(names: &[String]) -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = tokio::process::Command::new(exe);
+    command
+        .arg("--print-env")
+        .args(names)
+        .stdin(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command.output().await.map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!("it exited with {}", output.status));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }

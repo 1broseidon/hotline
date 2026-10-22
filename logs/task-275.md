@@ -1,8 +1,6 @@
 ---
 id: task-275
 title: Update available isn't offered for a computer the desk didn't start itself (after a desk restart)
-column: review
-position: 3
 priority: high
 tags:
   - bug
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/session/computer.rs
 createdAt: "2026-10-22T16:12:00.496Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:27:41.933Z"
+updatedAt: "2026-10-22T16:28:09.585Z"
 dispatch:
   agent: codex
   by: cli
@@ -30,6 +28,7 @@ dispatch:
 assignee: codex
 decisions:
   - decision-37
+completedAt: "2026-10-22T16:28:09.585Z"
 ---
 
 ## Description
@@ -51,3 +50,4 @@ Done when:
 - 2026-10-22T16:25:11.135Z: [codex] Manual acceptance: isolated .hotline-dev app on port 5275, real Apple rc.7 container without a release label, quit/relaunch desk. Teammate Settings showed Running 0.11.0-rc.7 / 0.11.0-rc.8 is available. Clicked Check now (live release endpoint returned no eligible stable release; update row remained), then Update; the idle container was removed and UI showed no container yet, as designed for next-start recreation. Automated wire test also proves recreation at rc.8 and clears available.
 - 2026-10-22T16:26:46.935Z: [codex] Committed a4cac3ea on dispatch/task-275; make check passes (including 121 focused computer-related tests). Decision-37 records release precedence. Manual restart/update evidence is above; handoff precheck is running.
 - 2026-10-22T16:27:36.256Z: [codex] Ready for review on dispatch/task-275 at a4cac3ea: persist/recover container releases with guide precedence, label and legacy image fallback; named runtime, failed-guide and real-wire restart/update tests; design/docs updated. make check (2,296 Rust tests passed) and all 8 make precheck legs pass. Manual dev restart/update verified with the release-list caveat above. Working tree clean; no push or merge.
+- 2026-10-22T16:28:09.150Z: Landed on release/0.43.0

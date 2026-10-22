@@ -39,3 +39,6 @@ Done when:
 - The seat's TCP stream is reset (SO_LINGER 0 close) before or atomically with the admission slot's release, so the count can never say closed while the socket is open: a named test that asserts the reset arrives within 1 s of the count reaching zero, run 200 times under parallel load (e.g. cargo test with --test-threads=32 and a CPU hog) on the Mac without a failure.
 - The original test passes 50 consecutive runs under the same load.
 - make check passes.
+
+## Log
+- 2026-10-22T22:47:19.469Z: [codex] Traced teardown: seated_inner currently joins the writer before setting zero linger, and sealed_session retains admission until it returns. Adding a named 1 s reset regression and stressing the current path before choosing the smallest fix; preserving decision-24's timeout-only reset.

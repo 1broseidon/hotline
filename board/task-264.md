@@ -1,7 +1,7 @@
 ---
 id: task-264
 title: A burst of tool events doesn't drop the phone's connection
-column: todo
+column: in-progress
 position: 0
 priority: medium
 tags:
@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/wire/mod.rs
 createdAt: "2026-10-22T01:04:57.301Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T01:07:17.375Z"
+updatedAt: "2026-10-22T01:07:47.477Z"
 dispatch:
   agent: codex
   by: cli

@@ -13,12 +13,17 @@ relatedFiles:
   - crates/hotline-core/src/wire/mod.rs
 createdAt: "2026-10-22T01:04:57.301Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T01:07:15.562Z"
+updatedAt: "2026-10-22T01:07:17.375Z"
 dispatch:
   agent: codex
   by: cli
   at: "2026-10-22T01:07:15.418Z"
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-22T01:07:17.375Z"
 assignee: codex
 ---
 

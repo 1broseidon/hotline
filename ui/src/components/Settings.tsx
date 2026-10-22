@@ -184,7 +184,6 @@ export function Settings({
 	onAddDesk,
 }: {
 	section: SettingsSection;
-	/** The desk's teammates, for who uses each agent account. */
 	roster: RosterEntry[];
 	account?: string | undefined;
 	onSection?: (section: SettingsSection) => void;

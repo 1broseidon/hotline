@@ -79,7 +79,6 @@ type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };
 /** `search.all`'s answer: the same hits, each named with whose tape they came from. */
 type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
 
-/** What a sign-in poll answers, for an agent and for an agent account alike. */
 type SignInStatus = {
 	state: "running" | "succeeded" | "failed";
 	output: string;

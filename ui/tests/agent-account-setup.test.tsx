@@ -9,7 +9,6 @@ Object.assign(globalThis, {
 	localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
 });
 
-// The shell's Open: what it was asked to open, and a refusal when the test wants one.
 let opened: string[] = [];
 let refuse = false;
 const native = await import("../src/native");
@@ -123,10 +122,8 @@ describe("an agent account's setup", () => {
 		expect(text()).toContain("6 skills");
 		expect(text()).toContain("3 plugins");
 		expect(text()).toContain("2 servers");
-		// The rows say the kinds every agent has; which files they are is the agent's own (spec §9.1.1).
 		expect(text()).not.toContain("CLAUDE.md");
 		expect(text()).not.toContain("settings.json");
-		// The two files first, then what is counted (spec §7.6).
 		expect(titles().slice(0, 5)).toEqual(["Instructions", "Settings", "Skills", "Plugins", "MCP servers"]);
 		expect(text()).toContain("Opens in your own editor or file manager on this computer. Changes apply from the next session of the teammates on this account.");
 	});

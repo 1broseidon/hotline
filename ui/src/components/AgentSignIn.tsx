@@ -63,11 +63,6 @@ export function AgentSignIn({ personaId, action, onRetry }: {
 	);
 }
 
-/**
- * One sign-in, whoever it signs in: an agent for a teammate (`agent.auth.*`)
- * or an agent account (`accounts.login.*`). The job is the four calls; the
- * terminal starts it, polls it, feeds it keys and cancels it when it goes.
- */
 export type SignInJob = {
 	start(): Promise<{ id: string }>;
 	poll(id: string): Promise<Commands["agent.auth.poll"]["result"]>;
@@ -75,13 +70,7 @@ export type SignInJob = {
 	cancel(id: string): Promise<void>;
 };
 
-/**
- * The sign-in's own terminal or, with `windowNote`, the sentence saying the
- * agent opened a window of its own instead (a Windows desk signs in in a
- * console, so there is nothing here to type into). Either way it polls the
- * job until the sign-in ends. Callers memoize the job: a new job is a new
- * sign-in.
- */
+/** Callers memoize the job: a new job is a new sign-in. */
 export function SignInTerminal({ job, onDone, onClose, windowNote, cancelLabel = "Cancel sign-in" }: {
 	job: SignInJob;
 	onDone(): void;

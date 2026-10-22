@@ -6,7 +6,6 @@ import { Refusal } from "../../ui/Refusal";
 import { wire } from "../../wire";
 import { SETUP_CATEGORIES } from "../accounts/words";
 
-/** The two files first, then what is counted (spec §7.6); a kind the window has no name for goes last. */
 const ROW_ORDER = ["instructions", "settings", "skills", "plugins", "mcp"];
 
 function rank(id: string): number {
@@ -25,13 +24,7 @@ function copiedWords(report: SetupCopyReport): string {
 	return words;
 }
 
-/**
- * What an agent account's folder holds of the agent's own setup, and the
- * way to change it: each item opens in the system's editor or file manager
- * (Hotline never edits or checks it), and the person's own setup can be
- * copied over again, kind by kind. Open stands only on this computer's own
- * desk: the shell opens a path on this disk, and only one the core listed.
- */
+/** Open stands only on this computer's own desk: the shell opens a path on this disk, and only one the core listed. */
 export function AccountSetup({ accountId, agentName }: { accountId: string; agentName: string }) {
 	const [view, setView] = useState<AccountSetupView | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
@@ -116,8 +109,7 @@ export function AccountSetup({ accountId, agentName }: { accountId: string; agen
 					{rows.map((row) => {
 						const category = SETUP_CATEGORIES.find((one) => one.id === row.id);
 						const item = category?.item ?? row.id;
-						// A count where the kind is counted; a kind that is one file is its name alone.
-						const detail = category?.noun !== undefined ? plural(row.count, category.noun) : "";
+							const detail = category?.noun !== undefined ? plural(row.count, category.noun) : "";
 						return (
 							<div key={row.id} className="group-row">
 								<span className="group-row-text">

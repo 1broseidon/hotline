@@ -13,15 +13,13 @@ import { AddAccountForm } from "../accounts/AddAccountForm";
 import { namesList, statusWords, whoLine } from "../accounts/words";
 import { AccountSetup } from "./AccountSetup";
 
-/** A sign-in this window started: whose, the email to fill in, and whether the account had one already. */
 type Signing = { accountId: string; email: string | undefined; renewing: boolean };
 
-/** What the section's pages share: who is on the desk, the sign-in in flight, the one refusal, and what changes them. */
 type Shared = {
 	roster: RosterEntry[];
 	signing: Signing | null;
-	fromDesk: string | null;
-	renewed: Set<string>;
+	signInOnDesk: string | null;
+	signedInAgain: Set<string>;
 	refusal: string | null;
 	refuse(message: string | null): void;
 	check(view: AccountView): void;
@@ -29,14 +27,6 @@ type Shared = {
 	signInEnded(signedIn: boolean): void;
 };
 
-/**
- * Settings › Agent accounts: the agents this desk runs, an agent's accounts,
- * and one account's page — Providers' shape, a level deeper. An account is
- * one sign-in to an agent's own CLI, kept in a folder of its own; Hotline
- * holds its name and asks the agent whether it is signed in, and never sees
- * a password or token. The list is read on open and again after anything
- * here changes it.
- */
 export function AgentAccountsSection({
 	roster,
 	opening,
@@ -52,10 +42,8 @@ export function AgentAccountsSection({
 	const [accountId, setAccountId] = useState<string | null>(opening ?? null);
 	const [signing, setSigning] = useState<Signing | null>(null);
 	const [settling, setSettling] = useState<{ accountId: string } | null>(null);
-	/* An account added from a seat that cannot sign in (an owner, on a Windows desk): its row says where to. */
-	const [fromDesk, setFromDesk] = useState<string | null>(null);
-	/* Accounts signed in again here: their teammates start fresh, and the rows say so until the section closes. */
-	const [renewed, setRenewed] = useState<Set<string>>(new Set());
+	const [signInOnDesk, setSignInOnDesk] = useState<string | null>(null);
+	const [signedInAgain, setSignedInAgain] = useState<Set<string>>(new Set());
 
 	const reload = () =>
 		wire
@@ -89,8 +77,8 @@ export function AgentAccountsSection({
 	const shared: Shared = {
 		roster,
 		signing,
-		fromDesk,
-		renewed,
+		signInOnDesk,
+		signedInAgain,
 		refusal,
 		refuse: setRefusal,
 		check: (view) => {
@@ -113,7 +101,7 @@ export function AgentAccountsSection({
 		signInEnded: (signedIn) => {
 			const ended = signing;
 			if (ended === null) return;
-			if (signedIn && ended.renewing) setRenewed((was) => new Set(was).add(ended.accountId));
+			if (signedIn && ended.renewing) setSignedInAgain((was) => new Set(was).add(ended.accountId));
 			setSigning(null);
 			setSettling({ accountId: ended.accountId });
 		},
@@ -126,7 +114,7 @@ export function AgentAccountsSection({
 			setSettling({ accountId: signing.accountId });
 		}
 		setRefusal(null);
-		setFromDesk(null);
+		setSignInOnDesk(null);
 		setAgentId(agent);
 		setAccountId(account);
 	};
@@ -165,9 +153,8 @@ export function AgentAccountsSection({
 				onOpen={(id) => go(agent.backendId, id)}
 				onAdded={(made, email) => {
 					setList((was) => was && { ...was, accounts: [...was.accounts.filter((one) => one.account.id !== made.account.id), made] });
-					// A sign-in starts only where this seat may run one; elsewhere the row says where to.
 					if (made.canSignInHere) shared.signIn(made, email);
-					else setFromDesk(made.account.id);
+					else setSignInOnDesk(made.account.id);
 					void reload();
 				}}
 			/>
@@ -220,7 +207,6 @@ export function AgentAccountsSection({
 	);
 }
 
-/** An agent with accounts: how many, and how many are not signed in, which is the thing to see from here. */
 function AgentRow({ agent, accounts, onOpen }: { agent: AccountAgent; accounts: AccountView[]; onOpen(): void }) {
 	const its = accounts.filter((one) => one.account.backendId === agent.backendId);
 	const out = its.filter((one) => one.status.state === "signed_out").length;
@@ -240,7 +226,6 @@ function AgentRow({ agent, accounts, onOpen }: { agent: AccountAgent; accounts: 
 	);
 }
 
-/** The names of the teammates on this desk with these ids. */
 function namesOf(ids: string[], roster: RosterEntry[]): string[] {
 	return ids.map((id) => roster.find((entry) => entry.persona.id === id)?.persona.name ?? id);
 }
@@ -253,18 +238,12 @@ function renewedWords(name: string): string {
 	return `${name} has a new sign-in. Its teammates start fresh once their work ends.`;
 }
 
-/** The dot's state: the sign-in in flight, then a last one that failed, then what the agent said; none before anyone asked. */
 function dotState(view: AccountView, signingHere: boolean): string | undefined {
 	if (signingHere || view.attempt?.state === "running") return "signing";
 	if (view.attempt?.state === "failed" && view.status.state !== "signed_in") return "failed";
 	return view.status.state === "not_checked" ? undefined : view.status.state;
 }
 
-/**
- * One agent's accounts: the add row, System default — the sign-in the agent
- * has without Hotline, built in and never removed — and a row per account,
- * which opens the account's page. A sign-in started here runs under its row.
- */
 function AgentPage({
 	agent,
 	accounts,
@@ -335,7 +314,7 @@ function AgentPage({
 												<AccountSignIn account={view} agentName={agent.name} email={shared.signing?.email} onEnd={shared.signInEnded} />
 											</div>
 										)}
-										{shared.fromDesk === view.account.id && <p className="group-row text-sm text-ink-3">Sign in from the desk itself</p>}
+										{shared.signInOnDesk === view.account.id && <p className="group-row text-sm text-ink-3">Sign in from the desk itself</p>}
 									</Fragment>
 								);
 							})}
@@ -352,13 +331,6 @@ function AgentPage({
 	);
 }
 
-/**
- * An account's row: its dot, its name, and one line — the sign-in in
- * flight, a last one that did not finish, or what the agent said, the email
- * and who uses it. The row opens the account's page; the one key beside it
- * is what the line asks for: Check, or Try again — or, from a seat that
- * cannot sign in, where to.
- */
 function AccountRow({ view, shared, signingHere, onOpen }: { view: AccountView; shared: Shared; signingHere: boolean; onOpen(): void }) {
 	const state = dotState(view, signingHere);
 	const status = view.status;
@@ -376,7 +348,7 @@ function AccountRow({ view, shared, signingHere, onOpen }: { view: AccountView; 
 				<span className="group-row-text">
 					<span className="group-row-title">{view.account.name}</span>
 					<span className="group-row-detail">{detail}</span>
-					{shared.renewed.has(view.account.id) && <span className="block text-sm text-ink-2">{renewedWords(view.account.name)}</span>}
+					{shared.signedInAgain.has(view.account.id) && <span className="block text-sm text-ink-2">{renewedWords(view.account.name)}</span>}
 				</span>
 			</button>
 			{failed ? (
@@ -400,19 +372,12 @@ function AccountRow({ view, shared, signingHere, onOpen }: { view: AccountView; 
 	);
 }
 
-/** When the agent last said so: "just now", "5m ago", or the day. */
 function checkedWords(agentName: string, checkedAt: number): string {
 	const when = relativeTime(checkedAt);
 	if (when === "now") return `Checked with ${agentName} just now`;
 	return /^\d+[mhd]$/.test(when) ? `Checked with ${agentName} ${when} ago` : `Checked with ${agentName} on ${when}`;
 }
 
-/**
- * One account's page: its name, its sign-in and Check, who uses it, its
- * setup, its folder, and the way out at the foot. Remove asks in place, and
- * an account a teammate uses is not removed: Hotline never moves a teammate
- * to another account for you.
- */
 function AccountPage({
 	agent,
 	view,
@@ -534,7 +499,7 @@ function AccountPage({
 									</button>
 								)}
 							</div>
-							{shared.renewed.has(view.account.id) && <p className="group-row text-sm">{renewedWords(name)}</p>}
+							{shared.signedInAgain.has(view.account.id) && <p className="group-row text-sm">{renewedWords(name)}</p>}
 							{signingHere && (
 								<div className="group-row flex-col items-stretch">
 									<AccountSignIn account={view} agentName={agent.name} email={shared.signing?.email} onEnd={shared.signInEnded} />

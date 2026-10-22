@@ -5,16 +5,9 @@ import { wire } from "../../wire";
 import { nextAccountName, SETUP_CATEGORIES } from "./words";
 
 /**
- * Adding an agent account: a name (blank takes the next "Account N"), the
- * email its sign-in page should fill in when the agent takes one, and what
- * the account's folder starts with — a copy of the person's own setup,
- * every kind of it unless they say otherwise, or nothing. It only creates
- * the account; signing it in is the caller's, which is why the email is
- * handed up rather than sent.
- *
- * There is no <form> here: New teammate nests this in its own, and a form
- * may not hold another. Enter in the name or the email adds, and every key
- * is a button.
+ * It only creates the account; signing it in is the caller's, which is why
+ * the email is handed up rather than sent. There is no <form> here: New
+ * teammate nests this in its own, and a form may not hold another.
  */
 export function AddAccountForm({
 	backendId,
@@ -28,7 +21,6 @@ export function AddAccountForm({
 	backendId: string;
 	agentName: string;
 	takesEmail: boolean;
-	/** The names this agent's accounts already have. */
 	taken: string[];
 	compact?: boolean;
 	onAdded(account: AccountView, email: string | undefined): void;

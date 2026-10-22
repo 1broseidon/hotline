@@ -16,7 +16,6 @@ const { accountJob } = await import("../src/components/accounts/AccountSignIn");
 const { nextAccountName } = await import("../src/components/accounts/words");
 Reflect.deleteProperty(globalThis, "localStorage");
 
-// No desk, socket or shell: the section is driven at its wire boundary, on a Windows desk.
 const epoch = 1_800_000_000_000;
 const agents = [
 	{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true },
@@ -63,7 +62,6 @@ class NoResize {
 type Call = [string, Record<string, unknown>];
 let calls: Call[];
 let accounts: AccountView[];
-/** What `accounts.create` makes. */
 let made: AccountView;
 let poll: { state: "running" | "succeeded" | "failed"; output: string; error?: string };
 let checked: AccountView["status"];
@@ -160,7 +158,6 @@ async function unmount() {
 		root = null;
 	});
 }
-/** Lets every answer in flight land, and what it starts. */
 async function settle() {
 	for (let round = 0; round < 6; round++) {
 		await act(async () => {
@@ -213,7 +210,6 @@ async function type(input: HTMLInputElement, value: string) {
 		input.dispatchEvent(new window.Event("input", { bubbles: true }));
 	});
 }
-/** Presses the radio or checkbox whose label starts with `title`. */
 async function tick(title: string) {
 	const found = [...container.querySelectorAll("label")].find((node) => node.querySelector("input") && node.textContent?.startsWith(title));
 	if (!found) throw new Error(`Missing choice ${title}: ${text()}`);
@@ -240,7 +236,6 @@ describe("Settings › Agent accounts", () => {
 		await openAgent();
 		expect(text()).toContain("Claude Code's own sign-in on this computer, as before · Used by Mack");
 		expect(text()).toContain("Built in");
-		// The row is status · email · who uses it; the plan is the account page's.
 		expect(row("Account 1").textContent).toContain("Signed in · dev@example.com · Used by Ada");
 		expect(row("Account 1").textContent).not.toContain("Max");
 		expect(row("Account 2").textContent).toContain("Not signed in · Not used yet");
@@ -262,7 +257,6 @@ describe("Settings › Agent accounts", () => {
 			const line = row(`Account ${index + 1}`);
 			expect(line.textContent).toContain(said);
 			expect(line.querySelector(".agent-account-dot")?.getAttribute("data-state") ?? null).toBe(state === "not_checked" ? null : state);
-			// Only an account nobody has asked about, or one that could not be read, offers a Check on its row.
 			expect([...line.querySelectorAll("button")].some((node) => node.textContent === "Check")).toBe(state === "not_checked" || state === "unavailable");
 		}
 		expect(row("Account 1").querySelector(".agent-account-dot")).toBeNull();
@@ -276,7 +270,6 @@ describe("Settings › Agent accounts", () => {
 		await openAgent();
 		await click("Add account");
 		expect(field("Name").placeholder).toBe("Account 3");
-		// The full form says what it is choosing, and the choice itself is labelled Start with.
 		expect([...container.querySelectorAll(".group-title")].map((node) => node.textContent)).toContain("What a new account starts with");
 		expect(text()).toContain("Chosen once, here. After that the account is edited on its own in its Setup, where it can also copy from your setup again.");
 		const choice = container.querySelector('[role="radiogroup"]')!;
@@ -393,7 +386,6 @@ describe("Settings › Agent accounts", () => {
 		await click("Save");
 		expect(calls).toContainEqual(["accounts.rename", { accountId: "a1", name: "Reviewer seat" }]);
 		expect(band()).toBe("Reviewer seat");
-		// A blank name keeps the one it has.
 		const renames = named("accounts.rename").length;
 		await click("Rename");
 		await type(field("Account name"), "   ");

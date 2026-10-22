@@ -424,6 +424,20 @@ impl Room {
         if arming.answered {
             return Err("That passkey request was already answered.".to_string());
         }
+        // A denial settles the capture while holding the same lock as its
+        // expiry watcher. Otherwise removing the arming would look like a timeout.
+        let pending = arming
+            .capture
+            .as_ref()
+            .filter(|_| !approved)
+            .and_then(|source| lock(&self.captures).get(&source.action).cloned());
+        let mut declined = match pending.as_ref() {
+            Some(capture) => Some(capture.lock().await),
+            None => None,
+        };
+        if let Some(capture) = declined.as_ref() {
+            capture.check_passkey(&arming.name)?;
+        }
         if let Some(capture) = &arming.capture {
             capture.capability.check()?;
             if ask.origin != capture.origin
@@ -461,6 +475,9 @@ impl Room {
             Ok(answer)
         } else {
             lock(&self.passkey_armings).remove(persona_id);
+            if let Some(capture) = declined.as_mut() {
+                self.settle_capture(capture, crate::contract::CredentialStatus::Declined, None);
+            }
             Ok(PasskeyRegistration {
                 state: PasskeyRegistrationState::Idle,
                 name: None,

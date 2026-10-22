@@ -563,3 +563,50 @@ async fn capture_cannot_widen_a_job_without_a_computer_or_a_voice_front_or_run()
         Vec::<crate::contract::SharedSecret>::new()
     );
 }
+
+#[tokio::test]
+async fn capture_passkey_denial_is_declined_and_tells_the_agent_why_it_stopped() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("capture-passkey-denied", Some("0.10.3"), TWO_RELEASES, true).await;
+    let _turn = room.open_posting(&ThreadId::dm("ada"), None);
+    tools(&room, CapabilityEpoch::default().lease())
+        .call("request_credential", &request("passkey"))
+        .await
+        .unwrap();
+    let id = card(&room)["actionId"].as_str().unwrap().to_string();
+    room.answer_credential(CredentialAnswer {
+        action_id: id.clone(),
+        name: Some("GH_PASSKEY".into()),
+        values: None,
+        ask: false,
+    })
+    .await
+    .unwrap();
+    let ask = taken.ask();
+    room.secrets_passkey_registration("ada").await.unwrap();
+    room.secrets_passkey_answer("ada", &ask, false)
+        .await
+        .unwrap();
+    assert_eq!(card(&room)["status"], "declined");
+    assert!(!room.expire_credential(&id, now_ms()).await);
+    assert!(
+        delivered(&room, "The person declined")
+            .await
+            .contains("Stop this sign-in")
+    );
+    assert_eq!(
+        room.vault.as_ref().unwrap().shared_secrets().unwrap(),
+        Vec::<crate::contract::SharedSecret>::new()
+    );
+    assert!(
+        room.persona("ada")
+            .unwrap()
+            .computer
+            .unwrap()
+            .secrets
+            .is_none()
+    );
+    for set in taken.sets() {
+        assert_eq!(set, std::collections::BTreeMap::new());
+    }
+}

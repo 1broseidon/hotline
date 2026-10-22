@@ -1239,7 +1239,8 @@ flow, then the site's separate approval card still needs the person. A
 captured passkey requires that operator approval and the card's exact origin;
 a computer's report of approval cannot grant it. Minted storage uses the
 capture's lock and live lease too, so withdrawal cannot later become a grant.
-The card settles when the passkey is stored, or expires with an unused arming.
+The card settles when the passkey is stored, declines when its approval is
+denied, or expires with an unused arming.
 
 On a call, the card lives in home chat and the call mirrors its status. Voice
 announces once that the desk and phone are waiting, without reading the

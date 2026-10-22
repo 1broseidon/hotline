@@ -65,6 +65,17 @@ test("Asks capture sends one command and clears all typed fields on Save, declin
 		const dismissed = fill();
 		await act(async () => { root.render(null); });
 		expect(dismissed.map(f => f.value)).toEqual(["", "", ""]);
+		await render(pending, "save-at-expiry");
+		const tooLate = fill();
+		const beforeLateSave = commands.length;
+		const now = spyOn(Date, "now").mockReturnValue(pending.expiresAt + 1);
+		try {
+			await act(async () => { container.querySelector("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })); });
+		} finally {
+			now.mockRestore();
+		}
+		expect(tooLate.map(f => f.value)).toEqual(["", "", ""]);
+		expect(commands.length).toBe(beforeLateSave);
 		await render({ ...pending, existing: ["OLD_LOGIN"] }, "existing");
 		fill();
 		await click("Grant OLD_LOGIN instead");

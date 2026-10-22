@@ -41,6 +41,10 @@ function CaptureForm({ event, teammate }: { event: Ask; teammate: string }) {
 
 	const send = (choice: "save" | "decline" | string) => {
 		if (answering || !form.current) return;
+		if (Date.now() >= event.expiresAt) {
+			form.current.reset();
+			return;
+		}
 		const fields = new window.FormData(form.current);
 		const answer: CredentialAnswer = { actionId: event.actionId, ask: fields.get("ask") === "on" };
 		if (choice !== "decline") {

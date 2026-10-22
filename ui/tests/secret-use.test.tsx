@@ -12,6 +12,7 @@ test("Settings shows Automatic or Ask me for each key and saves the selected pol
 	const commands: unknown[] = [];
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: { name: string; use: "auto" | "ask" }) => {
 		if (cmd === "secrets.list") return stored;
+		if (cmd === "computer.cookies.blocked") return [];
 		commands.push({ cmd, params });
 		const result = { ...stored.find(s => s.name === params.name)!, use: params.use };
 		stored = stored.map(s => s.name === params.name ? result : s);

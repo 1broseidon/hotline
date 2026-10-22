@@ -41,6 +41,7 @@ impl State {
                 | "credential_ask"
                 | "passkey_ask"
                 | "secret_use_ask"
+                | "cookie_offer"
                 | "exchange_paused"
         ) {
             return kind == "delivery";
@@ -83,6 +84,12 @@ impl State {
             }
             TranscriptEvent::CredentialAsk { id, status, .. } => {
                 self.set_card(id, status == hotline_contract::CredentialStatus::Pending);
+            }
+            TranscriptEvent::CookieOffer { offer } => {
+                self.set_card(
+                    offer.id,
+                    offer.status == hotline_contract::CookieOfferStatus::Pending,
+                );
             }
             TranscriptEvent::SecretUseAsk { id, status, .. } => {
                 self.set_card(id, status == hotline_contract::SecretUseStatus::Pending);

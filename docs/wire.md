@@ -224,6 +224,11 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.cookies.push` | `{personaId, transfer: {sourceId, browserId, profileId, domains, cookies}}` | `[{domain, cookies}]`; the cookies a window read from its own computer's browser, for a desk on a server ([serve.md](serve.md)) |
 | `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
 | `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
+| `computer.cookies.offers` | `{personaId}` | `CookieOffer[]` — metadata-only cards, including accepted lends that remain removable after restart; desk and phone |
+| `computer.cookies.answer` | `{personaId, id, answer: "use"\|"not_now"\|"never"}` | none; a live, core-bound card is required, and only Use reads values; desk and phone |
+| `computer.cookies.remove` | `{personaId, id}` | none; removes a Lent or Unconfirmed offer's site from the computer; desk and phone |
+| `computer.cookies.blocked` | `{}` | `CookieOfferBlock[]` `{teammate, name, site}`; Never choices, owner or desk only |
+| `computer.cookies.reset` | `{personaId, site}` | none; undo Never for that teammate/site, owner or desk only |
 | `secrets.use.set` | `{name, use: "auto"\|"ask"}` | `SharedSecret`; desk/owner only, changes metadata and delivers the new set to running computers |
 | `secrets.use.answer` | `{personaId, useId, answer: "approve"\|"allow"\|"deny"}` | none; desk/owner/phone, answers one live `secret_use_ask` card. Allow covers one key/site/teammate for ten minutes on the computer |
 | `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |

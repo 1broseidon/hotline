@@ -1304,6 +1304,27 @@ impl RoomHandle for Desk {
         Ok(secret)
     }
 
+    async fn computer_cookie_offers(&self, persona: &str) -> Vec<hotline_contract::CookieOffer> {
+        self.room.computer_cookie_offers(persona)
+    }
+    async fn computer_cookie_blocked(&self) -> Vec<hotline_contract::CookieOfferBlock> {
+        self.room.computer_cookie_blocked()
+    }
+    async fn computer_cookie_reset(&self, persona: &str, site: &str) -> Result<(), String> {
+        self.room.computer_cookie_reset(persona, site).await
+    }
+    async fn computer_cookie_answer(
+        &self,
+        persona: &str,
+        id: &str,
+        answer: hotline_contract::CookieOfferAnswer,
+    ) -> Result<(), String> {
+        self.room.computer_cookie_answer(persona, id, answer).await
+    }
+    async fn computer_cookie_remove(&self, persona: &str, id: &str) -> Result<(), String> {
+        self.room.computer_cookie_remove(persona, id).await
+    }
+
     async fn secrets_use_answer(
         &self,
         persona: &str,

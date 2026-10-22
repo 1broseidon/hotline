@@ -80,6 +80,7 @@ mod desk {
 
     mod capture;
     mod connections;
+    mod cookie_offers;
     mod logins;
     mod real_agents;
     mod secret_uses;

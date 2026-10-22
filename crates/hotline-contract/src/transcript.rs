@@ -215,6 +215,10 @@ pub enum TranscriptEvent {
     },
     /// A granted login or passkey is waiting at the computer's use door.
     /// Both seats settle the same event; no secret value enters this card.
+    CookieOffer {
+        #[serde(flatten)]
+        offer: CookieOffer,
+    },
     SecretUseAsk {
         id: String,
         ts: i64,

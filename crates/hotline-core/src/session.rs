@@ -58,6 +58,7 @@ mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
 pub(crate) mod capture;
+mod cookie_offers;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;
@@ -637,6 +638,8 @@ pub struct Room {
     /// the name it will be stored under and the site, until the poll that
     /// finds it made, a cancel, or the computer's own ten minutes run out.
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
+    #[cfg(test)]
+    pub(crate) cookie_sources: Mutex<Vec<crate::computer::cookies::lending::Source>>,
     secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
     captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
@@ -768,6 +771,8 @@ impl Room {
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
             secret_uses: Mutex::default(),
+            #[cfg(test)]
+            cookie_sources: Mutex::default(),
             captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),

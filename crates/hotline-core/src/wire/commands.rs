@@ -799,6 +799,27 @@ pub(crate) async fn run(
             .secrets_use_set(&name, r#use)
             .await
             .map(|secret| json!(secret)),
+        Command::ComputerCookieOffers { persona_id } => {
+            living(log, &persona_id)?;
+            Ok(json!(room.computer_cookie_offers(&persona_id).await))
+        }
+        Command::ComputerCookieBlocked {} => Ok(json!(room.computer_cookie_blocked().await)),
+        Command::ComputerCookieReset { persona_id, site } => room
+            .computer_cookie_reset(&persona_id, &site)
+            .await
+            .map(|()| Value::Null),
+        Command::ComputerCookieAnswer {
+            persona_id,
+            id,
+            answer,
+        } => room
+            .computer_cookie_answer(&persona_id, &id, answer)
+            .await
+            .map(|()| Value::Null),
+        Command::ComputerCookieRemove { persona_id, id } => room
+            .computer_cookie_remove(&persona_id, &id)
+            .await
+            .map(|()| Value::Null),
         Command::SecretsUseAnswer {
             persona_id,
             use_id,

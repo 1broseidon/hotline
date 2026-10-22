@@ -832,6 +832,20 @@ pub enum Command {
     #[serde(rename = "secrets.capture.answer")]
     SecretsCaptureAnswer(CredentialAnswer),
     /// Changes only a login or passkey's use policy; desk/owner only.
+    #[serde(rename = "computer.cookies.offers")]
+    ComputerCookieOffers { persona_id: String },
+    #[serde(rename = "computer.cookies.answer")]
+    ComputerCookieAnswer {
+        persona_id: String,
+        id: String,
+        answer: CookieOfferAnswer,
+    },
+    #[serde(rename = "computer.cookies.remove")]
+    ComputerCookieRemove { persona_id: String, id: String },
+    #[serde(rename = "computer.cookies.blocked")]
+    ComputerCookieBlocked {},
+    #[serde(rename = "computer.cookies.reset")]
+    ComputerCookieReset { persona_id: String, site: String },
     #[serde(rename = "secrets.use.set")]
     SecretsUseSet { name: String, r#use: SecretUse },
     /// Answers one live computer use; desk, owner and phone only.

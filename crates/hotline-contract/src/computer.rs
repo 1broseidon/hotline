@@ -404,3 +404,50 @@ pub struct ComputerReleases {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
+
+/// A host-cookie offer carries metadata only, including after settlement.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOffer {
+    pub id: String,
+    pub ts: i64,
+    pub teammate: String,
+    pub site: String,
+    pub browser_name: String,
+    pub profile_name: String,
+    pub login: String,
+    pub status: CookieOfferStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CookieOfferStatus {
+    Pending,
+    /// A delivery began; retain Remove even if the desk stopped mid-transfer.
+    Unconfirmed,
+    Lent,
+    Declined,
+    Never,
+    Expired,
+    Removed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CookieOfferAnswer {
+    Use,
+    NotNow,
+    Never,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferBlock {
+    pub teammate: String,
+    pub name: String,
+    pub site: String,
+}

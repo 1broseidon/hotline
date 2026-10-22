@@ -599,6 +599,27 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<hotline_contract::SharedSecret, String> {
         Err("Stored secrets are unavailable on this room.".into())
     }
+    async fn computer_cookie_offers(&self, _persona: &str) -> Vec<hotline_contract::CookieOffer> {
+        Vec::new()
+    }
+    async fn computer_cookie_blocked(&self) -> Vec<hotline_contract::CookieOfferBlock> {
+        Vec::new()
+    }
+    async fn computer_cookie_reset(&self, _persona: &str, _site: &str) -> Result<(), String> {
+        Err("Cookie offers unavailable.".into())
+    }
+    async fn computer_cookie_answer(
+        &self,
+        _persona: &str,
+        _id: &str,
+        _answer: hotline_contract::CookieOfferAnswer,
+    ) -> Result<(), String> {
+        Err("Cookie offers unavailable.".into())
+    }
+    async fn computer_cookie_remove(&self, _persona: &str, _id: &str) -> Result<(), String> {
+        Err("Cookie offers unavailable.".into())
+    }
+
     async fn secrets_use_answer(
         &self,
         _persona: &str,

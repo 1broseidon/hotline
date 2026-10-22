@@ -103,6 +103,9 @@ impl Seat {
                     | Command::HumanAnswer { .. }
                     | Command::SecretsPasskeyAnswer { .. }
                     | Command::SecretsUseAnswer { .. }
+                    | Command::ComputerCookieOffers { .. }
+                    | Command::ComputerCookieAnswer { .. }
+                    | Command::ComputerCookieRemove { .. }
                     | Command::SecretsCaptureAnswer(..)
                     | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }

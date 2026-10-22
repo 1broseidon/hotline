@@ -434,7 +434,7 @@ async fn cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_exp
     let calls = room.cookie_discovery_calls.load(Ordering::SeqCst);
     room.poll_secret_uses("ada").await;
     assert_eq!(room.cookie_discovery_calls.load(Ordering::SeqCst), calls);
-    assert!(room.computer_cookie_offers("ada").is_empty());
+    assert_eq!(room.computer_cookie_offers("ada"), [] as [CookieOffer; 0]);
 
     set_offers(room, json!({"enabled":true})).await;
     room.poll_secret_uses("ada").await;
@@ -500,7 +500,7 @@ async fn cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_off
     ];
     let calls = room.cookie_discovery_calls.load(Ordering::SeqCst);
     room.poll_secret_uses("ada").await;
-    assert!(room.computer_cookie_offers("ada").is_empty());
+    assert_eq!(room.computer_cookie_offers("ada"), [] as [CookieOffer; 0]);
     assert_eq!(room.cookie_discovery_calls.load(Ordering::SeqCst), calls);
     // Clearing the override restores the old-room default: enabled, all sites.
     set_offers(room, Value::Null).await;

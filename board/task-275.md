@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/session/computer.rs
 createdAt: "2026-10-22T16:12:00.496Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:27:36.583Z"
+updatedAt: "2026-10-22T16:27:41.933Z"
 dispatch:
   agent: codex
   by: cli
@@ -25,6 +25,8 @@ dispatch:
     runner: cli
     pid: 59533
     at: "2026-10-22T16:12:03.081Z"
+    ended: "2026-10-22T16:27:41.933Z"
+    outcome: review
 assignee: codex
 decisions:
   - decision-37

@@ -157,7 +157,7 @@ export function AgentAccountsSection({
 					else setSignInOnDesk(made.account.id);
 					void reload();
 				}}
-				onRefused={() => void reload()}
+				onRefused={() => void wire.command("accounts.list", {}).then(setList, () => {})}
 			/>
 		);
 	}

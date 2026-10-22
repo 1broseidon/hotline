@@ -42,6 +42,7 @@ type Call = [string, Record<string, unknown>];
 let calls: Call[];
 let accounts: AccountView[];
 let created: string[];
+let createRefusal: string | null;
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
@@ -59,6 +60,7 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "persona.create") return { id: "p1", ...(params["draft"] as PersonaDraft) };
 	if (cmd === "session.start") return null;
 	if (cmd === "accounts.create") {
+		if (createRefusal !== null) throw new Error(createRefusal);
 		accounts = [...accounts, a3()];
 		return { account: a3() };
 	}
@@ -90,6 +92,7 @@ beforeEach(async () => {
 	calls = [];
 	accounts = [a1(), a2()];
 	created = [];
+	createRefusal = null;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -238,6 +241,17 @@ describe("a new teammate's agent account", () => {
 		expect(text()).toContain("My Claude Code setup");
 		expect(text()).toContain("Empty");
 		expect(text()).toContain("Customize what is copied…");
+	});
+
+	test("a name refused as taken reads the accounts again, so the account it names is listed", async () => {
+		await mount();
+		await agent("claude-acp");
+		accounts = [...accounts, account("r1", "Reviewer")];
+		createRefusal = "There is already an account named Reviewer for that agent.";
+		await click("Add account");
+		await click("Add and sign in");
+		expect(text()).toContain("There is already an account named Reviewer for that agent.");
+		expect(row("Reviewer")).toBeDefined();
 	});
 
 	test("an inline account is selected at once, and Sign in later leaves it Not signed in", async () => {

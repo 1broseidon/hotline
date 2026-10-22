@@ -54,6 +54,7 @@ let calls: Call[];
 let accounts: AccountView[];
 let poll: { state: "running" | "succeeded" | "failed"; output: string; error?: string };
 let setupOpened: string[];
+let createRefusal: string | null;
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
@@ -70,6 +71,7 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "persona.account") return { running: "a1", ...(params["accountId"] ? { wanted: params["accountId"] } : {}) };
 	if (cmd === "session.stop" || cmd === "session.start") return null;
 	if (cmd === "accounts.create") {
+		if (createRefusal !== null) throw new Error(createRefusal);
 		if (!accounts.some((one) => one.account.id === "a4")) accounts = [...accounts, a4()];
 		return { account: a4() };
 	}
@@ -104,6 +106,7 @@ beforeEach(async () => {
 	accounts = [a1(), a2(), a3()];
 	poll = { state: "running", output: "" };
 	setupOpened = [];
+	createRefusal = null;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -272,6 +275,16 @@ describe("a teammate's agent account", () => {
 		await remount({ ...ada, agentAccountId: "a3" }, sessionOf("ready", { running: "a1", wanted: "a3", held: "signing_in" }));
 		expect(text()).toContain("Account 3 is still signing in. Ada keeps Account 1 until it is.");
 		expect(text()).not.toContain("Switches to");
+	});
+
+	test("a name refused as taken reads the accounts again, so the account it names is listed", async () => {
+		await mount(ada, onA1);
+		accounts = [...accounts, account("r1", "Reviewer")];
+		createRefusal = "There is already an account named Reviewer for that agent.";
+		await click("Add account");
+		await click("Add and sign in");
+		expect(text()).toContain("There is already an account named Reviewer for that agent.");
+		expect(row("Reviewer")).toBeDefined();
 	});
 
 	test("an account added here is assigned only after its sign-in succeeds", async () => {

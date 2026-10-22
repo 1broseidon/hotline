@@ -157,6 +157,7 @@ export function AgentAccountsSection({
 					else setSignInOnDesk(made.account.id);
 					void reload();
 				}}
+				onRefused={() => void reload()}
 			/>
 		);
 	}
@@ -251,6 +252,7 @@ function AgentPage({
 	onBack,
 	onOpen,
 	onAdded,
+	onRefused,
 }: {
 	agent: AccountAgent;
 	accounts: AccountView[];
@@ -258,6 +260,7 @@ function AgentPage({
 	onBack(): void;
 	onOpen(accountId: string): void;
 	onAdded(account: AccountView, email: string | undefined): void;
+	onRefused(): void;
 }) {
 	const [adding, setAdding] = useState(false);
 	// Only this desk's own teammates run on its System default, as only they can be on its accounts.
@@ -282,6 +285,7 @@ function AgentPage({
 								setAdding(false);
 								onAdded(made, email);
 							}}
+							onRefused={onRefused}
 							onCancel={() => setAdding(false)}
 						/>
 					)}

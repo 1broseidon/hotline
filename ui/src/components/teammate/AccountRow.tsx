@@ -127,6 +127,7 @@ export function AccountRow({
 						takesEmail={agent.takesEmail}
 						taken={accounts.map((one) => one.account.name)}
 						onAdded={added}
+						onRefused={() => void wire.command("accounts.list", {}).then(setList, () => {})}
 						onCancel={() => setAdding(false)}
 					/>
 				) : (

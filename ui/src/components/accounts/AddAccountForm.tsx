@@ -16,6 +16,7 @@ export function AddAccountForm({
 	taken,
 	compact = false,
 	onAdded,
+	onRefused,
 	onCancel,
 }: {
 	backendId: string;
@@ -24,6 +25,7 @@ export function AddAccountForm({
 	taken: string[];
 	compact?: boolean;
 	onAdded(account: AccountView, email: string | undefined): void;
+	onRefused(): void;
 	onCancel(): void;
 }) {
 	const id = useId();
@@ -55,6 +57,7 @@ export function AddAccountForm({
 			onAdded(created.account, email.trim() || undefined);
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
+			onRefused();
 		} finally {
 			setBusy(false);
 		}

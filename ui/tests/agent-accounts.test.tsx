@@ -66,6 +66,7 @@ let made: AccountView;
 let poll: { state: "running" | "succeeded" | "failed"; output: string; error?: string };
 let checked: AccountView["status"];
 let cancelLands: boolean;
+let createRefusal: string | null;
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
@@ -84,6 +85,7 @@ function cancelled(view: AccountView): AccountView {
 function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "accounts.list") return { agents, accounts };
 	if (cmd === "accounts.create") {
+		if (createRefusal !== null) throw new Error(createRefusal);
 		accounts = [...accounts, made];
 		return { account: made };
 	}
@@ -127,6 +129,7 @@ beforeEach(async () => {
 	poll = { state: "running", output: "" };
 	checked = { state: "signed_in", checkedAt: Date.now(), email: "two@example.com", plan: "pro" };
 	cancelLands = true;
+	createRefusal = null;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -292,6 +295,18 @@ describe("Settings › Agent accounts", () => {
 		expect(row("Account 3").textContent).toContain("Sign-in did not finish: Sign-in cancelled.");
 		expect(row("Account 3").textContent).not.toContain("Signing in…");
 		expect(button("Try again", row("Account 3"))).toBeDefined();
+	});
+
+	test("a name refused as taken reads the accounts again, so the account it names is listed", async () => {
+		await mount();
+		await openAgent();
+		accounts = [...accounts, account("r1", "Reviewer")];
+		createRefusal = "There is already an account named Reviewer for that agent.";
+		await click("Add account");
+		await type(field("Name"), "Reviewer");
+		await click("Add and sign in");
+		expect(text()).toContain("There is already an account named Reviewer for that agent.");
+		expect(row("Reviewer")).toBeDefined();
 	});
 
 	test("Back mid sign-in leaves the row as the cancelled attempt ended", async () => {

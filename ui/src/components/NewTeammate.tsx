@@ -392,6 +392,7 @@ export function NewTeammateForm({
 										takesEmail={agent.takesEmail}
 										taken={agentAccounts.map((one) => one.account.name)}
 										onAdded={accountAdded}
+										onRefused={() => void wire.command("accounts.list", {}).then(setAccountsList, () => {})}
 										onCancel={() => setAddingAccount(false)}
 									/>
 								) : (

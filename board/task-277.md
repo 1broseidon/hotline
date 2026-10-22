@@ -14,6 +14,8 @@ relatedFiles:
   - ui/src/components/settings/Providers.tsx
 parentId: epic-24
 createdAt: "2026-10-22T21:03:38.914Z"
+landsOn: release/0.43.0
+updatedAt: "2026-10-22T21:03:39.457Z"
 ---
 
 ## Description

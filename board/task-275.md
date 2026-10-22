@@ -12,6 +12,8 @@ relatedFiles:
   - crates/hotline-core/src/computer.rs
   - crates/hotline-core/src/session/computer.rs
 createdAt: "2026-10-22T16:12:00.496Z"
+landsOn: release/0.43.0
+updatedAt: "2026-10-22T16:12:01.159Z"
 ---
 
 ## Description

@@ -46,3 +46,4 @@ Done when:
 
 ## Log
 - 2026-10-22T15:40:03.080Z: [codex] Implemented host-only site discovery, PSL-bounded explicit lends, durable removal records, shared card/phone handlers and Settings undo. Task-274's /pages response shape is confirmed; older computers return no offers. Now adding real-handler/fake-computer and UI proofs.
+- 2026-10-22T15:53:49.672Z: [codex] Initial implementation committed as 2b703bb1 on dispatch/task-273. Core/desk/phone-seat fixture and restart tests pass. Native phone rendering is in the separate hotline-mobile repository per epic-24; created its explicit counterpart task. Real Brave/Porkbun acceptance remains dependent on task-274's pages door and a device check; no host cookies were read during development.

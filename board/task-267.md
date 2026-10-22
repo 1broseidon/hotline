@@ -9,13 +9,18 @@ tags:
   - policy
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.664Z"
-updatedAt: "2026-10-22T06:26:03.001Z"
+updatedAt: "2026-10-22T06:26:05.779Z"
 dispatch:
   agent: codex
   by: cli
   at: "2026-10-22T06:26:02.881Z"
   until: review
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 98520
+    at: "2026-10-22T06:26:05.779Z"
 assignee: codex
 ---
 

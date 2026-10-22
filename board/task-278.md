@@ -14,6 +14,8 @@ relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/transport.rs
 createdAt: "2026-10-22T22:44:26.174Z"
+landsOn: release/0.43.0
+updatedAt: "2026-10-22T22:44:26.683Z"
 ---
 
 ## Description

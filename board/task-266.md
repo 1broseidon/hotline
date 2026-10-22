@@ -8,21 +8,36 @@ tags:
   - credentials
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.125Z"
+updatedAt: "2026-10-22T04:35:54.257Z"
 ---
 
 ## Description
-A teammate tool request_credential {site, reason, name?, kind: login|passkey} raises a credential card in the chat (desk). The card shows the site's origin, the reason and secure fields: username, password, and an optional one-time-code seed. Submit sends one command, secrets.capture.answer {action_id, values}, from the owner or phone seat (wire/seat.rs), and the desk:
-- stores a Login {sites: [origin], username, password, totp?} under the chosen name (vault/shared.rs set_shared),
-- ticks the grant for the asking teammate (PersonaComputer.secrets),
-- re-sends the set (Room::secrets_changed → hand_secrets → computer/secrets.rs deliver),
-- answers the agent: 'Stored as NAME for <origin>; sign in with browser fill secret NAME.username and NAME.password.'
-kind passkey offers Make a passkey: the existing arming (secrets_passkey_register) with its approval card.
+A teammate tool request_credential {site, reason, name?, kind: login|passkey} raises a credential card in the chat, on the desk (and the phone, hotline-mobile task-49). The card shows the full origin, the reason, the proposed name (editable), an Ask me toggle (off by default) and secure fields: username, password, optional one-time-code seed. If the person already has a key for that site, it offers Grant NAME instead. Submit sends one command, secrets.capture.answer {action_id, name, values, ask}, from the owner or phone seat (wire/seat.rs). The desk stores a Login {sites: [origin], username, password, totp?} (vault/shared.rs set_shared), ticks the grant for the asking teammate (PersonaComputer.secrets), re-sends the set (Room::secrets_changed → hand_secrets → computer/secrets.rs deliver), and answers the agent with the name, site and how to fill it. kind passkey has no value fields: Make a passkey runs the existing arming (secrets_passkey_register) and its approval card.
 
-Contract: TranscriptEvent::CredentialAsk {id, site, reason, kind, status, stored_as?} with status Pending|Stored|Declined|Expired|Withdrawn; Waiting::Credential for pushes; a ThreadAnswer variant if answered from a thread. The tape holds the ask and its outcome, never a value.
+Contract: TranscriptEvent::CredentialAsk {id, site, reason, kind, name, status, stored_as?}, status Pending|Stored|Declined|Expired|Withdrawn; Waiting::Credential for pushes; a ThreadAnswer variant for thread answers. The card expires after 30 minutes. After a decline the teammate does not ask again for that site in the same turn. Never by voice (epic-24 decision 11).
 
-Done when (refined from the deck):
-- Submitting the card stores the login, grants it to the teammate and delivers it to the computer: named test in session (capture stores, grants and delivers).
-- No value appears in the tape, the transcript JSON, the agent's answer or desk logs: named test that captures a known value and greps every sink.
-- Decline and expiry answer the agent and store nothing: named tests.
-- A credential card is never answered by voice and the voice front says it waits on the desk: named test in hotline-voice.
-- The card renders on the desk with password fields that are cleared on submit or dismiss: UI test in Asks.
+Acceptance set: docs/design/credential-scenarios.html, scenes 1–4 and 7. Decisions: epic-24 note of 2026-10-21.
+
+Done when:
+- Save sends one command, secrets.capture.answer, and the desk stores a Login for https://github.com under the chosen name, ticks the grant for Pork Chop and re-sends the set to its computer. (named test: capture stores, grants and delivers; scene: A login, asked for in the chat)
+- No typed value appears in the tape, the transcript JSON, the agent's answer or the desk's logs. (named test: capture a known value, grep every sink; scene: A login, asked for in the chat)
+- The agent's answer names the key, its site and how to fill it; never a value. (named test; scene: A login, asked for in the chat)
+- The password fields are cleared on Save and on dismiss. The stored card shows name, site and teammate only. (UI test in Asks; scene: A login, asked for in the chat)
+- The login is bound to the origin the teammate asked for, shown in full on the card, and fills nowhere else. (named test; scene: A login, asked for in the chat)
+- The tape holds the ask and its outcome (Stored as GITHUB_LOGIN), nothing more. (same sink test; scene: A login, asked for in the chat)
+- The phone seat is allowed secrets.capture.answer (wire/seat.rs); any other phone command carrying values is refused. (seat permission test; scene: Answered on the phone, while away)
+- Answered on one seat, the card settles on the other and cannot be answered twice. (named tests; scene: Answered on the phone, while away)
+- Decline answers the agent that the person declined; nothing is stored, granted or delivered. (named test; scene: Declined, expired or withdrawn)
+- Expiry answers the agent that no answer came; nothing is stored. (named test; scene: Declined, expired or withdrawn)
+- Anything typed before a decline, expiry or withdrawal is cleared and never sent. (UI tests; scene: Declined, expired or withdrawn)
+- A settled card (Declined, Expired, Withdrawn) shows its outcome on desk and phone and has no Save or Decline. (named tests; scene: Declined, expired or withdrawn)
+- The teammate's answer says plainly why it stopped; it does not raise a second card for the same site in the same turn. (named test on the tool; scene: Declined, expired or withdrawn)
+- A passkey card has no value fields. Make a passkey starts the existing arming (secrets_passkey_register) for the card's origin only. (named test; scene: The site wants a passkey instead)
+- Approved, the passkey is stored under the card's name, granted to the teammate, with the card's Ask me setting. (named test; scene: The site wants a passkey instead)
+- The credential card settles to "Stored as GH_PASSKEY for github.com" once made, and to Expired if the arming lapses unused. (named test; scene: The site wants a passkey instead)
+- Neither card nor the agent ever sees the private key; the agent learns the name and kind (passkey). (describe_secret test; scene: The site wants a passkey instead)
+- A credential card on a call thread shows on the desk and phone only; it is never answered by voice. (named test in hotline-voice; scene: On a call)
+- The voice says once that it waits on the desk and phone, and nothing about values. (named test in hotline-voice; scene: On a call)
+- A spoken yes or done does not answer a credential card. (named test in hotline-voice; scene: On a call)
+- Once stored, the voice hears only "Stored as GITHUB_LOGIN" and says it in a few words. (named test; scene: On a call)
+- make check passes.

@@ -8,9 +8,12 @@ tags:
   - bug
   - remote
   - mobile
+  - 0.43.0
 relatedFiles:
   - crates/hotline-core/src/wire/mod.rs
 createdAt: "2026-10-22T01:04:57.301Z"
+landsOn: release/0.43.0
+updatedAt: "2026-10-22T01:07:12.961Z"
 ---
 
 ## Description

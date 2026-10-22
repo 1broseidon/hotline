@@ -1,8 +1,6 @@
 ---
 id: task-271
 title: A cancelled shell job can run its next command before it dies
-column: review
-position: 2
 priority: high
 tags:
   - bug
@@ -12,7 +10,7 @@ relatedFiles:
   - crates/hotline-core/tests/steering.rs
 createdAt: "2026-10-22T07:37:09.827Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T07:49:05.631Z"
+updatedAt: "2026-10-22T07:50:35.036Z"
 dispatch:
   agent: codex
   by: cli
@@ -29,6 +27,7 @@ dispatch:
 assignee: codex
 decisions:
   - decision-35
+completedAt: "2026-10-22T07:50:35.036Z"
 ---
 
 ## Description
@@ -47,3 +46,4 @@ Done when:
 - 2026-10-22T07:40:00.927Z: [codex] Started on dispatch/task-271. The current Unix path already uses killpg(SIGKILL); Apple's XNU killpg1 iterates group members and signals each individually, so a group syscall is not simultaneous delivery. Investigating a group-stop-before-group-kill fix shared by explicit cancellation and the drop guard; adding the 50-iteration regression and retaining real-wire steering coverage.
 - 2026-10-22T07:46:58.262Z: [codex] Implemented group-wide SIGSTOP then SIGKILL in the shared Unix termination path (including Drop); decision-35 records why. The new sleep-30/touch-after regression passed all 50 iterations on macOS arm64 and Linux arm64 in the precheck Ubuntu image. The real-wire steering test passed 20/20 consecutive Mac runs (both provider APIs each time). Timeout and sandbox-drop tests also assert no next statement. Full make check and handoff precheck are still running.
 - 2026-10-22T07:48:58.457Z: [codex] Fixed in 3f33ef82 on dispatch/task-271: Unix cancellation, deadlines and Drop stop the owned process group before killing it, preventing a dying child from releasing the next shell statement. Added the 50-iteration sleep-30/touch-after regression, strengthened timeout/drop assertions, and updated design/security proofs (decision-35). Passed on macOS and Linux arm64; steering passed 20 consecutive Mac runs, both provider APIs each time; make check and make precheck passed. Worktree clean; ready for human review.
+- 2026-10-22T07:50:34.564Z: Landed on release/0.43.0

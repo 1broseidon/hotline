@@ -2,7 +2,10 @@
 //! A saved lend can be removed, but a saved pending card cannot grant access.
 use super::*;
 use crate::computer::{Ready, cookies::lending, login};
-use crate::contract::{CookieOffer, CookieOfferAnswer, CookieOfferBlock, CookieOfferStatus};
+use crate::contract::{
+    CookieOffer, CookieOfferAnswer, CookieOfferBlock, CookieOfferSettings, CookieOfferSite,
+    CookieOfferSites, CookieOfferSource, CookieOfferStatus,
+};
 
 #[derive(Default)]
 pub(super) struct CookieWatch {
@@ -18,6 +21,19 @@ impl Room {
         persona: &str,
         watch: &mut CookieWatch,
     ) {
+        // Answers and settings take policy then watch. A poll already owns
+        // the watch, so it must skip rather than wait in the opposite order.
+        let updates = self.policy_update_lock();
+        let Ok(_policy) = updates.try_lock() else {
+            return;
+        };
+        let Ok(settings) = room::cookie_offer_settings(&self.log) else {
+            return;
+        };
+        let _ = self.expire_disabled_cookie_offers(persona, watch, &settings);
+        if !settings.enabled {
+            return;
+        }
         let ready = self.computers.running(persona).await;
         let live = lock(&self.sessions).contains_key(persona);
         if watch.ready != ready
@@ -44,7 +60,7 @@ impl Room {
         };
         let sites: Vec<_> = sites
             .into_iter()
-            .filter(|site| !watch.seen.contains(site))
+            .filter(|site| settings.allows(site) && !watch.seen.contains(site))
             .collect();
         if sites.is_empty() {
             return;
@@ -69,41 +85,28 @@ impl Room {
         }
         let mut unique = HashSet::new();
         sites.retain(|site| unique.insert(site.clone()));
-        #[cfg(test)]
-        let candidates = lock(&self.cookie_candidates).clone();
-        let Ok((found, refused, sites)) = tokio::task::spawn_blocking(move || {
-            #[cfg(not(test))]
-            let candidates = crate::computer::cookies::candidates();
-            let discovery = lending::discover(candidates);
-            let inventory: Vec<_> = discovery
-                .sources
-                .into_iter()
-                .filter_map(|s| s.sites().ok().map(|sites| (s, sites)))
-                .collect();
-            let found = sites
-                .iter()
-                .filter_map(|site| {
-                    inventory
-                        .iter()
-                        .find(|(_, sites)| sites.contains(site))
-                        .map(|(source, _)| (site.clone(), source.clone()))
-                })
-                .collect::<Vec<_>>();
-            (found, discovery.refused, sites)
-        })
-        .await
-        else {
+        let Ok(inventory) = self.cookie_inventory().await else {
             return;
         };
+        let found = sites
+            .iter()
+            .filter_map(|site| {
+                inventory
+                    .sources
+                    .iter()
+                    .find(|(_, sites)| sites.contains(site))
+                    .map(|(source, _)| (site.clone(), source.clone()))
+            })
+            .collect::<Vec<_>>();
         if !capability.is_current() {
             return;
         }
         // A refused discovery says nothing about whether this site has a
         // session. Leave it eligible so the same open page is retried.
-        if refused.is_empty() {
+        if inventory.refused.is_empty() && inventory.unavailable.is_empty() {
             watch.seen.extend(sites.iter().cloned());
         }
-        for browser in refused {
+        for browser in inventory.refused {
             if lock(&self.cookie_access_notices).insert(browser.id) {
                 self.write(
                     persona,
@@ -139,6 +142,100 @@ impl Room {
                 Some(crate::push::Waiting::CookieOffer { id: card.id.clone() }));
             watch.cards.insert(card.id.clone(), (card, source));
         }
+    }
+
+    async fn cookie_inventory(&self) -> Result<lending::Inventory, String> {
+        #[cfg(test)]
+        let candidates = lock(&self.cookie_candidates).clone();
+        #[cfg(test)]
+        let calls = self.cookie_discovery_calls.clone();
+        tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            #[cfg(not(test))]
+            let candidates = crate::computer::cookies::candidates();
+            lending::inventory(candidates)
+        })
+        .await
+        .map_err(|_| "Could not discover browser cookie sites.".into())
+    }
+
+    pub async fn computer_cookie_sites(&self) -> Result<CookieOfferSites, String> {
+        let inventory = self.cookie_inventory().await?;
+        let mut sites: std::collections::BTreeMap<String, Vec<CookieOfferSource>> =
+            std::collections::BTreeMap::new();
+        for (source, found) in inventory.sources {
+            for site in found {
+                sites.entry(site).or_default().push(CookieOfferSource {
+                    browser_name: source.browser_name().into(),
+                    profile_name: source.profile_name().into(),
+                });
+            }
+        }
+        let mut unavailable = inventory.unavailable;
+        unavailable.extend(
+            inventory
+                .refused
+                .iter()
+                .map(|browser| crate::computer::cookies::access_notice(&browser.name, None)),
+        );
+        Ok(CookieOfferSites {
+            sites: sites
+                .into_iter()
+                .map(|(site, sources)| CookieOfferSite { site, sources })
+                .collect(),
+            unavailable,
+        })
+    }
+
+    pub async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
+        let settings = room::cookie_offer_settings(&self.log)?;
+        let watches: Vec<_> = lock(&self.secret_uses)
+            .iter()
+            .map(|(persona, watch)| (persona.clone(), watch.clone()))
+            .collect();
+        for (persona, watch) in watches {
+            self.expire_disabled_cookie_offers(
+                &persona,
+                &mut watch.lock().await.cookies,
+                &settings,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn expire_disabled_cookie_offers(
+        &self,
+        persona: &str,
+        watch: &mut CookieWatch,
+        settings: &CookieOfferSettings,
+    ) -> Result<(), String> {
+        let mut expired = false;
+        for (card, _) in watch.cards.values_mut() {
+            if card.status == CookieOfferStatus::Pending && !settings.allows(&card.site) {
+                card.status = CookieOfferStatus::Expired;
+                self.write_cookie_offer(card)?;
+                watch.seen.remove(&card.site);
+                expired = true;
+            }
+        }
+        if expired {
+            let text = if settings.enabled {
+                "Browser cookie offers for these sites are off. Pending offers have expired."
+            } else {
+                "Browser cookie offers are off. Pending offers have expired."
+            };
+            self.write(
+                persona,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Info,
+                    text: text.into(),
+                },
+            );
+        }
+        Ok(())
     }
 
     fn write_cookie_offer(&self, offer: &CookieOffer) -> Result<(), String> {
@@ -230,6 +327,8 @@ impl Room {
         let watch = self.use_watch(persona);
         let mut held_watch = watch.lock().await;
         let watch = &mut held_watch.cookies;
+        let settings = room::cookie_offer_settings(&self.log)?;
+        self.expire_disabled_cookie_offers(persona, watch, &settings)?;
         let capability = watch
             .capability
             .clone()

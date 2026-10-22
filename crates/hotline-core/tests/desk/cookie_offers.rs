@@ -63,3 +63,41 @@ async fn cookie_offers_expire_on_real_desk_restart_while_lends_and_per_teammate_
         let _ = serving.await;
     }
 }
+
+#[tokio::test]
+async fn cookie_offer_settings_survive_real_desk_restarts_and_clearing_restores_all_sites() {
+    let root = tempfile::tempdir().unwrap();
+    let mut expected = json!({"enabled":true});
+    for next in [
+        Some(json!({"enabled":false,"sites":["porkbun.com"]})),
+        Some(json!({"enabled":true,"sites":[]})),
+        Some(Value::Null),
+        None,
+    ] {
+        let desk = common::open_desk(root.path()).unwrap();
+        let log = desk.log.clone();
+        let parts = desk.parts();
+        let door = Door::bind(log, TOKEN.into(), Arc::new(desk), parts).unwrap();
+        let port = door.port();
+        let serving = tokio::spawn(door.run());
+        let mut client = Client::connect(port, TOKEN).await;
+        assert_eq!(
+            client.call("computer.cookies.settings", json!({})).await["result"],
+            expected
+        );
+        if let Some(next) = next {
+            let response = client
+                .call("settings.update", json!({"patch":{"cookieOffers":next}}))
+                .await;
+            assert_eq!(response["ok"], true);
+            expected = if next.is_null() {
+                json!({"enabled":true})
+            } else {
+                next
+            };
+        }
+        drop(client);
+        serving.abort();
+        let _ = serving.await;
+    }
+}

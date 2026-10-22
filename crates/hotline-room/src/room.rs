@@ -49,6 +49,10 @@ fn defaults() -> Map<String, Value> {
     settings.insert("chapterIdleHours".into(), Value::from(8));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
+    settings.insert(
+        "cookieOffers".into(),
+        json!(hotline_contract::CookieOfferSettings::default()),
+    );
     settings.insert("images".into(), json!(ImageSettings::default()));
     settings.insert("spending".into(), json!(SpendingSettings::default()));
     settings
@@ -65,10 +69,22 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     if key == "webSearch" {
         return hotline_websearch::normalize_setting(value);
     }
-    if matches!(key, "images" | "spending") && !value.is_object() {
+    if matches!(key, "images" | "spending" | "cookieOffers") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
     }
     match key {
+        "cookieOffers" => {
+            let mut settings: hotline_contract::CookieOfferSettings =
+                serde_json::from_value(value.clone()).map_err(|_| {
+                    "Cookie offers must have an enabled switch and an optional list of sites."
+                        .to_string()
+                })?;
+            if let Some(sites) = &mut settings.sites {
+                sites.sort();
+                sites.dedup();
+            }
+            Ok(json!(settings))
+        }
         "images" => {
             let settings: ImageSettings = serde_json::from_value(value.clone()).map_err(|_| {
                 "Images settings must be an object with optional provider and model strings."
@@ -112,6 +128,12 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
         }
         _ => Ok(value.clone()),
     }
+}
+
+pub fn cookie_offer_settings(log: &Log) -> Result<hotline_contract::CookieOfferSettings, String> {
+    let value = normalize_setting("cookieOffers", &settings(log)["cookieOffers"])?;
+    serde_json::from_value(value)
+        .map_err(|_| "The room's cookie offer settings could not be read.".into())
 }
 
 /// How many teammates a desk can pin. Three faces fit a phone's header and

@@ -3,7 +3,7 @@ import type { CookieOffer } from "../src/generated/contract";
 import { installDom } from "./dom";
 
 test("Cookie offer asks explicitly, warns of personal sign-in and removes the settled lend", async () => {
-	const { teardown } = installDom();
+	const { teardown } = installDom({ ResizeObserver: class { observe() {} disconnect() {} } });
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
 	const { CookieOfferCard } = await import(
@@ -87,10 +87,10 @@ test("Cookie offer asks explicitly, warns of personal sign-in and removes the se
 });
 
 test("Never for this site can be undone for the named teammate in Settings", async () => {
-	const { teardown } = installDom();
+	const { teardown } = installDom({ ResizeObserver: class { observe() {} disconnect() {} } });
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
-	const { CookieOfferSettings } = await import(
+	const { CookieSitesPage } = await import(
 		"../src/components/settings/CookieOfferSettings"
 	);
 	const { wire } = await import("../src/wire");
@@ -101,6 +101,7 @@ test("Never for this site can be undone for the named teammate in Settings", asy
 		params: unknown,
 	) => {
 		if (cmd === "computer.cookies.blocked") return blocked;
+		if (cmd === "computer.cookies.sites") return { sites: [], unavailable: [] };
 		calls.push({ cmd, params });
 		blocked = [];
 		return null;
@@ -109,9 +110,9 @@ test("Never for this site can be undone for the named teammate in Settings", asy
 	document.body.append(container);
 	const root = createRoot(container);
 	try {
-		await act(async () => root.render(<CookieOfferSettings />));
+		await act(async () => root.render(<CookieSitesPage settings={{ enabled: true }} onBack={() => {}} />));
 		expect(container.textContent).toContain("Ada · porkbun.com");
-		await act(async () => container.querySelector("button")!.click());
+		await act(async () => Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Undo")!.click());
 		expect(calls).toEqual([
 			{
 				cmd: "computer.cookies.reset",

@@ -1,7 +1,7 @@
 ---
 id: task-264
 title: A burst of tool events doesn't drop the phone's connection
-column: in-progress
+column: review
 position: 0
 priority: medium
 tags:
@@ -21,7 +21,7 @@ relatedFiles:
   - docs/wire.md
 createdAt: "2026-10-22T01:04:57.301Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T01:17:28.848Z"
+updatedAt: "2026-10-22T01:24:17.891Z"
 dispatch:
   agent: codex
   by: cli

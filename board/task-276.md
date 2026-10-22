@@ -42,3 +42,6 @@ Done when:
 - A refused browser raises the notice once and no offer; a granted one offers: named tests with a refusing fixture.
 - The site is offered after access appears, without reopening the page: named test.
 - Manual check on George's Mac: without Full Disk Access the notice shows; with it, the porkbun.com card appears.
+
+## Log
+- 2026-10-22T16:28:54.584Z: [codex] Confirmed discovery discards refused candidates and the watch inserts sites into seen before discovery. Keeping refusal metadata, a room-lifetime browser notice set, and retryable sites; sharing the core's blocked-browser explanation with the Settings picker so it names the actual app/binary.

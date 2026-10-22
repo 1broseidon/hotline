@@ -1,8 +1,8 @@
 ---
 id: task-272
 title: "Flaky on CI macOS: a stalled phone seat's TCP reset must arrive within 5 s while draining 24 MB"
-column: in-progress
-position: 0
+column: review
+position: 3
 priority: low
 tags:
   - flaky
@@ -12,7 +12,7 @@ tags:
 relatedFiles:
   - crates/hotline-core/src/remote/tests/phone.rs
 createdAt: "2026-10-22T08:26:53.752Z"
-updatedAt: "2026-10-22T22:05:13.007Z"
+updatedAt: "2026-10-22T22:17:03.343Z"
 landsOn: release/0.43.0
 dispatch:
   agent: codex

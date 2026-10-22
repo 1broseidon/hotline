@@ -46,3 +46,6 @@ Done when:
 - The setting survives restart and a never-for-this-site block can be undone from the page: named tests.
 - UI tests for the switch, the row's words (All sites / 1 site / N sites) and the page.
 - make check passes.
+
+## Log
+- 2026-10-22T21:05:50.253Z: [codex] Read cookie lending decisions and traced discovery, answer, settings and seats. Implementing a typed default-on room setting; a narrow phone read; owner/desk-only on-demand site discovery; immediate pending-card expiry on settings writes, serialized with discovery and answers through the existing policy gate.

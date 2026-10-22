@@ -19,7 +19,7 @@ relatedFiles:
   - docs/security.md
 createdAt: "2026-10-22T22:44:26.174Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T23:01:10.412Z"
+updatedAt: "2026-10-22T23:01:15.107Z"
 dispatch:
   agent: codex
   by: cli
@@ -31,6 +31,8 @@ dispatch:
     runner: cli
     pid: 47499
     at: "2026-10-22T22:44:29.114Z"
+    ended: "2026-10-22T23:01:15.107Z"
+    outcome: review
 assignee: codex
 decisions:
   - decision-40

@@ -1,8 +1,8 @@
 ---
 id: task-278
 title: A stalled phone seat is sometimes counted closed while its TCP connection is never reset (macOS)
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: medium
 tags:
   - bug
@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/wire/transport.rs
 createdAt: "2026-10-22T22:44:26.174Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T22:44:29.114Z"
+updatedAt: "2026-10-22T22:45:10.145Z"
 dispatch:
   agent: codex
   by: cli

@@ -15,7 +15,7 @@ relatedFiles:
 parentId: epic-24
 createdAt: "2026-10-22T16:27:07.323Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:27:40.980Z"
+updatedAt: "2026-10-22T16:32:52.061Z"
 dispatch:
   agent: codex
   by: cli
@@ -28,6 +28,8 @@ dispatch:
     pid: 59533
     at: "2026-10-22T16:27:17.411Z"
 assignee: codex
+decisions:
+  - decision-38
 ---
 
 ## Description

@@ -38,3 +38,4 @@ Done when:
 ## Log
 - 2026-10-22T22:04:47.473Z: [claude] Failed again on PR #201 head 6036a4d8 (macos job, run 39857519772, 2026-10-22 21:37 UTC): two of the last four macOS runs. Pulled into 0.43.
 - 2026-10-22T22:06:09.024Z: [codex] Replaced the whole-drain deadline with a fresh inactivity timeout for each TCP read; EOF still panics and only ConnectionReset passes. No production behavior changed; verifying the named test and FIN rejection on macOS.
+- 2026-10-22T22:14:37.192Z: [codex] Verified 20/20 consecutive runs of the named test on this Mac; make check passed (2,312 Rust tests). A temporary set_linger(None) mutation failed on the expected EOF assertion, then production transport was restored byte for byte. Running the required handoff precheck.

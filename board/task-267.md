@@ -9,7 +9,7 @@ tags:
   - policy
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.664Z"
-updatedAt: "2026-10-22T07:02:54.015Z"
+updatedAt: "2026-10-22T07:02:58.585Z"
 dispatch:
   agent: codex
   by: cli
@@ -21,6 +21,8 @@ dispatch:
     runner: cli
     pid: 98520
     at: "2026-10-22T06:26:05.779Z"
+    ended: "2026-10-22T07:02:58.585Z"
+    outcome: review
 assignee: codex
 decisions:
   - decision-34

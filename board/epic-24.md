@@ -35,3 +35,6 @@ Order:
 2. Capture card on the desk, then the phone, with the extension showing the new key.
 3. Approval policy: desk, computer, phone.
 4. The OS-vault spike; the OS-vault passkeys only if it says yes.
+
+## Log
+- 2026-10-22T03:09:24.551Z: [claude] Phone tasks on the hotline-mobile board: task-49 (capture card), task-50 (approval card). Computer task here: task-268 (tagged hotline-computer, since that repo has no board).

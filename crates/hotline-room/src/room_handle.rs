@@ -580,11 +580,61 @@ pub trait RoomHandle: Send + Sync + 'static {
         _username: &str,
         _password: &str,
         _totp: Option<&str>,
+        _use: Option<hotline_contract::SecretUse>,
     ) -> Result<hotline_contract::SharedSecret, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
     /// Arms a teammate's computer to make one passkey, to be stored under
     /// `name` and ticked for that teammate.
+    async fn secrets_capture_answer(
+        &self,
+        _answer: hotline_contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        Err("Credential capture is unavailable on this room.".into())
+    }
+    async fn secrets_use_set(
+        &self,
+        _name: &str,
+        _use: hotline_contract::SecretUse,
+    ) -> Result<hotline_contract::SharedSecret, String> {
+        Err("Stored secrets are unavailable on this room.".into())
+    }
+    async fn computer_cookie_offers(&self, _persona: &str) -> Vec<hotline_contract::CookieOffer> {
+        Vec::new()
+    }
+    async fn computer_cookie_blocked(&self) -> Vec<hotline_contract::CookieOfferBlock> {
+        Vec::new()
+    }
+    async fn computer_cookie_sites(&self) -> Result<hotline_contract::CookieOfferSites, String> {
+        Err("Cookie discovery unavailable.".into())
+    }
+    /// Called under the policy gate after saving the offer preference.
+    async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
+        Ok(())
+    }
+    async fn computer_cookie_reset(&self, _persona: &str, _site: &str) -> Result<(), String> {
+        Err("Cookie offers unavailable.".into())
+    }
+    async fn computer_cookie_answer(
+        &self,
+        _persona: &str,
+        _id: &str,
+        _answer: hotline_contract::CookieOfferAnswer,
+    ) -> Result<(), String> {
+        Err("Cookie offers unavailable.".into())
+    }
+    async fn computer_cookie_remove(&self, _persona: &str, _id: &str) -> Result<(), String> {
+        Err("Cookie offers unavailable.".into())
+    }
+
+    async fn secrets_use_answer(
+        &self,
+        _persona: &str,
+        _id: &str,
+        _answer: hotline_contract::SecretUseAnswer,
+    ) -> Result<(), String> {
+        Err("No secret use is waiting on this room.".into())
+    }
     async fn secrets_passkey_register(
         &self,
         _name: &str,

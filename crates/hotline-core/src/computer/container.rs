@@ -117,6 +117,8 @@ pub(super) fn create_args(
         format!("{FOLDERS_ENV}={}", folders.join("\n")),
         "-e".into(),
         format!("{LIMITS_ENV}={}", limits_record(&memory, cpus.as_deref())),
+        "--label".into(),
+        format!("{RELEASE_LABEL}={}", release_of(image)),
         "-v".into(),
         format!("{cwd}:{WORKSPACE_MOUNT}"),
         image.into(),
@@ -559,12 +561,13 @@ pub(super) async fn inspect_within(
             token: None,
             folders: String::new(),
             limits: None,
+            release: None,
         }),
         Err(error) => Err(error),
     }
 }
 
-fn parse_inspect(runtime: Runtime, stdout: &str) -> Result<Inspection, String> {
+pub(super) fn parse_inspect(runtime: Runtime, stdout: &str) -> Result<Inspection, String> {
     let value: Value = serde_json::from_str(stdout)
         .map_err(|error| format!("The runtime's inspect output was not JSON: {error}"))?;
     let object = value
@@ -591,7 +594,31 @@ fn parse_docker(object: &Value) -> Result<Inspection, String> {
         token: token_from_environment(object.pointer("/Config/Env")),
         folders: from_environment(object.pointer("/Config/Env"), FOLDERS_ENV).unwrap_or_default(),
         limits: from_environment(object.pointer("/Config/Env"), LIMITS_ENV),
+        release: inspected_release(
+            object
+                .pointer("/Config/Labels")
+                .and_then(|labels| labels.get(RELEASE_LABEL)),
+            object
+                .pointer("/Config/Image")
+                .or_else(|| object.get("ImageName")),
+        ),
     })
+}
+
+/// Older containers have no Hotline label, but the runtime still knows
+/// their image reference. The top-level Docker/Podman `Image` is an ID,
+/// not that reference, and must never become a release.
+fn inspected_release(label: Option<&Value>, image: Option<&Value>) -> Option<String> {
+    label
+        .and_then(Value::as_str)
+        .filter(|release| !release.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            image
+                .and_then(Value::as_str)
+                .filter(|image| !image.is_empty())
+                .map(release_of)
+        })
 }
 
 pub(super) fn token_from_environment(environment: Option<&Value>) -> Option<String> {
@@ -677,6 +704,12 @@ pub(super) fn parse_apple(object: &Value) -> Result<Inspection, String> {
         limits: from_environment(
             object.pointer("/configuration/initProcess/environment"),
             LIMITS_ENV,
+        ),
+        release: inspected_release(
+            object
+                .pointer("/configuration/labels")
+                .and_then(|labels| labels.get(RELEASE_LABEL)),
+            object.pointer("/configuration/image/reference"),
         ),
     })
 }

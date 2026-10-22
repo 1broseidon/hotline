@@ -71,6 +71,8 @@ tokio-util = { version = "0.7", features = ["compat", "io"] }
 # spoken clip goes to a speech-to-text provider as a multipart form.
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
 url = "2.5.8"
+# Registrable sites, including private suffixes, bound a cookie lend.
+psl = "2.1"
 # Agents the ACP registry ships as prebuilt archives: zip, tar.gz and tar.bz2
 # are what it publishes, unpacked in Rust so no unzip or tar has to be installed.
 # ZIP 9 is the first with RUSTSEC-2026-0367..0369 fixed (symlink and set-id

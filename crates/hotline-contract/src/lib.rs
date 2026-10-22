@@ -23,6 +23,7 @@
 //! why the core's store tests (`store/tests.rs`) feed its own output through
 //! these types and back out again.
 
+mod capture;
 mod command;
 mod computer;
 mod credentials;
@@ -36,6 +37,7 @@ mod tests;
 mod transcript;
 mod views;
 
+pub use capture::*;
 pub use command::*;
 pub use computer::*;
 pub use credentials::*;

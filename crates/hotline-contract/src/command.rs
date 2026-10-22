@@ -828,6 +828,39 @@ pub enum Command {
     },
     /// The secrets the operator has stored for teammates: names and when
     /// each changed, never a value. Owner or local desk only.
+    /// The single owner/phone door for a live credential card.
+    #[serde(rename = "secrets.capture.answer")]
+    SecretsCaptureAnswer(CredentialAnswer),
+    /// Changes only a login or passkey's use policy; desk/owner only.
+    #[serde(rename = "computer.cookies.offers")]
+    ComputerCookieOffers { persona_id: String },
+    /// The room's offer preference, readable by the phone too.
+    #[serde(rename = "computer.cookies.settings")]
+    ComputerCookieSettings {},
+    /// On-demand host-name discovery; desk and owner only, even while offers are off.
+    #[serde(rename = "computer.cookies.sites")]
+    ComputerCookieSites {},
+    #[serde(rename = "computer.cookies.answer")]
+    ComputerCookieAnswer {
+        persona_id: String,
+        id: String,
+        answer: CookieOfferAnswer,
+    },
+    #[serde(rename = "computer.cookies.remove")]
+    ComputerCookieRemove { persona_id: String, id: String },
+    #[serde(rename = "computer.cookies.blocked")]
+    ComputerCookieBlocked {},
+    #[serde(rename = "computer.cookies.reset")]
+    ComputerCookieReset { persona_id: String, site: String },
+    #[serde(rename = "secrets.use.set")]
+    SecretsUseSet { name: String, r#use: SecretUse },
+    /// Answers one live computer use; desk, owner and phone only.
+    #[serde(rename = "secrets.use.answer")]
+    SecretsUseAnswer {
+        persona_id: String,
+        use_id: String,
+        answer: SecretUseAnswer,
+    },
     #[serde(rename = "secrets.list")]
     SecretsList {},
     /// Stores a secret under `name`, or replaces the one there, and hands the
@@ -846,6 +879,8 @@ pub enum Command {
     /// seat only.
     #[serde(rename = "secrets.login.set")]
     SecretsLoginSet {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        r#use: Option<SecretUse>,
         name: String,
         sites: Vec<String>,
         username: String,

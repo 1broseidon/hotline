@@ -152,6 +152,21 @@ pub(super) async fn answer(
         return Err(not_here(thread, "Answering a card"));
     }
     match (thread.kind, answer) {
+        (_, ThreadAnswer::Credential(answer)) => {
+            // Values use the capture door even when an owner names the thread.
+            // The capture itself binds its recipient; a foreign thread is refused.
+            owner_of(log, thread)?;
+            let stream = StreamId::of_thread(thread).ok_or("No such thread.")?;
+            let present = log
+                .snapshot(&stream)
+                .0
+                .iter()
+                .any(|e| e["kind"] == "credential_ask" && e["actionId"] == answer.action_id);
+            if !present {
+                return Err("That credential card does not belong to this thread.".into());
+            }
+            room.secrets_capture_answer(answer).await?;
+        }
         (
             ThreadKind::Dm,
             ThreadAnswer::Permission {

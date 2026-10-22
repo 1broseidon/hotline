@@ -1468,7 +1468,9 @@ pub(super) fn waiting_on(events: &[Value]) -> bool {
         .iter()
         .any(|event| match event.get("kind").and_then(Value::as_str) {
             Some("permission") => event.get("decision").is_none(),
-            Some("human_action") => event.get("status").and_then(Value::as_str) == Some("pending"),
+            Some("human_action" | "credential_ask") => {
+                event.get("status").and_then(Value::as_str) == Some("pending")
+            }
             _ => false,
         })
 }

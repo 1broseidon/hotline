@@ -57,9 +57,12 @@ mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
+pub(crate) mod capture;
+mod cookie_offers;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;
+mod secret_uses;
 mod secrets;
 mod sides;
 mod start;
@@ -635,6 +638,15 @@ pub struct Room {
     /// the name it will be stored under and the site, until the poll that
     /// finds it made, a cancel, or the computer's own ten minutes run out.
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
+    #[cfg(test)]
+    pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
+    #[cfg(test)]
+    pub(crate) cookie_discovery_calls: Arc<std::sync::atomic::AtomicUsize>,
+    /// A host permission failure is said once per browser for this desk run,
+    /// across teammates and session restarts.
+    cookie_access_notices: Mutex<HashSet<String>>,
+    secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
+    captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
@@ -763,12 +775,20 @@ impl Room {
             computers,
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
+            secret_uses: Mutex::default(),
+            #[cfg(test)]
+            cookie_candidates: Mutex::default(),
+            #[cfg(test)]
+            cookie_discovery_calls: Arc::default(),
+            cookie_access_notices: Mutex::default(),
+            captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
+        secret_uses::watch(Arc::downgrade(&room));
         // What the person said that was still waiting when the last desk
         // stopped, and what came back to a job that had not heard it yet, is
         // handed on once, now that the room is up.

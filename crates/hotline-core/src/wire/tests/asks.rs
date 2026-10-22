@@ -49,7 +49,7 @@ fn asked_id(asked: &str) -> String {
 }
 
 /// What a seat is shown when it subscribes: the snapshot frame.
-async fn seat_snapshot(
+pub(super) async fn seat_snapshot(
     seat: Seat,
     room: &Arc<dyn RoomHandle>,
     log: &Log,

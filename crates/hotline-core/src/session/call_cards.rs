@@ -46,6 +46,54 @@ impl Room {
                 answerable: true,
             });
         }
+        if card.kind == "cookie_offer" {
+            let pending = self.tape(&card.persona).iter().any(|event| {
+                event["kind"] == "cookie_offer"
+                    && event["id"] == card.request
+                    && event["status"] == "pending"
+            });
+            return pending.then(|| Notice {
+                text:
+                    "A browser sign-in offer waits on the desk and phone. Please answer it there."
+                        .into(),
+                answerable: false,
+            });
+        }
+        if card.kind == "secret_use_ask" {
+            let pending = self.tape(&card.persona).iter().any(|event| {
+                event["kind"] == "secret_use_ask"
+                    && event["useId"] == card.request
+                    && event["status"] == "pending"
+            });
+            return pending.then(|| Notice {
+                text: "A key-use approval waits on the desk and phone. Please answer it there."
+                    .into(),
+                answerable: false,
+            });
+        }
+        if card.kind == "credential_ask" {
+            let pending = self.tape(&card.persona).iter().any(|e| {
+                e["kind"] == "credential_ask"
+                    && e["actionId"] == card.request
+                    && e["status"] == "pending"
+            });
+            return pending.then(|| Notice {
+                text: "A credential card waits on the desk and phone. Please fill it there; never say the values on this call.".into(),
+                answerable: false,
+            });
+        }
+        if card.kind == "credential_stored" {
+            let tape = self.tape(&card.persona);
+            let event = tape.iter().find(|e| {
+                e["kind"] == "credential_ask"
+                    && e["actionId"] == card.request
+                    && e["status"] == "stored"
+            })?;
+            return Some(Notice {
+                text: format!("Stored as {}.", event["storedAs"].as_str()?),
+                answerable: false,
+            });
+        }
         // Opaque driver approvals, action requests and passkeys cannot be
         // promoted by names, options or an argument supplied by a model.
         let action = match card.kind.as_str() {
@@ -162,7 +210,7 @@ impl Room {
 pub(super) fn is_card(event: &Value) -> bool {
     matches!(
         event["kind"].as_str(),
-        Some("permission" | "human_action" | "passkey_ask")
+        Some("permission" | "human_action" | "credential_ask" | "passkey_ask")
     )
 }
 

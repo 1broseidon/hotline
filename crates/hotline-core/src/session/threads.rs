@@ -169,8 +169,10 @@ impl Threads<'_> {
             }
         }
         let mut written = Written::default();
-        if matches!(event["kind"].as_str(), Some("human_action" | "passkey_ask"))
-            && policy.surface.mirror_to_call
+        if matches!(
+            event["kind"].as_str(),
+            Some("human_action" | "credential_ask" | "passkey_ask")
+        ) && policy.surface.mirror_to_call
             && let Some(voice) = super::lock(&self.room.voice).upgrade()
         {
             voice.card(persona_id, &event);

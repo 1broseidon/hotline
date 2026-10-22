@@ -20,9 +20,9 @@ other. `COMPUTER_VERSION` in
 was tested with, what a computer is created on offline, and the line under
 which nothing is offered — and never `latest`. A pinned image, the
 teammate's or the room's, is used as written and never looked up. The desk
-learns the release a running computer actually is from the guide it serves
-(below), and when that is behind the newest, the teammate's pane offers the
-update.
+learns the release a running computer actually is from the guide it serves,
+or recovers it from the container's metadata (below). When it differs from
+the chosen image, the teammate's pane offers the update.
 
 ## The contract Hotline relies on
 
@@ -123,8 +123,12 @@ computer made on an older release keeps running that release after Hotline is
 updated. To move it, remove the computer from the teammate's pane; the next
 start creates one on the current choice, and the workspace, scratch and home
 volumes survive the container, so prepared environments, jobs and the browser
-profile come back with it. The running release is always the one the guide
-reports, never the configured tag.
+profile come back with it. The running release prefers what the guide reports.
+Without a learned guide release, including after a desk restart, inspection
+reads the `hotline.release` label written from the image tag at creation. A
+container made before that label falls back to the runtime's image reference:
+Apple's `configuration.image.reference`, Docker's `Config.Image`, or Podman's
+`Config.Image` / `ImageName`. Neither fallback reads the current image setting.
 
 The desk learns that release at every start: once the container is healthy,
 Hotline calls its `state` tool with action `guide`, which answers the release's

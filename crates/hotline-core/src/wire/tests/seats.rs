@@ -414,6 +414,7 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
         name: "GITHUB_TOKEN".to_string(),
     };
     let login = Command::SecretsLoginSet {
+        r#use: None,
         name: "GITHUB_LOGIN".to_string(),
         sites: vec!["https://github.com".to_string()],
         username: "george".to_string(),

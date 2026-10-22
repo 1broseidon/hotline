@@ -486,7 +486,7 @@ impl Room {
 
     /// One line onto the thread of the teammate's a card is raised in: its
     /// tape for the DM, else the thread's own stream.
-    pub(super) fn write_home(&self, persona_id: &str, home: &ThreadId, event: &TranscriptEvent) {
+    pub(crate) fn write_home(&self, persona_id: &str, home: &ThreadId, event: &TranscriptEvent) {
         if home.kind == ThreadKind::Dm {
             self.write(persona_id, event);
         } else {
@@ -499,6 +499,7 @@ impl Room {
     /// teammate's "waiting on you" stays up forever. A card from before
     /// cards carried `expiresAt` lives [`ASK_HOURS`] from when it was asked.
     pub(crate) fn expire_stale_asks(self: &Arc<Self>, now: i64) {
+        self.expire_orphaned_credentials();
         for persona in crate::room::roster(&self.log) {
             for (event, home) in self.cards_of(&persona.id) {
                 let Ok(TranscriptEvent::HumanAction {
@@ -668,7 +669,7 @@ impl Room {
     }
 
     /// Every human-action card of the teammate's, with the thread it is on.
-    fn cards_of(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
+    pub(super) fn cards_of(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
         let dm = ThreadId::dm(persona_id);
         self.tape(persona_id)
             .into_iter()

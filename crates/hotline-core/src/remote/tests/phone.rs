@@ -812,6 +812,52 @@ async fn a_revoked_seat_drains_tcp_instead_of_resetting_it() {
 /// (its queue never fills) and never asked for the silence timer (no `lean`).
 #[tokio::test]
 async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound() {
+    let (h, mut phone) = stalled_phone().await;
+    // Bound each wait for progress; the whole drain may take longer under load.
+    use tokio::io::AsyncReadExt;
+    let tcp = phone.socket.get_mut().get_mut().0;
+    let mut bytes = [0; 65536];
+    let reset = loop {
+        match tokio::time::timeout(Duration::from_secs(5), tcp.read(&mut bytes))
+            .await
+            .expect("the stalled transport makes progress until it resets")
+        {
+            Ok(0) => panic!("the stalled seat closed without resetting TCP"),
+            Ok(_) => {}
+            Err(error) => break error,
+        }
+    };
+    assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
+    drop(phone);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+/// Admission cannot report a stalled seat gone while TCP is still open.
+/// The one-second ceiling is the task's transport requirement, measured only
+/// after the paused deadline clock has resumed and admission reaches zero.
+#[tokio::test]
+async fn a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission() {
+    let (h, mut phone) = stalled_phone().await;
+    use tokio::io::AsyncReadExt;
+    let tcp = phone.socket.get_mut().get_mut().0;
+    let reset = tokio::time::timeout(Duration::from_secs(1), async {
+        let mut bytes = [0; 65536];
+        loop {
+            match tcp.read(&mut bytes).await {
+                Ok(0) => panic!("the stalled seat closed without resetting TCP"),
+                Ok(_) => {}
+                Err(error) => break error,
+            }
+        }
+    })
+    .await
+    .expect("TCP resets within one second of admission reaching zero");
+    assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
+    drop(phone);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+async fn stalled_phone() -> (Harness, PhoneSocket) {
     let h = Harness::new().await;
     let grant = h.pair().await;
     let mut phone = h.socket(&grant.private).await.unwrap();
@@ -849,25 +895,7 @@ async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound()
         tokio::time::advance(crate::wire::WRITE_STALL).await;
         tokio::time::resume();
     }
-    // Draining the bytes already received ends in a TCP reset, not a FIN
-    // left waiting behind the desk's unsent frame.
-    use tokio::io::AsyncReadExt;
-    let tcp = phone.socket.get_mut().get_mut().0;
-    let reset = tokio::time::timeout(Duration::from_secs(5), async {
-        let mut bytes = [0; 65536];
-        loop {
-            match tcp.read(&mut bytes).await {
-                Ok(0) => panic!("the stalled seat closed without resetting TCP"),
-                Ok(_) => {}
-                Err(error) => break error,
-            }
-        }
-    })
-    .await
-    .expect("the stalled transport resets");
-    assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
-    drop(phone);
-    h.remote.configure(false, network::ALL).await.unwrap();
+    (h, phone)
 }
 
 #[tokio::test]

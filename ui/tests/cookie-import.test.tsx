@@ -13,7 +13,8 @@ const { CookieImport } = await import("../src/components/CookieImport");
 Reflect.deleteProperty(globalThis, "localStorage");
 
 const local = { id: "local", name: "This computer", kind: "local" as const, origin: "", token: "" };
-const brave = { id: "brave", name: "Brave", family: "chromium", profiles: [], blocked: true };
+const blockedReason = "Hotline can't read Brave's cookies, so it can't offer your sessions. Allow hotline-app-dev in System Settings → Privacy & Security → Full Disk Access, then reopen Hotline.";
+const brave = { id: "brave", name: "Brave", family: "chromium", profiles: [], blocked: true, blockedReason };
 const arc = { id: "arc", name: "Arc", family: "chromium", profiles: [], blocked: true };
 const firefox = { id: "firefox", name: "Firefox", family: "firefox", profiles: [{ id: "Profiles/a.default", name: "default" }], blocked: false };
 
@@ -66,7 +67,8 @@ describe("bringing cookies over from a browser the host keeps the desk out of", 
 	test("names the blocked browsers and says what to allow, and offers only the readable ones", async () => {
 		browsers = [brave, arc, firefox];
 		await mount();
-		expect(text()).toContain("Brave and Arc");
+		expect(text()).toContain(blockedReason);
+		expect(text()).toContain("Arc");
 		expect(choices()).toEqual(["Firefox"]);
 		// The preview starts on the readable browser; a blocked one is never read.
 		expect(asked).toContain("computer.cookies.preview firefox");
@@ -76,7 +78,7 @@ describe("bringing cookies over from a browser the host keeps the desk out of", 
 	test("says why there is nothing to pick when every browser is blocked, rather than that none was found", async () => {
 		browsers = [brave];
 		await mount();
-		expect(text()).toContain("Brave");
+		expect(text()).toContain(blockedReason);
 		expect(text()).not.toContain("No browser with cookies was found");
 		expect(container.querySelector("select")).toBeNull();
 	});

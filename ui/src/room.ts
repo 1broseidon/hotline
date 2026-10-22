@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import type { ScheduledJob } from "./generated/contract";
+import type { CookieOfferSettings, ScheduledJob } from "./generated/contract";
 import { mcpServersFrom, type McpServer } from "./mcp";
 import { activeDeskId, wireFor } from "./desks";
 
@@ -159,6 +159,7 @@ export function useRoomSettings(): {
 	enabledModels: Record<string, string[]>;
 	computerRuntime: string | null;
 	computerImage: string | null;
+	cookieOffers: CookieOfferSettings;
 	skillsHome: string | null;
 } {
 	const events = useRoom(pickSettings);
@@ -175,6 +176,7 @@ export function useRoomSettings(): {
 		enabledModels,
 		computerRuntime: optionalStringSetting(events.get("computerRuntime")),
 		computerImage: optionalStringSetting(events.get("computerImage")),
+		cookieOffers: cookieOffersSetting(events.get("cookieOffers")),
 		skillsHome: optionalStringSetting(events.get("skillsHome")),
 	};
 }
@@ -293,6 +295,16 @@ function takeKind(items: RoomItem[], kind: string): Map<string, RoomItem> {
 function listSetting(event: RoomItem | undefined): McpServer[] {
 	if (!event || event.deleted) return [];
 	return mcpServersFrom(event.value);
+}
+
+function cookieOffersSetting(event: RoomItem | undefined): CookieOfferSettings {
+	if (!event || event.deleted) return { enabled: true };
+	const value = event.value as Partial<CookieOfferSettings> | null;
+	if (!value || typeof value !== "object") return { enabled: false };
+	return {
+		enabled: value.enabled ?? true,
+		...(Array.isArray(value.sites) ? { sites: value.sites } : {}),
+	};
 }
 
 function numberSetting(event: RoomItem | undefined, fallback: number): number {

@@ -345,6 +345,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
         .set_shared(
             "GITHUB_LOGIN",
             crate::vault::StoredSecret::Login {
+                r#use: crate::contract::SecretUse::Auto,
                 sites: vec!["https://github.com".to_string()],
                 username: "george".to_string(),
                 password: "correct-horse-battery".to_string(),
@@ -361,7 +362,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
     assert_eq!(
         sets[0]["GITHUB_LOGIN"],
         serde_json::json!({
-            "kind": "login", "sites": ["https://github.com"],
+            "kind": "login", "use": "auto", "sites": ["https://github.com"],
             "username": "george", "password": "correct-horse-battery",
         })
     );
@@ -492,7 +493,7 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
 /// Polls the registration until it answers `state`, since the room's own
 /// watch may be storing the passkey at the moment a poll arrives.
 async fn registration_until(
-    room: &Room,
+    room: &Arc<Room>,
     persona_id: &str,
     state: crate::contract::PasskeyRegistrationState,
 ) -> crate::contract::PasskeyRegistration {
@@ -739,10 +740,10 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     assert_eq!(status.available.as_deref(), Some("test"));
 }
 
-/// An image too old to serve a guide leaves no skill and no stale one: the
-/// teammate is told to ask the computer itself, and the tape says why.
+/// An image too old to serve a guide leaves no stale skill. The teammate
+/// asks the computer directly, while status still knows the release.
 #[tokio::test]
-async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask_it() {
+async fn a_held_computer_without_a_guide_reports_its_label_and_leaves_no_stale_skill() {
     let ComputerRoom {
         room, agents, cwd, ..
     } = computer_room("computer-no-guide", None, TWO_RELEASES, true).await;
@@ -766,7 +767,7 @@ async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask
         "a missing guide is not the conversation's: {notices:?}"
     );
     let status = room.computer_status("ada").await.unwrap();
-    assert_eq!(status.release, None);
+    assert_eq!(status.release.as_deref(), Some("test"));
     assert_eq!(status.available, None);
 }
 
@@ -1304,4 +1305,42 @@ async fn laptop_cookies_reach_the_computer_but_never_the_room_or_tape() {
                 .contains("laptop-secret-value")
         );
     }
+}
+
+#[tokio::test]
+async fn a_slow_secret_use_poll_does_not_delay_another_computers_next_card() {
+    let fixture = secret_use_room(
+        "use-independent-polls",
+        "0.11.2",
+        crate::contract::SecretUse::Ask,
+    )
+    .await;
+    let room = &fixture.room;
+    // An in-flight poll or answer owns this lock while its computer is slow.
+    let busy = room.use_watch("another-computer");
+    let _held = busy.lock().await;
+    let first = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
+    until("the first use is offered", || {
+        tape(room, "ada").iter().any(|event| {
+            event["kind"] == "secret_use_ask"
+                && event["useId"] == first
+                && event["status"] == "pending"
+        })
+    })
+    .await;
+    fixture.taken.uses.expire(&first);
+    let second = fixture.taken.uses.hold("GH_PASSKEY", "github.com").unwrap();
+    until("the next round still reaches this computer", || {
+        tape(room, "ada").iter().any(|event| {
+            event["kind"] == "secret_use_ask"
+                && event["useId"] == second
+                && event["status"] == "pending"
+        })
+    })
+    .await;
+    assert!(
+        tape(room, "ada")
+            .iter()
+            .any(|event| event["useId"] == first && event["status"] == "expired")
+    );
 }

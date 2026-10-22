@@ -70,6 +70,7 @@ const SEARCH_THREAD: &str = "search_thread";
 const LIST_CHAPTERS: &str = "list_chapters";
 const RESUME_CHAPTER: &str = "resume_chapter";
 const NEW_CHAPTER: &str = "new_chapter";
+const REQUEST_CREDENTIAL: &str = "request_credential";
 const REQUEST_HUMAN: &str = "request_human";
 const SET_PERSON_NAME: &str = "set_person_name";
 const ASK_QUESTION: &str = "ask_question";
@@ -93,12 +94,13 @@ const ARCHIVE_THREAD: &str = "archive_thread";
 const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 23] = [
+pub const TOOL_NAMES: [&str; 24] = [
     SEARCH_THREAD,
     READ_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
     NEW_CHAPTER,
+    REQUEST_CREDENTIAL,
     REQUEST_HUMAN,
     SET_PERSON_NAME,
     ASK_QUESTION,
@@ -191,7 +193,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `read_thread` reads any of your threads in order by its key (for example call:<id>), paging with next_after until it is null. A call’s thread IS its transcript, including what each side said and every tool call. When the person says \"like we said on the call\", read that call’s thread to recover the details and act on them; do not ask them to repeat what the transcript records. `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `set_person_name` proposes saving the person's preferred name when they tell you (for example, call me George); it raises a card and only their yes saves it. Never claim it was saved before approval. `ask_question` asks a yes/no question, including whether to go ahead with your plan, and returns its card id; use it whenever the person asks for a yes/no or approval card, and it may be answered by voice on a call. `request_human` asks the person to do something you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, look at a screen, make a payment, confirm a deletion — and returns at once with the request's id; their answer, and whatever they type with it, arrives later as its own message. The card stays up two hours unless you ask for longer, up to a day; when you no longer need it, because you found another way or the work moved on, `withdraw_request` takes it down. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped), what it is working on, and its goal, agent, model and capabilities, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` makes a job that runs once later (`20m`, an ISO time) and `loop` one that runs on an interval: each runs on a thread of its own, not in this conversation, and what it finds is posted to the person's chat; for a person who only wants reminding, set `reminder` and the prompt itself is posted at that time; `without` leaves out of a job what its work should not touch (`computer`, `folders` outside your working directory, `mcp_servers`). `list_schedules` shows only your jobs and `cancel_schedule` ends one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `post_to_chat` puts one message a turn in the person's chat with you from a work thread, a colleague's thread or a job's thread; in the main conversation your reply is already the chat. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it, and from a job's thread it is that turn's one post. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. `web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `read_thread` reads any of your threads in order by its key (for example call:<id>), paging with next_after until it is null. A call’s thread IS its transcript, including what each side said and every tool call. When the person says \"like we said on the call\", read that call’s thread to recover the details and act on them; do not ask them to repeat what the transcript records. `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `set_person_name` proposes saving the person's preferred name when they tell you (for example, call me George); it raises a card and only their yes saves it. Never claim it was saved before approval. `ask_question` asks a yes/no question, including whether to go ahead with your plan, and returns its card id; use it whenever the person asks for a yes/no or approval card, and it may be answered by voice on a call. `request_credential` asks for a login or passkey for an origin through secure fields on the desk and phone; values never enter chat or voice. `request_human` asks the person to do something you cannot — tap a 2FA prompt, solve a CAPTCHA, look at a screen, make a payment, confirm a deletion — and returns at once with the request's id; their answer, and whatever they type with it, arrives later as its own message. The card stays up two hours unless you ask for longer, up to a day; when you no longer need it, because you found another way or the work moved on, `withdraw_request` takes it down. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped), what it is working on, and its goal, agent, model and capabilities, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` makes a job that runs once later (`20m`, an ISO time) and `loop` one that runs on an interval: each runs on a thread of its own, not in this conversation, and what it finds is posted to the person's chat; for a person who only wants reminding, set `reminder` and the prompt itself is posted at that time; `without` leaves out of a job what its work should not touch (`computer`, `folders` outside your working directory, `mcp_servers`). `list_schedules` shows only your jobs and `cancel_schedule` ends one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `post_to_chat` puts one message a turn in the person's chat with you from a work thread, a colleague's thread or a job's thread; in the main conversation your reply is already the chat. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it, and from a job's thread it is that turn's one post. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. `web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -288,8 +290,15 @@ fn descriptors() -> Vec<Tool> {
             schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
         ),
         Tool::new(
+            REQUEST_CREDENTIAL,
+            "Ask for a login or passkey for one full HTTPS origin. Raises a secure card on the desk and phone; values go only to the vault and your computer. Returns immediately; the name, site and fill instructions arrive later. Never ask for values in chat or voice. After a decline, do not ask for that site again in this turn. Withdraw with withdraw_request when no longer needed.",
+            schema(
+                json!({"type":"object", "properties":{"site":{"type":"string"}, "reason":{"type":"string","minLength":3,"maxLength":500}, "name":{"type":"string"}, "kind":{"type":"string","enum":["login","passkey"]}}, "required":["site","reason","kind"], "additionalProperties":false}),
+            ),
+        ),
+        Tool::new(
             REQUEST_HUMAN,
-            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, look at a screen, make a payment, confirm a deletion. For a yes/no question or approval of your plan, use ask_question instead. A card appears in your conversation and this call returns at once. Their answer, done or declined with whatever note they typed, arrives later as its own message, so carry on with anything that does not depend on it and do not poll. The card stays up two hours, then is taken down and you are told; pass `wait_hours` (up to 24) only when the ask really waits for the person to come back. The call returns the request's id: if you stop needing the answer, because you found another way or the work moved on, call withdraw_request with it so the person is not left being asked. (Answering a colleague in a private thread, the call waits up to ten minutes instead.) Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it, so get the page that needs them on screen before you ask.",
+            "Ask the person to take an action you cannot — tap a 2FA prompt, solve a CAPTCHA, look at a screen, make a payment, confirm a deletion. For a login or passkey, use request_credential instead; never put credential values in a reason or note. For a yes/no question or approval of your plan, use ask_question instead. A card appears in your conversation and this call returns at once. Their answer, done or declined with whatever note they typed, arrives later as its own message, so carry on with anything that does not depend on it and do not poll. The card stays up two hours, then is taken down and you are told; pass `wait_hours` (up to 24) only when the ask really waits for the person to come back. The call returns the request's id: if you stop needing the answer, because you found another way or the work moved on, call withdraw_request with it so the person is not left being asked. (Answering a colleague in a private thread, the call waits up to ten minutes instead.) Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it, so get the page that needs them on screen before you ask.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -934,6 +943,15 @@ impl TeammateTools {
                 }
                 room.ask_question(&self.persona_id, question, &self.thread, capability)
             }
+            REQUEST_CREDENTIAL => {
+                let request = serde_json::from_value(arguments.clone())
+                    .map_err(|_| "request_credential needs site, reason, kind (login or passkey), and optionally name.")?;
+                let capability = self
+                    .capability
+                    .clone()
+                    .ok_or("This credential request has no live session lease.")?;
+                room.request_credential(&self.persona_id, &self.thread, capability, request)
+            }
             REQUEST_HUMAN => {
                 let reason = arguments
                     .get("reason")
@@ -961,9 +979,13 @@ impl TeammateTools {
                     .map(str::trim)
                     .filter(|id| !id.is_empty())
                     .ok_or_else(|| {
-                        "withdraw_request needs the `id` request_human returned.".to_string()
+                        "withdraw_request needs the `id` returned by the request tool.".to_string()
                     })?;
-                room.withdraw_human(&self.persona_id, id)?;
+                if id.starts_with("credential:") {
+                    room.withdraw_credential(&self.persona_id, id).await?;
+                } else {
+                    room.withdraw_human(&self.persona_id, id)?;
+                }
                 Ok("Withdrawn. The card is down and the person is no longer asked.".to_string())
             }
             REACT => {

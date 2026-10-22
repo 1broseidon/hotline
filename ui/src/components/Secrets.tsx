@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { SharedSecret, SharedSecretKind } from "../generated/contract";
+import type { SecretUse, SharedSecret, SharedSecretKind } from "../generated/contract";
 import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
 import { Chips } from "../ui/Chips";
@@ -93,15 +93,28 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 		}
 	};
 
-	const storeLogin = async (name: string, sites: string[], username: string, password: string, totp: string | null) => {
+	const storeLogin = async (name: string, sites: string[], username: string, password: string, totp: string | null, use: SecretUse) => {
 		setBusy(true);
 		setRefusal(null);
 		try {
-			await wire.command("secrets.login.set", { name, sites, username, password, ...(totp !== null ? { totp } : {}) });
+			await wire.command("secrets.login.set", { name, sites, username, password, use, ...(totp !== null ? { totp } : {}) });
 			close();
 			refresh();
 		} catch (error) {
 			setRefusal(refused(UNSAVED, error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const changeUse = async (name: string, use: SecretUse) => {
+		setBusy(true);
+		setRefusal(null);
+		try {
+			const secret = await wire.command("secrets.use.set", { name, use });
+			setStored((was) => was?.map((one) => one.name === name ? secret : one) ?? null);
+		} catch (error) {
+			setRefusal(refused("Couldn't change use", error));
 		} finally {
 			setBusy(false);
 		}
@@ -186,6 +199,11 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 													{describe(secret)} · stored {new Date(secret.updatedAt).toLocaleDateString()}
 												</span>
 											</span>
+											{secret.kind !== "variable" && <Chips
+												label={`Use ${secret.name}`} value={secret.use ?? "auto"} disabled={busy}
+												choices={[{ id: "auto", name: "Automatic" }, { id: "ask", name: "Ask me" }]}
+												onChange={(use) => void changeUse(secret.name, use as SecretUse)}
+											/>}
 											{secret.kind !== "passkey" && (
 												<button
 													type="button"
@@ -217,7 +235,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 											<VariableForm name={secret.name} busy={busy} onStore={storeVariable} onCancel={close} />
 										)}
 										{editing === secret.name && secret.kind === "login" && (
-											<LoginForm name={secret.name} sites={secret.sites ?? []} username={secret.username ?? ""} busy={busy} onStore={storeLogin} onCancel={close} />
+											<LoginForm name={secret.name} usage={secret.use} sites={secret.sites ?? []} username={secret.username ?? ""} busy={busy} onStore={storeLogin} onCancel={close} />
 										)}
 										{removing === secret.name && (
 											<div className="group-row">
@@ -347,6 +365,7 @@ function LoginForm({
 	name: fixed,
 	sites: knownSites,
 	username: knownUsername,
+	usage = "auto",
 	busy,
 	onStore,
 	onCancel,
@@ -354,8 +373,9 @@ function LoginForm({
 	name?: string;
 	sites?: string[];
 	username?: string;
+	usage?: SecretUse;
 	busy: boolean;
-	onStore(name: string, sites: string[], username: string, password: string, totp: string | null): Promise<void>;
+	onStore(name: string, sites: string[], username: string, password: string, totp: string | null, use: SecretUse): Promise<void>;
 	onCancel(): void;
 }) {
 	const [name, setName] = useState(fixed ?? "");
@@ -364,6 +384,7 @@ function LoginForm({
 	const [password, setPassword] = useState("");
 	const [totp, setTotp] = useState("");
 	const [codes, setCodes] = useState(false);
+	const [use, setUse] = useState<SecretUse>(usage);
 	const siteList = sites
 		.split(/\s+/)
 		.map((site) => site.trim())
@@ -371,7 +392,7 @@ function LoginForm({
 	const ready = name.trim() !== "" && siteList.length > 0 && username.trim() !== "" && password.length >= MIN_VALUE_CHARS;
 	const submit = () => {
 		if (!ready || busy) return;
-		void onStore(name.trim(), siteList, username.trim(), password, totp.trim() === "" ? null : totp.replace(/\s+/g, ""));
+		void onStore(name.trim(), siteList, username.trim(), password, totp.trim() === "" ? null : totp.replace(/\s+/g, ""), use);
 	};
 
 	return (
@@ -442,6 +463,10 @@ function LoginForm({
 				/>
 				<p className="hint">Only if the site asks for six-digit codes.</p>
 			</Fold>
+			<div className="group-row">
+				<span className="w-24 shrink-0 text-sm text-ink-2">Use</span>
+				<Chips label="Login use" value={use} choices={[{ id: "auto", name: "Automatic" }, { id: "ask", name: "Ask me" }]} disabled={busy} onChange={(value) => setUse(value as SecretUse)} />
+			</div>
 			<FormFoot note="Typed only on these sites, never shown." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
 		</>
 	);

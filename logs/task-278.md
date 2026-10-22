@@ -1,8 +1,6 @@
 ---
 id: task-278
 title: A stalled phone seat is sometimes counted closed while its TCP connection is never reset (macOS)
-column: review
-position: 3
 priority: medium
 tags:
   - bug
@@ -19,7 +17,7 @@ relatedFiles:
   - docs/security.md
 createdAt: "2026-10-22T22:44:26.174Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T23:01:15.107Z"
+updatedAt: "2026-10-22T23:01:48.867Z"
 dispatch:
   agent: codex
   by: cli
@@ -36,6 +34,7 @@ dispatch:
 assignee: codex
 decisions:
   - decision-40
+completedAt: "2026-10-22T23:01:48.867Z"
 ---
 
 ## Description
@@ -54,3 +53,4 @@ Done when:
 - 2026-10-22T22:55:35.653Z: [codex] Committed 98dd1859 on dispatch/task-278: the seat polls its writer locally, cancellation drops both halves, and consuming zero-linger close happens without suspension before admission release. The deterministic writer-lifetime regression and all 14 phone tests pass. Decision-40 refines wire.abortive-close without expanding which closes reset; final loaded repetitions and make check are running.
 - 2026-10-22T22:58:39.530Z: [codex] Loaded Mac acceptance passed on 98dd1859: a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission 200/200 (191.8 s), original a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound 50/50 (47.6 s). Each used four concurrent test processes with --test-threads=32 and 12 captured-PID yes CPU hogs, also overlapping make check compilation/tests, on this 18-core arm64 Darwin 27 Mac. No failures; all hogs stopped by their captured PIDs. Logs: target/task-278/{reset-after,original-after}/.
 - 2026-10-22T23:01:10.134Z: [codex] Ready for review on dispatch/task-278, commit 98dd1859; clean worktree. Writer lifetime and consuming abortive close now enforce transport teardown before admission release, with cancellation and 1 s reset regressions. Loaded Mac runs: new 200/200, original 50/50; make check passed and all 8 make precheck legs passed (including Windows). Exact prior CI flake remains unreproduced; the detached-writer cancellation failure was reproduced and fixed. Reviewer next: inspect ownership/close ordering and confirm macOS CI when merging.
+- 2026-10-22T23:01:48.476Z: Landed on release/0.43.0

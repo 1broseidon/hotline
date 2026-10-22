@@ -1,15 +1,15 @@
 ---
 id: task-267
 title: "Desk: each login and passkey is automatic or ask me, with an approval card for ask-me uses"
-column: todo
-position: 3
+column: in-progress
+position: 0
 priority: high
 tags:
   - credentials
   - policy
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.664Z"
-updatedAt: "2026-10-22T06:26:05.779Z"
+updatedAt: "2026-10-22T06:26:26.045Z"
 dispatch:
   agent: codex
   by: cli

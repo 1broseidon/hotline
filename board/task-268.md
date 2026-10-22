@@ -1,8 +1,8 @@
 ---
 id: task-268
 title: "Computer (hotline-computer): hold an ask-me key's use until approved, and show it on the page"
-column: todo
-position: 4
+column: review
+position: 1
 priority: high
 tags:
   - credentials
@@ -10,7 +10,7 @@ tags:
   - hotline-computer
 parentId: epic-24
 createdAt: "2026-10-22T03:09:09.205Z"
-updatedAt: "2026-10-22T05:06:08.681Z"
+updatedAt: "2026-10-22T05:44:52.169Z"
 ---
 
 ## Description

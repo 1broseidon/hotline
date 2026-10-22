@@ -71,7 +71,7 @@ sign-in on an account starts its teammates fresh once their work ends.
 In the teammate's pane, **Claude Code account** lists **System default** and
 every account, with **In use** beside the one running. Pick another and the
 teammate moves to it when its work ends: no turn in its conversation, and no
-side thread, job or subagent mid-turn. Until then the pane says **Switches to
+side thread, call, job or subagent mid-turn. Until then the pane says **Switches to
 … when its work ends**, and offers:
 
 - **Keep …**: stay on the account in use, and change nothing.

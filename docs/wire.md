@@ -332,8 +332,8 @@ work; a copy already under way still finishes. `accounts.login.poll`,
 `.input` and `.cancel` keep their place in the ordered worker, and
 `persona.account` its teammate's lane. The
 desk rechecks the accounts in use once when it opens. `persona.account` stores the choice at once; the switch applies
-once the whole teammate is idle (no DM turn, and no side thread, job,
-subagent or pair mid-turn) and the account is not held. `held` says why it
+once the whole teammate is idle (no DM turn, and no side thread, call,
+job, subagent or pair mid-turn) and the account is not held. `held` says why it
 waits: `not_signed_in` while the account's cached status is signed out,
 `signing_in` while a sign-in for it runs. Choosing the running account again
 is Keep: it drops the pending switch and changes nothing else. A confirmed

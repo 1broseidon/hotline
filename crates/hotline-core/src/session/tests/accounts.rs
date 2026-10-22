@@ -1,6 +1,6 @@
 use super::*;
 use crate::contract::{
-    AccountHold, AccountStatusState, AccountStatusView, AgentAccount, SessionAccount,
+    AccountHold, AccountStatusState, AccountStatusView, AgentAccount, SessionAccount, ThreadKind,
 };
 
 const A: &str = "11111111-1111-4111-8111-111111111111";
@@ -250,6 +250,50 @@ async fn a_switch_waits_for_a_side_thread_mid_turn() {
     room.start_side("ada", "Another task").await.unwrap();
     until("both sides have agents", || agents.views().len() == 3).await;
     assert_eq!(agents.views().last().unwrap().agent_account_id, Some(a));
+    gate.add_permits(10);
+    until("switched", || running(&room) == Some(b.clone())).await;
+}
+
+#[tokio::test]
+async fn a_switch_waits_for_a_call_thread_mid_turn() {
+    let (agents, gate) = gated();
+    let (room, a, b) = on_accounts("switch-call", agents.clone());
+    started(&room).await;
+    let thread = ThreadId {
+        kind: ThreadKind::Call,
+        key: "call-1".into(),
+    };
+    let (_live, launch) = room
+        .bring_up(
+            "ada",
+            super::sides::Start {
+                thread: thread.clone(),
+                title: "Call".into(),
+                started: now_ms(),
+                opener: None,
+                fresh: true,
+                saved: None,
+                handoff: None,
+            },
+        )
+        .unwrap();
+    room.prompt_side(&thread.key, "Run the tests", None)
+        .await
+        .unwrap();
+    room.launch(launch);
+    until("the call is working", || {
+        !room.working_calls("ada").is_empty()
+    })
+    .await;
+    assert_eq!(
+        agents.views().last().unwrap().agent_account_id,
+        Some(a.clone())
+    );
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, None)
+    );
+    assert_eq!(running(&room), Some(a));
     gate.add_permits(10);
     until("switched", || running(&room) == Some(b.clone())).await;
 }

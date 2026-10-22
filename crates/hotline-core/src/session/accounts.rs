@@ -197,6 +197,7 @@ impl Room {
         let dm = lock(&self.sessions).get(persona_id).cloned();
         !dm.is_some_and(|session| lock(&session.turns).running)
             && !self.sides(persona_id).iter().any(|side| side.working)
+            && self.working_calls(persona_id).is_empty()
             && self.working_jobs(persona_id).is_empty()
             && self.subagents(persona_id).is_empty()
             && !self.peers.answering_for(persona_id)

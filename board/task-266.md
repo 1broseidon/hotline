@@ -8,7 +8,7 @@ tags:
   - credentials
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.125Z"
-updatedAt: "2026-10-22T05:06:41.883Z"
+updatedAt: "2026-10-22T05:25:48.977Z"
 dispatch:
   agent: codex
   by: cli
@@ -21,6 +21,8 @@ dispatch:
     pid: 24193
     at: "2026-10-22T05:06:18.269Z"
 assignee: codex
+decisions:
+  - decision-33
 ---
 
 ## Description

@@ -215,88 +215,101 @@ where
             Seat::Desk => usize::MAX,
         },
     };
-    let writer_cancel = cancel.clone();
-    let writer = tokio::spawn(async move {
-        let mut stalled = false;
-        tokio::select! {
-            biased;
-            () = writer_cancel.cancelled() => {},
-            () = async {
-                while let Some(text) = outbox.recv().await {
-                    // A peer that stopped reading without closing (a phone that left
-                    // the network) takes no more bytes, and TCP may keep the socket
-                    // up for many minutes before it says so. A frame it has not taken
-                    // in this long ends the seat: a queue that never fills, because
-                    // the seat is quiet, cannot end it, nor can a silence timer the
-                    // client never asked for.
-                    let sent = tokio::time::timeout(WRITE_STALL, sink.send(Message::text(text))).await;
-                    if !matches!(sent, Ok(Ok(()))) {
-                        stalled = sent.is_err();
-                        break;
-                    }
-                }
-            } => {},
-        }
-        writer_cancel.cancel();
-        (sink, stalled)
-    });
-
+    // The seat owns both halves even when its future is dropped. A spawned
+    // writer can outlive that future and the admission permit held by its caller.
+    let _cancel_on_drop = cancel.clone().drop_guard();
     let ordered = open_ordered(seat, desk.clone(), sender.clone(), phone.clone());
     let mut lanes: HashMap<String, mpsc::UnboundedSender<Value>> = HashMap::new();
-    let result = loop {
-        // A lean phone pings; one that has said nothing for this long is a
-        // link that died without closing, and its subscriptions are work
-        // for nobody.
-        let silent = async {
-            if sender.lean() {
-                tokio::time::sleep(LEAN_IDLE).await;
-            } else {
-                std::future::pending::<()>().await;
-            }
-        };
-        let incoming = tokio::select! {
-            biased;
-            () = cancel.cancelled() => break Ok(()),
-            frame = incoming.next() => frame,
-            () = silent => break Ok(()),
-        };
-        match incoming {
-            None | Some(Ok(Message::Close(_))) => break Ok(()),
-            Some(Err(error)) => break Err(error),
-            Some(Ok(Message::Text(text))) => {
-                let Ok(frame) = serde_json::from_str::<Value>(&text) else {
-                    continue;
-                };
-                // A command about one teammate waits behind that teammate's
-                // earlier commands and nobody else's: an agent that never
-                // finishes starting holds up its own lane, not the desk.
-                if let Some(teammate) = lane_of(&frame) {
-                    let lane = lanes.entry(teammate).or_insert_with(|| {
-                        open_lane(seat, desk.clone(), sender.clone(), phone.clone())
-                    });
-                    let _ = lane.send(frame);
-                    continue;
+    let (result, stalled) = {
+        let writer = async {
+            while let Some(text) = outbox.recv().await {
+                // A peer that stopped reading without closing (a phone that left
+                // the network) takes no more bytes, and TCP may keep the socket
+                // up for many minutes before it says so. A frame it has not taken
+                // in this long ends the seat: a queue that never fills, because
+                // the seat is quiet, cannot end it, nor can a silence timer the
+                // client never asked for.
+                let sent = tokio::time::timeout(WRITE_STALL, sink.send(Message::text(text))).await;
+                if !matches!(sent, Ok(Ok(()))) {
+                    return sent.is_err();
                 }
-                if frame["cmd"] == "client.hello" {
-                    // Negotiation changes how the very next frame is read,
-                    // including whether the silence deadline applies.
-                    if let Some(id) = frame["id"].as_i64() {
-                        command(id, &frame, seat, &desk, &sender, phone.as_ref()).await;
+            }
+            false
+        };
+        let reader = async {
+            loop {
+                // A lean phone pings; one that has said nothing for this long is a
+                // link that died without closing, and its subscriptions are work
+                // for nobody.
+                let silent = async {
+                    if sender.lean() {
+                        tokio::time::sleep(LEAN_IDLE).await;
+                    } else {
+                        std::future::pending::<()>().await;
                     }
-                } else if independent(&frame) {
-                    let (desk, sender, phone) = (desk.clone(), sender.clone(), phone.clone());
-                    tokio::spawn(async move {
-                        run_command(&frame, seat, &desk, &sender, phone.as_ref()).await;
-                    });
-                } else {
-                    let _ = ordered.send(frame);
+                };
+                let incoming = tokio::select! {
+                    biased;
+                    frame = incoming.next() => frame,
+                    () = silent => break Ok(()),
+                };
+                match incoming {
+                    None | Some(Ok(Message::Close(_))) => break Ok(()),
+                    Some(Err(error)) => break Err(error),
+                    Some(Ok(Message::Text(text))) => {
+                        let Ok(frame) = serde_json::from_str::<Value>(&text) else {
+                            continue;
+                        };
+                        // A command about one teammate waits behind that teammate's
+                        // earlier commands and nobody else's: an agent that never
+                        // finishes starting holds up its own lane, not the desk.
+                        if let Some(teammate) = lane_of(&frame) {
+                            let lane = lanes.entry(teammate).or_insert_with(|| {
+                                open_lane(seat, desk.clone(), sender.clone(), phone.clone())
+                            });
+                            let _ = lane.send(frame);
+                            continue;
+                        }
+                        if frame["cmd"] == "client.hello" {
+                            // Negotiation changes how the very next frame is read,
+                            // including whether the silence deadline applies.
+                            if let Some(id) = frame["id"].as_i64() {
+                                command(id, &frame, seat, &desk, &sender, phone.as_ref()).await;
+                            }
+                        } else if independent(&frame) {
+                            let (desk, sender, phone) =
+                                (desk.clone(), sender.clone(), phone.clone());
+                            tokio::spawn(async move {
+                                run_command(&frame, seat, &desk, &sender, phone.as_ref()).await;
+                            });
+                        } else {
+                            let _ = ordered.send(frame);
+                        }
+                    }
+                    Some(Ok(_)) => {}
                 }
             }
-            Some(Ok(_)) => {}
+        };
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => (Ok(()), false),
+            stalled = writer => (Ok(()), stalled),
+            result = reader => (result, false),
         }
     };
 
     cancel.cancel();
+    let socket = sink
+        .reunite(incoming)
+        .expect("the reader and writer came from the same seated socket");
+    // Close before any other cleanup or the caller's admission release. Normal
+    // closes still drain final replies; only a write timeout discards them.
+    let closed = if stalled {
+        socket.abortive_close()
+    } else {
+        drop(socket);
+        Ok(())
+    };
     if let Some(id) = sender
         .pairing
         .lock()
@@ -306,14 +319,7 @@ where
     {
         let _ = remote.cancel_pairing(&id);
     }
-    if let Ok((sink, true)) = writer.await {
-        let socket = sink
-            .reunite(incoming)
-            .expect("the reader and writer came from the same seated socket");
-        // Normal closes must drain their final replies, especially on Windows.
-        // Only a write timeout discards bytes the peer has stopped taking.
-        socket.abortive_close()?;
-    }
+    closed?;
     result
 }
 

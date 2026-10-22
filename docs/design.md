@@ -227,7 +227,10 @@ write waits for its reply first. Negotiation stays on the reader, and neither
 command work nor ordering waits suspend cancellation or the silence timer.
 Remote work is cancelled with its seat; accepted desktop writes finish.
 A seat whose frame waits past the write deadline resets its TCP transport,
-discarding queued bytes. Only that timeout selects zero linger: ordinary
+discarding queued bytes before releasing admission. The seat owns its writer
+future, so cancelling the seat cannot detach a writer that keeps the socket
+alive; abortive close consumes the reunited transport synchronously.
+Only that timeout selects zero linger: ordinary
 WebSocket closes must drain final pairing and authentication replies, including
 on Windows.
 

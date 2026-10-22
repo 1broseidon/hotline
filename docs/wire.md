@@ -328,16 +328,19 @@ and `mobile.persona_update` cannot set an account. `accounts.list`,
 independently, like `link.preview`, since an agent's CLI, a copy or a wait
 for the policy lock can take seconds, so a `ping` sent after one may be
 answered first. An owner's phone that disconnects cancels them like its other
-work; a copy already under way still finishes. `accounts.login.poll`,
-`.input` and `.cancel` keep their place in the ordered worker, and
-`persona.account` its teammate's lane. The
-desk rechecks the accounts in use once when it opens. `persona.account` stores the choice at once; the switch applies
-once the whole teammate is idle (no DM turn, and no side thread, call,
-job, subagent or pair mid-turn) and the account is not held. `held` says why it
-waits: `not_signed_in` while the account's cached status is signed out,
-`signing_in` while a sign-in for it runs. Choosing the running account again
-is Keep: it drops the pending switch and changes nothing else. A confirmed
-sign-in moves the account's `loginAt`.
+work; a copy already under way still finishes, but may not record its new
+origin. `accounts.login.poll`, `.input` and `.cancel` keep their place in the
+ordered worker, and `persona.account` its teammate's lane. The desk rechecks
+the accounts in use once when it opens. `persona.account` stores the choice
+at once; the switch applies once the whole teammate is idle (no DM turn, and
+no side thread, call, job, subagent or pair mid-turn) and the account is not
+held. `held` says why it waits: `not_signed_in` while the account's last
+recorded status is signed out, a check in progress included, `signing_in`
+while a sign-in for it runs. Applying it archives the teammate's live
+threads; a voice still connected to one of its calls loses its tools and work
+until it is called again. Choosing the running account again is Keep: it
+drops the pending switch and changes nothing else. A confirmed sign-in moves
+the account's `loginAt`.
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always
@@ -1028,8 +1031,9 @@ commands or checkpoints, and with the preview cut to 280 characters. A
 phone seat, lean or not, and any lean seat, is sent each row without
 `persona.agentAccountId` or `session.account`, and so is the reply to
 `mobile.persona_update`, `mobile.persona_create`, `mobile.persona_access`,
-`mobile.persona_computer`, `session.set_model` and `session.set_config`;
-`settings.update` answers it without `agentAccounts`. A persona tombstone on the
+`mobile.persona_computer`, `session.start`, `session.set_mode`,
+`session.set_model` and `session.set_config`; `settings.update` answers it
+without `agentAccounts`. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls
 behind on the room stream it reloads every row; lagged session-info refreshes

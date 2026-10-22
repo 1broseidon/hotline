@@ -826,6 +826,9 @@ checked again before each spawn, and a refused one fails the start with an
 `account_unavailable` notice; it never falls back to System default. A live
 process never changes account: a switch waits until the whole teammate is
 idle, then starts it again Fresh on the new one (see [Checkpoints](#checkpoints)).
+Applying it is a policy change: idle side and call threads are archived, and
+a voice still connected to a call keeps its voice but not its tools or work,
+so the person hangs up and calls again.
 
 For ACP teammates, Settings → Reach shows the harness's advertised runtime
 mode and labels it **Externally managed**. The chat header shows only model
@@ -1631,7 +1634,10 @@ clears them too. A confirmed sign-in clears that account's checkpoints on
 every teammate, and rebuilds Fresh each session that started on it before
 the sign-in, once its teammate is idle. A session whose `(account, loginAt)`
 no longer matches the record writes no checkpoint. `link` lines and chapter
-markers carry `accountId`, and a resume across accounts opens Fresh.
+markers carry `accountId`, and a resume across accounts opens Fresh. They do
+not carry `loginAt`, so after a new sign-in on the same account, resuming a
+chapter or a parked side or job thread can reopen a session from before it,
+in the same folder and under the identity now signed in.
 
 Hotline Agent's memory is the tape. It has no session id to checkpoint.
 

@@ -201,7 +201,7 @@ export function NewTeammateForm({
 
 	const submit = async () => {
 		const trimmed = name.trim();
-		if (!trimmed || busy) return;
+		if (!trimmed || busy || signingAccount !== null) return;
 		setBusy(true);
 		setRefusal(null);
 		const draft: PersonaDraft = { name: trimmed };
@@ -485,7 +485,7 @@ export function NewTeammateForm({
 						Cancel
 					</button>
 				)}
-				<button type="submit" className="control btn btn-primary nt-submit" disabled={busy || name.trim() === ""}>
+				<button type="submit" className="control btn btn-primary nt-submit" disabled={busy || name.trim() === "" || signingAccount !== null}>
 					{busy ? "Setting up…" : submitLabel}
 				</button>
 			</div>

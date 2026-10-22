@@ -288,6 +288,7 @@ describe("a teammate's agent account", () => {
 		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 4", startWith: "system_default" }]);
 		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a4" }]);
 		expect(text()).toContain("Claude Code closed before it was signed in.");
+		expect(text()).not.toContain("A Claude Code window opened");
 		expect(named("persona.account")).toHaveLength(0);
 		const listed = named("accounts.list").length;
 		await click("Close");
@@ -324,5 +325,8 @@ describe("a teammate's agent account", () => {
 		);
 		await click("Account 1's setup");
 		expect(setupOpened).toEqual(["a1"]);
+
+		await remount({ ...ada, agentAccountId: "a9" }, onA1);
+		expect(text()).not.toContain("'s setup");
 	});
 });

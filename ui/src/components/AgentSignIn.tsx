@@ -175,7 +175,7 @@ export function SignInTerminal({ job, onDone, onClose, windowNote, cancelLabel =
 	return <section aria-label="Harness sign-in" className="rounded border border-line p-2">
 		{!windowed && <p className="mb-2 text-xs text-ink-3">Complete the harness’s sign-in here or in the browser it opens. This is not sent to the conversation.</p>}
 		{error && <p role="alert" className="mb-2 text-sm text-danger">{error}</p>}
-		{windowed ? <p className="text-sm">{windowNote}</p> : <>
+		{windowed ? running && <p className="text-sm">{windowNote}</p> : <>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: the terminal inside takes the keys; this only keeps the window's shortcuts from firing as they pass. */}
 			<div ref={host} data-private-terminal onKeyDown={(event) => event.stopPropagation()} className="max-w-full overflow-x-auto" />
 		</>}

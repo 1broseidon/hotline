@@ -243,12 +243,20 @@ describe("a new teammate's agent account", () => {
 	test("an inline account is selected at once, and Sign in later leaves it Not signed in", async () => {
 		await mount();
 		await agent("claude-acp");
+		await type(container.querySelector<HTMLInputElement>("#new-name")!, "Ada");
 		await click("Add account");
 		await click("Add and sign in");
 		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 3", startWith: "system_default" }]);
 		expect(radio("Account 3").checked).toBe(true);
 		expect(row("Account 3").textContent).toContain("Signing in…");
 		expect(text()).toContain("A Claude Code window opened for Account 3.");
+		expect(button("Add teammate").disabled).toBe(true);
+		await act(async () => {
+			container.querySelector("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+		});
+		await settle();
+		expect(named("persona.create")).toHaveLength(0);
+		expect(named("accounts.login.cancel")).toHaveLength(0);
 
 		await click("Sign in later");
 		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a3", id: "l1" }]);
@@ -256,7 +264,8 @@ describe("a new teammate's agent account", () => {
 		expect(radio("Account 3").checked).toBe(true);
 		expect(row("Account 3").textContent).toContain("Not signed in · sign in to use it");
 
-		await submit("Ada");
+		expect(button("Add teammate").disabled).toBe(false);
+		await click("Add teammate");
 		expect(draft().agentAccountId).toBe("a3");
 		expect(created).toEqual(["p1"]);
 	});

@@ -52,7 +52,7 @@ export function AccountRow({
 
 	const chosen = persona.agentAccountId ?? SYSTEM_DEFAULT;
 	const running = session.account?.running ?? SYSTEM_DEFAULT;
-	// The session sends `wanted` only while it differs from `running`, and a switch to System default has no id to send.
+	// A switch to System default has no id to send.
 	const wanted = session.account?.wanted ?? chosen;
 	const held = session.account?.held;
 	const up = session.state === "ready" || session.state === "thinking";
@@ -170,7 +170,7 @@ export function AccountRow({
 				)}
 			</div>
 			{up && <p className="group-hint">{note}</p>}
-			{persona.agentAccountId !== undefined && onSetup !== undefined && (
+			{persona.agentAccountId !== undefined && onSetup !== undefined && accounts.some((one) => one.account.id === chosen) && (
 				<p className="group-hint">
 					<button type="button" className="text-accent-ink hover:underline" onClick={() => onSetup(chosen)}>
 						{nameOf(chosen)}'s setup

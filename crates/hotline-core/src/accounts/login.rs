@@ -298,7 +298,8 @@ async fn sign_in(run: &Run, attempt: &Arc<Attempt>) -> Outcome {
         Ok(_) => Outcome::Exited(Err(COMMAND_FAILED.into())),
         Err(stopped) => {
             let _ = job.terminate();
-            let _ = child.wait().await;
+            // Ends a child the job did not, and does nothing to one it did.
+            let _ = child.kill().await;
             Outcome::Stopped(stopped)
         }
     }

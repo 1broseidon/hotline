@@ -32,11 +32,23 @@ pub fn prepare(command: &mut tokio::process::Command) {
 /// `prepare` for a child that has to show a console, such as a login the person
 /// types into. `CREATE_NO_WINDOW` excludes a console, so this takes
 /// `CREATE_NEW_CONSOLE` instead. Dropping the child must not kill it: cancel and
-/// timeout end its tree through `Job::terminate`, and a caller whose attach
-/// fails kills the still-suspended child itself.
+/// timeout end its tree through `Job::terminate`, then kill the direct child,
+/// and a caller whose attach fails kills the still-suspended child itself.
 pub fn prepare_visible(command: &mut tokio::process::Command) {
     command.creation_flags(CREATE_SUSPENDED | CREATE_NEW_CONSOLE);
     command.kill_on_drop(false);
+    // The app's stdout and stderr can be its log file. With all three null,
+    // std passes no handles, and the new console gives the child its own.
+    command
+        .stdin(no_handle())
+        .stdout(no_handle())
+        .stderr(no_handle());
+}
+
+fn no_handle() -> std::process::Stdio {
+    // SAFETY: std documents that an OwnedHandle may hold NULL, the value a
+    // process without a console has, and passes it to the child as NULL.
+    std::process::Stdio::from(unsafe { OwnedHandle::from_raw_handle(std::ptr::null_mut()) })
 }
 
 fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
@@ -77,10 +89,11 @@ impl Job {
             io::Error::other("The child exited before its process job was established.")
         })?;
         // SAFETY: the child is suspended and its caller still owns the process. No
-        // descendant can race assignment. Failure leaves it stopped; the
-        // caller's kill_on_drop and our job both clean up their owned process.
-        // A caller of `prepare_visible` has no kill_on_drop, so it kills the
-        // child itself when this fails.
+        // descendant can race assignment. Failure returns before the resume and
+        // leaves it stopped: the caller's kill_on_drop ends it, as does a
+        // kill-on-close job that already holds it when that job's handle drops.
+        // A login's job ends nothing on close and `prepare_visible` sets no
+        // kill_on_drop, so that caller kills the still-suspended child itself.
         unsafe {
             let process = owned(OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, id))?;
             let job = owned(CreateJobObjectW(std::ptr::null(), std::ptr::null()))?;

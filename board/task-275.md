@@ -13,7 +13,14 @@ relatedFiles:
   - crates/hotline-core/src/session/computer.rs
 createdAt: "2026-10-22T16:12:00.496Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:12:01.159Z"
+updatedAt: "2026-10-22T16:12:02.217Z"
+dispatch:
+  agent: codex
+  by: cli
+  at: "2026-10-22T16:12:02.063Z"
+  until: review
+  tries: 0
+assignee: codex
 ---
 
 ## Description

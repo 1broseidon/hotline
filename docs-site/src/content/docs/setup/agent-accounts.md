@@ -44,8 +44,8 @@ Never copied: the sign-in (`.credentials.json`), `history.jsonl`,
 `projects/`, `sessions/`, `todos/` and Claude Code's other records, any key
 of `~/.claude.json` but `mcpServers`, and the sign-in keys of
 `settings.json` (such as `apiKeyHelper`, or an `env` variable that would
-replace the login), which the copy leaves out and lists. A link in your
-setup is skipped, not followed.
+replace the login), which are left out; **Copy again from System default**
+names the ones it left out. A link in your setup is skipped, not followed.
 
 ## Sign in
 
@@ -71,8 +71,9 @@ sign-in on an account starts its teammates fresh once their work ends.
 In the teammate's pane, **Claude Code account** lists **System default** and
 every account, with **In use** beside the one running. Pick another and the
 teammate moves to it when its work ends: no turn in its conversation, and no
-side thread, call, job or subagent mid-turn. Until then the pane says **Switches to
-… when its work ends**, and offers:
+side thread, call, job, subagent or conversation with another teammate
+mid-turn. Until then the pane says **Switches to … when its work ends**, and
+offers:
 
 - **Keep …**: stay on the account in use, and change nothing.
 - **Stop and switch now**: stop all of the teammate's work and start it on
@@ -85,21 +86,26 @@ A switch starts a new Claude Code session on the new account, handed this
 conversation (**Fresh**). Another account's session is never reopened, so
 going back to the first account later starts fresh too.
 
+If you are on a call with the teammate when the switch lands, the call can
+still talk but can no longer look anything up or work. Hang up and call
+again. The call's thread is closed, so continue it in the Threads pane before
+calling it again, or start a new call.
+
 ## Usage limits
 
 When Claude Code stops at an account's usage limit, the card says so in
 Claude Code's own words, with when the limit resets. It offers **Continue on
-…** for each other account that is signed in, and System default, and
-**Try again**. Continue on moves the teammate at once and starts fresh; the
-failed turn may have done part of its work, so **Try again** tells it to check
-before repeating anything.
+…** for each other account that is signed in, and for System default when
+the limit was an account's, then **Try again**. Continue on moves the
+teammate at once and starts fresh; the failed turn may have done part of its
+work, so **Try again** tells it to check before repeating anything.
 
 ## Setup
 
 An account's page under **Settings → Agent accounts**, and the **…'s setup**
 link in the teammate's pane, show the account's setup: **Instructions** and
-**Settings**, then **Skills**, **Plugins** and **MCP servers**, each with how
-many it holds.
+**Settings**, then **Skills**, **Plugins** and **MCP servers** with how many
+of each it holds.
 
 - **Open**, on the desk itself, opens the file in your editor or the folder
   in your file manager. A setup item that is missing is made first, directly
@@ -131,7 +137,13 @@ and the sign-in in it. To sign it out, run Claude Code's own sign-out with
 CLAUDE_CONFIG_DIR="<folder>" claude auth logout
 ```
 
-In PowerShell, `$env:CLAUDE_CONFIG_DIR = "<folder>"; claude auth logout`.
+In PowerShell, clear the variable afterwards so the rest of that window is
+not left on the account:
+
+```powershell
+$env:CLAUDE_CONFIG_DIR = "<folder>"; claude auth logout
+Remove-Item Env:CLAUDE_CONFIG_DIR
+```
 
 ## What an account does not cover
 

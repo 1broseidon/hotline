@@ -365,7 +365,10 @@ notices, chapters' gate, receipts, the ledger — and a
   and its loop. A shared loop makes ordinary Rig model requests and admits
   operator steering between them, independently of the selected provider.
   Owned shell jobs outlive individual model requests; waits yield to operator
-  input, and cancellation observes exit before reporting completion. A
+  input, and cancellation observes exit before reporting completion. On Unix,
+  cancellation, deadlines and dropped tasks stop the owned process group
+  before killing it: a group signal visits members individually, so killing
+  a waited child first must not let its shell run the next statement. A
   command still running when the model replies without calling `wait_jobs`
   is handed to the DM session as a running process and the turn ends: there
   is no flag and no timer, because the model's choice not to wait is the

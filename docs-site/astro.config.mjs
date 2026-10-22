@@ -51,6 +51,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Providers and keys', slug: 'setup/providers' },
 						{ label: 'Teammates and drivers', slug: 'setup/teammates' },
+						{ label: 'Agent accounts', slug: 'setup/agent-accounts' },
 						{ label: 'Tools, skills and web search', slug: 'setup/tools' },
 						{ label: 'The computer', slug: 'setup/computer' },
 						{ label: 'Schedules', slug: 'setup/schedules' },

@@ -806,9 +806,24 @@ what is sent:
 
 An ACP teammate (`driver/acp.rs`) is another process. Selecting it trusts
 that harness's tools, configuration, and permission policy. Hotline holds no
-credentials for it — these agents sign themselves in — and does not apply
+credentials for it — these agents sign themselves in, into a folder of their
+own when the teammate has an agent account — and does not apply
 its shell sandbox to the harness's own tools. Its turns are billed to the
 harness's own account, so they are not counted against the Chat budget.
+
+A teammate's agent account is `Persona.agentAccountId`, set by
+`persona.create` or `persona.account` and never by `persona.update`; absent,
+the teammate is on its agent's System default.
+`DeskAgents::agent` resolves it once (`accounts/resolve.rs`) and the child
+gets `CLAUDE_CONFIG_DIR=<data>/agent-accounts/<id>` last, after the
+catalogue's variables, the login method's and the removal of every
+inherited credential variable the agent's row lists (`accounts/support.rs`).
+One `EnvPlan` (`accounts/env.rs`) serves the start, the restart, the status
+and the sign-in; System default adds and removes nothing. The folder is
+checked again before each spawn, and a refused one fails the start with an
+`account_unavailable` notice; it never falls back to System default. A live
+process never changes account: a switch waits until the whole teammate is
+idle, then starts it again Fresh on the new one (see [Checkpoints](#checkpoints)).
 
 For ACP teammates, Settings → Reach shows the harness's advertised runtime
 mode and labels it **Externally managed**. The chat header shows only model
@@ -1588,9 +1603,10 @@ and the session's stop.
 ## Checkpoints
 
 An ACP session id is opaque to the agent that issued it. The teammate's
-record keeps one per backend (`sessionCheckpoints`), so a teammate that
-moves between harnesses and back finds both conversations where it left
-them, and Cursor is never handed Claude's session id.
+record keeps one per backend and account (`sessionCheckpoints`, with
+`accountId` absent for System default), so a teammate that moves between
+harnesses and back finds both conversations where it left them, and Cursor
+is never handed Claude's session id.
 
 Some agents issue an id at `session/new` they cannot reopen until a prompt
 has committed, so the checkpoint is written when the first turn of a fresh
@@ -1603,6 +1619,17 @@ checkpoint degrades to `session/new`. `contextRestored` is whether the
 agent genuinely recalls the conversation, never guessed. Closing a chapter
 withdraws the promise to reopen that backend's session; the session itself
 is not touched.
+
+Moving between agent accounts is not moving between harnesses. Applying a
+switch of account clears that backend's checkpoints for every account, so
+going back to the first account never reopens a session that did not hear
+what was said on the second; a start that finds one there for an account
+other than the record's, which only a switch lost to a restart leaves,
+clears them too. A confirmed sign-in clears that account's checkpoints on
+every teammate, and rebuilds Fresh each session that started on it before
+the sign-in, once its teammate is idle. A session whose `(account, loginAt)`
+no longer matches the record writes no checkpoint. `link` lines and chapter
+markers carry `accountId`, and a resume across accounts opens Fresh.
 
 Hotline Agent's memory is the tape. It has no session id to checkpoint.
 

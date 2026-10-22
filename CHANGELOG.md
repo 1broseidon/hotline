@@ -8,6 +8,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Agent accounts: give each Claude Code teammate its own Claude login. Add
+  an account in Settings › Agent accounts or where you pick a teammate's
+  agent, sign it in with Claude Code's own sign-in, and choose what of your
+  Claude Code setup it starts with. Teammates on different accounts run at
+  the same time; a switch waits until the teammate is idle and starts fresh
+  with the conversation; a usage-limit card offers another signed-in
+  account. System default works as before.
+
 ## [0.41.0] - 2026-10-20
 
 ### Added

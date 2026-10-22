@@ -45,7 +45,9 @@ To work on a Claude subscription, add a teammate that runs
 [Claude Code](/docs/setup/teammates/): Claude Code signs itself in with
 your account, and Hotline runs the `claude` CLI you installed. Anthropic's
 plans and terms decide what that use costs and whether your plan covers
-Claude Code run from another app, so check them.
+Claude Code run from another app, so check them. To run Claude Code
+teammates on more than one Claude subscription, give each an
+[agent account](/docs/setup/agent-accounts/).
 
 ## Models
 

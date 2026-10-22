@@ -387,9 +387,10 @@ owns the account and credentials. A successful login reopens the agent session
 without replaying the failed message. The person can put that message back in
 the composer for review; a failed turn may already have performed work.
 
-A turn that failed on the network, at the provider, on a rate limit, in a
-harness or for no reason known can be tried again: the failure card on the
-latest turn offers **Try again**, which is `session.retry`. The room checks
+A turn that failed on the network, at the provider, on a rate limit, at an
+agent's usage limit, in a harness or for no reason known can be tried again:
+the failure card on the latest turn offers **Try again**, which is
+`session.retry`. The room checks
 the tape (the last turn failed and no message came after it) and queues the
 same line again as a retry, writing nothing new. Hotline Agent re-runs on
 the history it kept, which already ends with the person's line and any reply
@@ -404,6 +405,24 @@ CLI, not a structured URL/device-code protocol. Hotline does not scrape that TUI
 into a phone login form or relay Claude session tokens. Unsupported methods and
 older failure notices keep the manual sign-in guidance. Proactive auth-status
 badges are not inferred from missing notifications or offered by this recovery.
+
+A Claude Code teammate can run under an **agent account**: the agent's own
+config folder, `<data>/agent-accounts/<id>`, given to that child alone as
+`CLAUDE_CONFIG_DIR`. Each agent's part is one row of `accounts::support`, and
+nothing outside the row names an agent, so another CLI with a config folder
+of its own is one more row. Hotline holds no credential: the agent signs
+itself in into the folder and Hotline only asks the agent's CLI whether it
+did. A switch of account always starts the session Fresh, because one
+account's conversation was never heard by the other. The fields are
+additive and optional: `Persona.agentAccountId`, `SessionCheckpoint.accountId`,
+`TranscriptEvent::{Chapter, Side, Link}.accountId`, the `link` line's
+`accountId` (`hotline-store/src/link.rs`) and the room setting
+`agentAccounts`. Absent, each is System default, the behaviour from before
+accounts. The importer copies them unchanged, because the reference tree has
+no accounts. An older build that rewrites a teammate's record drops the
+field, and the teammate returns to System default. An older window draws a
+generic card for `usage_limit` and `account_unavailable`; the
+`account_unavailable` notice carries `accountId` and `code`.
 
 ### 4. Tools as MCP, served in-process
 

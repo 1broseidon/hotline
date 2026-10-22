@@ -104,14 +104,14 @@ answers itself (a phone's, a sign-in's, an upload's).
 
 | cmd | params | result |
 | --- | --- | --- |
-| `persona.create` | `{draft}` | the created `Persona` |
+| `persona.create` | `{draft}` | the created `Persona`; a draft's `agentAccountId` must name an agent account of the draft's agent on this desk |
 | `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
 | `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
 | `mobile.persona_access` | `{id, reach?, modeId?, backgroundWork?}` | the teammate after the change: a Hotline Agent teammate's reach, a harness teammate's mode, and whether it may keep background work; at least one is named, a reach for a harness or a mode for Hotline Agent is refused. Reach and background work restart a live session as `persona.update` does; a mode switches live and is kept for the next start. Owner phone or local desk; advertised by the owner's `personaAccess` |
 | `mobile.prompt` | `{operationId, personaId, text, attachmentIds?, replyTo?, thread?}` | `{state: "accepted"\|"unknown"}`; the phone's `session.prompt`, which brings the teammate up first. `operationId` is the phone's own id for the message, so a retry is answered from its receipt and never runs twice; `unknown` means the desk could not record whether it ran. `attachmentIds` name files this phone uploaded with `mobile.attachment`; `thread` says it in one of the teammate's work threads instead. A paired phone only |
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
-| `persona.update` | `{id, patch}` | the teammate after the patch |
+| `persona.update` | `{id, patch}` | the teammate after the patch; a patch naming `agentAccountId` is refused ("A teammate's account is set with persona.account.") |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
@@ -155,7 +155,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
 | `session.set_config` | `{personaId, configId, value}` | `SessionInfo`. A companion phone may set only a config the live session reports as an effort; any other is refused with "Change that on your desktop." |
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none; `collab:` request ids are room-owned collaboration cards |
-| `agent.auth.start` | `{personaId, methodId}` | `{id}`; starts signing a harness teammate's agent in, by one of the methods its session offers. The attempt is this socket's: another socket naming its id is refused, and it ends when this socket closes |
+| `agent.auth.start` | `{personaId, methodId}` | `{id}`; starts signing a harness teammate's agent in, by one of the methods its session offers; refused for a teammate with an agent account ("Sign in {account} from its account instead."). The attempt is this socket's: another socket naming its id is refused, and it ends when this socket closes |
 | `agent.auth.poll` | `{personaId, id}` | `{state: "running"\|"succeeded"\|"failed", output, error?}`, what the sign-in has printed so far |
 | `agent.auth.input` | `{personaId, id, input}` | none; a line typed into the sign-in |
 | `agent.auth.cancel` | `{personaId, id}` | none |
@@ -228,6 +228,18 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "asked" \| "approved" \| "stored", name?, rpId?, expiresAt?, ask?, secret?}` — where the making stands; `asked` and `approved` carry the site's request `{id, rpId, origin, rpName?, userName?, userDisplayName?, askedAt}`, which waits for the card on the teammate's tape; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
 | `secrets.passkey.answer` | `{personaId, askId, approved}` | `PasskeyRegistration` — the person's answer to the passkey card: approved, the browser makes it (`approved`, then `stored` once the room has it); denied, the arming ends (`idle`). Refused when no such request is waiting. The phone may send this one |
 | `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored; a card nobody answered expires |
+| `accounts.list` | `{}` | `AccountsList` `{agents: [{backendId, name, supportsAccounts, takesEmail}], accounts: AccountView[]}` — every harness but Hotline Agent, and each agent account with its cached `status`, its sign-in `attempt`, the `usedBy` teammate ids, its `folder` and `canSignInHere`. A status checked more than 10 minutes ago is rechecked in the background; one never checked stays `not_checked` until `accounts.status` or a sign-in. Owner or local desk only |
+| `accounts.create` | `{backendId, name, startWith: "system_default" \| "empty", categories?}` | `AccountCreated` `{account: AccountView, copy?: SetupCopyReport}` — makes the account's private folder and, from `system_default`, copies the setup categories named, every one when `categories` is absent. A name is 1 to 64 characters, one per agent whatever its case. A client `path` is ignored. A failed copy writes no account and leaves the folder. Owner or local desk only |
+| `accounts.rename` | `{accountId, name}` | `AccountView`; the name only. Owner or local desk only |
+| `accounts.remove` | `{accountId}` | none; forgets the account. Refused while a teammate uses it ("{account} can't be removed while {names} use it.") or while its sign-in runs ("Finish or cancel {account}'s sign-in first."); the folder and the sign-in in it stay. Owner or local desk only |
+| `accounts.status` | `{accountId}` | `AccountStatusView` `{state: "not_checked" \| "checking" \| "signed_in" \| "signed_out" \| "unavailable", checkedAt?, email?, plan?}` — asks the agent's own CLI in the account's folder; one run per account, shared by every caller. Owner or local desk only |
+| `accounts.login.start` | `{accountId, email?}` | `{id}`; signs the account in with the agent's own sign-in, in a console window of its own on Windows and a terminal on macOS and Linux, with a plain `email` passed to the agent. The attempt is this socket's, one per account, and on Windows it starts from the desk seat only ("Sign in from the desk itself."). Owner or local desk only |
+| `accounts.login.poll` | `{accountId, id}` | `{state: "running" \| "succeeded" \| "failed", output, error?}`; `succeeded` only once the CLI exited 0 and a status after it confirmed the account. Owner or local desk only |
+| `accounts.login.input` | `{accountId, id, input}` | none; a line typed into the sign-in's terminal. Owner or local desk only |
+| `accounts.login.cancel` | `{accountId, id}` | none; the attempt ends `failed`. Owner or local desk only |
+| `accounts.setup.list` | `{accountId}` | `AccountSetupView` `{setup?, categories: [{id, count, path?}]}` — where the account's setup came from and what its folder holds, with the `path` Open opens for desk and owner only; nothing is written. Owner or local desk only |
+| `accounts.setup.copy` | `{accountId, categories}` | `SetupCopyReport` `{copied, removedKeys, linksSkipped}`; each category named replaces the account's with the System default's. Owner or local desk only |
+| `persona.account` | `{personaId, accountId \| null}` | `SessionAccount` `{running?, wanted?, held?: "not_signed_in" \| "signing_in"}`; sets the account a local teammate's agent runs under, `null` for System default. Owner or local desk only |
 | `files.browse` | `{path}` | `{path, parent, entries}`: a directory on the desk's own machine, by absolute path; the owner's file browser ([serve.md](serve.md)) |
 | `files.mkdir` | `{path}` | `{path}`, the directory made |
 | `files.download` | `{path, offset}` | `{name, mimeType, size, offset, data, next}`: at most 512 KiB of the file, as base64, with `next` JSON `null` at the end |
@@ -295,6 +307,21 @@ permission card. Which teammate may use which secret is
 secret also hands every running computer the set its teammate is granted
 now, so a rotation or a revocation lands without a restart (see
 [security.md](security.md)).
+
+`accounts.*` and `persona.account` are the operator's, for an agent account:
+one sign-in to an agent's own CLI in a folder of its own
+([security.md](security.md#agent-accounts)). The companion, a linked desk
+and agent tools cannot reach them, and `persona.update`, `settings.update`
+and `mobile.persona_update` cannot set an account. Status, sign-in and setup
+are answered off the read loop, like `link.preview`, since an agent's CLI
+can take seconds to answer. The desk rechecks the accounts in use once when
+it opens. `persona.account` stores the choice at once; the switch applies
+once the whole teammate is idle (no DM turn, and no side thread, job,
+subagent or pair mid-turn) and the account is not held. `held` says why it
+waits: `not_signed_in` while the account's cached status is signed out,
+`signing_in` while a sign-in for it runs. Choosing the running account again
+is Keep: it drops the pending switch and changes nothing else. A confirmed
+sign-in moves the account's `loginAt`.
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always
@@ -981,7 +1008,12 @@ threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
 can be stopped; each is absent when there are none. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
-commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
+commands or checkpoints, and with the preview cut to 280 characters. A
+phone seat, lean or not, and any lean seat, is sent each row without
+`persona.agentAccountId` or `session.account`, and so is the reply to
+`mobile.persona_update`, `mobile.persona_create`, `mobile.persona_access`,
+`mobile.persona_computer`, `session.set_model` and `session.set_config`;
+`settings.update` answers it without `agentAccounts`. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls
 behind on the room stream it reloads every row; a lagged burst of

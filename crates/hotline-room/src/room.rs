@@ -620,9 +620,11 @@ pub fn persona_write_lock() -> MutexGuard<'static, ()> {
 /// session can ask that same backend to reopen it.
 ///
 /// One entry per backend and account, replaced in place: a teammate that moves
-/// between harnesses, or between accounts on one, and back finds each
-/// conversation where it left it, and Cursor is never handed Claude's session
-/// id nor one account the other's. No account is the agent's System default.
+/// between harnesses and back finds each conversation where it left it, and
+/// Cursor is never handed Claude's session id nor one account the other's.
+/// Moving between accounts is not such a return: the switch clears that
+/// backend's entries for every account (`clear_backend_checkpoints`). No
+/// account is the agent's System default.
 pub fn checkpoint_session(
     log: &Log,
     persona_id: &str,

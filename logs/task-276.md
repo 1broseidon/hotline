@@ -1,8 +1,6 @@
 ---
 id: task-276
 title: "Cookie offer: say once when macOS won't let the desk read your browsers, instead of offering nothing"
-column: review
-position: 3
 priority: high
 tags:
   - bug
@@ -15,7 +13,7 @@ relatedFiles:
 parentId: epic-24
 createdAt: "2026-10-22T16:27:07.323Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T16:43:53.783Z"
+updatedAt: "2026-10-22T16:44:21.658Z"
 dispatch:
   agent: codex
   by: cli
@@ -32,6 +30,7 @@ dispatch:
 assignee: codex
 decisions:
   - decision-38
+completedAt: "2026-10-22T16:44:21.658Z"
 ---
 
 ## Description
@@ -51,3 +50,4 @@ Done when:
 - 2026-10-22T16:28:54.584Z: [codex] Confirmed discovery discards refused candidates and the watch inserts sites into seen before discovery. Keeping refusal metadata, a room-lifetime browser notice set, and retryable sites; sharing the core's blocked-browser explanation with the Settings picker so it names the actual app/binary.
 - 2026-10-22T16:38:49.233Z: [codex] Implemented shared core-generated blocked-browser wording (including hotline-app-dev), room-lifetime notice deduplication, and retryable discovery. Added real refused-directory Chromium/Firefox fixtures and wire-handler tests for repeat polls, session restart, another teammate, permission recovery without navigation, mixed access, and Never suppression. Settings DOM tests pass; full check and precheck are underway; physical macOS FDA/Porkbun check requested separately.
 - 2026-10-22T16:43:41.159Z: [codex] Ready for review on dispatch/task-276, commit 3aa5c513: refused installed browsers now produce one chat notice each per desk run, keep sites retryable, and share the app-aware remedy with Settings. Refusing Chromium/Firefox fixtures and real-handler tests cover denial, cross-session/teammate deduplication, mixed access, Never, and recovery with the same open page. make check and all 8 make precheck legs pass; working tree clean. Next: George's physical Mac check with FDA off, then on and Hotline reopened, confirming the Brave notice and porkbun.com card; that manual result remains pending.
+- 2026-10-22T16:44:21.242Z: Landed on release/0.43.0

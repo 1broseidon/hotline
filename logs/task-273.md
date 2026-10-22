@@ -1,8 +1,6 @@
 ---
 id: task-273
 title: "Desk: offer your own browser's cookie for the site a teammate opens, always asking, and pull it back out of the container on demand"
-column: review
-position: 3
 priority: high
 tags:
   - credentials
@@ -23,9 +21,10 @@ dispatch:
     ended: "2026-10-22T15:58:36.517Z"
     outcome: review
 assignee: codex
-updatedAt: "2026-10-22T15:58:36.517Z"
+updatedAt: "2026-10-22T15:59:36.696Z"
 decisions:
   - decision-36
+completedAt: "2026-10-22T15:59:36.696Z"
 ---
 
 ## Description
@@ -50,3 +49,4 @@ Done when:
 - 2026-10-22T15:40:03.080Z: [codex] Implemented host-only site discovery, PSL-bounded explicit lends, durable removal records, shared card/phone handlers and Settings undo. Task-274's /pages response shape is confirmed; older computers return no offers. Now adding real-handler/fake-computer and UI proofs.
 - 2026-10-22T15:53:49.672Z: [codex] Initial implementation committed as 2b703bb1 on dispatch/task-273. Core/desk/phone-seat fixture and restart tests pass. Native phone rendering is in the separate hotline-mobile repository per epic-24; created its explicit counterpart task. Real Brave/Porkbun acceptance remains dependent on task-274's pages door and a device check; no host cookies were read during development.
 - 2026-10-22T15:58:31.990Z: [codex] Review handoff: implemented explicit host-cookie discovery/lending, shared desk/phone-seat cards, site-only push, persistent per-teammate Never with Settings undo, crash-safe removal handles and agent outcomes on dispatch/task-273, commits 2b703bb1 and c9e7b4a3; clean worktree. make check PASS; make precheck all 8 legs PASS (Windows and isolated UI included). Default never lends automatically; Use is bound to a live lease/source/site/computer; values stay in the existing host→container path, with sanitized errors. Tests/security evidence: docs/security.md Host-cookie offers. Residual: Remove clears container access, not the remote token or copies already taken. Native rendering is hotline-mobile task-51. Task-274 is now Review with hotline-computer:0.11.0-rc.8 available; George's real Brave/Porkbun Use→Remove sign-in/out check remains unperformed. No real host cookie values were extracted in development.
+- 2026-10-22T15:59:36.296Z: Landed on release/0.43.0

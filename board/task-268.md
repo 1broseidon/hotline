@@ -10,7 +10,7 @@ tags:
   - hotline-computer
 parentId: epic-24
 createdAt: "2026-10-22T03:09:09.205Z"
-updatedAt: "2026-10-22T04:35:55.259Z"
+updatedAt: "2026-10-22T05:06:08.681Z"
 ---
 
 ## Description
@@ -26,3 +26,11 @@ Done when:
 - Each use still leaves a note on the page and a line in the card's record. (screenshot in the QA notes; scene: An automatic key on a low-stakes site)
 - The setting rides to the computer with the set (wire_form); a change reaches it without a restart and applies from the next use. (named test; scene: An automatic key on a low-stakes site)
 - make check passes in hotline-computer; a new rc image is built and driven over MCP, with screenshots in qa/.
+The computer door (shared contract between task-267 and task-268; both build to exactly this):
+- PUT /secrets: a login or passkey entry may carry "use": "auto" | "ask". Absent means auto. A variable never carries it.
+- GET /secrets/uses (bearer): {"uses": [{"id": "<opaque>", "secret": "GH_PASSKEY", "kind": "passkey" | "login", "site": "github.com", "path": "/login", "askedAt": <ms>, "expiresAt": <ms>}]}, the uses the computer is holding now, oldest first. Empty list when none.
+- POST /secrets/uses/answer (bearer): {"id": "...", "answer": "approve" | "allow" | "deny"}. "allow" approves this use and lets later uses of the same secret on the same site through without holding for 10 minutes. 200 with {"state": "approved" | "denied"}; 409 when the id is not held (answered, expired or unknown); 400 for a bad body.
+- A held passkey get waits until answered or until the page's WebAuthn timeout (capped at 5 minutes), then is refused and the use expires.
+- browser fill with secret on an ask-me login does not wait: it holds a use and answers at once with an error saying it is waiting for the person to approve NAME on SITE (use id), and to try again after they answer. The retry after "approve" fills once; after "allow" fills for 10 minutes.
+- The desk polls GET /secrets/uses every 2 s for each running computer whose granted set has an ask-me key, raises one SecretUseAsk card per held use id, and settles the card as Expired when the id disappears unanswered.
+- An older computer answers 404 on /secrets/uses: the desk then treats every key as automatic for it and says so once on stderr.

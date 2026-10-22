@@ -592,6 +592,29 @@ mod tests {
         assert_eq!(fs::read(&file).unwrap(), b"again");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn atomic_write_refuses_a_junction_at_its_folder_or_its_file() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target");
+        fs::create_dir_all(&target).unwrap();
+        let junction = root.path().join("junction");
+        let made = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(made.status.success());
+
+        let through = atomic_write(&junction.join("f.json"), b"{}").unwrap_err();
+        let onto = atomic_write(&junction, b"{}").unwrap_err();
+
+        assert_eq!(through.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(onto.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+    }
+
     #[test]
     fn failed_chunk_rotation_preserves_the_previous_credential() {
         use std::sync::atomic::Ordering::SeqCst;

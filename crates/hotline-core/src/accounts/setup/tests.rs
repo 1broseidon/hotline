@@ -163,8 +163,8 @@ fn copy_brings_the_chosen_categories_and_no_secret() {
 fn a_setup_deeper_than_the_windows_path_limit_is_copied_and_copied_again() {
     let f = fixture();
     let deep = Path::new("skills")
-        .join("d".repeat(100))
-        .join("e".repeat(100))
+        .join("d".repeat(120))
+        .join("e".repeat(120))
         .join("SKILL.md");
     write(f.source.dir.join(&deep), "deep");
     copy_setup(&f.source, &f.account, &CLAUDE, &ids(&["skills"])).unwrap();

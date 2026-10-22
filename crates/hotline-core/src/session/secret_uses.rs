@@ -12,6 +12,7 @@ pub(super) struct UseWatch {
     pub(super) ready: Option<Ready>,
     pub(super) old: bool,
     cards: HashMap<String, UseCard>,
+    pub(super) cookies: super::cookie_offers::CookieWatch,
 }
 
 struct UseCard {
@@ -51,6 +52,8 @@ impl Room {
     }
 
     async fn look_at_secret_uses(self: &Arc<Self>, persona: &str, watch: &mut UseWatch) {
+        self.look_at_cookie_offers(persona, &mut watch.cookies)
+            .await;
         let granted = self.ask_me_secrets(persona);
         if granted.is_empty()
             && watch
@@ -308,7 +311,7 @@ pub(super) fn watch(room: Weak<Room>) {
             let Some(room) = room.upgrade() else { return };
             let mut personas: HashSet<String> = lock(&room.secret_uses).keys().cloned().collect();
             for persona in room::roster(&room.log) {
-                if !room.ask_me_secrets(&persona.id).is_empty() {
+                if persona.computer.as_ref().is_some_and(|c| c.enabled) {
                     personas.insert(persona.id);
                 }
             }

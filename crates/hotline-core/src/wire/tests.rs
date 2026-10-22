@@ -1129,6 +1129,8 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
 mod asks;
 mod capabilities;
 mod capture;
+#[cfg(unix)]
+mod cookie_offers;
 mod deltas;
 mod door;
 mod files;

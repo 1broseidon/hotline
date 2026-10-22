@@ -30,6 +30,7 @@ import { useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from ".
 import { CallTools, Steps } from "./transcript/Steps";
 import { AgentSay, NamedSay, UserBubble, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
 import { CredentialAsk } from "./transcript/CredentialAsk";
+import { CookieOfferCard } from "./transcript/CookieOfferCard";
 import { SecretUseAsk } from "./transcript/SecretUseAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
@@ -675,6 +676,8 @@ const Row = memo(function Row({
 		case "credential_ask":
 			return <CredentialAsk event={event} teammate={ownerName} />;
 
+		case "cookie_offer":
+			return <CookieOfferCard offer={event} teammate={ownerName} />;
 		case "secret_use_ask":
 			return <SecretUseAsk event={event} teammate={ownerName} />;
 

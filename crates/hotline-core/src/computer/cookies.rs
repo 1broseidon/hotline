@@ -20,6 +20,8 @@
 //! inside its own writable tree, so the copy for one goes under
 //! `~/snap/<name>/…` rather than the system temp dir.
 
+pub(crate) mod lending;
+
 use crate::contract::{BrowserProfile, CookieSite, HostBrowser};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};

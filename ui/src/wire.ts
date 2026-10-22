@@ -8,6 +8,8 @@ import type {
 	ComputerStatus,
 	ConfigChoice,
 	CookieImport,
+	CookieOffer,
+	CookieOfferBlock,
 	CookieSite,
 	Credential,
 	DeskLink,
@@ -274,6 +276,11 @@ type Results = {
 	"computer.cookies.import": CookieSite[];
 	"computer.cookies.push": CookieSite[];
 	"computer.cookies.list": CookieImport[];
+	"computer.cookies.offers": CookieOffer[];
+	"computer.cookies.blocked": CookieOfferBlock[];
+	"computer.cookies.reset": null;
+	"computer.cookies.answer": null;
+	"computer.cookies.remove": null;
 	"computer.cookies.forget": CookieImport[];
 	/** Names, kinds and what each is for; never a value. */
 	"secrets.capture.answer": null;

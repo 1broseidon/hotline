@@ -145,6 +145,9 @@ pub(crate) mod fake {
         /// domains, in order.
         forgotten: Forgotten,
         pub(crate) uploads: Arc<Mutex<Vec<Value>>>,
+        pub(crate) pages: Arc<Mutex<Vec<Value>>>,
+        pub(crate) login_error: Arc<Mutex<Option<String>>>,
+        pub(crate) forget_error: Arc<std::sync::atomic::AtomicBool>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -249,6 +252,19 @@ pub(crate) mod fake {
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "))
             .is_some_and(|bearer| !bearer.is_empty())
+    }
+
+    async fn pages(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+    ) -> axum::response::Response {
+        if !bearer_present(&headers) {
+            return json_answer(axum::http::StatusCode::UNAUTHORIZED, json!({}));
+        }
+        json_answer(
+            axum::http::StatusCode::OK,
+            json!({"pages":taken.pages.lock().unwrap().clone()}),
+        )
     }
 
     async fn take_secrets(
@@ -398,6 +414,12 @@ pub(crate) mod fake {
             .ok()
             .and_then(|body| serde_json::from_value(body["domains"].clone()).ok())
             .unwrap_or_default();
+        if taken.forget_error.load(std::sync::atomic::Ordering::SeqCst) {
+            return json_answer(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error":"cookie-sentinel-273"}),
+            );
+        }
         let count = domains.len();
         taken
             .forgotten
@@ -541,6 +563,7 @@ pub(crate) mod fake {
         /// The release this fake is; `None` is an older image whose `state`
         /// has no `guide` action.
         version: Option<String>,
+        taken: Taken,
     }
 
     impl ServerHandler for FakeComputer {
@@ -617,6 +640,11 @@ pub(crate) mod fake {
                         ContentBlock::text("8x6 image; 1 px = 1 screen px"),
                     ]),
                 },
+                (Some(_), "login_load") if self.taken.login_error.lock().unwrap().is_some() => {
+                    CallToolResult::error(vec![ContentBlock::text(
+                        self.taken.login_error.lock().unwrap().clone().unwrap(),
+                    )])
+                }
                 (Some(_), "login_load") => {
                     CallToolResult::success(vec![ContentBlock::text("loaded")])
                 }
@@ -652,6 +680,7 @@ pub(crate) mod fake {
         let taken = Taken::default();
         let computer = FakeComputer {
             version: version.map(str::to_owned),
+            taken: taken.clone(),
         };
         let service: StreamableHttpService<FakeComputer, LocalSessionManager> =
             StreamableHttpService::new(
@@ -689,6 +718,7 @@ pub(crate) mod fake {
         }
         if version == Some("0.11.2") {
             app = app
+                .route("/pages", axum::routing::get(pages))
                 .route(
                     "/secrets/uses",
                     axum::routing::get(crate::computer::uses::fake::held),

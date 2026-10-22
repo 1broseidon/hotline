@@ -46,6 +46,19 @@ impl Room {
                 answerable: true,
             });
         }
+        if card.kind == "cookie_offer" {
+            let pending = self.tape(&card.persona).iter().any(|event| {
+                event["kind"] == "cookie_offer"
+                    && event["id"] == card.request
+                    && event["status"] == "pending"
+            });
+            return pending.then(|| Notice {
+                text:
+                    "A browser sign-in offer waits on the desk and phone. Please answer it there."
+                        .into(),
+                answerable: false,
+            });
+        }
         if card.kind == "secret_use_ask" {
             let pending = self.tape(&card.persona).iter().any(|event| {
                 event["kind"] == "secret_use_ask"

@@ -1281,3 +1281,39 @@ restart expires saved cards; the saved event alone has no answer authority.
 A computer returning 404 on the use door gets automatic policy for all keys,
 with one stderr explanation per running endpoint; the vault keeps the person's
 choice for a newer computer.
+
+### A host browser session is lent only after Use
+
+The same two-second computer watch polls `GET /pages`, taking only HTTP(S)
+origins. On the first appearance of a registrable site during a live teammate
+session, the core copies each host browser's SQLite cookie store and reads
+only `host_key` (Chromium) or `host` (Firefox). Discovery neither launches a
+browser nor asks its keychain to decrypt. A missing `/pages` door offers
+nothing. If several profiles have the site, the first browser by id and its
+first profile supplies one offer; the card names that browser and profile.
+
+The additive `cookie_offer` event is one shared desk/phone card. Use always
+asks: it says the teammate will be signed in as the person. Only an explicit
+`computer.cookies.answer` with `use`, bound to the source, teammate, site,
+running computer and live capability lease, opens cookie values through the
+existing browser reader. The PSL, including private suffixes, bounds the
+selection to the registrable domain and subdomains; expired cookies stay on
+the host. Values pass only to the authenticated computer login door. Not now
+lasts for this session; Never for this site is a per-teammate room record,
+undone with Ask again in Settings → Secrets. Voice cannot answer the card.
+
+A metadata-only Unconfirmed record precedes delivery, so a crash midway still
+leaves Remove available; only confirmed delivery says Signed in as you.
+Each lend has a unique `lent-<browser>-<profile>-<id>` login, so another site
+cannot overwrite its removal record. The settled card and computer pane say
+Signed in as you and offer Remove. It calls `DELETE /logins/{name}` with
+`domains: [site]` and tells the agent that the session was taken back; Use
+tells it it may reload. These records survive restart, while saved pending
+cards expire and have no authority. Removal clears the container's browser
+and saved login, not the person's host cookies or the site's session token.
+Existing event shapes, segments and the importer are unchanged.
+
+The native phone renders this additive card in its own repository; this tree
+proves its subscription and answer protocol through both authenticated seats.
+Task-274 supplies the computer's pages door. A real Brave/Porkbun sign-in and
+removal on George's Mac remains a device acceptance check.

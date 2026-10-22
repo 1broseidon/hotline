@@ -423,7 +423,8 @@ browser's cookies into a teammate's computer. They use the person's own
 authority through the authenticated desk wire, are gated to owner or local desk authority, and
 add nothing to what the agent may reach on its own. They are not a call-time
 approval prompt, which the standing-consent rule forbids, because the person
-initiates them; there is no card the agent can raise.
+initiates them. Host-cookie offers below are a separate, always-asked path;
+the agent has no tool that selects or accepts their source.
 
 Cookie import (`computer.browsers.list`, `computer.cookies.preview`,
 `computer.cookies.import`, `computer.cookies.list`, `computer.cookies.forget`)
@@ -2166,3 +2167,40 @@ narrator leaves the written result available without a new spoken pointer.
 | Policy persists without rewriting values; old records are Automatic; saved cards cannot answer after restart | `vault/shared/tests.rs` `secret_use_changes_survive_restart_without_rewriting_values`, `keys_stored_before_use_policy_are_automatic`; `tests/desk/secret_uses.rs` `secret_use_policy_survives_a_real_desk_restart_and_saved_cards_cannot_answer` | — |
 | Voice cannot answer a secret-use card | `voice/room/tests/cards.rs` `the_card_handler_refuses_actions_forged_questions_and_stale_authority` | — |
 | Settings saves each choice; card buttons send the three exact answers once and disappear on settlement or expiry | `ui/tests/secret-use.test.tsx` | — |
+
+## Host-cookie offers
+
+- **Default:** no automatic lending, including old records. An enabled, running
+  computer and live teammate session permit host-column discovery only. An old
+  computer without `GET /pages` produces no offers.
+- **Grant source:** Use on a core-created `cookie_offer`, through the desk,
+  owner or phone seat. The source, site and recipient are held in core memory;
+  callers supply only the card id and choice. No tool or voice answer grants it.
+- **Enforcement:** `computer/cookies/lending.rs` copies SQLite stores and selects
+  only hosts before consent. Its value reader runs only in
+  `session/cookie_offers.rs::answer_cookie_offer`, under the computer watch and
+  policy locks, with a live capability lease and matching running endpoint
+  checked before and after the read. PSL registrable-domain equality, including
+  private suffixes, limits values to the approved site and its subdomains. Error
+  bodies from the browser and computer are replaced by fixed messages.
+- **Revocation:** a stopped or changed session expires pending cards. Each lend
+  is separately named and its metadata survives restart; Remove sends exactly
+  `domains: [site]` to the authenticated computer's `DELETE /logins/{name}`.
+  Both the browser and saved login there lose the cookies. The agent hears the
+  outcome without any values. Never is per teammate and Settings can undo it.
+- **Residual risk:** approval gives the teammate the person's signed-in powers
+  on this site. The computer is already a granted sandbox and can read its own
+  saved login. Removing the container copy does not invalidate an exfiltrated
+  cookie or revoke the site's token, and cannot undo actions already taken.
+  The removal record is saved before delivery, with an Unconfirmed state until
+  success. A failed rollback after an interrupted delivery may require Remove;
+  container/network failure cannot prove remote deletion. The host browser may
+  ask its OS keychain for permission after Use. Physical Brave/Porkbun and the
+  native phone UI require device verification outside this tree.
+
+| Boundary | Proof | Platform |
+| --- | --- | --- |
+| Discovery selects only hosts from Chromium and Firefox fixtures; site bounds include private suffixes | `computer/cookies/lending/tests.rs` `detection_reads_chromium_and_firefox_host_columns_without_launch_or_keychain`, `discovery_never_launches_or_calls_the_browser_keychain_until_use`, `only_the_registrable_site_and_its_subdomains_can_be_lent` | — |
+| One offer reaches desk and phone only for a matching site; racing answers lend once, and Remove names the saved login and site and tells the agent | `wire/tests/cookie_offers.rs` `cookie_offer_is_one_card_on_desk_and_phone_only_for_sites_in_chromium_or_firefox`, `use_lends_only_the_site_and_subdomains_and_remove_takes_it_back_and_tells_the_agent` | Unix |
+| Session decline, persistent per-teammate Never and Settings undo; unknown, wrong and revoked ids cannot read values | `wire/tests/cookie_offers.rs` `not_now_asks_again_next_session_but_never_waits_until_settings_undo`, `cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values` | Unix |
+| Values stay out of public sinks; a real desk restart expires pending offers and retains removal and preference records | `wire/tests/cookie_offers.rs` `cookie_values_never_reach_tape_room_agent_or_wire_sinks`, `failed_delivery_keeps_a_removal_handle_and_never_echoes_a_cookie_in_errors`; `tests/desk/cookie_offers.rs` `cookie_offers_expire_on_real_desk_restart_while_lends_and_per_teammate_never_survive` | Unix for the sink |

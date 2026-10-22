@@ -360,6 +360,16 @@ pub(crate) struct Fake {
 }
 
 impl Fake {
+    #[cfg(unix)]
+    pub(crate) fn cookie_heard(&self) -> String {
+        format!(
+            "{:?} {:?} {:?}",
+            lock(&self.preambles),
+            lock(&self.seeds),
+            lock(&self.driver.prompts)
+        )
+    }
+
     pub(super) fn cancel_count(&self) -> usize {
         *lock(&self.driver.cancels)
     }
@@ -708,7 +718,7 @@ async fn until_state(room: &Room, persona_id: &str, want: SessionState) {
 #[cfg(unix)]
 pub(crate) struct ComputerRoom {
     pub(crate) room: Arc<Room>,
-    agents: Arc<Fake>,
+    pub(crate) agents: Arc<Fake>,
     root: std::path::PathBuf,
     cwd: std::path::PathBuf,
     /// How often the releases endpoint was asked.
@@ -833,4 +843,22 @@ pub(crate) async fn secret_use_room(
     enrol(&fixture.room.log, &persona);
     fixture.room.start("ada").await.unwrap();
     fixture
+}
+
+#[cfg(unix)]
+pub(crate) async fn cookie_offer_room(
+    name: &str,
+    firefox: bool,
+) -> (ComputerRoom, tempfile::TempDir) {
+    let profiles = tempfile::tempdir().unwrap();
+    let source = crate::computer::cookies::lending::tests::fixture(profiles.path(), firefox);
+    let fixture = computer_room(name, Some("0.11.2"), TWO_RELEASES, true).await;
+    *lock(&fixture.room.cookie_sources) = vec![source];
+    fixture.room.start("ada").await.unwrap();
+    *fixture.taken.pages.lock().unwrap() = vec![
+        json!({"origin":"https://porkbun.com"}),
+        json!({"origin":"https://account.porkbun.com"}),
+        json!({"origin":"https://no-cookies.example"}),
+    ];
+    (fixture, profiles)
 }

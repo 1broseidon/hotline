@@ -220,7 +220,8 @@ impl Room {
                 events
                     .iter()
                     .filter(|event| {
-                        event["kind"] == "secret_use_ask" && event["status"] == "pending"
+                        (event["kind"] == "secret_use_ask" || event["kind"] == "cookie_offer")
+                            && event["status"] == "pending"
                     })
                     .map(|event| {
                         let mut expired = event.clone();

@@ -20,7 +20,7 @@ use crate::wire::RoomHandle;
 use crate::{paths, private_dir, room};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use uuid::Uuid;
 
 const MAX_NAME_CHARS: usize = 64;
@@ -127,6 +127,38 @@ fn users<'a>(roster: &'a [Persona], account_id: &'a str) -> impl Iterator<Item =
         .filter(move |persona| persona.agent_account_id.as_deref() == Some(account_id))
 }
 
+static CREATING: Mutex<Vec<(PathBuf, String, String)>> = Mutex::new(Vec::new());
+
+/// Holds a name from its first check until its account is written: copying a
+/// setup can take minutes, and a second create of the name meanwhile would
+/// copy it all again only to be refused.
+struct Creating((PathBuf, String, String));
+
+impl Creating {
+    fn reserve(root: &Path, backend_id: &str, name: &str) -> Result<Self, String> {
+        let key = (
+            root.to_path_buf(),
+            backend_id.to_string(),
+            name.to_lowercase(),
+        );
+        let mut creating = CREATING.lock().unwrap_or_else(PoisonError::into_inner);
+        if creating.contains(&key) {
+            return Err(already_taken(name));
+        }
+        creating.push(key.clone());
+        Ok(Self(key))
+    }
+}
+
+impl Drop for Creating {
+    fn drop(&mut self) {
+        CREATING
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|key| *key != self.0);
+    }
+}
+
 async fn create(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -138,6 +170,7 @@ async fn create(
 ) -> Result<Value, String> {
     let support = account_support(&backend_id).ok_or(NO_ACCOUNTS)?;
     let name = checked_name(&room::agent_accounts(log), &backend_id, name, None)?;
+    let _creating = Creating::reserve(log.root(), &backend_id, &name)?;
     // Everything that can refuse is asked before a folder exists.
     let source = match start_with {
         SetupFrom::Empty => None,
@@ -326,11 +359,13 @@ fn checked_name(
             && account.name.to_lowercase() == name.to_lowercase()
     });
     if taken {
-        return Err(format!(
-            "There is already an account named {name} for that agent."
-        ));
+        return Err(already_taken(name));
     }
     Ok(name.to_string())
+}
+
+fn already_taken(name: &str) -> String {
+    format!("There is already an account named {name} for that agent.")
 }
 
 fn checked_categories(

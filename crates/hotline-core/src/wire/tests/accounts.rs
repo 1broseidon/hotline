@@ -65,6 +65,34 @@ fn same_dir(a: &std::path::Path, b: &std::path::Path) -> bool {
 }
 
 #[tokio::test]
+async fn a_name_still_being_created_is_refused_before_a_second_folder_is_made() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let create = |name: &str| {
+        run(
+            &log,
+            &room,
+            "accounts.create",
+            json!({"backendId":"claude-acp","name":name,"startWith":"empty"}),
+        )
+    };
+
+    let (first, second) = tokio::join!(create("Reviewer"), create("reviewer"));
+
+    assert!(first.is_ok(), "{first:?}");
+    assert_eq!(
+        second.unwrap_err(),
+        "There is already an account named reviewer for that agent."
+    );
+    let folders = std::fs::read_dir(paths::agent_accounts_dir(root.path()))
+        .unwrap()
+        .count();
+    assert_eq!(folders, 1);
+    created(&log, &room, "Second").await;
+}
+
+#[tokio::test]
 async fn creating_an_account_makes_its_private_folder_and_ignores_a_client_path() {
     let root = tempfile::tempdir().unwrap();
     let log = Log::open(root.path());

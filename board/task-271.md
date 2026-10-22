@@ -38,3 +38,6 @@ Done when:
 - Cancelling a job signals the whole process group at once so no further statement of the job runs after cancel: a named test with 'sleep 30; touch after' that cancels during the sleep and asserts after never appears, looped 50 times without a failure on macOS and Linux.
 - The steering test passes 20 consecutive runs on the Mac.
 - make check passes.
+
+## Log
+- 2026-10-22T07:40:00.927Z: [codex] Started on dispatch/task-271. The current Unix path already uses killpg(SIGKILL); Apple's XNU killpg1 iterates group members and signals each individually, so a group syscall is not simultaneous delivery. Investigating a group-stop-before-group-kill fix shared by explicit cancellation and the drop guard; adding the 50-iteration regression and retaining real-wire steering coverage.

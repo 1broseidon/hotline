@@ -182,6 +182,13 @@ impl ProviderKeys for NoKeys {
 
 #[async_trait]
 impl RoomHandle for CoreHandle {
+    async fn secrets_capture_answer(
+        &self,
+        answer: crate::contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        self.room.answer_credential(answer).await
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.room.threads_waiting(persona_id)
     }
@@ -1121,6 +1128,7 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
 
 mod asks;
 mod capabilities;
+mod capture;
 mod deltas;
 mod door;
 mod files;

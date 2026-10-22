@@ -262,6 +262,9 @@ pub struct SharedSecret {
     /// When the value was last stored or replaced, ms since the epoch.
     pub updated_at: i64,
     pub kind: SharedSecretKind,
+    /// Missing on older records means automatic.
+    #[serde(default)]
+    pub ask: bool,
     /// A login's sites: the origins its fields are typed on, and no other.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sites: Option<Vec<String>>,

@@ -482,14 +482,15 @@ Secret Service, the same opaque-reference records as provider keys; no
 plaintext fallback), beside a private sidecar that says only what the
 record is for — kind, sites, username, whether there is a seed; site and
 user name for a passkey — so `secrets.list` answers that without opening
-the keychain. Nothing on the wire, in the room stream, or in a subscription
-ever carries a value, a password, a seed or a private key: the store is
-write-only from the window. All seven commands require owner or local desk authority.
+the keychain. No reply, room event or subscription carries a password, seed or private
+key: the store is write-only from the window. These management commands
+require owner or local desk authority. The bounded
+`secrets.capture.answer` flow below also allows the phone seat.
 
 A teammate gets a secret only by the operator ticking its name on that
 teammate's computer, `computer.secrets`, a standing choice like a mount,
-nothing pre-ticked, set only through `persona.update`, which the phone may
-not send. At every grant — session start, reattach, and whenever a stored
+nothing pre-ticked. `persona.update` changes that set from the desk;
+answering a credential card also ticks its one key for its bound requester. At every grant — session start, reattach, and whenever a stored
 value is replaced or deleted — the desk reads the granted values from the
 vault and hands the computer the whole set through `PUT /secrets` on its
 authenticated loopback port, bearer in a header. A stopped computer is
@@ -772,7 +773,7 @@ extend; when a change adds a boundary, it adds a row.
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
 | What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests/computer.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `hotline-room/src/room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests/seats.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
-| Stored secrets are operator-only: a companion can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests/seats.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
+| Secret management is operator-only: a companion cannot list, set, delete or arm arbitrary keys, nor grant one through `persona.update`; bounded capture answers are described below | `wire/tests/seats.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A companion reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room stream (a thread between two teammates and a subagent's run are read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests/seats.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`; `wire/tests/schedules.rs` `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests/phone.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
 | A companion adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests/seats.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`; `wire/tests/personas.rs` `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests/phone.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
 | A companion renames a teammate or changes its goal only through `mobile.persona_update`, never `persona.update`: the patch core builds holds `name` and `goal` and nothing else, whatever the phone's JSON names for reach, path, computer or background work; a blank name, an edit naming neither field and an unknown teammate are refused; the phone may `persona.delete` | `wire/tests/seats.rs` `the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one`, `mobile_persona_update_changes_only_the_name_and_goal`; `remote/tests/phone.rs` `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update` | — |
@@ -2083,3 +2084,47 @@ narrator leaves the written result available without a new spoken pointer.
   that proposal, but two separately approved proposals can overwrite each
   other in settlement order. The saved name is prompt data, not instructions;
   no name proposal can write another setting or create a standing grant.
+
+## Credential capture in the chat (task-266)
+
+- **Default and grant source:** `request_credential` proposes a card under
+  the requesting session's lease and enabled computer grant. It cannot read,
+  store or grant a value. Only the authenticated owner/desk or phone can
+  answer `secrets.capture.answer`. Missing name declines; supplied values
+  create a new login; a matching existing name grants that key without
+  replacing it. New and old keys default to `ask: false`. Capture persists
+  and delivers the Ask me setting; task-267/task-268 own use-time approval.
+- **Enforcement:** both agent drivers reach the same MCP handler. The card
+  binds origin, teammate and lease before publication; the command accepts
+  none of those replacements. A scoped lease, thirty-minute deadline and
+  per-request mutex cover submission, withdrawal, expiry and minted passkey
+  storage. The policy lock serializes the grant with policy and secret changes. An
+  accepted answer survives loss of its phone socket and finishes settlement. A
+  captured passkey also requires an operator answer and its exact origin;
+  a poll reporting approval alone is insufficient. Restarted cards cannot
+  acquire a fresh lease. The phone is refused other secret writes and the
+  generic value-bearing thread-answer variant. Voice cannot answer it.
+- **Data:** values enter only the capture command and vault/computer path.
+  `CredentialValues` and vault records redact Debug; parse errors on capture carry no supplied
+  content. Computer secret-delivery errors omit upstream bodies, which may
+  echo a submitted value. Card events, pushes and deliveries carry only
+  metadata. The form clears its fields before submitting, on dismissal,
+  on settlement from either seat and at its local expiry deadline.
+- **Residual limits:** a captured login contains only the requested origin,
+  but Hotline Computer currently permits subdomains of that host with the
+  same scheme and port. Strict origin-only filling needs a computer change;
+  this branch cannot prove that acceptance line. Computer-side redaction is
+  still protection against incidental disclosure, not a determined program
+  that encodes an accessible value. The authenticated operator can still
+  change a granted key afterward. A stopped computer receives its set at its
+  next start, and a failed delivery uses the existing failure reporting.
+
+
+| Must hold | Proof | Needs |
+| --- | --- | --- |
+| Capture stores the requested origin, grants and delivers once, survives phone disconnect, and no typed value reaches tape, agent output, Debug or delivery errors | `session/tests/capture.rs` `capture_stores_grants_and_delivers_without_values_in_any_sink`, `capture_an_accepted_answer_finishes_when_its_phone_disconnects`; `computer/secrets.rs` `capture_delivery_failure_cannot_echo_values_into_the_desk_log` | Unix for the session tests |
+| Decline, expiry, withdrawal and lease revocation store and grant nothing; repeated same-turn requests are refused; existing keys cannot be overwritten or granted for another origin; narrowed jobs, runs and voice fronts gain no computer access | `session/tests/capture.rs` `capture_decline_expiry_withdrawal_and_revocation_store_nothing`, `capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_replaced`, `capture_cannot_widen_a_job_without_a_computer_or_a_voice_front_or_run` | Unix |
+| A captured passkey requires the specific operator-approved request and origin, preserves the chosen name and Ask me setting, declines with a denied approval, and expires with unused arming | `session/tests/capture.rs` `capture_passkey_keeps_approval_origin_name_and_ask_setting`, `capture_passkey_unused_arming_expires_and_call_card_stays_on_the_desk`, `capture_passkey_refuses_another_origin_and_minting_without_operator_approval`, `capture_passkey_denial_is_declined_and_tells_the_agent_why_it_stopped` | Unix |
+| The phone can answer only the bound capture command; both seats see one settlement; malformed input never echoes values; a saved request cannot revive its lease after restart | `wire/tests/capture.rs` `capture_phone_answer_settles_both_seats_once_and_other_value_commands_are_refused`, `capture_malformed_values_and_debug_never_echo_typed_values`; `tests/desk/capture.rs` `capture_restart_refuses_saved_cards_and_never_stores_submitted_values` | — |
+| A call announces the card once, accepts neither yes nor done, and announces storage only by the key's name | `voice/room/tests/cards.rs` `credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_answers` | — |
+| Save sends one command and clears secure fields; decline, dismissal, remote settlement and local expiry clear without sending values; passkeys have no value fields | `ui/tests/asks-credential.test.tsx` | — |

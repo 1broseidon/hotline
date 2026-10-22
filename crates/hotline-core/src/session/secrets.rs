@@ -79,6 +79,33 @@ impl Room {
         persona_id: &str,
         rp_id: &str,
     ) -> Result<PasskeyRegistration, String> {
+        self.register_passkey(name, persona_id, rp_id, None).await
+    }
+
+    pub(super) async fn arm_captured_passkey(
+        self: &Arc<Self>,
+        name: &str,
+        persona_id: &str,
+        rp_id: &str,
+        capture: PasskeyCapture,
+    ) -> Result<PasskeyRegistration, String> {
+        self.register_passkey(name, persona_id, rp_id, Some(capture))
+            .await
+    }
+
+    async fn register_passkey(
+        self: &Arc<Self>,
+        name: &str,
+        persona_id: &str,
+        rp_id: &str,
+        capture: Option<PasskeyCapture>,
+    ) -> Result<PasskeyRegistration, String> {
+        if lock(&self.passkey_armings)
+            .get(persona_id)
+            .is_some_and(|arming| arming.capture.is_some() && arming.stored.is_none())
+        {
+            return Err("A credential card already has this computer armed.".into());
+        }
         crate::vault::check_secret_name(name).map_err(|error| error.to_string())?;
         crate::vault::check_rp_id(rp_id).map_err(|error| error.to_string())?;
         if self.vault.is_none() {
@@ -123,11 +150,13 @@ impl Room {
         lock(&self.passkey_armings).insert(
             persona.id.clone(),
             PasskeyArming {
+                capture,
                 name: name.to_owned(),
                 rp_id: rp_id.to_owned(),
                 expires_at,
                 asked: None,
                 answered: false,
+                operator_approved: false,
                 storing: false,
                 stored: None,
             },
@@ -150,7 +179,7 @@ impl Room {
     /// poll or the room's own watch found it — and `idle` when there is
     /// nothing pending.
     pub async fn secrets_passkey_registration(
-        &self,
+        self: &Arc<Self>,
         persona_id: &str,
     ) -> Result<PasskeyRegistration, String> {
         let (answer, _) = self.look_at_passkey_arming(persona_id).await?;
@@ -171,7 +200,7 @@ impl Room {
     /// that went away with its page, an arming that ran out, and a computer
     /// that stopped each leave the card expired rather than answerable.
     async fn look_at_passkey_arming(
-        &self,
+        self: &Arc<Self>,
         persona_id: &str,
     ) -> Result<(PasskeyRegistration, bool), String> {
         use crate::computer::passkeys::Registration;
@@ -209,6 +238,10 @@ impl Room {
         if let Some(secret) = arming.stored.clone() {
             return Ok((stored(&arming, secret), false));
         }
+        if arming.capture.is_some() && arming.expires_at <= now_ms() {
+            self.secrets_passkey_cancel(persona_id).await?;
+            return Ok((idle, false));
+        }
         if arming.storing {
             let state = if arming.asked.is_some() {
                 PasskeyRegistrationState::Approved
@@ -231,6 +264,42 @@ impl Room {
                 return Err(format!("The computer could not be asked. {reason}"));
             }
         };
+        if let Some(capture) = &arming.capture {
+            let valid = capture.capability.is_current()
+                && match &polled {
+                    Registration::Asked { ask, .. } => {
+                        ask.origin == capture.origin && ask.rp_id == arming.rp_id
+                    }
+                    Registration::Approved { ask, .. } => {
+                        arming.operator_approved
+                            && arming
+                                .asked
+                                .as_ref()
+                                .is_some_and(|known| known.id == ask.id)
+                            && ask.origin == capture.origin
+                            && ask.rp_id == arming.rp_id
+                    }
+                    Registration::Registered {
+                        credential, ask, ..
+                    } => {
+                        arming.operator_approved
+                            && ask.as_ref().is_some_and(|ask| {
+                                arming
+                                    .asked
+                                    .as_ref()
+                                    .is_some_and(|known| known.id == ask.id)
+                                    && ask.origin == capture.origin
+                                    && ask.rp_id == arming.rp_id
+                            })
+                            && matches!(credential, crate::vault::StoredSecret::Passkey { rp_id, .. } if *rp_id == arming.rp_id)
+                    }
+                    _ => true,
+                };
+            if !valid {
+                self.secrets_passkey_cancel(persona_id).await?;
+                return Err("The captured passkey requires its exact origin, a live session and the person's approval.".into());
+            }
+        }
         match polled {
             Registration::Idle => {
                 self.drop_passkey_arming(persona_id);
@@ -244,6 +313,7 @@ impl Room {
                     if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
                         live.asked = None;
                         live.answered = false;
+                        live.operator_approved = false;
                     }
                 }
                 Ok((
@@ -261,6 +331,7 @@ impl Room {
                     if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
                         live.asked = Some(ask.clone());
                         live.answered = false;
+                        live.operator_approved = false;
                     }
                     self.raise_passkey_card(persona_id, &arming, &ask);
                 }
@@ -337,7 +408,7 @@ impl Room {
     /// ends the arming. One answer to one request: a request that is not
     /// waiting any more is refused, so a stale card cannot let one through.
     pub async fn secrets_passkey_answer(
-        &self,
+        self: &Arc<Self>,
         persona_id: &str,
         ask_id: &str,
         approved: bool,
@@ -352,6 +423,32 @@ impl Room {
         };
         if arming.answered {
             return Err("That passkey request was already answered.".to_string());
+        }
+        // A denial settles the capture while holding the same lock as its
+        // expiry watcher. Otherwise removing the arming would look like a timeout.
+        let pending = arming
+            .capture
+            .as_ref()
+            .filter(|_| !approved)
+            .and_then(|source| lock(&self.captures).get(&source.action).cloned());
+        let mut declined = match pending.as_ref() {
+            Some(capture) => Some(capture.lock().await),
+            None => None,
+        };
+        if let Some(capture) = declined.as_ref() {
+            capture.check_passkey(&arming.name)?;
+        }
+        if let Some(capture) = &arming.capture {
+            capture.capability.check()?;
+            if ask.origin != capture.origin
+                || ask.rp_id != arming.rp_id
+                || now_ms() >= arming.expires_at
+            {
+                return Err(
+                    "That passkey request is outside the credential card's origin or lifetime."
+                        .into(),
+                );
+            }
         }
         let Some(ready) = self.computers.running(persona_id).await else {
             self.drop_passkey_arming(persona_id);
@@ -369,12 +466,18 @@ impl Room {
                 return Err(format!("The computer could not take the answer. {reason}"));
             }
         }
+        if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
+            live.operator_approved = approved;
+        }
         self.note_passkey_answer(persona_id, &arming, &ask, approved);
         if approved {
             let (answer, _) = self.look_at_passkey_arming(persona_id).await?;
             Ok(answer)
         } else {
             lock(&self.passkey_armings).remove(persona_id);
+            if let Some(capture) = declined.as_mut() {
+                self.settle_capture(capture, crate::contract::CredentialStatus::Declined, None);
+            }
             Ok(PasskeyRegistration {
                 state: PasskeyRegistrationState::Idle,
                 name: None,
@@ -482,8 +585,13 @@ impl Room {
         ask: &crate::contract::PasskeyAsk,
         status: crate::contract::PasskeyAskStatus,
     ) {
-        self.write(
+        let home = lock(&self.passkey_armings)
+            .get(persona_id)
+            .and_then(|a| a.capture.as_ref().map(|c| c.home.clone()))
+            .unwrap_or_else(|| ThreadId::dm(persona_id));
+        self.write_home(
             persona_id,
+            &home,
             &TranscriptEvent::PasskeyAsk {
                 from: None,
                 id: format!("passkey-ask:{}", ask.id),
@@ -507,16 +615,50 @@ impl Room {
     /// with the rest of its set, the arming ended, and a line on the tape.
     /// Answers the record as listed.
     async fn store_minted_passkey(
-        &self,
+        self: &Arc<Self>,
         persona_id: &str,
         arming: &PasskeyArming,
         ready: &crate::computer::Ready,
-        credential: crate::vault::StoredSecret,
+        mut credential: crate::vault::StoredSecret,
     ) -> Result<crate::contract::SharedSecret, String> {
+        let pending = arming
+            .capture
+            .as_ref()
+            .and_then(|capture| lock(&self.captures).get(&capture.action).cloned());
+        let mut captured = if arming.capture.is_some() {
+            Some(
+                pending
+                    .as_ref()
+                    .ok_or("The credential request ended before the passkey was stored.")?
+                    .lock()
+                    .await,
+            )
+        } else {
+            None
+        };
+        if let Some(capture) = captured.as_ref() {
+            capture.check_passkey(&arming.name)?;
+        }
         let vault = self
             .vault
             .as_ref()
             .ok_or("Stored secrets are unavailable on this room.")?;
+        let updates = self.policy_update_lock();
+        let held = updates.lock().await;
+        if let Some(capture) = &arming.capture {
+            capture.capability.check()?;
+            if vault
+                .shared_secrets()
+                .map_err(|_| "The vault could not be listed.")?
+                .iter()
+                .any(|secret| secret.name == arming.name)
+            {
+                return Err("That passkey name was stored meanwhile. Choose another name.".into());
+            }
+            if let crate::vault::StoredSecret::Passkey { ask, .. } = &mut credential {
+                *ask = capture.ask;
+            }
+        }
         vault
             .set_shared(&arming.name, credential)
             .map_err(|error| error.to_string())?;
@@ -531,6 +673,7 @@ impl Room {
         }
         persona.updated_at = now_ms();
         room::append_persona(&self.log, &persona)?;
+        drop(held);
         self.hand_secrets(&persona, ready).await;
         if let Err(error) = crate::computer::passkeys::disarm(ready).await {
             self.write(
@@ -564,6 +707,13 @@ impl Room {
                 ),
             },
         );
+        if let Some(capture) = captured.as_mut() {
+            self.settle_capture(
+                capture,
+                crate::contract::CredentialStatus::Stored,
+                Some(arming.name.clone()),
+            );
+        }
         Ok(secret)
     }
 
@@ -605,16 +755,28 @@ impl Room {
 /// room watches it by itself (see `watch_passkey_arming`); once a look has
 /// stored what the browser minted, the record as listed waits here for the
 /// next `registration` poll, which answers it once.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
+pub(super) struct PasskeyCapture {
+    pub action: String,
+    pub origin: String,
+    pub ask: bool,
+    pub capability: CapabilityLease,
+    pub home: ThreadId,
+}
+
+#[derive(Clone)]
 pub(super) struct PasskeyArming {
+    pub(super) capture: Option<PasskeyCapture>,
     name: String,
     rp_id: String,
-    expires_at: i64,
+    pub(super) expires_at: i64,
     /// The site's request the card on the tape was raised for, once one
     /// was, and whether that card has been answered — by the person, or
     /// by a look that found the computer already past it.
     asked: Option<crate::contract::PasskeyAsk>,
     answered: bool,
+    /// Only the authenticated answer handler sets this; a poll is not consent.
+    operator_approved: bool,
     /// A look found it made and is storing it; another look meanwhile
     /// answers `armed` rather than storing it twice.
     storing: bool,

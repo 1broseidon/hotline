@@ -29,6 +29,7 @@ import {
 import { useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
 import { CallTools, Steps } from "./transcript/Steps";
 import { AgentSay, NamedSay, UserBubble, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
+import { CredentialAsk } from "./transcript/CredentialAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
 
@@ -550,7 +551,7 @@ const Row = memo(function Row({
 	const run: Run = { top, bottom };
 	const own = event.kind === "user" || event.kind === "agent" ? event.reactions : undefined;
 	const worn = reactions === undefined ? own : [...(own ?? []), ...reactions];
-	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask") && event.from?.kind === "call") {
+	if ((event.kind === "permission" || event.kind === "human_action" || event.kind === "passkey_ask" || event.kind === "credential_ask") && event.from?.kind === "call") {
 		const origin = event.from;
 		const settled = event.kind === "permission" ? event.decision !== undefined : event.status !== "pending";
 		const label = event.kind === "permission" ? event.title : event.kind === "human_action" ? event.reason : event.name;
@@ -568,6 +569,7 @@ const Row = memo(function Row({
 				</button>
 				{event.kind === "permission" && <Permission thread={thread} event={event} />}
 				{event.kind === "human_action" && <HumanAction thread={thread} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />}
+				{event.kind === "credential_ask" && <CredentialAsk event={event} teammate={ownerName} />}
 				{event.kind === "passkey_ask" && <PasskeyAskCard personaId={personaId} event={event} />}
 			</div>
 		);
@@ -668,6 +670,9 @@ const Row = memo(function Row({
 
 		case "human_action":
 			return <HumanAction thread={thread} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
+
+		case "credential_ask":
+			return <CredentialAsk event={event} teammate={ownerName} />;
 
 		case "passkey_ask":
 			return <PasskeyAskCard personaId={personaId} event={event} />;

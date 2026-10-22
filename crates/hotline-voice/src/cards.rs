@@ -44,7 +44,7 @@ impl Calls {
         let kind = event["kind"].as_str().unwrap_or_default();
         let (key, pending) = match kind {
             "permission" => ("requestId", event["decision"].is_null()),
-            "human_action" => ("actionId", event["status"] == "pending"),
+            "human_action" | "credential_ask" => ("actionId", event["status"] == "pending"),
             "passkey_ask" => ("askId", event["status"] == "pending"),
             _ => return,
         };
@@ -71,6 +71,20 @@ impl Calls {
                 call.cards.pending.retain(|queued| queued != &card);
                 if call.cards.active.as_ref() == Some(&card) {
                     call.cards.active = None;
+                }
+                if kind == "credential_ask" && event["status"] == "stored" {
+                    // Completion is a second, value-free notice, not another
+                    // answerable card. Its own key deduplicates both seats.
+                    let stored = Card {
+                        kind: "credential_stored".into(),
+                        ..card.clone()
+                    };
+                    if let std::collections::hash_map::Entry::Vacant(entry) =
+                        call.cards.seen.entry(stored.clone())
+                    {
+                        entry.insert(true);
+                        call.cards.pending.push_back(stored);
+                    }
                 }
             } else if let std::collections::hash_map::Entry::Vacant(entry) =
                 call.cards.seen.entry(card.clone())

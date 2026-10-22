@@ -828,6 +828,9 @@ pub enum Command {
     },
     /// The secrets the operator has stored for teammates: names and when
     /// each changed, never a value. Owner or local desk only.
+    /// The single owner/phone door for a live credential card.
+    #[serde(rename = "secrets.capture.answer")]
+    SecretsCaptureAnswer(CredentialAnswer),
     #[serde(rename = "secrets.list")]
     SecretsList {},
     /// Stores a secret under `name`, or replaces the one there, and hands the

@@ -57,6 +57,7 @@ mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
+pub(crate) mod capture;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;
@@ -635,6 +636,7 @@ pub struct Room {
     /// the name it will be stored under and the site, until the poll that
     /// finds it made, a cancel, or the computer's own ten minutes run out.
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
+    captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
@@ -763,6 +765,7 @@ impl Room {
             computers,
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
+            captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),

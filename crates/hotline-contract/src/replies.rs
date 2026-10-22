@@ -15,6 +15,7 @@ use super::*;
 )]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum ThreadAnswer {
+    Credential(CredentialAnswer),
     /// An option on a permission card.
     Permission {
         request_id: String,

@@ -192,6 +192,27 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<String>,
     },
+    /// A secure request for one origin. Typed values have no event field.
+    CredentialAsk {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
+        id: String,
+        ts: i64,
+        action_id: String,
+        site: String,
+        reason: String,
+        credential_kind: CaptureKind,
+        name: String,
+        status: CredentialStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stored_as: Option<String>,
+        expires_at: i64,
+        /// Names only; a username is a typed value and never belongs here.
+        existing: Vec<String>,
+        /// The first answer armed a passkey; only its site's approval remains.
+        #[serde(default)]
+        armed: bool,
+    },
     /// A site asked the teammate's browser to make a passkey, under an
     /// arming the person started for that site: the request waits in the
     /// browser until the person answers here. Pending renders the card

@@ -82,3 +82,10 @@ impl Calls {
     }
 }
 pub use crate::dispatcher::{speed_family, untrusted};
+
+impl Calls {
+    /// Exercise the production voice-card boundary without microphone timing.
+    pub async fn test_answer_card_words(&self, call: &str, words: &str) -> Option<String> {
+        self.answer_card_words(call, words).await
+    }
+}

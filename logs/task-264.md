@@ -1,8 +1,6 @@
 ---
 id: task-264
 title: A burst of tool events doesn't drop the phone's connection
-column: review
-position: 0
 priority: medium
 tags:
   - bug
@@ -21,7 +19,7 @@ relatedFiles:
   - docs/wire.md
 createdAt: "2026-10-22T01:04:57.301Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T01:24:17.891Z"
+updatedAt: "2026-10-22T01:24:29.605Z"
 dispatch:
   agent: codex
   by: cli
@@ -32,9 +30,12 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-22T01:07:17.375Z"
+    ended: "2026-10-22T01:24:29.605Z"
+    outcome: done
 assignee: codex
 decisions:
   - decision-32
+completedAt: "2026-10-22T01:24:29.144Z"
 ---
 
 ## Description
@@ -53,3 +54,4 @@ Done when:
 - 2026-10-22T01:15:24.813Z: [codex] Four wire regression tests pass, including 1,000 tool updates with a stalled writer for companion and lean owner seats, full-window lag recovery, queue bounds and roster catalog coalescing. Review tightened recovery to Log.snapshot's atomic fold/receiver boundary so stale queued revisions cannot replay. make check is running; real-core lean recovery harness added.
 - 2026-10-22T01:21:58.421Z: [codex] Committed f3be0e34 on dispatch/task-264. make check passes, including the 1,000-tool stalled-phone tests for companion/lean-owner seats, full-window phone recovery, bounded queue/catalog regressions, and real-core lag recovery over the wire. make precheck is running for the handoff.
 - 2026-10-22T01:24:17.557Z: [codex] Ready for review on dispatch/task-264 at f3be0e34: the bounded remote queue sheds tool/delta frames and coalesces roster updates; lag recovery restores the full phone window with an atomic snapshot/receiver. Named wire regressions and the real-core harness pass. make check and all 8 make precheck legs pass; worktree clean. Next: review and merge the branch.
+- 2026-10-22T01:24:28.382Z: Landed on release/0.43.0

@@ -10,12 +10,16 @@ tags:
   - flaky
   - 0.43.0
 relatedFiles:
+  - crates/hotline-core/src/remote/channel.rs
   - crates/hotline-core/src/remote/tests/phone.rs
   - crates/hotline-core/src/wire/socket.rs
+  - crates/hotline-core/src/wire/tests/phone_pressure.rs
   - crates/hotline-core/src/wire/transport.rs
+  - docs/design.md
+  - docs/security.md
 createdAt: "2026-10-22T22:44:26.174Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T22:53:24.313Z"
+updatedAt: "2026-10-22T22:59:30.190Z"
 dispatch:
   agent: codex
   by: cli

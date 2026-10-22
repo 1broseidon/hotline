@@ -216,6 +216,16 @@ impl TestDesk {
         reports.try_into().unwrap()
     }
 
+    async fn listed(&mut self, account_id: &str) -> Option<Value> {
+        let listed = self.ok("accounts.list", json!({})).await;
+        listed["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|view| view["account"]["id"] == account_id)
+            .cloned()
+    }
+
     fn name_of(&self, persona_id: &str) -> String {
         room::roster(&self.log)
             .into_iter()
@@ -296,6 +306,260 @@ async fn two_accounts_and_the_system_default_start_at_once_each_in_its_own_folde
         std::env::var_os("CLAUDE_CONFIG_DIR"),
         Some(sentinel.into_os_string())
     );
+    drop(desk.close().await);
+    hotline_core::driver::acp::end_every_agent();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_account_teammates_subprocesses_see_the_same_environment_as_the_agent() {
+    if isolated("an_account_teammates_subprocesses_see_the_same_environment_as_the_agent")
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let mut desk = TestDesk::open(root).await;
+    let a = desk.account("Account 1").await;
+    let ada = desk.teammate("Ada", Some(&a)).await;
+    let cy = desk.teammate("Cy", None).await;
+    desk.start(&[&ada, &cy]).await;
+    let [on_a, on_default] = desk.report([&ada, &cy]).await;
+    assert_eq!(on_a.child, on_a.env);
+    assert_eq!(on_default.child, on_default.env);
+    assert!(
+        same(
+            on_a.child["CLAUDE_CONFIG_DIR"].as_deref(),
+            &folder(root, &a)
+        ),
+        "{on_a:?}"
+    );
+    drop(desk.close().await);
+    hotline_core::driver::acp::end_every_agent();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_account_choice_survives_reopening_the_desk() {
+    if isolated("an_account_choice_survives_reopening_the_desk")
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let mut desk = TestDesk::open(root).await;
+    let a = desk.account("Account 1").await;
+    let ada = desk.teammate("Ada", None).await;
+    desk.start(&[&ada]).await;
+    desk.ok("persona.account", json!({"personaId": ada, "accountId": a}))
+        .await;
+    let _closed = desk.close().await;
+
+    let mut desk = TestDesk::open(root).await;
+    let listed = desk.listed(&a).await.unwrap();
+    assert_eq!(listed["usedBy"], json!([ada]), "{listed}");
+    desk.start(&[&ada]).await;
+    let [on_a] = desk.report([&ada]).await;
+    assert!(
+        same(on_a.env["CLAUDE_CONFIG_DIR"].as_deref(), &folder(root, &a)),
+        "{on_a:?}"
+    );
+    drop(desk.close().await);
+    hotline_core::driver::acp::end_every_agent();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_an_unused_account_keeps_its_folder() {
+    if isolated("removing_an_unused_account_keeps_its_folder")
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let mut desk = TestDesk::open(root).await;
+    let a = desk.account("Account 1").await;
+    let credentials = folder(root, &a).join(".credentials.json");
+    std::fs::write(&credentials, "left by a login").unwrap();
+    desk.ok("accounts.remove", json!({"accountId": a})).await;
+    assert_eq!(desk.listed(&a).await, None);
+    assert!(paths::agent_account_dir(root, &a).unwrap().is_dir());
+    assert_eq!(std::fs::read(&credentials).unwrap(), b"left by a login");
+    drop(desk.close().await);
+    hotline_core::driver::acp::end_every_agent();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_an_account_in_use_is_refused_naming_its_teammates() {
+    if isolated("removing_an_account_in_use_is_refused_naming_its_teammates")
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let mut desk = TestDesk::open(root).await;
+    let a = desk.account("Account 1").await;
+    let ada = desk.teammate("Ada", Some(&a)).await;
+    let bob = desk.teammate("Bob", Some(&a)).await;
+    let refused = desk
+        .client
+        .call("accounts.remove", json!({"accountId": a}))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let error = refused["error"].as_str().unwrap();
+    assert!(
+        error.starts_with("Account 1 can't be removed while ")
+            && error.contains("Ada")
+            && error.contains("Bob")
+            && error.ends_with(" use it."),
+        "{error}"
+    );
+    assert!(paths::agent_account_dir(root, &a).unwrap().is_dir());
+    for persona_id in [&ada, &bob] {
+        desk.ok(
+            "persona.account",
+            json!({"personaId": persona_id, "accountId": null}),
+        )
+        .await;
+    }
+    desk.ok("accounts.remove", json!({"accountId": a})).await;
+    drop(desk.close().await);
+    hotline_core::driver::acp::end_every_agent();
+}
+
+fn leaks_nothing(error: &str, root: &Path) -> bool {
+    let scratch = root.file_name().unwrap().to_string_lossy();
+    !error.contains(&*root.to_string_lossy())
+        && !error.contains(&*scratch)
+        && !error.contains("agent-accounts")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_teammate_set_to_an_account_not_on_this_desk_is_refused_and_never_falls_back() {
+    if isolated("a_teammate_set_to_an_account_not_on_this_desk_is_refused_and_never_falls_back")
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let mut desk = TestDesk::open(root).await;
+    let a = desk.account("Account 1").await;
+    let ada = desk.teammate("Ada", Some(&a)).await;
+    let _closed = desk.close().await;
+    room::write_agent_accounts(&Log::open(root), &[]).unwrap();
+    std::fs::remove_dir_all(folder(root, &a)).unwrap();
+
+    let mut desk = TestDesk::open(root).await;
+    let started = desk
+        .client
+        .call("session.start", json!({"personaId": ada}))
+        .await;
+    assert_eq!(started["ok"], false, "{started}");
+    let error = started["error"].as_str().unwrap();
+    assert!(
+        error.contains(
+            "Pick a Claude Code account for Ada: the one it was set to is not on this desk."
+        ) && error.contains(r#""kind":"account_unavailable""#)
+            && error.contains(r#""code":"unknown_account""#)
+            && leaks_nothing(error, root),
+        "{error}"
+    );
+    let prompted = desk
+        .client
+        .call(
+            "session.prompt",
+            json!({"personaId": ada, "text": "REPORT_ENV CLAUDE_CONFIG_DIR"}),
+        )
+        .await;
+    assert!(
+        prompted["ok"] == false && leaks_nothing(prompted["error"].as_str().unwrap(), root),
+        "{prompted}"
+    );
+    assert_eq!(desk.reported(&ada), None);
+    assert!(!paths::agent_account_dir(root, &a).unwrap().exists());
+    drop(desk.close().await);
+    hotline_core::driver::acp::end_every_agent();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_account_under_a_data_directory_with_spaces_and_accents_runs() {
+    if isolated("an_account_under_a_data_directory_with_spaces_and_accents_runs")
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path().join("Conta Teste ção");
+    std::fs::create_dir(&root).unwrap();
+    let mut desk = TestDesk::open(&root).await;
+    let a = desk.account("Account 1").await;
+    let ada = desk.teammate("Ada", Some(&a)).await;
+    desk.start(&[&ada]).await;
+    let [on_a] = desk.report([&ada]).await;
+    let reported = on_a.env["CLAUDE_CONFIG_DIR"].as_deref();
+    assert!(
+        same(reported, &folder(&root, &a))
+            && reported.is_some_and(|dir| dir.contains("Conta Teste ção")),
+        "{on_a:?}"
+    );
+    std::fs::write(
+        folder(&root, &a).join(".credentials.json"),
+        r#"{"email":"ada@example.invalid"}"#,
+    )
+    .unwrap();
+    let status = desk.ok("accounts.status", json!({"accountId": a})).await;
+    assert_eq!(status["state"], "signed_in", "{status}");
+    drop(desk.close().await);
+    hotline_core::driver::acp::end_every_agent();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn status_says_signed_in_only_for_the_account_the_agent_confirms() {
+    if isolated("status_says_signed_in_only_for_the_account_the_agent_confirms")
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let mut desk = TestDesk::open(root).await;
+    let a = desk.account("Account 1").await;
+    let b = desk.account("Account 2").await;
+    std::fs::write(
+        folder(root, &a).join(".credentials.json"),
+        r#"{"email":"ada@example.invalid"}"#,
+    )
+    .unwrap();
+    let on_a = desk.ok("accounts.status", json!({"accountId": a})).await;
+    let on_b = desk.ok("accounts.status", json!({"accountId": b})).await;
+    assert_eq!(on_a["state"], "signed_in", "{on_a}");
+    assert_eq!(on_b["state"], "signed_out", "{on_b}");
+    for status in [&on_a, &on_b] {
+        assert!(
+            status
+                .as_object()
+                .unwrap()
+                .keys()
+                .all(|key| ["state", "checkedAt", "email", "plan"].contains(&key.as_str())),
+            "{status}"
+        );
+    }
+    let listed = desk.listed(&a).await.unwrap();
+    assert_eq!(listed["status"]["state"], "signed_in", "{listed}");
+    let seen = std::fs::read_to_string(folder(root, &a).join("fixture-status-env.json")).unwrap();
+    assert!(seen.contains(r#""CLAUDE_CONFIG_DIR""#), "{seen}");
+    for (key, _) in INHERITED {
+        assert!(!seen.contains(&format!("\"{key}\"")), "{key}: {seen}");
+    }
     drop(desk.close().await);
     hotline_core::driver::acp::end_every_agent();
 }

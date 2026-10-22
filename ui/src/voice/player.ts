@@ -1,11 +1,22 @@
 import { fromBase64 } from "./wav";
 
+/** Clips still waiting to be decoded; ones already scheduled to play are bounded by bytes. */
 export const MAX_QUEUED_CLIPS = 128;
-const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+/**
+ * Encoded audio decoded or scheduled and not yet heard. A Legacy reply streams
+ * as many small WAV chunks far faster than it is spoken; at 24 kHz this is
+ * about fifteen minutes, matching how far ahead a live voice may queue.
+ */
+const MAX_QUEUED_BYTES = 48 * 1024 * 1024;
 /** A voice front's first frame waits this long, so network jitter between frames never leaves a gap. */
 const PCM_LEAD_S = 0.08;
-/** How far ahead of the clock a front's frames may be queued: past it, the desk is sending faster than speech. */
-const MAX_PCM_AHEAD_S = 60;
+/**
+ * How far ahead of the clock a front's frames may be queued. A live voice
+ * streams a long answer's audio far faster than it is spoken, so a two-minute
+ * story arrives as two minutes queued ahead; at 24 kHz that is under 6 MB.
+ * Past this, something is wrong with the desk, not the answer.
+ */
+const MAX_PCM_AHEAD_S = 15 * 60;
 
 /** Decode ahead and schedule consecutive clips on the audio clock, including progressive WAV chunks. */
 export class ClipPlayer {
@@ -31,7 +42,7 @@ export class ClipPlayer {
 	}
 
 	push(mimeType: string, data: string): void {
-		if (this.queue.length + this.sources.size + Number(this.decoding) >= MAX_QUEUED_CLIPS || data.length > MAX_QUEUED_BYTES * 4 / 3 + 4) {
+		if (this.queue.length + Number(this.decoding) >= MAX_QUEUED_CLIPS || data.length > MAX_QUEUED_BYTES * 4 / 3 + 4) {
 			throw new Error("The desk sent more voice audio than Hotline can play. Call again.");
 		}
 		const bytes = fromBase64(data);

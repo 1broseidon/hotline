@@ -17,10 +17,24 @@ use crate::accounts::support::account_support;
 use crate::accounts::switch::{self, PendingAccount};
 use crate::contract::{AccountHold, AccountStatusView, LoginAttemptView, Persona, SessionAccount};
 use crate::driver::acp::StartBounds;
+use crate::log::Log;
 use crate::room;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
+
+pub(super) fn start_account(
+    root: &Path,
+    log: &Log,
+    persona: &Persona,
+) -> Result<Option<resolve::ResolvedAccount>, String> {
+    resolve::resolve(root, log, persona).map_err(|refusal| {
+        let agent = crate::driver::acp::registry::name_of(root, &persona.backend_id)
+            .unwrap_or_else(|| persona.backend_id.clone());
+        refusal.public_sentence(&persona.name, &agent)
+    })
+}
 
 pub(super) struct Accounts {
     statuses: Arc<AccountStatuses>,

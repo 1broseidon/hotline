@@ -35,6 +35,7 @@ const AT_THE_DESK: Duration = Duration::from_secs(120);
 
 pub struct Push {
     root: PathBuf,
+    voice: std::sync::Mutex<std::sync::Weak<crate::voice::Calls>>,
     http: reqwest::Client,
     /// When the desk window last said the person was using it, in
     /// milliseconds; zero once it said they left.
@@ -48,11 +49,19 @@ impl Push {
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
+            voice: std::sync::Mutex::default(),
             http: reqwest::Client::new(),
             looked_at: AtomicU64::new(0),
             #[cfg(test)]
             sent: std::sync::Mutex::default(),
         }
+    }
+
+    pub(crate) fn set_voice(&self, voice: &std::sync::Arc<crate::voice::Calls>) {
+        *self
+            .voice
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = std::sync::Arc::downgrade(voice);
     }
 
     /// The desk window says the person is using it, focused and touched
@@ -91,6 +100,16 @@ impl Push {
         persona_id: &str,
         waiting: Option<Waiting>,
     ) {
+        if waiting.is_some()
+            && self
+                .voice
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .upgrade()
+                .is_some_and(|voice| voice.carries_cards(persona_id))
+        {
+            return;
+        }
         if self.at_the_desk(now_ms()) {
             return;
         }
@@ -244,6 +263,56 @@ mod tests {
     use super::{AT_THE_DESK, Push, Waiting, glance, message, now_ms};
     use crate::contract::{PermissionOption, ThreadId};
     use serde_json::json;
+
+    #[tokio::test]
+    async fn a_call_replaces_the_card_push_until_it_is_held_or_ended() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("remote.json"),
+            json!({
+                "desktopId":"desk", "host":"desk.local", "enabled":true,
+                "grants":[{"device":{"id":"phone", "name":"Phone", "pairedAt":0,
+                    "publicKey":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
+                    "push":{"token":"ExponentPushToken[phone]", "platform":"ios"}}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let desk = std::sync::Arc::new(
+            crate::desk::Desk::open_with_voice_services(
+                root.path(),
+                std::sync::Arc::new(crate::credentials::MemoryStore::default()),
+                Some(crate::voice::tests::services()),
+            )
+            .unwrap(),
+        );
+        let calls = desk.parts().voice.unwrap();
+        let call = uuid::Uuid::new_v4().to_string();
+        calls.start(&call, desk).unwrap();
+        let push = Push::new(root.path());
+        push.set_voice(&calls);
+        let notify = || {
+            push.notify(
+                "Ada",
+                "Needs you",
+                "ada",
+                Some(Waiting::Human {
+                    action_id: "q1".into(),
+                }),
+            );
+        };
+        notify();
+        assert_eq!(push.sent.lock().unwrap().len(), 0);
+        calls.hold(&call, true).unwrap();
+        notify();
+        assert_eq!(push.sent.lock().unwrap().len(), 1);
+        calls.hold(&call, false).unwrap();
+        notify();
+        assert_eq!(push.sent.lock().unwrap().len(), 1);
+        calls.end(&call).unwrap();
+        notify();
+        assert_eq!(push.sent.lock().unwrap().len(), 2);
+    }
 
     #[test]
     fn the_phone_stays_quiet_while_the_person_is_at_the_desk() {

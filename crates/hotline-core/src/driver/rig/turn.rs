@@ -1,12 +1,16 @@
 //! A controllable loop over ordinary Rig requests. Neither steering nor tool
 //! execution depends on which provider the model handle uses.
 
+use super::build::RequestSettings;
 use super::history::OpenMessage;
 use super::*;
+use crate::pricing::Tokens;
 use crate::session::jobs::{self, JobArgs, JobKind, JobSnapshot, JobState, Jobs, WaitArgs};
-use rig::completion::{CompletionModel, CompletionRequest};
-use rig::message::{AssistantContent, ToolCall, UserContent};
-use rig::streaming::StreamedAssistantContent;
+use rig::DynModel;
+use rig::completion::{CompletionRequest, CompletionResponse, FinishReason, ToolDefinition};
+use rig::message::{AssistantContent, ToolCall};
+use rig::operation::Completion;
+use rig::streaming::{Item, Part, StreamEvent};
 use rig::tool::{ToolContext, ToolResult, ToolSet};
 use serde_json::json;
 
@@ -54,15 +58,9 @@ impl ChatMeter {
             .map_err(Failure::budget)
     }
 
-    /// Settles a round to its reported usage, which [`every_input_token`]
-    /// has already folded Anthropic's cache counts into, so cache reads and
-    /// writes are priced inside `input_tokens` on every route.
-    fn settle(
-        &self,
-        reservation: crate::voice::ledger::Reservation,
-        usage: &rig::completion::Usage,
-    ) {
-        let actual = crate::pricing::cost(&self.price, usage, false);
+    /// Settles a round to the tokens it reported.
+    fn settle(&self, reservation: crate::voice::ledger::Reservation, tokens: &Tokens) {
+        let actual = crate::pricing::cost(&self.price, tokens);
         // A cost that spends the budget is written down; the next round's
         // reservation is what refuses.
         let _ = self.budget.settle(reservation, actual);
@@ -71,6 +69,64 @@ impl ChatMeter {
 
 /// The output a round is reserved for when the request names no ceiling.
 const UNCAPPED_OUTPUT: u64 = 8_192;
+
+/// What every round of a turn sends besides its system prompt and its
+/// conversation. The system prompt is the turn's own string, put on each
+/// round's request by [`round_request`], the one place a Rig request is
+/// written, so a round can never go out without it.
+pub(super) struct Template {
+    pub(super) tools: Vec<Arc<ToolDefinition>>,
+    pub(super) settings: RequestSettings,
+}
+
+/// One round's request: the system prompt, then the conversation so far,
+/// with the template's tools and settings. Rig keeps the system prompt as
+/// the request's first message, so it is put back on every round's
+/// conversation rather than kept from the first.
+fn round_request(preamble: &str, template: &Template, history: Vec<Message>) -> CompletionRequest {
+    let request = CompletionRequest::from(history)
+        .preamble(preamble)
+        .tools(template.tools.iter().cloned());
+    template.settings.on_request(request)
+}
+
+/// What one streamed item puts in front of the person. Rig's stream items
+/// are read in one place, [`shown`], and the loop reads only these.
+enum Shown {
+    /// Words of the reply as they stream, a piece of the text part `part`.
+    Text { part: Part, text: String },
+    /// Thinking as it streams, a piece of the reasoning part `part`.
+    Thought { part: Part, text: String },
+    /// A text part delivered whole when it ended. It repeats what its pieces
+    /// said, so it is shown only when none of them streamed.
+    FinalText { part: Part, text: String },
+    /// The same for a reasoning part.
+    FinalThought { part: Part, text: String },
+}
+
+/// What `item` shows the person, if anything: tool calls arrive with the
+/// whole response, and the rest is the provider's bookkeeping.
+fn shown(item: Item<StreamEvent>) -> Option<Shown> {
+    match item {
+        Item::Event(StreamEvent::Text { part, text }) => Some(Shown::Text { part, text }),
+        Item::Event(StreamEvent::Reasoning { part, text }) => Some(Shown::Thought { part, text }),
+        Item::Event(StreamEvent::End {
+            part,
+            content: AssistantContent::Text(text),
+        }) => Some(Shown::FinalText {
+            part,
+            text: text.text,
+        }),
+        Item::Event(StreamEvent::End {
+            part,
+            content: AssistantContent::Reasoning(reasoning),
+        }) => Some(Shown::FinalThought {
+            part,
+            text: reasoning.text,
+        }),
+        _ => None,
+    }
+}
 
 #[derive(Default)]
 pub(super) struct Steering {
@@ -141,27 +197,27 @@ impl Steering {
 
 #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
 pub(super) async fn run(
-    model: &impl CompletionModel,
-    mut template: CompletionRequest,
+    model: &DynModel<Completion>,
+    mut template: Template,
     tools: &ToolSet,
     turn: &Turn,
     sender: &mpsc::Sender<Update>,
     shell: Option<RunCommand>,
 ) -> Result<(), Failure> {
     let mut jobs = Jobs::new(shell, turn.delegate.clone(), turn.processes.clone());
+    let mut preamble = turn.preamble.clone();
     if let Some(instructions) = jobs.instructions() {
-        template.tools.extend(jobs.definitions());
-        template.preamble = Some(format!(
-            "{}\n\n{instructions}",
-            template.preamble.unwrap_or_default(),
-        ));
+        template
+            .tools
+            .extend(jobs.definitions().into_iter().map(Arc::new));
+        preamble = format!("{preamble}\n\n{instructions}");
     }
     if strict::strict_tools(&turn.keys, &turn.model) {
         for tool in &mut template.tools {
-            strict::nullable_optionals(&mut tool.parameters);
+            strict::nullable_optionals(&mut Arc::make_mut(tool).parameters);
         }
     }
-    let result = run_inner(model, template, tools, turn, sender, &mut jobs).await;
+    let result = run_inner(model, &preamble, &template, tools, turn, sender, &mut jobs).await;
     turn.steering.close_admission();
     // Stop, revocation, provider failure and ordinary completion all leave
     // through the owner. A response ending cannot orphan a shell command.
@@ -184,8 +240,8 @@ pub(super) async fn run(
         }
     }
     match result {
-        Ok((reason, usage, complete)) => {
-            finish(sender, reason, usage, complete).await;
+        Ok((reason, tokens, complete)) => {
+            finish(sender, reason, tokens, complete).await;
             Ok(())
         }
         Err(error) => Err(error),
@@ -194,20 +250,21 @@ pub(super) async fn run(
 
 #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
 async fn run_inner(
-    model: &impl CompletionModel,
-    template: CompletionRequest,
+    model: &DynModel<Completion>,
+    preamble: &str,
+    template: &Template,
     tools: &ToolSet,
     turn: &Turn,
     sender: &mpsc::Sender<Update>,
     jobs: &mut Jobs,
-) -> Result<(&'static str, rig::completion::Usage, bool), Failure> {
+) -> Result<(&'static str, Tokens, bool), Failure> {
     let mut activity = Activity {
         turn,
         sender,
         jobs,
         history: turn.history.lock().await.clone(),
         job_results: Vec::new(),
-        usage: rig::completion::Usage::default(),
+        usage: Tokens::default(),
         usage_complete: true,
         open: None,
         stopped: false,
@@ -237,10 +294,11 @@ async fn run_inner(
         }
         images::limit_history(&mut activity.history, &turn.model);
         if let Some(threshold) = recovery::context_threshold(turn.context_limit, turn.output_limit)
-            && activity
-                .context_tokens
-                .max(recovery::estimated_tokens(&activity.history, &template))
-                >= threshold
+            && activity.context_tokens.max(recovery::estimated_tokens(
+                &activity.history,
+                preamble,
+                &template.tools,
+            )) >= threshold
         {
             if rotated {
                 return Err(Failure::classify(
@@ -253,7 +311,8 @@ async fn run_inner(
             activity.history = recovery::fresh(&activity.history, &turn.output_dir);
             *turn.history.lock().await = activity.history.clone();
             activity.context_tokens = 0;
-            if recovery::estimated_tokens(&activity.history, &template) >= threshold {
+            if recovery::estimated_tokens(&activity.history, preamble, &template.tools) >= threshold
+            {
                 return Err(Failure::classify(
                     "context window is too small for the continuation and tools",
                     None,
@@ -269,23 +328,20 @@ async fn run_inner(
             }
             *turn.history.lock().await = activity.history.clone();
         }
-        let (id, content) = match activity.stream_response(model, &template, revision).await? {
-            Streamed::Response { id, content } => (id, content),
+        let response = match activity
+            .stream_response(model, preamble, template, revision)
+            .await?
+        {
+            Streamed::Response(response) => response,
             Streamed::Again => continue,
             Streamed::Stopped => break,
         };
         rotated = false;
-        let calls: Vec<ToolCall> = content
-            .iter()
-            .filter_map(|item| match item {
-                AssistantContent::ToolCall(call) => Some(call.clone()),
-                _ => None,
-            })
-            .collect();
+        let calls: Vec<ToolCall> = response.tool_calls().cloned().collect();
         // An empty completion after a tool round is the model done; a message
         // with nothing in it is not something a provider will take back.
-        if !content.is_empty() {
-            activity.history.push(Message::Assistant { id, content });
+        if let Some(message) = response.message() {
+            activity.history.push(message);
         }
         activity.answered_calls |= !calls.is_empty();
         activity.dispatch_calls(tools, &calls, revision).await?;
@@ -357,7 +413,7 @@ struct Activity<'a> {
     history: Vec<Message>,
     /// Job results published since history last took them.
     job_results: Vec<Message>,
-    usage: rig::completion::Usage,
+    usage: Tokens,
     usage_complete: bool,
     open: Option<OpenMessage>,
     stopped: bool,
@@ -376,10 +432,7 @@ struct Activity<'a> {
 /// How a round's streaming phase ended.
 enum Streamed {
     /// The model's whole response, accepted: its tool calls may now run.
-    Response {
-        id: Option<String>,
-        content: Vec<AssistantContent>,
-    },
+    Response(Box<CompletionResponse>),
     /// Start the round again: new input arrived, or a failure is retried.
     Again,
     /// The operator stopped the activity.
@@ -394,14 +447,14 @@ impl Activity<'_> {
     #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
     async fn stream_response(
         &mut self,
-        model: &impl CompletionModel,
-        template: &CompletionRequest,
+        model: &DynModel<Completion>,
+        preamble: &str,
+        template: &Template,
         revision: u64,
     ) -> Result<Streamed, Failure> {
-        let mut request = template.clone();
-        request.chat_history = self.history.clone();
+        let mut history = self.history.clone();
         if let Some(context) = self.jobs.context() {
-            request.chat_history.push(Message::user(context));
+            history.push(Message::user(context));
         }
         // Before a paid request goes out, the Chat budget must have room for
         // it; the reservation is kept unless this round's usage settles it.
@@ -409,8 +462,9 @@ impl Activity<'_> {
             Some(meter) => Some(
                 meter
                     .reserve(
-                        recovery::estimated_tokens(&request.chat_history, &request),
-                        request
+                        recovery::estimated_tokens(&history, preamble, &template.tools),
+                        template
+                            .settings
                             .max_tokens
                             .or(self.turn.output_limit)
                             .unwrap_or(UNCAPPED_OUTPUT),
@@ -419,27 +473,9 @@ impl Activity<'_> {
             ),
             None => None,
         };
-        let response = model.stream(request);
-        tokio::pin!(response);
-        let response = loop {
-            tokio::select! {
-                biased;
-                () = self.turn.stop.raised() => {
-                    self.stopped = true;
-                    self.usage_complete = false;
-                    return Ok(Streamed::Stopped);
-                }
-                () = self.turn.steering.changed(revision) => {
-                    self.usage_complete = false;
-                    return Ok(Streamed::Again);
-                }
-                job = self.jobs.next(), if self.jobs.active() => {
-                    self.job_results.push(publish_job(self.turn, self.sender, job?).await);
-                }
-                response = &mut response => break response,
-            }
-        };
-        let mut stream = match response {
+        // The request goes out when the stream is first read, so a refusal
+        // can come as the stream's first item as well as from here.
+        let mut stream = match model.stream(round_request(preamble, template, history)) {
             Ok(stream) => stream,
             Err(error) => {
                 self.usage_complete = false;
@@ -448,7 +484,10 @@ impl Activity<'_> {
             }
         };
         let mut interrupted = false;
-        let mut reasoning_deltas = std::collections::HashSet::new();
+        // The parts whose pieces streamed, so a part delivered whole at its
+        // end is not shown twice.
+        let mut streamed = std::collections::HashSet::new();
+        let mut started = false;
         // What this round has already put in front of the person. A round that
         // is abandoned never reaches history, so this is what keeps the model
         // from writing it again.
@@ -457,13 +496,11 @@ impl Activity<'_> {
             let item = tokio::select! {
                 biased;
                 () = self.turn.stop.raised() => {
-                    stream.cancel();
                     self.stopped = true;
                     interrupted = true;
                     break;
                 }
                 () = self.turn.steering.changed(revision) => {
-                    stream.cancel();
                     interrupted = true;
                     break;
                 }
@@ -479,72 +516,82 @@ impl Activity<'_> {
                 Err(error) => {
                     self.usage_complete = false;
                     flush(self.sender, &mut self.open).await;
-                    let failure =
-                        Failure::provider(error, "stream").after_tools(self.answered_calls);
-                    stream.cancel();
+                    let phase = if started { "stream" } else { "request" };
+                    let failure = Failure::provider(error, phase).after_tools(self.answered_calls);
                     keep_spoken(&mut self.history, &mut spoken, self.turn).await;
                     return self.retry(failure, revision).await;
                 }
             };
-            match item {
-                StreamedAssistantContent::Text(chunk) => {
-                    spoken.push_str(&chunk.text);
-                    chunk_into(self.sender, &mut self.open, MessageKind::Agent, &chunk.text).await;
+            started = true;
+            match shown(item) {
+                Some(Shown::Text { part, text }) => {
+                    streamed.insert(part);
+                    spoken.push_str(&text);
+                    chunk_into(self.sender, &mut self.open, MessageKind::Agent, &text).await;
                 }
-                StreamedAssistantContent::ReasoningDelta { id, reasoning, .. } => {
-                    reasoning_deltas.insert(id);
-                    chunk_into(
-                        self.sender,
-                        &mut self.open,
-                        MessageKind::Thought,
-                        &reasoning,
-                    )
-                    .await;
+                Some(Shown::FinalText { part, text }) if !streamed.contains(&part) => {
+                    spoken.push_str(&text);
+                    chunk_into(self.sender, &mut self.open, MessageKind::Agent, &text).await;
                 }
-                StreamedAssistantContent::Reasoning { id, reasoning }
-                    if !reasoning_deltas.contains(&id) =>
-                {
-                    for part in reasoning.content {
-                        if let rig::message::ReasoningContent::Text { text, .. } = part {
-                            chunk_into(self.sender, &mut self.open, MessageKind::Thought, &text)
-                                .await;
-                        }
-                    }
+                Some(Shown::Thought { part, text }) => {
+                    streamed.insert(part);
+                    chunk_into(self.sender, &mut self.open, MessageKind::Thought, &text).await;
                 }
-                _ => {}
+                Some(Shown::FinalThought { part, text }) if !streamed.contains(&part) => {
+                    chunk_into(self.sender, &mut self.open, MessageKind::Thought, &text).await;
+                }
+                Some(Shown::FinalText { .. } | Shown::FinalThought { .. }) | None => {}
             }
         }
-        let reported = every_input_token(stream.usage(), &self.turn.model);
+        if interrupted {
+            // Dropping the stream cancels the request. What usage arrived of
+            // it is not the round's, which the provider never finished
+            // reporting, but it says how full the context already is.
+            self.usage_complete = false;
+            let arrived = Tokens::of(&stream.partial().usage);
+            if arrived.reported {
+                self.context_tokens = arrived.context();
+            }
+            drop(stream);
+            flush(self.sender, &mut self.open).await;
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
+            return Ok(if self.stopped {
+                Streamed::Stopped
+            } else {
+                Streamed::Again
+            });
+        }
+        let response = match stream.finish().await {
+            Ok(response) => response,
+            Err(error) => {
+                self.usage_complete = false;
+                flush(self.sender, &mut self.open).await;
+                let failure = Failure::provider(error, "stream").after_tools(self.answered_calls);
+                keep_spoken(&mut self.history, &mut spoken, self.turn).await;
+                return self.retry(failure, revision).await;
+            }
+        };
+        let reported = Tokens::of(&response.usage);
         if let (Some(meter), Some(reservation)) = (&self.turn.meter, reservation)
-            && stream.response.is_some()
-            && reported.has_values()
+            && reported.reported
         {
             meter.settle(reservation, &reported);
         }
-        self.usage_complete &= stream.response.is_some() && reported.has_values();
-        self.context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
+        self.usage_complete &= reported.reported;
+        self.context_tokens = reported.context();
         self.usage += reported;
         flush(self.sender, &mut self.open).await;
-        if self.stopped || interrupted || self.turn.steering.superseded(revision) {
+        if self.turn.steering.superseded(revision) {
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;
-        }
-        if self.stopped {
-            return Ok(Streamed::Stopped);
-        }
-        if interrupted || self.turn.steering.superseded(revision) {
             return Ok(Streamed::Again);
         }
-        if stream.response.is_none() || (stream.choice.is_empty() && !self.answered_calls) {
-            let failure = Failure::classify(
-                "The model stream ended without a complete response.",
-                Some(502),
-                "stream",
-            )
-            .after_tools(self.answered_calls);
+        if response.choice.is_empty() && !self.answered_calls {
+            let failure = Failure::classify(super::super::failure::TRUNCATED, Some(502), "stream")
+                .after_tools(self.answered_calls);
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;
             return self.retry(failure, revision).await;
         }
-        if stream.choice.is_empty() && self.last_round_failed {
+        if response.choice.is_empty() && self.last_round_failed {
             send(
                 self.sender,
                 Update::Notice {
@@ -554,15 +601,18 @@ impl Activity<'_> {
             )
             .await;
         }
-        if matches!(
-            stream
-                .response
-                .as_ref()
-                .and_then(|response| response.finish_reason.as_ref()),
-            Some(
-                rig::completion::FinishReason::Length
-                    | rig::completion::FinishReason::ContentFilter
+        // A response the provider said failed, or one it cut short or
+        // filtered, runs none of its calls.
+        if let Some(error) = &response.error {
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
+            return Err(format!(
+                "The model reported that its response failed; its tool calls were not executed. {error}"
             )
+            .into());
+        }
+        if matches!(
+            response.finish_reason(),
+            Some(FinishReason::Length | FinishReason::ContentFilter)
         ) {
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;
             return Err(
@@ -571,10 +621,7 @@ impl Activity<'_> {
             );
         }
         self.retries = 0;
-        Ok(Streamed::Response {
-            id: stream.identity().message_id,
-            content: stream.choice,
-        })
+        Ok(Streamed::Response(Box::new(response)))
     }
 
     /// Whether a failed round may start again. Retrying happens before
@@ -654,10 +701,11 @@ impl Activity<'_> {
         for call in calls {
             let call_id = uuid::Uuid::new_v4().to_string();
             // What the tool reads; history keeps the call as the model made it.
+            let arguments = call.function.arguments_value();
             let arguments = if self.strict {
-                strict::without_nulls(&call.function.arguments)
+                strict::without_nulls(&arguments)
             } else {
-                call.function.arguments.clone()
+                arguments
             };
             let (shown, shown_arguments) = granted::shown(&call.function.name, &arguments);
             send(
@@ -673,7 +721,28 @@ impl Activity<'_> {
                 .execute(tools, call, &call_id, arguments, revision)
                 .await?;
             round_failed |= !result.is_success();
-            let (shown, images) = result_of(result.output().as_content());
+            let (mut shown, images) = result_of(result.output().as_content());
+            if result.is_success()
+                && matches!(call.function.name.as_str(), "write" | "edit")
+                && let Some(value) = result
+                    .output()
+                    .as_content()
+                    .iter()
+                    .find_map(rig::message::ToolResultContent::as_json)
+                && let Ok(file) = serde_json::from_value(value["file"].clone())
+            {
+                if let Some(message) = value["message"].as_str() {
+                    shown = message.to_string();
+                }
+                send(
+                    self.sender,
+                    Update::ToolFiles {
+                        call_id: call_id.clone(),
+                        files: vec![file],
+                    },
+                )
+                .await;
+            }
             // The model gets its one launch receipt now. The transcript's
             // shell card stays running until the owned job produces a result.
             if !self.jobs.owns(&call_id) {
@@ -697,14 +766,11 @@ impl Activity<'_> {
                 &images,
             )
             .await;
-            self.history.push(Message::User {
-                content: vec![UserContent::ToolResult(rig::message::ToolResult {
-                    call: call.id.clone(),
-                    provider: call.provider.clone(),
-                    name: call.function.name.clone(),
-                    content: output.into_content(),
-                })],
-            });
+            self.history
+                .push(Message::tool_results(vec![rig::message::ToolResult {
+                    is_error: !result.is_success(),
+                    ..call.result(output.into_content())
+                }]));
         }
         if !calls.is_empty() {
             self.last_round_failed = round_failed;
@@ -745,6 +811,17 @@ impl Activity<'_> {
             return Ok(ToolResult::skipped(
                 "Not executed: this activity's tool access was revoked.",
             ));
+        }
+        // Arguments that were not an object are read as `{}`; running the
+        // tool on that would act on something the model never asked for.
+        if let Some(raw) = &call.function.invalid_arguments {
+            return Ok(ToolResult::failed(ToolExecutionError::invalid_args(
+                format!(
+                    "Not executed: the arguments for `{}` are not a JSON object: {}. Call it again with a JSON object.",
+                    call.function.name,
+                    clip(raw, 200)
+                ),
+            )));
         }
         let jobs = &mut *self.jobs;
         let result = match call.function.name.as_str() {
@@ -956,45 +1033,15 @@ async fn model_output(
     }
 }
 
-async fn finish(
-    sender: &mpsc::Sender<Update>,
-    reason: &str,
-    usage: rig::completion::Usage,
-    usage_complete: bool,
-) {
+async fn finish(sender: &mpsc::Sender<Update>, reason: &str, tokens: Tokens, usage_complete: bool) {
     send(
         sender,
         Update::Turn {
             stop_reason: reason.into(),
-            usage: usage_complete.then_some(TokenUsage {
-                input_tokens: Some(usage.input_tokens as i64),
-                output_tokens: Some(usage.output_tokens as i64),
-                total_tokens: Some(usage.total_tokens as i64),
-                cache_read_tokens: Some(usage.cached_input_tokens as i64).filter(|n| *n > 0),
-                cache_write_tokens: Some(usage.cache_creation_input_tokens as i64)
-                    .filter(|n| *n > 0),
-            }),
+            usage: usage_complete.then(|| tokens.token_usage()),
         },
     )
     .await;
-}
-
-/// A round's usage with `input_tokens` counting every token the request
-/// carried. Anthropic reports what it read from its prompt cache, and what it
-/// wrote to it, beside `input_tokens`; every other route counts them inside,
-/// which is where the context threshold and the turn's record expect them.
-pub(super) fn every_input_token(
-    mut usage: rig::completion::Usage,
-    model_id: &str,
-) -> rig::completion::Usage {
-    let provider = model_id.split('/').next().unwrap_or("");
-    if models::wiring(provider).is_some_and(|wiring| wiring.client == Client::Anthropic) {
-        usage.input_tokens = usage
-            .input_tokens
-            .saturating_add(usage.cached_input_tokens)
-            .saturating_add(usage.cache_creation_input_tokens);
-    }
-    usage
 }
 
 #[cfg(test)]

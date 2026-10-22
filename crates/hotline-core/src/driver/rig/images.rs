@@ -64,7 +64,7 @@ pub(super) async fn tool_output(output: &ToolOutput, stop: &Stop) -> ToolOutput 
                     data: DocumentSourceKind::Base64(BASE64_STANDARD.encode(bytes)),
                     media_type: Some(ImageMediaType::JPEG),
                     detail: None,
-                    additional_params: None,
+                    native: None,
                 })
             }
             Err(reason) => ToolResultContent::text(reason),
@@ -205,7 +205,7 @@ pub(super) fn user_message(text: &str, attachments: &[Attachment]) -> Message {
                     data: DocumentSourceKind::Base64(BASE64_STANDARD.encode(bytes)),
                     media_type: Some(ImageMediaType::JPEG),
                     detail: None,
-                    additional_params: None,
+                    native: None,
                 }));
                 paths.push(attachment.path.clone());
             }
@@ -254,6 +254,7 @@ mod tests {
 
     fn attachment(path: &Path) -> Attachment {
         Attachment {
+            created: None,
             kind: AttachmentKind::Image,
             name: "photo.png".into(),
             path: path.display().to_string(),
@@ -372,7 +373,7 @@ mod tests {
             data: DocumentSourceKind::Base64("fixture".into()),
             media_type: Some(ImageMediaType::JPEG),
             detail: None,
-            additional_params: None,
+            native: None,
         };
         let mut history = vec![Message::User {
             content: (0..5).map(|_| UserContent::Image(image.clone())).collect(),

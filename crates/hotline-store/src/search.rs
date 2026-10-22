@@ -154,6 +154,14 @@ fn message_hit(row: &Row, scope: &Scope) -> rusqlite::Result<Value> {
     hit.insert("eventId".into(), json!(row.get::<_, String>("event_id")?));
     insert_if_present(&mut hit, "chapterId", row.get("chapter_id")?);
     insert_if_present(&mut hit, "thread", row.get("thread")?);
+    if let Some(thread) = hit.get("thread").and_then(Value::as_str)
+        && thread.starts_with("call:")
+    {
+        let note = format!(
+            "This call's thread IS its transcript. Read it in full with read_thread(thread: {thread})."
+        );
+        hit.insert("transcript".into(), json!(note));
+    }
     hit.insert("ts".into(), json!(row.get::<_, i64>("ts")?));
     let from = if row.get::<_, String>("kind")? == "user" {
         "me"
@@ -415,6 +423,22 @@ fn side_line(event: &Value) -> Option<Value> {
     }))
 }
 
+/// A work result remains findable without presenting it as spoken words.
+fn work_result(event: &Value) -> Option<Value> {
+    if event["kind"] != "tool" || event["toolKind"] != "work_result" {
+        return None;
+    }
+    let text = event["output"]
+        .as_array()?
+        .iter()
+        .filter_map(|part| part["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(
+        serde_json::json!({"kind":"agent", "id":event["id"], "ts":event["ts"], "text":format!("Work result: {text}")}),
+    )
+}
+
 fn index_message(
     database: &Connection,
     persona_id: &str,
@@ -422,7 +446,7 @@ fn index_message(
     thread: Option<&str>,
     event: &Value,
 ) -> rusqlite::Result<()> {
-    let synthetic = side_line(event);
+    let synthetic = side_line(event).or_else(|| work_result(event));
     let replaces = synthetic.is_some();
     let event = synthetic.as_ref().unwrap_or(event);
     let kind = event
@@ -598,7 +622,7 @@ fn said_in_thread(event: &Value) -> bool {
     matches!(
         event.get("kind").and_then(Value::as_str),
         Some("user" | "agent")
-    )
+    ) || event["toolKind"] == "work_result"
 }
 
 /// Rebuild inside the caller's transaction, including schema upgrades.
@@ -1564,6 +1588,26 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn a_live_work_result_is_searchable_as_work() {
+        let (root, _log, mut indexer) = fixture::indexer("work-result");
+        let result = json!({"kind":"tool", "id":"result", "ts":2, "toolKind":"work_result", "output":[{"type":"text", "text":"The harbour crane is repaired."}]});
+        indexer
+            .index_thread_event("ada", &ThreadId::call("c1"), &result)
+            .unwrap();
+        let found = search_teammate(&root, "ada", "harbour", None).unwrap();
+        assert_eq!(sorted_ids(&found), ["result"]);
+        assert_eq!(hits(&found)[0]["thread"], "call:c1");
+        assert!(found.to_string().contains("Work result:"));
+        indexer
+            .index_thread_event("ada", &ThreadId::call("c1"), &result)
+            .unwrap();
+        assert_eq!(
+            sorted_ids(&search_teammate(&root, "ada", "harbour", None).unwrap()),
+            ["result"]
+        );
+    }
+
     #[test]
     fn a_line_said_in_a_thread_is_found_by_its_teammate_and_names_the_thread() {
         let (root, log, mut indexer) = fixture::indexer("thread-lines");

@@ -14,7 +14,9 @@ mod tool_output;
 mod turn;
 
 use super::failure::{Failure, Kind};
-use build::{Reuse, agent_builder, copilot_responses, effort_config, request_settings};
+use build::{
+    Reuse, agent_builder, completion_model, copilot_responses, effort_config, request_settings,
+};
 use history::{chunk_into, elide, flush, hand_to_model, images_to_model, keep, plain, send};
 use images::Input;
 #[cfg(test)]
@@ -25,7 +27,7 @@ pub(crate) use turn::process_ended;
 
 use super::{CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip};
 use crate::contract::{
-    Attachment, AttachmentKind, ConfigChoice, FolderGrant, NoticeLevel, Persona, Reach, TokenUsage,
+    Attachment, AttachmentKind, ConfigChoice, FolderGrant, NoticeLevel, Persona, Reach,
 };
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
@@ -41,7 +43,6 @@ use futures_util::StreamExt;
 use rig::message::{
     DocumentSourceKind, Image, ImageMediaType, Message, ToolResultContent, UserContent,
 };
-use rig::prelude::*;
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -164,6 +165,7 @@ pub async fn complete(
     agent
         .prompt(prompt)
         .await
+        .map(|response| response.output())
         .map_err(|error| error.to_string())
 }
 
@@ -764,35 +766,18 @@ impl Turn {
         for tool in &self.mcp_tools {
             tools.add_dynamic_tool(tool.clone());
         }
-        let agent = agent_builder(
-            &self.keys,
-            &self.model,
-            self.effort.as_deref(),
-            self.output_limit,
-            Reuse::Rounds,
-        )
-        .await?
-        .build();
-        let (max_tokens, additional_params) = request_settings(
-            &self.keys,
-            &self.model,
-            self.effort.as_deref(),
-            self.output_limit,
-        )?;
-        let request = rig::completion::CompletionRequest {
-            preamble: Some(self.preamble.clone()),
-            tools: tools.get_tool_definitions(),
-            max_tokens,
-            additional_params,
-            model: None,
-            chat_history: Vec::new(),
-            documents: Vec::new(),
-            temperature: None,
-            tool_choice: None,
-            output_schema: None,
-            record_telemetry_content: false,
+        let model = completion_model(&self.keys, &self.model, Reuse::Rounds).await?;
+        let template = turn::Template {
+            tools: tools.tool_definitions(),
+            settings: request_settings(
+                &self.keys,
+                &self.model,
+                self.effort.as_deref(),
+                self.output_limit,
+                Reuse::Rounds,
+            )?,
         };
-        turn::run(agent.model_handle(), request, &tools, self, sender, shell).await
+        turn::run(&model, template, &tools, self, sender, shell).await
     }
 }
 

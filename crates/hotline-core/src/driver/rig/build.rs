@@ -1,14 +1,17 @@
-//! Building the Rig agent for one turn: the model on its provider's client, the
-//! reasoning effort each client takes, and the request settings a provider needs.
+//! Building the Rig model for one turn, and the agent for one answer: the
+//! model on its provider's client, the reasoning effort each client takes,
+//! and the request settings a provider needs.
 
-use super::text;
 use crate::contract::SessionConfig;
 use crate::models::{self, Client};
 use crate::session::ProviderAuth;
-use rig::prelude::*;
-use rig::providers::{
-    anthropic, chatgpt, deepseek, gemini, groq, mistral, openai, openrouter, xai, zai,
-};
+use bytes::Bytes;
+use rig::agent::AgentBuilder;
+use rig::completion::{CacheRetention, CompletionRequest, GenerationOptions};
+use rig::operation::Completion;
+use rig::providers::openai::{OpenAI, OpenAIConfig, Route, wire};
+use rig::providers::{anthropic, deepseek, gemini, groq, mistral, xai};
+use rig::{DynModel, Model};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -27,10 +30,8 @@ pub(super) fn effort_params(client: Client, effort: &str) -> Option<serde_json::
             Some(serde_json::json!({"reasoning": {"effort": effort}}))
         }
         Client::Gemini => match effort {
-            // Rig's AdditionalParameters is camelCase; ThinkingLevel is
-            // snake_case, so the catalogue id is the value. Uppercasing it
-            // would fail the deserialize that puts additional_params on the
-            // request.
+            // Merged into the request body as written, so the catalogue id
+            // is the value Google reads.
             "minimal" | "low" | "medium" | "high" => Some(serde_json::json!({
                 "generationConfig": {
                     "thinkingConfig": {"thinkingLevel": effort}
@@ -74,44 +75,156 @@ pub(super) enum Reuse {
 }
 
 /// Claude over the API caches nothing unless the request asks. The tools and
-/// the preamble are marked, and the top-level breakpoint moves forward with
-/// the conversation, so each round reads what the round before it wrote.
+/// the system prompt are marked here, and the request's cache
+/// ([`RequestSettings`]) moves the top-level breakpoint forward with the
+/// conversation, so each round reads what the round before it wrote.
 pub(super) fn anthropic_model(
-    client: &anthropic::Client,
+    client: &anthropic::Anthropic,
     model: &str,
     reuse: Reuse,
-) -> anthropic::completion::CompletionModel {
-    let model = client.completion_model(model);
-    match reuse {
-        Reuse::Rounds => model.with_prompt_caching().with_automatic_caching(),
-        Reuse::Once => model,
+) -> Model<anthropic::Messages> {
+    let mut model = client.completion(model);
+    if reuse == Reuse::Rounds {
+        model.wire = model.wire.with_prompt_caching();
     }
+    model
 }
 
-/// OpenRouter hands a cache marker on the preamble through to Claude, which
-/// caches nothing without one. The other models it routes cache on their own
-/// or not at all, so they are left as they were.
+/// Claude on OpenRouter. OpenRouter hands a cache marker on the system prompt
+/// through to Claude, which caches nothing without one; the request's cache
+/// ([`RequestSettings`]) is a marker on the request as a whole, which is all
+/// Rig sends, so a turn's prompt is marked on its way out as well. The other
+/// models OpenRouter routes cache on their own or not at all, and are left
+/// as they were.
 pub(super) fn openrouter_model(
-    client: &openrouter::Client,
+    config: OpenAIConfig,
     model: &str,
     reuse: Reuse,
-) -> openrouter::CompletionModel {
-    let completion = client.completion_model(model);
-    if reuse == Reuse::Rounds && model.starts_with("anthropic/") {
-        completion.with_prompt_caching()
+) -> Result<DynModel<Completion>, String> {
+    if reuse == Reuse::Rounds && caches_when_asked(Client::OpenRouter, model) {
+        let transport = crate::providers::outgoing::Outgoing::mended(mark_system_prompt)?;
+        Ok(config.connect(transport).completion(model).erase())
     } else {
-        completion
+        Ok(config.client().completion(model).erase())
     }
 }
 
-/// The builder for one model on the provider whose credential the desk holds.
+/// A chat request's leading system prompt with an ephemeral cache marker on
+/// its last text part. Anything that is not a chat request with a system
+/// prompt first passes as it came.
+fn mark_system_prompt(body: Bytes) -> Bytes {
+    let marker = || serde_json::json!({"type": "ephemeral"});
+    let Ok(mut request) = serde_json::from_slice::<Value>(&body) else {
+        return body;
+    };
+    let Some(system) = request
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .and_then(|messages| messages.first_mut())
+        .filter(|message| message["role"] == "system")
+    else {
+        return body;
+    };
+    match &mut system["content"] {
+        Value::String(text) => {
+            let text = std::mem::take(text);
+            system["content"] =
+                serde_json::json!([{"type": "text", "text": text, "cache_control": marker()}]);
+        }
+        Value::Array(parts) => match parts.last_mut().and_then(Value::as_object_mut) {
+            Some(part) if part.get("type").and_then(Value::as_str) == Some("text") => {
+                part.insert("cache_control".into(), marker());
+            }
+            _ => return body,
+        },
+        _ => return body,
+    }
+    serde_json::to_vec(&request).map_or(body, Bytes::from)
+}
+
+/// Whether requests for `model` on `client` ask the provider to cache:
+/// Claude, over the API or through OpenRouter, caches nothing without a
+/// marker. Every other model caches on its own or not at all, and is sent
+/// none.
+fn caches_when_asked(client: Client, model: &str) -> bool {
+    match client {
+        Client::Anthropic => true,
+        Client::OpenRouter => model.starts_with("anthropic/"),
+        _ => false,
+    }
+}
+
+/// What every request to one model carries besides its conversation and its
+/// tools: the output ceiling, the effort, and the cache it asks for. A turn
+/// writes its own requests and an agent writes them for an answer; both take
+/// these from here, so neither can send what the other does not.
+///
+/// Every request also accepts a finish reason Rig does not know as an
+/// ordinary stop. A gateway that passes its upstream's own reason through
+/// would otherwise fail a spoken answer that arrived whole, and leave a
+/// turn's reply out of every later request (docs/design.md).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct RequestSettings {
+    pub(super) max_tokens: Option<u64>,
+    pub(super) additional_params: Option<Value>,
+    pub(super) cache: Option<CacheRetention>,
+}
+
+impl RequestSettings {
+    pub(super) fn on_request(&self, request: CompletionRequest) -> CompletionRequest {
+        let request = request
+            .max_tokens(self.max_tokens)
+            .additional_params(self.additional_params.clone())
+            .accept_unknown_finish_reasons(true);
+        match self.cache {
+            Some(cache) => request.cache(cache),
+            None => request,
+        }
+    }
+
+    pub(super) fn on_agent(&self, builder: AgentBuilder) -> AgentBuilder {
+        let builder = builder.accept_unknown_finish_reasons(true);
+        let builder = match self.max_tokens {
+            Some(ceiling) => builder.max_tokens(ceiling),
+            None => builder,
+        };
+        let builder = match &self.additional_params {
+            Some(params) => builder.additional_params(params.clone()),
+            None => builder,
+        };
+        match self.cache {
+            Some(cache) => builder.options(GenerationOptions::new().cache(cache)),
+            None => builder,
+        }
+    }
+}
+
+/// An agent for one model on the provider whose credential the desk holds,
+/// with the output ceiling and effort its requests carry.
 pub(super) async fn agent_builder(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     effort: Option<&str>,
     output_limit: Option<u64>,
     reuse: Reuse,
-) -> Result<rig::agent::AgentBuilder, String> {
+) -> Result<AgentBuilder, String> {
+    let builder = AgentBuilder::new(completion_model(keys, model_id, reuse).await?);
+    let settings = request_settings(keys, model_id, effort, output_limit, reuse)?;
+    Ok(settings.on_agent(builder))
+}
+
+/// An OpenAI-shaped vendor's client for `key`.
+fn vendor(dialect: &wire::Dialect, key: &str) -> OpenAI {
+    OpenAIConfig::with_key(dialect, key).client()
+}
+
+/// One model on the provider whose credential the desk holds. A turn sends
+/// its own requests to it; an agent wraps it for a single answer.
+pub(super) async fn completion_model(
+    keys: &HashMap<String, ProviderAuth>,
+    model_id: &str,
+    reuse: Reuse,
+) -> Result<DynModel<Completion>, String> {
     let (provider, model) = model_id
         .split_once('/')
         .ok_or_else(|| format!("{model_id} is not a provider/model id"))?;
@@ -120,7 +233,7 @@ pub(super) async fn agent_builder(
         .ok_or_else(|| format!("No connection for {provider} is available on this desk."))?;
     let wiring = models::wiring(provider)
         .ok_or_else(|| format!("{provider} is not a provider Hotline Agent can use"))?;
-    let builder = match (wiring.client, held) {
+    let model = match (wiring.client, held) {
         (_, ProviderAuth::Unavailable(error)) => return Err(error.clone()),
         (
             Client::CustomOpenAi,
@@ -131,48 +244,44 @@ pub(super) async fn agent_builder(
                 ..
             },
         ) => {
-            let client = crate::providers::custom::client(base_url, api_key.as_deref())?;
-            match config.api {
-                crate::contract::OpenAiApi::Responses => client.agent(model),
-                crate::contract::OpenAiApi::ChatCompletions => {
-                    client.completions_api().agent(model)
-                }
-            }
+            let route = match config.api {
+                crate::contract::OpenAiApi::Responses => Route::Responses,
+                crate::contract::OpenAiApi::ChatCompletions => Route::Chat,
+            };
+            crate::providers::custom::client(base_url, api_key.as_deref(), route)?
+                .completion(model)
+                .erase()
         }
         (Client::CustomOpenAi, _) | (_, ProviderAuth::Custom { .. }) => {
             return Err("This model needs its saved custom connection.".into());
         }
-        (Client::ChatGpt, ProviderAuth::Login { token_dir }) => chatgpt::Client::builder()
-            .oauth()
-            .auth_file(token_dir.join("auth.json"))
-            .allow_device_flow(false)
-            .build()
-            .map_err(text)?
-            .agent(model),
+        (Client::ChatGpt, ProviderAuth::Login { token_dir }) => {
+            crate::providers::chatgpt::model(token_dir, model)?
+        }
         (Client::Copilot, ProviderAuth::Login { token_dir }) => {
             crate::providers::copilot::ensure_endpoints(token_dir).await;
-            if crate::providers::copilot::wants_responses(token_dir, model) {
-                crate::providers::copilot::responses_agent(token_dir, model).await?
-            } else {
-                crate::providers::copilot::chat_agent(token_dir, model)?
-            }
+            let responses = crate::providers::copilot::wants_responses(token_dir, model);
+            crate::providers::copilot::model(token_dir, model, responses).await?
         }
-        (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => {
-            rig::agent::AgentBuilder::new(openrouter_model(
-                &openrouter::Client::new(&crate::providers::openrouter_key(tokens)?)
-                    .map_err(text)?,
-                model,
-                reuse,
-            ))
-        }
+        (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => openrouter_model(
+            OpenAIConfig::with_key(&wire::OPENROUTER, crate::providers::openrouter_key(tokens)?),
+            model,
+            reuse,
+        )?,
         (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
-            crate::providers::xai::client(tokens)?.agent(model)
+            crate::providers::xai::client(tokens)?
+                .completion(model)
+                .erase()
         }
         (Client::Ollama, ProviderAuth::Local { base_url }) => {
-            crate::providers::ollama_client(base_url, "")?.agent(model)
+            crate::providers::ollama_client(base_url, "")?
+                .native_completion(model)
+                .erase()
         }
         (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => {
-            crate::providers::ollama_client(crate::providers::OLLAMA_CLOUD_URL, key)?.agent(model)
+            crate::providers::ollama_client(crate::providers::OLLAMA_CLOUD_URL, key)?
+                .native_completion(model)
+                .erase()
         }
         (_, ProviderAuth::Local { .. }) | (Client::Ollama, ProviderAuth::ApiKey(_)) => {
             return Err(format!("{provider} has an incompatible connection method."));
@@ -183,52 +292,50 @@ pub(super) async fn agent_builder(
         (_, ProviderAuth::Login { .. } | ProviderAuth::StoredLogin { .. }) => {
             return Err(format!("{provider} needs a key, not a sign-in."));
         }
-        (Client::Anthropic, ProviderAuth::ApiKey(key)) => rig::agent::AgentBuilder::new(
-            anthropic_model(&anthropic::Client::new(key).map_err(text)?, model, reuse),
-        ),
-        (Client::OpenAi, ProviderAuth::ApiKey(key)) => {
-            openai::Client::new(key).map_err(text)?.agent(model)
+        (Client::Anthropic, ProviderAuth::ApiKey(key)) => {
+            let config = anthropic::AnthropicConfig::new(key.as_str());
+            #[cfg(feature = "test-support")]
+            let config = match crate::provider_fixture::origin(key) {
+                Some(origin) => config.with_base_url(origin),
+                None => config,
+            };
+            anthropic_model(&config.client(), model, reuse).erase()
         }
-        (Client::OpenRouter, ProviderAuth::ApiKey(key)) => rig::agent::AgentBuilder::new(
-            openrouter_model(&openrouter::Client::new(key).map_err(text)?, model, reuse),
-        ),
+        (Client::OpenAi, ProviderAuth::ApiKey(key)) => {
+            OpenAI::new(key.as_str()).completion(model).erase()
+        }
+        (Client::OpenRouter, ProviderAuth::ApiKey(key)) => {
+            openrouter_model(OpenAIConfig::with_key(&wire::OPENROUTER, key), model, reuse)?
+        }
         (Client::Gemini, ProviderAuth::ApiKey(key)) => {
-            gemini::Client::new(key).map_err(text)?.agent(model)
+            gemini::Gemini::new(key.as_str()).completion(model).erase()
         }
         (Client::XAi, ProviderAuth::ApiKey(key)) => {
-            xai::Client::new(key).map_err(text)?.agent(model)
+            let config = OpenAIConfig::with_key(&xai::DIALECT, key);
+            #[cfg(feature = "test-support")]
+            let config = match crate::provider_fixture::origin(key) {
+                Some(origin) => config.with_base_url(origin),
+                None => config,
+            };
+            config.client().completion(model).erase()
         }
         (Client::Groq, ProviderAuth::ApiKey(key)) => {
-            groq::Client::new(key).map_err(text)?.agent(model)
+            groq::new(key.as_str()).completion(model).erase()
         }
         (Client::DeepSeek, ProviderAuth::ApiKey(key)) => {
-            deepseek::Client::new(key).map_err(text)?.agent(model)
+            deepseek::new(key.as_str()).completion(model).erase()
         }
         (Client::Mistral, ProviderAuth::ApiKey(key)) => {
-            mistral::Client::new(key).map_err(text)?.agent(model)
+            mistral::new(key.as_str()).completion(model).erase()
         }
-        (Client::Zai, ProviderAuth::ApiKey(key)) => zai::Client::builder()
-            .api_key(key)
-            .general()
-            .build()
-            .map_err(text)?
-            .agent(model),
-        (Client::ZaiCoding, ProviderAuth::ApiKey(key)) => zai::Client::builder()
-            .api_key(key)
-            .coding()
-            .build()
-            .map_err(text)?
-            .agent(model),
+        (Client::Zai, ProviderAuth::ApiKey(key)) => {
+            vendor(&wire::ZAI, key).completion(model).erase()
+        }
+        (Client::ZaiCoding, ProviderAuth::ApiKey(key)) => {
+            vendor(&wire::ZAI_CODING, key).completion(model).erase()
+        }
     };
-    let (ceiling, params) = request_settings(keys, model_id, effort, output_limit)?;
-    let builder = match ceiling {
-        Some(ceiling) => builder.max_tokens(ceiling),
-        None => builder,
-    };
-    Ok(match params {
-        Some(params) => builder.additional_params(params),
-        None => builder,
-    })
+    Ok(model)
 }
 
 /// Whether a Copilot model goes over `/responses` from here: the account's
@@ -251,7 +358,8 @@ pub(super) fn request_settings(
     model_id: &str,
     effort: Option<&str>,
     output_limit: Option<u64>,
-) -> Result<(Option<u64>, Option<Value>), String> {
+    reuse: Reuse,
+) -> Result<RequestSettings, String> {
     let (provider, model) = model_id.split_once('/').ok_or("Model has no provider")?;
     let wiring = models::wiring(provider).ok_or("Unknown provider")?;
     // Anthropic requires a ceiling even for a model absent from discovery.
@@ -268,5 +376,11 @@ pub(super) fn request_settings(
             effort_params(wiring.client, effort)
         }
     });
-    Ok((ceiling, params))
+    let cache = (reuse == Reuse::Rounds && caches_when_asked(wiring.client, model))
+        .then_some(CacheRetention::Short);
+    Ok(RequestSettings {
+        max_tokens: ceiling,
+        additional_params: params,
+        cache,
+    })
 }

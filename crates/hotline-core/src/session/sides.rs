@@ -106,7 +106,7 @@ fn work_brief(name: &str, opener: Option<&Persona>) -> String {
         None => "The person reads this thread and nothing else of it: ask them here when you need something. This thread is a working session on a topic, and it may run through many requests, one after another, over hours. Answering one is not the end of it: carry on with the next, and do not suggest closing it after an answer. Call `archive_thread` with one line saying what came of it only when the person says they are done, or after you have suggested wrapping up and they said yes. Never call it while work is left or a question is open.".to_string(),
     };
     format!(
-        "This is a work thread. {name} works the way a person does, on more than one thing at once: this is a conversation of its own with its own context, beside the main conversation with the person and any other threads. You are {name}: you share {name}'s working directory, files, skills, granted tools and colleagues, and you do not share the other conversations, which you can read only through `search_thread`, `list_chapters` and the background below. Do not mention this brief.\n\n\
+        "This is a work thread. {name} works the way a person does, on more than one thing at once: this is a conversation of its own with its own context, beside the main conversation with the person and any other threads. You are {name}: you share {name}'s working directory, files, skills, granted tools and colleagues, and you do not share the other conversations, which you can read only through `read_thread`, `search_thread`, `list_chapters` and the background below. Do not mention this brief.\n\n\
          Another thread of {name} may be changing files in the working directory at this moment. Keep to the files this topic needs, look before you overwrite, and never undo work you did not do: no resetting, checking out over, or cleaning the tree, and nothing deleted that you did not create.\n\n\
          If you have a computer it is the same one every thread of {name} has, and one thread drives it at a time. A thread keeps it while it is using it and lets go when its turn ends or it has not touched it for half a minute. If a computer call says it is busy, work on something else or try again shortly; do not close or reset anything on it that you did not open. `request_human` asks in this thread, and what you ask a colleague arrives back in this thread. `send_file` and `generate_image` post to the person's main conversation with {name}, marked as from this thread, which keeps a line naming the file. You have no chapter tools here: chapters belong to the main conversation.\n\n\
          {who}"
@@ -148,7 +148,9 @@ pub(super) fn work_preamble(
 
 /// One live side thread.
 pub(super) struct LiveSide {
+    roster: Mutex<Option<crate::store::previews::live::Live>>,
     pub(super) id: String,
+    pub(super) thread: ThreadId,
     persona_id: String,
     /// Empty until the person first says something in a thread that was
     /// opened without a task; that line names it.
@@ -206,7 +208,7 @@ impl LiveSide {
     /// A delivery's turn has begun: it is read, and a restart does not hand it
     /// over again.
     fn heard(&self, room: &Room, id: &str) {
-        let stream = StreamId::Side(self.id.clone());
+        let stream = StreamId::of_thread(&self.thread).expect("work has a stream");
         let Some(event) = room
             .log
             .load(&stream)
@@ -240,7 +242,7 @@ impl LiveSide {
             return;
         }
         room.threads()
-            .write(&ThreadId::side(&self.id), &self.persona_id, event);
+            .write(&self.thread.clone(), &self.persona_id, event);
     }
 }
 
@@ -263,7 +265,7 @@ impl Occupant for LiveSide {
     }
 
     fn thread(&self) -> ThreadId {
-        ThreadId::side(&self.id)
+        self.thread.clone()
     }
 
     fn holder(&self) -> crate::computer::gate::Holder {
@@ -322,6 +324,7 @@ impl Occupant for LiveSide {
         room.threads()
             .turn(
                 Seat {
+                    capability: Some(&self.capability),
                     thread: &thread,
                     persona_id: &self.persona_id,
                     driver: driver.as_ref(),
@@ -340,6 +343,22 @@ impl Occupant for LiveSide {
         *lock(&side.last_used) = now_ms();
         if side.closed.load(Ordering::SeqCst) {
             return Then::Stop;
+        }
+        if let Some(driver) = side.driver() {
+            let unconsumed = driver.take_unconsumed();
+            let cancelled = driven.stop_reason.as_deref().is_some_and(|reason| {
+                matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
+            });
+            for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
+                lock(&side.turns).waiting.push_front(Line {
+                    voice: room.attached_voice(&side.thread),
+                    text,
+                    attachments,
+                    handoff: None,
+                    from: None,
+                    delivery: None,
+                });
+            }
         }
         room.remember_session(side, &driven);
         // A card the turn left open is a button nobody is behind.
@@ -396,7 +415,7 @@ pub(super) struct Sides {
     inner: Mutex<Inner>,
     /// One thread is brought back at a time, so two lines said to the same
     /// parked thread at once start one agent between them.
-    waking: tokio::sync::Mutex<()>,
+    pub(super) waking: tokio::sync::Mutex<()>,
 }
 
 impl Sides {
@@ -405,16 +424,22 @@ impl Sides {
     /// is handed back to be parked: parking loses nothing, so it is the
     /// kinder answer than a refusal. Only when every place is mid-turn, with
     /// nothing to let go of, is there no place to be had.
-    fn reserve(&self, persona_id: &str) -> Result<Option<Arc<LiveSide>>, String> {
+    fn reserve(&self, persona_id: &str, kind: ThreadKind) -> Result<Option<Arc<LiveSide>>, String> {
         let mut inner = lock(&self.inner);
+        let limit = if kind == ThreadKind::Call {
+            1
+        } else {
+            MAX_LIVE
+        };
+        let reservation = format!("{}:{persona_id}", kind.name());
         let live: Vec<Arc<LiveSide>> = inner
             .live
             .values()
-            .filter(|side| side.persona_id == persona_id)
+            .filter(|side| side.persona_id == persona_id && side.thread.kind == kind)
             .cloned()
             .collect();
-        let starting = inner.starting.get(persona_id).copied().unwrap_or(0);
-        let freed = if live.len() + starting >= MAX_LIVE {
+        let starting = inner.starting.get(&reservation).copied().unwrap_or(0);
+        let freed = if live.len() + starting >= limit {
             let idlest = live
                 .iter()
                 .filter(|side| !side.working())
@@ -422,7 +447,7 @@ impl Sides {
                 .cloned()
                 .ok_or_else(|| {
                     format!(
-                        "That teammate already has {MAX_LIVE} threads working. Let one finish, then try again."
+                        "That teammate already has {limit} threads working. Let one finish, then try again."
                     )
                 })?;
             inner.live.remove(&idlest.id);
@@ -430,7 +455,7 @@ impl Sides {
         } else {
             None
         };
-        *inner.starting.entry(persona_id.to_string()).or_default() += 1;
+        *inner.starting.entry(reservation).or_default() += 1;
         Ok(freed)
     }
 
@@ -443,9 +468,13 @@ impl Sides {
         let live: Vec<&Arc<LiveSide>> = inner
             .live
             .values()
-            .filter(|side| side.persona_id == persona_id)
+            .filter(|side| side.persona_id == persona_id && side.thread.kind == ThreadKind::Side)
             .collect();
-        let starting = inner.starting.get(persona_id).copied().unwrap_or(0);
+        let starting = inner
+            .starting
+            .get(&format!("side:{persona_id}"))
+            .copied()
+            .unwrap_or(0);
         live.len() + starting < MAX_LIVE || live.iter().any(|side| !side.working())
     }
 
@@ -487,11 +516,13 @@ impl Sides {
 struct Reserved<'a> {
     sides: &'a Sides,
     persona_id: &'a str,
+    kind: ThreadKind,
 }
 
 impl Drop for Reserved<'_> {
     fn drop(&mut self) {
-        self.sides.release(self.persona_id);
+        self.sides
+            .release(&format!("{}:{}", self.kind.name(), self.persona_id));
     }
 }
 
@@ -519,7 +550,7 @@ pub(super) fn cut(text: &str, max: usize) -> String {
 /// it saved, are on its own stream and marker, and the agent's builder reads
 /// them there.
 pub(super) struct Start {
-    pub side_id: String,
+    pub thread: ThreadId,
     pub title: String,
     pub started: i64,
     /// The teammate that handed this work over, when one did.
@@ -567,6 +598,21 @@ pub(super) enum Ending {
 }
 
 impl Room {
+    /// Calls and work threads share the same occupant and restoration path.
+    pub(super) fn work_thread(&self, id: &str) -> ThreadId {
+        self.sides.get(id).map_or_else(
+            || {
+                let call = ThreadId::call(id);
+                if self.link_of(&call).is_some() {
+                    call
+                } else {
+                    ThreadId::side(id)
+                }
+            },
+            |live| live.thread.clone(),
+        )
+    }
+
     /// Starts a side thread with this teammate about `text`, and answers its
     /// summary at once. The thread is published, with the task as its first
     /// line, before its agent exists: the agent is brought up on its own task,
@@ -586,7 +632,7 @@ impl Room {
         let (live, launch) = self.bring_up(
             persona_id,
             Start {
-                side_id: new_id(),
+                thread: ThreadId::side(new_id()),
                 title: title_of(text),
                 started: now_ms(),
                 opener: None,
@@ -625,7 +671,7 @@ impl Room {
         let opener = match self.sides.get(side_id) {
             Some(side) => side.opener.clone(),
             None => self
-                .link_of(&ThreadId::side(side_id))
+                .link_of(&self.work_thread(side_id))
                 .and_then(|link| link.opener),
         };
         match opener {
@@ -658,20 +704,26 @@ impl Room {
         start: Start,
     ) -> Result<(Arc<LiveSide>, Launch), String> {
         let persona = self.persona(persona_id)?;
+        let persona = if start.thread.kind == ThreadKind::Call {
+            super::agent::clone_of(persona, &self.info(persona_id), &[])
+        } else {
+            persona
+        };
         let requested = now_ms();
         let persona_lease = self.capability_lease(persona_id);
         persona_lease.check()?;
-        if let Some(parked) = self.sides.reserve(persona_id)? {
+        if let Some(parked) = self.sides.reserve(persona_id, start.thread.kind)? {
             self.park_side(&parked);
         }
         let _reserved = Reserved {
             sides: &self.sides,
             persona_id,
+            kind: start.thread.kind,
         };
 
         // The thread is its own authority, not the session's: whatever the
         // teammate is granted now is what it gets, however long ago it began.
-        let lease = lease_of(ThreadKind::Side, &persona_lease);
+        let lease = lease_of(start.thread.kind, &persona_lease);
         // What the marker held stays on it while the agent starts, so that
         // the start can still reopen it, but only if it is one this harness
         // issued under this account.
@@ -685,7 +737,9 @@ impl Room {
             })
             .map(|saved| saved.session_id);
         let live = Arc::new(LiveSide {
-            id: start.side_id,
+            roster: Mutex::default(),
+            id: start.thread.key.clone(),
+            thread: start.thread,
             persona_id: persona_id.to_string(),
             title: Mutex::new(start.title),
             started: start.started,
@@ -776,7 +830,7 @@ impl Room {
         let title = lock(&side.title).clone();
         let mut agent = self
             .thread_agent(Opening {
-                thread: ThreadId::side(&side.id),
+                thread: side.thread.clone(),
                 persona,
                 title,
                 opener: side.opener.clone(),
@@ -797,6 +851,7 @@ impl Room {
             self.let_go_of_computer(&side.persona_id, &agent.holder);
             return Err("This thread ended before its agent was ready.".to_string());
         }
+        self.watch_side_activity(side, &mut agent);
         agent.keep();
         lock(&side.reported).clone_from(&agent.reported);
         let changed = {
@@ -867,11 +922,19 @@ impl Room {
         continuing: bool,
     ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         let _one_at_a_time = self.sides.waking.lock().await;
+        self.wake_work(side_id, continuing)
+    }
+
+    fn wake_work(
+        self: &Arc<Self>,
+        side_id: &str,
+        continuing: bool,
+    ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         if let Ok(side) = self.live_side(side_id) {
             return Ok((side, None));
         }
         let link = self
-            .link_of(&ThreadId::side(side_id))
+            .link_of(&self.work_thread(side_id))
             .ok_or_else(|| "There is no such side thread.".to_string())?;
         match link.state {
             ThreadState::Parked => {}
@@ -881,6 +944,7 @@ impl Room {
                     "That side thread is archived. Continue it to talk in it again.".to_string(),
                 );
             }
+            ThreadState::Live if link.thread.kind == ThreadKind::Call => {}
             ThreadState::Live => return Err("That side thread is not live.".to_string()),
         }
         let Some(persona_id) = link.persona_id else {
@@ -889,7 +953,7 @@ impl Room {
         let (side, launch) = self.bring_up(
             &persona_id,
             Start {
-                side_id: side_id.to_string(),
+                thread: link.thread,
                 title: link.title,
                 started: link.ts,
                 opener: link.opener,
@@ -899,58 +963,6 @@ impl Room {
             },
         )?;
         Ok((side, Some(launch)))
-    }
-
-    /// Says something in a side thread. Returns at once: the turn runs on its
-    /// own task, and a line said during one waits behind it. A parked thread
-    /// is brought back first, which is the only thing the person does to wake
-    /// it.
-    pub async fn prompt_side(
-        self: &Arc<Self>,
-        side_id: &str,
-        text: &str,
-        attachments: Option<Vec<Attachment>>,
-    ) -> Result<(), String> {
-        self.prompt_side_replying(side_id, text, None, attachments)
-            .await
-    }
-
-    /// Says something in a side thread in answer to one of its lines, which
-    /// `reply_to` names, as a reply in the main conversation does.
-    pub async fn prompt_side_replying(
-        self: &Arc<Self>,
-        side_id: &str,
-        text: &str,
-        reply_to: Option<String>,
-        attachments: Option<Vec<Attachment>>,
-    ) -> Result<(), String> {
-        let _working = self.working()?;
-        let text = text.trim();
-        let attachments = attachments.filter(|attachments| !attachments.is_empty());
-        if text.is_empty() && attachments.is_none() {
-            return Err("There is nothing to say.".to_string());
-        }
-        self.refuse_handed_over(side_id)?;
-        let (side, launch) = match self.live_side(side_id) {
-            Ok(side) => (side, None),
-            Err(_) => self.wake_side(side_id, false).await?,
-        };
-        self.say_in_side(&side, text, reply_to, attachments);
-        if let Some(launch) = launch {
-            self.launch(launch);
-        }
-        Ok(())
-    }
-
-    /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it. The thread stays live.
-    pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
-        let side = self.live_side(side_id)?;
-        lock(&side.turns).clear();
-        if let Some(driver) = side.driver() {
-            driver.cancel();
-        }
-        Ok(())
     }
 
     /// Archives a side thread, live or parked. Archiving one that is already
@@ -965,7 +977,7 @@ impl Room {
             self.finish_side(&side, by.into(), result);
             return Ok(());
         }
-        let Some(link) = self.link_of(&ThreadId::side(side_id)) else {
+        let Some(link) = self.link_of(&self.work_thread(side_id)) else {
             return Err("There is no such side thread.".to_string());
         };
         match link.state {
@@ -988,7 +1000,7 @@ impl Room {
             return Ok(());
         }
         match self
-            .link_of(&ThreadId::side(side_id))
+            .link_of(&self.work_thread(side_id))
             .map(|link| link.state)
         {
             Some(ThreadState::Parked) => Ok(()),
@@ -1024,7 +1036,7 @@ impl Room {
         let id = Value::from(format!("perm:{request_id}"));
         let card = self
             .log
-            .load(&StreamId::Side(side_id.to_string()))
+            .load(&StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream"))
             .into_iter()
             .find(|event| event.get("id") == Some(&id))
             .and_then(|event| serde_json::from_value::<TranscriptEvent>(event).ok());
@@ -1045,6 +1057,7 @@ impl Room {
         side.say(
             self,
             &TranscriptEvent::Permission {
+                from: None,
                 id,
                 ts: now_ms(),
                 request_id,
@@ -1065,7 +1078,9 @@ impl Room {
             return Err("react needs one emoji.".to_string());
         }
         let side = self.live_side(side_id)?;
-        let stream = self.log.load(&StreamId::Side(side_id.to_string()));
+        let stream = self
+            .log
+            .load(&StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream"));
         let line = stream
             .iter()
             .rev()
@@ -1120,7 +1135,7 @@ impl Room {
         self.live_side(side_id)?;
         let here = self
             .log
-            .load(&StreamId::Side(side_id.to_string()))
+            .load(&StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream"))
             .iter()
             .rev()
             .find(|event| event["kind"] == "user")
@@ -1132,12 +1147,31 @@ impl Room {
         Ok("Opened in the person's browser on this computer.".into())
     }
 
-    /// The side threads this teammate has live, oldest first, for its roster
-    /// row.
+    /// Whether this work thread has a turn in flight, without listing its history.
+    pub(crate) fn work_thread_working(&self, thread: &ThreadId) -> bool {
+        if thread.kind == ThreadKind::Pair {
+            return self.peers.answering_in(&thread.key).is_some();
+        }
+        self.sides
+            .get(&thread.key)
+            .is_some_and(|live| live.thread == *thread && live.working())
+    }
+
+    /// Call threads with a turn in flight, separate from their saved lifetime.
+    pub fn working_calls(&self, persona_id: &str) -> Vec<String> {
+        self.sides
+            .of(persona_id)
+            .iter()
+            .filter(|side| side.thread.kind == ThreadKind::Call && side.working())
+            .map(|side| side.id.clone())
+            .collect()
+    }
+
     pub fn sides(&self, persona_id: &str) -> Vec<RunningSide> {
         self.sides
             .of(persona_id)
             .iter()
+            .filter(|side| side.thread.kind == ThreadKind::Side)
             .map(|side| RunningSide {
                 side_id: side.id.clone(),
                 title: lock(&side.title).clone(),
@@ -1154,6 +1188,7 @@ impl Room {
             .sides
             .of(persona_id)
             .iter()
+            .filter(|side| side.thread.kind == ThreadKind::Side)
             .map(|side| self.side_summary(side))
             .collect();
         let mut kept: Vec<SideThreadSummary> = self
@@ -1178,7 +1213,7 @@ impl Room {
         self.sides
             .of(persona_id)
             .iter()
-            .any(|side| waiting_on(&self.log.load(&StreamId::Side(side.id.clone()))))
+            .any(|side| super::threads::cards_waiting(&self.log, &side.thread, &side.roster))
     }
 
     /// Archives every thread this teammate has: its authority is gone, so
@@ -1253,10 +1288,29 @@ impl Room {
                 client,
             },
         );
+        let voice = self.attached_voice(&side.thread);
+        let interruption = voice
+            .as_ref()
+            .and_then(|origin| {
+                lock(&self.voice)
+                    .upgrade()?
+                    .take_interruption(&origin.call_id)
+            })
+            .unwrap_or_default();
         self.queue_in_side(
             side,
             Line {
-                text: timed_from(ts, client, text),
+                voice: voice.clone(),
+                text: if voice.is_some() {
+                    format!(
+                        "{}\n\n{}\n\n{}",
+                        timed_from(ts, client, text),
+                        interruption,
+                        self.call_instruction(&side.thread)
+                    )
+                } else {
+                    timed_from(ts, client, text)
+                },
                 attachments: attachments.unwrap_or_default(),
                 handoff: None,
                 from: None,
@@ -1305,14 +1359,16 @@ impl Room {
         handoff: Option<HandoffLine>,
     ) -> Result<(), String> {
         let _working = self.working()?;
+        let _admission = self.sides.waking.lock().await;
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_side(side_id, true).await?,
+            Err(_) => self.wake_work(side_id, true)?,
         };
         // What came back is queued before the agent is started, so it is the
         // first thing the agent hears however fast the start goes.
         let delivered = (|| {
-            let stream = StreamId::Side(side_id.to_string());
+            let stream =
+                StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream");
             let existing = self
                 .log
                 .load(&stream)
@@ -1349,6 +1405,7 @@ impl Room {
             self.queue_in_side(
                 &side,
                 Line {
+                    voice: None,
                     text: super::timed(ts, &wire),
                     attachments: Vec::new(),
                     handoff,
@@ -1364,39 +1421,12 @@ impl Room {
         delivered
     }
 
-    /// The human-action cards that sit in this teammate's work threads, for the
-    /// ones a thread's agent parked on the person and went on from. A thread
-    /// that is closed holds none that are waiting.
-    pub(super) fn cards_in_work(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
-        let mut cards = Vec::new();
-        for id in self.stored_side_ids() {
-            let thread = ThreadId::side(&id);
-            let stream = StreamId::Side(id.clone());
-            let events = self.log.load(&stream);
-            let Some(link) = Link::find(&events, &thread) else {
-                continue;
-            };
-            if link.persona_id.as_deref() != Some(persona_id) {
-                continue;
-            }
-            cards.extend(
-                events
-                    .into_iter()
-                    .filter(|event| {
-                        event.get("kind").and_then(Value::as_str) == Some("human_action")
-                    })
-                    .map(|event| (event, thread.clone())),
-            );
-        }
-        cards
-    }
-
     /// Whether this thread can be talked in without the person pressing
     /// Continue: it is live or parked.
     pub(super) fn work_is_open(&self, side_id: &str) -> bool {
         self.sides.get(side_id).is_some()
             || self
-                .link_of(&ThreadId::side(side_id))
+                .link_of(&self.work_thread(side_id))
                 .is_some_and(|link| !matches!(link.state, ThreadState::Closed(_)))
     }
 }
@@ -1454,7 +1484,9 @@ pub(super) fn waiting_on(events: &[Value]) -> bool {
         })
 }
 
+mod activity;
 mod ending;
+mod input;
 
 #[cfg(test)]
 mod tests;

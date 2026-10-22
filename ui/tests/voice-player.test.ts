@@ -24,11 +24,37 @@ function rig() {
 	return { player, ctx, decodes, nodes, get idle() { return idle; }, get started() { return started; } };
 }
 
+describe("a live voice's streamed audio", () => {
+	test("a long answer streamed faster than it is spoken is queued, not refused", () => {
+		const r = rig();
+		Object.assign(r.ctx, {
+			createBuffer: (_channels: number, length: number, rate: number) => ({
+				length, duration: length / rate, getChannelData: () => new Float32Array(length),
+			}),
+		});
+		// Three minutes of speech, one second a frame, arriving all at once.
+		const second = Buffer.alloc(24_000 * 2).toString("base64");
+		for (let i = 0; i < 180; i++) r.player.pushPcm(second, 24_000);
+		r.player.stop();
+	});
+});
+
 describe("progressive voice playback", () => {
 	test("an unbounded decode backlog is refused instead of accumulating promises", () => {
 		const r = rig();
 		for (let i = 0; i < MAX_QUEUED_CLIPS; i++) r.player.push("audio/wav", "AA==");
 		expect(() => r.player.push("audio/wav", "AA==")).toThrow("more voice audio");
+		r.player.stop();
+	});
+	test("a long Legacy reply streamed as many chunks is scheduled, not refused", async () => {
+		const r = rig();
+		// Five minutes of speech in 300 one-second chunks, each decoded as it arrives.
+		for (let i = 0; i < 300; i++) {
+			r.player.push("audio/wav", "AA==");
+			r.decodes[i]!({ duration: 1 } as AudioBuffer);
+			await tick();
+		}
+		expect(r.nodes).toHaveLength(300);
 		r.player.stop();
 	});
 	test("later decodes cannot overtake earlier chunks, which schedule without end-event gaps", async () => {

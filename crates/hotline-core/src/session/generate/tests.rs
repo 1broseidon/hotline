@@ -391,7 +391,10 @@ async fn generation_through_rig_keeps_the_image_in_the_workspace_and_chat_and_ch
     let fake = Fake::new("fake-image");
     install(&room, fake.clone(), None);
     settings(&room, 0.011);
-    let set = ToolSet::from_dynamic_tools(tools.as_dynamic());
+    let mut set = ToolSet::default();
+    for tool in tools.as_dynamic() {
+        set.add_dynamic_tool(tool);
+    }
     let result = set.execute("generate_image", json!({
         "prompt": "a lighthouse at dusk", "aspect": "16:9", "transparent": true, "name": "hero.jpg"
     }).to_string(), &mut ToolContext::new()).await;

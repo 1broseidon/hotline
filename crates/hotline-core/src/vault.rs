@@ -1,11 +1,12 @@
 //! Credential metadata belongs to the room; secret values belong to the OS store.
-//! Rig-owned ChatGPT/Copilot caches remain private files until Rig exposes a store hook.
+//! ChatGPT and Copilot sign-ins are in it too, behind reference files in their
+//! login directories, read and written by Rig through Hotline's store
+//! ([`crate::providers::rig_login`]).
 
 use crate::contract::{Credential, CredentialKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
 use crate::log::{Log, StreamId};
 use crate::mcp::McpOAuthRegistration;
-use crate::models::Client;
 use crate::private_dir::make_private_directory;
 #[cfg(unix)]
 use crate::private_dir::open_directory;
@@ -24,6 +25,8 @@ use std::sync::{Mutex, PoisonError};
 use tokio::sync::Mutex as AsyncMutex;
 
 mod launch;
+mod models;
+use models::ModelSources;
 mod shared;
 mod web_search;
 
@@ -206,6 +209,11 @@ impl Vault {
             mcp_token_locks: Mutex::new(HashMap::new()),
         };
         vault.check_layout()?;
+        crate::providers::rig_login::keep_logins_in(
+            vault.logins_dir(),
+            vault.files.clone(),
+            vault.log.clone(),
+        );
         // The one pass that moves MCP launch values into the credential
         // store. A locked keychain or an unreadable room line must not keep
         // Settings from opening: each source it could not move shows there
@@ -261,6 +269,10 @@ impl Vault {
         if credential.provider_id == "xai" && credential.credential_kind == CredentialKind::Oauth {
             self.abandon_login(id)?;
         }
+        let dir = self.login_dir(id);
+        let lock = crate::providers::rig_login::login_lock(&dir);
+        let _login_write = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::providers::rig_login::forget(&dir);
         credential.revoked = true;
         credential.updated_at = now_ms();
         self.log.append(&StreamId::Room, &event(&credential))?;
@@ -287,24 +299,16 @@ impl Vault {
         Ok(())
     }
 
-    /// Makes the directory and files for a fresh login, and returns the
-    /// credential id and that directory. No event yet — the row lands only
-    /// once the login succeeds, the same order `create` keeps (secret first,
-    /// then the fact of it).
-    pub fn begin_login(&self, provider_id: &str) -> io::Result<(String, PathBuf)> {
+    /// Makes the directory for a fresh login, and returns the credential id
+    /// and that directory. No record and no event yet: the sign-in writes the
+    /// tokens, and the row lands only once it succeeds, the same order
+    /// `create` keeps (secret first, then the fact of it).
+    pub fn begin_login(&self) -> io::Result<(String, PathBuf)> {
         let id = uuid::Uuid::new_v4().to_string();
         let dir = self.login_dir(&id);
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         self.check_layout()?;
         make_private_directory(&dir)?;
-        match crate::models::wiring(provider_id).map(|wiring| wiring.client) {
-            Some(Client::ChatGpt) => write_private(&dir.join("auth.json"), b"{}")?,
-            Some(Client::Copilot) => {
-                write_private(&dir.join("api-key.json"), b"{}")?;
-                write_private(&dir.join("access-token"), b"")?;
-            }
-            _ => {}
-        }
         Ok((id, dir))
     }
 
@@ -327,10 +331,20 @@ impl Vault {
         Ok(credential)
     }
 
-    /// Removes a login that did not finish, so a failed attempt leaves nothing.
+    /// Removes a login that did not finish, so a failed attempt leaves nothing:
+    /// each record's entries in the credential store, then the directory of
+    /// references. Copilot keeps its record beside the one every other login
+    /// keeps, and its entries are deleted the same way, or nothing could name
+    /// them again.
     pub fn abandon_login(&self, id: &str) -> io::Result<()> {
         let dir = self.login_dir(id);
+        let lock = crate::providers::rig_login::login_lock(&dir);
+        let _login_write = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::providers::rig_login::forget(&dir);
         self.login_tokens(id).delete()?;
+        self.files
+            .file(dir.join(crate::providers::rig_login::COPILOT_RECORD))
+            .delete()?;
         match fs::remove_dir_all(&dir) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -341,12 +355,15 @@ impl Vault {
     /// Every credential the room knows about, in the order they were created.
     /// A tombstoned one is not one.
     pub fn list(&self) -> Vec<Credential> {
-        self.log
-            .load(&StreamId::Room)
-            .into_iter()
+        Self::credentials(&self.log.load(&StreamId::Room))
+    }
+
+    fn credentials(events: &[Value]) -> Vec<Credential> {
+        events
+            .iter()
             .filter(|event| event.get("kind").and_then(Value::as_str) == Some("credential"))
             .filter(|event| event.get("deleted").and_then(Value::as_bool) != Some(true))
-            .filter_map(|event| serde_json::from_value(event).ok())
+            .filter_map(|event| serde_json::from_value(event.clone()).ok())
             .collect()
     }
 
@@ -370,9 +387,13 @@ impl Vault {
     }
 
     fn connections(&self) -> HashMap<String, (Credential, ProviderAuth)> {
+        self.connections_from(&self.log.load(&StreamId::Room))
+    }
+
+    fn connections_from(&self, events: &[Value]) -> HashMap<String, (Credential, ProviderAuth)> {
         let secrets = self.read_secrets();
         let mut connections = HashMap::new();
-        for credential in self.list() {
+        for credential in Self::credentials(events) {
             if credential.revoked {
                 continue;
             }
@@ -443,71 +464,55 @@ impl Vault {
     /// Discovery and manual additions belong to the active credential. A new
     /// account or local server never inherits the previous connection's ids.
     pub fn account_models(&self) -> HashMap<String, Vec<String>> {
-        self.connections()
-            .into_iter()
-            .filter_map(|(provider_id, (credential, _))| {
-                if let Some(custom) = credential.custom {
-                    return Some((provider_id, custom.models));
-                }
-                let discovered = self.read_discovery(&credential.id);
-                let manual = self.read_manual_models(&credential.id);
-                let mut ids = match discovered {
-                    Some(models) => models.into_iter().map(|model| model.id).collect::<Vec<_>>(),
-                    None if manual.is_empty() => return None,
-                    None => crate::models::catalog()
-                        .providers
-                        .get(&provider_id)
-                        .map(|entry| entry.models.keys().cloned().collect())
-                        .unwrap_or_default(),
-                };
-                // Copilot's successful account response remains authoritative,
-                // including when an older manual addition is no longer offered.
-                if provider_id != "github-copilot" {
-                    ids.extend(manual);
-                }
-                ids.sort();
-                ids.dedup();
-                Some((provider_id, ids))
-            })
-            .collect()
+        self.model_sources().account_models()
     }
 
-    /// The same resolved metadata feeds Settings, pickers, and request limits.
-    pub(crate) fn model_metadata(&self) -> HashMap<String, crate::contract::CatalogModel> {
-        let mut result = HashMap::new();
-        for (provider_id, (credential, _)) in self.connections() {
-            let discovered: BTreeMap<_, _> = self
-                .read_discovery(&credential.id)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|model| (model.id.clone(), model))
-                .collect();
-            let manual: BTreeSet<_> = self
-                .read_manual_models(&credential.id)
-                .into_iter()
-                .collect();
-            let ids: Vec<_> = discovered
-                .keys()
-                .chain(manual.iter())
-                .cloned()
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            for mut model in
-                crate::models::catalog_models(&provider_id, &HashMap::new(), Some(&ids))
-            {
-                model.manual = manual.contains(&model.id);
-                if let Some(listed) = discovered.get(&model.id) {
-                    if let Some(name) = &listed.name {
-                        model.name.clone_from(name);
-                    }
-                    model.context_limit = listed.context_limit.or(model.context_limit);
-                    model.output_limit = listed.output_limit.or(model.output_limit);
-                }
-                result.insert(format!("{provider_id}/{}", model.id), model);
-            }
+    fn model_sources(&self) -> ModelSources {
+        self.model_sources_from(self.connections())
+    }
+
+    fn model_sources_from(
+        &self,
+        connections: HashMap<String, (Credential, ProviderAuth)>,
+    ) -> ModelSources {
+        let discovered = connections
+            .values()
+            .map(|(credential, _)| (credential.id.clone(), self.read_discovery(&credential.id)))
+            .collect();
+        let manual = connections
+            .values()
+            .map(|(credential, _)| {
+                (
+                    credential.id.clone(),
+                    self.read_manual_models(&credential.id),
+                )
+            })
+            .collect();
+        ModelSources {
+            connections,
+            discovered,
+            manual,
         }
-        result
+    }
+
+    pub(crate) fn model_choices(&self) -> Vec<crate::contract::ConfigChoice> {
+        let events = self.log.load(&StreamId::Room);
+        let sources = self.model_sources_from(self.connections_from(&events));
+        let auth = sources
+            .connections
+            .iter()
+            .map(|(id, (_, auth))| (id.clone(), auth.clone()))
+            .collect();
+        crate::models::choices(
+            &auth,
+            &crate::models::enabled_models(&crate::room::settings_from_events(&events)),
+            &sources.account_models(),
+            &sources.model_metadata(),
+        )
+    }
+
+    pub(crate) fn model_metadata(&self) -> HashMap<String, crate::contract::CatalogModel> {
+        self.model_sources().model_metadata()
     }
 
     pub(crate) fn read_discovery(&self, credential_id: &str) -> Option<Vec<ListedModel>> {
@@ -605,7 +610,7 @@ impl Vault {
     }
 
     pub(crate) fn connect_local(&self, base_url: &str, ids: &[String]) -> io::Result<Credential> {
-        let (id, dir) = self.begin_login("ollama")?;
+        let (id, dir) = self.begin_login()?;
         let now = now_ms();
         let credential = Credential {
             id: id.clone(),
@@ -770,11 +775,11 @@ impl Vault {
             .join(format!("{}.json", mcp_path_component(server_id)))
     }
 
-    fn login_dir(&self, id: &str) -> PathBuf {
+    pub(crate) fn login_dir(&self, id: &str) -> PathBuf {
         self.logins_dir().join(id)
     }
 
-    fn find(&self, id: &str) -> io::Result<Credential> {
+    pub(crate) fn find(&self, id: &str) -> io::Result<Credential> {
         self.list()
             .into_iter()
             .find(|credential| credential.id == id)
@@ -1120,9 +1125,7 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
     options.open(path)
 }
 
-/// A 0600 file whose contents Rig will overwrite in place, so the mode it
-/// is created with is the mode it keeps. JSON records start as `{}` because
-/// Rig treats an empty file as a parse error, not as absent.
+/// A 0600 file, private from its first byte.
 pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     let mut file = create_private_file(path)?;
     file.write_all(contents)?;
@@ -1353,7 +1356,7 @@ mod tests {
                 .set_manual_models(&first.id, &["stale".into()])
                 .is_err()
         );
-        let (id, _) = vault.begin_login("github-copilot").unwrap();
+        let (id, _) = vault.begin_login().unwrap();
         vault
             .finish_login(&id, "github-copilot", "Copilot")
             .unwrap();
@@ -1693,11 +1696,14 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let vault = vault("login-roundtrip");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(dir.clone()), 0o700);
-        assert_eq!(mode(dir.join("auth.json")), 0o600);
-        assert_eq!(fs::read_to_string(dir.join("auth.json")).unwrap(), "{}");
+        assert_eq!(
+            fs::read_dir(&dir).unwrap().count(),
+            0,
+            "the sign-in writes the record"
+        );
         assert!(vault.list().is_empty(), "no event until the login finishes");
         assert!(vault.provider_auth().is_empty());
 
@@ -1712,25 +1718,28 @@ mod tests {
         assert!(!room(&vault).contains("access_token"), "{:?}", room(&vault));
     }
 
-    #[cfg(unix)]
+    /// A login's tokens are the sign-in's to write, into the credential
+    /// store. A record made before it would be a plain file Rig reads as an
+    /// empty sign-in, and moves into the keychain as one.
     #[test]
-    fn a_copilot_login_precreates_the_files_rig_will_write() {
-        use std::os::unix::fs::PermissionsExt;
-
+    fn a_copilot_login_begins_with_no_record() {
         let vault = vault("login-copilot");
-        let (_id, dir) = vault.begin_login("github-copilot").unwrap();
-        let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(dir.clone()), 0o700);
-        assert_eq!(mode(dir.join("api-key.json")), 0o600);
-        assert_eq!(mode(dir.join("access-token")), 0o600);
-        assert_eq!(fs::read_to_string(dir.join("api-key.json")).unwrap(), "{}");
-        assert_eq!(fs::read_to_string(dir.join("access-token")).unwrap(), "");
+        let (_id, dir) = vault.begin_login().unwrap();
+        assert!(dir.is_dir());
+        for name in [
+            crate::providers::rig_login::COPILOT_RECORD,
+            crate::providers::rig_login::CHATGPT_RECORD,
+            "access-token",
+            "api-key.json",
+        ] {
+            assert!(!dir.join(name).exists(), "{name}");
+        }
     }
 
     #[test]
     fn abandoning_a_login_leaves_nothing() {
         let vault = vault("login-abandon");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault.abandon_login(&id).unwrap();
         assert!(!dir.exists());
         assert_eq!(vault.list(), [] as [Credential; 0]);
@@ -1740,7 +1749,7 @@ mod tests {
     #[test]
     fn deleting_a_login_removes_its_directory() {
         let vault = vault("login-delete");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
         assert!(dir.is_dir());
         vault.delete(&id).unwrap();
@@ -1752,7 +1761,7 @@ mod tests {
     #[test]
     fn a_revoked_login_is_not_auth() {
         let vault = vault("login-revoke");
-        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
         vault.revoke(&id).unwrap();
         assert!(dir.is_dir(), "revoke leaves the files, as for keys");
@@ -1763,7 +1772,7 @@ mod tests {
     }
 
     fn copilot_login(vault: &Vault) -> (String, PathBuf) {
-        let (id, dir) = vault.begin_login("github-copilot").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         vault
             .finish_login(&id, "github-copilot", "GitHub Copilot")
             .unwrap();

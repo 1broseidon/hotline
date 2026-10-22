@@ -2,9 +2,29 @@
 
 The desk turns a spoken clip into words and words into a spoken clip through
 a provider the owner has already connected, or hears with a model of its own
-that the owner downloaded. Voice never asks for a key of its own. The call, the dispatcher and the wire commands are in
-[wire.md](wire.md); this page is the speech layer under them and the ledger
-beside them (`crates/hotline-core/src/voice/`).
+that the owner downloaded. Voice never asks for a key of its own. The call contract is in [voice-calls.md](voice-calls.md) and the commands in
+[wire.md](wire.md); this page covers the speech engines in `crates/hotline-voice`
+and their ledger.
+
+## What a call keeps
+
+A call is a thread. Live voice handles conversation and lookups; `work_on_it`
+starts or steers one clone using the teammate's own model, driver and grants.
+Legacy feeds that same thread directly. Neither interrupts the home chat.
+Results posted or sent from the thread reach chat; merely writing a file does
+not attach it (task-253). Hang-up detaches speech, the in-flight reply finishes
+in chat, and one closing note follows after 30 seconds and an idle queue.
+The thread remains available for text or another call.
+
+Cards are announced at a break. Finalized spoken yes/no can answer core-owned
+session collaboration approvals and informational questions; opaque driver
+approvals and actions requiring the desk stay there. A short transport drop
+holds the call for 20 seconds for the same authenticated device. Live provider
+recovery carries context; a failed live call explains itself and offers Legacy
+only as an explicit choice. A TTS clip fallback below is not a change of call mode.
+
+The [scenario evidence and device pass](design/voice-scenario-pass.md) separates
+scripted proof from the pending Linux, desk and phone checks.
 
 ## The seam
 
@@ -89,15 +109,14 @@ window starts the call with `inputMode: "text"` only when the desk's
 says this Mac can hear, and `speech_permit` is granted; it then never opens
 the webview's microphone. Otherwise the call is the audio call it always
 was, and a desk that answers a text call without `text/plain` in its input
-is hung up with a message to update it. A recognition session runs only
-while the call listens: the desk speaking or thinking with the floor, hold
-and hang-up cancel it, so the engine never hears the desk. A `thinking` that
+is hung up with a message to update it. Recognition stays open during playback
+so the person can interrupt; hold and hang-up cancel it. Voice processing requests echo cancellation, but
+physical speaker isolation still needs the device scenario pass. A `thinking` that
 says `listening` is listened through: the call's phase is `listening` while
-the teammate works, the blip-blip goes on, and its levels are not given to
-the detector until each blip-blip and its tail have played (the webview's
-microphone skips those blocks the same way). Speech that plays mid-turn shuts
-the microphone or ends the session as any speech does, and it opens again
-once the speech is done. What the desk begins to say while the person is
+the teammate works. Legacy receives one soft waiting clip from the core if
+its own speech has not begun after 1.8 seconds; there is no local repeating
+chime. Recognition stays open through playback for interruption, with voice
+processing and echo cancellation enabled. What the desk begins to say while the person is
 talking does not play over them: it waits until their turn ends, and goes if
 they said something (the desk stops it on taking their words) or plays if it
 was only noise. Clips that arrive after the person's words are sent and before
@@ -536,35 +555,28 @@ while a desk text call also needs the dispatcher.
 
 ## One brain, two outputs
 
-A pipeline call to a teammate has nothing in front of the teammate
-(`voice/spoken.rs` in `hotline-room`); a front call puts a realtime voice there, which answers
-conversation and runs the teammate's desk-side tools itself, and hands
-the teammate's session only work that needs it (see the voice front setting
-below, [voice-calls.md](voice-calls.md) and
-[ADR 0005](adr/0005-front-is-a-full-agent.md)). Every handed-off utterance goes into the teammate's own session as a
-turn of its conversation, in the open chapter of its main thread, the same way
-a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
-harness, same grants. The tape keeps the person's words exactly as they were
-heard, under an id that marks the line as said on the call
-(`voice:<callId>:<seq>:agent:…`), and the chat shows them like any message.
-Said into a turn that is still running, the words steer it, as typing does.
+A Legacy call feeds utterances to the teammate's call thread. A live voice
+answers conversation and read-only lookups itself, and uses `work_on_it` for
+writes, changes and commands. Work runs on one clone on the call thread,
+using the teammate's model, harness and grants. Further instructions steer
+that clone; stop cancels it. The full call is available as its brief. Neither
+path interrupts the home session. Both sides' speech and all tool calls are
+kept on the call thread; files and full drafts are explicitly posted to chat.
+See [voice-calls.md](voice-calls.md) and ADR 0008.
 
-What makes the turn a voice turn is one thing the agent is handed after the
-person's words, the contract (`spoken::CONTRACT`): answer twice, once to be
-heard and once to be read, each version standing alone and neither continuing
-the other. The version to be heard goes between `<spoken>` tags: how you'd
-answer on a phone call, leading with the answer, one to three sentences under
-40 words, plain speech with no code, lists, links or markdown, mentioning the
-written version only as "details are in the chat". The version to be read
-goes between `<written>` tags: the complete answer exactly as if the question
-had been typed, never spoken, not assuming the reader heard the other one. It
-gives one example, and asks for at most one short line before a tool and, when
-the person cut in, an answer to the new words without repeating what was said.
+Each voice turn carries the spoken contract and the call's state: caller-turn
+count, last pointer turn, and three recent generated spoken lines. Conversation
+uses `<spoken>` alone; those exact words are its written record. A standalone
+`<written>` result is added only for material speech cannot preserve. The core
+recognizes code, tables, links, sent files, lists of four or more items and
+write-ups over 120 words, and posts those results through `Room::post`.
 
-The contract asks for two whole versions rather than one reply cut in two. A
-reply split by a marker into a part to say and a part to show reads to a model
-as an opener and a body, so the chat showed the spoken opener as its first
-bubble and the rest after it: one answer chopped in two, not a desk answer.
+The streaming answer never announces the chat on its own. After the result is
+known, the narrator may add a contextual pointer, at most once in three caller
+turns. Its instruction describes the purpose and bad habits, without a stock
+phrase or word cap. Failed or interrupted pointer attempts still consume the
+slot; generated speech is never proof of what was heard. Ordinary answers and
+short lists receive no pointer or additional chat post.
 
 The contract travels in the text of the turn the driver is handed, after the
 words and a blank line, and nowhere else. A model setting or a system note
@@ -583,13 +595,10 @@ The reply is read twice from one stream:
   each sentence said as soon as it is whole, cleaned for speech as below, and
   nothing after it. It holds back the end of a chunk that could be the start
   of a tag, so no part of a tag is ever said, and it never reads out a fenced
-  code block or a table. Text before a spoken version is not said as it
-  streams, because a reply that never writes one is said differently once it
-  is whole ([A reply written only to be
-  read](#a-reply-written-only-to-be-read)), and its opening must not be heard
-  first. When a spoken
-  version begins, the text before it is said first, read as a reply with no
-  tags is, as the line an agent wrote before its tags.
+  code block or a table. Legacy streams its own untagged prose opening too,
+  without waiting for the whole reply or a rewrite. Live work can hold its
+  untagged reply for a spoken rewrite before giving it to the live model.
+
 - **Shown.** The chat shows the written version alone, as a normal desk
   answer: as it streams (`spoken::Shown`, which holds back a partial tag the
   same way and drops the spoken version), and as it is written to the tape
@@ -632,15 +641,13 @@ version of its own, opening with a continuation ("Also", "Additionally",
 for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
 diagnostic: nothing shown or said changes.
 
-On an agent turn, what the agent writes before its first tool call is said as
-the acknowledgement: its spoken version as it streams, or, without one, the
-line as written once it is whole, which is when the tool starts. Its words
-between tools are narration (`session/narration.rs`) and are not said; the
-call stays `thinking`, and the client's blip-blip covers the work. The message
-that lands as the report is said when it lands: its spoken version, or, when
-it wrote none, as below. Each message said is one reply:
-one `said` id, the line growing sentence by sentence, its clips under that id
-closed by an empty final clip, and one line on the call's thread.
+On a Legacy turn, the teammate's own first sentence is said as it streams,
+including prose before a tool. The prompt asks for that sentence before tools,
+with no stock filler. If no speech has begun after 1.8 seconds, the core sends
+one soft sound on the normal clip wire, on desk and phone. The reply stays
+interruptible, and the written answer stays intact. Each message said is one
+reply id, growing sentence by sentence, with clips under that id.
+
 
 The call is `thinking` from an utterance until the teammate's session has
 finished that turn, or left it open only for subagents (`Calls::turn_ended`),
@@ -678,8 +685,7 @@ words as written. The two pairs of tags are the only markup the agent is asked
 for.
 
 The latency of a call to a teammate is the teammate's: its first word waits on
-its model's first sentence, and for a reply written only to be read, on the
-whole reply and its rewrite. That is accepted. A desk call keeps its router:
+its model's first sentence. Legacy streams that sentence without a rewrite. A desk call keeps its router:
 the call assistant answers what was said on the desk, hands work to teammates
 with `session.prompt`, and narrates their replies, as below.
 
@@ -709,37 +715,15 @@ voice. Desk calls always use the desk's voice.
 
 ### A reply written only to be read
 
-A reply that writes no `<spoken>` version (`spoken::Ending::Untagged`) is
-said once it is whole, from its written version (`Calls::unspoken`):
+Legacy streams an untagged prose opening, up to three sentences and before
+code or tables, without asking another model to rewrite it. Tagged spoken
+versions stream in full, including an explicitly requested longer overview.
 
-- **One short line** is said as it was written (`spoken::said_as_written`):
-  one line of prose, under 40 words and at most three sentences, with no code
-  or table. That is the one short line the contract asks for before a tool,
-  which arrives as a message of its own when the tool starts, and a reply that
-  short has nothing to say again.
-- **Anything longer** the call assistant says again to be heard
-  (`Calls::rewrite`, `Dispatcher::rewrite`): it is handed the written version,
-  its first 8,000 characters with a note that the rest is in the chat, and
-  the person's last words, as escaped untrusted data, and asked to say it as
-  on a phone call, leading with the answer in one to three sentences under 40
-  words of plain speech, mentioning that details are in the chat, and adding
-  nothing. What it writes is said as the reply's line, kept on the call's
-  thread, and kept as the reply's `spoken`, so the window's transcript line
-  and the model's rebuilt history have it: the session has written the reply
-  by then, and the call supersedes that event with the field added
-  (`Room::voice_spoken`), waiting up to two seconds for it to land. While it
-  writes, the call is `thinking`: the person hears the blip-blip, and the
-  15-second heartbeat keeps a phone waiting.
-- **When there is no rewrite** (the desk has no call assistant, the Chat
-  budget refuses it, the request fails, or it takes longer than six seconds)
-  the call says the reply's opening, as it always did: up to its first code
-  block or table, and at most three sentences. Each such case writes one
-  `[voice]` line to the log; none of them ends the call, not even a refused
-  budget.
-
-The rewrite is the call assistant's work and is metered as it is (see
-[The ledger](#the-ledger)): reserved and settled on the Chat budget's call
-assistant line, and never refused on a model that costs nothing.
+Live work can still use `Calls::unspoken` and `Dispatcher::rewrite` for an
+untagged written result before the live model speaks it: a short line is used
+as written, a longer result is rewritten within six seconds, and failure uses
+the bounded opening. This rewrite spends the Chat budget and never changes
+what was already heard. The live provider's actual speech is the transcript.
 
 ### How each reply was said
 
@@ -965,15 +949,11 @@ bearer and account, joined by a sideband socket at
 the person's audio up as Opus over RTP, 20 ms packets at 48 kHz paced by
 the adapter and filled with silence when the microphone is quiet or held;
 the model's speech (24 kHz PCM, the front's own rate), what each side said
-and its hand-offs come back on the sideband. It takes no tools on the
-session: it hands a request over as a client `delegation`, which the
-adapter reports as the
-bridge's `send_to_teammate`, and a line for the person goes in on the
-`speakable` channel, which the model says in its own words rather than
-verbatim. On a teammate call the desk answers a delegation itself first:
-the call assistant runs the teammate's desk-side tools on it and the answer
-goes back as commentary for the model to say, and only what it hands on, or
-fails at, reaches the working session ([ADR 0005](adr/0005-front-is-a-full-agent.md)).
+and its work requests come back on the sideband. It takes no tools on the
+session: client `delegation` invokes the bridge's `work_on_it`, which runs the
+same call-thread work as the other fronts. There is no intermediate call
+assistant. A line for the person goes in on the `speakable` channel, which
+the model says in its own words rather than verbatim.
 The sign-in cannot use `responses` delegation: the service refuses its
 validation connection with HTTP 401. The server stops a reply itself when the person talks; the
 adapter reports the person's new turn as a barge-in so the client cuts its
@@ -984,28 +964,33 @@ minutes before the `expires_at` the server gives, a replacement call is
 placed in the background with the conversation so far in its instructions,
 and the adapter switches to it between replies (or after 30 s of a reply)
 and hangs up the old one; a replacement that cannot be placed is tried again
-a minute later. A call the server no longer knows or a failed peer drops the
-front and the call goes on as a pipeline call, when the desk has one: a
-desk with only the ChatGPT login, which is no speech connection, still
-offers and takes calls on the front alone, and losing the front then ends
-the call rather than carrying it on with nothing to hear or speak with. It costs nothing
-against the Voice budget. Legacy voice's own rows, the voice
-it speaks in and the call assistant, show in Settings only under it;
-Transcription stays under Use for, because dictation uses it.
+a minute later. A call the server no longer knows or a failed peer asks the
+call runtime to reconnect with its transcript. A replacement that fails
+ends the live call with a persistent reason, never as Legacy. GPT-Live costs
+nothing against the Voice budget. Legacy voice's settings appear under
+Legacy; Transcription remains under Use for because dictation uses it.
 
-A front call resolves its front from the vault when it starts
-(`speech::resolve_front`): the named login or key, or with none named the
-first connected that can run it. A desk with nothing that can run the chosen
-front, one whose named login is
-no longer connected, and a Voice budget with no room for a key's minutes all
-leave the call on the pipeline; the desk advertises `voiceFront` only when it
-has a login or key to open one with. The window asks for `mode: "front"` whenever
-`voice.status` advertises it (`ui/src/voice/call.ts`), streams the microphone
-as 16 kHz PCM in 40 ms frames, plays `frontAudio` gaplessly at `outputRate`,
-answers `frontStop` and the Stop button with `voice.front_barge`, and drops
-to the pipeline on `frontEnded`. The phone keeps both paths and picks by what
-the desk advertises. It has no way to change desk voice settings today, so
-it has no mirror.
+A call resolves the selected front from the vault at start. The core follows
+Settings when `mode` is omitted, requires live for `mode: "front"`, and accepts
+Legacy only when selected or explicitly requested with `mode: "pipeline"`.
+A missing login or budget refuses the live call. `voice.status.liveSelected`
+reports selection separately from readiness; a client must not interpret
+missing `voiceFront` capability or a missing `front` reply as permission to
+switch to Legacy. The window streams 16 kHz PCM in 40 ms frames, plays
+`frontAudio` at `outputRate`, and answers `frontStop` with `voice.front_barge`.
+A live failure ends with `state.liveError`, retained in the snapshot, and the
+window offers **Call with Legacy voice** on the same thread. Older clients
+cannot bypass the selected mode by omitting it. Companion clients need to
+handle `liveSelected` and `liveError` and expose that explicit choice.
+
+Refusals log provider, rejected event type (correlated through `event_id`),
+code and sanitized provider message, never request bodies or credentials.
+The six historic dev-log `responses_validation_failed` / `invalid_request_error`
+lines lack provider identity. The known matching fault was GPT-Live's
+`responses` delegation validation on a ChatGPT login (task-84, commit
+`ab5722d5`); the adapter uses client delegation and its regression test checks
+the actual session payload. Those historic lines alone cannot establish a
+Grok-specific fault.
 
 In the window, a call to a teammate is an inset card under its
 conversation's band (`components/Call.tsx` `CallBar`): the band and the call

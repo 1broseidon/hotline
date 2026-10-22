@@ -382,7 +382,7 @@ async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
     let store = Arc::new(MemoryStore::default());
     let log = crate::log::Log::open(root.path());
     let vault = crate::vault::Vault::open_with_store(root.path(), log, store.clone()).unwrap();
-    let (id, token_dir) = vault.begin_login("openai-codex").unwrap();
+    let (id, token_dir) = vault.begin_login().unwrap();
     vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
     drop(vault);
     let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store).unwrap());
@@ -432,10 +432,7 @@ async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
                 .contains(&token_dir.to_string_lossy().to_string())
         );
     }
-    assert_eq!(
-        std::fs::read_to_string(token_dir.join("auth.json")).unwrap(),
-        "{}"
-    );
+    assert!(!token_dir.join("auth.json").exists());
 }
 
 #[tokio::test]
@@ -811,7 +808,7 @@ async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription
     let store = Arc::new(MemoryStore::default());
     let log = crate::log::Log::open(root.path());
     let vault = crate::vault::Vault::open_with_store(root.path(), log, store.clone()).unwrap();
-    let (id, token_dir) = vault.begin_login("openai-codex").unwrap();
+    let (id, token_dir) = vault.begin_login().unwrap();
     vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
     drop(vault);
     let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store).unwrap());
@@ -877,8 +874,5 @@ async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription
     let denied =
         remote_control_answer(Seat::Phone, &handle, &desk.log, &desk.parts(), request).await;
     assert_eq!(denied["code"], FORBIDDEN);
-    assert_eq!(
-        std::fs::read_to_string(token_dir.join("auth.json")).unwrap(),
-        "{}"
-    );
+    assert!(!token_dir.join("auth.json").exists());
 }

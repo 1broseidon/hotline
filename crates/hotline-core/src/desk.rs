@@ -15,13 +15,13 @@ use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
 use crate::mcp::{McpOAuth, McpServer};
 use crate::models::Client;
+use crate::providers::rig_login;
 use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use crate::{room, skills};
 use async_trait::async_trait;
 pub(crate) use hotline_room::tls::install_crypto_provider;
-use rig::providers::{chatgpt, copilot};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -108,8 +108,7 @@ impl Desk {
         Desk {
             voice: crate::voice::Calls::new(
                 log.clone(),
-                vault.clone(),
-                Arc::downgrade(&room),
+                crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault.clone()),
                 None,
             ),
             log,
@@ -153,7 +152,7 @@ impl Desk {
             root,
             store,
             services,
-            crate::voice::speech::local::catalogue(),
+            hotline_voice::speech::local::catalogue(),
             acp::StartBounds::default(),
         )
     }
@@ -169,7 +168,7 @@ impl Desk {
             root,
             store,
             None,
-            crate::voice::speech::local::catalogue(),
+            hotline_voice::speech::local::catalogue(),
             bounds,
         )
     }
@@ -179,7 +178,7 @@ impl Desk {
     pub fn open_with_speech_models(
         root: &Path,
         store: Arc<dyn crate::credentials::SecretStore>,
-        models: Vec<crate::voice::speech::local::Model>,
+        models: Vec<hotline_voice::speech::local::Model>,
     ) -> io::Result<Desk> {
         Self::open_inner(root, store, None, models, acp::StartBounds::default())
     }
@@ -188,7 +187,7 @@ impl Desk {
         root: &Path,
         store: Arc<dyn crate::credentials::SecretStore>,
         services: Option<crate::voice::Services>,
-        models: Vec<crate::voice::speech::local::Model>,
+        models: Vec<hotline_voice::speech::local::Model>,
         acp_start: crate::driver::acp::StartBounds,
     ) -> io::Result<Desk> {
         install_crypto_provider();
@@ -224,8 +223,7 @@ impl Desk {
         }));
         let voice = crate::voice::Calls::with_models(
             log.clone(),
-            vault.clone(),
-            Arc::downgrade(&room),
+            crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault.clone()),
             services,
             models,
             budget,
@@ -584,12 +582,20 @@ impl RoomHandle for Desk {
         self.room.subagents(persona_id)
     }
 
+    fn thread_working(&self, thread: &crate::contract::ThreadId) -> bool {
+        self.room.work_thread_working(thread)
+    }
+
     fn sides(&self, persona_id: &str) -> Vec<crate::contract::RunningSide> {
         self.room.sides(persona_id)
     }
 
     fn working_jobs(&self, persona_id: &str) -> Vec<String> {
         self.room.working_jobs(persona_id)
+    }
+
+    fn working_calls(&self, persona_id: &str) -> Vec<String> {
+        self.room.working_calls(persona_id)
     }
 
     fn threads_waiting(&self, persona_id: &str) -> bool {
@@ -715,8 +721,10 @@ impl RoomHandle for Desk {
         self.vault.revoke(id).map_err(|error| error.to_string())
     }
 
-    fn credential_delete(&self, id: &str) -> Result<(), String> {
-        self.vault.delete(id).map_err(|error| error.to_string())
+    async fn credential_delete(&self, id: &str) -> Result<(), String> {
+        crate::providers::rig_login::revoke::delete(&self.vault, id)
+            .await
+            .map_err(|error| error.to_string())
     }
 
     async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
@@ -731,7 +739,7 @@ impl RoomHandle for Desk {
             .map_or_else(|| wiring.id.to_string(), |entry| entry.name.clone());
         let (id, token_dir) = self
             .vault
-            .begin_login(provider_id)
+            .begin_login()
             .map_err(|error| error.to_string())?;
         let tokens = self.vault.login_tokens(&id);
         let cancel = CancellationToken::new();
@@ -761,30 +769,16 @@ impl RoomHandle for Desk {
         let mut task = tokio::spawn(async move {
             let authorize = async {
                 match wiring.client {
-                    Client::ChatGpt => chatgpt::Client::builder()
-                        .oauth()
-                        .auth_file(token_dir.join("auth.json"))
-                        .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri);
-                        })
-                        .allow_device_flow(true)
-                        .build()
-                        .map_err(|error| error.to_string())?
-                        .authorize()
-                        .await
-                        .map_err(|error| error.to_string()),
-                    Client::Copilot => copilot::Client::builder()
-                        .oauth()
-                        .token_dir(&token_dir)
-                        .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri);
-                        })
-                        .allow_device_flow(true)
-                        .build()
-                        .map_err(|error| error.to_string())?
-                        .authorize()
-                        .await
-                        .map_err(|error| error.to_string()),
+                    Client::ChatGpt => rig_login::chatgpt_sign_in(&token_dir, move |prompt| {
+                        emit(prompt.user_code, prompt.verification_uri);
+                    })
+                    .await
+                    .map(drop),
+                    Client::Copilot => rig_login::copilot_sign_in(&token_dir, move |prompt| {
+                        emit(prompt.user_code, prompt.verification_uri);
+                    })
+                    .await
+                    .map(drop),
                     Client::OpenRouter => crate::providers::openrouter_login(&tokens, emit).await,
                     Client::XAi => crate::providers::xai::login(&tokens, emit).await,
                     _ => Err(format!("{provider_id} does not support sign-in.")),
@@ -963,7 +957,7 @@ impl RoomHandle for Desk {
     }
 
     fn models(&self) -> Vec<ConfigChoice> {
-        self.room.models_for_desk()
+        self.vault.model_choices()
     }
 
     fn models_catalog(
@@ -1000,7 +994,7 @@ impl RoomHandle for Desk {
         model_ids: &[String],
     ) -> Result<Vec<CatalogModel>, String> {
         if crate::models::wiring(provider_id).is_none()
-            || crate::models::is_custom(provider_id)
+            || hotline_room::provider_auth::is_custom(provider_id)
             || provider_id == "openai-compatible"
         {
             return Err("Choose an existing native provider connection; edit custom IDs in its connection form.".into());
@@ -1411,6 +1405,16 @@ async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, S
 }
 
 #[cfg(test)]
+impl Desk {
+    pub(crate) fn test_room(&self) -> Arc<Room> {
+        self.room.clone()
+    }
+    pub(crate) fn test_vault(&self) -> Arc<Vault> {
+        self.vault.clone()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::Desk;
     use crate::contract::SkillPolicy;
@@ -1619,8 +1623,7 @@ mod tests {
         let desk = Desk {
             voice: crate::voice::Calls::new(
                 log.clone(),
-                vault.clone(),
-                Arc::downgrade(&room),
+                crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault.clone()),
                 None,
             ),
             log: log.clone(),

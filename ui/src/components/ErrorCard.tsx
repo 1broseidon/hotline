@@ -7,11 +7,11 @@ import { Refusal, refused, type Refused } from "../ui/Refusal";
 /**
  * The failures a second try can get past: the network, the provider having
  * a bad moment or turning a working sign-in away, a limit that has since
- * lifted, a harness that fell over.
+ * lifted, a harness that fell over, a keychain the person has since unlocked.
  * A refused key, a spent quota or a request the model will not take fails
  * the same way again, so it is not offered.
  */
-const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "usage_limit", "unknown"]);
+const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "keychain", "usage_limit", "unknown"]);
 
 export type FailureDetails = {
     title: string;

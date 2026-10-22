@@ -95,6 +95,12 @@ pub(super) trait Witness {
         false
     }
 
+    /// Work results and sent-file records can carry facts beyond a short
+    /// spoken completion, even when their text has no visual formatting.
+    fn keep_written(&self) -> bool {
+        false
+    }
+
     /// One event of the turn, and whether it came of a permission request.
     fn write(&mut self, event: TranscriptEvent, asked: bool);
 
@@ -188,7 +194,12 @@ pub(super) async fn drive_updates(
             }
             let asked = matches!(update, Update::Permission { .. });
             driven.asked |= asked;
-            for event in event_of(update, &mut in_flight, witness.said_on_call()) {
+            for event in event_of(
+                update,
+                &mut in_flight,
+                witness.said_on_call(),
+                witness.keep_written(),
+            ) {
                 match &event {
                     TranscriptEvent::Agent { text, .. } => {
                         driven.replies.push(text.clone());
@@ -362,11 +373,13 @@ impl Room {
             .threads()
             .turn(
                 Seat {
+                    capability: None,
                     thread: &thread,
                     persona_id: &spec.persona_id,
                     driver: agent.driver.as_ref(),
                 },
                 Line {
+                    voice: None,
                     text: timed(now_ms(), &handed(&spec.brief.task)),
                     attachments: Vec::new(),
                     handoff: None,
@@ -456,7 +469,7 @@ impl Room {
                     return;
                 };
                 for update in run.voice.step(update) {
-                    for event in event_of(update, &mut run.in_flight, false) {
+                    for event in event_of(update, &mut run.in_flight, false, false) {
                         self.threads().write(
                             &ThreadId::run(&run.running.run_id),
                             persona_id,
@@ -471,7 +484,7 @@ impl Room {
                 };
                 let run_id = run.running.run_id.clone();
                 for update in run.voice.finish() {
-                    for event in event_of(update, &mut run.in_flight, false) {
+                    for event in event_of(update, &mut run.in_flight, false, false) {
                         self.threads()
                             .write(&ThreadId::run(&run_id), persona_id, &event);
                     }
@@ -535,7 +548,7 @@ fn outcome_of(driven: Driven) -> RunOutcome {
 /// What a run is told about itself, over and above who it is.
 fn run_brief(name: &str) -> String {
     format!(
-        "This is a subagent run of {name}'s: you are {name}, working on one task your main conversation with the person handed you, on a thread of its own. You start from the task, not from that conversation, which you can read through `search_thread` and `list_chapters` when the task depends on something said there. Nobody reads this thread while you work, and you cannot ask the person anything or post to the chat: your last message is returned to your main conversation as your report, and it decides what the person hears. Where something is unclear, make the sensible choice, say which choice you made, and carry on. Do not mention this brief.\n\n\
+        "This is a subagent run of {name}'s: you are {name}, working on one task your main conversation with the person handed you, on a thread of its own. You start from the task, not from that conversation, which you can read through `read_thread`, `search_thread` and `list_chapters` when the task depends on something said there. Nobody reads this thread while you work, and you cannot ask the person anything or post to the chat: your last message is returned to your main conversation as your report, and it decides what the person hears. Where something is unclear, make the sensible choice, say which choice you made, and carry on. Do not mention this brief.\n\n\
          Work until the task is done, or until you are sure it cannot be. Then finish with one message, your report: lead with the outcome or the answer; then what you did and where, naming files you changed and commands you ran; then anything unresolved, uncertain, or left to decide. If something failed, say so plainly. Do not narrate while you work: the report is the only thing read."
     )
 }

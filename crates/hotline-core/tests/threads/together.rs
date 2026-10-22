@@ -318,7 +318,8 @@ async fn every_thread_reaches_the_chat_through_one_door_on_both_drivers() {
         .await;
     let job_id = job["id"].as_str().unwrap();
     let from_job = desk.posted(&bob, "The winch is fixed.").await;
-    assert_eq!(from_job["from"], json!({"thread": job_id, "kind": "job"}));
+    assert_eq!(from_job["from"]["thread"], job_id);
+    assert_eq!(from_job["from"]["kind"], "job");
     assert_eq!(from_job["scheduled"]["jobId"], job_id);
 
     // A work thread's file and its one post land in Ada's chat from it.
@@ -331,7 +332,7 @@ async fn every_thread_reaches_the_chat_through_one_door_on_both_drivers() {
         .ok("thread.open", json!({"personaId": ada, "text": text}))
         .await;
     let side = opened["thread"]["key"].as_str().unwrap().to_owned();
-    let stamp = json!({"thread": side, "kind": "side"});
+    let stamp = json!({"thread": side, "kind": "side", "title":opened["title"]});
     let file = desk.posted(&ada, "The winch log.").await;
     assert_eq!(file["attachments"][0]["name"], "winch.txt", "{file}");
     assert_eq!(file["from"], stamp);
@@ -510,9 +511,7 @@ async fn a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart() {
     let last = desk
         .posted(&ada, "Cancelled. Where it stood: The crane is steady.")
         .await;
-    assert_eq!(
-        last["from"],
-        json!({"thread": "crane-watch", "kind": "job"})
-    );
+    assert_eq!(last["from"]["thread"], "crane-watch");
+    assert_eq!(last["from"]["kind"], "job");
     drop(first);
 }

@@ -24,6 +24,12 @@
 unmaintained = "all"
 yanked = "deny"
 ignore = [
+    # Run time: webpki-roots 0.26.11 under tokio-tungstenite 0.30 is a semver
+    # stub that re-exports webpki-roots 1, which Cargo.lock holds at 1.0.10,
+    # the release that drops the distrusted emSign root. Remove when
+    # tokio-tungstenite takes webpki-roots 1 directly.
+    { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.26.11 is a stub over webpki-roots 1.0.10 (fixed) via tokio-tungstenite 0.30; remove when it depends on webpki-roots 1" },
+
     # Build time only: a proc macro under gtk-rs 0.18's glib-macros, which
     # Tauri's Linux tray and dialogs use. Look again when Tauri moves off GTK 3.
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4 via glib-macros 0.18 (Tauri on Linux); review when Tauri leaves gtk-rs 0.18" },

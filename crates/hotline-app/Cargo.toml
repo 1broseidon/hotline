@@ -1,10 +1,15 @@
 [package]
+autotests = false
 name = "hotline-app"
 description = "Hotline's desktop shell on Tauri 2: one window onto the core, which runs in this process."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [lints]
 workspace = true
@@ -13,8 +18,10 @@ workspace = true
 name = "hotline_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Finder startup mutates PATH and re-executes itself without libtest.
 [[test]]
 name = "shell_path"
+path = "tests/shell_path.rs"
 harness = false
 
 [build-dependencies]

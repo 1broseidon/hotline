@@ -223,6 +223,8 @@ export function Settings({
 				<div className="pane-column flex flex-col gap-6">
 					{section === "general" && (
 						<GeneralSection
+							personName={settings.personName}
+							onPersonName={(name) => patch({ personName: name })}
 							idleHours={settings.chapterIdleHours}
 							defaultBackendId={settings.defaultBackendId}
 							defaultModelId={settings.defaultModelId}

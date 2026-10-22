@@ -106,6 +106,7 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
         SessionUpdate::ToolCall(call) => {
             pen.flush().await;
             let line = ToolLine {
+                files: changed_files(call.kind, &call.locations, &call.content),
                 title: clip(&call.title, TITLE_CHARS),
                 kind: tool_kind(call.kind, call.meta.as_ref()),
                 location: first_location(&call.locations),
@@ -117,8 +118,16 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             })
             .await;
             let finished = finished(call.status, &call.content);
+            let files = line.files.clone();
             lock(pen.tools).insert(call.tool_call_id.0.to_string(), line);
             if let Some((ok, output, images)) = finished {
+                if ok && !files.is_empty() {
+                    pen.emit(Update::ToolFiles {
+                        call_id: call.tool_call_id.0.to_string(),
+                        files,
+                    })
+                    .await;
+                }
                 pen.emit(Update::ToolResult {
                     call_id: call.tool_call_id.0.to_string(),
                     ok,
@@ -136,7 +145,27 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             let line = {
                 let mut tools = lock(pen.tools);
                 let previous = tools.get(&call_id);
+                let mut files = previous.map(|line| line.files.clone()).unwrap_or_default();
+                let changes = changed_files(
+                    fields.kind.unwrap_or_else(|| {
+                        if previous.is_some_and(|line| line.kind == "edit") {
+                            acp::ToolKind::Edit
+                        } else {
+                            acp::ToolKind::Other
+                        }
+                    }),
+                    fields.locations.as_deref().unwrap_or_default(),
+                    fields.content.as_deref().unwrap_or_default(),
+                );
+                for change in changes {
+                    if let Some(known) = files.iter_mut().find(|known| known.path == change.path) {
+                        known.created |= change.created;
+                    } else {
+                        files.push(change);
+                    }
+                }
                 let line = ToolLine {
+                    files,
                     title: fields
                         .title
                         .as_deref()
@@ -162,6 +191,7 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                         .or_else(|| previous.and_then(|line| line.location.clone())),
                 };
                 let announced = ToolLine {
+                    files: line.files.clone(),
                     title: line.title.clone(),
                     kind: line.kind.clone(),
                     location: line.location.clone(),
@@ -172,6 +202,13 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             let content = fields.content.unwrap_or_default();
             match fields.status.and_then(|status| finished(status, &content)) {
                 Some((ok, output, images)) => {
+                    if ok && !line.files.is_empty() {
+                        pen.emit(Update::ToolFiles {
+                            call_id: call_id.clone(),
+                            files: line.files,
+                        })
+                        .await;
+                    }
                     pen.emit(Update::ToolResult {
                         call_id,
                         ok,
@@ -548,4 +585,35 @@ pub(super) fn text_block(text: &str) -> ContentBlock {
 /// A path as the `file:` URI a resource link carries.
 fn file_uri(path: &str) -> String {
     format!("file://{path}")
+}
+
+/// Diff payloads distinguish creation from replacement; location-only edit
+/// notifications still identify edited files without guessing from the title.
+fn changed_files(
+    kind: acp::ToolKind,
+    locations: &[acp::ToolCallLocation],
+    content: &[acp::ToolCallContent],
+) -> Vec<crate::contract::ChangedFile> {
+    let mut files: Vec<_> = content
+        .iter()
+        .filter_map(|item| match item {
+            acp::ToolCallContent::Diff(diff) => Some(crate::contract::ChangedFile {
+                path: diff.path.to_string_lossy().into_owned(),
+                created: diff.old_text.is_none(),
+            }),
+            _ => None,
+        })
+        .collect();
+    if kind == acp::ToolKind::Edit {
+        for location in locations {
+            let path = location.path.to_string_lossy().into_owned();
+            if !files.iter().any(|file| file.path == path) {
+                files.push(crate::contract::ChangedFile {
+                    path,
+                    created: false,
+                });
+            }
+        }
+    }
+    files
 }

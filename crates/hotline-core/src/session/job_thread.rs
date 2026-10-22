@@ -82,7 +82,7 @@ const MAX_SUGGESTED: i64 = 7 * 86_400_000;
 /// What a job's agent is told about itself, over and above who it is.
 fn job_brief(name: &str) -> String {
     format!(
-        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `search_thread` and `list_chapters`. A card you raise with `request_human`, and a colleague's answer to `message_teammate`, come back here. Do not mention this brief.\n\n\
+        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `read_thread`, `search_thread` and `list_chapters`. A card you raise with `request_human`, and a colleague's answer to `message_teammate`, come back here. Do not mention this brief.\n\n\
          A firing starts from the job's task and a note of where it stood after its last few turns, not from this whole thread, so end every turn with a short note of where things stand: what you checked, what you found, what to watch for next. The person can open this thread and talk to you in it; what they ask here changes how the job runs, so say it in your note.\n\n\
          A firing marked `quiet` reports only what is worth the person's attention: nothing you say here reaches them unless you post it with `post_to_chat`, once a turn, so post when something is worth telling and not otherwise. Any other firing's last words are posted to the person's chat as its report, unless you post one yourself. `send_file` and `generate_image` post to the chat too.\n\n\
          When the job's goal is met, or it has nothing left to do, end it with `cancel_schedule` and a `report` of what came of it: the report is posted to the person as the job's last word, so do not post it as well."
@@ -378,6 +378,7 @@ impl Occupant for LiveJob {
         room.threads()
             .turn(
                 Seat {
+                    capability: None,
                     thread: &thread,
                     persona_id: &self.persona_id,
                     driver: driver.as_ref(),
@@ -752,6 +753,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    voice: None,
                     text: timed(now, &firing_text(job, &run, last, standing)),
                     attachments: Vec::new(),
                     handoff: None,
@@ -879,6 +881,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    voice: None,
                     text: timed_from(ts, client, &heard),
                     attachments: attachments.unwrap_or_default(),
                     handoff: None,
@@ -955,6 +958,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    voice: None,
                     text: timed(ts, &wire),
                     attachments: Vec::new(),
                     handoff: None,
@@ -1066,6 +1070,7 @@ impl Room {
             live.say(
                 self,
                 &TranscriptEvent::Permission {
+                    from: None,
                     id,
                     ts: now_ms(),
                     request_id,

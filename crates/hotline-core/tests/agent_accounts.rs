@@ -1,6 +1,4 @@
-mod common;
-
-use common::{ANSWER, Client, acp_fixture, open_desk, until};
+use crate::common::{ANSWER, Client, acp_fixture, open_desk, until};
 use hotline_core::desk::Desk;
 use hotline_core::log::{Log, StreamId};
 use hotline_core::wire::Door;
@@ -44,7 +42,7 @@ async fn isolated(name: &str) -> Option<PathBuf> {
     .unwrap();
     let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
     command
-        .args(["--exact", name, "--nocapture"])
+        .args(["--exact", &format!("agent_accounts::{name}"), "--nocapture"])
         .env(CASE, sentinel.path())
         .env("CLAUDE_CONFIG_DIR", sentinel.path())
         .envs(INHERITED)
@@ -57,10 +55,10 @@ async fn isolated(name: &str) -> Option<PathBuf> {
         .await
         .unwrap_or_else(|_| panic!("{name} did not finish within {:?}", ANSWER * 5))
         .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        output.status.success(),
-        "{name}:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
+        output.status.success() && stdout.contains("test result: ok. 1 passed"),
+        "{name}:\n{stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     None

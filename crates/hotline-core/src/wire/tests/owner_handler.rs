@@ -114,6 +114,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
             json!({"callId":call,"seq":1,"mimeType":"audio/wav","data":"","durationMs":100}),
         ),
         ("voice.interrupt", json!({"callId":call})),
+        ("voice.input_state", json!({"callId":call,"speaking":true})),
         ("voice.hold", json!({"callId":call,"hold":true})),
         ("voice.call_end", json!({"callId":call})),
     ] {
@@ -141,7 +142,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
         &room,
         &desk.log,
         &desk.parts(),
-        json!({"id":20,"sub":{"tape":crate::voice::TAPE_ID}}),
+        json!({"id":20,"sub":{"tape":"voice-dispatcher"}}),
     )
     .await;
     assert_eq!(hidden["code"], FORBIDDEN);
@@ -299,7 +300,7 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
             &crate::room::room_event(
                 "setting",
                 json!({
-                    "id":"voice", "value":{"dispatcher":{"provider":"not-connected"}}
+                    "id":"voice", "value":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"}}
                 }),
             ),
         )
@@ -378,6 +379,7 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
                 "setting",
                 json!({
                     "id":"voice", "value":{
+                        "front":{"provider":"legacy"},
                         "stt":{"provider":"not-connected"},
                         "dispatcher":{"provider":"not-connected"}
                     }
@@ -601,4 +603,71 @@ async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
         }
     }
     assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
+}
+
+#[tokio::test]
+async fn a_call_subscription_cannot_resume_another_devices_transport() {
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_voice_services(
+            root.path(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+            Some(crate::voice::tests::services()),
+        )
+        .unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let parts = desk.parts();
+    let calls = parts.voice.as_ref().unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    calls.start(&id, room.clone()).unwrap();
+    let socket = tokio_util::sync::CancellationToken::new();
+    calls
+        .bind_connection(
+            id.clone(),
+            "another-device",
+            socket.clone(),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .unwrap();
+    socket.cancel();
+    let refused = remote_control_answer(
+        Seat::Owner,
+        &room,
+        &desk.log,
+        &parts,
+        json!({"id":1,"sub":{"call":id}}),
+    )
+    .await;
+    assert_eq!(refused["ok"], false);
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("device that started")
+    );
+    calls.end(&id).unwrap();
+
+    let id = uuid::Uuid::new_v4().to_string();
+    calls.start(&id, room.clone()).unwrap();
+    let socket = tokio_util::sync::CancellationToken::new();
+    calls
+        .bind_connection(
+            id.clone(),
+            "desk",
+            socket.clone(),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .unwrap();
+    socket.cancel();
+    let resumed = remote_control_answer(
+        Seat::Owner,
+        &room,
+        &desk.log,
+        &parts,
+        json!({"id":2,"sub":{"call":id}}),
+    )
+    .await;
+    assert_eq!(resumed["ok"], true);
+    calls.end(&id).unwrap();
 }

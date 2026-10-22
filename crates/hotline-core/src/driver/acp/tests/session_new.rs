@@ -473,7 +473,7 @@ fn callback_workspace_accepts_the_selected_symlinked_root_alias() {
 
 #[cfg(unix)]
 #[test]
-fn agents_md_refuses_external_and_dangling_symlinks() {
+fn agents_md_leaves_external_and_dangling_symlinks_alone() {
     use std::os::unix::fs::symlink;
 
     let root = scratch("agents-symlink");
@@ -482,12 +482,27 @@ fn agents_md_refuses_external_and_dangling_symlinks() {
     std::fs::write(&outside_file, "keep me\n").unwrap();
     symlink(&outside_file, root.join("AGENTS.md")).unwrap();
     let ada = persona(&root.to_string_lossy(), Vec::new());
-    assert!(materialize_agents_md(&ada).is_err());
+    assert!(materialize_agents_md(&ada).is_ok());
     assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep me\n");
+    assert_eq!(
+        std::fs::read_link(root.join("AGENTS.md")).unwrap(),
+        outside_file
+    );
+
+    // Even a link to a file that opens with the marker is not Hotline's.
+    let marked = format!("{MANAGED_MARKER}\n# Someone else\n");
+    std::fs::write(&outside_file, &marked).unwrap();
+    assert!(materialize_agents_md(&ada).is_ok());
+    assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), marked);
+    assert_eq!(
+        std::fs::read_link(root.join("AGENTS.md")).unwrap(),
+        outside_file
+    );
 
     std::fs::remove_file(root.join("AGENTS.md")).unwrap();
     let missing = outside.join("created-by-dangling-link.md");
     symlink(&missing, root.join("AGENTS.md")).unwrap();
-    assert!(materialize_agents_md(&ada).is_err());
+    assert!(materialize_agents_md(&ada).is_ok());
     assert!(!missing.exists());
+    assert_eq!(std::fs::read_link(root.join("AGENTS.md")).unwrap(), missing);
 }

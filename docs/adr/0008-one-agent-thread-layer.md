@@ -3,11 +3,11 @@
 - Status: Accepted by George, 2026-10-19 (task-215). Slices 1 to 4 are
   built (task-216, task-217, task-219, task-218), §7's jobs on their own
   threads (task-220), and §0's clone model for subagents and jobs
-  (task-221); the voice slices are not yet.
+  (task-221); slices 5 and 6 (task-223, task-225) attach Legacy voice and live-front work to the shared call-thread occupant.
 - Date: 2026-10-19
 - Builds on: [ADR 0001](0001-threads-are-a-primitive.md), whose runtime
   this finishes for pairs and calls
-- Amends, once its slices land: [ADR 0005](0005-front-is-a-full-agent.md)
+- Amends: [ADR 0005](0005-front-is-a-full-agent.md)
   (the live voice stays a full agent for conversation and lookups, but real
   work goes to a clone of the teammate on its own model and harness, on the
   call's thread, never into the DM); supersedes the "Quiet" rule in sessions.md that only
@@ -281,11 +281,46 @@ person to keep it posts it.
 
 ### 5. Voice under this design
 
+**2026-10-20 decisions, implemented by the voice slices.** Live means live:
+no silent Legacy fallback. Recovery preserves context; if it fails, say why
+and offer an explicit Legacy call. Legacy remains a selected mode. A transport
+drop holds the same call and thread for 20 seconds for the same authenticated
+device, then follows hang-up, including finishing accepted work.
+
+`work_on_it(words, action)` admits or steers one call-thread occupant;
+`action: "stop"` drops its work. The whole call is its brief. The live model
+keeps conversation and lookups, uses first-person acknowledgements, waits
+through incomplete dictation, and reads a draft back as a summary unless the
+person requests the full text. Nothing is sent without the person's instruction.
+
+Conversation is recorded as spoken. Concrete written results may warrant a
+chat pointer, at most once in three caller turns. Hang-up posts only the turn
+then in flight automatically, unless the call already delivered a result or
+file to chat. One closing note follows after two quiet minutes and idle queues;
+a new call to the same teammate cancels the timer and joins that note. The note
+links every source thread. Replies to posts return to their source thread;
+the home agent receives posts and the note and can read the full call for
+missing detail.
+
+Cards are spoken once at a break. Voice answers core-owned session
+collaboration approvals and yes/no questions, including a teammate asking
+approval of its own plan (amended 2026-10-21 to match the scenario deck);
+opaque driver approvals, credentials, 2FA, payments, deletions and screen
+actions wait for the desk. A cut
+notice records generated text and playback evidence, not an invented last
+heard word. The desk lead answers roster lookups and routes named work directly;
+its implicit local routing grant lasts only for that live desk call.
+
+These decisions amend ADR 0005. The [deck](../design/voice-scenarios.html)
+remains the acceptance set; its [pass record](../design/voice-scenario-pass.md)
+distinguishes automated evidence from physical checks still owed. A file written
+but not sent is not automatically attached; task-253 tracks that observed gap.
+
 **A call is a thread whose agent is the teammate.** The `Call` policy row
 becomes a work thread's in what it reaches (the teammate's tools, plus
 `post_to_chat`, less the chapter moves; `Lease::Independent`; the computer
 through the lease; seeded with the DM's tail; resumed by its binding) and
-keeps its own lifecycle (parked 30 seconds after hang-up once no turn is in flight, one per teammate).
+keeps its own lifecycle (parked two minutes after hang-up once no turn is in flight, one per teammate).
 It is built by `Room::thread_agent` and driven by `Room::run_queue`, as a
 work thread is. On a harness teammate it is an ACP session of the harness's
 own, so Claude Code's edits and Codex's shell do the call's work; ADR 0005's
@@ -306,8 +341,8 @@ from; a soft sound covers a turn that says nothing first.
 
 **Hanging up detaches the modality; it does not end the turn.** A turn in
 flight at hang-up finishes, and its reply is posted to the chat instead of
-said, which replaces today's follow-up of an unanswered question
-(`duplex.rs:292`, `spoken::ENDED_NOTE`). When the call is over, 30 seconds after hang-up once
+said unless a result or file from the call is already there, which replaces today's follow-up of an unanswered question
+(`duplex.rs:292`, `spoken::ENDED_NOTE`). When the call is over, two minutes after hang-up once
 no turn is in flight (a turn still running at hang-up finishes first), its
 closing note, the same summariser a work thread's close uses, is posted to
 the chat as the call's summary, and the thread parks (George, 2026-10-19: ten
@@ -384,11 +419,13 @@ and its agent instead of opening a new call thread. Whatever is said lands
 in that thread, and posts go to the chat as from any call. A call on a
 thread whose agent is mid-turn waits or interrupts as a typed line would.
 
-**Desk calls.** epic-17 makes a desk call a call to the team lead. Under
-this design that is a call thread on the lead, so the dispatcher's desk role,
-the `voice-dispatcher` tape and its `desk_command` tool (`voice/dispatcher.rs:101`,
-`:989`), which runs the wire's command table, go with epic-17's routing
-task. Until a lead exists, desk calls stay as they are.
+**Desk calls.** A desk call opens the team lead's call thread. The lead
+answers roster questions from `list_teammates`, briefly naming teammates and
+current work, and uses `message_teammate` with `handoff` for named work.
+No dispatcher runs for that route. Without a lead, the fallback assistant
+knows the person's name and roster and uses bounded named tools. Neither
+path writes a new `voice-dispatcher` tape or exposes `desk_command`; the
+fallback transcript belongs to its call.
 
 **epic-19 and task-213.** The engines' move (task-212) is unaffected: the
 `Speech` engines are the modality's ear and mouth. task-213 inventories the
@@ -398,9 +435,13 @@ line on it, take the agent's spoken stream back, post to the chat, and be
 told of a card. That is a handful of methods, and the reach George's test
 counts against (`front_reach`, `start` and `prompt` into the DM,
 `call_posted`, `voice_spoken`, and the dispatcher's command table) is what
-slices 5 to 7 delete or reshape. task-214 should move the calls after slice
-6, not before: moving the fronts into `hotline-voice` and then reshaping
-them there is two changes where one would do.
+slices 5 to 7 delete or reshape. George reversed the order on 2026-10-20: task-214 (S0) moves the calls
+first, before the voice slices. The runtime now lives in `hotline-voice`;
+`hotline-core::voice::room` implements its single `CallRoom` interface and
+`voice::connected` reads the vault for the engines. The interface keeps the
+operations today's calls still need, explicitly marked S5, S6 or task-203
+where those slices remove or reshape them. This move changes ownership,
+not call behavior; the later slices still change the call's thread and reach.
 
 ### 6. Migration
 

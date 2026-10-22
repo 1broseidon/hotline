@@ -70,8 +70,8 @@ describe("words arriving", () => {
 	test("stream as a bubble of their kind, growing, until the line that carries them lands", () => {
 		let held = run([{ type: "snapshot", items: [] }, words("m1", "hel"), words("m1", "lo"), words("th", "hmm", "thought")]);
 		expect(held.streaming).toEqual([
-			{ messageId: "m1", kind: "agent", text: "hello" },
-			{ messageId: "th", kind: "thought", text: "hmm" },
+			{ messageId: "m1", kind: "agent", text: "hello", ts: expect.any(Number) },
+			{ messageId: "th", kind: "thought", text: "hmm", ts: expect.any(Number) },
 		]);
 		held = reduceThread(held, { type: "event", item: said("m1", "hello") });
 		expect(held.streaming.map((one) => one.messageId)).toEqual(["th"]);
@@ -79,7 +79,7 @@ describe("words arriving", () => {
 
 	test("several deltas in one frame fold in order", () => {
 		const deltas = ["a", "b", "c"].map((text) => ({ type: "thread_delta" as const, thread: dmOf("p"), messageId: "m", kind: "text" as const, text }));
-		expect(reduceThread(NOTHING_YET, { type: "words", deltas }).streaming).toEqual([{ messageId: "m", kind: "agent", text: "abc" }]);
+		expect(reduceThread(NOTHING_YET, { type: "words", deltas }).streaming).toEqual([{ messageId: "m", kind: "agent", text: "abc", ts: expect.any(Number) }]);
 		expect(reduceThread(NOTHING_YET, { type: "words", deltas: [] })).toBe(NOTHING_YET);
 	});
 
@@ -93,7 +93,7 @@ describe("words arriving", () => {
 		const two = "The second paragraph is as long as the first, so that it is not folded into it.";
 		const live = append([], { type: "thread_delta", thread: dmOf("p"), messageId: "m", kind: "text", text: `${one}\n\n${two}` });
 		const next = settle(live, said("m", one));
-		expect(next).toEqual([{ messageId: "m-2", kind: "agent", text: two, bubbleOf: { base: "m", index: 1 } }]);
+		expect(next).toEqual([{ messageId: "m-2", kind: "agent", text: two, ts: live[0]!.ts, bubbleOf: { base: "m", index: 1 } }]);
 	});
 });
 

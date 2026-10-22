@@ -28,14 +28,7 @@ use serde_json::{Map, Value, json};
 use settings::{update_settings, web_search_status};
 use std::sync::Arc;
 
-// Only the dispatcher sets this scope; wire parameters cannot claim voice origin.
-tokio::task_local! { pub(crate) static VOICE_COMMAND: (); }
-tokio::task_local! { pub(crate) static CALL_ORIGIN: crate::voice::Origin; }
-
-pub(crate) fn voice_origin() -> Option<crate::voice::Origin> {
-    CALL_ORIGIN.try_with(Clone::clone).ok()
-}
-
+pub(crate) use hotline_voice::call_room::VOICE_COMMAND;
 // Set by the door a message came in at, never by the message: whether this
 // socket declared `threads2`, for the commands whose answer carries lines a
 // thread's link is one of.
@@ -47,7 +40,7 @@ pub(crate) fn threads2() -> bool {
 
 // Set by the door a message came in at, never by the message: which of the
 // person's apps wrote it.
-tokio::task_local! { pub(crate) static PROMPT_CLIENT: crate::contract::Client; }
+pub(crate) use hotline_voice::call_room::PROMPT_CLIENT;
 
 pub(crate) fn prompt_client() -> Option<crate::contract::Client> {
     PROMPT_CLIENT.try_with(|client| *client).ok()
@@ -115,6 +108,7 @@ pub(crate) async fn run(
         )),
         Command::VoiceCallStart {
             call_id,
+            thread,
             persona_id,
             stream_audio,
             input_mode,
@@ -123,6 +117,7 @@ pub(crate) async fn run(
         } => {
             let request = crate::voice::CallRequest {
                 target: persona_id,
+                thread,
                 stream_audio: stream_audio.unwrap_or_default(),
                 input_mode: input_mode.unwrap_or_default(),
                 mode: mode.unwrap_or_default(),
@@ -164,6 +159,10 @@ pub(crate) async fn run(
             duration_ms,
         } => {
             voice(parts)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceInputState { call_id, speaking } => {
+            voice(parts)?.input_state(&call_id, speaking)?;
             Ok(Value::Null)
         }
         Command::VoiceInterrupt { call_id } => {
@@ -337,7 +336,7 @@ pub(crate) async fn run(
             .credential_create(&provider_id, &label, &secret)
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
-        Command::CredentialDelete { id } => room.credential_delete(&id).map(|()| Value::Null),
+        Command::CredentialDelete { id } => room.credential_delete(&id).await.map(|()| Value::Null),
         Command::CredentialLogin { provider_id } => room
             .credential_login(&provider_id)
             .await

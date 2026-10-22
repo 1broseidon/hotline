@@ -1,6 +1,51 @@
 use super::*;
 
 #[tokio::test]
+async fn rig_vault_deleting_a_login_over_the_wire_removes_its_chunks() {
+    use hotline_core::credentials::{CredentialFiles, MemoryStore};
+    let root = tempfile::tempdir().unwrap();
+    let memory = Arc::new(MemoryStore::default());
+    let log = hotline_core::log::Log::open(root.path());
+    let vault =
+        hotline_core::vault::Vault::open_with_store(root.path(), log, memory.clone()).unwrap();
+    let files = CredentialFiles::new(root.path().into(), memory.clone());
+    let mut logins = Vec::new();
+    for (provider, record) in [
+        ("openai-codex", "auth.json"),
+        ("github-copilot", "copilot.json"),
+    ] {
+        let (id, dir) = vault.begin_login().unwrap();
+        files
+            .file(dir.join(record))
+            .write(
+                json!({"token": "private-token".repeat(500)})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
+        vault.finish_login(&id, provider, provider).unwrap();
+        logins.push((id, dir));
+    }
+    drop(vault);
+    let login_keys: Vec<_> = memory.0.lock().unwrap().keys().cloned().collect();
+    let desk = hotline_core::desk::Desk::open_with_store(root.path(), memory.clone()).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
+    let port = door.port();
+    let running = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    assert!(memory.0.lock().unwrap().len() > 2);
+    for (id, dir) in logins {
+        let deleted = client.call("credential.delete", json!({"id":id})).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+        assert!(!dir.exists());
+    }
+    let kept = memory.0.lock().unwrap();
+    assert!(login_keys.iter().all(|key| !kept.contains_key(key)));
+    running.abort();
+}
+
+#[tokio::test]
 async fn legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history() {
     let root = scratch("legacy-mcp-redaction");
     let log = hotline_core::log::Log::open(&root);
@@ -65,7 +110,7 @@ async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
     let vault = common::open_vault(&root, log).unwrap();
     // A completed fake login is written before the core starts, like an
     // imported credential. The wire must never expose this private half.
-    let (id, dir) = vault.begin_login("xai").unwrap();
+    let (id, dir) = vault.begin_login().unwrap();
     std::fs::write(dir.join("auth.json"), json!({"access_token":"private-grok-access", "refresh_token":"private-grok-refresh", "refresh_at":u64::MAX}).to_string()).unwrap();
     vault.finish_login(&id, "xai", "SuperGrok").unwrap();
     drop(vault);
@@ -272,4 +317,76 @@ async fn cancelling_openrouter_login_closes_callback_and_discards_pending_creden
         client.call("credential.list", json!({})).await["result"],
         json!([])
     );
+}
+
+/// The real wire handler must remove the login even when OpenAI refuses
+/// revocation. Each stored token is presented once, and a repeated delete
+/// cannot spend it again.
+#[tokio::test]
+async fn rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails() {
+    use axum::{Router, body::Bytes, http::StatusCode, routing::post};
+    use hotline_core::{credentials::MemoryStore, provider_fixture::Origin};
+    use std::sync::Mutex;
+    for status in [StatusCode::OK, StatusCode::INTERNAL_SERVER_ERROR] {
+        let root = tempfile::tempdir().unwrap();
+        let memory = Arc::new(MemoryStore::default());
+        let log = hotline_core::log::Log::open(root.path());
+        let vault =
+            hotline_core::vault::Vault::open_with_store(root.path(), log, memory.clone()).unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
+        std::fs::write(
+            dir.join("auth.json"),
+            json!({
+                "refresh_token":"refresh-revoke", "access_token":"access-revoke",
+                "expires_at":i64::MAX
+            })
+            .to_string(),
+        )
+        .unwrap();
+        vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let app = Router::new().route(
+            "/api/accounts/oauth/revoke",
+            post(move |body: Bytes| {
+                let form: std::collections::HashMap<String, String> =
+                    url::form_urlencoded::parse(&body).into_owned().collect();
+                seen.lock()
+                    .unwrap()
+                    .push((form["token"].clone(), form["token_type_hint"].clone()));
+                async move { status }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let _fixture = Origin::new(dir.to_string_lossy(), &origin);
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        drop(vault);
+        let desk = hotline_core::desk::Desk::open_with_store(root.path(), memory).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
+        let port = door.port();
+        let running = tokio::spawn(door.run());
+        let mut client = Client::connect(port, TOKEN).await;
+        let deleted = client.call("credential.delete", json!({"id":id})).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+        assert!(!dir.exists());
+        assert_eq!(
+            client.call("credential.list", json!({})).await["result"],
+            json!([])
+        );
+        assert_eq!(
+            client.call("credential.delete", json!({"id":id})).await["ok"],
+            false
+        );
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                ("refresh-revoke".into(), "refresh_token".into()),
+                ("access-revoke".into(), "access_token".into()),
+            ]
+        );
+        running.abort();
+        server.abort();
+    }
 }

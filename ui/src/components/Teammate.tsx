@@ -4,6 +4,7 @@ import { chordKeys } from "../chords";
 import { CloseIcon, FolderIcon, PlusIcon, RevealIcon, TrashIcon } from "../icons";
 import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
+import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { MAX_PINS } from "../pins";
 import { Avatar } from "../ui/Avatar";
@@ -69,7 +70,6 @@ export function Teammate({
 	const [pathShown, setPathShown] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
-	const [harnessName, setHarnessName] = useState<string | null>(session.agentName ?? null);
 	const goalField = useRef<HTMLTextAreaElement>(null);
 	const hotline = persona.backendId === "hotline";
 	// Only a session that is up has said what it takes.
@@ -98,28 +98,8 @@ export function Teammate({
 		setGoalClipped(field.scrollHeight > field.clientHeight + 1);
 	}, [goal]);
 
-	useEffect(() => {
-		if (hotline) {
-			setHarnessName(null);
-			return;
-		}
-		if (session.agentName !== undefined && session.agentName !== "") {
-			setHarnessName(session.agentName);
-			return;
-		}
-		let cancelled = false;
-		void wire.command("backends.list", {}).then(
-			(list) => {
-				if (!cancelled) setHarnessName(list.find((one) => one.id === persona.backendId)?.name ?? null);
-			},
-			() => {
-				if (!cancelled) setHarnessName(null);
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [persona.backendId, session.agentName, hotline]);
+	const backends = useRoomRead("backends.list", "", !hotline && !session.agentName);
+	const harnessName = session.agentName || backends?.find((one) => one.id === persona.backendId)?.name || null;
 
 	const save = (patch: Partial<Persona>) => {
 		if (busy) return;
@@ -435,31 +415,15 @@ type Speaking = { providerId: string; modelId: string; voice?: string; voices: s
  * Realtime), else Legacy voice's speaking model.
  */
 function useSpeaking(): Speaking | null {
-	const [speaking, setSpeaking] = useState<Speaking | null>(null);
-	useEffect(() => {
-		let cancelled = false;
-		void Promise.all([wire.command("voice.status", {}), wire.command("capabilities.options", {})]).then(
-			([status, options]) => {
-				if (cancelled) return;
-				if (status.front !== undefined) {
-					setSpeaking(status.front);
-					return;
-				}
-				const tts = status.tts;
-				const voices = options.tts.options
-					.find((provider) => provider.providerId === tts?.providerId)
-					?.models.find((model) => model.id === tts?.modelId)?.voices;
-				setSpeaking(tts === undefined || voices === undefined || voices.length === 0 ? null : { ...tts, voices });
-			},
-			() => {
-				if (!cancelled) setSpeaking(null);
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-	return speaking;
+	const status = useRoomRead("voice.status");
+	const options = useRoomRead("capabilities.options");
+	if (status === undefined || options === undefined) return null;
+	if (status.front !== undefined) return status.front;
+	const tts = status.tts;
+	const voices = options.tts.options
+		.find((provider) => provider.providerId === tts?.providerId)
+		?.models.find((model) => model.id === tts?.modelId)?.voices;
+	return tts === undefined || voices === undefined || voices.length === 0 ? null : { ...tts, voices };
 }
 
 /** Voices read as names: "eve" is Eve. */

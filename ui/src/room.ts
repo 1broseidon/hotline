@@ -50,11 +50,13 @@ type RoomState = {
 	jobs: ScheduledJob[];
 	/** Goes up whenever the room's model choices may have changed. */
 	modelsRevision: number;
+	/** Identity of the room-wide read cache; unobserved rooms must reload. */
+	readEpoch: { ready: boolean };
 };
 
 /** One desk's room, folded. Each desk in the window has its own. */
-function roomOf(deskId: string) {
-	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0 };
+function roomOf(connection: ReturnType<typeof wireFor>) {
+	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0, readEpoch: { ready: false } };
 	const listeners = new Set<() => void>();
 	let readers = 0;
 	let unsub: (() => void) | null = null;
@@ -64,9 +66,15 @@ function roomOf(deskId: string) {
 		for (const listener of listeners) listener();
 	};
 
-	const open = () =>
-		wireFor(deskId).subscribe<RoomItem>("room", {
-			snapshot: (items) => set({ settings: takeKind(items, "setting"), jobs: takeJobs(items) }),
+	const open = () => {
+		const unwatch = connection.onConnection((status) => {
+			if (status !== "open") set({ readEpoch: { ready: false } });
+		});
+		const unsubscribe = connection.subscribe<RoomItem>("room", {
+			snapshot: (items) => set({
+				settings: takeKind(items, "setting"), jobs: takeJobs(items),
+				readEpoch: { ready: true },
+			}),
 			event: (item) => {
 				const next: Partial<RoomState> = {};
 				if (item.kind === "setting" && typeof item.id === "string") {
@@ -80,10 +88,19 @@ function roomOf(deskId: string) {
 					const job = item.deleted ? null : jobFromEvent(item);
 					next.jobs = job ? sortJobs([...without, job]) : without;
 				}
+				// lastModelId records ordinary model use, not a changed catalogue.
+				if (changesModels(item) || (item.kind === "setting" && item.id !== "lastModelId")) {
+					next.readEpoch = { ready: true };
+				}
 				if (changesModels(item)) next.modelsRevision = state.modelsRevision + 1;
 				if (Object.keys(next).length > 0) set(next);
 			},
 		});
+		return () => {
+			unsubscribe();
+			unwatch();
+		};
+	};
 
 	return {
 		subscribe(listener: () => void) {
@@ -94,6 +111,7 @@ function roomOf(deskId: string) {
 				if (--readers === 0) {
 					unsub?.();
 					unsub = null;
+					state = { ...state, readEpoch: { ready: false } };
 				}
 			};
 		},
@@ -101,13 +119,14 @@ function roomOf(deskId: string) {
 	};
 }
 
-const rooms = new Map<string, ReturnType<typeof roomOf>>();
+const rooms = new WeakMap<ReturnType<typeof wireFor>, ReturnType<typeof roomOf>>();
 
 function roomFor(deskId: string) {
-	let one = rooms.get(deskId);
+	const connection = wireFor(deskId);
+	let one = rooms.get(connection);
 	if (one === undefined) {
-		one = roomOf(deskId);
-		rooms.set(deskId, one);
+		one = roomOf(connection);
+		rooms.set(connection, one);
 	}
 	return one;
 }
@@ -120,10 +139,18 @@ function useRoom<T>(pick: (state: RoomState) => T): T {
 
 const pickSettings = (state: RoomState) => state.settings;
 const pickJobs = (state: RoomState) => state.jobs;
+const pickReadEpoch = (state: RoomState) => state.readEpoch;
+
+/** Shared reads follow the room subscription, including its reconnect snapshots. */
+export function useRoomReadEpoch(): { ready: boolean } {
+	return useRoom(pickReadEpoch);
+}
+
 const pickModelsRevision = (state: RoomState) => state.modelsRevision;
 
 /** The room's settings over their defaults. */
 export function useRoomSettings(): {
+	personName: string;
 	chapterIdleHours: number;
 	defaultBackendId: string;
 	defaultModelId: string | null;
@@ -139,6 +166,7 @@ export function useRoomSettings(): {
 	const mcpServers = useMemo(() => listSetting(events.get("mcpServers")), [events]);
 
 	return {
+		personName: stringSetting(events.get("personName"), ""),
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
 import { processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
@@ -119,7 +119,6 @@ export function Conversation({
 	/* Beside the state, never part of it: idle with a server up reads idle. */
 	const processes = session.processes ?? [];
 	const cornered = subagents.length > 0 || processes.length > 0;
-	const sides = entry.sides ?? [];
 	const personaId = persona.id;
 	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useThread(dmOf(personaId));
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
@@ -132,18 +131,7 @@ export function Conversation({
 	/* A refusal the core handed up: a chapter that would not open, a message
 	 * that would not send. The band is the one place with room for a sentence. */
 	const [refused, setRefused] = useState<string | null>(null);
-	const [chapterBusy, setChapterBusy] = useState(false);
 
-	/* A side thread opens empty and at once, beside this one; nothing about
-	 * it touches the main conversation's line or session. Its first line,
-	 * said in it, names it. */
-	const startSide = useCallback(() => {
-		setRefused(null);
-		void wire.command("thread.open", { personaId, text: "" }).then(
-			(summary) => onOpenThread({ thread: summary.thread, ...(summary.title !== undefined ? { title: summary.title } : {}) }),
-			(error: unknown) => setRefused(error instanceof Error ? error.message : String(error)),
-		);
-	}, [personaId, onOpenThread]);
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
 			const answered = replying;
@@ -216,26 +204,7 @@ export function Conversation({
 		},
 		[personaId, session.state],
 	);
-	const stop = useCallback(() => void wire.command("session.stop", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
-	/* Success is the tape: the marker is superseded in place and the title
-	 * lands on its line. Only a refusal needs a sentence here. */
-	const startChapter = useCallback(() => {
-		setRefused(null);
-		setChapterBusy(true);
-		void wire
-			.command("chapter.start_fresh", { personaId })
-			.catch((error: Error) => setRefused(error.message))
-			.finally(() => setChapterBusy(false));
-	}, [personaId]);
-	const resumeChapter = useCallback(() => {
-		setRefused(null);
-		setChapterBusy(true);
-		void wire
-			.command("chapter.resume", { personaId })
-			.catch((error: Error) => setRefused(error.message))
-			.finally(() => setChapterBusy(false));
-	}, [personaId]);
 	const resumeBlocked = resumeRefusal(events, persona.backendId);
 	/* The first conversation, before a word: what the starter card reads.
 	 * A line on its way (`saying`) already ends it. */
@@ -254,7 +223,6 @@ export function Conversation({
 		return () => window.removeEventListener("keydown", onKey);
 	}, [replying]);
 
-	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
 	const screen = useComputerViewer(personaId, persona.computer?.enabled ?? false);
 	const openScreen = useMemo(
 		() => (screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen)),
@@ -269,6 +237,154 @@ export function Conversation({
 		},
 		[events],
 	);
+	/* The band says what just happened: a session error, or a refusal of
+	 * something that was asked for. Why the previous chapter cannot be
+	 * reopened is a standing fact rather than an event, so it stays on the
+	 * greyed menu item, read at the moment somebody goes looking for it. */
+
+	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
+	const refusedCard = refused !== null && notice === refused && errorDetails(refused).kind !== undefined;
+	return (
+		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
+			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
+				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+				pulling, openScreen, resumeBlocked, setRefused }} />
+
+			{refusedCard ? (
+				<div className="shrink-0 px-4">
+					<ErrorCard
+						text={refused}
+						personaId={personaId}
+						teammate={persona.name}
+						backendId={persona.backendId}
+						onChooseAccount={onChooseAccount}
+						onProviders={onProviders}
+					/>
+				</div>
+			) : notice !== null && (
+				<p
+					role="status"
+					className="flex shrink-0 items-center gap-2 bg-danger-soft px-4 py-1.5 text-sm text-ink"
+				>
+					<WarningIcon className="shrink-0 text-danger" />
+					<span className="min-w-0 flex-1 selectable">{notice}</span>
+				</p>
+			)}
+
+			<div className="relative flex min-h-0 flex-1 flex-col">
+				<Transcript
+					personaId={personaId}
+					name={persona.name}
+					people={people}
+					events={shown}
+					streaming={streaming}
+					live={state === "thinking"}
+					workingCalls={entry.workingCalls}
+					cornered={cornered}
+					focus={focus}
+					onReply={setReplying}
+					onReact={react}
+					more={olderOnDesk}
+					onEarlier={earlier}
+					{...(!draftHasContent ? { onRetryMessage: retryMessage } : {})}
+					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
+					onOpenThread={onOpenThread}
+					onOpenThreads={onOpenThreadList}
+					onOpenWork={onOpenWork}
+					workOpen={workOpen}
+					onProviders={onProviders}
+					backendId={persona.backendId}
+					onChooseAccount={onChooseAccount}
+				/>
+				{fresh && (
+					<div className="relative shrink-0 px-6">
+						<Starters persona={persona} onPick={(text) => setRefill({ text, attachments: [], nonce: Date.now() })} />
+					</div>
+				)}
+				<Composer
+					onDraftChange={setDraftHasContent}
+					personaId={personaId}
+					name={persona.name}
+					state={state}
+					replyQuote={replying?.text ?? null}
+					onSend={send}
+					onCall={onCall}
+					onHangUp={onHangUp}
+					{...(refill !== null ? { refill } : {})}
+					focused={fresh}
+					onCancel={cancel}
+					onClearReply={() => setReplying(null)}
+					{...(cornered
+						? {
+								corner: (
+									<>
+										{subagents.length > 0 && (
+											<SubagentChips subagents={subagents} opened={(runId) => opened({ kind: "run", key: runId })} onOpenThread={onOpenThread} />
+										)}
+										{processes.length > 0 && (
+											<ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} />
+										)}
+									</>
+								),
+							}
+						: {})}
+				/>
+				{dock !== undefined && <div className="work-dock">{dock}</div>}
+			</div>
+		</section>
+	);
+}
+
+/** The header follows room state and controls, independently of streamed body changes. */
+const ConversationBand = memo(function ConversationBand({
+	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
+	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+	pulling, openScreen, resumeBlocked, setRefused,
+}: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
+	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
+	| "threadOpen" | "paneOpen" | "callBar"> & {
+	pulling: { done: number; total: number } | null;
+	openScreen: (() => void) | undefined;
+	resumeBlocked: string | null;
+	setRefused(message: string | null): void;
+}) {
+	const { persona, session } = entry;
+	const personaId = persona.id;
+	const state = shownState(session);
+	const sides = entry.sides ?? [];
+	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
+	const [chapterBusy, setChapterBusy] = useState(false);
+
+	/* A side thread opens empty and at once, beside this one; nothing about
+	 * it touches the main conversation's line or session. Its first line,
+	 * said in it, names it. */
+	const startSide = useCallback(() => {
+		setRefused(null);
+		void wire.command("thread.open", { personaId, text: "" }).then(
+			(summary) => onOpenThread({ thread: summary.thread, ...(summary.title !== undefined ? { title: summary.title } : {}) }),
+			(error: unknown) => setRefused(error instanceof Error ? error.message : String(error)),
+		);
+	}, [personaId, onOpenThread, setRefused]);
+	const stop = useCallback(() => void wire.command("session.stop", { personaId }), [personaId]);
+	/* Success is the tape: the marker is superseded in place and the title
+	 * lands on its line. Only a refusal needs a sentence here. */
+	const startChapter = useCallback(() => {
+		setRefused(null);
+		setChapterBusy(true);
+		void wire
+			.command("chapter.start_fresh", { personaId })
+			.catch((error: Error) => setRefused(error.message))
+			.finally(() => setChapterBusy(false));
+	}, [personaId, setRefused]);
+	const resumeChapter = useCallback(() => {
+		setRefused(null);
+		setChapterBusy(true);
+		void wire
+			.command("chapter.resume", { personaId })
+			.catch((error: Error) => setRefused(error.message))
+			.finally(() => setChapterBusy(false));
+	}, [personaId, setRefused]);
+	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
 	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
 		null,
@@ -316,22 +432,11 @@ export function Conversation({
 		{ kind: "item", id: "delete", text: "Remove teammate…", danger: true, onSelect: onDelete },
 	];
 
-	/* The band says what just happened: a session error, or a refusal of
-	 * something that was asked for. Why the previous chapter cannot be
-	 * reopened is a standing fact rather than an event, so it stays on the
-	 * greyed menu item, read at the moment somebody goes looking for it. */
-	/* The band says who this is and nothing more: the goal is on the
-	 * teammate's pane, and while a turn runs the pulse beside the name says
-	 * so on its own. */
-
-	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
-	const refusedCard = refused !== null && notice === refused && errorDetails(refused).kind !== undefined;
 	// The call on the line, when it is to this teammate: its face then leads the call card.
 	const liveCall = useCall();
 	const ourCall = callBar !== undefined && liveCall !== null && liveCall.target?.personaId === persona.id ? liveCall : null;
 
 	return (
-		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<div className={callBar === undefined ? "contents" : "call-head"} data-face={ourCall !== null ? "" : undefined}>
 				{/* On a call to this teammate its face grows to the card's full height, ringed. */}
 				{ourCall !== null && <CallFace call={ourCall} persona={persona} />}
@@ -438,90 +543,8 @@ export function Conversation({
 				</Band>
 				{callBar}
 			</div>
-
-			{refusedCard ? (
-				<div className="shrink-0 px-4">
-					<ErrorCard
-						text={refused}
-						personaId={personaId}
-						teammate={persona.name}
-						backendId={persona.backendId}
-						onChooseAccount={onChooseAccount}
-						onProviders={onProviders}
-					/>
-				</div>
-			) : notice !== null && (
-				<p
-					role="status"
-					className="flex shrink-0 items-center gap-2 bg-danger-soft px-4 py-1.5 text-sm text-ink"
-				>
-					<WarningIcon className="shrink-0 text-danger" />
-					<span className="min-w-0 flex-1 selectable">{notice}</span>
-				</p>
-			)}
-
-			<div className="relative flex min-h-0 flex-1 flex-col">
-				<Transcript
-					personaId={personaId}
-					name={persona.name}
-					people={people}
-					events={shown}
-					streaming={streaming}
-					live={state === "thinking"}
-					cornered={cornered}
-					focus={focus}
-					onReply={setReplying}
-					onReact={react}
-					more={olderOnDesk}
-					onEarlier={earlier}
-					{...(!draftHasContent ? { onRetryMessage: retryMessage } : {})}
-					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
-					onOpenThread={onOpenThread}
-					onOpenThreads={onOpenThreadList}
-					onOpenWork={onOpenWork}
-					workOpen={workOpen}
-					onProviders={onProviders}
-					backendId={persona.backendId}
-					onChooseAccount={onChooseAccount}
-				/>
-				{fresh && (
-					<div className="relative shrink-0 px-6">
-						<Starters persona={persona} onPick={(text) => setRefill({ text, attachments: [], nonce: Date.now() })} />
-					</div>
-				)}
-				<Composer
-					onDraftChange={setDraftHasContent}
-					personaId={personaId}
-					name={persona.name}
-					state={state}
-					replyQuote={replying?.text ?? null}
-					onSend={send}
-					onCall={onCall}
-					onHangUp={onHangUp}
-					{...(refill !== null ? { refill } : {})}
-					focused={fresh}
-					onCancel={cancel}
-					onClearReply={() => setReplying(null)}
-					{...(cornered
-						? {
-								corner: (
-									<>
-										{subagents.length > 0 && (
-											<SubagentChips subagents={subagents} opened={(runId) => opened({ kind: "run", key: runId })} onOpenThread={onOpenThread} />
-										)}
-										{processes.length > 0 && (
-											<ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} />
-										)}
-									</>
-								),
-							}
-						: {})}
-				/>
-				{dock !== undefined && <div className="work-dock">{dock}</div>}
-			</div>
-		</section>
 	);
-}
+});
 
 /**
  * Subagents still running, wherever their lines have scrolled to, at the

@@ -274,7 +274,7 @@ impl Tool for WriteFile {
     const NAME: &'static str = "write";
     type Error = ToolError;
     type Args = WriteFileArgs;
-    type Output = String;
+    type Output = serde_json::Value;
 
     fn description(&self) -> String {
         format!(
@@ -318,7 +318,12 @@ impl Tool for WriteFile {
         let workspace = self.workspace.clone();
         tokio::task::spawn_blocking(move || {
             let mutation = workspace.prepare_write(args)?;
-            workspace.commit_mutation(mutation)
+            let file = hotline_contract::ChangedFile {
+                path: mutation.requested.clone(),
+                created: mutation.before.is_none(),
+            };
+            let message = workspace.commit_mutation(mutation)?;
+            Ok(json!({"message": message, "file": file}))
         })
         .await
         .map_err(|error| ToolError::other(format!("Write task failed: {error}")))?
@@ -339,7 +344,7 @@ impl Tool for EditFile {
     const NAME: &'static str = "edit";
     type Error = ToolError;
     type Args = EditFileArgs;
-    type Output = String;
+    type Output = serde_json::Value;
 
     fn description(&self) -> String {
         format!(
@@ -387,7 +392,12 @@ impl Tool for EditFile {
         let workspace = self.workspace.clone();
         tokio::task::spawn_blocking(move || {
             let mutation = workspace.prepare_edit(args)?;
-            workspace.commit_mutation(mutation)
+            let file = hotline_contract::ChangedFile {
+                path: mutation.requested.clone(),
+                created: mutation.before.is_none(),
+            };
+            let message = workspace.commit_mutation(mutation)?;
+            Ok(json!({"message": message, "file": file}))
         })
         .await
         .map_err(|error| ToolError::other(format!("Edit task failed: {error}")))?

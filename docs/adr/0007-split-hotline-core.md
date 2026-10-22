@@ -1153,6 +1153,142 @@ for the numbers to say the front end is still the bottleneck; it is 15.3 s
 of the library's 24.6 s, and the decision is not this step's: epic-19 goes
 on to the calls (task-213, task-214), not to `remote`.
 
+### The calls, moved first (S0, task-214)
+
+George moved this ahead of ADR 0008's voice slices on 2026-10-20. The calls
+now live beside their engines in `hotline-voice`; the core keeps only
+`voice/room.rs` and its dispatcher factory and real-room tests, plus
+`voice/connected.rs`. This is a move of the current behavior, including the
+desk dispatcher, DM prompts, front tools and digests the later slices replace.
+
+`hotline-voice::call_room::CallRoom` is the single room interface. Recording
+opens, appends to and closes a call thread; posting reaches the chat. The
+room sends spoken deltas, completed replies, turn ends and cards to `Calls`,
+as before. The temporary DM startup, prompting, model reporting and spoken
+rewrite methods name S5; front reach names S6; dispatcher commands,
+scheduling and model selection name task-203. The shared call-assistant
+model builder and meter name S6/task-203. The existing engine connection
+snapshot remains the vault's input to voice.
+
+The adapter preserves weak ownership of the room: upgrading it holds the
+room across one operation, including startup and prompting, then releases
+it. Without that hold, dropping the desk between those awaits would cancel
+work that previously retained the room. Front tools still call the core's
+real `TeammateTools` handlers under the same capability lease and the MCP
+client under that lease. Their definitions and callable handler cross as
+values, not another trait. The wire's origin and client task-local scopes
+move with calls and are shared by the core's command handlers. No wire type,
+reach, grant, event or tape layout changes.
+
+Tests that need the real room stay on its side of the boundary, with their
+assertions intact; voice's `test-support` feature supplies setup/inspection
+and the shorter unit-test waits. Pure front, prompt, record and reply-count
+tests move with their implementation. The external voice, local-speech,
+process and desk harness assertions are unchanged.
+
+Every moved file (the dispatcher has its real-room tests split off):
+
+| Before | After |
+|---|---|
+| `crates/hotline-core/src/voice.rs` | `crates/hotline-voice/src/lib.rs` |
+| `crates/hotline-core/src/voice/assets/README.md` | `crates/hotline-voice/src/assets/README.md` |
+| `crates/hotline-core/src/voice/assets/budget.wav` | `crates/hotline-voice/src/assets/budget.wav` |
+| `crates/hotline-core/src/voice/assets/error.wav` | `crates/hotline-voice/src/assets/error.wav` |
+| `crates/hotline-core/src/voice/assets/goodbye.wav` | `crates/hotline-voice/src/assets/goodbye.wav` |
+| `crates/hotline-core/src/voice/assets/retry.wav` | `crates/hotline-voice/src/assets/retry.wav` |
+| `crates/hotline-core/src/voice/call.rs` | `crates/hotline-voice/src/call.rs` |
+| `crates/hotline-core/src/voice/dispatcher.rs` | `crates/hotline-voice/src/dispatcher.rs` |
+| `crates/hotline-core/src/voice/dispatcher/meter.rs` | `crates/hotline-voice/src/dispatcher/meter.rs` |
+| `crates/hotline-core/src/voice/dispatcher/meter/tests.rs` | `crates/hotline-core/src/voice/room/meter.rs` |
+| `crates/hotline-core/src/voice/duplex.rs` | `crates/hotline-voice/src/duplex.rs` |
+| `crates/hotline-core/src/voice/front.rs` | `crates/hotline-voice/src/front.rs` |
+| `crates/hotline-core/src/voice/front_prompt.rs` | `crates/hotline-voice/src/front_prompt.rs` |
+| `crates/hotline-core/src/voice/front_tools.rs` | `crates/hotline-voice/src/front_tools.rs` |
+| `crates/hotline-core/src/voice/input.rs` | `crates/hotline-voice/src/input.rs` |
+| `crates/hotline-core/src/voice/record.rs` | `crates/hotline-voice/src/record.rs` |
+| `crates/hotline-core/src/voice/replies.rs` | `crates/hotline-voice/src/replies.rs` |
+| `crates/hotline-core/src/voice/synthesis.rs` | `crates/hotline-voice/src/synthesis.rs` |
+| `crates/hotline-core/src/voice/tests.rs` | `crates/hotline-core/src/voice/room/tests.rs` |
+| `crates/hotline-core/src/voice/tests/budgets.rs` | `crates/hotline-core/src/voice/room/tests/budgets.rs` |
+| `crates/hotline-core/src/voice/tests/clips.rs` | `crates/hotline-core/src/voice/room/tests/clips.rs` |
+| `crates/hotline-core/src/voice/tests/desk_calls.rs` | `crates/hotline-core/src/voice/room/tests/desk_calls.rs` |
+| `crates/hotline-core/src/voice/tests/direct.rs` | `crates/hotline-core/src/voice/room/tests/direct.rs` |
+| `crates/hotline-core/src/voice/tests/failures.rs` | `crates/hotline-core/src/voice/room/tests/failures.rs` |
+| `crates/hotline-core/src/voice/tests/front_calls.rs` | `crates/hotline-core/src/voice/room/tests/front_calls.rs` |
+| `crates/hotline-core/src/voice/tests/handoffs.rs` | `crates/hotline-core/src/voice/room/tests/handoffs.rs` |
+| `crates/hotline-core/src/voice/tests/streaming.rs` | `crates/hotline-core/src/voice/room/tests/streaming.rs` |
+| `crates/hotline-core/src/voice/tests/text.rs` | `crates/hotline-core/src/voice/room/tests/text.rs` |
+| `crates/hotline-core/src/voice/turn.rs` | `crates/hotline-voice/src/turn.rs` |
+| `crates/hotline-core/src/voice/dispatcher.rs (real-room tests)` | `crates/hotline-core/src/voice/room/dispatcher.rs` |
+
+The unused `voice::speech`, `voice::realtime`,
+`voice::front::SEND_TO_TEAMMATE` and `models::is_custom` re-exports are gone;
+so are the now-unused `voice::front`, `voice::front_prompt` and
+`voice::CALLS_OFF`. Remaining core voice re-exports have callers:
+`Calls`, `CallRequest`, `Origin`, `Services`, `TAPE_ID`,
+`LISTEN_WHILE_THINKING`, `VOICE_FRONT`, `dispatcher`, `ledger`, `metering`,
+`settings` and `spoken`. The test-only `voice::tests` alias is used by the
+session's voice tests. `wire::commands` re-exports `VOICE_COMMAND`,
+`CALL_ORIGIN` and `PROMPT_CLIENT` because the wire and session still set/read
+those scopes; they are now defined once in `hotline-voice::call_room`.
+
+**S0, timed.** Re-run on 2026-10-20, on this machine's Apple M5 Max
+(18 physical cores, 128 GiB), macOS 27.0.1, rustc and cargo 1.99.0, dev
+profile. The baseline is `b941ff88`, the task's starting revision, unpacked
+with `git archive` into a temporary directory; the extracted code is
+`dca1f345` in this worktree. Both used the same target directory and verified
+speech-engine archive. Each build/test command was warmed before its cold
+measurements; each cold measurement cleaned only `hotline-core`. Each
+measurement ran twice, with the second kept below. Builds ran sequentially,
+with no other builds launched by this task; other machine activity was
+uncontrolled: sampled load averages rose from about 4.2 during the baseline
+builds to 16.0 near the end of the after runs. Small differences, especially
+the nearly flat cold test build, are within this run's uncertainty. These
+figures compare these two revisions, not the earlier machine's Step 3 figures.
+
+The commands are Before's `cargo build -p hotline-core` and
+`cargo test -p hotline-core --no-run`, adding `--timings` for cold builds.
+The touches use the dispatcher's old/new paths in the map above,
+`crates/hotline-store/src/lib.rs`, and
+`crates/hotline-contract/src/command.rs`. An edit replaces a private,
+unused `timing_probe` function's literal between runs; the source is then
+restored. Wall time includes Cargo startup; the library's unit/front-end/
+code-generation figures come from Cargo's timing report.
+
+| What | Before, b941ff88 | After, dca1f345 |
+|---|---|---|
+| Rust lines in core src, including its unit tests | 123,730 | 117,840 |
+| Cold core build | 25.5 s | 24.8 s |
+| Core library unit | 23.5 s | 22.6 s |
+| Core library front end | 14.7 s | 14.4 s |
+| Core library code generation | 8.9 s | 8.3 s |
+| Cold core test build (`--no-run`) | 74.3 s | 74.6 s |
+| Touch dispatcher, build | 2.8 s | 3.2 s |
+| Touch dispatcher, test build | 9.8 s | 10.7 s |
+| Edit dispatcher, build | 2.9 s | 3.6 s |
+| Edit dispatcher, test build | 9.8 s | 10.7 s |
+| Touch store root, build | 3.5 s | 3.9 s |
+| Touch store root, test build | 10.4 s | 10.8 s |
+| Touch command contract, build | 5.0 s | 5.6 s |
+| Touch command contract, test build | 12.4 s | 13.0 s |
+
+The core loses about 4.8% of its Rust lines. Its cold build falls by 0.7
+seconds and its cold test build rises by 0.3 seconds in this
+comparison. A dispatcher edit now rebuilds voice and then core, so that
+incremental path pays for both crates; the table keeps that cost visible.
+The reason for this move remains the explicit call-room boundary and
+maintainability, as George requested. These measurements authorize no
+additional extraction.
+
+Validation on the task branch: `make check` passed (2,142 Rust tests,
+464 UI tests), and all eight `make precheck` legs passed, including Windows
+cross-compilation and each UI test alone. The workspace-isolation workflow's
+macOS check passed, including
+`workspace_reach_keeps_another_projects_env_out_of_the_tools`. An unfiltered
+`cargo test -p hotline-contract` left `contract.ts` byte-identical to
+`b941ff88`. The branch was not pushed; the remote CI matrix remains the
+review/merge workflow's check.
+
 ### The re-exports
 
 The five crates' re-exports are about 870 references in the core's source,

@@ -4,6 +4,10 @@ mod common;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use hotline_core::wire::Door;
+use hotline_voice::{
+    realtime::{Command as Asked, Realtime, RealtimeConfig, RealtimeEvent, RealtimeSession},
+    speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet},
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -39,8 +43,6 @@ use hotline_core::voice::{
     Services,
     dispatcher::{Context, Dispatcher},
     metering::Budget,
-    realtime::{Command as Asked, Realtime, RealtimeConfig, RealtimeEvent, RealtimeSession},
-    speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet},
 };
 
 struct FakeSpeech;
@@ -64,7 +66,7 @@ impl Speech for FakeSpeech {
         })
     }
 }
-struct ScriptDispatcher;
+struct ScriptDispatcher(Arc<AtomicUsize>);
 #[async_trait::async_trait]
 impl Dispatcher for ScriptDispatcher {
     fn id(&self) -> VoiceModel {
@@ -75,6 +77,7 @@ impl Dispatcher for ScriptDispatcher {
         }
     }
     async fn answer(&self, context: Context, text: &str, _: Arc<Budget>) -> Result<String, String> {
+        self.0.fetch_add(1, Ordering::SeqCst);
         assert_eq!(text, "ask Mack to check the failing PR");
         let mack = hotline_core::room::roster(&context.log)
             .into_iter()
@@ -90,30 +93,27 @@ impl Dispatcher for ScriptDispatcher {
             .await?;
         Ok("I am passing that to Mack.".into())
     }
-    async fn narrate(&self, name: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
-        Ok(format!("{name} says: {text}"))
-    }
-    /// Answers a delegated "what did we fix?" from the teammate's tools it
-    /// is offered, and nothing else.
-    async fn delegated(
+    async fn narrate(
         &self,
-        preamble: &str,
-        request: &str,
-        tools: Vec<rig::tool::DynamicTool>,
+        name: &str,
+        text: &str,
+        _: &str,
         _: Arc<Budget>,
     ) -> Result<String, String> {
-        let names: Vec<&str> = tools.iter().map(rig::tool::DynamicTool::name).collect();
-        assert!(names.contains(&"search_thread"), "{names:?}");
-        assert!(names.contains(&"send_to_teammate"), "{names:?}");
-        assert!(preamble.contains("cannot run your tools"), "{preamble}");
-        if request == "what did we fix?" {
-            Ok("We fixed the zebracrossing bug.".into())
-        } else {
-            Err("Not a lookup.".into())
-        }
+        Ok(format!("{name} says: {text}"))
     }
     /// Says the untagged reply below again, given what the person said.
-    async fn rewrite(&self, words: &str, written: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn rewrite(
+        &self,
+        words: &str,
+        written: &str,
+        instruction: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        if instruction.contains("Only supply the brief contextual pointer") {
+            assert!(instruction.contains("Mention the actual result"));
+            return Ok("You can review the result in our chat.".into());
+        }
         assert_eq!(words, "ask Mack to check the failing PR");
         assert_eq!(written, UNTAGGED_REPLY);
         Ok(REWRITTEN.into())
@@ -127,7 +127,7 @@ fn services() -> Services {
             tts: speech,
             fallback_tts: None,
         },
-        dispatcher: Some(Arc::new(ScriptDispatcher)),
+        dispatcher: Some(Arc::new(ScriptDispatcher(Arc::default()))),
         realtime: None,
     }
 }
@@ -148,7 +148,14 @@ async fn provider_seeing(reply: &'static str) -> (String, Arc<std::sync::Mutex<V
         let requests = requests.clone();
         async move {
         if let Ok(request) = serde_json::from_slice::<Value>(&body) {
+            let streaming = request["stream"] == true;
+            let pointer = request["messages"].to_string().contains("Only supply the brief contextual pointer");
             requests.lock().unwrap().push(request);
+            if !streaming {
+                let note = if pointer { "The check results are in our chat.".to_string() }
+                    else { json!({"title":"Scheduler repair", "note":CALL_NOTE}).to_string() };
+                return ([("Content-Type", "application/json")], json!({"id":"note", "object":"chat.completion", "created":1, "model":"test", "choices":[{"index":0,"message":{"role":"assistant","content":note},"finish_reason":"stop"}]}).to_string());
+            }
         }
         let delta = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":reply},"finish_reason":null}]});
         let done = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}});
@@ -160,6 +167,24 @@ async fn provider_seeing(reply: &'static str) -> (String, Arc<std::sync::Mutex<V
         axum::serve(listener, app).await.unwrap();
     });
     (url, seen)
+}
+
+const CALL_NOTE: &str =
+    "Scheduler repair: We fixed the zebracrossing bug in the scheduler. The PR checks passed.";
+
+/// The note's clock starts once the record has drained the hang-up.
+async fn closing_note_due(log: &hotline_core::log::Log, call: &str) {
+    let stream = hotline_core::log::StreamId::Call(call.into());
+    common::until("the voice has detached", || {
+        log.load(&stream).iter().any(|event| {
+            event["kind"] == "notice"
+                && event["text"] == "Voice disconnected. This thread stays open."
+        })
+    })
+    .await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(121)).await;
+    tokio::time::resume();
 }
 
 /// The teammate's reply on a call to it, as its agent wrote it: the version
@@ -211,6 +236,8 @@ impl Realtime for ScriptedFront {
 }
 
 struct FrontDesk {
+    dispatcher_calls: Arc<AtomicUsize>,
+    port: u16,
     socket: Socket,
     asked: tokio::sync::mpsc::Receiver<Asked>,
     events: tokio::sync::mpsc::Sender<Result<RealtimeEvent, SpeechError>>,
@@ -235,6 +262,8 @@ async fn front_desk_with(front: bool, queue: usize, delegates: bool) -> FrontDes
         delegates,
     });
     let mut services = services();
+    let dispatcher_calls = Arc::new(AtomicUsize::new(0));
+    services.dispatcher = Some(Arc::new(ScriptDispatcher(dispatcher_calls.clone())));
     if front {
         services.realtime = Some(scripted.clone());
     }
@@ -255,6 +284,8 @@ async fn front_desk_with(front: bool, queue: usize, delegates: bool) -> FrontDes
         .await
         .unwrap();
     FrontDesk {
+        dispatcher_calls,
+        port,
         socket,
         asked,
         events,
@@ -281,10 +312,16 @@ async fn answer(socket: &mut Socket, id: u32, command: Value) -> Value {
 }
 
 async fn next_asked(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> Asked {
-    tokio::time::timeout(Duration::from_secs(15), asked.recv())
-        .await
-        .expect("the front was asked nothing")
-        .expect("the front closed")
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let command = asked.recv().await.expect("the front closed");
+            if !matches!(command, Asked::Instructions(_)) {
+                return command;
+            }
+        }
+    })
+    .await
+    .expect("the front was asked nothing")
 }
 
 // The tests, one file per topic in `tests/voice/`. The inline module is what
@@ -296,7 +333,9 @@ mod voice {
     mod after_call;
     mod direct;
     mod front;
+    mod front_state;
     mod front_tools;
+    mod lead;
     mod pipeline;
     #[cfg(unix)]
     mod processes;

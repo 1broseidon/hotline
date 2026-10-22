@@ -23,9 +23,6 @@ use crate::contract::{
 };
 use std::sync::Arc;
 
-/// How many posts from elsewhere ride on the next line of a live session.
-const MAX_PENDING_POSTS: usize = 6;
-
 /// The most one post to the chat may say; a longer account is a thread's to
 /// keep, and the post can point at it.
 pub(crate) const POST_CHARS: usize = 2_000;
@@ -43,6 +40,11 @@ pub(super) struct Posting {
     /// The job whose thread the turn is on: its posts carry the job's stamp.
     job: Option<ScheduledRun>,
     posted: bool,
+    /// Voice detached while this turn was running; report once it finishes.
+    pub(super) detached: bool,
+    /// A file is a work result even when its closing words are short prose.
+    pub(super) file_sent: bool,
+    pub(super) files: Vec<super::call_files::CallFile>,
 }
 
 /// The turn in flight on a thread, as [`Room::take_post`] finds it.
@@ -76,6 +78,7 @@ pub(crate) struct Post {
     pub attachments: Option<Vec<Attachment>>,
     /// The job, when a job posted it.
     pub scheduled: Option<ScheduledRun>,
+    pub sources: Vec<ThreadId>,
 }
 
 impl Post {
@@ -85,6 +88,7 @@ impl Post {
             text: text.to_string(),
             attachments: None,
             scheduled: None,
+            sources: Vec::new(),
         }
     }
 }
@@ -98,7 +102,16 @@ impl Room {
         thread: &ThreadId,
         job: Option<ScheduledRun>,
     ) -> PostingTurn<'_> {
-        lock(&self.posting).insert(thread.clone(), Posting { job, posted: false });
+        lock(&self.posting).insert(
+            thread.clone(),
+            Posting {
+                job,
+                posted: false,
+                detached: false,
+                file_sent: false,
+                files: Vec::new(),
+            },
+        );
         PostingTurn {
             room: self,
             thread: thread.clone(),
@@ -247,12 +260,33 @@ impl Room {
             ring: None,
             receipt: None,
             spoken: None,
-            from: elsewhere.then(|| DeliveryFrom::new(from, None)),
+            silent: self.on_the_call(from).then_some(true),
+            from: elsewhere.then(|| {
+                let mut source = DeliveryFrom::new(from, None);
+                source.sources = (!post.sources.is_empty()).then_some(post.sources);
+                source.title = self.link_of(from).map(|link| link.title).filter(|title| {
+                    !(title.trim().is_empty() || from.kind == ThreadKind::Call && title == "Call")
+                });
+                source
+            }),
             scheduled: post.scheduled,
         };
         let event = serde_json::to_value(&event).map_err(|error| error.to_string())?;
         self.try_write_value(persona_id, &event)
             .map_err(|error| format!("The chat could not be written to: {error}"))?;
+        if let Some(attachments) = event["attachments"]
+            .as_array()
+            .filter(|items| !items.is_empty())
+        {
+            if let Some(turn) = lock(&self.posting).get_mut(from) {
+                turn.file_sent = true;
+            }
+            if let Some(calls) = lock(&self.voice).upgrade() {
+                for attachment in attachments {
+                    calls.file_posted(from, attachment["name"].as_str().unwrap_or("sent file"));
+                }
+            }
+        }
         let said = crate::sent::message_text(&event);
         if let Some(job) = &job {
             self.job_posted(job, &said);
@@ -263,8 +297,6 @@ impl Room {
             let origin = posted_from(&event).unwrap_or_default();
             let mut posts = lock(&session.pending_posts);
             posts.push(format!("{origin}: {said}"));
-            let excess = posts.len().saturating_sub(MAX_PENDING_POSTS);
-            posts.drain(..excess);
         }
         if !self.on_the_call(from) {
             let name = self
@@ -276,11 +308,10 @@ impl Room {
     }
 
     /// Whether `thread` is a call the person is on now.
-    fn on_the_call(&self, thread: &ThreadId) -> bool {
-        thread.kind == ThreadKind::Call
-            && lock(&self.voice)
-                .upgrade()
-                .is_some_and(|voice| voice.is_up(&thread.key))
+    pub(super) fn on_the_call(&self, thread: &ThreadId) -> bool {
+        lock(&self.voice)
+            .upgrade()
+            .is_some_and(|voice| voice.thread_is_up(thread))
     }
 }
 
@@ -303,18 +334,24 @@ pub(super) fn posted_since(posts: &[String], line: &str) -> String {
 pub(super) fn posted_from(event: &serde_json::Value) -> Option<String> {
     let field = |key: &str| event.get(key).cloned().unwrap_or_default();
     if let Ok(run) = serde_json::from_value::<ScheduledRun>(field("scheduled")) {
-        return Some(format!("From your scheduled job \"{}\"", run.name));
+        return Some(format!(
+            "From your scheduled job {} (thread job:{})",
+            run.name, run.job_id
+        ));
     }
     let from = serde_json::from_value::<DeliveryFrom>(field("from")).ok()?;
-    Some(
+    Some(format!(
+        "{} (thread {}:{})",
         match from.kind {
             ThreadKind::Dm => return None,
-            ThreadKind::Call => "From your call",
+            ThreadKind::Call =>
+                "From your call; this thread IS its transcript — read_thread reads it in full",
             ThreadKind::Side => "From your work thread",
             ThreadKind::Pair => "From your thread with a colleague",
             ThreadKind::Run => "From your subagent",
             ThreadKind::Job => "From your job",
-        }
-        .to_string(),
-    )
+        },
+        from.kind.name(),
+        from.thread
+    ))
 }

@@ -1,3 +1,4 @@
+import { startCall } from "../voice/call";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
 import { chordKeys } from "../chords";
@@ -140,6 +141,7 @@ function workingNow(entry: RosterEntry, open: ThreadRef): boolean {
 	if (open.thread.kind === "side") return entry.sides?.find((side) => side.sideId === open.thread.key)?.working ?? false;
 	if (open.thread.kind === "run") return entry.subagents?.some((run) => run.runId === open.thread.key) ?? false;
 	if (open.thread.kind === "job") return entry.workingJobs?.includes(open.thread.key) ?? false;
+	if (open.thread.kind === "call") return entry.workingCalls?.includes(open.thread.key) ?? false;
 	return false;
 }
 
@@ -194,6 +196,8 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 		(entry?.subagents ?? []).map((run) => run.runId).join(",") +
 		"|" +
 		(entry?.workingJobs ?? []).join(",") +
+		"|" +
+		(entry?.workingCalls ?? []).join(",") +
 		(entry?.waiting === true ? "|waiting" : "");
 	// biome-ignore lint/correctness/useExhaustiveDependencies: signature and revision are what say the threads changed.
 	useEffect(() => {
@@ -483,6 +487,9 @@ function ThreadView({
 					{turning && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 					<span className="truncate">{title}</span>
 				</h2>
+                {(id.kind === "side" || id.kind === "call") && !closed && opener === undefined && (
+                    <button type="button" className="control btn-quiet px-2 text-sm" title="Call this thread" onClick={() => void startCall(undefined, { personaId: self.id, name: self.name, thread: id }).catch(refuse)}>Call</button>
+                )}
 				{powers.resume && (
 					<button type="button" className="control btn-quiet px-2 text-sm" data-autofocus title="Resume this thread" onClick={resumeIt}>
 						Continue

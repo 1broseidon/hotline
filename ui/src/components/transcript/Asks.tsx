@@ -114,7 +114,7 @@ export function HumanAction({
 		return (
 			<div className="card mt-3">
 				<p className="eyebrow mb-1">
-					Needed you · {AFTERLIFE[event.status]}
+					Needed you · {event.question && event.status === "done" ? "Yes" : event.question && event.status === "dismissed" ? "No" : AFTERLIFE[event.status]}
 					{event.note?.trim() ? <span className="normal-case"> · {event.note.trim()}</span> : null}
 				</p>
 				<p className="selectable text-ink-2">{event.reason}</p>
@@ -126,7 +126,7 @@ export function HumanAction({
 		<div className="card card-live mt-3">
 			<p className="eyebrow mb-1">Needs you</p>
 			<p className="selectable">{event.reason}</p>
-			{onOpenScreen !== undefined && (
+			{onOpenScreen !== undefined && !event.question && (
 				<p className="mt-1.5 text-sm text-ink-3">
 					The screen is yours until you press Done. What you type there goes to the desktop, not to the teammate.
 				</p>
@@ -149,7 +149,7 @@ export function HumanAction({
 				/>
 			)}
 			<div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-				{onOpenScreen !== undefined && (
+				{onOpenScreen !== undefined && !event.question && (
 					<button type="button" className="control btn-primary" onClick={onOpenScreen}>
 						Open the screen
 					</button>
@@ -157,13 +157,13 @@ export function HumanAction({
 				<button
 					type="button"
 					disabled={answering}
-					className={onOpenScreen !== undefined ? "control btn" : "control btn-primary"}
+					className={onOpenScreen !== undefined && !event.question ? "control btn" : "control btn-primary"}
 					onClick={() => answer("done")}
 				>
-					Done
+					{event.question ? "Yes" : "Done"}
 				</button>
 				<button type="button" disabled={answering} className="control btn" onClick={() => answer("declined")}>
-					Decline
+					{event.question ? "No" : "Decline"}
 				</button>
 				{!noting && (
 					<button type="button" className="control btn-quiet ml-auto" onClick={() => setNoting(true)}>

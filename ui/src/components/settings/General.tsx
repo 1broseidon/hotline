@@ -30,6 +30,8 @@ function AppearanceSection() {
 }
 
 export function GeneralSection({
+	personName,
+	onPersonName,
 	idleHours,
 	defaultBackendId,
 	defaultModelId,
@@ -38,6 +40,8 @@ export function GeneralSection({
 	onDefaultModel,
 	onProviders,
 }: {
+	personName: string;
+	onPersonName(name: string): void;
 	idleHours: number;
 	defaultBackendId: string;
 	defaultModelId: string | null;
@@ -46,6 +50,8 @@ export function GeneralSection({
 	onDefaultModel(id: string | null): void;
 	onProviders: (() => void) | undefined;
 }) {
+	const [name, setName] = useState(personName);
+	useEffect(() => setName(personName), [personName]);
 	const [hours, setHours] = useState(String(idleHours));
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
@@ -88,6 +94,30 @@ export function GeneralSection({
 
 	return (
 		<>
+			<section>
+				<h3 className="group-title">You</h3>
+				<div className="grouped">
+					<div className="group-row">
+						<label className="group-row-text" htmlFor="setting-person-name">
+							<span className="group-row-title">Your name</span>
+						</label>
+						<input
+							id="setting-person-name"
+							className="field w-48"
+							autoComplete="given-name"
+							maxLength={100}
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+							onBlur={() => {
+								const next = name.trim();
+								setName(next);
+								if (next !== personName) onPersonName(next);
+							}}
+							onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+						/>
+					</div>
+				</div>
+			</section>
 			<AppearanceSection />
 			<HotkeysSection />
 			<section>

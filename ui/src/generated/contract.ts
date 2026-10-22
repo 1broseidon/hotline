@@ -130,6 +130,10 @@ export type AgentKind = "hotline" | "acp";
  */
 export type Attachment = { 
 /**
+ * Whether call work created this file (false means edited).
+ */
+created?: boolean, 
+/**
  * Images can be inlined for an agent that takes them, and are drawn in
  * the conversation when a teammate sends one; files are linked.
  */
@@ -320,6 +324,11 @@ export type CatalogModel = { id: string, name: string, releaseDate: string, enab
 metadataKnown: boolean, contextLimit: number | null, outputLimit: number | null, reasoning: boolean | null, attachment: boolean | null, efforts: Array<string> | null, cost: ModelCost | null, };
 
 /**
+ * A successful file mutation reported by the work's own tool.
+ */
+export type ChangedFile = { path: string, created: boolean, };
+
+/**
  * What ended a chapter.
  */
 export type ChapterClose = "idle" | "user" | "agent" | "resume";
@@ -351,17 +360,17 @@ export type Client = "desktop" | "phone";
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, 
+export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, thread?: ThreadId, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, 
 /**
- * `front` asks for a voice front. The answer is in the reply's
- * `front`; a desk that cannot or will not run one leaves it out.
+ * Omitted: use Settings. `front` requires live; `pipeline` is the
+ * person's explicit Legacy choice. A failed live call never changes mode.
  */
 mode?: VoiceCallMode, 
 /**
  * The rate of the microphone audio a front call will send:
  * 16000 or 24000. Omitted, the front's own rate.
  */
-inputRate?: number, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.front_audio", "params": { callId: string, seq: number, data: string, } } | { "cmd": "voice.front_barge", "params": { callId: string, playedMs: number, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+inputRate?: number, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.front_audio", "params": { callId: string, seq: number, data: string, } } | { "cmd": "voice.front_barge", "params": { callId: string, playedMs: number, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.input_state", "params": { callId: string, speaking: boolean, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -579,6 +588,10 @@ about: string, };
  * takes it never has to read an id to find out.
  */
 export type DeliveryFrom = { 
+/**
+ * All source threads of a combined call note. Older readers use `thread`.
+ */
+sources?: Array<ThreadId>, title?: string, 
 /**
  * The thread's key: see [`ThreadId`].
  */
@@ -1178,7 +1191,7 @@ export type PolicyMode = "all" | "none" | "some";
  * going on. Only messages count — a teammate's last tool call is Hotline's
  * business, not a line of conversation.
  */
-export type Preview = { from: Side, text: string, at: number, };
+export type Preview = { posted?: boolean, from: Side, text: string, at: number, };
 
 /**
  * What `process.output` answers: the whole command, and the latest of what
@@ -1349,7 +1362,12 @@ sides?: Array<RunningSide>,
  * firing, or a line the person said in the job's thread. Absent when
  * there are none.
  */
-workingJobs?: Array<string>, session: SessionInfo, };
+workingJobs?: Array<string>, 
+/**
+ * Call threads with a turn in flight. An open call between turns is
+ * not working. Absent when there are none.
+ */
+workingCalls?: Array<string>, session: SessionInfo, };
 
 /**
  * A side thread still live, as its teammate's roster row lists it.
@@ -2105,6 +2123,10 @@ ring?: RingIntent, receipt?: Receipt,
  */
 spoken?: string, 
 /**
+ * Posted while the person was on the call; kept without an unread or notification.
+ */
+silent?: boolean, 
+/**
  * A post from one of the teammate's other threads (a call, a work
  * thread): where it was said. A client draws "From the call" from
  * it. Absent from what the DM's own turns say, and from every tape
@@ -2114,11 +2136,24 @@ from?: DeliveryFrom,
 /**
  * A post from a scheduled run: which job it came from.
  */
-scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
+scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, } | { "kind": "permission", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
 /**
  * How long the pull took, once it is done.
  */
-elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", id: string, ts: number, actionId: string, reason: string, status: HumanActionStatus, 
+elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, actionId: string, reason: string, 
+/**
+ * An informational yes/no question. It never approves an operation.
+ * Older cards are actions and remain desk-only.
+ */
+question?: boolean, status: HumanActionStatus, 
 /**
  * What the person said with their answer, when they said anything.
  */
@@ -2142,10 +2177,15 @@ delivers?: boolean,
 expiresAt?: number, 
 /**
  * The work thread the card was raised in, when it was raised in one:
- * the card is on that thread's stream and not on the tape, and the
- * answer goes back to that thread's agent. Absent on the tape's own.
+ * answer goes back to that thread's agent. Call cards live on the
+ * home tape with a mirrored status on the call; other work cards
+ * stay on their thread. Absent on the tape's own cards.
  */
-thread?: string, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
+thread?: string, } | { "kind": "passkey_ask", 
+/**
+ * The call that raised this card in the home chat.
+ */
+from?: DeliveryFrom, id: string, ts: number, askId: string, 
 /**
  * The name the passkey is stored under once made.
  */
@@ -2324,13 +2364,21 @@ export type VoiceCall = { callId: string, input: Array<string>, output: string, 
 front?: VoiceFront, };
 
 /**
- * What answers the person on a call. Omission is the pipeline.
+ * What answers the person on a call. Omission follows Settings.
  */
-export type VoiceCallMode = "pipeline" | "front";
+export type VoiceCallMode = "selected" | "pipeline" | "front";
 
 export type VoiceEndReason = "client" | "goodbye" | "budget" | "replaced" | "error" | "idle";
 
-export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEndReason, 
+export type VoiceEvent = { "type": "state", state: VoiceState, 
+/**
+ * A live call failed; a new Legacy call requires the person to choose it.
+ */
+liveError?: string, 
+/**
+ * True only while recovering a dropped transport or live provider.
+ */
+reconnecting?: boolean, reason?: VoiceEndReason, 
 /**
  * On `thinking`: the teammate's turn is still working and the call
  * takes what the person says, which steers into that turn. A client
@@ -2338,7 +2386,11 @@ export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEnd
  * playing speech. Absent, `thinking` means the desk is still taking
  * the last thing said and has the floor, as from desks before it.
  */
-listening?: boolean, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, } | { "type": "frontAudio", seq: number, data: string, } | { "type": "frontStop", } | { "type": "frontEnded", };
+listening?: boolean, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, 
+/**
+ * Remove a card settled at the desk or on the call.
+ */
+resolved?: boolean, } | { "type": "frontAudio", seq: number, data: string, } | { "type": "frontStop", } | { "type": "frontEnded", };
 
 /**
  * How a front call carries sound. Both directions are mono PCM16
@@ -2406,7 +2458,11 @@ rewritten: number, };
 
 export type VoiceState = "listening" | "thinking" | "speaking" | "held" | "ended";
 
-export type VoiceStatus = { capabilities: Array<string>, available: boolean, 
+export type VoiceStatus = { 
+/**
+ * The selected model is live, even when its login or budget is unavailable.
+ */
+liveSelected?: boolean, capabilities: Array<string>, available: boolean, 
 /**
  * Direct teammate calls need speech and budget, but no desk dispatcher.
  */

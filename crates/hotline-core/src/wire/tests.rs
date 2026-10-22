@@ -89,6 +89,7 @@ struct PendingStop {
 
 struct Quiet {
     pending_stop: Option<Arc<PendingStop>>,
+    pending_login: Option<Arc<PendingStop>>,
     /// When set, `capabilities.options` answers only once it is cancelled:
     /// a provider slow to say what it can do.
     slow_read: Option<tokio_util::sync::CancellationToken>,
@@ -111,6 +112,7 @@ impl Quiet {
     fn new() -> Self {
         Self {
             pending_stop: None,
+            pending_login: None,
             slow_read: None,
             auth_owner: Mutex::new(None),
             account_sign_ins: Mutex::default(),
@@ -324,7 +326,7 @@ impl RoomHandle for CoreHandle {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
-    fn credential_delete(&self, _id: &str) -> Result<(), String> {
+    async fn credential_delete(&self, _id: &str) -> Result<(), String> {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
@@ -775,11 +777,17 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    fn credential_delete(&self, _id: &str) -> Result<(), String> {
+    async fn credential_delete(&self, _id: &str) -> Result<(), String> {
         Ok(())
     }
 
     async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
+        if let Some(pending) = &self.pending_login {
+            let _dropped = pending.dropped.clone().drop_guard();
+            pending.entered.cancel();
+            pending.release.cancelled().await;
+            pending.completed.cancel();
+        }
         if let Some(message) = crate::models::login_refusal(provider_id) {
             return Err(message);
         }
@@ -1119,11 +1127,14 @@ async fn remote_control_answer(
 ) -> Value {
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
         account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        roster_options: Arc::default(),
         lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
@@ -1206,3 +1217,5 @@ mod windows;
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {
     snapshot_shaped(log, stream, seat == Seat::Phone, None, threads2)
 }
+
+mod concurrency;

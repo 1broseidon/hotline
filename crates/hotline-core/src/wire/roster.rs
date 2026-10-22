@@ -1,17 +1,16 @@
-//! The roster view joins the cached room fold, each tape's tail and live
-//! session state. Tape pumps remember dirty teammate IDs rather than queueing
-//! one disk read for every event. A single wake covers the pending set.
+//! The roster joins the room fold, broadcast-fed tape projections and live
+//! sessions. Disk seeds each projection once and recovers it after lag.
 
 use super::seat::Seat;
 use super::socket::Outbox;
 use super::{RoomHandle, send};
 use crate::contract::{
-    HumanActionStatus, PasskeyAskStatus, Persona, Preview, RosterEntry, SessionInfo, SessionState,
+    HumanActionStatus, PasskeyAskStatus, Persona, RosterEntry, SessionInfo, SessionState,
     ToolStatus, TranscriptEvent,
 };
 use crate::log::{Log, StreamId};
 use crate::room;
-use crate::store::previews;
+use crate::store::previews::live::{Live, State};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -42,6 +41,18 @@ impl Dirty {
     }
 }
 
+struct Watched {
+    pump: JoinHandle<()>,
+    state: Arc<Mutex<State>>,
+    catalogs: Mutex<Option<[Value; 2]>>,
+}
+
+impl Drop for Watched {
+    fn drop(&mut self) {
+        self.pump.abort();
+    }
+}
+
 pub(super) async fn view(
     id: i64,
     log: Log,
@@ -63,7 +74,7 @@ pub(super) async fn view(
     let mut lead = room::team_lead(&log);
     if !send_snapshot(
         id,
-        &log,
+        &watched,
         &handle,
         &sender,
         seat,
@@ -129,7 +140,7 @@ pub(super) async fn view(
                     if event.get("deleted").and_then(Value::as_bool) == Some(true) {
                         personas.retain(|persona| persona.id != persona_id);
                         if let Some(pump) = watched.remove(persona_id) {
-                            pump.abort();
+                            drop(pump);
                         }
                         if !send(&sender, json!({ "sub": id, "removed": persona_id })) {
                             return;
@@ -151,7 +162,7 @@ pub(super) async fn view(
                     pins = room::pinned_teammates(&log);
                     lead = room::team_lead(&log);
                     dirty.take();
-                    if !send_snapshot(id, &log, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &watched, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
                         return;
                     }
                 }
@@ -174,7 +185,7 @@ pub(super) async fn view(
                     }
                     if lagged {
                         dirty.take();
-                        if !send_snapshot(id, &log, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
+                        if !send_snapshot(id, &watched, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
                             return;
                         }
                     }
@@ -183,7 +194,7 @@ pub(super) async fn view(
                 // must be refreshed when one may have lost its final hint.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     dirty.take();
-                    if !send_snapshot(id, &log, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
+                    if !send_snapshot(id, &watched, &handle, &sender, seat, &personas, &pins, lead.as_deref()) {
                         return;
                     }
                 }
@@ -198,7 +209,9 @@ pub(super) async fn view(
                     let Some(persona) = personas.iter().find(|persona| persona.id == persona_id) else {
                         continue;
                     };
-                    let row = shaped(&sender, seat, roster_entry(&log, &handle, persona.clone(), &pins, lead.as_deref()));
+                    let Some(watch) = watched.get(&persona_id) else { continue; };
+                    let row = shaped(&sender, seat, roster_entry(watch, &handle, persona.clone(), &pins, lead.as_deref()));
+                    let row = catalogs(&sender, watch, row, false);
                     if !send(&sender, json!({ "sub": id, "event": row })) {
                         return;
                     }
@@ -220,7 +233,7 @@ fn mark_session(personas: &[Persona], dirty: &Dirty, info: SessionInfo) {
 )]
 fn send_snapshot(
     id: i64,
-    log: &Log,
+    watched: &HashMap<String, Watched>,
     handle: &Arc<dyn RoomHandle>,
     sender: &Outbox,
     seat: Seat,
@@ -231,97 +244,93 @@ fn send_snapshot(
     let rows: Vec<_> = personas
         .iter()
         .map(|persona| {
-            shaped(
+            let watch = watched
+                .get(&persona.id)
+                .expect("every roster member is watched");
+            let row = shaped(
                 sender,
                 seat,
-                roster_entry(log, handle, persona.clone(), pins, lead),
-            )
+                roster_entry(watch, handle, persona.clone(), pins, lead),
+            );
+            catalogs(sender, watch, row, true)
         })
         .collect();
     send(sender, json!({ "sub": id, "snapshot": rows }))
 }
 
 /// The room is read once on opening and again only after room-stream lag.
-fn refresh(
-    log: &Log,
-    dirty: &Arc<Dirty>,
-    watched: &mut HashMap<String, JoinHandle<()>>,
-) -> Vec<Persona> {
+fn refresh(log: &Log, dirty: &Arc<Dirty>, watched: &mut HashMap<String, Watched>) -> Vec<Persona> {
     let personas = room::roster(log);
-    watched.retain(|id, pump| {
-        if personas.iter().any(|persona| persona.id == *id) {
-            true
-        } else {
-            pump.abort();
-            false
-        }
-    });
+    watched.retain(|id, _| personas.iter().any(|persona| persona.id == *id));
     for persona in &personas {
         watch(log, &persona.id, dirty, watched);
     }
     personas
 }
 
-fn watch(
-    log: &Log,
-    persona_id: &str,
-    dirty: &Arc<Dirty>,
-    watched: &mut HashMap<String, JoinHandle<()>>,
-) {
+fn watch(log: &Log, persona_id: &str, dirty: &Arc<Dirty>, watched: &mut HashMap<String, Watched>) {
     if watched.contains_key(persona_id) {
         return;
     }
-    let mut events = log.subscribe(&StreamId::Tape(persona_id.to_string()));
+    let mut live = Live::new(log, StreamId::Tape(persona_id.to_string()));
+    let state = Arc::new(Mutex::new(live.state.clone()));
+    let projected = state.clone();
     let dirty = dirty.clone();
     let persona_id = persona_id.to_string();
     let watched_id = persona_id.clone();
     let pump = tokio::spawn(async move {
         loop {
             tokio::select! {
-                // Dropping the view closes its receiver, including for tapes
-                // that remain silent forever. No detached pump outlives it.
                 () = dirty.wake.closed() => return,
-                event = events.recv() => {
-                    let mut changed = match event {
-                        Ok(event) => changes_row(&event),
-                        Err(broadcast::error::RecvError::Lagged(_)) => true,
-                        Err(broadcast::error::RecvError::Closed) => return,
-                    };
-                    // Drain the burst already queued before waking the view.
-                    // Take a fixed budget so a busy producer cannot keep this
-                    // pump running forever without yielding to other tasks.
-                    for _ in 0..events.len() {
-                        match events.try_recv() {
-                            Ok(event) => changed |= changes_row(&event),
-                            Err(broadcast::error::TryRecvError::Lagged(_)) => changed = true,
-                            Err(_) => break,
+                changed = live.changed() => {
+                    match changed {
+                        Some(true) => {
+                            *projected.lock().unwrap_or_else(PoisonError::into_inner) = live.state.clone();
+                            if !dirty.mark(&persona_id) { return; }
                         }
-                    }
-                    if changed && !dirty.mark(&persona_id) {
-                        return;
+                        Some(false) => {}
+                        None => return,
                     }
                 },
             }
         }
     });
-    watched.insert(watched_id, pump);
+    watched.insert(
+        watched_id,
+        Watched {
+            pump,
+            state,
+            catalogs: Mutex::default(),
+        },
+    );
 }
 
-fn changes_row(event: &Value) -> bool {
-    matches!(
-        event.get("kind").and_then(Value::as_str),
-        Some(
-            "user"
-                | "agent"
-                | "tool"
-                | "turn"
-                | "permission"
-                | "human_action"
-                | "passkey_ask"
-                | "exchange_paused"
-                | "delivery"
-        )
-    )
+/// A snapshot always carries catalogs. A client that declared rosterOptions
+/// retains them between rows; an explicit empty array clears a former list.
+fn catalogs(sender: &Outbox, watch: &Watched, mut row: Value, snapshot: bool) -> Value {
+    let current = [
+        row["session"]["models"].clone(),
+        row["session"]["slashCommands"].clone(),
+    ];
+    let mut previous = watch
+        .catalogs
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if !snapshot
+        && sender.roster_options()
+        && let Some(previous) = previous.as_ref()
+    {
+        let session = row["session"]
+            .as_object_mut()
+            .expect("a session is an object");
+        for (index, key) in ["models", "slashCommands"].into_iter().enumerate() {
+            if previous[index] == current[index] {
+                session.remove(key);
+            }
+        }
+    }
+    *previous = Some(current);
+    row
 }
 
 /// A roster row as a phone that asked for `lean` is sent it, since every
@@ -364,23 +373,27 @@ pub(super) fn shaped(sender: &Outbox, seat: Seat, mut row: Value) -> Value {
 /// As much of the last message as a list row can show, with room to spare.
 const PREVIEW_CHARS: usize = 280;
 
-/// One roster row, joined out of the room stream, the tape's tail and the
-/// live session.
+/// One roster row, joined from the room, tape projection and live session.
 fn roster_entry(
-    log: &Log,
+    watch: &Watched,
     room: &Arc<dyn RoomHandle>,
     persona: crate::contract::Persona,
     pins: &[String],
     lead: Option<&str>,
 ) -> Value {
-    let tail = previews::tail(log.root(), &persona.id);
-    let preview: Option<Preview> = previews::preview_reaching(log.root(), &persona.id, &tail)
-        .and_then(|preview| serde_json::from_value(preview).ok());
+    let state = watch
+        .state
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let preview = state.preview.clone();
     let latest = preview.as_ref().map(|preview| preview.at);
     let session = room.info(&persona.id);
     json!(RosterEntry {
-        activity: activity_on(&tail, &session),
-        waiting: waiting_on(&tail) || room.threads_waiting(&persona.id),
+        activity: (session.state == SessionState::Thinking)
+            .then(|| state.activity.clone().map(|(_, title)| title))
+            .flatten(),
+        waiting: state.waiting() || room.threads_waiting(&persona.id),
         drawing: room.drawing(&persona.id),
         pin: pins
             .iter()
@@ -390,6 +403,7 @@ fn roster_entry(
         subagents: room.subagents(&persona.id),
         sides: room.sides(&persona.id),
         working_jobs: room.working_jobs(&persona.id),
+        working_calls: room.working_calls(&persona.id),
         session,
         preview,
         latest,

@@ -38,6 +38,7 @@
 
 pub mod thread;
 
+mod cache;
 mod tape;
 
 pub use tape::{open_epoch, segments_of};
@@ -50,7 +51,7 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::broadcast;
 
 /// How far behind a subscriber may fall before it starts missing events.
@@ -114,6 +115,8 @@ pub struct Appended {
 #[derive(Clone)]
 pub struct Log {
     root: PathBuf,
+    #[cfg(feature = "test-support")]
+    loads: Arc<Mutex<HashMap<StreamId, usize>>>,
     subscribers: Arc<Mutex<HashMap<StreamId, broadcast::Sender<Value>>>>,
     /// The one writer. Held for the whole of an append and the whole of a
     /// compaction, because both are read-then-write: an append measures the
@@ -122,7 +125,7 @@ pub struct Log {
     /// several writers above it — the line a person typed, the turn it
     /// started, the idle sweep, a colleague's peer session — and this is where
     /// they become one.
-    writer: Arc<Mutex<()>>,
+    writer: Arc<Mutex<cache::Cache>>,
 }
 
 impl Log {
@@ -132,9 +135,22 @@ impl Log {
     pub fn open(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
+            #[cfg(feature = "test-support")]
+            loads: Arc::default(),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
-            writer: Arc::new(Mutex::new(())),
+            writer: Arc::new(Mutex::new(cache::Cache::default())),
         }
+    }
+
+    fn lock_cache(&self) -> MutexGuard<'_, cache::Cache> {
+        self.writer.lock().unwrap_or_else(|poisoned| {
+            let mut cache = poisoned.into_inner();
+            // A panic may have interrupted an incremental fold. Rebuild from
+            // the durable bytes before trusting any derived state again.
+            cache.clear();
+            self.writer.clear_poison();
+            cache
+        })
     }
 
     /// The data directory this log is the log of. What lives beside the
@@ -146,35 +162,102 @@ impl Log {
 
     /// The whole stream, folded. A stream nobody has written to is empty.
     pub fn load(&self, stream: &StreamId) -> Vec<Value> {
-        let mut events = Vec::new();
-        for file in self.readable_files(stream) {
-            if let Ok(text) = fs::read_to_string(&file) {
-                events.extend(parse_lines(&text));
-            }
+        #[cfg(feature = "test-support")]
+        {
+            *self
+                .loads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .entry(stream.clone())
+                .or_default() += 1;
         }
-        fold(events.into_iter())
+        self.with_fold(stream, false, |fold| fold.events.clone())
+            .expect("a tolerant load skips unreadable files")
     }
 
-    /// The whole stream, folded, or why a file of it could not be read.
-    ///
-    /// `load` passes over a file it cannot read, which suits a fold that is
-    /// drawn again on the next event. A read that a client will take as the
-    /// whole truth — "this teammate has no schedules" — uses this instead, so
-    /// that a failure is never answered as nothing. A stream nobody has
-    /// written to is still empty, not an error.
+    /// Read just a thread's own link from the shared fold, without cloning its history.
+    pub fn thread_link(&self, thread: &hotline_contract::ThreadId) -> Option<crate::link::Link> {
+        let stream = StreamId::of_thread(thread)?;
+        self.with_fold(&stream, false, |fold| {
+            crate::link::Link::find(&fold.events, thread)
+        })
+        .expect("a tolerant load skips unreadable files")
+    }
+
+    /// Drain whole-history copy counts for an isolated handler measurement.
+    #[cfg(feature = "test-support")]
+    pub fn take_load_counts(&self) -> HashMap<StreamId, usize> {
+        std::mem::take(
+            &mut *self
+                .loads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    /// Like `load`, but an unreadable file is an error, never a cached partial fold.
     pub fn try_load(&self, stream: &StreamId) -> io::Result<Vec<Value>> {
+        self.with_fold(stream, true, |fold| fold.events.clone())
+    }
+
+    /// The open marker and last message timestamp within it, without copying
+    /// the tape. Revisions retain their original position, including activity.
+    pub fn chapter_activity(&self, stream: &StreamId) -> (Option<Value>, Option<i64>) {
+        self.with_fold(stream, false, cache::Fold::chapter_activity)
+            .expect("a tolerant load skips unreadable files")
+    }
+
+    fn with_fold<T>(
+        &self,
+        stream: &StreamId,
+        fail_on_io: bool,
+        read: impl FnOnce(&cache::Fold) -> T,
+    ) -> io::Result<T> {
+        let mut cache = self.lock_cache();
+        self.with_fold_in(&mut cache, stream, fail_on_io, read)
+    }
+
+    /// `with_fold` for a caller already holding the writer lock, which the
+    /// cache lives under: locking it again would deadlock.
+    fn with_fold_in<T>(
+        &self,
+        cache: &mut cache::Cache,
+        stream: &StreamId,
+        fail_on_io: bool,
+        read: impl FnOnce(&cache::Fold) -> T,
+    ) -> io::Result<T> {
+        // Failure-sensitive readers deliberately recheck disk; a cached fold
+        // cannot certify that the durable record is still readable.
+        if fail_on_io {
+            cache.remove(stream);
+        } else if let Some(fold) = cache.get(stream) {
+            return Ok(read(fold));
+        }
         let mut events = Vec::new();
+        let mut cacheable = true;
         for file in self.readable_files(stream) {
             match fs::read_to_string(&file) {
-                Ok(text) => events.extend(parse_lines(&text)),
+                Ok(text) => {
+                    // Appending to an unterminated line can change its parse.
+                    // Leave such recovery files cold until a rewrite repairs them.
+                    cacheable &= text.is_empty() || text.ends_with('\n');
+                    events.extend(parse_lines(&text));
+                }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
+                Err(error) if fail_on_io => return Err(error),
+                Err(_) => cacheable = false,
             }
         }
-        Ok(fold(events.into_iter()))
+        let fold = cache::Fold::new(events);
+        let result = read(&fold);
+        if cacheable {
+            cache.insert(stream, fold);
+        }
+        Ok(result)
     }
 
     pub fn try_load_strict(&self, stream: &StreamId) -> io::Result<Vec<Value>> {
+        let _writer = self.lock_cache();
         let mut events = Vec::new();
         for file in self.readable_files(stream) {
             let text = match fs::read_to_string(&file) {
@@ -209,15 +292,20 @@ impl Log {
     /// Adds one event to the end of the stream, then hands it to whoever is
     /// listening.
     pub fn append(&self, stream: &StreamId, event: &Value) -> io::Result<Appended> {
-        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut cache = self.lock_cache();
         let (file, epoch) = self.writable_file(stream)?;
         let offset = fs::metadata(&file).map_or(0, |file| file.len());
         let bytes = format!("{event}\n").into_bytes();
-        OpenOptions::new()
+        let write = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&file)?
-            .write_all(&bytes)?;
+            .open(&file)
+            .and_then(|mut file| file.write_all(&bytes));
+        if let Err(error) = write {
+            cache.remove(stream);
+            return Err(error);
+        }
+        cache.append(stream, event);
         self.publish(stream, event);
         Ok(Appended {
             epoch,
@@ -229,7 +317,7 @@ impl Log {
     /// Ensure an idle room's already-written events reach disk before the
     /// desktop replaces its executable. This never rewrites stream bytes.
     pub fn sync(&self, stream: &StreamId) -> io::Result<()> {
-        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let _writer = self.lock_cache();
         for path in self.readable_files(stream) {
             // Windows refuses to flush a handle that was opened without write
             // access, so the file is opened for writing and never written.
@@ -250,7 +338,8 @@ impl Log {
         &self,
         protect: impl FnOnce(&Value) -> io::Result<Value>,
     ) -> io::Result<()> {
-        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut cache = self.lock_cache();
+        cache.remove(&StreamId::Room);
         let file = self.root.join("room.jsonl");
         let before = match fs::read_to_string(&file) {
             Ok(text) => text,
@@ -308,7 +397,8 @@ impl Log {
     /// a room once more.
     pub fn migrate_backend_id(&self) -> io::Result<()> {
         const NAME: &str = "backend-id-hotline-2";
-        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut cache = self.lock_cache();
+        cache.clear();
         let marker = self.root.join(".migrations");
         let done = fs::read_to_string(&marker).unwrap_or_default();
         if done.lines().any(|line| line == NAME) {
@@ -373,7 +463,7 @@ impl Log {
     /// because announcing a rewrite costs every mirror its copy of the epoch,
     /// and a rewrite nobody made is not worth that.
     pub fn compact(&self, stream: &StreamId) -> io::Result<Option<u64>> {
-        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut cache = self.lock_cache();
         let (file, epoch) = self.writable_file(stream)?;
         if !file.exists() {
             return Ok(None);
@@ -392,8 +482,33 @@ impl Log {
         if after == before {
             return Ok(None);
         }
+        cache.remove(stream);
         fs::write(&file, after)?;
         Ok(Some(epoch))
+    }
+
+    /// A fold and the events strictly after it, with no write between them.
+    /// Derived views use this boundary both on opening and after lag.
+    pub fn snapshot(&self, stream: &StreamId) -> (Vec<Value>, broadcast::Receiver<Value>) {
+        self.snapshot_with(stream, |events| events)
+    }
+
+    /// Seed a derived view while writes are excluded. Some projections also
+    /// need raw append order, which an id fold deliberately does not retain.
+    pub fn snapshot_with<T>(
+        &self,
+        stream: &StreamId,
+        project: impl FnOnce(Vec<Value>) -> T,
+    ) -> (T, broadcast::Receiver<Value>) {
+        // Appends publish under this lock, so no write falls between the
+        // fold and the subscription.
+        let mut cache = self.lock_cache();
+        let events = self
+            .with_fold_in(&mut cache, stream, false, |fold| fold.events.clone())
+            .expect("a tolerant load skips unreadable files");
+        let receiver = self.subscribe(stream);
+        drop(cache);
+        (project(events), receiver)
     }
 
     /// Every event appended after this call, live.

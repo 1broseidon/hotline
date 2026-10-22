@@ -648,11 +648,14 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     };
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
         account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        roster_options: Arc::default(),
         lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
@@ -745,11 +748,14 @@ async fn account_sign_in_belongs_to_its_desktop_socket_and_disconnect_revokes_it
     };
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
         account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        roster_options: Arc::default(),
         lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),

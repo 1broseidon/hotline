@@ -657,8 +657,10 @@ login and passed to Rig's existing OpenRouter client. It uses the same
 OpenRouter models and billing as a pasted key. A saved
 `enabledModels` filter narrows what is offered, never the model a
 teammate is on. A provider's page sets it under **Models in the picker**:
-**All** is no filter, **Only some** lists the models with a switch each, the
-ones in use first, and every change saves at once.
+**All** is no filter, **Chosen** lists the models with a switch each, the
+ones in use first, and every change saves at once. Chosen starts with every
+switch off unless a choice was saved before, and **All on** and **All off**
+switch every model the search shows.
 
 xAI also offers **Sign in with SuperGrok or X Premium+**. It uses xAI's device
 authorization page and stores access and refresh tokens privately. Hotline

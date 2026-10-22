@@ -83,30 +83,86 @@ fn warn_unpriced(model: &str) {
     }
 }
 
-/// What a response cost at `price`, in dollars. Anthropic reports cache reads
-/// and writes beside `input_tokens`; the OpenAI-style APIs count them inside
-/// it. Tokens the total holds beyond input and output (a Gemini model's
-/// thinking) are priced as output. A cache price the catalogue lacks is the
-/// input price for a read and Anthropic's 1.25 times it for a write.
-pub(crate) fn cost(price: &ModelCost, usage: &Usage, cache_beside_input: bool) -> f64 {
-    let read = usage.cached_input_tokens;
-    let written = usage.cache_creation_input_tokens;
+/// One response's tokens as Hotline counts them, whatever route reported
+/// them: `input` holds every token the request carried, what was read from
+/// the provider's cache and written to it included. The budgets, the context
+/// threshold and a turn's record all read these, and [`Tokens::of`] is the
+/// one place Rig's usage is read. Rig reports every provider that way, so
+/// nothing is added here: counting Anthropic's cache beside its input again
+/// would price each cached token twice and fill the context early.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Tokens {
+    pub(crate) input: u64,
+    pub(crate) output: u64,
+    pub(crate) total: u64,
+    pub(crate) cache_read: u64,
+    pub(crate) cache_write: u64,
+    /// Whether the provider reported usage at all. Unreported usage is not a
+    /// free response: the round keeps whatever it reserved.
+    pub(crate) reported: bool,
+}
+
+impl Tokens {
+    /// What `usage` counts. A counter the provider did not report is none,
+    /// and a response it counted at nothing at all reported nothing: no
+    /// reply is free, so it keeps what was reserved for it.
+    pub(crate) fn of(usage: &Usage) -> Self {
+        let mut tokens = Self {
+            input: usage.input_tokens.unwrap_or_default(),
+            output: usage.output_tokens.unwrap_or_default(),
+            total: usage.total_tokens.unwrap_or_default(),
+            cache_read: usage.cached_input_tokens.unwrap_or_default(),
+            cache_write: usage.cache_creation_input_tokens.unwrap_or_default(),
+            reported: false,
+        };
+        tokens.reported = tokens != Self::default();
+        tokens
+    }
+
+    /// The tokens the conversation filled: what went in and what came out.
+    pub(crate) fn context(&self) -> u64 {
+        self.input.saturating_add(self.output)
+    }
+
+    /// A turn's record of these tokens, with the cache counts left out when
+    /// nothing was cached.
+    pub(crate) fn token_usage(&self) -> crate::contract::TokenUsage {
+        crate::contract::TokenUsage {
+            input_tokens: Some(self.input as i64),
+            output_tokens: Some(self.output as i64),
+            total_tokens: Some(self.total as i64),
+            cache_read_tokens: Some(self.cache_read as i64).filter(|n| *n > 0),
+            cache_write_tokens: Some(self.cache_write as i64).filter(|n| *n > 0),
+        }
+    }
+}
+
+impl std::ops::AddAssign for Tokens {
+    fn add_assign(&mut self, other: Self) {
+        self.input = self.input.saturating_add(other.input);
+        self.output = self.output.saturating_add(other.output);
+        self.total = self.total.saturating_add(other.total);
+        self.cache_read = self.cache_read.saturating_add(other.cache_read);
+        self.cache_write = self.cache_write.saturating_add(other.cache_write);
+        self.reported = self.reported || other.reported;
+    }
+}
+
+/// What a response cost at `price`, in dollars. Cache reads and writes are
+/// inside `input`, and priced once, at their own rates. Tokens the total
+/// holds beyond input and output (a Gemini model's thinking) are priced as
+/// output. A cache price the catalogue lacks is the input price for a read
+/// and Anthropic's 1.25 times it for a write.
+pub(crate) fn cost(price: &ModelCost, tokens: &Tokens) -> f64 {
+    let read = tokens.cache_read;
+    let written = tokens.cache_write;
     let cached = read.saturating_add(written);
-    let (fresh, input) = if cache_beside_input {
-        (
-            usage.input_tokens,
-            usage.input_tokens.saturating_add(cached),
-        )
-    } else {
-        (
-            usage.input_tokens.saturating_sub(cached),
-            usage.input_tokens.max(cached),
-        )
-    };
-    let unreported = usage
-        .total_tokens
-        .saturating_sub(input.saturating_add(usage.output_tokens));
-    let output = usage.output_tokens.saturating_add(unreported);
+    let fresh = tokens.input.saturating_sub(cached);
+    let input = tokens.input.max(cached);
+    let unreported = tokens
+        .total
+        .saturating_sub(input.saturating_add(tokens.output));
+    let output = tokens.output.saturating_add(unreported);
     (fresh as f64 * price.input
         + read as f64 * price.cache_read.unwrap_or(price.input)
         + written as f64 * price.cache_write.unwrap_or(price.input * 1.25)

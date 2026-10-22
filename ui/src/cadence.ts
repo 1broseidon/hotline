@@ -6,7 +6,13 @@
  */
 
 /** A bubble as the beat sees it: which one, what it says, when it was written. */
-export type Bubble = { id: string; text: string; ts: number };
+export type Bubble = {
+	id: string;
+	text: string;
+	ts: number;
+	/** Still arriving, even when its first words are old. */
+	live?: boolean;
+};
 
 /** What has landed so far, and when the last one did. */
 export type Cadence = { shown: ReadonlySet<string>; lastAt: number; lastText: string };
@@ -41,7 +47,7 @@ export function step(
 	let landed = false;
 	for (const bubble of bubbles) {
 		if (shown.has(bubble.id)) continue;
-		if (now - bubble.ts > PACE_WITHIN_MS) {
+		if (!bubble.live && now - bubble.ts > PACE_WITHIN_MS) {
 			shown.add(bubble.id);
 			continue;
 		}

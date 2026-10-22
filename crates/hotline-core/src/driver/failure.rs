@@ -4,7 +4,7 @@ use crate::models::Client;
 use crate::providers::discovery::ListedModel;
 use crate::session::ProviderAuth;
 pub(crate) use hotline_room::secret::redact_text;
-use rig::completion::CompletionError;
+use rig::ProviderError;
 use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
@@ -30,6 +30,11 @@ pub(crate) enum Kind {
     /// still lists its models. The sign-in is fine, so signing in again
     /// cannot help; the provider is turning requests away.
     ProviderRefused,
+    /// The sign-in's tokens are in the OS keychain, and the keychain would
+    /// not give them up: it is locked, or Hotline was not allowed in. The
+    /// sign-in itself is fine, so signing in again cannot help; unlocking
+    /// the keychain does.
+    Keychain,
     /// An ACP harness's own sign-in — Claude Code's, Codex's — is gone or
     /// expired. Nothing in Hotline's Settings fixes it; the harness's login
     /// does.
@@ -64,6 +69,13 @@ pub(crate) enum Kind {
 
 const USAGE_LIMIT_BYTES: usize = 500;
 
+/// How Rig names a failure of the store a sign-in's tokens are kept in
+/// (`AuthError::Store`): for ChatGPT and Copilot, the OS keychain.
+const KEYCHAIN_FAILED: &str = "token store failed";
+
+/// What a stream the provider never finished reads as.
+pub(crate) const TRUNCATED: &str = "The model stream ended without a complete response.";
+
 /// What a message to Hotline Agent is refused with while no provider is
 /// connected. The words go back to the composer; nothing reaches the tape.
 pub(crate) const NO_PROVIDER: &str =
@@ -96,7 +108,12 @@ pub(crate) struct Failure {
 }
 
 impl Failure {
-    pub fn provider(error: CompletionError, phase: &'static str) -> Self {
+    pub fn provider(error: ProviderError, phase: &'static str) -> Self {
+        // A stream cut before the provider ended it is a transport failure
+        // worth another try, whatever cut it.
+        if matches!(error, ProviderError::Truncated) {
+            return Self::classify(TRUNCATED, Some(502), phase);
+        }
         let status = error
             .provider_response_status()
             .map(|status| status.as_u16());
@@ -104,7 +121,13 @@ impl Failure {
             .provider_response_body()
             .map_or_else(|| error.to_string(), str::to_owned);
         let mut failure = Self::classify(&body, status, phase);
-        if status.is_none() && matches!(error, CompletionError::HttpError(_)) {
+        // A sign-in's tokens are read as the request is signed, so a keychain
+        // that refuses them fails the request before it leaves: no reply, but
+        // nothing another try past a locked keychain gets through either.
+        if status.is_none()
+            && matches!(error, ProviderError::Http(_))
+            && failure.kind != Kind::Keychain
+        {
             failure.set_kind(Kind::Transport);
         }
         failure.retry_after_seconds = error
@@ -147,7 +170,9 @@ impl Failure {
                             .rsplit_once('.')
                             .is_some_and(|(_, field)| field == "id" || field == "encrypted_content")
                 });
-        let kind = if contains(&[
+        let kind = if contains(&[KEYCHAIN_FAILED]) {
+            Kind::Keychain
+        } else if contains(&[
             "insufficient_quota",
             "quota_exceeded",
             "exhausted quota",
@@ -470,6 +495,10 @@ impl Failure {
             Kind::ProviderRefused => (
                 "Provider is refusing requests",
                 "Your sign-in still works, so signing in again won't help. Try again later or switch this teammate to another provider.",
+            ),
+            Kind::Keychain => (
+                "Keychain locked",
+                "Hotline could not read this sign-in from your keychain. Unlock your keychain, or allow Hotline into it, then send another message.",
             ),
             Kind::AgentAuth => (
                 "Agent sign-in expired",
@@ -796,9 +825,8 @@ mod tests {
     /// a token the stub refuses everywhere still reads as a sign-in to fix.
     #[tokio::test]
     async fn a_provider_refusing_turns_is_told_apart_from_a_sign_in_that_no_longer_works() {
+        use crate::providers::rig_login;
         use axum::{Router, http::StatusCode, routing::get, routing::post};
-        use rig::client::CompletionClient;
-        use rig::completion::CompletionModel;
 
         let refused = || {
             (
@@ -837,18 +865,20 @@ mod tests {
                 .to_string(),
             )
             .unwrap();
-            let model = rig::providers::chatgpt::Client::builder()
-                .oauth()
-                .auth_file(dir.path().join("auth.json"))
-                .allow_device_flow(false)
-                .base_url(format!("{base}/{sign_in}"))
-                .build()
-                .unwrap()
-                .completion_model("gpt-6-luna");
-            let error = model
-                .completion(model.completion_request("hello").build())
-                .await
-                .unwrap_err();
+            let signed = crate::providers::outgoing::Outgoing::signed(
+                rig_login::chatgpt(dir.path()),
+                std::convert::identity,
+            )
+            .unwrap();
+            let model = rig::providers::openai::OpenAIConfig::with_key(
+                &rig::providers::chatgpt::DIALECT,
+                "",
+            )
+            .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
+            .with_base_url(format!("{base}/{sign_in}"))
+            .connect(signed)
+            .completion("gpt-6-luna");
+            let error = model.call("hello").await.unwrap_err();
             let failure = Failure::provider(error, "request");
             assert_eq!(failure.kind, Kind::Auth);
             let models_url = format!("{base}/{sign_in}/models");
@@ -930,12 +960,12 @@ mod tests {
     fn retry_hints_survive_and_retry_budget_is_bounded() {
         let mut headers = http::HeaderMap::new();
         headers.insert("retry-after", "60".parse().unwrap());
-        let error = CompletionError::ProviderResponse(
+        let error = ProviderError::ProviderResponse(
             rig::ProviderResponseError::new(
                 http::StatusCode::TOO_MANY_REQUESTS,
                 r#"{"error":{"code":"rate_limit_exceeded"}}"#,
             )
-            .with_headers(Some(Box::new(headers))),
+            .with_headers(Some(headers)),
         );
         let failure = Failure::provider(error, "request");
         assert_eq!(failure.kind, Kind::RateLimit);

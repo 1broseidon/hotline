@@ -6,7 +6,9 @@
 //! anywhere in a prompt is one call to that tool on Hotline's MCP server, made
 //! in order; the turn's one message is a `RESULTS` line followed by one line
 //! per call, `<tool> ok: <text>` or `<tool> refused: <text>`. A prompt with no
-//! calls is answered "On it."
+//! calls is answered "On it." A REPLY_JSON line supplies a JSON string as
+//! the answer, so reply-format scenarios need not echo session instructions.
+//! REPORT_TOOLS also emits ACP tool notifications around those MCP calls.
 //!
 //! A prompt line `REPORT_ENV <name>...` is answered instead with one
 //! `ENV <name>=<value>` or `ENV <name> unset` line per name, then the same
@@ -25,7 +27,8 @@
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
     McpServer, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId,
-    SessionNotification, SessionUpdate, StopReason, TextContent,
+    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
 use rmcp::ServiceExt;
@@ -61,6 +64,7 @@ async fn main() {
     }
     let sessions: Sessions = Arc::default();
     let opened = sessions.clone();
+    let histories: Arc<Mutex<HashMap<String, Vec<String>>>> = Arc::default();
     let transport = ByteStreams::new(
         tokio::io::stdout().compat_write(),
         tokio::io::stdin().compat(),
@@ -94,6 +98,7 @@ async fn main() {
             move |request: PromptRequest,
                   responder: Responder<PromptResponse>,
                   cx: ConnectionTo<Client>| {
+                let histories = histories.clone();
                 let desk = sessions
                     .lock()
                     .unwrap()
@@ -114,7 +119,31 @@ async fn main() {
                     // The calls run off the connection's own loop, which has
                     // to stay free to carry the session's other messages.
                     cx.spawn(async move {
-                        let reply = answer(&said, desk).await;
+                        let reply = answer(&said, desk, &replying, &session).await;
+                        if let Some(path) = said
+                            .lines()
+                            .find_map(|line| line.trim().strip_prefix("WAIT_FOR "))
+                        {
+                            while !std::path::Path::new(path).exists() {
+                                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                            }
+                        }
+                        let reply = {
+                            let mut histories = histories.lock().unwrap();
+                            let history = histories.entry(session.0.to_string()).or_default();
+                            history.push(said.clone());
+                            if let Some(reply) = said
+                                .lines()
+                                .find_map(|line| line.trim().strip_prefix("REPLY_JSON "))
+                            {
+                                serde_json::from_str::<String>(reply)
+                                    .expect("REPLY_JSON is a JSON string")
+                            } else if said.contains("ECHO_HISTORY") {
+                                history.join("\n")
+                            } else {
+                                reply
+                            }
+                        };
                         replying.send_notification(SessionNotification::new(
                             session,
                             SessionUpdate::AgentMessageChunk(ContentChunk::new(
@@ -154,6 +183,20 @@ fn hotline_server(servers: &[McpServer]) -> Option<Desk> {
 
 /// The calls a prompt asks for, in order.
 fn calls(said: &str) -> Vec<(String, Value)> {
+    let said = said
+        .split("The whole call so far (conversation data):")
+        .next()
+        .unwrap_or(said);
+    if said.contains("Like we said on the call") {
+        let Some((_, tail)) = said.rsplit_once("(thread call:") else {
+            return Vec::new();
+        };
+        let key = tail.split(')').next().unwrap_or_default();
+        return vec![(
+            "read_thread".into(),
+            serde_json::json!({"thread":format!("call:{key}")}),
+        )];
+    }
     said.lines()
         .filter_map(|line| {
             let rest = &line[line.find("CALL ")? + "CALL ".len()..];
@@ -164,7 +207,12 @@ fn calls(said: &str) -> Vec<(String, Value)> {
 }
 
 /// Makes the calls the prompt asks for and says what came back.
-async fn answer(said: &str, desk: Option<Desk>) -> String {
+async fn answer(
+    said: &str,
+    desk: Option<Desk>,
+    connection: &ConnectionTo<Client>,
+    session: &SessionId,
+) -> String {
     if let Some(names) = reported(said) {
         return report(&names).await;
     }
@@ -188,12 +236,40 @@ async fn answer(said: &str, desk: Option<Desk>) -> String {
         Err(error) => return format!("RESULTS\nthe hotline server refused: {error}"),
     };
     let mut lines = vec!["RESULTS".to_string()];
+    let report = said.contains("REPORT_TOOLS");
     for (tool, arguments) in calls {
+        if matches!(tool.as_str(), "write" | "edit") {
+            lines.push(write_file(connection, session, &tool, &arguments).await);
+            continue;
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        if report {
+            connection
+                .send_notification(SessionNotification::new(
+                    session.clone(),
+                    SessionUpdate::ToolCall(
+                        ToolCall::new(id.clone(), tool.clone())
+                            .status(ToolCallStatus::InProgress)
+                            .raw_input(arguments.clone()),
+                    ),
+                ))
+                .expect("tool notification reaches the client");
+        }
         let mut request = CallToolRequestParams::new(tool.clone());
         if let Value::Object(arguments) = arguments {
             request = request.with_arguments(arguments);
         }
-        lines.push(match connected.peer().call_tool(request).await {
+        let result = connected.peer().call_tool(request).await;
+        let status = if result
+            .as_ref()
+            .is_ok_and(|result| result.is_error != Some(true))
+        {
+            ToolCallStatus::Completed
+        } else {
+            ToolCallStatus::Failed
+        };
+        lines.push(match result {
             Ok(result) => {
                 let text = result
                     .content
@@ -210,9 +286,82 @@ async fn answer(said: &str, desk: Option<Desk>) -> String {
             }
             Err(error) => format!("{tool} failed: {error}"),
         });
+        if report {
+            connection
+                .send_notification(SessionNotification::new(
+                    session.clone(),
+                    SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                        id,
+                        ToolCallUpdateFields::new().status(status),
+                    )),
+                ))
+                .expect("tool completion reaches the client");
+        }
     }
     connected.cancel().await.ok();
     lines.join("\n")
+}
+
+/// The fixture's file tool exercises the delegated filesystem and reports the
+/// same structured diff an ACP harness reports for its own successful edit.
+async fn write_file(
+    connection: &ConnectionTo<Client>,
+    session: &SessionId,
+    tool: &str,
+    arguments: &Value,
+) -> String {
+    use agent_client_protocol::schema::v1::{ReadTextFileRequest, WriteTextFileRequest};
+    let path = std::path::PathBuf::from(arguments["path"].as_str().expect("fixture path"));
+    let before = connection
+        .send_request(ReadTextFileRequest::new(session.clone(), path.clone()))
+        .block_task()
+        .await
+        .ok()
+        .map(|reply| reply.content);
+    let after = if tool == "edit" {
+        before.as_deref().unwrap_or_default().replacen(
+            arguments["old_text"].as_str().unwrap(),
+            arguments["new_text"].as_str().unwrap(),
+            1,
+        )
+    } else {
+        arguments["content"].as_str().unwrap().to_string()
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let content = serde_json::from_value(
+        serde_json::json!({"type":"diff", "path":path, "oldText":before, "newText":after}),
+    )
+    .unwrap();
+    connection
+        .send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCall(
+                ToolCall::new(id.clone(), tool)
+                    .kind(agent_client_protocol::schema::v1::ToolKind::Edit)
+                    .status(ToolCallStatus::InProgress)
+                    .content(vec![content]),
+            ),
+        ))
+        .unwrap();
+    let result = connection
+        .send_request(WriteTextFileRequest::new(session.clone(), path, after))
+        .block_task()
+        .await;
+    let status = if result.is_ok() {
+        ToolCallStatus::Completed
+    } else {
+        ToolCallStatus::Failed
+    };
+    connection
+        .send_notification(SessionNotification::new(
+            session.clone(),
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                id,
+                ToolCallUpdateFields::new().status(status),
+            )),
+        ))
+        .unwrap();
+    format!("{tool}: {status:?}")
 }
 
 fn cli(args: &[OsString]) -> i32 {

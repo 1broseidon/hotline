@@ -94,17 +94,23 @@ impl Speech for ClipCheck {
 #[async_trait::async_trait]
 impl Dispatcher for ClipCheck {
     fn id(&self) -> VoiceModel {
-        ScriptDispatcher.id()
+        ScriptDispatcher(Arc::default()).id()
     }
     async fn answer(&self, _: Context, text: &str, _: Arc<Budget>) -> Result<String, String> {
         assert_eq!(text, "Bye.");
         self.routed.fetch_add(1, Ordering::SeqCst);
         Ok("Please continue.".into())
     }
-    async fn narrate(&self, _: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn narrate(
+        &self,
+        _: &str,
+        text: &str,
+        _: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
         Ok(text.into())
     }
-    async fn rewrite(&self, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
+    async fn rewrite(&self, _: &str, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
         unreachable!("a desk call has no teammate's reply to rewrite")
     }
 }
@@ -243,6 +249,12 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
         .as_str()
         .unwrap()
         .to_string();
+    // Exercise the no-lead compatibility path explicitly.
+    assert_eq!(answer(&mut socket, 94, json!({"cmd":"persona.create","params":{"draft":{"name":"Other","cwd":root.path().to_str().unwrap()}}})).await["ok"], true);
+    assert_eq!(
+        answer(&mut socket, 95, json!({"cmd":"persona.lead","params":{}})).await["ok"],
+        true
+    );
     let call = Uuid::new_v4().to_string();
     send(
         &mut socket,

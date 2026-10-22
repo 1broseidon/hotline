@@ -206,6 +206,20 @@ impl Workspace {
         Ok(kept.join("\n"))
     }
 
+    /// Whether the entry at `path` is itself a symbolic link, without following
+    /// it. Absent is not a link. Lets a caller that preserves handwritten files
+    /// leave a linked one alone instead of refusing it.
+    pub fn is_symlink_path(&self, path: &Path) -> Result<bool, ToolError> {
+        self.check_capability()?;
+        let requested = self.callback_path(path)?;
+        let (place, relative) = self.locate(&requested, false)?;
+        match self.dir(place).symlink_metadata(&relative) {
+            Ok(metadata) => Ok(metadata.file_type().is_symlink()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Reads an optional managed file without following its final symlink.
     /// The distinction between absent and inaccessible matters to callers
     /// that preserve handwritten files, such as the ACP identity materializer.
@@ -628,6 +642,16 @@ impl Workspace {
             return Err(ToolError::new(format!("{requested} is not a file.")));
         }
         Ok((file.into_std(), metadata.len(), root.join(relative)))
+    }
+
+    /// ACP records absolute workspace paths; use its existing callback
+    /// boundary before applying the ordinary attachment read checks.
+    pub fn open_recorded_to_send(
+        &self,
+        path: &Path,
+    ) -> Result<(std::fs::File, u64, PathBuf), ToolError> {
+        let requested = self.callback_path(path)?;
+        self.open_to_send(&requested)
     }
 
     pub fn create_file_path(&self, requested: &str, bytes: &[u8]) -> Result<PathBuf, ToolError> {

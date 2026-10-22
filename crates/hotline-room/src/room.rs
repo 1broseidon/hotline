@@ -62,6 +62,13 @@ fn defaults() -> Map<String, Value> {
 }
 
 pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
+    if key == "personName" {
+        let name = value.as_str().ok_or("Your name must be text.")?.trim();
+        if name.chars().count() > 100 || name.chars().any(char::is_control) {
+            return Err("Your name must be at most 100 characters on one line.".into());
+        }
+        return Ok(json!(name));
+    }
     if key == "webSearch" {
         return hotline_websearch::normalize_setting(value);
     }
@@ -396,7 +403,7 @@ pub fn all_jobs(log: &Log) -> Vec<ScheduledJob> {
     jobs(&log.load(&StreamId::Room))
 }
 
-fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
+pub fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
     let mut jobs: Vec<ScheduledJob> = events
         .iter()
         .filter(|event| is_kind(event, "schedule") && !is_deleted(event))

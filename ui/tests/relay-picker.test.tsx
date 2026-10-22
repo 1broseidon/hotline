@@ -218,7 +218,7 @@ describe("the offer to keep a server only as a relay", () => {
 	for (const [why, serves, roster, choose] of [
 		["the server does not run a relay", ["agents"], [], true],
 		["the server says nothing of what it runs", undefined, [], true],
-		["this desktop has teammates there", ["agents", "relay"], [{ persona: { id: "p1" } }], true],
+		["this desktop has teammates there", ["agents", "relay"], [{ persona: { id: "p1" }, session: { models: [], slashCommands: [] } }], true],
 		["the desk is not the chosen relay", ["agents", "relay"], [], false],
 	] as const) {
 		test(`never shows when ${why}`, async () => {
@@ -237,7 +237,7 @@ describe("the offer to keep a server only as a relay", () => {
 		await mount();
 		const { socket, sub } = await serverSays(["agents", "relay"], []);
 		expect(offer()).not.toBeNull();
-		await settle(() => socket.say({ sub, event: { persona: { id: "p1" } } }));
+		await settle(() => socket.say({ sub, event: { persona: { id: "p1" }, session: { models: [], slashCommands: [] } } }));
 		expect(offer()).toBeNull();
 	});
 });

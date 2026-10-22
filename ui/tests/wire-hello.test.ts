@@ -55,7 +55,7 @@ function dial() {
 describe("the window's hello to the core", () => {
 	test("opens the connection and asks for everything again once the core takes threads2", async () => {
 		const { wire, states, socket, hello } = dial();
-		expect(hello["params"]).toEqual({ capabilities: ["threads2"] });
+		expect(hello["params"]).toEqual({ capabilities: ["threads2", "rosterOptions"] });
 		expect(socket.sent.some((frame) => "sub" in frame)).toBe(false);
 		await socket.answer({ id: hello["id"], ok: true, result: { capabilities: ["threads", "threads2"] } });
 		expect(states.at(-1)).toBe("open");
@@ -87,4 +87,31 @@ describe("the window's hello to the core", () => {
 		expect(states.at(-1)).toBe("closed");
 		wire.close();
 	});
+});
+
+test("roster catalog patches are retained per subscription and snapshots replace them", async () => {
+	const { wire, socket, hello } = dial();
+	await socket.answer({ id: hello["id"], ok: true, result: { capabilities: ["threads2", "rosterOptions"] } });
+	const rows: Record<string, unknown>[] = [];
+	wire.subscribe({ view: "roster" }, {
+		snapshot: (items) => rows.push(...items as Record<string, unknown>[]),
+		event: (row) => rows.push(row as Record<string, unknown>),
+	});
+	const sub = socket.sent.at(-1)!["id"];
+	const models = [{ id: "m", name: "Model" }];
+	const slashCommands = [{ name: "help", description: "Help" }];
+	const row = (session: object, extra: object = {}) => ({ persona: { id: "ada" }, session, ...extra });
+	await socket.answer({ sub, snapshot: [row({ models, slashCommands }, { activity: "Read" })] });
+	await socket.answer({ sub, event: row({ state: "ready" }) });
+	expect(rows.at(-1)!["session"]).toEqual({ state: "ready", models, slashCommands });
+	expect(rows.at(-1)).not.toHaveProperty("activity");
+	await socket.answer({ sub, event: row({ models: [] }) });
+	expect(rows.at(-1)!["session"]).toEqual({ models: [], slashCommands });
+	await socket.answer({ sub, snapshot: [row({ models: [], slashCommands: [] })] });
+	await socket.answer({ sub, event: row({ state: "thinking" }) });
+	expect(rows.at(-1)!["session"]).toEqual({ state: "thinking", models: [], slashCommands: [] });
+	await socket.answer({ sub, removed: "ada" });
+	await socket.answer({ sub, event: row({ models, slashCommands }) });
+	expect(rows.at(-1)!["session"]).toEqual({ models, slashCommands });
+	wire.close();
 });

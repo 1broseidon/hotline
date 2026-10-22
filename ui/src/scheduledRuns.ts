@@ -16,7 +16,7 @@ export type CallLink = Extract<TranscriptEvent, { kind: "link" }> & { threadKind
  * newest run sits.
  */
 export type Block =
-	| { kind: "event"; event: Exclude<TranscriptEvent, Step> }
+	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
 	| { kind: "steps"; id: string; ts: number; items: Step[] }
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
 	| { kind: "calls"; id: string; ts: number; calls: CallLink[] };

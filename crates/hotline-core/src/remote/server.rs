@@ -7,7 +7,7 @@ use hyper::{
 };
 use hyper_util::rt::{TokioIo, TokioTimer};
 use std::{convert::Infallible, time::Duration};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{
     TlsAcceptor,
     rustls::{
@@ -175,14 +175,7 @@ async fn sealed_door(
     tokio::spawn(async move {
         let socket = async {
             let upgraded = upgraded.await.ok()?;
-            Some(
-                WebSocketStream::from_raw_socket(
-                    TokioIo::new(upgraded),
-                    Role::Server,
-                    Some(handshake_config()),
-                )
-                .await,
-            )
+            upgraded_socket(upgraded, handshake_config()).await
         };
         let socket = tokio::select! {
             biased;
@@ -228,15 +221,32 @@ async fn relay_door(
             return;
         };
         drop(slot);
-        let socket = WebSocketStream::from_raw_socket(
-            TokioIo::new(upgraded),
-            Role::Server,
-            Some(super::relay::record_config()),
-        )
-        .await;
+        let Some(socket) = upgraded_socket(upgraded, super::relay::record_config()).await else {
+            return;
+        };
         super::relay::arrive(remote.relay.clone(), socket, notify, permit, path).await;
     });
     reply.map(|()| Full::new(Bytes::new()))
+}
+
+/// Hyper may already have read the first WebSocket bytes; preserve those.
+async fn upgraded_socket(
+    upgraded: hyper::upgrade::Upgraded,
+    config: WebSocketConfig,
+) -> Option<WebSocketStream<tokio_rustls::server::TlsStream<TcpStream>>> {
+    let parts = upgraded
+        .downcast::<TokioIo<tokio_rustls::server::TlsStream<TcpStream>>>()
+        .ok()?;
+    let stream = parts.io.into_inner();
+    Some(
+        WebSocketStream::from_partially_read(
+            stream,
+            parts.read_buf.to_vec(),
+            Role::Server,
+            Some(config),
+        )
+        .await,
+    )
 }
 
 /// The initial WebSocket cap prevents allocation of an unbounded handshake.
@@ -324,7 +334,12 @@ pub(super) async fn sealed_session<S>(
     purpose: Purpose,
     seat: Seat,
 ) where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + crate::wire::transport::AbortiveClose
+        + Unpin
+        + Send
+        + 'static,
 {
     if matches!(purpose, Purpose::RelayAccept) {
         super::relay::accept(remote, socket, seat).await;

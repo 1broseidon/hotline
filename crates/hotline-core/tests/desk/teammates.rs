@@ -648,6 +648,7 @@ async fn made(client: &mut Client, name: &str) -> String {
 
 /// Onboarding makes one teammate, and that one is the desk's lead without
 /// anybody choosing it; a second teammate joins under it.
+/// Scenario: Calling the desk.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_first_teammate_is_the_lead_and_a_second_leaves_the_lead_alone() {
     let (_root, port) = open("lead-first").await;
@@ -691,6 +692,7 @@ async fn persona_lead_moves_the_lead_and_clears_it() {
 
 /// Deleting the lead clears it, and nobody is picked from the two left;
 /// deleting down to one makes that one lead by the same rule as the first.
+/// Scenario: Calling the desk.
 #[tokio::test(flavor = "multi_thread")]
 async fn deleting_the_lead_leaves_no_lead_until_one_teammate_is_left_to_lead() {
     let (_root, port) = open("lead-delete").await;
@@ -732,4 +734,46 @@ async fn a_one_teammate_desk_from_before_the_lead_loads_with_that_teammate_as_le
 
     let mut client = Client::connect(open_at(&root), TOKEN).await;
     assert_eq!(leads_on_the_roster(&mut client).await, ["ada"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cached_tape_snapshots_follow_revisions_and_compaction() {
+    use hotline_core::log::StreamId;
+    let root = tempfile::tempdir().unwrap();
+    let desk = common::open_desk(root.path()).unwrap();
+    let log = desk.log.clone();
+    let parts = desk.parts();
+    let door = Door::bind(log.clone(), TOKEN.to_string(), Arc::new(desk), parts).unwrap();
+    let port = door.port();
+    let serving = tokio::spawn(door.run());
+    let mut client = Client::connect(port, TOKEN).await;
+    let made = client
+        .call(
+            "persona.create",
+            json!({"draft":{"name":"Cache", "goal":"Read snapshots"}}),
+        )
+        .await;
+    let id = made["result"]["id"].as_str().unwrap();
+    let stream = StreamId::Tape(id.to_string());
+    let first = json!({"id":"u1", "kind":"user", "ts":1, "text":"first"});
+    let revised = json!({"id":"u1", "kind":"user", "ts":1, "text":"revised"});
+    log.append(&stream, &first).unwrap();
+    for expected in [&first, &first, &revised, &revised] {
+        if expected == &revised {
+            log.append(&stream, &revised).unwrap();
+        }
+        let subscription = client.subscribe(json!({"tape":id})).await;
+        let snapshot = client
+            .next_where(Duration::from_secs(5), |frame| {
+                is_sub(frame, subscription, "snapshot")
+            })
+            .await;
+        assert_eq!(snapshot["snapshot"], json!([expected]));
+        if expected == &revised {
+            log.compact(&stream).unwrap();
+        }
+    }
+    drop(client);
+    serving.abort();
+    let _ = serving.await;
 }

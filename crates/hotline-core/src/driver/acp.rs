@@ -242,6 +242,8 @@ pub(crate) const MANAGED_MARKER: &str = "<!-- managed by Hotline -->";
 /// repository is never clobbered. Hotline's own files *open* with the marker, and
 /// only an opening marker counts: a hand-written file that merely mentions it
 /// — this repository's own does, to explain it — is not Hotline's to replace.
+/// Hotline never writes a link, so a symlinked `AGENTS.md` is hand-made too:
+/// left alone, neither read nor written through.
 pub fn materialize_agents_md(persona: &Persona) -> std::io::Result<()> {
     materialize_agents_md_with_capability(persona, None)
 }
@@ -269,6 +271,16 @@ pub(crate) fn materialize_agents_md_with_capability(
     )
     .map_err(|error| std::io::Error::other(error.to_string()))?;
     let file = Path::new("AGENTS.md");
+    // A linked AGENTS.md is the repository's (a shared instructions file, as
+    // monorepos and harnesses keep them), not Hotline's. It is skipped before
+    // anything is read through it, so the session starts and nothing outside
+    // the workspace is touched.
+    if workspace
+        .is_symlink_path(file)
+        .map_err(|error| std::io::Error::other(error.to_string()))?
+    {
+        return Ok(());
+    }
     if let Some(current) = workspace
         .read_text_if_exists_path(file)
         .map_err(|error| std::io::Error::other(error.to_string()))?

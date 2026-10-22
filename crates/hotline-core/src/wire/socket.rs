@@ -3,6 +3,7 @@
 use super::phone::{effort_config, phone_budget};
 use super::seat::{PLAIN_REASONS, PRIVATE_REASON, Seat};
 use super::subscribe::subscribe;
+use super::transport::AbortiveClose;
 use super::{Agents, RoomHandle, commands, files, threads};
 use crate::contract::Command;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
@@ -18,6 +19,8 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 /// One admitted socket, until either side closes it.
 #[derive(Clone)]
 pub(super) struct Outbox {
+    pub(super) call_owner: String,
+    pub(super) pairing_cancel: tokio_util::sync::CancellationToken,
     pub(super) sender: Outgoing,
     pub(super) cancel: tokio_util::sync::CancellationToken,
     pub(super) max: usize,
@@ -38,6 +41,8 @@ pub(super) struct Outbox {
     /// companion's is, whatever the device's role. An owner's phone is an
     /// owner by authority and a phone by its link.
     pub(super) lean: Arc<std::sync::atomic::AtomicBool>,
+    /// The client retains omitted roster catalogs between rows.
+    pub(super) roster_options: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Clone)]
 pub(super) enum Outgoing {
@@ -57,6 +62,11 @@ impl IncomingOutput {
     }
 }
 impl Outbox {
+    pub(super) fn roster_options(&self) -> bool {
+        self.roster_options
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(super) fn threads2(&self) -> bool {
         self.threads2.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -107,6 +117,7 @@ pub(crate) async fn seated_phone_v2<S>(
 where
     S: Stream<Item = Result<Message, Error>>
         + Sink<Message, Error = Error>
+        + AbortiveClose
         + Unpin
         + Send
         + 'static,
@@ -146,7 +157,7 @@ pub(super) async fn seated<S>(
     desk: Agents,
 ) -> Result<(), Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: AsyncRead + AsyncWrite + AbortiveClose + Unpin + Send + 'static,
 {
     seated_inner(socket, seat, desk, None).await
 }
@@ -160,6 +171,7 @@ async fn seated_inner<S>(
 where
     S: Stream<Item = Result<Message, Error>>
         + Sink<Message, Error = Error>
+        + AbortiveClose
         + Unpin
         + Send
         + 'static,
@@ -174,12 +186,20 @@ where
         (Outgoing::Desk(tx), IncomingOutput::Desk(rx))
     };
     let sender = Outbox {
+        call_owner: phone
+            .as_ref()
+            .map_or_else(|| "desk".into(), crate::remote::Phone::call_owner),
+        pairing_cancel: phone
+            .as_ref()
+            .map(crate::remote::Phone::pairing_cancel)
+            .unwrap_or_default(),
         auth_attempts: Arc::default(),
         account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
         lean: Arc::default(),
+        roster_options: Arc::default(),
         sender,
         cancel: cancel.clone(),
         max: match seat {
@@ -190,22 +210,31 @@ where
     };
     let writer_cancel = cancel.clone();
     let writer = tokio::spawn(async move {
-        while let Some(text) = outbox.recv().await {
-            // A peer that stopped reading without closing (a phone that left
-            // the network) takes no more bytes, and TCP may keep the socket
-            // up for many minutes before it says so. A frame it has not taken
-            // in this long ends the seat: a queue that never fills, because
-            // the seat is quiet, cannot end it, nor can a silence timer the
-            // client never asked for.
-            let sent = tokio::time::timeout(WRITE_STALL, sink.send(Message::text(text))).await;
-            if !matches!(sent, Ok(Ok(()))) {
-                break;
-            }
+        let mut stalled = false;
+        tokio::select! {
+            biased;
+            () = writer_cancel.cancelled() => {},
+            () = async {
+                while let Some(text) = outbox.recv().await {
+                    // A peer that stopped reading without closing (a phone that left
+                    // the network) takes no more bytes, and TCP may keep the socket
+                    // up for many minutes before it says so. A frame it has not taken
+                    // in this long ends the seat: a queue that never fills, because
+                    // the seat is quiet, cannot end it, nor can a silence timer the
+                    // client never asked for.
+                    let sent = tokio::time::timeout(WRITE_STALL, sink.send(Message::text(text))).await;
+                    if !matches!(sent, Ok(Ok(()))) {
+                        stalled = sent.is_err();
+                        break;
+                    }
+                }
+            } => {},
         }
         writer_cancel.cancel();
+        (sink, stalled)
     });
 
-    let mut subscriptions: HashMap<i64, JoinHandle<()>> = HashMap::new();
+    let ordered = open_ordered(seat, desk.clone(), sender.clone(), phone.clone());
     let mut lanes: HashMap<String, mpsc::UnboundedSender<Value>> = HashMap::new();
     let result = loop {
         // A lean phone pings; one that has said nothing for this long is a
@@ -241,31 +270,19 @@ where
                     let _ = lane.send(frame);
                     continue;
                 }
-                let answer = scoped(
-                    seat,
-                    &sender,
-                    answer(
-                        &frame,
-                        seat,
-                        &desk,
-                        &sender,
-                        &mut subscriptions,
-                        phone.as_ref(),
-                    ),
-                );
-                if seat.is_remote() {
-                    // Revocation cannot wait for a driver or computer to answer.
-                    // Drop this socket's pending call, not the cleanup below.
-                    // This is not rollback: persisted choices and dispatched
-                    // effects survive; an interrupted mobile prompt keeps its
-                    // durable unknown receipt. Desk mutations still run to completion.
-                    tokio::select! {
-                        biased;
-                        () = cancel.cancelled() => break Ok(()),
-                        () = answer => {}
+                if frame["cmd"] == "client.hello" {
+                    // Negotiation changes how the very next frame is read,
+                    // including whether the silence deadline applies.
+                    if let Some(id) = frame["id"].as_i64() {
+                        command(id, &frame, seat, &desk, &sender, phone.as_ref()).await;
                     }
+                } else if independent(&frame) {
+                    let (desk, sender, phone) = (desk.clone(), sender.clone(), phone.clone());
+                    tokio::spawn(async move {
+                        run_command(&frame, seat, &desk, &sender, phone.as_ref()).await;
+                    });
                 } else {
-                    answer.await;
+                    let _ = ordered.send(frame);
                 }
             }
             Some(Ok(_)) => {}
@@ -282,14 +299,14 @@ where
     {
         let _ = remote.cancel_pairing(&id);
     }
-    for handle in subscriptions.values() {
-        handle.abort();
+    if let Ok((sink, true)) = writer.await {
+        let socket = sink
+            .reunite(incoming)
+            .expect("the reader and writer came from the same seated socket");
+        // Normal closes must drain their final replies, especially on Windows.
+        // Only a write timeout discards bytes the peer has stopped taking.
+        socket.abortive_close()?;
     }
-    writer.abort();
-    for handle in subscriptions.into_values() {
-        let _ = handle.await;
-    }
-    let _ = writer.await;
     result
 }
 
@@ -334,26 +351,153 @@ fn open_lane(
     let (lane, mut frames) = mpsc::unbounded_channel::<Value>();
     tokio::spawn(async move {
         while let Some(frame) = frames.recv().await {
-            let Some(id) = frame.get("id").and_then(Value::as_i64) else {
-                continue;
-            };
-            let answered = scoped(
-                seat,
-                &sender,
-                command(id, &frame, seat, &desk, &sender, phone.as_ref()),
-            );
-            if seat.is_remote() {
-                tokio::select! {
-                    biased;
-                    () = sender.cancel.cancelled() => break,
-                    () = answered => {}
-                }
-            } else {
-                answered.await;
+            if seat.is_remote() && sender.cancel.is_cancelled() {
+                break;
             }
+            run_command(&frame, seat, &desk, &sender, phone.as_ref()).await;
         }
     });
     lane
+}
+
+/// Global mutations and subscription controls retain their arrival order.
+/// This worker owns the subscriptions so cancellation can remove them even
+/// while a command is waiting on a driver. Accepted desk writes still finish.
+fn open_ordered(
+    seat: Seat,
+    desk: Agents,
+    sender: Outbox,
+    phone: Option<crate::remote::Phone>,
+) -> mpsc::UnboundedSender<Value> {
+    let (tx, mut frames) = mpsc::unbounded_channel::<Value>();
+    tokio::spawn(async move {
+        let mut subscriptions: HashMap<i64, JoinHandle<()>> = HashMap::new();
+        let mut closed = false;
+        loop {
+            let frame = tokio::select! {
+                biased;
+                () = sender.cancel.cancelled(), if !closed => {
+                    closed = true;
+                    for (_, handle) in subscriptions.drain() {
+                        handle.abort();
+                    }
+                    if seat.is_remote() { break; }
+                    continue;
+                }
+                frame = frames.recv() => match frame {
+                    Some(frame) => frame,
+                    None => break,
+                },
+            };
+            if frame.get("cmd").is_some() {
+                let work = run_command(&frame, seat, &desk, &sender, phone.as_ref());
+                tokio::pin!(work);
+                tokio::select! {
+                    biased;
+                    () = sender.cancel.cancelled(), if !closed => {
+                        closed = true;
+                        for (_, handle) in subscriptions.drain() {
+                            handle.abort();
+                        }
+                        if seat.is_remote() { break; }
+                        work.await;
+                    }
+                    () = &mut work => {}
+                }
+            } else if !closed {
+                answer(
+                    &frame,
+                    seat,
+                    &desk,
+                    &sender,
+                    &mut subscriptions,
+                    phone.as_ref(),
+                )
+                .await;
+            }
+        }
+        for (_, handle) in subscriptions {
+            handle.abort();
+        }
+    });
+    tx
+}
+
+/// These commands do not order room writes or subscription controls. A read
+/// sees committed state when it runs; callers needing a preceding write must
+/// await that write's reply (or the ordered `ping`) before asking. An
+/// `accounts.*` write can wait seconds on a status run, a copy, the policy
+/// lock or the agent's package, so a `ping` sent after one may be answered
+/// first.
+fn independent(frame: &Value) -> bool {
+    matches!(
+        read_command(frame),
+        Ok(Command::LinkPreview { .. }
+            | Command::DesksLink { .. }
+            | Command::DesksUnlink { .. }
+            | Command::AccountsList {}
+            | Command::AccountsCreate { .. }
+            | Command::AccountsRename { .. }
+            | Command::AccountsRemove { .. }
+            | Command::AccountsStatus { .. }
+            | Command::AccountsSetupList { .. }
+            | Command::AccountsSetupCopy { .. }
+            | Command::AccountsLoginStart { .. }
+            | Command::FileRead { .. }
+            | Command::AvatarRead { .. }
+            | Command::VoiceStatus { .. }
+            | Command::VoiceModels {}
+            | Command::VoiceTranscribe { .. }
+            | Command::ImagesStatus {}
+            | Command::WebsearchStatus {}
+            | Command::CapabilitiesOptions {}
+            | Command::RemoteStatus {}
+            | Command::RemoteRelays {}
+            | Command::RemoteDevices {}
+            | Command::DesksLinks {}
+            | Command::CredentialList {}
+            | Command::SkillsList { persona_id: None }
+            | Command::ProvidersList {}
+            | Command::ModelsList {}
+            | Command::ModelsCatalog { .. }
+            | Command::ModelsEfforts { .. }
+            | Command::SearchAll { .. }
+            | Command::ScheduleList {}
+            | Command::BackendsList {}
+            | Command::ComputerRuntimes {}
+            | Command::ComputerCapacity {}
+            | Command::ComputerReleases {}
+            | Command::ComputerReleasesCheck {}
+            | Command::ComputerBrowsersList {}
+            | Command::SecretsList {}
+            | Command::ThreadList { persona_id: None }
+            | Command::FilesBrowse { .. }
+            | Command::FilesDownload { .. })
+    )
+}
+
+async fn run_command(
+    frame: &Value,
+    seat: Seat,
+    desk: &Agents,
+    sender: &Outbox,
+    phone: Option<&crate::remote::Phone>,
+) {
+    let Some(id) = frame.get("id").and_then(Value::as_i64) else {
+        return;
+    };
+    let work = scoped(seat, sender, command(id, frame, seat, desk, sender, phone));
+    if seat.is_remote() {
+        // A revoked or disconnected remote cannot leave work running. This
+        // is cancellation, not rollback of effects already dispatched.
+        tokio::select! {
+            biased;
+            () = sender.cancel.cancelled() => {},
+            () = work => {},
+        }
+    } else {
+        work.await;
+    }
 }
 
 /// A frame's work, told who sent it: the person at this computer in the
@@ -434,28 +578,10 @@ async fn command(
                 Refused::because(FORBIDDEN, "That seat may not run this command."),
             );
         }
-        // A card waits on somebody else's server, and the read loop or a lane answers one
-        // frame before it reads the next. Replies are matched by id, so
-        // this one may arrive after the commands that followed it.
         Ok(Command::LinkPreview { url }) => {
-            let sender = sender.clone();
-            tokio::spawn(async move {
-                let card = crate::link_preview::preview(&url).await;
-                reply(&sender, id, Ok(json!(card)));
-            });
+            let card = crate::link_preview::preview(&url).await;
+            reply(sender, id, Ok(json!(card)));
         }
-        // Making or ending a link waits on the other desk, for seconds when
-        // it is far or away; the window's other commands do not wait behind it.
-        Ok(command @ (Command::DesksLink { .. } | Command::DesksUnlink { .. })) => {
-            let (sender, desk) = (sender.clone(), desk.clone());
-            tokio::spawn(async move {
-                let result = commands::run(command, &desk.log, &desk.room, &desk.parts).await;
-                reply(&sender, id, result);
-            });
-        }
-        // An account's commands have no teammate's lane, and a status run,
-        // a copy or a wait for the policy lock can take seconds: the read
-        // loop does not wait on them.
         Ok(
             command @ (Command::AccountsList {}
             | Command::AccountsCreate { .. }
@@ -465,70 +591,23 @@ async fn command(
             | Command::AccountsSetupList { .. }
             | Command::AccountsSetupCopy { .. }),
         ) => {
-            let (sender, desk) = (sender.clone(), desk.clone());
-            tokio::spawn(async move {
-                let result =
-                    commands::accounts::run(command, &desk.log, &desk.room, seat == Seat::Desk)
-                        .await;
-                reply(&sender, id, result);
-            });
+            let result = commands::accounts::run(command, log, room, seat == Seat::Desk).await;
+            reply(sender, id, result);
         }
-        // Starting may first fetch the agent's package.
         Ok(Command::AccountsLoginStart { account_id, email }) => {
-            let (sender, room) = (sender.clone(), room.clone());
-            tokio::spawn(async move {
-                let result = room
-                    .accounts_login_start(
-                        &account_id,
-                        email,
-                        sender.cancel.clone(),
-                        seat == Seat::Desk,
-                    )
-                    .await
-                    .map(|attempt| {
-                        lock(&sender.account_logins).insert(account_id, attempt.clone());
-                        json!({ "id": attempt })
-                    });
-                reply(&sender, id, result);
-            });
-        }
-        // A picture is read from disk, and a conversation full of them
-        // asks for many at once; none of them may hold up the commands
-        // behind it, such as the thread list of the teammate just opened.
-        // A global read changes nothing, so it has no place in the order:
-        // a search through every tape or a provider slow to say what it
-        // can do answers when it is ready, and the commands behind it go
-        // on. It starts only once everything asked before it has finished,
-        // so it never sees the room older than its asker did. Anything that
-        // writes stays in order: `mcp.auth_status` may refresh a token, and
-        // `ping` is how a client learns that what it asked before has landed.
-        // `accounts.*` is the exception, answered off the loop above: a
-        // `ping` sent after one of its writes can be answered first.
-        Ok(
-            command @ (Command::FileRead { .. }
-            | Command::AvatarRead { .. }
-            | Command::VoiceStatus { .. }
-            | Command::VoiceModels {}
-            | Command::ImagesStatus {}
-            | Command::WebsearchStatus {}
-            | Command::CapabilitiesOptions {}
-            | Command::RemoteStatus {}
-            | Command::RemoteRelays {}
-            | Command::DesksLinks {}
-            | Command::CredentialList {}
-            | Command::SkillsList { persona_id: None }
-            | Command::ProvidersList {}
-            | Command::ModelsList {}
-            | Command::ModelsCatalog { .. }
-            | Command::ModelsEfforts { .. }
-            | Command::SearchAll { .. }
-            | Command::ScheduleList {}),
-        ) => {
-            let (sender, desk) = (sender.clone(), desk.clone());
-            tokio::spawn(async move {
-                let result = commands::run(command, &desk.log, &desk.room, &desk.parts).await;
-                reply(&sender, id, result);
-            });
+            let result = room
+                .accounts_login_start(
+                    &account_id,
+                    email,
+                    sender.cancel.clone(),
+                    seat == Seat::Desk,
+                )
+                .await
+                .map(|attempt| {
+                    lock(&sender.account_logins).insert(account_id, attempt.clone());
+                    json!({ "id": attempt })
+                });
+            reply(sender, id, result);
         }
         Ok(command) => {
             // `teammate.tools` answers JSON null when there is no ledger,
@@ -571,11 +650,20 @@ async fn command(
                     if let Ok(value) = &result
                         && let Some(id) = value.get("id").and_then(Value::as_str)
                     {
-                        *sender
+                        let mut pairing = sender
                             .pairing
                             .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                            Some(id.to_owned());
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        // Accepted desk commands may finish after disconnect.
+                        // Serialize ownership with cleanup so a late invitation
+                        // cannot outlive the socket that requested it.
+                        if sender.cancel.is_cancelled() {
+                            if let Some(remote) = parts.remote.upgrade() {
+                                let _ = remote.cancel_pairing(id);
+                            }
+                        } else {
+                            *pairing = Some(id.to_owned());
+                        }
                     }
                     result
                 }
@@ -701,6 +789,10 @@ async fn command(
                     threads::list(log, room, persona_id.as_deref(), seat == Seat::Phone)
                 }
                 (Command::ClientHello { capabilities }, _) => {
+                    sender.roster_options.store(
+                        capabilities.iter().any(|name| name == "rosterOptions"),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
                     sender.threads2.store(
                         capabilities.iter().any(|name| name == THREADS2),
                         std::sync::atomic::Ordering::Relaxed,
@@ -793,7 +885,12 @@ async fn command(
                     if result.is_ok()
                         && let Some(voice) = &parts.voice
                     {
-                        voice.bind_connection(call_id, sender.cancel.clone());
+                        let _ = voice.bind_connection(
+                            call_id,
+                            &sender.call_owner,
+                            sender.cancel.clone(),
+                            sender.pairing_cancel.clone(),
+                        );
                     }
                     result
                 }
@@ -887,6 +984,7 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "threads",
     "runs",
     "threads2",
+    "rosterOptions",
     "lean",
     "thumbnails",
     "turnRetry",

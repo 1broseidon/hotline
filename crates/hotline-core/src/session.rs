@@ -35,6 +35,8 @@ mod accounts;
 mod agent;
 mod asking;
 pub(crate) mod avatar;
+mod call_cards;
+mod call_files;
 mod chapters;
 mod computer;
 mod dm;
@@ -45,11 +47,13 @@ pub(crate) mod generate;
 mod job_thread;
 pub(crate) mod jobs;
 pub(crate) use hotline_room::tool_ledger as ledger;
+mod calls;
 mod lifecycle;
 mod links;
 mod narration;
 mod pacing;
 mod peers;
+mod person_name;
 mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
@@ -242,8 +246,6 @@ pub trait Agents: Send + Sync {
 /// A voice front's reach into the room: see [`Room::front_reach`].
 pub(crate) struct FrontReach {
     pub tools: TeammateTools,
-    pub servers: Vec<mcp::McpServer>,
-    pub vault: Option<Arc<Vault>>,
     pub capability: CapabilityLease,
 }
 
@@ -297,13 +299,7 @@ impl Agents for DeskAgents {
         }
         // Before the registry, so a refused account needs no harness on this
         // machine to say so.
-        let account = crate::accounts::resolve::resolve(&self.root, &self.log, persona).map_err(
-            |refusal| {
-                let agent = acp::registry::name_of(&self.root, &persona.backend_id)
-                    .unwrap_or_else(|| persona.backend_id.clone());
-                refusal.public_sentence(&persona.name, &agent)
-            },
-        )?;
+        let account = accounts::start_account(&self.root, &self.log, persona)?;
         // The registry answers whether this machine can start that harness at
         // all, and says what is missing when it cannot.
         acp::registry::launch(&self.root, &persona.backend_id)?;
@@ -599,6 +595,7 @@ pub struct Room {
     /// The turns in flight that `post_to_chat` may post from, by thread, and
     /// whether each has (`session/post.rs`).
     posting: Mutex<HashMap<ThreadId, post::Posting>>,
+    call_closings: Mutex<HashMap<String, calls::CallClosing>>,
     /// The job threads the room holds: each job's queue, and its agent while
     /// it has one (`session/job_thread.rs`). Made at a job's first firing and
     /// dropped when it ends.
@@ -622,6 +619,7 @@ pub struct Room {
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
     human_waits: Mutex<HashMap<String, HumanWait>>,
+    voice_questions: Mutex<HashMap<String, asking::Question>>,
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
     answering_later: Mutex<()>,
@@ -759,6 +757,7 @@ impl Room {
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             drawing: Mutex::new(HashSet::new()),
             posting: Mutex::new(HashMap::new()),
+            call_closings: Mutex::new(HashMap::new()),
             job_threads: Mutex::new(HashMap::new()),
             subagents: Mutex::new(HashMap::new()),
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
@@ -767,6 +766,7 @@ impl Room {
             peers: peers::Peers::default(),
             sides: sides::Sides::default(),
             human_waits: Mutex::new(HashMap::new()),
+            voice_questions: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
@@ -881,6 +881,9 @@ impl Room {
             None => (idle_info(persona_id), None),
         };
         info.account = self.session_account(persona_id, running);
+        for processes in self.sides.processes(persona_id) {
+            info.processes.extend(processes.listed());
+        }
         info
     }
 
@@ -1019,18 +1022,7 @@ impl Room {
 
     pub(crate) fn set_voice(&self, voice: &Arc<crate::voice::Calls>) {
         *lock(&self.voice) = Arc::downgrade(voice);
-    }
-
-    pub(crate) fn voice_record(&self, kind: &str, text: &str) -> Result<String, String> {
-        let id = new_id();
-        self.try_write_value(
-            crate::voice::TAPE_ID,
-            &json!({
-                "kind": kind, "id": id, "ts": now_ms(), "text": text,
-            }),
-        )
-        .map_err(|_| "The voice conversation could not be saved.".to_string())?;
-        Ok(id)
+        self.push.set_voice(voice);
     }
 
     /// Keeps `spoken` as what a call to the teammate said for its reply
@@ -1113,8 +1105,10 @@ impl Room {
     /// open chapter marker, so a later resume can point the checkpoint back at
     /// this stretch, and only for that account.
     fn stamp_chapter_session(&self, persona_id: &str, session_id: &str, account_id: Option<&str>) {
-        let events = self.tape(persona_id);
-        let Some(open) = chapter_view::open_chapter(&events) else {
+        let (open, _) = self
+            .log
+            .chapter_activity(&StreamId::Tape(persona_id.to_string()));
+        let Some(open) = open else {
             return;
         };
         if open.get("sessionId").and_then(Value::as_str) == Some(session_id)
@@ -1122,7 +1116,7 @@ impl Room {
         {
             return;
         }
-        let mut stamped = open.clone();
+        let mut stamped = open;
         if let Some(object) = stamped.as_object_mut() {
             object.insert("sessionId".into(), Value::from(session_id));
             match account_id {
@@ -1204,10 +1198,23 @@ impl Room {
         if crate::linked::is_linked(persona_id) {
             return Ok(());
         }
+        let stamped = self.card_with_origin(persona_id, event);
+        let event = stamped.as_ref();
         self.log
             .append(&StreamId::Tape(persona_id.to_string()), event)?;
+        if call_cards::is_card(event)
+            && event["from"]["kind"] == "call"
+            && let Some(key) = event["from"]["thread"].as_str()
+        {
+            let thread = ThreadId {
+                kind: crate::contract::ThreadKind::Call,
+                key: key.to_string(),
+            };
+            let stream = StreamId::of_thread(&thread).expect("a call has a stream");
+            self.log.append(&stream, event)?;
+        }
         self.index(persona_id, event);
-        if persona_id != crate::voice::TAPE_ID
+        if persona_id != "voice-dispatcher"
             && let Some(voice) = lock(&self.voice).upgrade()
         {
             voice.card(persona_id, event);
@@ -1305,18 +1312,21 @@ impl Room {
         });
     }
 
-    /// The processes of this teammate's running session, for the person.
-    fn processes_of(&self, persona_id: &str) -> Result<Arc<Processes>, String> {
-        self.session(persona_id)?
-            .driver
-            .processes()
-            .ok_or_else(|| "This teammate leaves no commands running.".to_string())
+    /// Find a command only among this teammate's home and work threads.
+    fn processes_of(&self, persona_id: &str, id: &str) -> Result<Arc<Processes>, String> {
+        let home = lock(&self.sessions)
+            .get(persona_id)
+            .and_then(|session| session.driver.processes());
+        home.into_iter()
+            .chain(self.sides.processes(persona_id))
+            .find(|processes| processes.output(id).is_some())
+            .ok_or_else(|| "That process is not running.".to_string())
     }
 
     /// Stops one command the teammate left running. It does not wake the
     /// teammate: the person stopped it, and the chip going says so.
     pub fn process_stop(&self, persona_id: &str, id: &str) -> Result<(), String> {
-        self.processes_of(persona_id)?
+        self.processes_of(persona_id, id)?
             .cancel(jobs::JobArgs {
                 job_id: id.to_string(),
                 reason: Some("stopped by the person".to_string()),
@@ -1332,7 +1342,7 @@ impl Room {
         id: &str,
     ) -> Result<crate::contract::ProcessOutput, String> {
         let (command, tail) = self
-            .processes_of(persona_id)?
+            .processes_of(persona_id, id)?
             .output(id)
             .ok_or_else(|| "That process is not running.".to_string())?;
         Ok(crate::contract::ProcessOutput { command, tail })

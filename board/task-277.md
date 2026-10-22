@@ -1,8 +1,8 @@
 ---
 id: task-277
 title: "Settings: cookie offers on or off (on by default), for all sites or a selected list, like a provider's model filter"
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: high
 tags:
   - cookies
@@ -15,7 +15,7 @@ relatedFiles:
 parentId: epic-24
 createdAt: "2026-10-22T21:03:38.914Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T21:03:43.170Z"
+updatedAt: "2026-10-22T21:04:05.516Z"
 dispatch:
   agent: codex
   by: cli

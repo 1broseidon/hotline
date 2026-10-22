@@ -43,7 +43,7 @@ impl Room {
             .collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) async fn poll_secret_uses(self: &Arc<Self>, persona: &str) {
         let watch = self.use_watch(persona);
         let mut watch = watch.lock().await;

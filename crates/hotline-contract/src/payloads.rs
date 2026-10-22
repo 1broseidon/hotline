@@ -253,6 +253,12 @@ pub enum LinkedDelivery {
         message: String,
         /// ask or handoff.
         intent: String,
+        /// For a handoff into the work thread an earlier one opened: the
+        /// request id of that earlier handoff. A desk that predates this
+        /// opens a new thread instead.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        continues: Option<String>,
     },
     /// The answer to a request this desk sent, by its id.
     Result {

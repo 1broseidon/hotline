@@ -15,13 +15,18 @@ relatedFiles:
 parentId: epic-24
 createdAt: "2026-10-22T21:03:38.914Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T21:03:40.405Z"
+updatedAt: "2026-10-22T21:03:43.170Z"
 dispatch:
   agent: codex
   by: cli
   at: "2026-10-22T21:03:40.273Z"
   until: review
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 66466
+    at: "2026-10-22T21:03:43.170Z"
 assignee: codex
 ---
 

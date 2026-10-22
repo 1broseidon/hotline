@@ -1,8 +1,8 @@
 ---
 id: task-273
 title: "Desk: offer your own browser's cookie for the site a teammate opens, always asking, and pull it back out of the container on demand"
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: high
 tags:
   - credentials
@@ -21,7 +21,7 @@ dispatch:
     pid: 59533
     at: "2026-10-22T15:31:16.600Z"
 assignee: codex
-updatedAt: "2026-10-22T15:31:16.600Z"
+updatedAt: "2026-10-22T15:31:52.219Z"
 ---
 
 ## Description

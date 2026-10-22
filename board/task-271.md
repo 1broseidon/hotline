@@ -43,3 +43,4 @@ Done when:
 
 ## Log
 - 2026-10-22T07:40:00.927Z: [codex] Started on dispatch/task-271. The current Unix path already uses killpg(SIGKILL); Apple's XNU killpg1 iterates group members and signals each individually, so a group syscall is not simultaneous delivery. Investigating a group-stop-before-group-kill fix shared by explicit cancellation and the drop guard; adding the 50-iteration regression and retaining real-wire steering coverage.
+- 2026-10-22T07:46:58.262Z: [codex] Implemented group-wide SIGSTOP then SIGKILL in the shared Unix termination path (including Drop); decision-35 records why. The new sleep-30/touch-after regression passed all 50 iterations on macOS arm64 and Linux arm64 in the precheck Ubuntu image. The real-wire steering test passed 20/20 consecutive Mac runs (both provider APIs each time). Timeout and sandbox-drop tests also assert no next statement. Full make check and handoff precheck are still running.

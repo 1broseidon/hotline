@@ -160,6 +160,21 @@ fn copy_brings_the_chosen_categories_and_no_secret() {
 }
 
 #[test]
+fn a_setup_deeper_than_the_windows_path_limit_is_copied_and_copied_again() {
+    let f = fixture();
+    let deep = Path::new("skills")
+        .join("d".repeat(100))
+        .join("e".repeat(100))
+        .join("SKILL.md");
+    write(f.source.dir.join(&deep), "deep");
+    copy_setup(&f.source, &f.account, &CLAUDE, &ids(&["skills"])).unwrap();
+    assert_eq!(read(f.account.join(&deep)), "deep");
+    write(f.source.dir.join(&deep), "deeper");
+    copy_setup(&f.source, &f.account, &CLAUDE, &ids(&["skills"])).unwrap();
+    assert_eq!(read(f.account.join(&deep)), "deeper");
+}
+
+#[test]
 fn copy_again_replaces_only_the_marked_categories() {
     let f = fixture();
     let acct = &f.account;

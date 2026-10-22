@@ -26,3 +26,6 @@ macOS comes before Windows (epic-24 decision 12).
 
 Done when:
 - docs/design/os-passkeys.md answers each question with evidence (docs, a signed test build, or Apple's reply) and ends in a yes or no for task-270.
+
+## Log
+- 2026-10-22T05:17:06.520Z: [claude] Spike written: docs/design/os-passkeys.md on release/0.43.0. Answer for task-270 as scoped (macOS first): no, unless Apple grants com.apple.developer.web-browser.public-key-credential, which is for apps that act as the user's web browser; only the Account Holder can request it (developer.apple.com/contact/request/macos-browsers-passkeys/). Windows 11 works today via webauthn.dll with plugin passkey managers (1Password, Bitwarden). Linux: no API yet. Needs George: whether to file the Apple request, and whether to flip task-270 to Windows first or try the local-Chrome-as-signer route.

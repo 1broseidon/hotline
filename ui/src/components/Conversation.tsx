@@ -17,6 +17,7 @@ import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
 import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
+import { ErrorCard, errorDetails } from "./ErrorCard";
 import { SessionPickers } from "./Pickers";
 import { Starters, untouched } from "./Starters";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
@@ -65,6 +66,7 @@ export function Conversation({
 	onHangUp,
 	callBar,
 	onProviders,
+	onChooseAccount,
 }: {
 	entry: RosterEntry;
 	/** The room's models, for the model picker in the band. */
@@ -79,6 +81,7 @@ export function Conversation({
 	callBar?: ReactNode;
 	/** Opens Settings › Providers, where a teammate with no provider is fixed. */
 	onProviders(): void;
+	onChooseAccount(): void;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
@@ -322,6 +325,7 @@ export function Conversation({
 	 * so on its own. */
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
+	const refusedCard = refused !== null && notice === refused && errorDetails(refused).kind !== undefined;
 	// The call on the line, when it is to this teammate: its face then leads the call card.
 	const liveCall = useCall();
 	const ourCall = callBar !== undefined && liveCall !== null && liveCall.target?.personaId === persona.id ? liveCall : null;
@@ -435,7 +439,18 @@ export function Conversation({
 				{callBar}
 			</div>
 
-			{notice !== null && (
+			{refusedCard ? (
+				<div className="shrink-0 px-4">
+					<ErrorCard
+						text={refused}
+						personaId={personaId}
+						teammate={persona.name}
+						backendId={persona.backendId}
+						onChooseAccount={onChooseAccount}
+						onProviders={onProviders}
+					/>
+				</div>
+			) : notice !== null && (
 				<p
 					role="status"
 					className="flex shrink-0 items-center gap-2 bg-danger-soft px-4 py-1.5 text-sm text-ink"
@@ -466,6 +481,8 @@ export function Conversation({
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 					onProviders={onProviders}
+					backendId={persona.backendId}
+					onChooseAccount={onChooseAccount}
 				/>
 				{fresh && (
 					<div className="relative shrink-0 px-6">

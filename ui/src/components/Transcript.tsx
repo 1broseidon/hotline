@@ -98,6 +98,8 @@ export function Transcript({
 	onOpenWork,
 	workOpen,
 	onProviders,
+	backendId,
+	onChooseAccount,
 	thread,
 	more = false,
 	onEarlier,
@@ -148,6 +150,8 @@ export function Transcript({
 	workOpen?: string | null | undefined;
 	/** Opens Settings › Providers, from a card saying no provider is connected. */
 	onProviders?(): void;
+	backendId?: string;
+	onChooseAccount?(): void;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -429,6 +433,8 @@ export function Transcript({
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
 									{...(onProviders !== undefined ? { onProviders } : {})}
+									{...(!speakers && thread === undefined && backendId !== undefined ? { backendId } : {})}
+									{...(!speakers && thread === undefined && onChooseAccount !== undefined ? { onChooseAccount } : {})}
 									onJump={onJump}
 								/>
 							)}
@@ -512,6 +518,8 @@ const Row = memo(function Row({
 	onOpenThread,
 	onOpenScreen,
 	onProviders,
+	backendId,
+	onChooseAccount,
 	onJump,
 }: {
 	personaId: string;
@@ -535,6 +543,8 @@ const Row = memo(function Row({
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenScreen?(): void;
 	onProviders?(): void;
+	backendId?: string;
+	onChooseAccount?(): void;
 	onJump(eventId: string): void;
 }) {
 	const run: Run = { top, bottom };
@@ -584,6 +594,8 @@ const Row = memo(function Row({
 						{...(onRetry ? { onRetry } : {})}
 						{...(onRunAgain ? { onRunAgain } : {})}
 						{...(onProviders ? { onProviders } : {})}
+						{...(backendId !== undefined ? { backendId, teammate: ownerName } : {})}
+						{...(onChooseAccount ? { onChooseAccount } : {})}
 					/>
 				);
 			return (

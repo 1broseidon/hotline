@@ -3015,6 +3015,82 @@
 		background: none;
 		box-shadow: inset 0 0 0 1.5px var(--ink-3);
 	}
+	/* Settings › Agent accounts. An account's dot is what the agent said of
+	 * its sign-in: green signed in, amber while it is being found out, red
+	 * when the last sign-in did not finish, grey for the rest. An account
+	 * nobody has asked about has no dot, only the room for one. */
+	.agent-account-dot,
+	.agent-account-nodot {
+		flex-shrink: 0;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+	}
+	.agent-account-dot {
+		background: var(--ink-4);
+	}
+	.agent-account-dot[data-state="signed_in"] {
+		background: var(--accent);
+	}
+	.agent-account-dot[data-state="checking"],
+	.agent-account-dot[data-state="signing"] {
+		background: var(--warn);
+	}
+	.agent-account-dot[data-state="failed"] {
+		background: var(--danger);
+	}
+	/* An agent's initial on a rounded square, so it never reads as a teammate. */
+	.agent-account-initial {
+		display: inline-grid;
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 8px;
+		background: var(--fill-hover);
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+		font-weight: 600;
+	}
+	.agent-account-chip {
+		display: inline-flex;
+		height: 20px;
+		flex-shrink: 0;
+		align-items: center;
+		padding: 0 7px;
+		border-radius: var(--radius-chip);
+		background: var(--fill-hover);
+		color: var(--ink-2);
+		font-size: var(--text-xs);
+	}
+	/* An account row opens its page from anywhere on it, and still carries
+	 * its own key: the open button stretches over the row, the key sits on it. */
+	.agent-account-row {
+		position: relative;
+	}
+	.agent-account-row:hover {
+		background: var(--fill-hover);
+	}
+	.agent-account-open {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		align-items: center;
+		gap: 12px;
+		text-align: left;
+	}
+	.agent-account-open::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+	}
+	.agent-account-row > .control {
+		position: relative;
+		z-index: 1;
+	}
+	.agent-account-caution {
+		background: color-mix(in oklch, var(--warn) 8%, transparent);
+	}
 	/* A turn's work floats in the window's corner, over the conversation
 	 * rather than beside it: a translucent card you glance at and close,
 	 * with the steps in the instrument voice, following the newest. */

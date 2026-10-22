@@ -1,8 +1,8 @@
 ---
 id: task-271
 title: A cancelled shell job can run its next command before it dies
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: high
 tags:
   - bug
@@ -12,7 +12,7 @@ relatedFiles:
   - crates/hotline-core/tests/steering.rs
 createdAt: "2026-10-22T07:37:09.827Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T07:37:21.018Z"
+updatedAt: "2026-10-22T07:37:56.177Z"
 dispatch:
   agent: codex
   by: cli

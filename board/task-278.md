@@ -42,3 +42,4 @@ Done when:
 
 ## Log
 - 2026-10-22T22:47:19.469Z: [codex] Traced teardown: seated_inner currently joins the writer before setting zero linger, and sealed_session retains admission until it returns. Adding a named 1 s reset regression and stressing the current path before choosing the smallest fix; preserving decision-24's timeout-only reset.
+- 2026-10-22T22:52:43.963Z: [codex] Baseline 1 s regression passed 200/200 with four parallel processes, --test-threads=32, and 12 CPU hogs (162.6 s), so the exact CI flake remains unreproduced. A deterministic cancellation regression fails before the fix: the detached writer sends 65,605 bytes after its seat task is cancelled and joined. Replacing the spawned writer with a locally polled future and consuming abortive close removes that lifetime gap.

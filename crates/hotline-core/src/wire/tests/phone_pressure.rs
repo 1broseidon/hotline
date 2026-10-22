@@ -51,6 +51,44 @@ async fn until(what: &str, condition: impl Fn() -> bool) {
 }
 
 #[tokio::test]
+async fn dropping_a_seat_drops_its_blocked_writer_before_returning() {
+    use tokio::io::AsyncReadExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let (mut phone, serving) = phone_socket(log.clone(), Arc::new(Quiet::new()), Seat::Owner).await;
+    write(&mut phone, json!({"id":1,"sub":"room"})).await;
+    assert_eq!(next(&mut phone).await["ok"], true);
+    assert!(next(&mut phone).await["snapshot"].is_array());
+    log.append(
+        &StreamId::Room,
+        &json!({"kind":"setting","id":"large","value":"x".repeat(65536)}),
+    )
+    .unwrap();
+    let transport = phone.get_mut();
+    // One byte proves the writer started a frame larger than the 1 KiB pipe.
+    tokio::time::timeout(Duration::from_secs(30), transport.read_u8())
+        .await
+        .expect("the writer starts the large frame")
+        .unwrap();
+    serving.abort();
+    assert!(serving.await.unwrap_err().is_cancelled());
+    let mut remaining = Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        transport.read_to_end(&mut remaining),
+    )
+    .await
+    .expect("the cancelled seat owns no live transport")
+    .unwrap();
+    assert!(
+        remaining.len() <= 1024,
+        "a detached writer kept sending after the seat ended: {} bytes",
+        remaining.len()
+    );
+}
+
+#[tokio::test]
 async fn a_burst_of_1000_tool_updates_keeps_a_slow_phone_connected() {
     for seat in [Seat::Phone, Seat::Owner] {
         let root = tempfile::tempdir().unwrap();

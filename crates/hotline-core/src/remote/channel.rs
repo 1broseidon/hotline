@@ -29,7 +29,7 @@ pub(super) struct Channel<S> {
 impl<S: AsyncRead + AsyncWrite + crate::wire::transport::AbortiveClose + Unpin>
     crate::wire::transport::AbortiveClose for Channel<S>
 {
-    fn abortive_close(&self) -> io::Result<()> {
+    fn abortive_close(self) -> io::Result<()> {
         self.socket.abortive_close()
     }
 }

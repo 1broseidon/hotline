@@ -1297,7 +1297,9 @@ it lets a colleague use another's tools.
   wire's cleanup path for subscriptions and pending commands. The socket
   reader observes silence and cancellation while global commands wait;
   only a seat that exceeds the write deadline selects zero TCP linger, so
-  its queued bytes are discarded on close. Ordinary WebSocket and HTTP
+  its queued bytes are discarded on close before admission is released.
+  The writer belongs to the seat future, including when that future is dropped;
+  abortive close consumes the transport without yielding. Ordinary WebSocket and HTTP
   closes retain normal drain behavior.
   No forwarding
   header can manufacture a separate budget or device identity.
@@ -1312,6 +1314,10 @@ it lets a colleague use another's tools.
   command and desktop work surviving disconnect;
   `remote/tests/phone.rs` `a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound`
   proves the stalled connection ends in a TCP reset;
+  `a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission` bounds
+  that reset to one second after admission reaches zero.
+  `wire/tests/phone_pressure.rs` `dropping_a_seat_drops_its_blocked_writer_before_returning`
+  proves cancellation leaves no detached writer sending after its seat ends;
   `a_revoked_seat_drains_tcp_instead_of_resetting_it` in the same file proves
   ordinary revocation drains without a reset.
 - **Testing limits:** the proxy harness uses one upstream TLS connection per

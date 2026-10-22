@@ -423,7 +423,7 @@ function AccountPage({
 	const state = dotState(view, signingHere);
 	const checkedLine =
 		status.state === "signed_out"
-			? "Teammates on this account do not start until it is signed in"
+			? "Its teammates ask you to sign in at their next message"
 			: status.checkedAt !== undefined
 				? checkedWords(agent.name, status.checkedAt)
 				: undefined;

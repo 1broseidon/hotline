@@ -39,7 +39,7 @@ export function AccountChoices({
 				const status = view.status;
 				if (signing === view.account.id) return choice(view.account.id, view.account.name, "Signing in…");
 				if (status.state === "signed_in") return choice(view.account.id, view.account.name, whoLine(status) || "Signed in");
-				if (status.state === "signed_out") return choice(view.account.id, view.account.name, "Not signed in · it will not start until it is", true);
+				if (status.state === "signed_out") return choice(view.account.id, view.account.name, "Not signed in · sign in to use it", true);
 				return choice(view.account.id, view.account.name, statusWords(status.state));
 			})}
 		</>

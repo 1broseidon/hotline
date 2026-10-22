@@ -358,7 +358,7 @@ describe("Settings › Agent accounts", () => {
 		await mount();
 		await openAgent();
 		await openAccount("Account 2");
-		expect(text()).toContain("Teammates on this account do not start until it is signed in");
+		expect(text()).toContain("Its teammates ask you to sign in at their next message");
 		await click("Check");
 		expect(calls).toContainEqual(["accounts.status", { accountId: "a2" }]);
 		expect(text()).toContain("two@example.com · Pro");

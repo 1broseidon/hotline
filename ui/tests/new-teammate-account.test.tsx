@@ -186,7 +186,7 @@ describe("a new teammate's agent account", () => {
 		expect(accountList()).not.toBeNull();
 		expect(row("System default").textContent).toContain("Claude Code's own sign-in on this computer, as before");
 		expect(row("Account 1").textContent).toContain("dev@example.com · Max");
-		expect(row("Account 2").textContent).toContain("Not signed in · it will not start until it is");
+		expect(row("Account 2").textContent).toContain("Not signed in · sign in to use it");
 		expect(radio("System default").checked).toBe(true);
 		expect(text()).toContain("Rename or remove accounts later in Settings › Agent accounts.");
 
@@ -235,7 +235,7 @@ describe("a new teammate's agent account", () => {
 		await click("Sign in later");
 		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a3", id: "l1" }]);
 		expect(radio("Account 3").checked).toBe(true);
-		expect(row("Account 3").textContent).toContain("Not signed in · it will not start until it is");
+		expect(row("Account 3").textContent).toContain("Not signed in · sign in to use it");
 
 		await submit("Ada");
 		expect(draft().agentAccountId).toBe("a3");

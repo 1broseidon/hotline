@@ -190,7 +190,7 @@ describe("a teammate's agent account", () => {
 		expect([...container.querySelectorAll("h3")].map((node) => node.textContent)).toContain("Claude Code account");
 		expect(row("System default").textContent).toContain("Claude Code's own sign-in on this computer, as before");
 		expect(row("Account 1").textContent).toContain("dev@example.com · Max");
-		expect(row("Account 3").textContent).toContain("Not signed in · it will not start until it is");
+		expect(row("Account 3").textContent).toContain("Not signed in · sign in to use it");
 		expect(row("Account 3").querySelector(".text-warn")).not.toBeNull();
 		expect((row("Account 1").querySelector("input") as HTMLInputElement).checked).toBe(true);
 

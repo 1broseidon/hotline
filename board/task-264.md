@@ -13,7 +13,13 @@ relatedFiles:
   - crates/hotline-core/src/wire/mod.rs
 createdAt: "2026-10-22T01:04:57.301Z"
 landsOn: release/0.43.0
-updatedAt: "2026-10-22T01:07:12.961Z"
+updatedAt: "2026-10-22T01:07:15.562Z"
+dispatch:
+  agent: codex
+  by: cli
+  at: "2026-10-22T01:07:15.418Z"
+  tries: 0
+assignee: codex
 ---
 
 ## Description

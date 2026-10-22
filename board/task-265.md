@@ -28,3 +28,6 @@ Done when:
 - The deck is committed at docs/design/credential-scenarios.html.
 - George has walked it and his decisions are recorded on epic-24.
 - Each story below carries the deck's must-be-true lines as its Done when.
+
+## Log
+- 2026-10-22T04:35:56.776Z: [claude] Deck built and walked: George agreed with every lean (2026-10-21 23:32). Committed to release/0.43.0 as docs/design/credential-scenarios.html (e8f68de8); its must-be-true lines are now the Done when of task-266 to task-270 and hotline-mobile task-49 and task-50.

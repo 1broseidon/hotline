@@ -246,7 +246,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `accounts.login.start` | `{accountId, email?}` | `{id}`; signs the account in with the agent's own sign-in, in a console window of its own on Windows and a terminal on macOS and Linux, with a plain `email` passed to the agent. The attempt is this socket's, one per account, and on Windows it starts from the desk seat only ("Sign in from the desk itself."). Owner or local desk only |
 | `accounts.login.poll` | `{accountId, id}` | `{state: "running" \| "succeeded" \| "failed", output, error?}`; `succeeded` only once the CLI exited 0 and a status after it confirmed the account. Owner or local desk only |
 | `accounts.login.input` | `{accountId, id, input}` | none; a line typed into the sign-in's terminal. Owner or local desk only |
-| `accounts.login.cancel` | `{accountId, id}` | none; the attempt ends `failed`. Owner or local desk only |
+| `accounts.login.cancel` | `{accountId, id}` | none, answered before the attempt ends; once the CLI has stopped it ends `failed` and the account's status is checked again, so read the account until its attempt is not `running`. Owner or local desk only |
 | `accounts.setup.list` | `{accountId}` | `AccountSetupView` `{setup?, categories: [{id, count, path?}]}` — where the account's setup came from and what its folder holds, with the `path` Open opens for desk and owner only; nothing is written. Owner or local desk only |
 | `accounts.setup.copy` | `{accountId, categories}` | `SetupCopyReport` `{copied, removedKeys, linksSkipped}`; each category named replaces the account's with the System default's. Owner or local desk only |
 | `persona.account` | `{personaId, accountId \| null}` | `SessionAccount` `{running?, wanted?, held?: "not_signed_in" \| "signing_in"}`; sets the account a local teammate's agent runs under, `null` for System default. Owner or local desk only |
@@ -336,9 +336,9 @@ at once; the switch applies once the whole teammate is idle (no DM turn, and
 no side thread, call, job, subagent or pair mid-turn) and the account is not
 held. `held` says why it waits: `not_signed_in` while the account's last
 recorded status is signed out, a check in progress included, `signing_in`
-while a sign-in for it runs. Applying it archives the teammate's live
-threads; a voice still connected to one of its calls loses its tools and work
-until it is called again. Choosing the running account again is Keep: it
+while a sign-in for it runs. Applying it archives the teammate's idle side
+and call threads and parks its job threads; a voice still connected to one of
+its calls loses its tools and work until it is called again. Choosing the running account again is Keep: it
 drops the pending switch and changes nothing else. A confirmed sign-in moves
 the account's `loginAt`.
 
@@ -1033,9 +1033,9 @@ phone seat, lean or not, and any lean seat, is sent each row without
 `mobile.persona_update`, `mobile.persona_create`, `mobile.persona_access`,
 `mobile.persona_computer`, `session.start`, `session.set_mode`,
 `session.set_model` and `session.set_config`; `settings.update` answers it
-without `agentAccounts`. A persona tombstone on the
-room stream emits `removed` rather than a row. A session that reports
-itself after its teammate was deleted is not put back. If the view falls
+without `agentAccounts`. A persona tombstone on the room stream emits
+`removed` rather than a row. A session that reports itself after its
+teammate was deleted is not put back. If the view falls
 behind on the room stream it reloads every row; lagged session-info refreshes
 every row from current session state. Tape projections consume the tape
 broadcast, reseeding from disk only on opening or after tape lag.

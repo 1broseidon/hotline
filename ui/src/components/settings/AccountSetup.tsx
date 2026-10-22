@@ -109,7 +109,7 @@ export function AccountSetup({ accountId, agentName }: { accountId: string; agen
 					{rows.map((row) => {
 						const category = SETUP_CATEGORIES.find((one) => one.id === row.id);
 						const item = category?.item ?? row.id;
-							const detail = category?.noun !== undefined ? plural(row.count, category.noun) : "";
+						const detail = category?.noun !== undefined ? plural(row.count, category.noun) : "";
 						return (
 							<div key={row.id} className="group-row">
 								<span className="group-row-text">

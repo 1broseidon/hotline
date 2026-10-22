@@ -20,9 +20,8 @@ export function accountJob(accountId: string, email?: string): SignInJob {
 
 /**
  * The core answers a cancel before its attempt ends, then checks the account
- * again: the list is read until the attempt is over and that check has
- * answered, or null once `alive` is false. Run it from an effect, so it starts
- * after the closed sign-in's cleanup has sent the cancel.
+ * again. Run it from an effect, so it starts after the closed sign-in's
+ * cleanup has sent the cancel.
  */
 export async function settledAccounts(accountId: string, alive: () => boolean): Promise<AccountsList | null> {
 	const viewIn = (list: AccountsList) => list.accounts.find((one) => one.account.id === accountId);

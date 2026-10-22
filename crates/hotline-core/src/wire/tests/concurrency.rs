@@ -252,6 +252,8 @@ fn every_account_command_but_a_running_sign_ins_is_independent() {
             json!({"accountId":account,"id":"a1"}),
         ),
     ] {
-        assert!(!super::socket::independent(&frame(cmd, params)), "{cmd}");
+        let frame = frame(cmd, params);
+        assert!(super::socket::read_command(&frame).is_ok(), "{cmd}");
+        assert!(!super::socket::independent(&frame), "{cmd}");
     }
 }

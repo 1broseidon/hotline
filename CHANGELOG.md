@@ -15,9 +15,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   agent, sign it in with Claude Code's own sign-in, and choose what of your
   Claude Code setup it starts with. Teammates on different accounts run at
   the same time; a switch waits until the teammate is idle and starts fresh
-  with the conversation (a call still connected when it lands is hung up and
-  called again); a usage-limit card offers another signed-in account. System
-  default works as before.
+  with the conversation (a call still connected when it lands loses its
+  tools until you hang up and call again); a usage-limit card offers another
+  signed-in account. System default works as before.
 
 ## [0.42.0] - 2026-10-21
 

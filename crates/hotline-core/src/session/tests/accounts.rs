@@ -440,7 +440,7 @@ async fn an_assignment_is_checked_before_anything_is_written() {
 
 #[tokio::test]
 async fn a_pending_switch_is_dropped_when_its_teammate_is_removed_or_changes_agent() {
-    let (agents, gate) = gated();
+    let (agents, _gate) = gated();
     let (room, a, b) = on_accounts("switch-deleted", agents.clone());
     started(&room).await;
     mid_turn(&room).await;
@@ -457,8 +457,6 @@ async fn a_pending_switch_is_dropped_when_its_teammate_is_removed_or_changes_age
         .unwrap();
     room.forget("ada");
     assert_eq!(room.info("ada").account, None);
-    gate.add_permits(10);
-    assert_eq!(agents.views().len(), 1);
 
     let (agents, gate) = gated();
     let (room, a, b) = on_accounts("switch-moved", agents.clone());

@@ -610,7 +610,7 @@ pub fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
 static PERSONA_WRITES: Mutex<()> = Mutex::new(());
 
 /// The lock that keeps those changes from overwriting each other. Every
-/// writer of a whole record takes it.
+/// writer that reads a record and appends it again takes it.
 ///
 /// It is the innermost lock: never held across an `.await`, and only the
 /// log's own locks are taken under it. The four checkpoint functions below

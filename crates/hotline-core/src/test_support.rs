@@ -85,8 +85,6 @@ pub(crate) fn link(target: &Path, at: &Path) {
     }
 }
 
-/// A checkpoint clear that has read `persona_id`'s record under
-/// `persona_write_lock`, and appends it without checkpoints once `go` is sent.
 pub(crate) fn clearing_checkpoints(
     log: &Log,
     persona_id: &str,

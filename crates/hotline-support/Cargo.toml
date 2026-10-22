@@ -41,7 +41,3 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [[test]]
 name = "log_file"
 harness = false
-
-# Points its own stdout and stderr at a file, as the windowed app does.
-[[test]]
-name = "visible_console"

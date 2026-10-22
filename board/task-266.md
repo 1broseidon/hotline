@@ -1,14 +1,14 @@
 ---
 id: task-266
 title: "Desk: request_credential tool and an in-chat credential card whose values go only to the vault"
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: high
 tags:
   - credentials
 parentId: epic-24
 createdAt: "2026-10-22T03:09:08.125Z"
-updatedAt: "2026-10-22T05:06:18.269Z"
+updatedAt: "2026-10-22T05:06:41.883Z"
 dispatch:
   agent: codex
   by: cli

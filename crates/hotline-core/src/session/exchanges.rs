@@ -1124,8 +1124,10 @@ impl Room {
                 // replaying an old turn. A question's answer still at `Reply`
                 // is its own pair's to deliver; a question stopped instead of
                 // answered hands over its failure, which carries the work on.
+                // Each is repaired on its own: one that cannot be still lets
+                // the others through.
                 for gate in request.human_actions.iter().filter(|g| !g.consumed) {
-                    if let Some((
+                    let handed_over = if let Some((
                         TranscriptEvent::HumanAction {
                             reason,
                             status,
@@ -1137,27 +1139,27 @@ impl Room {
                         && status != HumanActionStatus::Pending
                     {
                         self.hand_over_answer(&request.to, &gate.id, &reason, status, note, home)
-                            .await?;
-                    }
-                    if let Some(thread) = &request.thread
-                        && let Some((asked, ask)) =
-                            self.exchange_pairs().into_iter().find_map(|p| {
-                                p.requests
-                                    .into_iter()
-                                    .find(|r| {
-                                        r.id == gate.id
-                                            && matches!(r.phase, Phase::Done | Phase::Stopped)
-                                    })
-                                    .map(|r| (p.id, r))
-                            })
+                            .await
+                    } else if let Some((asked, ask)) =
+                        self.exchange_pairs().into_iter().find_map(|p| {
+                            p.requests
+                                .into_iter()
+                                .find(|r| {
+                                    r.id == gate.id
+                                        && matches!(r.phase, Phase::Done | Phase::Stopped)
+                                })
+                                .map(|r| (p.id, r))
+                        })
                     {
-                        let (id, cause, from, text) = self.answer_delivery(&asked, &ask)?;
-                        let carried = RequestLine {
-                            request: request.id.clone(),
-                            answer: Some(ask.id),
-                        };
-                        self.deliver_into_work(thread, &id, cause, from, text, Some(carried))
-                            .await?;
+                        self.hand_over_asked(&request, &asked, &ask).await
+                    } else {
+                        Ok(())
+                    };
+                    if let Err(error) = handed_over {
+                        eprintln!(
+                            "handoff {} could not take up {}: {error}",
+                            request.id, gate.id
+                        );
                     }
                 }
             }

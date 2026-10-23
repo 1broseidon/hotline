@@ -101,11 +101,15 @@ async fn handed_off(name: &str, first_turn_ends: &str) -> HandedOff {
 
 /// Bob asks Carol from inside the work thread `thread`, with its tools.
 async fn ask_carol(room: &Arc<Room>, thread: &str) -> String {
+    ask_from(room, thread, "carol").await
+}
+
+async fn ask_from(room: &Arc<Room>, thread: &str, to: &str) -> String {
     let sent = TeammateTools::new(room, "bob")
         .for_work(thread.to_string())
         .call(
             "message_teammate",
-            &json!({"to":"carol","message":"Which colour?","intent":"ask"}),
+            &json!({"to":to,"message":"Which colour?","intent":"ask"}),
         )
         .await
         .unwrap();
@@ -407,15 +411,23 @@ async fn a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_fa
     })
     .await;
     room.stop_exchange("bob", "carol").unwrap();
+    carries_on_with_the_failure(&handed, &ask, "Ada", "The person stopped this exchange.").await;
+}
+
+/// The question's failure reaches the thread under the name `name`, the
+/// handoff's next turn runs on it, and Ada hears the handoff's result once.
+async fn carries_on_with_the_failure(handed: &HandedOff, ask: &str, name: &str, text: &str) {
+    let room = &handed.room;
     until("the handoff carries on with the failure", || {
         handed.bob.prompts().len() == 2
     })
     .await;
-    let failure = delivered_in(room, &handed.thread, &ask).expect("the failure is in the thread");
+    let failure = delivered_in(room, &handed.thread, ask).expect("the failure is in the thread");
     assert_eq!(failure["cause"]["kind"], "peer");
     assert_eq!(failure["cause"]["status"], "failed");
-    assert_eq!(failure["text"], "The person stopped this exchange.");
-    assert!(handed.bob.prompts()[1].contains("The person stopped this exchange."));
+    assert_eq!(failure["cause"]["name"], name);
+    assert_eq!(failure["text"], text);
+    assert!(handed.bob.prompts()[1].contains(text));
     assert_eq!(
         request(room, "ada~bob", &handed.handoff).phase,
         Phase::Running
@@ -426,6 +438,74 @@ async fn a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_fa
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(results[0]["cause"]["status"], "done");
     assert_eq!(results[0]["text"], "Painted it blue.");
+}
+
+/// The link to the desk the question went to ends before it is answered:
+/// the link's record, and with it the teammate's name, goes as it is
+/// stopped.
+#[tokio::test]
+async fn a_question_to_a_desk_that_unlinks_carries_the_handoff_on_with_the_failure() {
+    let handed = handed_off("question-to-a-desk-that-unlinks", "end_turn").await;
+    let room = &handed.room;
+    crate::linked::save(
+        &room.log,
+        &crate::linked::Record {
+            desk_id: "grizzly-desk".into(),
+            name: "grizzly".into(),
+            dials: true,
+            key: None,
+            teammates: vec![crate::linked::Known {
+                persona_id: "lou".into(),
+                name: "Lou".into(),
+            }],
+        },
+    )
+    .unwrap();
+    let ask = ask_from(room, &handed.thread, "grizzly-desk/lou").await;
+    handed.bob_gate.add_permits(2);
+    until("the handoff waits on Lou, whose desk is away", || {
+        request(room, "ada~bob", &handed.handoff).phase == Phase::Waiting
+            && idle(room, &handed.thread)
+    })
+    .await;
+    room.unlinked("grizzly-desk").await.unwrap();
+    carries_on_with_the_failure(
+        &handed,
+        &ask,
+        "That teammate",
+        "Lou is on grizzly, which isn't linked any more.",
+    )
+    .await;
+}
+
+/// Carol is deleted while the handoff waits on her answer, in the order the
+/// wire's delete does it: her authority is revoked, then she is gone.
+#[tokio::test]
+async fn a_question_to_a_deleted_teammate_carries_the_handoff_on_with_the_failure() {
+    let handed = handed_off("question-to-a-deleted-teammate", "end_turn").await;
+    let room = &handed.room;
+    let ask = ask_carol(room, &handed.thread).await;
+    handed.bob_gate.add_permits(2);
+    until("the handoff waits on Carol, who is answering", || {
+        request(room, "ada~bob", &handed.handoff).phase == Phase::Waiting
+            && request(room, "bob~carol", &ask).phase == Phase::Running
+            && idle(room, &handed.thread)
+    })
+    .await;
+    room.invalidate("carol").unwrap();
+    room.log
+        .append(
+            &StreamId::Room,
+            &json!({"kind": "persona", "id": "carol", "deleted": true}),
+        )
+        .unwrap();
+    carries_on_with_the_failure(
+        &handed,
+        &ask,
+        "That teammate",
+        "Collaboration was revoked or a participant stopped. Send again if still needed.",
+    )
+    .await;
 }
 
 /// Review Focus 2: an answer that comes back after the handoff waiting on it

@@ -42,17 +42,23 @@ impl Room {
     /// failure is not its result: it has an id of its own and names no
     /// request in its `from`, so a turn's door does not refuse it as a result
     /// the exchange stopped, and an unheard result of the same request does
-    /// not stand in for it.
+    /// not stand in for it. The teammate it went to may have gone with it,
+    /// deleted or on a desk no longer linked, and is then "That teammate".
     pub(super) fn answer_delivery(
         &self,
         key: &str,
         request: &Request,
     ) -> Result<(String, DeliveryCause, DeliveryFrom, String), String> {
-        let target = self.participant(&request.to)?;
+        let stopped = request.phase == Phase::Stopped;
+        let (persona_id, name) = match self.participant(&request.to) {
+            Ok(target) => (target.id, target.name),
+            Err(_) if stopped => (request.to.clone(), "That teammate".to_string()),
+            Err(error) => return Err(error),
+        };
         let cause = DeliveryCause::Peer {
             request_id: Some(request.id.clone()),
-            persona_id: target.id,
-            name: target.name,
+            persona_id,
+            name,
             thread_key: key.into(),
             status: if request.failed {
                 PeerStatus::Failed
@@ -61,7 +67,7 @@ impl Room {
             },
             about: peers::about(&request.message),
         };
-        if request.phase == Phase::Stopped {
+        if stopped {
             return Ok((
                 format!("exchange-stopped:{}", request.id),
                 cause,
@@ -76,6 +82,26 @@ impl Room {
             from,
             request.reply.clone(),
         ))
+    }
+
+    /// Hands what came of a question, its answer or its failure, to the
+    /// handoff waiting on it, in the handoff's thread.
+    pub(super) async fn hand_over_asked(
+        self: &Arc<Self>,
+        handoff: &Request,
+        key: &str,
+        ask: &Request,
+    ) -> Result<(), String> {
+        let Some(thread) = &handoff.thread else {
+            return Ok(());
+        };
+        let (id, cause, from, text) = self.answer_delivery(key, ask)?;
+        let carried = RequestLine {
+            request: handoff.id.clone(),
+            answer: Some(ask.id.clone()),
+        };
+        self.deliver_into_work(thread, &id, cause, from, text, Some(carried))
+            .await
     }
 
     /// The handoff a question's answer carries on: the one whose turn asked

@@ -97,7 +97,25 @@ impl Room {
         if text.is_empty() && attachments.is_none() {
             return Err("There is nothing to say.".to_string());
         }
-        self.refuse_handed_over(side_id)?;
+        let persona_id = match self.sides.get(side_id) {
+            Some(side) => Some(side.persona_id.clone()),
+            None => self
+                .link_of(&self.work_thread(side_id))
+                .and_then(|link| link.persona_id),
+        };
+        if let Some(persona_id) = persona_id
+            && let Some(action) = self.card_a_handoff_waits_on(&persona_id, side_id)
+        {
+            if attachments.is_some() {
+                return Err("Answer what it asked you first: your words are its card's note, and files cannot ride on it.".to_string());
+            }
+            return self.answer_human(
+                &persona_id,
+                &action,
+                crate::contract::HumanAnswer::Done,
+                Some(text.to_string()),
+            );
+        }
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
             Err(_) => self.wake_work(side_id, false, None)?,
@@ -107,6 +125,22 @@ impl Room {
             self.launch(launch);
         }
         Ok(())
+    }
+
+    /// The card in a thread that a handoff still open waits on, the oldest if
+    /// it waits on several: the one the person's words answer.
+    fn card_a_handoff_waits_on(&self, persona_id: &str, side_id: &str) -> Option<String> {
+        let stream = StreamId::of_thread(&self.work_thread(side_id))?;
+        self.log
+            .load(&stream)
+            .iter()
+            .filter(|event| event["kind"] == "human_action" && event["status"] == "pending")
+            .filter_map(|card| card["actionId"].as_str())
+            .find(|action| {
+                self.handoff_awaiting(persona_id, action)
+                    .is_some_and(|handoff| self.handoff_is_open(&handoff))
+            })
+            .map(str::to_string)
     }
 
     /// Stops the turn in flight in a side thread and drops what waited behind

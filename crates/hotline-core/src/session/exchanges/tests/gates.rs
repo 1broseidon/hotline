@@ -559,3 +559,140 @@ async fn an_answer_that_outlives_its_handoff_is_still_heard_in_the_thread() {
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(results[0]["cause"]["status"], "failed");
 }
+
+/// Typing in the thread of a handoff that waits on a card is answering the
+/// card: the words are the note of a "Done", and files cannot ride on it.
+#[tokio::test]
+async fn the_persons_words_answer_the_card_a_handoff_waits_on() {
+    let (room, id, action, gate) = handoff_asking("persons-words-answer-the-card").await;
+    gate.add_permits(4);
+    until(
+        "the handoff waits on its card and bob's turn has ended",
+        || request(&room, "ada~bob", &id).phase == Phase::Waiting && !room.mid_turn("bob"),
+    )
+    .await;
+    let thread = work_thread(&room, &id);
+    let file = crate::contract::Attachment {
+        created: None,
+        kind: crate::contract::AttachmentKind::File,
+        name: "plan.md".into(),
+        path: "/tmp/plan.md".into(),
+        mime_type: None,
+        size: None,
+        width: None,
+        height: None,
+        origin: None,
+    };
+    let refused = room
+        .prompt_side(&thread, "Approved, go ahead", Some(vec![file]))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused,
+        "Answer what it asked you first: your words are its card's note, and files cannot ride on it."
+    );
+    assert!(matches!(
+        room.human_card("bob", &action),
+        Some((
+            TranscriptEvent::HumanAction {
+                status: crate::contract::HumanActionStatus::Pending,
+                ..
+            },
+            _
+        ))
+    ));
+
+    room.prompt_side(&thread, "Approved, go ahead", None)
+        .await
+        .unwrap();
+    let Some((TranscriptEvent::HumanAction { status, note, .. }, _)) =
+        room.human_card("bob", &action)
+    else {
+        panic!("the card is on the thread")
+    };
+    assert_eq!(status, crate::contract::HumanActionStatus::Done);
+    assert_eq!(note.as_deref(), Some("Approved, go ahead"));
+    assert!(
+        room.log
+            .load(&StreamId::Side(thread))
+            .iter()
+            .all(|v| v["kind"] != "user"),
+        "the words went to the card, not into the thread as a line"
+    );
+    done(&room, &id).await;
+    let results = heard_by_ada(&room, &id);
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0]["cause"]["status"], "done");
+}
+
+/// Review Focus 1: a line said while the handoff's own turn runs, with no
+/// card open, waits behind it. The turn's reply is the handoff's result,
+/// never the reply to the person's line, and the thread stays open for it.
+#[tokio::test]
+async fn a_line_said_during_a_handoffs_turn_waits_and_is_no_result() {
+    let handed = handed_off("line-said-during-a-handoff", "end_turn").await;
+    let room = &handed.room;
+    room.prompt_side(&handed.thread, "Make it darker", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        handed.bob.prompts().len(),
+        1,
+        "the line waits behind the handoff's turn"
+    );
+
+    handed.bob_gate.add_permits(2);
+    done(room, &handed.handoff).await;
+    until("the person's line gets its turn", || {
+        handed.bob.prompts().len() == 2
+    })
+    .await;
+    assert!(handed.bob.prompts()[1].contains("Make it darker"));
+    assert!(
+        !closed(room, &handed.thread),
+        "the thread does not close while that line waits"
+    );
+
+    handed.bob_gate.add_permits(2);
+    until("the person's turn ends", || idle(room, &handed.thread)).await;
+    let results = heard_by_ada(room, &handed.handoff);
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0]["cause"]["status"], "done");
+    assert_eq!(
+        results[0]["text"], "I asked Carol which colour.",
+        "the result is the handoff turn's reply, not the person's turn's"
+    );
+}
+
+/// A handoff stopped with its card open leaves the card pending in a thread
+/// the person can now continue. Nothing waits on that card any more, so
+/// their words are a line to the teammate, not an answer no turn would hear.
+#[tokio::test]
+async fn words_in_a_continued_thread_are_a_line_when_its_handoff_is_over() {
+    let (room, id, action, _gate) = handoff_asking("words-after-a-stopped-handoff").await;
+    let thread = work_thread(&room, &id);
+    room.stop_exchange("ada", "bob").unwrap();
+    until("the thread has closed", || closed(&room, &thread)).await;
+
+    room.continue_side(&thread).await.unwrap();
+    room.prompt_side(&thread, "Where did you get to?", None)
+        .await
+        .unwrap();
+    assert!(
+        room.log
+            .load(&StreamId::Side(thread))
+            .iter()
+            .any(|v| v["kind"] == "user" && v["text"] == "Where did you get to?"),
+        "the words are a line in the thread"
+    );
+    assert!(matches!(
+        room.human_card("bob", &action),
+        Some((
+            TranscriptEvent::HumanAction {
+                status: crate::contract::HumanActionStatus::Pending,
+                ..
+            },
+            _
+        ))
+    ));
+}

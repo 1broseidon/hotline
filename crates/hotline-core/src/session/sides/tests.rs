@@ -89,10 +89,10 @@ async fn a_millisecond_passes() {
     until("the clock moves on", || now_ms() > before).await;
 }
 
-/// A handoff is read along: the person cannot type into it, live or
-/// archived, and cannot bring it back; the desk says who to talk to.
+/// The person talks in a handoff and brings it back once it has ended, but
+/// only its result archives it.
 #[tokio::test]
-async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
+async fn a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them() {
     let agents = Fake::new(Scripted::new(vec![say("m1", "On it."), turn()]));
     let room = room("side-handed-over", agents.clone());
     let (live, launch) = room
@@ -113,23 +113,58 @@ async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
         )
         .unwrap();
     room.launch(launch);
-    let refused = room
-        .prompt_side(&live.id, "do it my way", None)
+    room.prompt_side(&live.id, "do it my way", None)
         .await
+        .unwrap();
+    assert!(kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()));
+
+    let refused = room
+        .archive_side(&live.id, SideEnd::Person, None)
         .unwrap_err();
     assert!(
         refused.starts_with("Mack handed this thread over"),
         "{refused}"
     );
-    assert!(
-        !kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()),
-        "a refused line is never written"
+    assert_eq!(
+        room.link_of(&ThreadId::side(&live.id)).unwrap().state,
+        ThreadState::Live,
+        "the person's Archive leaves it open"
     );
 
-    room.archive_side(&live.id, SideEnd::Person, None).unwrap();
-    let refused = room.continue_side(&live.id).await.unwrap_err();
-    assert!(refused.contains("Talk to Mack about it"), "{refused}");
-    assert!(room.prompt_side(&live.id, "and now?", None).await.is_err());
+    room.finish_side(&live, End::Agent, None);
+    assert!(matches!(
+        room.link_of(&ThreadId::side(&live.id)).unwrap().state,
+        ThreadState::Closed(_)
+    ));
+    let back = room.continue_side(&live.id).await.unwrap();
+    assert_eq!(back.status, SideStatus::Live);
+    assert!(room.sides.get(&live.id).is_some());
+}
+
+/// What the teammate is told in a thread it was handed: the person can talk
+/// to it there, and the reply it ends each turn with goes to whoever handed
+/// the work over.
+#[test]
+fn a_handed_over_threads_brief_says_where_its_replies_go() {
+    let mut mack = persona("mack");
+    mack.name = "Mack".to_string();
+    let brief = work_preamble(&persona("ada"), None, &[], Some(&mack), None, None);
+    assert!(
+        brief.contains("The person can talk to you here too."),
+        "{brief}"
+    );
+    assert!(
+        brief.contains("The reply you end each turn with goes to Mack, whoever started the turn"),
+        "{brief}"
+    );
+    assert!(brief.contains("message them with intent ask"), "{brief}");
+    assert!(
+        brief.contains(
+            "your result goes back only from a turn that ends with nothing left to wait on"
+        ),
+        "{brief}"
+    );
+    assert!(!brief.contains("can read this thread"), "{brief}");
 }
 
 #[tokio::test]

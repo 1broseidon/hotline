@@ -1365,8 +1365,10 @@ turn. The result is the reply of a turn that ends with nothing left to wait on.
 A restart repairs an answer saved before the handoff took it up, and replays
 no turn. An ask from a turn that is not a handoff's (the person's, say) holds
 nothing. The answer to an ask sent from a delegated thread comes back to that
-thread, never to the main conversation, and opens it again if it has closed;
-a stop's failure comes back there only while it is open (below).
+thread, never to the main conversation, and opens it again if it has closed.
+A stop of it reaches the thread only while the thread is open: as a line that
+starts no turn, or, when a handoff waits on it, as the failure that carries
+that handoff on (below).
 
 **Reports to the delegator** (`session/exchanges/progress.rs`). Each turn of a
 delegated thread that is not the handoff's result reports to its opener: the

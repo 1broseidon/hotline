@@ -213,7 +213,8 @@ impl Pair {
 }
 
 /// Whether an `exchange_pair` record has a request an agent is answering now,
-/// as the room stream says it: running, or waiting on the person.
+/// as the room stream says it: running, or waiting on the person or on a
+/// colleague's answer.
 pub(crate) fn answering(record: &serde_json::Value) -> bool {
     serde_json::from_value::<Pair>(record.clone()).is_ok_and(|pair| {
         pair.requests

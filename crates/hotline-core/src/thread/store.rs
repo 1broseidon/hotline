@@ -246,8 +246,9 @@ impl ThreadStore {
     }
 
     /// A pair, from its sidecar's key. The pair's thread has no agent of its
-    /// own: it is `Live` while the room stream holds a request of it running
-    /// or waiting on the person, and `Parked` the rest of the time.
+    /// own: it is `Live` while the room stream holds a request of it running,
+    /// or waiting on the person or on a colleague's answer, and `Parked` the
+    /// rest of the time.
     fn pair(&self, key: &str) -> Option<Thread> {
         self.pair_from(key, &self.log.load(&StreamId::Room))
     }

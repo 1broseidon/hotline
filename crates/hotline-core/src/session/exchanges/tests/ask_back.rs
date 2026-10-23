@@ -630,6 +630,50 @@ async fn a_question_queued_behind_a_cancelled_jobs_turn_fails_to_its_asker() {
     assert!(asked.failed && !asked.started);
 }
 
+/// Stopping or revoking Ada while her job's turn runs with a line waiting
+/// behind it lets go of the job's agent at once, and drops the line with the
+/// turn: it never runs, on that agent or on a new one.
+#[tokio::test]
+async fn stopping_or_revoking_a_teammate_lets_go_of_its_job_agent_with_a_line_waiting() {
+    for revoke in [false, true] {
+        let handed = job_handed_back(&format!("ask-back-job-let-go-{revoke}")).await;
+        let Separate {
+            room, ada, gate, ..
+        } = &handed.separate;
+        room.prompt_job(&handed.job, "and now?", None)
+            .await
+            .unwrap();
+        until("the person's turn in the job is running", || {
+            ada.prompts().len() == 3
+        })
+        .await;
+        room.prompt_job(&handed.job, "one more thing", None)
+            .await
+            .unwrap();
+
+        if revoke {
+            room.invalidate("ada").unwrap();
+        } else {
+            room.stop("ada").unwrap();
+        }
+        assert!(
+            room.link_of(&ThreadId::job(&handed.job))
+                .is_some_and(|link| matches!(link.state, crate::thread::ThreadState::Parked)),
+            "the job's agent is let go at once"
+        );
+        gate.add_permits(20);
+        until("the job's turn ends", || room.job_idle(&handed.job)).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            ada.prompts()
+                .iter()
+                .all(|prompt| !prompt.contains("one more thing")),
+            "the waiting line never runs: {:?}",
+            ada.prompts()
+        );
+    }
+}
+
 /// A job whose agent cannot start for Bob's question fails it to him at
 /// once, rather than leaving it waiting for a restart.
 #[tokio::test]

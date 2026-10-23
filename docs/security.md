@@ -1911,8 +1911,11 @@ that the room builds for it, rather than a turn of the DM's session.
   `lease_of(ThreadKind::Job, …)`, a child of the teammate's authority, made
   when the agent is built and revoked when it is let go of, so a stop, a
   policy change or a deletion refuses its next call and a stale agent is
-  rebuilt rather than reused. What it is handed, and its tools, are the
-  clone's: see [Clones of the home agent](#clones-of-the-home-agent-adr-0008-0).
+  rebuilt rather than reused, even with lines waiting for it. A stop, a
+  policy change or a deletion also lets go of the agent at once and drops
+  what waited behind its turn (`let_go_of_jobs`). What it is handed, and its
+  tools, are the clone's: see
+  [Clones of the home agent](#clones-of-the-home-agent-adr-0008-0).
   `cancel_schedule` with no `id` ends this job only. Its cards are the
   person's, raised on its thread and answered through `human.answer` or
   `thread.answer` back into it; a companion reads a job's thread as it
@@ -1920,6 +1923,8 @@ that the room builds for it, rather than a turn of the DM's session.
 - **Tests:** `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`
   (its tools and the refusals, through the real handler);
   `session/tests/scheduled.rs` `a_queued_firing_is_dropped_when_background_work_is_revoked`;
+  `session/exchanges/tests/ask_back.rs`
+  `stopping_or_revoking_a_teammate_lets_go_of_its_job_agent_with_a_line_waiting`;
   `wire/tests/threads.rs` `the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones`;
   and `tests/schedule.rs`, a harness test for each rule of §7.
 - **Residual risk:** a job's agent works unattended, between the person's

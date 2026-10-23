@@ -99,6 +99,10 @@ struct Request {
     /// back without a card.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     released: bool,
+    /// For an ask a delegated thread sent the teammate that opened it: the
+    /// handoff that thread serves, whose reply route the question takes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    about: Option<String>,
 }
 /// What a teammate sends a colleague, as `message_teammate` takes it.
 pub(crate) struct Outgoing<'a> {
@@ -224,6 +228,11 @@ impl Room {
     ) -> Result<(), String> {
         a.check()?;
         b.check()?;
+        // While it stands, the delegation is the grant for its thread's
+        // questions back to the teammate that handed it over.
+        if self.about_live(request).is_some() {
+            return Ok(());
+        }
         if let Some(thread) = &request.lead_call {
             if request.intent == Intent::Handoff
                 && target.node.is_none()
@@ -314,6 +323,9 @@ impl Room {
                         })?,
                 ),
             };
+            let about = (intent == Intent::Ask && continues.is_none())
+                .then(|| self.asked_back_about(sent_from, &target.id))
+                .flatten();
             pair.requests.push(Request {
                 id: id.clone(),
                 from: caller.id,
@@ -343,6 +355,7 @@ impl Room {
                 progress_left_out: 0,
                 progress_wakes: false,
                 released: false,
+                about,
             });
             self.save_pair(&pair)?;
             if intent == Intent::Ask {
@@ -581,8 +594,9 @@ impl Room {
         // stops only the turn answering it, when that is the turn in flight:
         // the thread, the handoff's turn and the person's own go on, and a
         // line not yet begun is skipped at the door. An ask answered in its
-        // recipient's main conversation has no thread, and that turn goes on:
-        // only its answer is no longer returned.
+        // recipient's main conversation, or in the conversation that handed
+        // its thread over, has no thread, and that turn goes on: only its
+        // answer is no longer returned.
         if request.phase == Phase::Running
             && let Some(thread) = &request.thread
         {
@@ -1189,7 +1203,7 @@ impl Room {
                 } else {
                     match self.route_of(&request) {
                         Route::Job(job) => {
-                            self.deliver_into_job(&job, &id, cause, from, text)?;
+                            self.deliver_into_job(&job, &id, cause, from, text, None)?;
                         }
                         Route::Work(thread) => {
                             let carried = self.carried_on(&request);
@@ -1268,9 +1282,10 @@ impl Room {
         self.save_pair(&pair)
     }
     /// Hands an accepted request to the conversation that works it: a handoff
-    /// to its work thread, an ask to the thread it names, else to its
-    /// recipient's main conversation. An ask that cannot be handed over fails
-    /// to its sender.
+    /// to its work thread, an ask to the thread it names, one a delegated
+    /// thread asks back to the conversation that handed it over while the
+    /// delegation stands, else to its recipient's main conversation. An ask
+    /// that cannot be handed over fails to its sender.
     async fn hand_over_request(
         self: &Arc<Self>,
         key: &str,
@@ -1282,7 +1297,10 @@ impl Room {
         }
         let handed_over = match thread {
             Some(thread) => self.ask_in_thread(key, request, thread).await,
-            None => self.ask_in_main(key, request).await,
+            None => match self.about_live(request) {
+                Some(handoff) => self.ask_back(key, request, &handoff).await,
+                None => self.ask_in_main(key, request).await,
+            },
         };
         match handed_over {
             Ok(()) => Ok(()),

@@ -768,7 +768,7 @@ async fn a_wake_that_finds_its_reports_heard_is_skipped() {
 }
 
 /// The job a handoff is sent from: a loop not due for an hour.
-fn planted_job(room: &Room, id: &str) -> ScheduledJob {
+pub(super) fn planted_job(room: &Room, id: &str) -> ScheduledJob {
     let now = now_ms();
     let job = ScheduledJob {
         id: id.to_string(),

@@ -216,7 +216,7 @@ impl Room {
         })
     }
 
-    fn delegation_live(&self, request: &Request) -> bool {
+    pub(super) fn delegation_live(&self, request: &Request) -> bool {
         request.intent == Intent::Handoff
             && !request.released
             && request.phase != Phase::Stopped

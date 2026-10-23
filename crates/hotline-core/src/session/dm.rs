@@ -206,22 +206,7 @@ impl Occupant for Session {
             lock(&session.turns).waiting.push_front(wire);
         }
         if let Some(request) = &held.request {
-            let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
-                matches!(
-                    reason,
-                    "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
-                )
-            });
-            let mut reply = driven.replies.join("\n\n");
-            if failed {
-                let ended = "The turn answering this question ended without a result; inspect before retrying.";
-                reply = if reply.is_empty() {
-                    ended.to_string()
-                } else {
-                    format!("{reply}\n\n{ended}")
-                };
-            }
-            room.finish_request(request, reply, failed);
+            room.answer_question(request, &driven);
         }
         Then::Next
     }

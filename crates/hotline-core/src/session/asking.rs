@@ -371,7 +371,7 @@ impl Room {
                     .await
             }
             ThreadKind::Job if self.job_lives(&home.key) => {
-                self.deliver_into_job(&home.key, &delivery_id, cause, from, text)
+                self.deliver_into_job(&home.key, &delivery_id, cause, from, text, None)
             }
             _ => {
                 self.deliver_identified(persona_id, &delivery_id, cause, text, None)

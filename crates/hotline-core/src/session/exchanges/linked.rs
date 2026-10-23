@@ -141,6 +141,7 @@ impl Room {
                 progress_left_out: 0,
                 progress_wakes: false,
                 released: false,
+                about: None,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(

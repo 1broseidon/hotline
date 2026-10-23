@@ -1,8 +1,11 @@
 //! A colleague's ask is answered by the recipient's main conversation: it
 //! starts a turn there, or waits behind the one in flight, and the reply of
 //! that turn goes back to the asker. The pair's thread keeps both lines. One
-//! that names a handoff's thread is answered in that thread instead.
-use super::gates::{idle, request, turn};
+//! that names a handoff's thread is answered in that thread instead, and one a
+//! delegated thread asks the teammate that handed it over is answered by the
+//! conversation that did.
+use super::gates::{Apart, ask_from, handed_off, idle, request, turn};
+use super::progress::planted_job;
 use super::*;
 use tokio::sync::Semaphore;
 
@@ -1159,4 +1162,398 @@ async fn a_thread_that_cannot_start_to_answer_fails_the_ask() {
         failed.reply
     );
     assert_eq!(answer_to(&room, &id).unwrap()["cause"]["status"], "failed");
+}
+
+/// Bob asks Ada, the teammate that handed him the thread `thread`, from
+/// inside it.
+async fn ask_back(room: &Arc<Room>, thread: &str) -> String {
+    let sent = TeammateTools::new(room, "bob")
+        .for_work(thread.to_string())
+        .call(
+            "message_teammate",
+            &json!({"to":"ada","message":"Which port?","intent":"ask"}),
+        )
+        .await
+        .unwrap();
+    requested(&serde_json::from_str(&sent).unwrap())
+}
+
+/// Puts a teammate in the ordinary workspace reach, where asking a colleague
+/// needs the person's grant.
+fn in_workspace(room: &Room, id: &str) {
+    let mut persona = room.persona(id).unwrap();
+    persona.reach = Some(crate::contract::Reach::Workspace);
+    crate::room::append_persona(&room.log, &persona).unwrap();
+}
+
+/// Whether a permission card was raised on Ada's or Bob's tape.
+fn carded(room: &Room) -> bool {
+    ["ada", "bob"]
+        .iter()
+        .any(|whose| room.tape(whose).iter().any(|v| v["kind"] == "permission"))
+}
+
+fn question_in(events: &[serde_json::Value], id: &str) -> Option<usize> {
+    events
+        .iter()
+        .position(|v| v["cause"]["kind"] == "question" && v["cause"]["requestId"] == id)
+}
+
+fn answer_in(room: &Room, thread: &str, id: &str) -> Option<serde_json::Value> {
+    in_thread(room, thread)
+        .into_iter()
+        .find(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == id)
+}
+
+/// The question was answered by a turn of the conversation `events` is, in
+/// the work it is about, and that answer is what reached the thread.
+fn answered_there(room: &Room, events: &[serde_json::Value], thread: &str, id: &str) {
+    let question = question_in(events, id).expect("the question is in that conversation");
+    assert_eq!(events[question]["cause"]["work"], "Fix the build.");
+    assert_eq!(events[question]["text"], "Which port?");
+    let reply = events[question..]
+        .iter()
+        .find(|v| v["kind"] == "agent")
+        .expect("a turn there answers it");
+    let answer = answer_in(room, thread, id).expect("the answer reaches the thread");
+    assert_eq!(answer["cause"]["status"], "done");
+    assert_eq!(answer["text"], reply["text"]);
+    assert!(!carded(room), "no collaboration card was raised");
+}
+
+/// Ada's handoff to Bob, sent with `tools` from a conversation of Ada's that
+/// hears its result, and Bob's thread continued by the person once `heard`
+/// says that conversation has heard it.
+async fn handed_from(
+    room: &Arc<Room>,
+    tools: TeammateTools,
+    heard: impl Fn() -> bool,
+) -> (String, String) {
+    let sent = tools
+        .call(
+            "message_teammate",
+            &json!({"to":"bob","message":"Fix the build.","intent":"handoff"}),
+        )
+        .await
+        .unwrap();
+    let handoff = requested(&serde_json::from_str(&sent).unwrap());
+    done(room, &handoff).await;
+    let thread = work_thread(room, &handoff);
+    until(
+        "ada has heard the result and bob's thread has closed",
+        || heard() && !room.work_is_open(&thread),
+    )
+    .await;
+    room.continue_side(&thread).await.unwrap();
+    (handoff, thread)
+}
+
+#[tokio::test]
+async fn a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card() {
+    let (room, agents) = setup("ask-back-dm");
+    in_workspace(&room, "bob");
+    room.allow_sender("bob", "ada").unwrap();
+    room.start("ada").await.unwrap();
+    let (handoff, thread) = handed_back(&room, &agents).await;
+    room.continue_side(&thread).await.unwrap();
+
+    let id = ask_back(&room, &thread).await;
+    assert_eq!(
+        request(&room, "ada~bob", &id).about.as_deref(),
+        Some(handoff.as_str())
+    );
+    done(&room, &id).await;
+    answered_there(&room, &room.tape("ada"), &thread, &id);
+}
+
+#[tokio::test]
+async fn a_delegated_threads_question_to_its_opener_reaches_the_work_thread_it_was_handed_from() {
+    let (room, agents) = setup("ask-back-work");
+    in_workspace(&room, "bob");
+    room.allow_sender("bob", "ada").unwrap();
+    let work = room
+        .start_side("ada", "plan the release")
+        .await
+        .unwrap()
+        .side_id;
+    until("ada's work thread has taken its task", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let tools = TeammateTools::new(&room, "ada").for_work(work.clone());
+    let (_, thread) = handed_from(&room, tools, || {
+        agents.prompts().len() == 3 && idle(&room, &work)
+    })
+    .await;
+
+    let id = ask_back(&room, &thread).await;
+    done(&room, &id).await;
+    answered_there(&room, &in_thread(&room, &work), &thread, &id);
+    assert!(
+        question_in(&room.tape("ada"), &id).is_none(),
+        "Ada's DM never heard it"
+    );
+}
+
+#[tokio::test]
+async fn a_delegated_threads_question_to_its_opener_reaches_the_job_it_was_handed_from() {
+    let (room, agents) = setup("ask-back-job");
+    in_workspace(&room, "bob");
+    room.allow_sender("bob", "ada").unwrap();
+    let job = planted_job(&room, "job-build");
+    room.prompt_job(&job.id, "watch it", None).await.unwrap();
+    until("ada's job has had its turn", || {
+        agents.prompts().len() == 1 && room.job_idle(&job.id)
+    })
+    .await;
+    let tools = TeammateTools::new(&room, "ada")
+        .with_capability(room.capability_lease("ada"))
+        .for_job(job.id.clone());
+    let (_, thread) = handed_from(&room, tools, || {
+        agents.prompts().len() == 3 && room.job_idle(&job.id)
+    })
+    .await;
+
+    let id = ask_back(&room, &thread).await;
+    done(&room, &id).await;
+    let stream = room.log.load(&StreamId::Job(job.id.clone()));
+    answered_there(&room, &stream, &thread, &id);
+    assert!(
+        question_in(&room.tape("ada"), &id).is_none(),
+        "Ada's DM never heard it"
+    );
+}
+
+/// The card the person has not answered yet on `whose` tape.
+fn open_card(room: &Room, whose: &str) -> Option<serde_json::Value> {
+    room.tape(whose)
+        .into_iter()
+        .find(|v| v["kind"] == "permission" && v.get("decision").is_none())
+}
+
+#[tokio::test]
+async fn a_question_back_after_the_delegation_was_stopped_needs_the_ordinary_grant() {
+    let (room, agents) = setup("ask-back-released");
+    in_workspace(&room, "bob");
+    room.allow_sender("bob", "ada").unwrap();
+    let (handoff, thread) = handed_back(&room, &agents).await;
+    room.stop_exchange("ada", "bob").unwrap();
+    assert!(request(&room, "ada~bob", &handoff).released);
+    room.continue_side(&thread).await.unwrap();
+
+    let id = ask_back(&room, &thread).await;
+    until("the question waits on the card for bob to ask ada", || {
+        open_card(&room, "bob").is_some()
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(question_in(&room.tape("ada"), &id).is_none());
+    let card = open_card(&room, "bob").unwrap();
+    room.answer_permission("bob", card["requestId"].as_str().unwrap(), "allow_always")
+        .await
+        .unwrap();
+
+    done(&room, &id).await;
+    let ada = room.tape("ada");
+    let question = question_in(&ada, &id).expect("it reaches Ada's main conversation");
+    assert!(
+        ada[question]["cause"]["work"].is_null(),
+        "{}",
+        ada[question]
+    );
+    let answer = answer_in(&room, &thread, &id).expect("the answer reaches the thread");
+    assert_eq!(answer["cause"]["status"], "done");
+}
+
+/// Ada and Bob on agents of their own, so the stop a closing thread of
+/// Bob's gives his agent never reaches Ada's; Ada's turns wait at `gate`.
+fn apart(name: &str, ada_turns: Vec<Vec<Update>>) -> (Arc<Room>, Arc<Fake>, Arc<Semaphore>) {
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let gate = Arc::new(Semaphore::new(0));
+    let ada = Fake::new(Scripted::turns(ada_turns).gated(gate.clone()));
+    let bob = Fake::new(Scripted::turns(
+        (0..8)
+            .map(|i| turn(&format!("bob-{i}"), &format!("Bob {i}."), "end_turn"))
+            .collect(),
+    ));
+    let agents = Arc::new(Apart {
+        bob,
+        others: ada.clone(),
+    });
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+    in_workspace(&room, "bob");
+    room.allow_sender("bob", "ada").unwrap();
+    (room, ada, gate)
+}
+
+#[tokio::test]
+async fn stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question() {
+    let (room, ada, gate) = apart(
+        "ask-back-stopped",
+        vec![
+            turn("noted", "Noted.", "end_turn"),
+            turn("port", "The port is 8080.", "end_turn"),
+        ],
+    );
+    gate.add_permits(2);
+    let (_, thread) = handed_from(&room, TeammateTools::new(&room, "ada"), || {
+        ada.prompts().len() == 1 && !room.mid_turn("ada")
+    })
+    .await;
+    let id = ask_back(&room, &thread).await;
+    until("Ada's turn answering the question is running", || {
+        request(&room, "ada~bob", &id).started && room.mid_turn("ada")
+    })
+    .await;
+
+    room.stop_exchange("ada", "bob").unwrap();
+    assert_eq!(ada.cancel_count(), 0, "Ada's turn is not cancelled");
+    assert!(room.mid_turn("ada"));
+    let stopped = request(&room, "ada~bob", &id);
+    assert_eq!(stopped.phase, Phase::Stopped);
+    assert!(stopped.failed);
+
+    gate.add_permits(10);
+    until("Ada's turn ends", || !room.mid_turn("ada")).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        room.tape("ada")
+            .iter()
+            .any(|v| v["kind"] == "agent" && v["text"] == "The port is 8080."),
+        "her turn ended as it would have"
+    );
+    assert!(
+        answer_in(&room, &thread, &id).is_none(),
+        "no answer reaches Bob's thread"
+    );
+    assert_eq!(request(&room, "ada~bob", &id).phase, Phase::Stopped);
+}
+
+#[tokio::test]
+async fn a_handoff_that_asks_its_opener_waits_for_that_answer_without_reporting_it() {
+    let handed = handed_off("ask-back-from-the-handoff", "end_turn").await;
+    let room = &handed.room;
+    let ask = ask_from(room, &handed.thread, "ada").await;
+    handed.bob_gate.add_permits(2);
+    until("the handoff waits on Ada and its turn has ended", || {
+        request(room, "ada~bob", &handed.handoff).phase == Phase::Waiting
+            && idle(room, &handed.thread)
+    })
+    .await;
+    until("the question reaches Ada's DM", || {
+        question_in(&room.tape("ada"), &ask).is_some()
+    })
+    .await;
+    let ada = room.tape("ada");
+    assert_eq!(
+        ada[question_in(&ada, &ask).unwrap()]["cause"]["work"],
+        "work handoff"
+    );
+    assert!(
+        notices(room, "ada").is_empty(),
+        "the question is what Ada hears"
+    );
+    assert!(!carded(room));
+
+    handed.carol_gate.add_permits(2);
+    handed.bob_gate.add_permits(2);
+    done(room, &handed.handoff).await;
+    let answer = answer_in(room, &handed.thread, &ask).expect("Ada's answer reaches the thread");
+    assert_eq!(answer["text"], "Use the blue one.");
+    let result = answer_to(room, &handed.handoff).expect("the result reaches Ada");
+    assert_eq!(result["cause"]["status"], "done");
+    assert_eq!(result["text"], "Painted it blue.");
+    assert!(notices(room, "ada").is_empty());
+}
+
+/// Ada's job, a handoff from it to Bob that the job has heard the result of,
+/// and Bob's thread continued by the person, with Ada's turns waiting at
+/// `gate`.
+async fn job_handed_back(name: &str) -> (Arc<Room>, Arc<Fake>, Arc<Semaphore>, String, String) {
+    let turns = (0..8)
+        .map(|i| turn(&format!("ada-{i}"), &format!("Ada {i}."), "end_turn"))
+        .collect();
+    let (room, ada, gate) = apart(name, turns);
+    let job = planted_job(&room, "job-build");
+    gate.add_permits(4);
+    room.prompt_job(&job.id, "watch it", None).await.unwrap();
+    until("ada's job has had its turn", || {
+        ada.prompts().len() == 1 && room.job_idle(&job.id)
+    })
+    .await;
+    let tools = TeammateTools::new(&room, "ada")
+        .with_capability(room.capability_lease("ada"))
+        .for_job(job.id.clone());
+    let (_, thread) = handed_from(&room, tools, || {
+        ada.prompts().len() == 2 && room.job_idle(&job.id)
+    })
+    .await;
+    (room, ada, gate, job.id, thread)
+}
+
+/// The person's turn in Ada's job, still running, with Bob's question
+/// waiting behind it.
+async fn asked_behind_the_person(room: &Arc<Room>, ada: &Fake, job: &str, thread: &str) -> String {
+    room.prompt_job(job, "and now?", None).await.unwrap();
+    until("the person's turn in the job is running", || {
+        ada.prompts().len() == 3
+    })
+    .await;
+    let id = ask_back(room, thread).await;
+    until("the question waits behind it", || {
+        question_in(&room.log.load(&StreamId::Job(job.to_string())), &id).is_some()
+    })
+    .await;
+    id
+}
+
+/// The person's Stop in a job drops what waited behind its turn, a
+/// colleague's question too: it fails to its asker at once.
+#[tokio::test]
+async fn the_persons_stop_in_a_job_fails_a_question_waiting_behind_its_turn() {
+    let (room, ada, gate, job, thread) = job_handed_back("ask-back-job-stopped").await;
+    let id = asked_behind_the_person(&room, &ada, &job, &thread).await;
+
+    room.cancel_job_turn(&job).unwrap();
+    done(&room, &id).await;
+    let asked = request(&room, "ada~bob", &id);
+    assert!(asked.failed && !asked.started);
+    let failure = answer_in(&room, &thread, &id).expect("Bob's thread is told at once");
+    assert_eq!(failure["cause"]["status"], "failed");
+    assert!(
+        failure["text"]
+            .as_str()
+            .unwrap()
+            .contains("was stopped before answering this question"),
+        "{failure}"
+    );
+    gate.add_permits(20);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(questions_heard(&ada), 0, "no turn took the question up");
+}
+
+/// A question that reached a job but no turn of it when the desk stopped is
+/// handed over once by the pair, with the ask its turn answers.
+#[tokio::test]
+async fn a_question_a_job_had_not_heard_at_a_restart_is_answered_once() {
+    let (old, ada, _gate, job, thread) = job_handed_back("ask-back-job-restart").await;
+    let id = asked_behind_the_person(&old, &ada, &job, &thread).await;
+    let log = copied(&old, "ask-back-job-restarted");
+    for stream in [StreamId::Job(job.clone()), StreamId::Side(thread.clone())] {
+        for event in old.log.load(&stream) {
+            log.append(&stream, &event).unwrap();
+        }
+    }
+
+    let agents = Fake::new(Scripted::new(turn("port", "The port is 8080.", "end_turn")));
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    room.recover_exchanges().await;
+    done(&room, &id).await;
+    let answer = answer_in(&room, &thread, &id).expect("the answer reaches the thread");
+    assert_eq!(answer["cause"]["status"], "done");
+    assert_eq!(answer["text"], "The port is 8080.");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(questions_heard(&agents), 1, "heard once");
 }

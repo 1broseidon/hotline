@@ -7,9 +7,9 @@ use crate::thread::ThreadState;
 /// Bob's agents and everyone else's, each held at a gate of its own: one
 /// shared gate would hand Carol's answer the permits meant for the handoff's
 /// turn.
-struct Apart {
-    bob: Arc<Fake>,
-    others: Arc<Fake>,
+pub(super) struct Apart {
+    pub(super) bob: Arc<Fake>,
+    pub(super) others: Arc<Fake>,
 }
 #[async_trait::async_trait]
 impl Agents for Apart {

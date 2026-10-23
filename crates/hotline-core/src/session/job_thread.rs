@@ -48,7 +48,7 @@
 use super::agent::{Opening, clone_of, lease_of};
 use super::runner::Driven;
 use super::schedule::{self, MIN_LOOP, run_of};
-use super::turns::{Begin, Line, Occupant, Seat, Then, Turns};
+use super::turns::{Begin, Line, Occupant, RequestLine, Seat, Then, Turns};
 use super::{POST_CHARS, Post, Room, lock, new_id, now_ms, timed, timed_from};
 use crate::computer::gate::Holder;
 use crate::contract::{
@@ -161,6 +161,8 @@ pub(super) struct JobTurn {
     last: bool,
     /// The job as its posts are stamped.
     run: ScheduledRun,
+    /// The colleague's question this turn answers.
+    request: Option<String>,
 }
 
 impl LiveJob {
@@ -351,6 +353,15 @@ impl Occupant for LiveJob {
                 }
             }
         }
+        // A colleague's question is answered only while its ask is still
+        // open: one stopped while it waited here is never taken up.
+        let request = line.line.request.as_ref().map(|line| line.request.clone());
+        if let Some(request) = &request
+            && let Err(error) = room.begin_request(request)
+        {
+            eprintln!("question not taken up: {error}");
+            return Begin::Skip;
+        }
         if let Some(id) = &line.line.delivery {
             self.heard(room, id);
         }
@@ -364,6 +375,7 @@ impl Occupant for LiveJob {
             firing: line.firing,
             last: line.last,
             run: run_of(&job),
+            request,
         })
     }
 
@@ -398,6 +410,9 @@ impl Occupant for LiveJob {
     fn end(self: &Arc<Self>, room: &Arc<Room>, held: JobTurn, driven: Driven) -> Then {
         *lock(&self.last_used) = now_ms();
         lock(&self.firing_since).take();
+        if let Some(request) = &held.request {
+            room.answer_question(request, &driven);
+        }
         if self.stopped.load(Ordering::SeqCst) {
             return Then::Stop;
         }
@@ -915,10 +930,11 @@ impl Room {
             .any(|job| job.id == job_id && job.ended_at.is_none())
     }
 
-    /// Something the job asked for came back (the person's answer to its
-    /// card, a colleague's answer to its message): written to its thread
-    /// and handed to its agent as a turn, as a line the person says there
-    /// is. Handing the same delivery over twice hands it over once.
+    /// Something for the job (the person's answer to its card, a colleague's
+    /// answer to its message or question to it): written to its thread and
+    /// handed to its agent as a turn, as a line the person says there is.
+    /// Handing the same delivery over twice hands it over once. `request` is
+    /// the ask its turn answers.
     pub(super) fn deliver_into_job(
         self: &Arc<Self>,
         job_id: &str,
@@ -926,6 +942,7 @@ impl Room {
         cause: DeliveryCause,
         from: DeliveryFrom,
         text: String,
+        request: Option<RequestLine>,
     ) -> Result<(), String> {
         let job = room::all_jobs(&self.log)
             .into_iter()
@@ -974,7 +991,7 @@ impl Room {
                     voice: None,
                     text: timed(ts, &wire),
                     attachments: Vec::new(),
-                    request: None,
+                    request,
                     from: Some(from),
                     delivery: Some(id.to_string()),
                     wake: false,
@@ -998,6 +1015,11 @@ impl Room {
                 .into_iter()
                 .filter(|event| event["kind"] == "delivery" && event["receipt"] != "read")
                 .filter_map(|event| match serde_json::from_value(event) {
+                    // The pair hands a question over again, with its ask.
+                    Ok(TranscriptEvent::Delivery {
+                        cause: DeliveryCause::Question { .. },
+                        ..
+                    }) => None,
                     Ok(TranscriptEvent::Delivery {
                         id,
                         cause,
@@ -1011,7 +1033,7 @@ impl Room {
             for (id, cause, from, text) in unread {
                 let handed = match from {
                     Some(from) if job.ended_at.is_none() => {
-                        self.deliver_into_job(&job.id, &id, cause, from, text)
+                        self.deliver_into_job(&job.id, &id, cause, from, text, None)
                     }
                     _ => {
                         self.deliver_identified(&job.persona_id, &id, cause, text, None)
@@ -1104,16 +1126,25 @@ impl Room {
     }
 
     /// Stops the turn in flight in a job's thread, a firing's or the
-    /// person's, and drops what waited behind it. The job goes on firing:
-    /// its next time is the one it already had.
+    /// person's, and drops what waited behind it, a colleague's question
+    /// included, which fails to its asker. The job goes on firing: its next
+    /// time is the one it already had.
     pub fn cancel_job_turn(&self, job_id: &str) -> Result<(), String> {
         let live = lock(&self.job_threads)
             .get(job_id)
             .cloned()
             .filter(|live| lock(&live.turns).running)
             .ok_or_else(|| "That job has no turn running.".to_string())?;
+        let dropped: Vec<JobLine> = lock(&live.turns).waiting.drain(..).collect();
         live.halted.store(true, Ordering::SeqCst);
         live.interrupt();
+        self.fail_dropped_questions(
+            &live.persona_id,
+            dropped
+                .iter()
+                .filter_map(|line| line.line.request.as_ref())
+                .map(|line| line.request.as_str()),
+        );
         Ok(())
     }
 

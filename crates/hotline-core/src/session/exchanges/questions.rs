@@ -1,6 +1,7 @@
 //! A colleague's question, delivered to the conversation that answers it.
 
 use super::*;
+use crate::session::runner::Driven;
 
 impl Room {
     /// Hands an ask to its recipient's main conversation: a line that starts a
@@ -11,32 +12,125 @@ impl Room {
         key: &str,
         request: &Request,
     ) -> Result<(), String> {
+        self.ask_in(key, request, Route::Dm(request.to.clone()), None)
+            .await
+    }
+
+    /// Hands a question a delegated thread asks the teammate that handed it
+    /// over to the conversation that did, by the handoff's reply route. The
+    /// turn answering it is that conversation's own, so stopping the ask
+    /// never cancels it: only its answer is no longer returned.
+    pub(super) async fn ask_back(
+        self: &Arc<Self>,
+        key: &str,
+        request: &Request,
+        handoff: &Request,
+    ) -> Result<(), String> {
+        let work = peers::about(&handoff.message);
+        self.ask_in(key, request, self.route_of(handoff), Some(work))
+            .await
+    }
+
+    /// A line that starts a turn in `route`'s conversation, or waits behind
+    /// the one in flight, whose turn's reply is the ask's answer. `work` is
+    /// the handoff the question is about, when it is about one.
+    async fn ask_in(
+        self: &Arc<Self>,
+        key: &str,
+        request: &Request,
+        route: Route,
+        work: Option<String>,
+    ) -> Result<(), String> {
         let caller = self.participant(&request.from)?;
-        // A conversation quiet past the room's idle window begins its next
-        // chapter on a fresh session, which ends the leases of the one the ask
-        // was accepted beside. The ask is answered by the session it reaches.
-        self.start(&request.to).await?;
-        drop(self.in_this_chapter(&request.to).await?);
-        self.bind_to_answering_session(&request.id, &request.to)?;
+        if let Route::Dm(persona_id) = &route {
+            // A conversation quiet past the room's idle window begins its
+            // next chapter on a fresh session, which ends the leases of the
+            // one the ask was accepted beside. The ask is answered by the
+            // session it reaches.
+            self.start(persona_id).await?;
+            drop(self.in_this_chapter(persona_id).await?);
+            self.bind_to_answering_session(&request.id, persona_id)?;
+        }
         self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
-        self.deliver_identified(
-            &request.to,
-            &format!("question:{}", request.id),
-            DeliveryCause::Question {
-                request_id: request.id.clone(),
-                persona_id: caller.id.clone(),
-                name: super::super::links::shown(&caller),
-                thread_key: key.into(),
-                about: peers::about(&request.message),
-                work: None,
-            },
-            request.message.clone(),
-            Some(RequestLine {
-                request: request.id.clone(),
-                answer: None,
-            }),
-        )
-        .await
+        let id = format!("question:{}", request.id);
+        let cause = DeliveryCause::Question {
+            request_id: request.id.clone(),
+            persona_id: caller.id.clone(),
+            name: super::super::links::shown(&caller),
+            thread_key: key.into(),
+            about: peers::about(&request.message),
+            work,
+        };
+        let text = request.message.clone();
+        let answers = Some(RequestLine {
+            request: request.id.clone(),
+            answer: None,
+        });
+        match route {
+            Route::Dm(persona_id) => {
+                self.deliver_identified(&persona_id, &id, cause, text, answers)
+                    .await
+            }
+            Route::Work(thread) => {
+                let from = self.delivery_source(&request.to, &cause);
+                self.deliver_into_work(&thread, &id, cause, from, text, answers)
+                    .await
+            }
+            Route::Job(job_id) => {
+                let from = self.delivery_source(&request.to, &cause);
+                self.deliver_into_job(&job_id, &id, cause, from, text, answers)
+            }
+        }
+    }
+
+    /// For a question sent from a thread a colleague handed over, to that
+    /// colleague: the latest handoff the thread serves, which it is about.
+    pub(super) fn asked_back_about(&self, sent_from: &ThreadId, to: &str) -> Option<String> {
+        if sent_from.kind != ThreadKind::Side {
+            return None;
+        }
+        self.opener_of(&sent_from.key)
+            .filter(|opener| opener.persona_id == to)?;
+        self.serving(&sent_from.key).map(|(_, handoff)| handoff.id)
+    }
+
+    /// The handoff an ask was asked back about, while its delegation stands,
+    /// as this desk's own record has it: one the ask's recipient handed its
+    /// sender. `about` is only the key it is looked up by.
+    pub(super) fn about_live(&self, request: &Request) -> Option<Request> {
+        let about = request.about.as_deref()?;
+        self.exchange_pairs()
+            .into_iter()
+            .flat_map(|pair| pair.requests)
+            .find(|r| {
+                r.id == about
+                    && r.from == request.to
+                    && r.to == request.from
+                    && r.intent == Intent::Handoff
+            })
+            .filter(|handoff| self.delegation_live(handoff))
+    }
+
+    /// Saves what the turn answering a question came to. One that failed or
+    /// was stopped says so, for its asker to look before trying again.
+    pub(in crate::session) fn answer_question(&self, request: &str, driven: &Driven) {
+        let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
+            matches!(
+                reason,
+                "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
+            )
+        });
+        let mut reply = driven.replies.join("\n\n");
+        if failed {
+            let ended =
+                "The turn answering this question ended without a result; inspect before retrying.";
+            reply = if reply.is_empty() {
+                ended.to_string()
+            } else {
+                format!("{reply}\n\n{ended}")
+            };
+        }
+        self.finish_request(request, reply, failed);
     }
 
     /// Hands an ask to the work thread a handoff of its sender's opened: a line

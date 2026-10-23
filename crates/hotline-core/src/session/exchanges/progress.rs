@@ -298,10 +298,20 @@ impl Room {
     }
 
     /// Decided under the exchange lock its caller holds, so threads that end
-    /// together wake their delegator once. The wake counts toward each pair
-    /// whose report it is for.
+    /// together wake their delegator once. Reports held back only by another
+    /// thread at work keep their wake for when it rests; ones the delegator
+    /// cannot be woken for now (busy, not running, its pair paused) wait for
+    /// what it hears next. The wake counts toward each pair whose report it
+    /// is for.
     fn wake_for_progress(self: &Arc<Self>, route: &Route, source: &str) {
         let conversation = route.thread(self);
+        let waits_here =
+            |r: &Request| r.progress_wakes && self.route_of(r).thread(self) == conversation;
+        // A room closing for a restart starts nothing new, and the reports
+        // stay with their handoffs.
+        let Ok(_working) = self.working() else {
+            return;
+        };
         let another_at_work = self.sides.all().iter().any(|side| {
             side.id != source
                 && side.working()
@@ -313,20 +323,25 @@ impl Room {
         if another_at_work {
             return;
         }
-        let waking: Vec<Pair> =
-            self.exchange_pairs()
-                .into_iter()
-                .filter(|pair| {
-                    !pair.paused
-                        && pair.requests.iter().any(|r| {
-                            r.progress_wakes && self.route_of(r).thread(self) == conversation
-                        })
-                })
-                .collect();
-        if waking.is_empty() || !self.wake(route) {
+        let waking: Vec<Pair> = self
+            .exchange_pairs()
+            .into_iter()
+            .filter(|pair| pair.requests.iter().any(waits_here))
+            .collect();
+        if !(waking.iter().any(|pair| !pair.paused) && self.wake(route)) {
+            for mut pair in waking {
+                for request in &mut pair.requests {
+                    if waits_here(request) {
+                        request.progress_wakes = false;
+                    }
+                }
+                if let Err(error) = self.save_pair(&pair) {
+                    eprintln!("keep reports for the next line: {error}");
+                }
+            }
             return;
         }
-        for mut pair in waking {
+        for mut pair in waking.into_iter().filter(|pair| !pair.paused) {
             pair.exchanges += 1;
             pair.paused = pair.exchanges >= EXCHANGE_CAP;
             if let Err(error) = self.save_pair(&pair) {
@@ -339,11 +354,8 @@ impl Room {
     }
 
     /// Hands an idle conversation the line that wakes it, and says whether
-    /// it did.
+    /// it did. The caller holds a work lease.
     fn wake(self: &Arc<Self>, route: &Route) -> bool {
-        let Ok(_working) = self.lease() else {
-            return false;
-        };
         let line = Line {
             voice: None,
             text: timed(now_ms(), WAKE_LINE),

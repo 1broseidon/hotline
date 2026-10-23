@@ -223,7 +223,10 @@ async fn a_handoff_turn_that_stops_for_the_person_reports_the_cards_reason() {
     );
     let saved = request(&room, "ada~bob", &handoff);
     assert_eq!(saved.progress.len(), 1);
-    assert!(saved.progress_wakes, "a turn that stops to wait may wake");
+    assert!(
+        !saved.progress_wakes,
+        "ada is not running, so it waits for what she hears next"
+    );
 }
 
 #[tokio::test]
@@ -657,7 +660,7 @@ async fn a_busy_delegator_is_not_woken_and_hears_the_report_with_its_next_line()
         request(&room, "ada~bob", &handoff).progress.len() == 1 && idle(&room, &thread)
     })
     .await;
-    assert!(request(&room, "ada~bob", &handoff).progress_wakes);
+    assert!(!request(&room, "ada~bob", &handoff).progress_wakes);
     assert_eq!(notices(&room, "ada").len(), 1);
     assert_eq!(ada.prompts().len(), 1, "a busy delegator is not woken");
     ada_gate.add_permits(2);
@@ -705,7 +708,7 @@ async fn wakes_count_toward_the_pairs_twelve_and_then_reports_only_wait() {
     assert!(!claimed(&room), "a paused pair wakes nobody");
     assert_eq!(woken(&agents), 2);
     assert!(notices(&room, "ada").last().unwrap().ends_with("report 3"));
-    assert!(request(&room, "ada~bob", &handoff).progress_wakes);
+    assert!(!request(&room, "ada~bob", &handoff).progress_wakes);
 
     room.prompt("ada", "hi", None, None).await.unwrap();
     let pair = room.exchange_pair("ada~bob").unwrap();
@@ -925,4 +928,94 @@ async fn a_held_back_report_wakes_the_delegator_when_the_other_thread_rests_afte
     assert_eq!(notices(&room, "ada").len(), 2);
     assert_eq!(ada.prompts().len(), 2, "woken once");
     assert_eq!(exchanges(&room), counted + 1);
+}
+
+/// A report that came while its delegator was busy waits for her next line:
+/// another handed-over thread resting later does not wake her for it.
+#[tokio::test]
+async fn a_report_turned_down_while_the_delegator_was_busy_is_not_woken_by_a_later_rest() {
+    let ada_gate = Arc::new(Semaphore::new(0));
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")).gated(ada_gate.clone()));
+    let (gate_one, gate_two) = (Arc::new(Semaphore::new(0)), Arc::new(Semaphore::new(0)));
+    let handing = Fake::new(Scripted::new(turn("fixed", "Fixed the gate.", "end_turn")));
+    let continued =
+        Fake::new(Scripted::new(turn("tidied", "Tidied up.", "end_turn")).gated(gate_two.clone()));
+    let waiting = Fake::new(
+        Scripted::new(turn("waiting", "Waiting for the person.", "end_turn"))
+            .gated(gate_one.clone()),
+    );
+    let room = room_with(
+        "progress-busy-then-rest",
+        &ada,
+        vec![handing, continued.clone(), waiting.clone()],
+    );
+    let done_handoff = hand_off(&room, "ada", "bob", "fix the gate", None)
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ada_gate.add_permits(2);
+    done(&room, &done_handoff).await;
+    let two = work_thread(&room, &done_handoff);
+    until("ada has heard the result and its thread has closed", || {
+        ada.prompts().len() == 1 && !claimed(&room) && !room.work_is_open(&two)
+    })
+    .await;
+    room.continue_side(&two).await.unwrap();
+    let (handoff, one) = asking(
+        &room,
+        TeammateTools::new(&room, "ada"),
+        &waiting,
+        "paint the shed",
+    )
+    .await;
+    room.prompt("ada", "busy?", None, None).await.unwrap();
+    until("ada's turn is running", || ada.prompts().len() == 2).await;
+
+    gate_one.add_permits(2);
+    until("the handoff waits on its card, its thread at rest", || {
+        request(&room, "ada~bob", &handoff).phase == Phase::Waiting && idle(&room, &one)
+    })
+    .await;
+    ada_gate.add_permits(2);
+    until("ada's turn is over", || !claimed(&room)).await;
+
+    room.prompt_side(&two, "tidy up", None).await.unwrap();
+    gate_two.add_permits(2);
+    until("the person's turn is reported and its thread rests", || {
+        notices(&room, "ada").len() == 2 && idle(&room, &two)
+    })
+    .await;
+    assert!(!claimed(&room), "nothing wakes ada");
+    assert_eq!(ada.prompts().len(), 2);
+
+    room.prompt("ada", "next", None, None).await.unwrap();
+    ada_gate.add_permits(2);
+    until("ada hears her next line", || {
+        heard_with(&ada, "next").is_some()
+    })
+    .await;
+    let heard = heard_with(&ada, "next").unwrap();
+    for thread in [&one, &two] {
+        assert!(heard.contains(&format!("(side:{thread})")), "{heard}");
+    }
+    assert!(heard.contains("Tidied up."), "{heard}");
+    assert_eq!(woken(&ada), 0);
+}
+
+/// A room closing for a restart starts no new turn for a report: nothing is
+/// woken or counted, and the report stays with the handoff.
+#[tokio::test]
+async fn a_closing_room_wakes_nobody_and_keeps_the_report() {
+    let (room, agents, handoff, thread) = handed_over_and_done("progress-closing").await;
+    let counted = exchanges(&room);
+    room.closing
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    room.report_progress(&thread, "Swatch 43 is ready.".into(), true);
+    assert!(!claimed(&room), "a closing room wakes nobody");
+    assert_eq!(woken(&agents), 0);
+    assert_eq!(exchanges(&room), counted);
+    let kept = request(&room, "ada~bob", &handoff);
+    assert_eq!(kept.progress, ["Swatch 43 is ready."]);
 }

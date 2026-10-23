@@ -427,7 +427,7 @@ function ThreadView({
 	const { events, streaming, more, earlier, prompt, cancel, close, resume } = useThread(id);
 	// A job ends on the schedules view before the list is read again.
 	const state = job?.endedAt !== undefined ? "closed" : (row?.state ?? "live");
-	// A teammate's handoff is the two teammates' work, read along and steered through whoever handed it over.
+	// A teammate's handoff is the two teammates' work: the person speaks in it, and only its result ends it.
 	const opener = openerOf(row);
 	// Opened from the pane of whoever handed it over, a handoff is still the receiver's: its lines and its bar name them.
 	const ownerId = threadOwnerId(row, teammate.id);
@@ -541,12 +541,9 @@ function ThreadView({
 				/>
 			</div>
 			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
-			{opener !== undefined ? (
-				asked !== undefined ? (
-					<AnswerField thread={id} name={self.name} actionId={asked.actionId} onRefused={refuse} />
-				) : (
-					<HandoffBar opener={opener} teammate={self} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
-				)
+			{opener !== undefined && asked === undefined && <HandoffBar opener={opener} teammate={self} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />}
+			{opener !== undefined && asked !== undefined ? (
+				<AnswerField thread={id} name={self.name} actionId={asked.actionId} onRefused={refuse} />
 			) : powers.say ? (
 				<>
 					{parked && (
@@ -674,8 +671,8 @@ export function JobActions({ job, running, onSaid }: { job: ScheduleEntry; runni
 }
 
 /**
- * Where the composer is in a thread a teammate handed over: whose work it is,
- * and the way to the conversation where it is steered.
+ * Above the composer in a thread a teammate handed over: whose work it is, and
+ * the way to the conversation of the one who handed it over.
  */
 function HandoffBar({
 	opener,
@@ -695,7 +692,7 @@ function HandoffBar({
 				<Avatar id={teammate.id} name={teammate.name} size={24} hash={teammate.avatarHash} />
 			</span>
 			<p className="min-w-0 flex-1 text-sm text-ink-3">
-				{opener.name} handed this to {teammate.name}. You can read along.{" "}
+				{opener.name} handed this to {teammate.name}. What {teammate.name} says here reaches {opener.name}.{" "}
 				<button type="button" className="link-quiet" onClick={onTalk}>
 					Talk to {opener.name} about it ›
 				</button>

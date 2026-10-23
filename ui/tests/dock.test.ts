@@ -233,10 +233,10 @@ describe("what a person can do in a thread", () => {
 		expect(powersOf("job", "closed")).toEqual(read);
 	});
 
-	test("is reading along in a handoff, with only its turn to stop until it ends", () => {
-		expect(powersOf("side", "live", true)).toEqual({ ...read, stop: true });
-		expect(powersOf("side", "parked", true)).toEqual({ ...read, stop: true });
-		expect(powersOf("side", "closed", true)).toEqual(read);
+	test("is spoken in and continued in a handoff, and never archived by the person", () => {
+		expect(powersOf("side", "live", true)).toEqual({ ...read, say: true, stop: true });
+		expect(powersOf("side", "parked", true)).toEqual({ ...read, say: true, stop: true });
+		expect(powersOf("side", "closed", true)).toEqual({ ...read, resume: true });
 	});
 
 	test("belongs to its own teammate, even listed in the pane of the one who handed it over", () => {

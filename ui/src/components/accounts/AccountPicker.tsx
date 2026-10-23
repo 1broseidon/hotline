@@ -1,6 +1,8 @@
-import { type FocusEvent, Fragment, type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AccountSection } from "../../generated/contract";
 import { CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon } from "../../icons";
+import { usePlacement } from "../../ui/Menu";
 import type { AccountChoice } from "./fits";
 
 const SECTIONS: readonly { section: AccountSection; title: string }[] = [
@@ -18,7 +20,7 @@ function line(choice: AccountChoice): string {
 	return choice.payPerUse ? `${choice.detail} · pay per use` : choice.detail;
 }
 
-/** The list hangs from its button inside whatever holds it, so a card or a form never grows when it opens. */
+/** The list floats on the window as its menus do, so no card or row that holds the picker grows or clips it. */
 export function AccountPicker({
 	choices,
 	selected,
@@ -36,7 +38,7 @@ export function AccountPicker({
 	const [open, setOpen] = useState(false);
 	const current = choices.find((one) => one.id === selected);
 	return (
-		<div style={{ position: "relative" }}>
+		<>
 			<button
 				ref={button}
 				type="button"
@@ -66,7 +68,7 @@ export function AccountPicker({
 					}}
 				/>
 			)}
-		</div>
+		</>
 	);
 }
 
@@ -90,34 +92,26 @@ function AccountMenu({
 	const root = useRef<HTMLDivElement>(null);
 	const search = useRef<HTMLInputElement>(null);
 	const list = useRef<HTMLDivElement>(null);
-	const refocus = useRef(true);
 	const ids = useId();
+	const { style, placed } = usePlacement(root, anchor, "start", true);
 	const [query, setQuery] = useState("");
-	const [above, setAbove] = useState(false);
 	const needle = query.trim().toLowerCase();
 	const groups = SECTIONS.map(({ section, title }) => ({
+		section,
 		title,
 		choices: choices.filter((one) => one.section === section && one.name.toLowerCase().includes(needle)),
 	})).filter((group) => group.choices.length > 0);
 	const shown = groups.flatMap((group) => group.choices);
 	const [active, setActive] = useState(() => Math.max(0, shown.findIndex((one) => one.id === selected)));
+	const activeId = shown[active] === undefined ? undefined : `${ids}-${active}`;
+	const searchable = choices.length > SEARCH_PAST;
 	const { subscription, apiKey } = adds ?? {};
 
-	// It opens above when the window has more room there, as the window's other menus do.
-	useLayoutEffect(() => {
-		const menu = root.current;
-		if (!menu) return;
-		const at = anchor.getBoundingClientRect();
-		const below = window.innerHeight - at.bottom;
-		setAbove(menu.offsetHeight > below && at.top > below);
-	}, [anchor]);
-
 	useEffect(() => {
-		(search.current ?? list.current)?.focus({ preventScroll: true });
-		return () => {
-			if (refocus.current) anchor.focus({ preventScroll: true });
-		};
-	}, [anchor]);
+		if (placed) (search.current ?? list.current)?.focus({ preventScroll: true });
+	}, [placed]);
+
+	useEffect(() => () => anchor.focus({ preventScroll: true }), [anchor]);
 
 	useEffect(() => {
 		const away = (event: MouseEvent) => {
@@ -125,13 +119,21 @@ function AccountMenu({
 			if (root.current?.contains(target) || anchor.contains(target)) return;
 			onClose();
 		};
+		const shut = () => onClose();
 		document.addEventListener("mousedown", away, true);
-		return () => document.removeEventListener("mousedown", away, true);
+		window.addEventListener("resize", shut);
+		window.addEventListener("blur", shut);
+		return () => {
+			document.removeEventListener("mousedown", away, true);
+			window.removeEventListener("resize", shut);
+			window.removeEventListener("blur", shut);
+		};
 	}, [anchor, onClose]);
 
+	// Only the menu's own list can scroll here: the menu sits on the body, so no pane is its ancestor.
 	useEffect(() => {
-		document.getElementById(`${ids}-${active}`)?.scrollIntoView({ block: "nearest" });
-	}, [ids, active]);
+		if (placed && activeId !== undefined) document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
+	}, [placed, activeId]);
 
 	const onKey = (event: KeyboardEvent) => {
 		if (event.key === "Escape") {
@@ -139,6 +141,15 @@ function AccountMenu({
 			event.preventDefault();
 			event.stopPropagation();
 			onClose();
+			return;
+		}
+		if (event.key === "Tab") {
+			// The menu sits at the end of the body, so a Tab that leaves it would land nowhere near the picker.
+			const stops = [search.current ?? list.current, ...(root.current?.querySelectorAll<HTMLElement>(".account-picker-add") ?? [])];
+			const next = stops[stops.indexOf(event.target as HTMLElement) + (event.shiftKey ? -1 : 1)];
+			event.preventDefault();
+			if (next) next.focus({ preventScroll: true });
+			else onClose();
 			return;
 		}
 		if (event.target !== search.current && event.target !== list.current) return;
@@ -155,20 +166,11 @@ function AccountMenu({
 		}
 	};
 
-	// A focus that leaves the picker for somewhere else closes it, and stays where it went.
-	const onLeave = (event: FocusEvent) => {
-		const to = event.relatedTarget as Node | null;
-		if (to === null || root.current?.contains(to) || anchor.contains(to)) return;
-		refocus.current = false;
-		onClose();
-	};
-	const keyed = { onKeyDown: onKey, onBlur: onLeave };
-
 	const addRow = (text: string, add: () => void) => (
 		<button
 			type="button"
 			className="menu-item account-picker-add"
-			{...keyed}
+			onKeyDown={onKey}
 			onClick={() => {
 				onClose();
 				add();
@@ -180,23 +182,24 @@ function AccountMenu({
 	);
 
 	let index = -1;
-	return (
-		<div
-			ref={root}
-			className="menu account-picker-menu"
-			style={{ position: "absolute", left: 0, ...(above ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }) }}
-		>
-			{choices.length > SEARCH_PAST && (
+	return createPortal(
+		<div ref={root} className="menu account-picker-menu" style={style}>
+			{searchable && (
 				<label className="search-field account-picker-search">
 					<SearchIcon className="shrink-0" />
 					<input
 						ref={search}
 						type="search"
+						role="combobox"
+						aria-expanded={true}
+						aria-controls={`${ids}-list`}
+						aria-activedescendant={activeId}
+						aria-autocomplete="list"
 						placeholder={`Search ${choices.length} accounts`}
 						aria-label={`Search ${choices.length} accounts`}
 						value={query}
 						spellCheck={false}
-						{...keyed}
+						onKeyDown={onKey}
 						onChange={(event) => {
 							setQuery(event.target.value);
 							setActive(0);
@@ -206,16 +209,18 @@ function AccountMenu({
 			)}
 			<div
 				ref={list}
+				id={`${ids}-list`}
 				role="listbox"
 				aria-label={label}
 				tabIndex={-1}
-				aria-activedescendant={shown[active] === undefined ? undefined : `${ids}-${active}`}
+				aria-activedescendant={searchable ? undefined : activeId}
 				className="account-picker-list"
-				{...keyed}
+				onKeyDown={onKey}
 			>
 				{groups.map((group) => (
-					<Fragment key={group.title}>
-						<div className="menu-heading" role="presentation">
+					// biome-ignore lint/a11y/useSemanticElements: a listbox's sections are groups of options, not a form's fieldset.
+					<div key={group.section} role="group" aria-labelledby={`${ids}-${group.section}`}>
+						<div id={`${ids}-${group.section}`} className="menu-heading">
 							{group.title}
 						</div>
 						{group.choices.map((choice) => {
@@ -243,7 +248,7 @@ function AccountMenu({
 								</button>
 							);
 						})}
-					</Fragment>
+					</div>
 				))}
 			</div>
 			{(subscription !== undefined || apiKey !== undefined) && (
@@ -255,6 +260,7 @@ function AccountMenu({
 					</div>
 				</>
 			)}
-		</div>
+		</div>,
+		document.body,
 	);
 }

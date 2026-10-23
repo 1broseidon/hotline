@@ -775,9 +775,9 @@
 
 	/* ---------------------------------------------------------------- menu
 	 * The one popover: a picker's list, the overflow menu, the search's
-	 * results. On the pop plane, borrowing the float shadow while open. */
+	 * results. On the pop plane, borrowing the float shadow while open.
+	 * usePlacement fixes it on the window. */
 	.menu {
-		position: fixed;
 		z-index: 40;
 		min-width: 160px;
 		max-width: 320px;
@@ -3067,13 +3067,11 @@
 		color: var(--ink-2);
 		font-size: var(--text-xs);
 	}
-	/* The account picker's menu hangs from its button (AccountPicker places
-	 * it), at least as wide as the button. Its search and its add rows stay
-	 * put while the accounts scroll between them. */
+	/* The account picker's menu: its search and its add rows stay put while
+	 * the accounts scroll between them. */
 	.account-picker-menu {
 		display: flex;
 		width: 320px;
-		min-width: 100%;
 		flex-direction: column;
 		overflow: hidden;
 	}

@@ -80,7 +80,6 @@ export function inUse(choices: AccountChoice[], running: string | undefined): st
 	return choices.find((one) => one.isDefault)?.id ?? SYSTEM_DEFAULT;
 }
 
-/** Subscriptions before This computer, and This computer before a key that bills per use. */
 export function suggested(choices: AccountChoice[], failed: string): string | undefined {
 	const others = choices.filter((one) => one.id !== failed);
 	const subscription = others.find((one) => one.section === "subscription" && one.signedIn);

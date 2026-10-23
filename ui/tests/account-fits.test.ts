@@ -66,6 +66,18 @@ describe("the accounts that fit a teammate", () => {
 		expect(accountsFor(twoAccounts, { backendId: "codex-acp", modelId: undefined })).toEqual([]);
 		expect(accountsFor(twoAccounts, { backendId: "hotline", modelId: undefined })).toEqual([]);
 	});
+
+	test("a model id with no provider before a slash has nothing to pick", () => {
+		expect(accountsFor(twoAccounts, { backendId: "hotline", modelId: "anthropic" })).toEqual([]);
+	});
+
+	test("a provider with no credentials has nothing to pick", () => {
+		expect(accountsFor(twoAccounts, { backendId: "hotline", modelId: "openai/gpt-5" })).toEqual([]);
+	});
+
+	test("Claude Code with no accounts still lists This computer", () => {
+		expect(ids(accountsFor(list([]), claude))).toEqual([""]);
+	});
 });
 
 describe("the account in use", () => {

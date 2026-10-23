@@ -8,7 +8,7 @@
  * decides. Phone push is a later seat — not this.
  */
 
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { shownState } from "./activity";
 import type { SessionState } from "./generated/contract";
 import { postToast, requestAttention } from "./native";
@@ -75,11 +75,10 @@ function windowTitle(name: string | null): string {
 export function setWindowTitle(name: string | null): void {
 	const title = windowTitle(name);
 	document.title = title;
-	try {
-		void getCurrentWindow().setTitle(title);
-	} catch {
-		// A browser tab is not the desk; the document title is enough there.
-	}
+	// The shell names the window: on macOS a new title puts the traffic
+	// lights back at AppKit's default, and it seats them again. A browser
+	// tab is not the desk; the document title is enough there.
+	invoke("window_title", { title }).catch(() => {});
 }
 
 function lastLine(entry: RosterEntry): string {

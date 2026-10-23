@@ -857,3 +857,72 @@ async fn a_report_wakes_the_idle_work_thread_or_job_it_was_handed_from() {
         assert_eq!(shown, 1, "{from}");
     }
 }
+
+/// A report held back while another handed-over thread was at work wakes the
+/// delegator when that thread rests, even after a turn that wakes nobody.
+#[tokio::test]
+async fn a_held_back_report_wakes_the_delegator_when_the_other_thread_rests_after_a_non_waking_turn()
+ {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let (gate_one, gate_two) = (Arc::new(Semaphore::new(0)), Arc::new(Semaphore::new(0)));
+    let handing = Fake::new(Scripted::new(turn("fixed", "Fixed the gate.", "end_turn")));
+    let continued =
+        Fake::new(Scripted::new(turn("tidied", "Tidied up.", "end_turn")).gated(gate_two.clone()));
+    let waiting = Fake::new(
+        Scripted::new(turn("waiting", "Waiting for the person.", "end_turn"))
+            .gated(gate_one.clone()),
+    );
+    let room = room_with(
+        "progress-held-back",
+        &ada,
+        vec![handing, continued.clone(), waiting.clone()],
+    );
+    let done_handoff = hand_off(&room, "ada", "bob", "fix the gate", None)
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    done(&room, &done_handoff).await;
+    let two = work_thread(&room, &done_handoff);
+    until("ada has heard the result and its thread has closed", || {
+        ada.prompts().len() == 1 && !claimed(&room) && !room.work_is_open(&two)
+    })
+    .await;
+    room.continue_side(&two).await.unwrap();
+    room.prompt_side(&two, "tidy up", None).await.unwrap();
+    until("the person's turn is running", || {
+        continued.prompts().len() == 1
+    })
+    .await;
+    let (handoff, one) = asking(
+        &room,
+        TeammateTools::new(&room, "ada"),
+        &waiting,
+        "paint the shed",
+    )
+    .await;
+
+    gate_one.add_permits(2);
+    until("the handoff waits on its card, its thread at rest", || {
+        request(&room, "ada~bob", &handoff).phase == Phase::Waiting && idle(&room, &one)
+    })
+    .await;
+    assert_eq!(notices(&room, "ada").len(), 1);
+    assert!(!claimed(&room), "the person's turn is still at work");
+    let counted = exchanges(&room);
+
+    gate_two.add_permits(2);
+    until("ada is woken and her turn is over", || {
+        woken(&ada) == 1 && !claimed(&room)
+    })
+    .await;
+    let woke = ada.prompts().pop().unwrap();
+    for thread in [&one, &two] {
+        assert!(woke.contains(&format!("(side:{thread})")), "{woke}");
+    }
+    assert!(woke.contains("Tidied up."), "{woke}");
+    assert_eq!(notices(&room, "ada").len(), 2);
+    assert_eq!(ada.prompts().len(), 2, "woken once");
+    assert_eq!(exchanges(&room), counted + 1);
+}

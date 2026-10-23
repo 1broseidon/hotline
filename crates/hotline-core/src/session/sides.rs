@@ -358,6 +358,7 @@ impl Occupant for LiveSide {
 
     fn rest(self: &Arc<Self>, room: &Arc<Room>) {
         lock(&self.turns).running = false;
+        room.wake_when_rested(&self.id, self.opener.as_ref());
         let _ = room.info_changes.send(room.info(&self.persona_id));
     }
 }

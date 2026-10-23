@@ -275,14 +275,32 @@ impl Room {
         let source = request.thread.clone().unwrap_or_default();
         self.save_pair(&pair)?;
         if wakes {
-            self.wake_for_progress(key, &route, &source);
+            self.wake_for_progress(&route, &source);
         }
         Ok(())
     }
 
+    /// A handed-over thread at rest may be the last one its delegator was
+    /// waiting on, so a report held back while it worked wakes it now.
+    pub(in crate::session) fn wake_when_rested(
+        self: &Arc<Self>,
+        side_id: &str,
+        opener: Option<&Opener>,
+    ) {
+        if opener.is_none() {
+            return;
+        }
+        let Some((_, request)) = self.serving(side_id) else {
+            return;
+        };
+        let _guard = lock(&self.exchange_lock);
+        self.wake_for_progress(&self.route_of(&request), side_id);
+    }
+
     /// Decided under the exchange lock its caller holds, so threads that end
-    /// together wake their delegator once.
-    fn wake_for_progress(self: &Arc<Self>, key: &str, route: &Route, source: &str) {
+    /// together wake their delegator once. The wake counts toward each pair
+    /// whose report it is for.
+    fn wake_for_progress(self: &Arc<Self>, route: &Route, source: &str) {
         let conversation = route.thread(self);
         let another_at_work = self.sides.all().iter().any(|side| {
             side.id != source
@@ -292,24 +310,31 @@ impl Room {
                         && self.route_of(&request).thread(self) == conversation
                 })
         });
-        let pairs = self.exchange_pairs();
-        let wakes = pairs
-            .iter()
-            .flat_map(|pair| &pair.requests)
-            .any(|r| r.progress_wakes && self.route_of(r).thread(self) == conversation);
-        let Some(mut pair) = pairs.into_iter().find(|pair| pair.id == key) else {
-            return;
-        };
-        if another_at_work || pair.paused || !wakes || !self.wake(route) {
+        if another_at_work {
             return;
         }
-        pair.exchanges += 1;
-        pair.paused = pair.exchanges >= EXCHANGE_CAP;
-        if let Err(error) = self.save_pair(&pair) {
-            eprintln!("count a wake: {error}");
+        let waking: Vec<Pair> =
+            self.exchange_pairs()
+                .into_iter()
+                .filter(|pair| {
+                    !pair.paused
+                        && pair.requests.iter().any(|r| {
+                            r.progress_wakes && self.route_of(r).thread(self) == conversation
+                        })
+                })
+                .collect();
+        if waking.is_empty() || !self.wake(route) {
+            return;
         }
-        if pair.paused {
-            self.exchange_card(&pair, ExchangePauseStatus::Pending);
+        for mut pair in waking {
+            pair.exchanges += 1;
+            pair.paused = pair.exchanges >= EXCHANGE_CAP;
+            if let Err(error) = self.save_pair(&pair) {
+                eprintln!("count a wake: {error}");
+            }
+            if pair.paused {
+                self.exchange_card(&pair, ExchangePauseStatus::Pending);
+            }
         }
     }
 

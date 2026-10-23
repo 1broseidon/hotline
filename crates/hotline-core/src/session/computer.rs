@@ -285,8 +285,8 @@ impl Room {
     }
 
     /// Starts the teammate's computer, waiting for it however long it
-    /// takes, and grants it. Peer sessions use this: a colleague asked to
-    /// work on its own machine either has it or refuses the request.
+    /// takes, and grants it to a thread that shares it: a work thread, a
+    /// call, a run or a job, which goes on without it when this fails.
     pub(super) async fn grant_computer(
         &self,
         persona: &Persona,

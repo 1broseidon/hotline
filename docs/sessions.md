@@ -372,10 +372,8 @@ narration, the same events, and a tool left running when the driver stops
 written down as failed.
 
 Other tools remain synchronous. An update arriving during one of those tools
-waits for it to settle, then skips further calls from the old request. An
-obsolete `request_human` wait is released without treating the new text as an
-answer or approval. Missing usage from an interrupted request is reported as
-unknown.
+waits for it to settle, then skips further calls from the old request. Missing
+usage from an interrupted request is reported as unknown.
 
 **The Chat budget.** A turn on a model billed per token (a provider key, or a
 custom server with a key) is metered against the Chat budget of
@@ -1248,8 +1246,9 @@ answer from coming back: the turn, and whatever it started, runs on. A
 question answered in the work thread it named has that turn cancelled, and
 the thread goes on. A handoff's work depends on the request's authority:
 revoking either side stops a running handoff's turn and closes its thread,
-while a handoff waiting on an answer leaves its thread open and idle;
-neither touches either teammate's main conversation.
+while a handoff waiting on an answer leaves its thread open and idle, and the
+person's answer to a card it waited on is heard there as a plain answer that
+carries nothing back; neither touches either teammate's main conversation.
 Pending approvals expire after ten minutes or when the requesting call is
 cancelled. They also settle when a participant stops, a policy changes, or the
 room closes. One pending first-contact decision is held per direction.
@@ -1410,12 +1409,16 @@ question answered by a main conversation, or by the conversation that handed
 a thread over, is that conversation's own turn, which goes on; only its
 answer is not returned. The asker is told instead: in its DM, by the notice
 any stopped request leaves, or, when it asked from a delegated thread and was
-not itself the one stopped, in that thread, by a delivery whose id is
-`exchange-stopped:<requestId>` and whose `from` names no request, so the
-door does not take it for the stopped result. A handoff waiting on that
-question carries on with the failure as it would with an answer. A thread
-closed meanwhile is not opened again for it, and one that cannot take it
-falls back to the DM notice, once.
+not itself the one stopped, in that thread. There it is an `info` notice
+whose id is `exchange-stopped:<requestId>`, and it starts no turn: a turn
+told of the stop would only send the question again, restarting what the
+person stopped. Only when a handoff waits on that question is the failure a
+delivery, with that id and a `from` that names no request, so the door does
+not take it for the stopped result; the handoff carries on with it as it
+would with an answer, and the agent is not asked to send again what the
+person's Stop exchange ended. A thread closed meanwhile is not opened again
+for it, and one that cannot take the delivery falls back to the DM notice,
+once.
 
 The existing collaboration card explains both intents. A legacy grant
 still permits Ask but needs informed approval before Handoff. Revocation

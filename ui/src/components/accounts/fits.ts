@@ -1,3 +1,4 @@
+import { shortDate } from "../../clock";
 import type { AccountSection, AccountsList, AccountView, CredentialAccount, CredentialKind, Provider } from "../../generated/contract";
 import { ownSignIn, statusWords, SYSTEM_DEFAULT, THIS_COMPUTER, whoLine } from "./words";
 
@@ -12,6 +13,8 @@ export type AccountChoice = {
 	name: string;
 	section: AccountSection;
 	detail: string;
+	/** What tells it from its provider's other accounts: the day a same-named one was added, and Default. */
+	marks: string[];
 	payPerUse: boolean;
 	isDefault: boolean;
 	signedIn: boolean;
@@ -25,6 +28,7 @@ function agentAccountChoice(view: AccountView): AccountChoice {
 		name: view.account.name,
 		section: "subscription",
 		detail: who !== "" ? who : statusWords(view.status.state),
+		marks: [],
 		payPerUse: false,
 		isDefault: false,
 		signedIn,
@@ -37,21 +41,27 @@ function credentialDetail(one: CredentialAccount): string {
 	return one.credential.credentialKind === "oauth" ? "Signed in" : "API key";
 }
 
-function credentialChoice(one: CredentialAccount): AccountChoice {
+function credentialChoice(one: CredentialAccount, marks: string[]): AccountChoice {
 	return {
 		id: one.credential.id,
 		name: one.credential.label,
 		section: one.section,
 		detail: credentialDetail(one),
+		marks,
 		payPerUse: one.section === "api_key",
 		isDefault: one.default,
 		signedIn: true,
 	};
 }
 
+/** Under a section heading, which already says how its rows bill. */
+export function rowDetail(choice: AccountChoice): string {
+	return [choice.detail, ...choice.marks].join(" · ");
+}
+
 /** Where no section heading says so, a key's own line says it bills per use. */
 export function detailLine(choice: AccountChoice): string {
-	return choice.payPerUse ? `${choice.detail} · pay per use` : choice.detail;
+	return [choice.detail, ...(choice.payPerUse ? ["pay per use"] : []), ...choice.marks].join(" · ");
 }
 
 export function providerOf(modelId: string | undefined): string | undefined {
@@ -82,6 +92,7 @@ export function accountsFor(list: AccountsList, teammate: { backendId: string; m
 		name: THIS_COMPUTER,
 		section: "subscription",
 		detail: ownSignIn(agent.name),
+		marks: [],
 		payPerUse: false,
 		isDefault: false,
 		signedIn: false,
@@ -93,7 +104,15 @@ export function accountsFor(list: AccountsList, teammate: { backendId: string; m
 /** What Hotline Agent picks among on a model of `providerId`: that provider's live credentials. */
 export function providerAccounts(list: AccountsList, providerId: string | undefined): AccountChoice[] {
 	if (providerId === undefined) return [];
-	return list.credentials.filter((one) => one.credential.providerId === providerId && !one.credential.revoked).map(credentialChoice);
+	const live = list.credentials.filter((one) => one.credential.providerId === providerId && !one.credential.revoked);
+	// Two old accounts may share a name from before names were checked.
+	const twinned = (one: CredentialAccount) =>
+		live.some((other) => other !== one && other.section === one.section && other.credential.label.toLowerCase() === one.credential.label.toLowerCase());
+	return live.map((one) => {
+		const added = twinned(one) ? [`Added ${shortDate.format(one.credential.createdAt)}`] : [];
+		const isDefault = one.default && live.length > 1 ? ["Default"] : [];
+		return credentialChoice(one, [...added, ...isDefault]);
+	});
 }
 
 /** Absent a running account, Hotline Agent runs on its provider's default and a CLI agent on This computer. */

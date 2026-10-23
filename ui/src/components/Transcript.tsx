@@ -11,6 +11,7 @@ import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { failedLast } from "../retryTurn";
+import { clock, daysBetween, shortDate } from "../clock";
 import { wire } from "../wire";
 import {
 	deliveryLine,
@@ -916,10 +917,6 @@ function PlanMark({ status }: { status: string }) {
 	);
 }
 
-const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-
-const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
 
 function stampText(at: number): string {
@@ -934,10 +931,4 @@ function stampText(at: number): string {
 function runTime(at: number): string {
 	const when = new Date(at);
 	return daysBetween(when, new Date()) === 0 ? clock.format(when) : `${shortDate.format(when)}, ${clock.format(when)}`;
-}
-
-/** Calendar days apart, not elapsed hours: 11pm and 1am are a day apart. */
-function daysBetween(then: Date, now: Date): number {
-	const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-	return Math.round((midnight(now).getTime() - midnight(then).getTime()) / 86_400_000);
 }

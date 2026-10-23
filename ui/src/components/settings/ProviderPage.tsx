@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode, useState } from "react";
+import { shortDate } from "../../clock";
 import type { AccountAgent, AccountSection, AccountsList, AccountView, Credential, CredentialAccount, CredentialKind, Provider, RosterEntry } from "../../generated/contract";
 import { PlusIcon } from "../../icons";
 import { openLink } from "../../native";
@@ -77,10 +78,6 @@ function removalWords(credential: Credential, providerName: string): { question:
 }
 
 type Form = { add: AccountSection } | { change: CredentialAccount };
-
-function dayOf(at: number): string {
-	return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
 
 export function ProviderPage({
 	holding,
@@ -208,7 +205,7 @@ export function ProviderPage({
 		return [
 			how,
 			// Two old accounts may share a name from before names were checked.
-			twinned(one) ? `Added ${dayOf(credential.createdAt)}` : "",
+			twinned(one) ? `Added ${shortDate.format(credential.createdAt)}` : "",
 			one.default && live.length > 1 ? "Default" : "",
 			usedByWords(namesOf(one.usedBy, cli.roster)),
 		]

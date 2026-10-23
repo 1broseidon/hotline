@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 import type { AccountChoice } from "../src/components/accounts/fits";
+import type { AccountsList, CredentialAccount } from "../src/generated/contract";
 import { installDom } from "./dom";
 
 let act: typeof import("react").act;
@@ -27,7 +28,7 @@ afterEach(async () => {
 });
 
 function choice(id: string, name: string, extra: Partial<AccountChoice> = {}): AccountChoice {
-	return { id, name, section: "subscription", detail: "Signed in", payPerUse: false, isDefault: false, signedIn: true, ...extra };
+	return { id, name, section: "subscription", detail: "Signed in", marks: [], payPerUse: false, isDefault: false, signedIn: true, ...extra };
 }
 
 const key = (id: string, name: string) => choice(id, name, { section: "api_key", detail: "API key", payPerUse: true });
@@ -218,6 +219,29 @@ describe("the account picker", () => {
 		await press("Tab");
 		expect(listbox()).toBeNull();
 		expect(document.activeElement).toBe(button());
+	});
+
+	test("two keys with one name are told apart by the day each was added, and the default says so", async () => {
+		const { providerAccounts } = await import("../src/components/accounts/fits");
+		const at = 1_800_000_000_000;
+		const later = at + 3 * 86_400_000;
+		const day = (when: number) => new Date(when).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+		const credential = (id: string, label: string, createdAt: number, isDefault = false): CredentialAccount => ({
+			credential: { id, providerId: "anthropic", credentialKind: "api_key", label, revoked: false, createdAt, updatedAt: createdAt },
+			section: "api_key",
+			usedBy: [],
+			default: isDefault,
+		});
+		const list: AccountsList = {
+			agents: [],
+			accounts: [],
+			credentials: [credential("k1", "Anthropic", at, true), credential("k2", "anthropic", later), credential("k3", "Spare", at)],
+		};
+		await mount(providerAccounts(list, "anthropic"), "k2");
+		expect(button().textContent).toBe(`anthropic · API key · pay per use · Added ${day(later)}`);
+		await toggle();
+		const details = options().map((one) => one.querySelector(".menu-item-detail")?.textContent);
+		expect(details).toEqual([`API key · Added ${day(at)} · Default`, `API key · Added ${day(later)}`, "API key"]);
 	});
 
 	test("the add rows call what adds brings, and only those", async () => {

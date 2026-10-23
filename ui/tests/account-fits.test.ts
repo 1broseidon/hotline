@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AccountSection, AccountsList, AccountStatusView, AccountView, CredentialAccount, CredentialKind } from "../src/generated/contract";
-import { accountsFor, inUse, suggested } from "../src/components/accounts/fits";
+import { accountsFor, detailLine, inUse, suggested } from "../src/components/accounts/fits";
 
 function account(id: string, name: string, status: AccountStatusView): AccountView {
 	return { account: { id, backendId: "claude-acp", name, createdAt: 1 }, status, usedBy: [], canSignInHere: true };
@@ -77,6 +77,18 @@ describe("the accounts that fit a teammate", () => {
 
 	test("Claude Code with no accounts still lists This computer", () => {
 		expect(ids(accountsFor(list([]), claude))).toEqual([""]);
+	});
+});
+
+describe("an account's line", () => {
+	test("marks the default only beside another live account of its provider", () => {
+		const anthropic = accountsFor(twoAccounts, { backendId: "hotline", modelId: "anthropic/x" });
+		expect(anthropic.map(detailLine)).toEqual(["API key · pay per use · Default", "API key · pay per use"]);
+
+		const alone = list([]);
+		alone.credentials = alone.credentials.filter((one) => one.credential.id !== "B");
+		expect(accountsFor(alone, { backendId: "hotline", modelId: "anthropic/x" }).map(detailLine)).toEqual(["API key · pay per use"]);
+		expect(accountsFor(twoAccounts, { backendId: "hotline", modelId: "openai-codex/y" }).map(detailLine)).toEqual(["Subscription"]);
 	});
 });
 

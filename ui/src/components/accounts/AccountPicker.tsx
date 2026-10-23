@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { AccountSection } from "../../generated/contract";
 import { CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon } from "../../icons";
 import { usePlacement } from "../../ui/Menu";
-import { type AccountChoice, detailLine } from "./fits";
+import { type AccountChoice, detailLine, rowDetail } from "./fits";
 
 const SECTIONS: readonly { section: AccountSection; title: string }[] = [
 	{ section: "subscription", title: "Subscriptions" },
@@ -244,7 +244,7 @@ function AccountMenu({
 									<span className="agent-account-dot" data-state={choice.signedIn ? "signed_in" : undefined} aria-hidden="true" />
 									<span className="menu-item-text">
 										{choice.name}
-										<span className="menu-item-detail">{choice.detail}</span>
+										<span className="menu-item-detail">{rowDetail(choice)}</span>
 									</span>
 									<span className="menu-item-check">{choice.id === selected && <CheckIcon />}</span>
 								</button>

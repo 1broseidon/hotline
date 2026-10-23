@@ -324,7 +324,7 @@ describe("a new Claude Code teammate's account", () => {
 		await choose("Account 1");
 		await agent("hotline");
 		await model("Claude X");
-		expect(picker()!.textContent).toBe("Key A · API key · pay per use");
+		expect(picker()!.textContent).toBe("Key A · API key · pay per use · Default");
 		await submit("Ada");
 		expect(draft().backendId).toBe("hotline");
 		expect("accountId" in draft()).toBe(false);
@@ -425,7 +425,7 @@ describe("a new Hotline Agent teammate's account", () => {
 		expect(picker()).toBeNull();
 		await model("Claude X");
 		expect(labels().slice(-2)).toEqual(["Model", "Account"]);
-		expect(picker()!.textContent).toBe("Key A · API key · pay per use");
+		expect(picker()!.textContent).toBe("Key A · API key · pay per use · Default");
 		await openPicker();
 		expect(optionNames()).toEqual(["Key A", "Key B"]);
 		await closePicker();
@@ -491,7 +491,7 @@ describe("a new Hotline Agent teammate's account", () => {
 		await click("Cancel");
 		expect(container.querySelector("#key-secret")).toBeNull();
 		expect(named("credential.create")).toHaveLength(0);
-		expect(picker()!.textContent).toBe("Key A · API key · pay per use");
+		expect(picker()!.textContent).toBe("Key A · API key · pay per use · Default");
 		await submit("Ada");
 		expect("accountId" in draft()).toBe(false);
 	});

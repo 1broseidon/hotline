@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AccountFailure, type AccountOffer } from "./accounts/AccountFailure";
 import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
+import { clock, daysBetween, shortDate } from "../clock";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 
 /**
@@ -81,15 +82,6 @@ function aboutAccount(error: FailureDetails, backendId: string): boolean {
     if (error.accountId === undefined) return false;
     if (error.kind === "agent_auth") return true;
     return backendId === HOTLINE_AGENT && (error.kind === "quota" || error.kind === "auth");
-}
-
-const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-
-/** Calendar days apart, not elapsed hours: 11pm and 1am are a day apart. */
-function daysBetween(then: Date, now: Date): number {
-    const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    return Math.round((midnight(now).getTime() - midnight(then).getTime()) / 86_400_000);
 }
 
 export function resetWords(resetAt: number, now: number): string {

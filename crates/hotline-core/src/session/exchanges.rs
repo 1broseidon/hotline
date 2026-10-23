@@ -960,7 +960,7 @@ impl Room {
             .iter()
             .filter(|r| Self::owes_linked_progress(r))
         {
-            self.send_linked_progress(key, request).await;
+            self.send_linked_progress(key, &request.id).await;
         }
         // A sender whose request was stopped here, on a linked desk or in
         // a thread a colleague handed over, hears so first.

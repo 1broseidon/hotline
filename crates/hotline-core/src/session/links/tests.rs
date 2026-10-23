@@ -1146,3 +1146,204 @@ async fn a_linked_desk_reports_and_asks_back_only_by_this_desks_own_requests() {
     })
     .await;
 }
+
+const THIRD: &str = "third-desk";
+
+/// A third desk linked with the laptop, whose Lou is not grizzly's.
+fn third_desk(laptop: &Room) {
+    linked::save(
+        &laptop.log,
+        &Record {
+            desk_id: THIRD.into(),
+            name: "third".into(),
+            dials: true,
+            key: None,
+            teammates: Vec::new(),
+        },
+    )
+    .unwrap();
+    laptop
+        .federation_roster(
+            THIRD,
+            vec![LinkedTeammate {
+                persona_id: "lou".into(),
+                name: "Lou".into(),
+                state: "idle".into(),
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+}
+
+fn report_for(handoff: &str, text: &str) -> LinkedDelivery {
+    LinkedDelivery::Progress {
+        request_id: handoff.into(),
+        text: text.into(),
+        wakes: false,
+    }
+}
+
+/// Whether a collaboration card asks Clementine's person about `sender`.
+fn carded_for(laptop: &Room, sender: &str) -> bool {
+    laptop.tape("clementine").iter().any(|event| {
+        event["kind"] == "permission"
+            && event["title"]
+                .as_str()
+                .is_some_and(|title| title.starts_with(&format!("Allow {sender} to ask")))
+    })
+}
+
+#[tokio::test]
+async fn a_report_from_a_desk_the_handoff_was_not_sent_to_is_refused() {
+    let (laptop, grizzly) = pair("third-desk-report");
+    let _channel = Channel::open(&laptop, &grizzly);
+    let (handoff, _) = handed_back(&laptop, &grizzly).await;
+    third_desk(&laptop);
+
+    assert_eq!(
+        laptop
+            .federation_deliver(THIRD, report_for(&handoff, "runner 3 is green"))
+            .unwrap_err(),
+        "This desk sent no such request."
+    );
+    assert!(reports_shown(&laptop).is_empty());
+    laptop
+        .federation_deliver(GRIZZLY, report_for(&handoff, "runner 3 is green"))
+        .unwrap();
+    assert_eq!(
+        reports_shown(&laptop),
+        ["Lou on grizzly, in your handoff thread: runner 3 is green"]
+    );
+}
+
+#[tokio::test]
+async fn a_question_back_about_another_teammates_handoff_meets_the_card() {
+    let (laptop, grizzly) = pair("about-another");
+    let mut ray = persona("ray");
+    ray.name = "Ray".into();
+    enrol(&grizzly.log, &ray);
+    let _channel = Channel::open(&laptop, &grizzly);
+    let (handoff, _) = handed_back(&laptop, &grizzly).await;
+    third_desk(&laptop);
+
+    // The handoff went to Lou on grizzly: neither Ray beside him nor
+    // another desk's Lou asks back about it without the person's card.
+    let asking = |id: &str, from: &str| LinkedDelivery::Request {
+        request_id: id.into(),
+        from_persona_id: from.into(),
+        to: "clementine".into(),
+        message: "Which port?".into(),
+        intent: "ask".into(),
+        continues: None,
+        about: Some(handoff.clone()),
+    };
+    laptop
+        .federation_deliver(GRIZZLY, asking("ray-asks", "ray"))
+        .unwrap();
+    laptop
+        .federation_deliver(THIRD, asking("lou-asks", "lou"))
+        .unwrap();
+    until("each question meets the person's card", || {
+        carded_for(&laptop, "Ray on grizzly") && carded_for(&laptop, "Lou on third")
+    })
+    .await;
+    assert!(delivered(&laptop, "clementine", "ray-asks").is_none());
+    assert!(delivered(&laptop, "clementine", "lou-asks").is_none());
+}
+
+#[tokio::test]
+async fn reports_from_a_thread_and_its_continuation_on_a_linked_desk_are_heard_as_one() {
+    let (laptop, grizzly) = pair("continued-reports");
+    let _channel = Channel::open(&laptop, &grizzly);
+    let (first, _) = handed_back(&laptop, &grizzly).await;
+    let sent = TeammateTools::new(&laptop, "clementine")
+        .call(
+            "message_teammate",
+            &json!({"to": "Lou", "message": "And the staging runners.", "intent": "handoff", "thread": first}),
+        )
+        .await
+        .unwrap();
+    let second = serde_json::from_str::<Value>(&sent).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("Clementine has heard the second result", || {
+        delivered(&laptop, "clementine", &second).is_some_and(|event| event["receipt"] == "read")
+            && !laptop.mid_turn("clementine")
+    })
+    .await;
+
+    for (handoff, text) in [
+        (&first, "Swatch 1 is ready."),
+        (&second, "Swatch 2 is ready."),
+    ] {
+        laptop
+            .federation_deliver(GRIZZLY, report_for(handoff, text))
+            .unwrap();
+    }
+    let heard = laptop
+        .take_heard(&crate::contract::ThreadId::dm("clementine"))
+        .expect("Clementine has the reports to hear");
+    assert_eq!(
+        heard.matches("in the thread you handed them").count(),
+        1,
+        "{heard}"
+    );
+    assert!(
+        heard.contains("Swatch 1 is ready.\n---\nSwatch 2 is ready."),
+        "{heard}"
+    );
+}
+
+#[tokio::test]
+async fn a_report_erased_by_stop_exchange_while_another_crosses_never_crosses() {
+    let (laptop, grizzly) = pair("erased-reports");
+    let channel = Channel::open(&laptop, &grizzly);
+    let (first, one) = handed_back(&laptop, &grizzly).await;
+    let second = message(&laptop, "clementine", "Lou", "handoff")
+        .await
+        .unwrap();
+    until("Clementine has heard the second result", || {
+        delivered(&laptop, "clementine", &second).is_some_and(|event| event["receipt"] == "read")
+            && !laptop.mid_turn("clementine")
+    })
+    .await;
+    let two = thread_on_grizzly(&grizzly, &second);
+    until("Lou's second thread has closed", || {
+        !grizzly.work_is_open(&two)
+    })
+    .await;
+    channel.close();
+    for (handoff, thread) in [(&first, &one), (&second, &two)] {
+        grizzly.continue_side(thread).await.unwrap();
+        grizzly.prompt_side(thread, "step", None).await.unwrap();
+        until("the report waits for the link", || {
+            waiting_to_cross(&grizzly, handoff) == 1
+        })
+        .await;
+    }
+
+    // The test is the laptop's end: it holds the first report's call while
+    // the person on grizzly stops the exchange.
+    let (calls, mut crossing) = mpsc::channel::<linked::Call>(32);
+    grizzly.links.opened(LAPTOP, calls);
+    let held = tokio::time::timeout(Duration::from_secs(10), crossing.recv())
+        .await
+        .expect("a report crosses")
+        .unwrap();
+    assert_eq!(held.params["delivery"]["kind"], "progress");
+    grizzly
+        .stop_exchange(&format!("{LAPTOP}/clementine"), "lou")
+        .unwrap();
+    let _ = held.answer.send(Ok(Value::Null));
+    // The stop itself is still told to the laptop; no report is.
+    let until = tokio::time::Instant::now() + Duration::from_millis(500);
+    while let Ok(Some(call)) = tokio::time::timeout_at(until, crossing.recv()).await {
+        assert_ne!(
+            call.params["delivery"]["kind"], "progress",
+            "a report the stop erased crossed: {}",
+            call.params
+        );
+        let _ = call.answer.send(Ok(Value::Null));
+    }
+}

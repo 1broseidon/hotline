@@ -232,9 +232,21 @@ impl Room {
     }
 
     /// Sends a linked sender, in one, the reports its handoff's thread made
-    /// here. They wait while the link is down; a desk that refuses them, as
-    /// one from before reports does, never takes them, so they are dropped.
-    pub(super) async fn send_linked_progress(&self, key: &str, request: &Request) {
+    /// here, as they stand now: none a stop or a revocation has erased. They
+    /// wait while the link is down; a desk that refuses them, as one from
+    /// before reports does, never takes them, so they are dropped.
+    pub(super) async fn send_linked_progress(&self, key: &str, id: &str) {
+        let request = {
+            let _guard = lock(&self.exchange_lock);
+            let Some(request) = self
+                .exchange_pair(key)
+                .and_then(|pair| pair.requests.into_iter().find(|r| r.id == id))
+                .filter(Self::owes_linked_progress)
+            else {
+                return;
+            };
+            request
+        };
         let Some((desk_id, _)) = crate::linked::split(&request.from) else {
             return;
         };
@@ -267,7 +279,7 @@ impl Room {
             return;
         };
         if let Some(kept) = pair.requests.iter_mut().find(|r| r.id == request.id) {
-            take_sent(kept, request);
+            take_sent(kept, &request);
             if let Err(error) = self.save_pair(&pair) {
                 eprintln!("clear reports sent over a link: {error}");
             }

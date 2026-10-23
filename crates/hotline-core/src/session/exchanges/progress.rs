@@ -97,9 +97,9 @@ pub(super) fn release(request: &mut Request) -> bool {
 }
 
 struct ThreadReports {
-    /// The thread's id, or the handoff's for a thread on a linked desk,
-    /// which has no id here.
-    from: String,
+    /// The thread's id, or for a thread on a linked desk, which has no id
+    /// here, the id of the handoff that opened it.
+    key: String,
     thread: Option<String>,
     name: String,
     reports: Vec<String>,
@@ -479,10 +479,14 @@ impl Room {
                 {
                     continue;
                 }
-                let from = request.thread.clone().unwrap_or_else(|| request.id.clone());
-                if !threads.iter().any(|heard| heard.from == from) {
+                let key = request
+                    .thread
+                    .clone()
+                    .or_else(|| request.continues.clone())
+                    .unwrap_or_else(|| request.id.clone());
+                if !threads.iter().any(|heard| heard.key == key) {
                     threads.push(ThreadReports {
-                        from: from.clone(),
+                        key: key.clone(),
                         thread: request.thread.clone(),
                         name: self.participant(&request.to).map_or_else(
                             |_| request.to.clone(),
@@ -494,7 +498,7 @@ impl Room {
                 }
                 let heard = threads
                     .iter_mut()
-                    .find(|heard| heard.from == from)
+                    .find(|heard| heard.key == key)
                     .expect("this thread's reports were found or added just above");
                 heard.left_out += request.progress_left_out;
                 for report in request.progress.drain(..) {

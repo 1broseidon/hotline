@@ -2,6 +2,7 @@ import { shortDate } from "../../clock";
 import type { AccountSection, AccountsList, AccountView, CredentialAccount, CredentialKind, Provider } from "../../generated/contract";
 import { ownSignIn, statusWords, SYSTEM_DEFAULT, THIS_COMPUTER, whoLine } from "./words";
 
+/** Hotline Agent's stored backend id. Any other id is an ACP harness. */
 export const HOTLINE_AGENT = "hotline";
 
 /**
@@ -110,8 +111,8 @@ export function providerAccounts(list: AccountsList, providerId: string | undefi
 		live.some((other) => other !== one && other.section === one.section && other.credential.label.toLowerCase() === one.credential.label.toLowerCase());
 	return live.map((one) => {
 		const added = twinned(one) ? [`Added ${shortDate.format(one.credential.createdAt)}`] : [];
-		const isDefault = one.default && live.length > 1 ? ["Default"] : [];
-		return credentialChoice(one, [...added, ...isDefault]);
+		const defaultMark = one.default && live.length > 1 ? ["Default"] : [];
+		return credentialChoice(one, [...added, ...defaultMark]);
 	});
 }
 

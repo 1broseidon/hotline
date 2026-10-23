@@ -20,8 +20,6 @@ import { PathField } from "./PathField";
 import { suggestName } from "../names";
 import { BACKGROUND_ABOUT, COMPUTER_ABOUT, FolderRows, MACHINE_ABOUT, SwitchRow, foldersNote } from "./Teammate";
 
-/** Hotline Agent's stored backend id. Any other id is an ACP harness. */
-
 /**
  * Creating a teammate: the things the person decides, and nothing else.
  *

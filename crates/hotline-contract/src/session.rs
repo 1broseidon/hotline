@@ -57,6 +57,10 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<SessionProcess>>", optional)]
     pub processes: Vec<SessionProcess>,
+    /// Which account the session runs under and which it will move to.
+    /// Absent for a teammate on the default with no switch pending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<SessionAccount>,
 }
 
 /// One command a session holds running, as the desk's chip shows it.

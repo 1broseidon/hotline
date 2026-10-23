@@ -1,16 +1,19 @@
 //! What a command does.
 //!
 //! The room's own memory is the wire's to write: a teammate and a setting are
-//! events on the room stream, and this is the only thing that appends them.
+//! events on the room stream, and this is the only thing that appends them,
+//! save the `login_at` a confirmed sign-in stamps on its account
+//! (`accounts::login`). Both writers hold `policy_update_lock`.
 //! Everything else — a session, a secret, the models a key can reach — is
 //! asked of the [`RoomHandle`], because a running agent and a vault are not
 //! things to reimplement behind a door.
 
+pub(super) mod accounts;
 pub(super) mod models;
 pub(super) mod persona;
 mod settings;
 
-use super::{Parts, RoomHandle, threads};
+use super::{CredentialUpdate, Parts, RoomHandle, threads};
 use crate::contract::{Command, ThreadAnswer, ThreadId};
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
@@ -45,6 +48,38 @@ pub(crate) fn prompt_client() -> Option<crate::contract::Client> {
 
 pub(crate) fn from_voice() -> bool {
     VOICE_COMMAND.try_with(|()| ()).is_ok()
+}
+
+/// A start refused for the teammate's account says so in public words, which
+/// is all a thread or a colleague may hear. Session commands are the desk's
+/// and its owner's alone, so they get the private card: the account's name,
+/// and where its folder is.
+fn refused_at_the_desk(log: &Log, persona_id: &str, error: String) -> String {
+    let Ok(persona) = living(log, persona_id) else {
+        return error;
+    };
+    let (refused, agent, phase) = if persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
+        (
+            crate::accounts::resolve::hotline(log, &persona).err(),
+            crate::driver::rig::AGENT_NAME.to_string(),
+            "start",
+        )
+    } else {
+        (
+            crate::accounts::resolve::resolve(log.root(), log, &persona).err(),
+            crate::driver::acp::registry::name_of(log.root(), &persona.backend_id)
+                .unwrap_or_else(|| persona.backend_id.clone()),
+            "acp_start",
+        )
+    };
+    let Some(refusal) = refused else {
+        return error;
+    };
+    if !error.contains(&refusal.public_sentence(&persona.name, &agent)) {
+        return error;
+    }
+    let sentence = refusal.private_sentence(&persona.name, &agent);
+    crate::driver::failure::Failure::account_unavailable(&refusal, &agent, sentence, phase).notice()
 }
 
 /// Runs work that reads or writes files or a database on the blocking pool,
@@ -216,9 +251,27 @@ pub(crate) async fn run(
         Command::AgentAuthStart { .. }
         | Command::AgentAuthPoll { .. }
         | Command::AgentAuthInput { .. }
-        | Command::AgentAuthCancel { .. } => {
+        | Command::AgentAuthCancel { .. }
+        | Command::AccountsLoginStart { .. }
+        | Command::AccountsLoginPoll { .. }
+        | Command::AccountsLoginInput { .. }
+        | Command::AccountsLoginCancel { .. } => {
             Err("Sign-in requires its owning desktop connection.".into())
         }
+        Command::AccountsList {}
+        | Command::AccountsCreate { .. }
+        | Command::AccountsRename { .. }
+        | Command::AccountsRemove { .. }
+        | Command::AccountsStatus { .. }
+        | Command::AccountsSetupList { .. }
+        | Command::AccountsSetupCopy { .. } => accounts::run(command, log, room, false).await,
+        Command::PersonaAccount {
+            persona_id,
+            account_id,
+        } => room
+            .persona_account(&persona_id, account_id)
+            .await
+            .map(|account| json!(account)),
         Command::MobilePrompt { .. }
         | Command::MobileAttachment { .. }
         | Command::MobilePushRegister { .. } => Err("This command requires a paired phone.".into()),
@@ -240,11 +293,15 @@ pub(crate) async fn run(
                 model_id,
                 effort_id,
             };
-            mobile_persona_create(log, room, &request_id, asked).await
+            mobile_persona_create(log, room, &request_id, asked)
+                .await
+                .map(|persona| without(persona, "accountId"))
         }
         Command::MobilePersonaUpdate { id, name, goal } => {
             let patch = mobile_persona_patch(name, goal)?;
-            apply_persona_update(log, room, &id, &patch).await
+            apply_persona_update(log, room, &id, &patch)
+                .await
+                .map(|persona| without(persona, "accountId"))
         }
         Command::MobilePersonaAccess {
             id,
@@ -258,7 +315,12 @@ pub(crate) async fn run(
             memory,
             cpus,
         } => mobile_persona_computer(log, room, &id, enabled, memory, cpus).await,
-        Command::PersonaCreate { draft } => create_persona(log, draft),
+        // Under the lock, so `accounts.remove` cannot miss a teammate made with its account.
+        Command::PersonaCreate { draft } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            create_persona(log, draft)
+        }
         Command::PersonaUpdate { id, patch } => apply_persona_update(log, room, &id, &patch).await,
         Command::PersonaDelete { id } => {
             let gate = room.policy_update_lock();
@@ -285,16 +347,47 @@ pub(crate) async fn run(
             .credential_create(&provider_id, &label, &secret)
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
-        Command::CredentialDelete { id } => room.credential_delete(&id).await.map(|()| Value::Null),
-        Command::CredentialLogin { provider_id } => room
-            .credential_login(&provider_id)
+        // The lock covers the check and the revoke, so no teammate is set to
+        // it meanwhile. A revoked credential cannot be chosen, so the slow
+        // provider sign-out and the deletion run after it.
+        Command::CredentialDelete { id } => {
+            {
+                let gate = room.policy_update_lock();
+                let _held = gate.lock().await;
+                accounts::check_unused(log, room, &id)?;
+                room.credential_revoke(&id)?;
+            }
+            room.credential_delete(&id).await.map(|()| Value::Null)
+        }
+        Command::CredentialLogin {
+            provider_id,
+            label,
+            id,
+        } => room
+            .credential_login(&provider_id, label.as_deref(), id.as_deref())
             .await
             .map(|prompt| json!(prompt)),
         Command::CredentialLoginCancel { login_id } => room
             .credential_login_cancel(&login_id)
             .map(|()| Value::Null),
-        Command::CredentialConnectLocal { base_url } => room
-            .credential_connect_local(&base_url)
+        Command::CredentialConnectLocal { base_url, label } => room
+            .credential_connect_local(&base_url, label.as_deref())
+            .await
+            .map(|credential| json!(credential)),
+        Command::CredentialUpdate {
+            id,
+            label,
+            secret,
+            base_url,
+        } => room
+            .credential_update(
+                &id,
+                CredentialUpdate {
+                    label,
+                    secret,
+                    base_url,
+                },
+            )
             .await
             .map(|credential| json!(credential)),
         Command::CredentialCustomSave { id, draft } => room
@@ -388,7 +481,10 @@ pub(crate) async fn run(
         Command::ModelsEfforts { model_id } => Ok(json!(room.models_efforts(&model_id))),
 
         Command::SessionStart { persona_id } => {
-            let info = room.start(&persona_id).await?;
+            let info = room
+                .start(&persona_id)
+                .await
+                .map_err(|error| refused_at_the_desk(log, &persona_id, error))?;
             if let Ok(persona) = living(log, &persona_id) {
                 remember_model(log, room, &persona).await?;
             }
@@ -401,17 +497,16 @@ pub(crate) async fn run(
             text,
             reply_to,
             attachments,
-        } => {
-            threads::prompt(
-                log,
-                room,
-                &ThreadId::dm(persona_id),
-                &text,
-                reply_to,
-                attachments,
-            )
-            .await
-        }
+        } => threads::prompt(
+            log,
+            room,
+            &ThreadId::dm(&persona_id),
+            &text,
+            reply_to,
+            attachments,
+        )
+        .await
+        .map_err(|error| refused_at_the_desk(log, &persona_id, error)),
         Command::SessionCancel { persona_id } => threads::cancel(room, &ThreadId::dm(persona_id)),
         Command::ProcessStop { persona_id, id } => {
             room.process_stop(&persona_id, &id).map(|()| Value::Null)
@@ -848,6 +943,13 @@ fn remote(parts: &Parts) -> Result<Arc<crate::remote::Remote>, String> {
         .remote
         .upgrade()
         .ok_or_else(|| "Remote access is not available in this room.".into())
+}
+
+pub(super) fn without(mut value: Value, key: &str) -> Value {
+    if let Some(fields) = value.as_object_mut() {
+        fields.remove(key);
+    }
+    value
 }
 
 fn now() -> i64 {

@@ -31,6 +31,7 @@ fn main() {
         "desk_viewer_token",
         "open_sent_file",
         "save_sent_file",
+        "open_account_setup",
         "transfer_pick",
         "transfer_read",
         "transfer_begin",

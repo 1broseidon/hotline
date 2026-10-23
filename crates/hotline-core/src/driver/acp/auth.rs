@@ -44,13 +44,25 @@ pub(super) fn descriptor(live: &Live) -> Option<SignIn> {
     })
 }
 
+/// A teammate on an account is never offered the harness's own sign-in,
+/// which would sign in This computer instead; its card points at
+/// the account.
 pub(super) fn failure(
     live: &Live,
-    text: &str,
+    message: &str,
+    stderr_hint: &str,
     phase: &'static str,
+    usage_limit_prefixes: &[&str],
+    account_id: Option<&str>,
 ) -> super::super::failure::Failure {
-    let mut failure = super::super::failure::Failure::classify(text, None, phase);
-    if failure.kind == super::super::failure::Kind::AgentAuth {
+    let mut failure = super::super::failure::Failure::classify_acp(
+        message,
+        stderr_hint,
+        phase,
+        usage_limit_prefixes,
+    );
+    failure.account_id = account_id.map(str::to_string);
+    if failure.kind == super::super::failure::Kind::AgentAuth && account_id.is_none() {
         failure.sign_in = descriptor(live);
     }
     let session = lock(&live.session);
@@ -80,6 +92,12 @@ pub(super) async fn start(
     method_id: &str,
     owner: CancellationToken,
 ) -> Result<String, String> {
+    if let Some(account) = &agent.account {
+        return Err(format!(
+            "Sign in {} from its account instead.",
+            account.name
+        ));
+    }
     // A prompt may itself be waiting on a stalled initialize. Do not hold the
     // desktop's request open behind it: the socket must still observe closure.
     let _gate = agent
@@ -199,9 +217,22 @@ async fn authenticate(
                 .ok_or("The harness has no workspace.")?
                 .cwd
                 .clone();
+            let term = ("TERM".to_string(), "xterm-256color".to_string());
+            let env = crate::accounts::env::env_plan(
+                &launch.env,
+                &std::iter::once(term).chain(method.env).collect::<Vec<_>>(),
+                None,
+            );
             let (tx, rx) = tokio::sync::oneshot::channel();
             let task = tokio::spawn(async move {
-                let result = crate::driver::auth::terminal(launch, cwd, method, attempt).await;
+                let result = crate::driver::auth::terminal(
+                    launch,
+                    std::path::PathBuf::from(cwd),
+                    method.args,
+                    env,
+                    attempt,
+                )
+                .await;
                 let _ = tx.send(result);
             });
             *lock(&agent.live.terminal_done) = Some(task);

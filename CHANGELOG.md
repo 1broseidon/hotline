@@ -8,6 +8,27 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Accounts: keep as many keys, sign-ins, servers and Claude subscriptions
+  of a provider as you like, each with its own name, all on the provider's
+  page in Settings › Providers. A Claude subscription is a Claude Code
+  sign-in of its own, made with Claude Code's own sign-in and starting with
+  as much of your Claude Code setup as you choose. When more than one
+  account fits a teammate, New teammate and the teammate's pane let you pick
+  one: a Hotline Agent teammate among its model's provider's accounts, a
+  Claude Code teammate among your Claude subscriptions and This computer.
+  Teammates on different accounts run at the same time; a switch waits
+  until the teammate is idle and starts fresh with the conversation (a call
+  still connected when it lands loses its tools until you hang up and call
+  again). Change key, Change server and Sign in again change an account in
+  place, and an account a teammate uses can't be removed. A usage limit, a
+  ChatGPT sign-in's included, or a Hotline Agent key out of credit offers
+  the other accounts in one list, and says when the limit resets as a time
+  on your clock where the provider tells. A teammate with no account chosen
+  works as before: Claude Code on This computer, its own sign-in, and
+  Hotline Agent on the first of its provider's accounts that works.
+
 ## [0.42.0] - 2026-10-21
 
 ### Added

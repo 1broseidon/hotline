@@ -42,6 +42,8 @@ Set `HOTLINE_DATA_DIR` to put it somewhere else. Inside it:
 - `workspaces/`: the folders of teammates you did not give a folder to;
 - `skills/`: skills added under **From other folders**;
 - `acp-agents/`: agents downloaded from the registry;
+- `agent-accounts/`: one folder per [Claude subscription](/docs/setup/providers/#claude-subscriptions),
+  where Claude Code keeps that account's sign-in, settings and history;
 - `index.sqlite`: the search index, which can be rebuilt;
 - `cache/`: the day's copy of the agent registry, and the desk's speech
   models;
@@ -75,7 +77,8 @@ Nothing secret is ever written into a conversation, a teammate's folder, an
 agent's instructions or a log.
 
 Teammates that run a coding tool such as Claude Code keep their own logins
-where that tool keeps them; Hotline holds nothing for them.
+where that tool keeps them, or in a Claude subscription's folder; Hotline
+holds nothing for them.
 
 ## Boundaries
 

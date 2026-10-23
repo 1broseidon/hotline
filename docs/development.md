@@ -57,13 +57,14 @@ crates/hotline-support/src/   the utilities that hold no Hotline state; a leaf c
   thumbs.rs                  smaller copies of pictures for a phone
   fence.rs                   the one fence around anything quoted out of a conversation
   log_file.rs                where the app's own lines go when nobody reads its output
-  process_windows.rs         a Windows child's kill-on-close job
+  process_windows.rs         a Windows child's kill-on-close job, and a sign-in console's job that outlives a normal exit
+  private_dir.rs             a credential folder made private from its first instant, and the real-directory check before each use
 crates/hotline-store/src/     what is kept on disk and rebuilt from it; on the two leaves and nothing else
   log/                       streams: append, fold, segments, subscribe; tapes and threads
   search.rs                  beside the tape: FTS5 search over every tape
   chapters.rs                a tape's chapter list
   previews.rs                a tape's last line, for the roster
-  link.rs                    the line a thread leaves on its parent, and where a thread stands
+  link.rs                    the line a thread leaves on its parent, where a thread stands, and the agent account its session ran on
   sent/                      files teammates send the person, and their readback
 crates/hotline-tools/src/     a teammate's workspace and shell tools; on the two leaves and nothing else
   capability.rs              the session's lease every tool checks, and the epoch that revokes it
@@ -77,6 +78,7 @@ crates/hotline-websearch/src/ web search for every teammate, keyless by default,
 crates/hotline-room/src/      the room as the code above the core sees it; on the leaves, the store and web search
   room.rs                    the roster fold, settings, and schedules
   mcp_servers.rs             the `mcpServers` setting, read the way the fold reads it
+  agent_accounts.rs          the `agentAccounts` setting, read entry by entry
   linked.rs                  linked desks: their records, qualified ids, the roster that crosses
   room_handle.rs             RoomHandle, the seam the wire calls the live room through
   tool_ledger.rs             what tools a teammate got, from where, and why one is absent
@@ -102,6 +104,7 @@ crates/hotline-core/src/
   vault/                     credential metadata beside the room stream
   session/                   Session, the funnel, quiet, chapters, the scheduler, peer threads
   driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
+  accounts/                  an agent account: its agent's row, folder, env, status, sign-in, setup and switch
   models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
   providers/                 connection work Rig does not own; requests stay on Rig's clients
   capabilities.rs            which connected provider the owner can pick for each job
@@ -123,6 +126,7 @@ crates/hotline-core/src/
   test_support.rs            what the unit tests of more than one module share
   bin/hotline-import.rs      the importer as a binary
   bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
+  bin/hotline-acp-fixture.rs a scripted ACP agent and its CLI, for the harnesses
   bin/hotline-models-sync.rs rewrites models.json from models.dev
 crates/hotline-core/models.json  the model catalogue: a filtered snapshot of models.dev
 crates/hotline-core/tests/   headless proofs driving the real core over the wire
@@ -487,7 +491,9 @@ faces with the name under each, stacked above a hairline in the faces-only
 rail, with the same status, unread and busy marks. They reorder by dragging, or
 Move left / right in the row's context menu, and the Teammate 1–9 chords
 count pins first. While Settings is open the rail is its
-sections — General, Providers, Tools, Computer, Updates, Import — with a back key in its band
+sections (General, Desks, Providers, Tools, Skills, Computer,
+Secrets, Remote, Updates and Import, with Keyboard shortcuts and About at its
+foot), with a back key in its band
 where the team's plus was, and the pane shows one section at a time. The
 teammate inspector sits beside the
 conversation; search is a popover that hangs under the band over the
@@ -512,6 +518,11 @@ model ids for each connection, and `vault/mcp/<server>.json` for an HTTP
 MCP server's protected OAuth registration and tokens. MCP records are bound
 to the configured server URL and authorization issuer; they never enter
 settings, streams, tapes or agent descriptors.
+
+`<data dir>/agent-accounts/<uuid>/` is one agent account's own config
+folder, private from its creation (`hotline_support::private_dir`). The
+agent writes its sign-in, settings and history there, and removing the
+account in Settings leaves the folder.
 
 Tests use temporary directories of their own. Never point a test, a
 harness, or `HOTLINE_DATA_DIR` at a real Hotline data directory.

@@ -9,6 +9,23 @@
 //! calls is answered "On it." A REPLY_JSON line supplies a JSON string as
 //! the answer, so reply-format scenarios need not echo session instructions.
 //! REPORT_TOOLS also emits ACP tool notifications around those MCP calls.
+//!
+//! A prompt line `REPORT_ENV <name>...` is answered instead with one
+//! `ENV <name>=<value>` or `ENV <name> unset` line per name, then the same
+//! lines, each after `CHILD_ENV `, as printed by a child of its own run with
+//! `--print-env <name>...`, so a harness sees what the agent and its
+//! subprocesses inherit. A value is printed only under the agent-accounts
+//! harness, which sets `HOTLINE_TEST_AGENT_ACCOUNTS`; elsewhere a name that is
+//! set reads `ENV <name> set`.
+//!
+//! With `--cli` anywhere in its arguments it is instead the agent's own command
+//! line for an account, `auth status [--json]` and `auth login …`, answered
+//! from the folder in `CLAUDE_CONFIG_DIR`; a sign-in writes only into a folder
+//! inside `agent-accounts`. Every run there writes the names of
+//! its environment, never a value, to `<that folder>/fixture-<status|login>-env.json`;
+//! without the variable it writes nothing, so it never reaches the home folder.
+//! `FIXTURE_LOGIN_MODE` (`ok`, `fail`, `silent`, `hang`, `prompt`) picks how a
+//! sign-in ends.
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
@@ -21,9 +38,12 @@ use rmcp::ServiceExt;
 use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 /// Where Hotline's own MCP server is for a session: its URL and bearer.
@@ -37,6 +57,14 @@ type Sessions = Arc<Mutex<HashMap<String, Desk>>>;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--print-env") {
+        print_env(&args[1..]);
+        return;
+    }
+    if let Some(at) = args.iter().position(|arg| arg == "--cli") {
+        std::process::exit(cli(&args[at + 1..]));
+    }
     let sessions: Sessions = Arc::default();
     let opened = sessions.clone();
     let histories: Arc<Mutex<HashMap<String, Vec<String>>>> = Arc::default();
@@ -188,6 +216,9 @@ async fn answer(
     connection: &ConnectionTo<Client>,
     session: &SessionId,
 ) -> String {
+    if let Some(names) = reported(said) {
+        return report(&names).await;
+    }
     let calls = calls(said);
     if calls.is_empty() {
         return "On it.".to_string();
@@ -334,4 +365,171 @@ async fn write_file(
         ))
         .unwrap();
     format!("{tool}: {status:?}")
+}
+
+fn cli(args: &[OsString]) -> i32 {
+    let args: Vec<String> = args
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let dir = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from);
+    match words.as_slice() {
+        ["auth", "status"] | ["auth", "status", "--json"] => auth_status(dir.as_deref()),
+        ["auth", "login", rest @ ..] => auth_login(dir.as_deref(), rest),
+        _ => 2,
+    }
+}
+
+fn report_env_names(dir: &Path, run: &str) {
+    let mut names: Vec<String> = std::env::vars_os()
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let report = serde_json::to_vec(&names).expect("names serialize");
+    std::fs::write(dir.join(format!("fixture-{run}-env.json")), report)
+        .expect("the account folder is writable");
+}
+
+fn auth_status(dir: Option<&Path>) -> i32 {
+    let Some(dir) = dir else {
+        println!(r#"{{"loggedIn":false}}"#);
+        return 1;
+    };
+    report_env_names(dir, "status");
+    if std::env::var("FIXTURE_STATUS_MODE").as_deref() == Ok("hang") {
+        std::thread::sleep(Duration::from_secs(600));
+    }
+    let config_directory = dir.to_string_lossy();
+    let answer = match std::env::var("FIXTURE_AUTH").as_deref() {
+        Ok("api_key") => json!({
+            "loggedIn": true,
+            "authMethod": "api_key",
+            "apiProvider": "firstParty",
+            "apiKeySource": "ANTHROPIC_API_KEY",
+            "configDirectory": config_directory,
+        }),
+        Ok("bedrock") => json!({
+            "loggedIn": true,
+            "authMethod": "third_party",
+            "apiProvider": "bedrock",
+            "configDirectory": config_directory,
+        }),
+        _ => {
+            let credentials = dir.join(".credentials.json");
+            let logged_in = credentials.exists();
+            let email = std::fs::read(&credentials)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .and_then(|saved| saved["email"].as_str().map(str::to_string));
+            json!({
+                "loggedIn": logged_in,
+                "authMethod": if logged_in { "claude.ai" } else { "none" },
+                "apiProvider": "firstParty",
+                "email": email,
+                "subscriptionType": "max",
+                "configDirectory": config_directory,
+            })
+        }
+    };
+    println!("{answer}");
+    if answer["loggedIn"] == true { 0 } else { 1 }
+}
+
+fn auth_login(dir: Option<&Path>, args: &[&str]) -> i32 {
+    let Some(dir) = dir
+        .filter(|dir| dir.parent().and_then(Path::file_name) == Some(OsStr::new("agent-accounts")))
+    else {
+        return 1;
+    };
+    report_env_names(dir, "login");
+    let given = serde_json::to_vec(args).expect("arguments serialize");
+    std::fs::write(dir.join("fixture-login-args.json"), given)
+        .expect("the account folder is writable");
+    println!("Opening the browser to sign in.");
+    let email = args
+        .iter()
+        .position(|arg| *arg == "--email")
+        .and_then(|at| args.get(at + 1))
+        .copied()
+        .unwrap_or("fixture@example.invalid");
+    let sign_in = || {
+        let credentials = json!({ "email": email }).to_string();
+        std::fs::write(dir.join(".credentials.json"), credentials)
+            .expect("the account folder is writable");
+        0
+    };
+    match std::env::var("FIXTURE_LOGIN_MODE")
+        .as_deref()
+        .unwrap_or("ok")
+    {
+        "ok" => sign_in(),
+        "fail" => 7,
+        "silent" => 0,
+        "hang" => {
+            println!("waiting");
+            std::thread::sleep(Duration::from_secs(600));
+            0
+        }
+        "prompt" => {
+            println!("Paste code:");
+            let mut line = String::new();
+            let _ = std::io::stdin().read_line(&mut line);
+            if line.trim() == "yes" { sign_in() } else { 3 }
+        }
+        _ => 2,
+    }
+}
+
+fn print_env(names: &[OsString]) {
+    for name in names {
+        println!("{}", env_line(&name.to_string_lossy()));
+    }
+}
+
+fn env_line(name: &str) -> String {
+    match std::env::var_os(name) {
+        Some(value) if std::env::var_os("HOTLINE_TEST_AGENT_ACCOUNTS").is_some() => {
+            format!("{name}={}", value.to_string_lossy())
+        }
+        Some(_) => format!("{name} set"),
+        None => format!("{name} unset"),
+    }
+}
+
+fn reported(said: &str) -> Option<Vec<String>> {
+    let line = said.lines().find(|line| line.contains("REPORT_ENV "))?;
+    let names = &line[line.find("REPORT_ENV ")? + "REPORT_ENV ".len()..];
+    Some(names.split_whitespace().map(str::to_string).collect())
+}
+
+async fn report(names: &[String]) -> String {
+    let mut lines: Vec<String> = names
+        .iter()
+        .map(|name| format!("ENV {}", env_line(name)))
+        .collect();
+    match printed_by_a_child(names).await {
+        Ok(printed) => lines.extend(printed.lines().map(|line| format!("CHILD_ENV {line}"))),
+        Err(error) => lines.push(format!("CHILD_ENV failed: {error}")),
+    }
+    lines.join("\n")
+}
+
+async fn printed_by_a_child(names: &[String]) -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = tokio::process::Command::new(exe);
+    command
+        .arg("--print-env")
+        .args(names)
+        .stdin(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command.output().await.map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!("it exited with {}", output.status));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }

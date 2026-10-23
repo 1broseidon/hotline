@@ -156,8 +156,10 @@ pub(super) struct LiveSide {
     /// opened without a task; that line names it.
     title: Mutex<String>,
     started: i64,
-    /// The harness the agent runs on, which is whose session ids `saved` holds.
+    /// The harness the agent runs on, and the account it runs under, which is
+    /// whose session ids `saved` holds.
     backend_id: String,
+    account_id: Option<String>,
     /// The teammate that handed this work over, when one did.
     opener: Option<Opener>,
     /// The handoff request the turn in flight is answering, until its result
@@ -192,6 +194,7 @@ pub(super) struct LiveSide {
 /// What a thread holds once its agent is up.
 struct Up {
     driver: Arc<dyn Driver>,
+    account_id: Option<String>,
     /// What the agent holds the teammate's computer under.
     holder: crate::computer::gate::Holder,
 }
@@ -395,6 +398,7 @@ impl Occupant for LiveSide {
     fn rest(self: &Arc<Self>, room: &Arc<Room>) {
         lock(&self.turns).running = false;
         let _ = room.info_changes.send(room.info(&self.persona_id));
+        room.apply_account_when_idle(&self.persona_id);
     }
 }
 
@@ -722,12 +726,14 @@ impl Room {
         let lease = lease_of(start.thread.kind, &persona_lease);
         // What the marker held stays on it while the agent starts, so that
         // the start can still reopen it, but only if it is one this harness
-        // issued.
+        // issued under this account.
+        let account_id = crate::accounts::account_of(&self.log, &persona);
         let kept = start
             .saved
             .filter(|saved| {
                 persona.backend_id != crate::driver::HOTLINE_BACKEND_ID
                     && saved.backend_id == persona.backend_id
+                    && saved.account_id == account_id
             })
             .map(|saved| saved.session_id);
         let live = Arc::new(LiveSide {
@@ -740,6 +746,7 @@ impl Room {
             opener: start.opener,
             handoff: Mutex::new(None),
             backend_id: persona.backend_id.clone(),
+            account_id,
             up: OnceLock::new(),
             capability: lease,
             // Claimed for the start: a line said now is queued, not run.
@@ -796,14 +803,17 @@ impl Room {
             {
                 Ok(()) => {
                     let first = lock(&side.turns).next_line();
-                    match first {
-                        Some(line) => room.clone().run_queue(side, line).await,
-                        None => {
-                            let _ = room.info_changes.send(room.info(&side.persona_id));
-                        }
+                    if let Some(line) = first {
+                        room.clone().run_queue(side, line).await;
+                    } else {
+                        let _ = room.info_changes.send(room.info(&side.persona_id));
+                        room.apply_account_when_idle(&side.persona_id);
                     }
                 }
-                Err(error) => room.start_failed(&launch, &error),
+                Err(error) => {
+                    room.start_failed(&launch, &error);
+                    room.apply_account_when_idle(&side.persona_id);
+                }
             }
         });
     }
@@ -830,6 +840,7 @@ impl Room {
             .await?;
         let up = Up {
             driver: agent.driver.clone(),
+            account_id: crate::accounts::account_of(&self.log, &agent.view),
             holder: agent.holder.clone(),
         };
         let _ = side.up.set(up);

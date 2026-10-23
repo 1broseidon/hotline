@@ -7,6 +7,9 @@ use crate::contract::{Credential, CredentialKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
 use crate::log::{Log, StreamId};
 use crate::mcp::McpOAuthRegistration;
+use crate::private_dir::make_private_directory;
+#[cfg(unix)]
+use crate::private_dir::open_directory;
 use crate::providers::discovery::{self, ListedModel};
 use crate::session::ProviderAuth;
 use async_trait::async_trait;
@@ -21,6 +24,8 @@ use std::sync::Arc;
 use std::sync::{Mutex, PoisonError};
 use tokio::sync::Mutex as AsyncMutex;
 
+mod accounts;
+pub(crate) use accounts::{CANNOT_CHANGE, CANNOT_REPLACE, CredentialChange};
 mod launch;
 mod models;
 use models::ModelSources;
@@ -355,7 +360,7 @@ impl Vault {
         Self::credentials(&self.log.load(&StreamId::Room))
     }
 
-    fn credentials(events: &[Value]) -> Vec<Credential> {
+    pub(crate) fn credentials(events: &[Value]) -> Vec<Credential> {
         events
             .iter()
             .filter(|event| event.get("kind").and_then(Value::as_str) == Some("credential"))
@@ -384,17 +389,22 @@ impl Vault {
     }
 
     fn connections(&self) -> HashMap<String, (Credential, ProviderAuth)> {
-        self.connections_from(&self.log.load(&StreamId::Room))
+        self.connections_from(&self.log.load(&StreamId::Room), &self.read_secrets())
     }
 
-    fn connections_from(&self, events: &[Value]) -> HashMap<String, (Credential, ProviderAuth)> {
-        let secrets = self.read_secrets();
+    /// The secrets are read by the caller, once, so a turn that also reads a
+    /// chosen account's key sees the same keychain read and asks for it once.
+    fn connections_from(
+        &self,
+        events: &[Value],
+        secrets: &io::Result<BTreeMap<String, String>>,
+    ) -> HashMap<String, (Credential, ProviderAuth)> {
         let mut connections = HashMap::new();
         for credential in Self::credentials(events) {
             if credential.revoked {
                 continue;
             }
-            let auth = match self.credential_auth(&credential, &secrets) {
+            let auth = match self.credential_auth(&credential, secrets) {
                 Ok(Some(auth)) => auth,
                 Ok(None) => continue,
                 Err(error) => ProviderAuth::Unavailable(error.to_string()),
@@ -494,7 +504,7 @@ impl Vault {
 
     pub(crate) fn model_choices(&self) -> Vec<crate::contract::ConfigChoice> {
         let events = self.log.load(&StreamId::Room);
-        let sources = self.model_sources_from(self.connections_from(&events));
+        let sources = self.model_sources_from(self.connections_from(&events, &self.read_secrets()));
         let auth = sources
             .connections
             .iter()
@@ -606,7 +616,12 @@ impl Vault {
         Ok(())
     }
 
-    pub(crate) fn connect_local(&self, base_url: &str, ids: &[String]) -> io::Result<Credential> {
+    pub(crate) fn connect_local(
+        &self,
+        base_url: &str,
+        ids: &[String],
+        label: &str,
+    ) -> io::Result<Credential> {
         let (id, dir) = self.begin_login()?;
         let now = now_ms();
         let credential = Credential {
@@ -615,7 +630,7 @@ impl Vault {
             credential_kind: CredentialKind::Local,
             base_url: Some(base_url.into()),
             custom: None,
-            label: "Ollama Local".into(),
+            label: label.into(),
             revoked: false,
             created_at: now,
             updated_at: now,
@@ -1108,40 +1123,6 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// Creates the vault directory private to this user, and says so again on a
-/// directory that was already there — a boundary is only a boundary if it is
-/// re-established every time.
-#[cfg(unix)]
-fn make_private_directory(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    // `mkdir` masks the mode it is given by the process umask, which can only
-    // take permissions away, so the directory is never wider than 0700 — not
-    // even for the instant between creating it and setting the mode again.
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)?;
-    // chmod on the path follows a symlink. The fd does not, so a vault/
-    // swapped for a link cannot have its target's mode changed through us.
-    open_directory(path)?.set_permissions(fs::Permissions::from_mode(0o700))
-}
-
-/// Opens a directory without following a symlink at the last component.
-#[cfg(unix)]
-fn open_directory(path: &Path) -> io::Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(path)
-}
-
-/// Windows files inherit the private DACL established at directory creation.
-#[cfg(windows)]
-fn make_private_directory(path: &Path) -> io::Result<()> {
-    crate::credentials::windows::private_directory(path)
-}
-
 /// Creates a file only this user can read. On Windows the file's privacy is
 /// the directory's ACL, which `make_private_directory` refuses to establish,
 /// so nothing reaches here on that platform.
@@ -1212,7 +1193,7 @@ pub(crate) fn write_beside_login(token_dir: &Path, name: &str, body: &[u8]) -> i
 mod tests {
     use super::*;
 
-    fn listed(id: &str) -> ListedModel {
+    pub(super) fn listed(id: &str) -> ListedModel {
         ListedModel {
             id: id.into(),
             name: None,
@@ -1229,12 +1210,12 @@ mod tests {
         root
     }
 
-    fn vault(name: &str) -> Vault {
+    pub(super) fn vault(name: &str) -> Vault {
         let root = scratch(name);
         Vault::open(&root, Log::open(&root)).unwrap()
     }
 
-    fn ids(vault: &Vault) -> Vec<String> {
+    pub(super) fn ids(vault: &Vault) -> Vec<String> {
         vault
             .list()
             .into_iter()
@@ -1675,26 +1656,6 @@ mod tests {
         assert!(
             !temporary.exists(),
             "the temporary was left behind after a failed write"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn setting_the_directory_private_does_not_follow_a_symlink() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = scratch("chmod-symlink");
-        let target = root.join("elsewhere");
-        fs::create_dir_all(&target).unwrap();
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
-        let vault_dir = root.join("vault");
-        std::os::unix::fs::symlink(&target, &vault_dir).unwrap();
-
-        assert!(make_private_directory(&vault_dir).is_err());
-        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
-        assert_eq!(
-            mode, 0o755,
-            "chmod followed the symlink and changed the target"
         );
     }
 

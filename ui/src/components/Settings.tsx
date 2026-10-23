@@ -17,6 +17,7 @@ import { RemoteSection } from "./RemoteSection";
 import { onServer } from "../serverFiles";
 import { DesksSection } from "./DesksSection";
 import { useActiveDesk, useDesks } from "../desks";
+import type { RosterEntry } from "../generated/contract";
 import { ComputerSection } from "./settings/Computer";
 import { GeneralSection } from "./settings/General";
 import { ImportSection } from "./settings/Import";
@@ -173,11 +174,15 @@ function RailFooter({ section, onSection }: { section: SettingsSection; onSectio
  */
 export function Settings({
 	section,
+	roster,
+	account,
 	onSection,
 	onBack,
 	onAddDesk,
 }: {
 	section: SettingsSection;
+	roster: RosterEntry[];
+	account?: string | undefined;
 	onSection?: (section: SettingsSection) => void;
 	onBack?: () => void;
 	onAddDesk?: () => void;
@@ -192,7 +197,10 @@ export function Settings({
 
 	// Providers, Tools and Skills have a page under them, so their bands are
 	// their own; Secrets keeps its own list, so it draws itself the same way.
-	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
+	if (section === "providers") {
+		// Keyed so that opening on another account remounts the section instead of keeping the page it was left on.
+		return <ProvidersSection key={account ?? ""} enabledModels={settings.enabledModels} roster={roster} opening={account} onBack={onBack} />;
+	}
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
 	if (section === "secrets") return <SecretsSection onBack={onBack} />;

@@ -42,7 +42,7 @@ mod threads;
 pub(crate) mod transport;
 
 pub use door::Door;
-pub use hotline_room::room_handle::{AuthStatus, RoomHandle};
+pub use hotline_room::room_handle::{AuthStatus, CredentialUpdate, RoomHandle};
 pub(crate) use hotline_room::secret::same_secret;
 pub(crate) use roster::{activity_on, waiting_on};
 use socket::Outbox;

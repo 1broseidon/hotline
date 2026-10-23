@@ -36,13 +36,14 @@ pub trait SecretStore: Send + Sync {
 #[derive(Default)]
 pub struct NativeStore;
 
+pub const KEYCHAIN_LOCKED: &str = "OS credential storage is locked or inaccessible. Unlock it and retry; Hotline does not fall back to plaintext.";
+
 fn native_error(error: keyring::Error) -> io::Error {
     // Platform errors can include backend details. None belong in the wire.
     match error {
-        keyring::Error::NoStorageAccess(_) => io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "OS credential storage is locked or inaccessible. Unlock it and retry; Hotline does not fall back to plaintext.",
-        ),
+        keyring::Error::NoStorageAccess(_) => {
+            io::Error::new(io::ErrorKind::PermissionDenied, KEYCHAIN_LOCKED)
+        }
         _ => io::Error::other(
             "OS credential storage is unavailable. Check your keychain or Secret Service and retry; Hotline does not fall back to plaintext.",
         ),
@@ -491,6 +492,7 @@ pub fn private_read(path: &Path) -> io::Result<fs::File> {
 }
 
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let path = &verbatim(path)?;
     let parent = path.parent().ok_or_else(corrupt)?;
     check_private_path(parent)?;
     match check_private_path(path) {
@@ -503,6 +505,35 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     temporary.as_file().sync_all()?;
     temporary.persist(path).map_err(|error| error.error)?;
     sync_parent(path)
+}
+
+/// `tempfile` hands its paths to Win32 as they are, and past MAX_PATH only a
+/// verbatim path gets through.
+#[cfg(windows)]
+fn verbatim(path: &Path) -> io::Result<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Component, Prefix};
+    let absolute = std::path::absolute(path)?;
+    let wide: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+    let (marker, skipped) = match absolute.components().next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(_) => (r"\\?\", 0),
+            Prefix::UNC(..) => (r"\\?\UNC", 1),
+            _ => return Ok(absolute),
+        },
+        _ => return Ok(absolute),
+    };
+    let prefixed: Vec<u16> = marker
+        .encode_utf16()
+        .chain(wide[skipped..].iter().copied())
+        .collect();
+    Ok(PathBuf::from(OsString::from_wide(&prefixed)))
+}
+
+#[cfg(not(windows))]
+fn verbatim(path: &Path) -> io::Result<PathBuf> {
+    Ok(path.to_path_buf())
 }
 
 fn sync_parent(path: &Path) -> io::Result<()> {
@@ -548,6 +579,41 @@ mod tests {
         fn delete(&self, key: &str) -> io::Result<()> {
             self.memory.delete(key)
         }
+    }
+
+    #[test]
+    fn atomic_write_reaches_a_path_longer_than_max_path() {
+        let root = tempfile::tempdir().unwrap();
+        let deep = root.path().join("a".repeat(120)).join("b".repeat(120));
+        fs::create_dir_all(&deep).unwrap();
+        let file = deep.join("file.txt");
+        atomic_write(&file, b"deep").unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"deep");
+        atomic_write(&file, b"again").unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"again");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_write_refuses_a_junction_at_its_folder_or_its_file() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target");
+        fs::create_dir_all(&target).unwrap();
+        let junction = root.path().join("junction");
+        let made = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(made.status.success());
+
+        let through = atomic_write(&junction.join("f.json"), b"{}").unwrap_err();
+        let onto = atomic_write(&junction, b"{}").unwrap_err();
+
+        assert_eq!(through.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(onto.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
     }
 
     #[test]

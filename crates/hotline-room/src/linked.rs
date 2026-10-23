@@ -621,6 +621,21 @@ mod tests {
     }
 
     #[test]
+    fn a_linked_roster_row_never_carries_an_agent_account() {
+        let account = "44444444-4444-4444-8444-444444444444";
+        let sent: Vec<LinkedTeammate> = serde_json::from_value(json!([
+            {"personaId":"lou","name":"Lou","state":"idle","workingOn":{"title":""},
+             "agent":"Claude Code","accountId":account,
+             "account":{"running":account},"backendId":"claude-acp"},
+        ]))
+        .unwrap();
+        let published = serde_json::to_string(&plausible(sent)).unwrap();
+        assert!(published.contains("lou"), "{published}");
+        assert!(!published.contains("accountId"), "{published}");
+        assert!(!published.contains(account), "{published}");
+    }
+
+    #[test]
     fn a_published_roster_is_cut_down_to_what_a_roster_row_holds() {
         let sent: Vec<LinkedTeammate> = serde_json::from_value(json!([
             {"personaId":"lou","name":"  Lou  ","state":"working","activity":"x".repeat(500),

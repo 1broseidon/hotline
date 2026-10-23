@@ -61,6 +61,12 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
             .into_owned()
     });
     let folders = checked_folders(draft.folders, &cwd, log.root())?;
+    crate::accounts::check_choice(
+        log,
+        &backend_id,
+        model_id.as_deref(),
+        draft.account_id.as_deref(),
+    )?;
     let persona = Persona {
         node: None,
         id,
@@ -79,6 +85,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         mode_id: None,
         effort_id: given(draft.effort_id),
         harness_override: None,
+        account_id: draft.account_id,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::None,
@@ -171,6 +178,7 @@ pub(super) async fn mobile_persona_create(
         effort_id,
         computer: None,
         background_work: None,
+        account_id: None,
     };
     build_persona(log, id, draft)
 }
@@ -403,7 +411,38 @@ pub(super) fn update_persona(
     if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
         return Err("A picture can only be cleared here, with `avatar: null`.".into());
     }
-    let mut record = json!(previous);
+    if patch.get("accountId").is_some() {
+        return Err("A teammate's account is set with persona.account.".into());
+    }
+    let mut checked = patched(&previous, id, patch)?;
+    // Checked here, before anything is revoked or written, so a refused
+    // folder leaves the teammate exactly as it was.
+    if patch.get("folders").is_some() {
+        checked.folders = checked_folders(checked.folders.take(), &checked.cwd, log.root())?;
+    }
+    let reattaches = persona_update_reattaches(patch, &previous, &checked);
+    if reattaches {
+        room.invalidate(id)?;
+    }
+    let updated = {
+        // A checkpoint may have been written or cleared since the first read:
+        // the patch goes over the record as it is now, under its writers' lock.
+        let _writes = room::persona_write_lock();
+        let mut updated = patched(&living(log, id)?, id, patch)?;
+        if patch.get("folders").is_some() {
+            updated.folders = checked.folders;
+        }
+        room::append_persona(log, &updated)?;
+        updated
+    };
+    if updated.avatar.is_none() {
+        crate::session::avatar::remove_except(log.root(), id, None);
+    }
+    Ok((json!(updated), reattaches))
+}
+
+fn patched(record: &Persona, id: &str, patch: &Value) -> Result<Persona, String> {
+    let mut record = json!(record);
     let fields = record
         .as_object_mut()
         .expect("a teammate serializes as an object");
@@ -415,23 +454,8 @@ pub(super) fn update_persona(
     }
     fields.insert("id".into(), Value::from(id));
     fields.insert("updatedAt".into(), Value::from(now()));
-
-    let mut updated: Persona = serde_json::from_value(record)
-        .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
-    // Checked here, before anything is revoked or written, so a refused
-    // folder leaves the teammate exactly as it was.
-    if patch.get("folders").is_some() {
-        updated.folders = checked_folders(updated.folders.take(), &updated.cwd, log.root())?;
-    }
-    let reattaches = persona_update_reattaches(patch, &previous, &updated);
-    if reattaches {
-        room.invalidate(id)?;
-    }
-    room::append_persona(log, &updated)?;
-    if updated.avatar.is_none() {
-        crate::session::avatar::remove_except(log.root(), id, None);
-    }
-    Ok((json!(updated), reattaches))
+    serde_json::from_value(record)
+        .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))
 }
 
 /// Whether this update restarts a live session. The computer's own
@@ -591,10 +615,13 @@ pub(super) fn delete_persona(
 ) -> Result<Value, String> {
     living(log, id)?;
     room.invalidate(id)?;
-    append(
-        log,
-        &json!({ "kind": "persona", "id": id, "deleted": true }),
-    )?;
+    {
+        let _writes = room::persona_write_lock();
+        append(
+            log,
+            &json!({ "kind": "persona", "id": id, "deleted": true }),
+        )?;
+    }
     // The roster already ignores a pin on a teammate who is gone; settling
     // the stored list keeps it honest and frees the slot.
     let settled = room::pinned_teammates(log);

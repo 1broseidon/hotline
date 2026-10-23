@@ -17,6 +17,7 @@ import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
 import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
+import { ErrorCard, errorDetails } from "./ErrorCard";
 import { SessionPickers } from "./Pickers";
 import { Starters, untouched } from "./Starters";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
@@ -65,6 +66,7 @@ export function Conversation({
 	onHangUp,
 	callBar,
 	onProviders,
+	onChooseAccount,
 }: {
 	entry: RosterEntry;
 	/** The room's models, for the model picker in the band. */
@@ -79,6 +81,7 @@ export function Conversation({
 	callBar?: ReactNode;
 	/** Opens Settings › Providers, where a teammate with no provider is fixed. */
 	onProviders(): void;
+	onChooseAccount(): void;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
@@ -240,13 +243,25 @@ export function Conversation({
 	 * greyed menu item, read at the moment somebody goes looking for it. */
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
+	const refusedCard = refused !== null && notice === refused && errorDetails(refused).kind !== undefined;
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
 				pulling, openScreen, resumeBlocked, setRefused }} />
 
-			{notice !== null && (
+			{refusedCard ? (
+				<div className="shrink-0 px-4">
+					<ErrorCard
+						text={refused}
+						personaId={personaId}
+						teammate={persona.name}
+						backendId={persona.backendId}
+						onChooseAccount={onChooseAccount}
+						onProviders={onProviders}
+					/>
+				</div>
+			) : notice !== null && (
 				<p
 					role="status"
 					className="flex shrink-0 items-center gap-2 bg-danger-soft px-4 py-1.5 text-sm text-ink"
@@ -278,6 +293,8 @@ export function Conversation({
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 					onProviders={onProviders}
+					backendId={persona.backendId}
+					onChooseAccount={onChooseAccount}
 				/>
 				{fresh && (
 					<div className="relative shrink-0 px-6">

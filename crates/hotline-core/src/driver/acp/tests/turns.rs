@@ -120,6 +120,7 @@ async fn failed_acp_sessions_get_a_fresh_briefing_without_reissuing_the_old_prom
             vec![SessionCheckpoint {
                 backend_id: "cursor".into(),
                 session_id: "stale".into(),
+                account_id: None,
             }],
         );
         let info = driver.handshake(&ada, client_transport()).await.unwrap();
@@ -788,6 +789,7 @@ async fn a_checkpoint_reopens_the_agents_own_session_without_replaying_it() {
         vec![SessionCheckpoint {
             backend_id: "cursor".to_string(),
             session_id: "old-session".to_string(),
+            account_id: None,
         }],
     );
     let info = driver.handshake(&ada, client_transport()).await.unwrap();

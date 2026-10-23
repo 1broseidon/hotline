@@ -79,7 +79,7 @@ impl ThreadStore {
         let mut seen = std::collections::HashSet::new();
         for persona in personas {
             let id = persona.id.clone();
-            let mut own = vec![Self::dm_from(persona)];
+            let mut own = vec![Self::dm_from(persona, events)];
             own.extend(
                 sides
                     .iter()
@@ -130,17 +130,25 @@ impl ThreadStore {
     }
 
     fn dm(&self, persona_id: &str) -> Option<Thread> {
-        Some(Self::dm_from(self.persona(persona_id)?))
+        let events = self.log.load(&StreamId::Room);
+        let persona = room::personas(&events)
+            .into_iter()
+            .find(|persona| persona.id == persona_id)?;
+        Some(Self::dm_from(persona, &events))
     }
 
-    fn dm_from(persona: Persona) -> Thread {
+    fn dm_from(persona: Persona, events: &[Value]) -> Thread {
+        let account_id = crate::accounts::account_of_from(events, &persona);
         let binding = persona
             .session_checkpoints
             .iter()
-            .find(|checkpoint| checkpoint.backend_id == persona.backend_id)
+            .find(|checkpoint| {
+                checkpoint.backend_id == persona.backend_id && checkpoint.account_id == account_id
+            })
             .map(|checkpoint| AgentBinding {
                 backend_id: checkpoint.backend_id.clone(),
                 session_id: checkpoint.session_id.clone(),
+                account_id: checkpoint.account_id.clone(),
             });
         Thread {
             id: ThreadId::dm(&persona.id),
@@ -278,12 +286,6 @@ impl ThreadStore {
             binding: None,
             note: None,
         })
-    }
-
-    fn persona(&self, persona_id: &str) -> Option<Persona> {
-        room::roster(&self.log)
-            .into_iter()
-            .find(|persona| persona.id == persona_id)
     }
 
     /// The side threads on disk, by id.

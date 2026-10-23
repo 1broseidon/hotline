@@ -1126,6 +1126,7 @@ fn test_persona(id: &str) -> crate::contract::Persona {
         mode_id: None,
         effort_id: None,
         harness_override: None,
+        account_id: None,
         hop_notice: None,
         mcp_policy: crate::contract::McpPolicy {
             mode: crate::contract::PolicyMode::All,
@@ -1214,4 +1215,5 @@ async fn a_computer_server_writes_its_eight_tools_on_the_ledger_under_origin_com
     served.abort();
 }
 
+mod accounts;
 mod pins;

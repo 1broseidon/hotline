@@ -49,7 +49,7 @@ export default defineConfig({
 				{
 					label: 'Setup',
 					items: [
-						{ label: 'Providers and keys', slug: 'setup/providers' },
+						{ label: 'Providers and accounts', slug: 'setup/providers' },
 						{ label: 'Teammates and drivers', slug: 'setup/teammates' },
 						{ label: 'Tools, skills and web search', slug: 'setup/tools' },
 						{ label: 'The computer', slug: 'setup/computer' },

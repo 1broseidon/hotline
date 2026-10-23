@@ -46,6 +46,7 @@ tauri-plugin-global-shortcut = "=2.3.1"
 serde.workspace = true
 semver = "1"
 tempfile = "3"
+dunce = "1.0.5"
 tokio-util = "0.7"
 serde_json.workspace = true
 base64 = "0.22"

@@ -21,11 +21,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
+mod accounts;
 mod cards;
 mod chapters;
 mod chat;
 #[cfg(unix)]
 mod computer;
+mod hotline_accounts;
 mod posting;
 mod preamble;
 mod reading;
@@ -502,6 +504,7 @@ pub(crate) fn persona(id: &str) -> Persona {
         mode_id: None,
         effort_id: None,
         harness_override: None,
+        account_id: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::All,
@@ -763,6 +766,7 @@ async fn computer_room(
         agents.clone(),
         Computer::with_path(root.as_os_str()).with_releases(&url),
         Some(vault),
+        crate::driver::acp::StartBounds::default(),
     );
     ComputerRoom {
         room,

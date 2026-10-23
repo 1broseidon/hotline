@@ -48,6 +48,7 @@ async fn a_draft_that_names_things_keeps_them() {
         effort_id: None,
         computer: None,
         background_work: Some(true),
+        account_id: None,
     };
     ask(
         &mut socket,
@@ -303,6 +304,7 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
         effort_id: None,
         computer: None,
         background_work: None,
+        account_id: None,
     };
     ask(
         &mut socket,
@@ -411,6 +413,7 @@ async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
         effort_id: None,
         computer: None,
         background_work: None,
+        account_id: None,
     };
     ask(
         &mut socket,
@@ -494,5 +497,176 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
         *quiet.invalidations.lock().unwrap(),
         vec![id],
         "an invalid patch must not revoke a working session"
+    );
+}
+
+#[tokio::test]
+async fn an_account_is_set_only_by_persona_account() {
+    use super::accounts::run;
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let account = "44444444-4444-4444-8444-444444444444";
+    room::write_agent_accounts(
+        &log,
+        &[crate::contract::AgentAccount {
+            id: account.to_string(),
+            backend_id: "claude-acp".to_string(),
+            name: "Account 1".to_string(),
+            created_at: 1,
+            login_at: None,
+            setup: None,
+        }],
+    )
+    .unwrap();
+    let create = |backend: &str, account_id: &str| json!({"draft":{"name":"Ada","backendId":backend,"accountId":account_id}});
+
+    let ada = run(&log, &room, "persona.create", create("claude-acp", account))
+        .await
+        .unwrap();
+    assert_eq!(ada["accountId"], account);
+    let id = ada["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        run(
+            &log,
+            &room,
+            "persona.create",
+            create("claude-acp", "55555555-5555-4555-8555-555555555555"),
+        )
+        .await,
+        Err("That account is not on this desk.".to_string())
+    );
+    assert_eq!(
+        run(&log, &room, "persona.create", create("hotline", account)).await,
+        Err("That account is not on this desk.".to_string())
+    );
+    assert_eq!(
+        run(&log, &room, "persona.create", create("codex-acp", account)).await,
+        Err("That agent does not use accounts.".to_string())
+    );
+    assert_eq!(room::roster(&log).len(), 1);
+
+    let before = json!(room::roster(&log));
+    assert_eq!(
+        run(
+            &log,
+            &room,
+            "persona.update",
+            json!({"id":id,"patch":{"accountId":null}}),
+        )
+        .await,
+        Err("A teammate's account is set with persona.account.".to_string())
+    );
+    assert_eq!(json!(room::roster(&log)), before);
+
+    let renamed = run(
+        &log,
+        &room,
+        "mobile.persona_update",
+        json!({"id":id,"name":"Ada 2","accountId":null}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(renamed["name"], "Ada 2");
+    assert!(renamed.get("accountId").is_none(), "{renamed}");
+    assert_eq!(room::roster(&log)[0].account_id.as_deref(), Some(account));
+
+    let retried = run(
+        &log,
+        &room,
+        "mobile.persona_create",
+        json!({"requestId":id,"name":"Ada"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(retried["id"], json!(id));
+    assert!(retried.get("accountId").is_none(), "{retried}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_update_and_a_checkpoint_write_never_undo_each_other() {
+    use super::accounts::run;
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let mut ada = crate::session::tests::persona("ada");
+    ada.session_checkpoints = vec![crate::contract::SessionCheckpoint {
+        backend_id: "claude-acp".to_string(),
+        session_id: "s1".to_string(),
+        account_id: None,
+    }];
+    crate::session::tests::enrol(&log, &ada);
+    let (go, checkpoint_write) = crate::test_support::clearing_checkpoints(&log, "ada");
+    let update = tokio::spawn({
+        let (log, room) = (log.clone(), room.clone());
+        async move {
+            run(
+                &log,
+                &room,
+                "persona.update",
+                json!({"id":"ada","patch":{"name":"Ada Lovelace"}}),
+            )
+            .await
+        }
+    });
+    crate::test_support::until("the update holds the policy gate", || {
+        room.policy_update_lock().try_lock().is_err() || update.is_finished()
+    })
+    .await;
+    go.send(()).unwrap();
+    checkpoint_write.join().unwrap();
+    update.await.unwrap().unwrap();
+    let ada = room::roster(&log).pop().unwrap();
+    assert_eq!(
+        (ada.name.as_str(), ada.session_checkpoints),
+        ("Ada Lovelace", Vec::new())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn removing_a_tool_source_and_a_checkpoint_write_never_undo_each_other() {
+    use super::accounts::run;
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    log.append(
+        &StreamId::Room,
+        &json!({ "kind": "setting", "id": "mcpServers", "value": [
+            { "id": "prism", "type": "http", "name": "Prism", "url": "http://127.0.0.1:9086/mcp" },
+        ] }),
+    )
+    .unwrap();
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let mut ada = crate::session::tests::persona("ada");
+    ada.mcp_policy.server_ids = vec!["prism".to_string()];
+    ada.session_checkpoints = vec![crate::contract::SessionCheckpoint {
+        backend_id: "claude-acp".to_string(),
+        session_id: "s1".to_string(),
+        account_id: None,
+    }];
+    crate::session::tests::enrol(&log, &ada);
+    let (go, checkpoint_write) = crate::test_support::clearing_checkpoints(&log, "ada");
+    let update = tokio::spawn({
+        let (log, room) = (log.clone(), room.clone());
+        async move {
+            run(
+                &log,
+                &room,
+                "settings.update",
+                json!({"patch":{"mcpServers":[]}}),
+            )
+            .await
+        }
+    });
+    crate::test_support::until("the update holds the policy gate", || {
+        room.policy_update_lock().try_lock().is_err() || update.is_finished()
+    })
+    .await;
+    go.send(()).unwrap();
+    checkpoint_write.join().unwrap();
+    update.await.unwrap().unwrap();
+    let ada = room::roster(&log).pop().unwrap();
+    assert_eq!(
+        (ada.mcp_policy.server_ids, ada.session_checkpoints),
+        (Vec::new(), Vec::new())
     );
 }

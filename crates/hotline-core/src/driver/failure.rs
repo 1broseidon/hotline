@@ -1,4 +1,6 @@
 //! Classify at the provider boundary, before diagnostic data becomes display text.
+use crate::accounts::resolve::AccountRefusal;
+use crate::credentials::KEYCHAIN_LOCKED;
 use crate::models::Client;
 use crate::providers::discovery::ListedModel;
 use crate::session::ProviderAuth;
@@ -8,6 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -61,8 +64,12 @@ pub(crate) enum Kind {
     /// to run. Said when the teammate comes up, before anything is sent; a
     /// provider in Settings › Providers fixes it.
     NoProvider,
+    UsageLimit,
+    AccountUnavailable,
     Unknown,
 }
+
+const USAGE_LIMIT_BYTES: usize = 500;
 
 /// How Rig names a failure of the store a sign-in's tokens are kept in
 /// (`AuthError::Store`): for ChatGPT and Copilot, the OS keychain.
@@ -76,6 +83,11 @@ pub(crate) const TRUNCATED: &str = "The model stream ended without a complete re
 pub(crate) const NO_PROVIDER: &str =
     "Hotline Agent unavailable: connect a provider in Settings › Providers.";
 
+/// What a turn reads as when the account its teammate is set to cannot sign
+/// it. No other credential of the provider is ever used in its place.
+pub(crate) const ACCOUNT_SIGNED_OUT: &str =
+    "The account this teammate is set to is signed out or gone. Choose another account.";
+
 /// The whole structured diagnosis of a failed turn. It is large, and the rig
 /// driver returns it by value anyway: a turn returns it at most once, so
 /// boxing it buys nothing, and each `result_large_err` there says so.
@@ -86,7 +98,8 @@ pub(crate) struct Failure {
     /// Named for the harness when the harness is the problem, so it is not
     /// always a literal.
     pub title: Cow<'static, str>,
-    pub summary: &'static str,
+    /// The agent's own words for a usage limit, so not always a literal.
+    pub summary: Cow<'static, str>,
     pub details: String,
     pub phase: &'static str,
     pub status: Option<u16>,
@@ -95,6 +108,10 @@ pub(crate) struct Failure {
     pub tools_may_have_run: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<super::auth::SignIn>,
+    /// Skipped when absent, so a notice from This computer, or from a
+    /// provider with one account, is the bytes it was before accounts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 impl Failure {
@@ -120,20 +137,23 @@ impl Failure {
         {
             failure.set_kind(Kind::Transport);
         }
-        failure.retry_after_seconds = error
-            .provider_response_headers()
-            .and_then(|headers| headers.get("retry-after"))
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| {
-                value.parse().ok().or_else(|| {
-                    chrono::DateTime::parse_from_rfc2822(value)
-                        .ok()
-                        .map(|date| {
-                            (date.timestamp() - chrono::Utc::now().timestamp()).max(0) as u64
-                        })
+        // A usage limit's reset time is the body's; a header is for waits.
+        if failure.kind != Kind::UsageLimit {
+            failure.retry_after_seconds = error
+                .provider_response_headers()
+                .and_then(|headers| headers.get("retry-after"))
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| {
+                    value.parse().ok().or_else(|| {
+                        chrono::DateTime::parse_from_rfc2822(value)
+                            .ok()
+                            .map(|date| {
+                                (date.timestamp() - chrono::Utc::now().timestamp()).max(0) as u64
+                            })
+                    })
                 })
-            })
-            .or(failure.retry_after_seconds);
+                .or(failure.retry_after_seconds);
+        }
         failure
     }
 
@@ -160,7 +180,14 @@ impl Failure {
                             .rsplit_once('.')
                             .is_some_and(|(_, field)| field == "id" || field == "encrypted_content")
                 });
-        let kind = if contains(&[KEYCHAIN_FAILED]) {
+        // Body shape from openai/codex, codex-rs/codex-api/src/api_bridge.rs, UsageErrorBody.
+        let chatgpt_usage_limit = status == Some(429)
+            && value
+                .as_ref()
+                .and_then(|value| value.pointer("/error/type"))
+                .and_then(Value::as_str)
+                == Some("usage_limit_reached");
+        let kind = if body.contains(KEYCHAIN_LOCKED) || contains(&[KEYCHAIN_FAILED]) {
             Kind::Keychain
         } else if contains(&[
             "insufficient_quota",
@@ -173,6 +200,7 @@ impl Failure {
         {
             Kind::Quota
         } else if matches!(status, Some(401 | 403))
+            || body == ACCOUNT_SIGNED_OUT
             || contains(&[
                 "invalid_api_key",
                 "authentication_error",
@@ -198,6 +226,8 @@ impl Failure {
             ])
         {
             Kind::Replay
+        } else if chatgpt_usage_limit {
+            Kind::UsageLimit
         } else if status == Some(429)
             || contains(&["rate_limit", "rate limit", "too many requests"])
         {
@@ -266,82 +296,113 @@ impl Failure {
             kind
         };
         let retry_after_seconds = value.as_ref().and_then(|value| retry_hint(value, 0));
-        let mut failure = Self {
-            kind,
-            title: Cow::Borrowed(""),
-            summary: "",
-            details: sanitize(body),
-            phase,
-            status,
-            code: code.map(|code| sanitize(&code)),
-            retry_after_seconds,
-            tools_may_have_run: false,
-            sign_in: None,
+        let mut failure = Self::of(kind, sanitize(body), phase);
+        failure.status = status;
+        failure.code = code.map(|code| sanitize(&code));
+        failure.retry_after_seconds = retry_after_seconds;
+        // The provider never answered: the teammate's own account is what is missing.
+        if body == ACCOUNT_SIGNED_OUT {
+            failure.summary = Cow::Borrowed(ACCOUNT_SIGNED_OUT);
+        }
+        if chatgpt_usage_limit && kind == Kind::UsageLimit {
+            failure.title = Cow::Borrowed("ChatGPT usage limit reached");
+            failure.summary = Cow::Borrowed("This ChatGPT sign-in reached its usage limit.");
+            failure.retry_after_seconds = value
+                .as_ref()
+                .and_then(seconds_until_reset)
+                .or(failure.retry_after_seconds);
+        }
+        failure
+    }
+
+    /// `message` is the harness's error and `stderr_hint` the stderr tail
+    /// behind it. A usage limit is decided before [`Failure::classify`], whose
+    /// sign-in rewrite must never apply to it, and its summary comes from
+    /// `message` alone.
+    pub fn classify_acp(
+        message: &str,
+        stderr_hint: &str,
+        phase: &'static str,
+        usage_limit_prefixes: &[&str],
+    ) -> Self {
+        let body = format!("{message}{stderr_hint}");
+        let limit = phase
+            .starts_with("acp")
+            .then(|| usage_limit_text(message, usage_limit_prefixes))
+            .flatten();
+        let Some(text) = limit else {
+            return Self::classify(&body, None, phase);
         };
-        failure.set_kind(kind);
+        let mut failure = Self::of(Kind::UsageLimit, sanitize(&body), phase);
+        failure.summary = Cow::Owned(text);
+        failure
+    }
+
+    /// The account goes by its id alone: its name and folder may only be in
+    /// a private `sentence`.
+    pub fn account_unavailable(
+        refusal: &AccountRefusal,
+        agent: &str,
+        sentence: String,
+        phase: &'static str,
+    ) -> Self {
+        let (account_id, code) = match refusal {
+            AccountRefusal::UnknownAccount { account_id } => (account_id, "unknown_account"),
+            AccountRefusal::FolderUnavailable { account_id, .. } => {
+                (account_id, "folder_unavailable")
+            }
+        };
+        let mut failure = Self::of(Kind::AccountUnavailable, sentence.clone(), phase);
+        failure.title = format!("{agent} account unavailable").into();
+        failure.summary = Cow::Owned(sentence);
+        failure.code = Some(code.to_string());
+        failure.account_id = Some(account_id.clone());
         failure
     }
 
     /// A paid request the Chat budget refused, before it was sent.
     pub fn budget(refused: crate::voice::ledger::Exhausted) -> Self {
-        let mut failure = Self {
-            kind: Kind::Budget,
-            title: Cow::Borrowed(""),
-            summary: "",
-            details: refused.to_string(),
-            phase: "budget",
-            status: None,
-            code: None,
-            retry_after_seconds: None,
-            tools_may_have_run: false,
-            sign_in: None,
-        };
-        failure.set_kind(Kind::Budget);
-        failure
+        Self::of(Kind::Budget, refused.to_string(), "budget")
     }
 
     /// An agent whose command did not finish starting in time. The details
     /// are the sentence naming the command, which is what the person needs to
     /// try it in a terminal.
     pub fn startup(details: String) -> Self {
-        let mut failure = Self {
-            kind: Kind::Startup,
-            title: Cow::Borrowed(""),
-            summary: "",
-            details: sanitize(&details),
-            phase: "acp_start",
-            status: None,
-            code: None,
-            retry_after_seconds: None,
-            tools_may_have_run: false,
-            sign_in: None,
-        };
-        failure.set_kind(Kind::Startup);
-        failure
+        Self::of(Kind::Startup, sanitize(&details), "acp_start")
     }
 
     /// Hotline Agent on a desk with no provider connected. Not a turn that
     /// failed: there was no turn, and there is no request to show.
     pub fn no_provider() -> Self {
+        Self::of(
+            Kind::NoProvider,
+            "No provider is connected on this desk, so there is no model to run.".into(),
+            "start",
+        )
+    }
+
+    fn of(kind: Kind, details: String, phase: &'static str) -> Self {
         let mut failure = Self {
-            kind: Kind::NoProvider,
+            kind,
             title: Cow::Borrowed(""),
-            summary: "",
-            details: "No provider is connected on this desk, so there is no model to run.".into(),
-            phase: "start",
+            summary: Cow::Borrowed(""),
+            details,
+            phase,
             status: None,
             code: None,
             retry_after_seconds: None,
             tools_may_have_run: false,
             sign_in: None,
+            account_id: None,
         };
-        failure.set_kind(Kind::NoProvider);
+        failure.set_kind(kind);
         failure
     }
 
     /// A 401 or 403 on a turn says the provider refused, not why. When the
-    /// teammate's provider is a sign-in with a model list, the list is asked
-    /// once with the same sign-in: if it still answers, the sign-in is fine and
+    /// turn was signed by a sign-in with a model list, the list is asked once
+    /// with that same sign-in: if it still answers, the sign-in is fine and
     /// the notice says the provider is refusing, instead of sending the person
     /// to sign in again. Any other provider keeps the sign-in wording.
     pub async fn checked_against_sign_in(
@@ -362,17 +423,17 @@ impl Failure {
         match (wiring.client, auth) {
             (Client::ChatGpt, ProviderAuth::Login { token_dir }) => {
                 let listing = crate::providers::chatgpt::list_models(token_dir);
-                self.refused_if_listed(provider, "ChatGPT is refusing requests", listing)
+                self.refused_if_listed(token_dir, "ChatGPT is refusing requests", listing)
                     .await
             }
             (Client::Copilot, ProviderAuth::Login { token_dir }) => {
                 let listing = crate::providers::copilot::list_models(token_dir);
-                self.refused_if_listed(provider, "GitHub Copilot is refusing requests", listing)
+                self.refused_if_listed(token_dir, "GitHub Copilot is refusing requests", listing)
                     .await
             }
             (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
                 let listing = crate::providers::xai::list_models(tokens);
-                self.refused_if_listed(provider, "xAI is refusing requests", listing)
+                self.refused_if_listed(tokens.path(), "xAI is refusing requests", listing)
                     .await
             }
             _ => self,
@@ -380,20 +441,21 @@ impl Failure {
     }
 
     /// The probe itself. `listing` is only awaited when no verdict on this
-    /// provider's sign-in is fresher than [`VERDICT_FRESH`]; one that fails or
-    /// does not answer in time leaves the sign-in wording.
+    /// sign-in is fresher than [`VERDICT_FRESH`]; one that fails or does not
+    /// answer in time leaves the sign-in wording. A verdict is kept by where
+    /// the sign-in lives, since a provider may have several.
     async fn refused_if_listed(
         mut self,
-        provider: &str,
+        sign_in: &Path,
         title: &'static str,
         listing: impl Future<Output = Result<Vec<ListedModel>, String>>,
     ) -> Self {
-        static VERDICTS: Mutex<Option<HashMap<String, (Instant, bool)>>> = Mutex::new(None);
+        static VERDICTS: Mutex<Option<HashMap<PathBuf, (Instant, bool)>>> = Mutex::new(None);
         let fresh = {
             let verdicts = VERDICTS.lock().unwrap_or_else(PoisonError::into_inner);
             verdicts
                 .as_ref()
-                .and_then(|verdicts| verdicts.get(provider))
+                .and_then(|verdicts| verdicts.get(sign_in))
                 .filter(|(asked, _)| asked.elapsed() < VERDICT_FRESH)
                 .map(|(_, listed)| *listed)
         };
@@ -408,7 +470,7 @@ impl Failure {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .get_or_insert_with(HashMap::new)
-                .insert(provider.to_string(), (Instant::now(), listed));
+                .insert(sign_in.to_path_buf(), (Instant::now(), listed));
             listed
         };
         if listed {
@@ -435,22 +497,27 @@ impl Failure {
 
     /// The card for a harness too old for its model names the harness, and
     /// the version it reported when it started, so the person knows what to
-    /// update.
+    /// update. A usage limit names whose limit it is.
     pub fn name_the_harness(&mut self, name: &str, version: Option<&str>) {
-        if self.kind != Kind::HarnessOutdated || name.trim().is_empty() {
+        if name.trim().is_empty() {
             return;
         }
-        self.title = match version.filter(|version| !version.trim().is_empty()) {
-            Some(version) => format!("{name} {version} is too old for this model"),
-            None => format!("{name} is too old for this model"),
+        match self.kind {
+            Kind::HarnessOutdated => {
+                self.title = match version.filter(|version| !version.trim().is_empty()) {
+                    Some(version) => format!("{name} {version} is too old for this model"),
+                    None => format!("{name} is too old for this model"),
+                }
+                .into();
+            }
+            Kind::UsageLimit => self.title = format!("{name} usage limit reached").into(),
+            _ => {}
         }
-        .into();
     }
 
     fn set_kind(&mut self, kind: Kind) {
         self.kind = kind;
-        let title;
-        (title, self.summary) = match kind {
+        let (title, summary) = match kind {
             Kind::RateLimit => (
                 "Provider rate limit",
                 "The provider is temporarily limiting requests.",
@@ -523,12 +590,21 @@ impl Failure {
                 "Hotline Agent unavailable",
                 "Connect a provider in Settings › Providers to run a model.",
             ),
+            Kind::UsageLimit => (
+                "Agent usage limit reached",
+                "The agent stopped at its usage limit.",
+            ),
+            Kind::AccountUnavailable => (
+                "Agent account unavailable",
+                "This teammate's agent account needs attention at the desk.",
+            ),
             Kind::Unknown => (
                 "Turn failed",
                 "The activity could not finish. Expand the details for the reported error.",
             ),
         };
         self.title = Cow::Borrowed(title);
+        self.summary = Cow::Borrowed(summary);
     }
 
     pub fn retry_delay(&self, attempt: u32) -> Option<Duration> {
@@ -574,6 +650,28 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.title, self.details)
     }
+}
+
+/// The agent's usage-limit sentence in `message`: from its earliest prefix to
+/// the end of that line, or to the quote that ends it when it arrived as a
+/// JSON string, without the `: {` an error's data object opens with.
+fn usage_limit_text(message: &str, prefixes: &[&str]) -> Option<String> {
+    let start = prefixes
+        .iter()
+        .filter_map(|prefix| message.find(prefix))
+        .min()?;
+    let rest = &message[start..];
+    let line = &rest[..rest.find(['\n', '"']).unwrap_or(rest.len())];
+    let line = line.trim_end();
+    let mut text = redact_text(line.strip_suffix(": {").unwrap_or(line).trim());
+    text.truncate(text.floor_char_boundary(USAGE_LIMIT_BYTES));
+    Some(text)
+}
+
+fn seconds_until_reset(value: &Value) -> Option<u64> {
+    let resets_at = value.pointer("/error/resets_at")?.as_i64()?;
+    let seconds = resets_at.saturating_sub(chrono::Utc::now().timestamp());
+    u64::try_from(seconds).ok().filter(|seconds| *seconds > 0)
 }
 
 fn retry_hint(value: &Value, depth: usize) -> Option<u64> {
@@ -673,278 +771,4 @@ pub(crate) fn sanitize(body: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn quota_auth_and_bad_settings_are_not_retried_or_mistaken_for_replay() {
-        for (body, status, kind) in [
-            (
-                r#"{"error":{"code":"insufficient_quota"}}"#,
-                429,
-                Kind::Quota,
-            ),
-            (
-                r#"{"error":{"message":"invalid effort setting"}}"#,
-                400,
-                Kind::Configuration,
-            ),
-            (r#"{"error":{"code":"invalid_api_key"}}"#, 401, Kind::Auth),
-        ] {
-            let failure = Failure::classify(body, Some(status), "request");
-            assert_eq!(failure.kind, kind);
-            assert!(failure.retry_delay(0).is_none());
-        }
-    }
-
-    /// Claude Code's expired OAuth, as it reached a phone, and ACP's own
-    /// `auth_required`, are the harness's sign-in; a provider's 401 outside
-    /// an ACP session stays a Hotline credential.
-    #[test]
-    fn a_harness_that_lost_its_sign_in_is_told_apart_from_a_provider_key() {
-        let expired = Failure::classify(
-            r#"Internal error: Failed to authenticate: OAuth session expired and could not be refreshed: {
-  "errorKind": "authentication_failed"
-} The backend said: [session/create] sessionId=f1333926 phase=models durationMs=1"#,
-            None,
-            "acp_prompt",
-        );
-        assert_eq!(expired.kind, Kind::AgentAuth);
-        assert_eq!(expired.title, "Agent sign-in expired");
-        assert!(expired.retry_delay(0).is_none());
-        let required = Failure::classify(
-            r#"The agent would not open a session: {"code":-32000,"message":"Authentication required"}"#,
-            None,
-            "acp_start",
-        );
-        assert_eq!(required.kind, Kind::AgentAuth);
-        let provider = Failure::classify(
-            r#"{"error":{"code":"invalid_api_key"}}"#,
-            Some(401),
-            "request",
-        );
-        assert_eq!(provider.kind, Kind::Auth);
-        let other = Failure::classify("Internal error: tool crashed", None, "acp_prompt");
-        assert_eq!(other.kind, Kind::Acp);
-    }
-
-    /// Codex asked for a model newer than itself answers with a 400 that says
-    /// so. That is the harness's version, not the model's settings, the
-    /// request's shape or a sign-in, and the card says to update it.
-    #[test]
-    fn a_harness_too_old_for_its_model_says_to_update_it() {
-        let codex = r#"Internal error: unexpected status 400 Bad Request: {"detail":"The 'gpt-5.5-codex' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}"#;
-        let mut outdated = Failure::classify(codex, None, "acp_prompt");
-        assert_eq!(outdated.kind, Kind::HarnessOutdated);
-        assert!(outdated.summary.contains("Update"), "{}", outdated.summary);
-        assert!(outdated.retry_delay(0).is_none());
-        outdated.name_the_harness("Codex", Some("1.12.0"));
-        assert_eq!(outdated.title, "Codex 1.12.0 is too old for this model");
-        assert!(outdated.notice().contains(r#""kind":"harness_outdated""#));
-
-        let with_status = Failure::classify(
-            r#"{"error":{"message":"model not supported by this harness version"}}"#,
-            Some(400),
-            "acp_prompt",
-        );
-        assert_eq!(with_status.kind, Kind::HarnessOutdated);
-
-        // Outside an ACP harness the same words are the provider's, and an
-        // ordinary unsupported model is still the model's settings.
-        assert_eq!(
-            Failure::classify(codex, Some(400), "request").kind,
-            Kind::InvalidRequest
-        );
-        assert_eq!(
-            Failure::classify("unsupported model: nonesuch", None, "acp_prompt").kind,
-            Kind::Configuration
-        );
-        // And a name is only put on that card.
-        let mut other = Failure::classify("Internal error: tool crashed", None, "acp_prompt");
-        other.name_the_harness("Codex", Some("1.12.0"));
-        assert_eq!(other.title, "Agent connection failed");
-    }
-
-    /// OpenAI's 25 September 2026 outage: a ChatGPT sign-in that still listed
-    /// its models had every turn refused with `invalid_api_key`. A stub that
-    /// lists models and refuses `/responses` reads as the provider refusing;
-    /// a token the stub refuses everywhere still reads as a sign-in to fix.
-    #[tokio::test]
-    async fn a_provider_refusing_turns_is_told_apart_from_a_sign_in_that_no_longer_works() {
-        use crate::providers::rig_login;
-        use axum::{Router, http::StatusCode, routing::get, routing::post};
-
-        let refused = || {
-            (
-                StatusCode::UNAUTHORIZED,
-                [("content-type", "application/json")],
-                serde_json::json!({"error": {"code": "invalid_api_key",
-                    "message": "Incorrect API key provided."}})
-                .to_string(),
-            )
-        };
-        let listed = || {
-            (
-                StatusCode::OK,
-                [("content-type", "application/json")],
-                serde_json::json!({"models": [{"slug": "gpt-6-luna", "visibility": "list"}]})
-                    .to_string(),
-            )
-        };
-        let app = Router::new()
-            .route("/working/models", get(move || async move { listed() }))
-            .route("/working/responses", post(move || async move { refused() }))
-            .route("/revoked/models", get(move || async move { refused() }))
-            .route("/revoked/responses", post(move || async move { refused() }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-        let mut verdicts = Vec::new();
-        for sign_in in ["working", "revoked"] {
-            let dir = tempfile::tempdir().unwrap();
-            let far = chrono::Utc::now().timestamp() + 3600;
-            std::fs::write(
-                dir.path().join("auth.json"),
-                serde_json::json!({"access_token": "chatgpt-access", "refresh_token": "r",
-                    "expires_at": far, "account_id": "acct-1"})
-                .to_string(),
-            )
-            .unwrap();
-            let signed = crate::providers::outgoing::Outgoing::signed(
-                rig_login::chatgpt(dir.path()),
-                std::convert::identity,
-            )
-            .unwrap();
-            let model = rig::providers::openai::OpenAIConfig::with_key(
-                &rig::providers::chatgpt::DIALECT,
-                "",
-            )
-            .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
-            .with_base_url(format!("{base}/{sign_in}"))
-            .connect(signed)
-            .completion("gpt-6-luna");
-            let error = model.call("hello").await.unwrap_err();
-            let failure = Failure::provider(error, "request");
-            assert_eq!(failure.kind, Kind::Auth);
-            let models_url = format!("{base}/{sign_in}/models");
-            let listing =
-                crate::providers::chatgpt::list_models_at(dir.path(), &models_url, "0.161.2");
-            // Each case is its own provider to the verdict cache.
-            let failure = failure
-                .refused_if_listed(
-                    &format!("chatgpt-{sign_in}"),
-                    "ChatGPT is refusing requests",
-                    listing,
-                )
-                .await;
-            verdicts.push(failure);
-        }
-        server.abort();
-
-        let [working, revoked] = verdicts.try_into().unwrap();
-        assert_eq!(working.kind, Kind::ProviderRefused);
-        assert_eq!(working.title, "ChatGPT is refusing requests");
-        assert!(working.summary.contains("signing in again won't help"));
-        assert!(!working.notice().contains("Settings"));
-        assert!(working.details.contains("invalid_api_key"));
-        assert!(working.retry_delay(0).is_none());
-        assert_eq!(revoked.kind, Kind::Auth);
-        assert_eq!(revoked.title, "Provider sign-in required");
-    }
-
-    /// A run of refused turns asks the model list once: the second failure
-    /// within the verdict's life takes the first one's answer.
-    #[tokio::test]
-    async fn a_run_of_refused_turns_probes_the_sign_in_once() {
-        let asked = std::sync::atomic::AtomicUsize::new(0);
-        let probe = || async {
-            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(Vec::new())
-        };
-        let refused = || {
-            Failure::classify(
-                r#"{"error":{"code":"invalid_api_key"}}"#,
-                Some(401),
-                "request",
-            )
-        };
-        let provider = format!("probe-once-{}", uuid::Uuid::new_v4());
-        let first = refused()
-            .refused_if_listed(&provider, "X is refusing requests", probe())
-            .await;
-        let second = refused()
-            .refused_if_listed(&provider, "X is refusing requests", probe())
-            .await;
-        assert_eq!(first.kind, Kind::ProviderRefused);
-        assert_eq!(second.kind, Kind::ProviderRefused);
-        assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
-    }
-
-    /// A provider with no model list to ask, or a failure that is not a
-    /// refused sign-in, keeps the wording it was classified with.
-    #[tokio::test]
-    async fn only_a_refused_sign_in_with_a_model_list_is_probed() {
-        let keys = HashMap::from([("openai".to_string(), ProviderAuth::ApiKey("sk-test".into()))]);
-        let refused = Failure::classify(
-            r#"{"error":{"code":"invalid_api_key"}}"#,
-            Some(401),
-            "request",
-        );
-        let kept = refused
-            .checked_against_sign_in("openai/gpt-6-sol", &keys)
-            .await;
-        assert_eq!(kept.kind, Kind::Auth);
-        let busy = Failure::classify("busy", Some(503), "request");
-        let kept = busy
-            .checked_against_sign_in("openai/gpt-6-sol", &keys)
-            .await;
-        assert_eq!(kept.kind, Kind::Transport);
-    }
-
-    #[test]
-    fn retry_hints_survive_and_retry_budget_is_bounded() {
-        let mut headers = http::HeaderMap::new();
-        headers.insert("retry-after", "60".parse().unwrap());
-        let error = ProviderError::ProviderResponse(
-            rig::ProviderResponseError::new(
-                http::StatusCode::TOO_MANY_REQUESTS,
-                r#"{"error":{"code":"rate_limit_exceeded"}}"#,
-            )
-            .with_headers(Some(headers)),
-        );
-        let failure = Failure::provider(error, "request");
-        assert_eq!(failure.kind, Kind::RateLimit);
-        assert_eq!(failure.retry_after_seconds, Some(60));
-        assert!(failure.retry_delay(0).is_none());
-        let failure = Failure::classify("busy", Some(503), "stream");
-        assert!(failure.retry_delay(0).is_some());
-        assert!(failure.retry_delay(3).is_none());
-    }
-
-    #[test]
-    fn a_refused_responses_item_is_repaired_but_an_arbitrary_bad_setting_is_not() {
-        let replay = Failure::classify(
-            r#"{"error":{"code":"invalid_value","param":"input[2].id","message":"Expected an ID without colons"}}"#,
-            Some(400),
-            "request",
-        );
-        assert_eq!(replay.kind, Kind::Replay);
-        let setting = Failure::classify(
-            r#"{"error":{"code":"invalid_value","param":"temperature","message":"Invalid value"}}"#,
-            Some(400),
-            "request",
-        );
-        assert_eq!(setting.kind, Kind::InvalidRequest);
-    }
-
-    #[test]
-    fn nested_vendor_json_and_bearer_tokens_are_redacted_before_the_tape() {
-        let body = serde_json::json!({"error":{"metadata":{"raw":r#"{"api_key":"private","message":"Bearer secretvalue"}"#}, "code":"rate_limit_exceeded"}}).to_string();
-        let notice = Failure::classify(&body, Some(429), "stream").notice();
-        assert!(!notice.contains("private"));
-        assert!(!notice.contains("secretvalue"));
-        assert!(notice.contains("rate_limit_exceeded"));
-        assert!(notice.contains("[redacted]"));
-    }
-}
+mod tests;

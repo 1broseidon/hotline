@@ -42,8 +42,9 @@ starts, checked against its published checksum when there is one, and kept
 in the data directory.
 
 Claude Code signs in with its own account, through Claude Code itself.
-Hotline runs the `claude` CLI you installed and never asks for or holds your
-Claude login.
+Hotline runs the `claude` CLI you installed and never asks for or relays your
+Claude login. To give Claude Code teammates different Claude logins, see
+[Claude subscriptions](/docs/setup/providers/#claude-subscriptions).
 
 The conversation's header shows the model and effort the tool advertises.
 In the teammate's pane, **Permissions** says **Managed by** the tool and

@@ -363,10 +363,12 @@ mod tests {
             crate::contract::SessionCheckpoint {
                 backend_id: "elsewhere".to_string(),
                 session_id: "not-this-harness".to_string(),
+                account_id: None,
             },
             crate::contract::SessionCheckpoint {
                 backend_id: "hotline".to_string(),
                 session_id: "s1".to_string(),
+                account_id: None,
             },
         ];
         enrol(&log, &ada);
@@ -384,7 +386,8 @@ mod tests {
             dm.binding,
             Some(AgentBinding {
                 backend_id: "hotline".into(),
-                session_id: "s1".into()
+                session_id: "s1".into(),
+                account_id: None,
             })
         );
         assert_eq!(store.load(&ThreadId::dm("nobody")), None);
@@ -422,7 +425,8 @@ mod tests {
             side.binding,
             Some(AgentBinding {
                 backend_id: "hotline".into(),
-                session_id: "child-1".into()
+                session_id: "child-1".into(),
+                account_id: None,
             }),
             "the saved session is the thread's binding"
         );

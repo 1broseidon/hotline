@@ -6,6 +6,7 @@ import {
 	type CSSProperties,
 	type KeyboardEvent,
 	type ReactNode,
+	type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import { CheckIcon, ChevronDownIcon } from "../icons";
@@ -32,6 +33,49 @@ export type MenuEntry =
 	| { kind: "heading"; text: string }
 	| { kind: "rule" };
 
+/**
+ * Where a popover stands on the window: under its anchor, or above it when
+ * the window is short, capped to the room it has and kept inside the
+ * window's edges. It is hidden until it is measured. `fitAnchor` makes it at
+ * least as wide as its anchor, for a pull-down framed like a field.
+ */
+export function usePlacement(
+	root: RefObject<HTMLElement | null>,
+	anchor: HTMLElement,
+	align: "start" | "end",
+	fitAnchor = false,
+): { style: CSSProperties; placed: boolean } {
+	const [style, setStyle] = useState<CSSProperties>({ position: "fixed", visibility: "hidden" });
+
+	useLayoutEffect(() => {
+		const el = root.current;
+		if (!el) return;
+		const at = anchor.getBoundingClientRect();
+		const height = el.offsetHeight;
+		const gap = 4;
+		const roomBelow = window.innerHeight - at.bottom - gap - 8;
+		const above = height > roomBelow && at.top - gap - 8 > roomBelow;
+		const maxHeight = above ? at.top - gap - 8 : roomBelow;
+		// The height is capped before the width is read. A list taller than
+		// its room gets a scrollbar, and WebKit sizes a shrink-to-fit box to
+		// its content first and adds the bar's width on the next layout — so
+		// a width read before the cap is one the menu will not keep. Read it
+		// with the bar in place, then pin it, so no later layout can move it.
+		el.style.maxHeight = `${maxHeight}px`;
+		// The min-width stays in the style: it outranks the menu's max-width, and a pinned width does not.
+		const minWidth = fitAnchor ? { minWidth: at.width } : {};
+		if (fitAnchor) el.style.minWidth = `${at.width}px`;
+		const width = el.offsetWidth;
+		let left = align === "end" ? at.right - width : at.left;
+		left = Math.min(Math.max(8, left), window.innerWidth - width - 8);
+		// Above, it hangs by its foot, so a list that gets shorter stays against its anchor.
+		const edge = above ? { bottom: window.innerHeight - at.top + gap } : { top: at.bottom + gap };
+		setStyle({ position: "fixed", ...edge, left, width, maxHeight, ...minWidth });
+	}, [root, anchor, align, fitAnchor]);
+
+	return { style, placed: style.visibility !== "hidden" };
+}
+
 function Menu({
 	anchor,
 	entries,
@@ -47,38 +91,15 @@ function Menu({
 	onClose(): void;
 }) {
 	const root = useRef<HTMLDivElement>(null);
-	const [style, setStyle] = useState<CSSProperties>({ visibility: "hidden" });
+	const { style, placed } = usePlacement(root, anchor, align);
 	const items = entries.filter((one): one is Extract<MenuEntry, { kind: "item" }> => one.kind === "item");
 	const [active, setActive] = useState(() =>
 		highlightChecked ? items.findIndex((one) => one.checked && !one.disabled) : -1,
 	);
 
-	useLayoutEffect(() => {
-		const el = root.current;
-		if (!el) return;
-		const at = anchor.getBoundingClientRect();
-		const height = el.offsetHeight;
-		const gap = 4;
-		const roomBelow = window.innerHeight - at.bottom - gap - 8;
-		const above = height > roomBelow && at.top - gap - 8 > roomBelow;
-		const top = above ? Math.max(8, at.top - gap - height) : at.bottom + gap;
-		const maxHeight = above ? at.top - gap - 8 : roomBelow;
-		// The height is capped before the width is read. A list taller than
-		// its room gets a scrollbar, and WebKit sizes a shrink-to-fit box to
-		// its content first and adds the bar's width on the next layout — so
-		// a width read before the cap is one the menu will not keep. Read it
-		// with the bar in place, then pin it, so no later layout can move it.
-		el.style.maxHeight = `${maxHeight}px`;
-		const width = el.offsetWidth;
-		let left = align === "end" ? at.right - width : at.left;
-		left = Math.min(Math.max(8, left), window.innerWidth - width - 8);
-		setStyle({ top, left, width, maxHeight });
-	}, [anchor, align]);
-
 	// Focus once the menu is placed: it opens hidden until it is measured,
 	// and a hidden element cannot take focus. Without it, Escape reaches the
 	// window instead of the menu and closes whatever pane it opened in.
-	const placed = style.visibility !== "hidden";
 	useEffect(() => {
 		if (placed) root.current?.focus({ preventScroll: true });
 	}, [placed]);

@@ -193,6 +193,7 @@ async fn session_set_model_accepts_an_arbitrary_id_on_an_acp_teammate() {
         effort_id: None,
         computer: None,
         background_work: None,
+        account_id: None,
     };
     ask(
         &mut socket,
@@ -320,6 +321,7 @@ async fn session_set_config_refuses_an_effort_the_model_does_not_list() {
         effort_id: None,
         computer: None,
         background_work: None,
+        account_id: None,
     };
     ask(
         &mut socket,

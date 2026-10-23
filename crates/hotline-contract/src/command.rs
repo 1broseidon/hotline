@@ -418,14 +418,37 @@ pub enum Command {
     /// which is why this is start-then-poll rather than one blocking call:
     /// a waiting authorize would hold every later command on that socket
     /// until the person signed in.
+    ///
+    /// Without `label` the account takes its provider's next free name. With
+    /// `id` it signs that account in again: the new tokens replace its old
+    /// ones only once the sign-in succeeds, and it keeps its id and name.
     #[serde(rename = "credential.login")]
-    CredentialLogin { provider_id: String },
+    CredentialLogin {
+        provider_id: String,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        id: Option<String>,
+    },
     /// Stops a pending login, including its callback listener or device polling.
     #[serde(rename = "credential.login_cancel")]
     CredentialLoginCancel { login_id: String },
     /// Connects an Ollama server and discovers the models installed there.
     #[serde(rename = "credential.connect_local")]
-    CredentialConnectLocal { base_url: String },
+    CredentialConnectLocal {
+        base_url: String,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// Renames an account, or changes its key or its server's URL, in place:
+    /// its id, its place and so whether it is its provider's default stay.
+    #[serde(rename = "credential.update")]
+    CredentialUpdate {
+        id: String,
+        label: Option<String>,
+        secret: Option<String>,
+        base_url: Option<String>,
+    },
     #[serde(rename = "credential.custom_save")]
     CredentialCustomSave {
         id: Option<String>,
@@ -884,6 +907,84 @@ pub enum Command {
     /// Ends an arming without a passkey. Owner or local desk only.
     #[serde(rename = "secrets.passkey.cancel")]
     SecretsPasskeyCancel { persona_id: String },
+    /// The agents that can sign in under a named account, every such account
+    /// with its status, its sign-in attempt and who uses it, and every
+    /// Hotline Agent credential with who it serves and whether it is its
+    /// provider's default. Answers `AccountsList`. Owner or local desk only.
+    #[serde(rename = "accounts.list")]
+    AccountsList {},
+    /// Adds an account for `backend_id` and makes its folder, starting from a
+    /// copy of This computer's setup or from nothing. Answers
+    /// `AccountCreated`. Owner or local desk only.
+    #[serde(rename = "accounts.create")]
+    AccountsCreate {
+        backend_id: String,
+        name: String,
+        start_with: SetupFrom,
+        /// Which setup categories to copy when starting from This
+        /// computer's setup. Absent means all of them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        categories: Option<Vec<String>>,
+    },
+    /// Renames an account. Answers the `AccountView`. Owner or local desk only.
+    #[serde(rename = "accounts.rename")]
+    AccountsRename { account_id: String, name: String },
+    /// Forgets an account, refused while a teammate is assigned it. Its folder
+    /// and the sign-in in it stay on disk. Answers nothing. Owner or local
+    /// desk only.
+    #[serde(rename = "accounts.remove")]
+    AccountsRemove { account_id: String },
+    /// Asks the agent whether the account is signed in, and answers the
+    /// `AccountStatusView` it found. Owner or local desk only.
+    #[serde(rename = "accounts.status")]
+    AccountsStatus { account_id: String },
+    /// Starts signing the account in, with `email` pre-filled when the agent
+    /// takes one. Answers `{id}` of the attempt. Owner or local desk only.
+    #[serde(rename = "accounts.login.start")]
+    AccountsLoginStart {
+        account_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        email: Option<String>,
+    },
+    /// Where the attempt stands, with what the agent has printed so far.
+    /// Answers `{state, output, error?}`. Owner or local desk only.
+    #[serde(rename = "accounts.login.poll")]
+    AccountsLoginPoll { account_id: String, id: String },
+    /// Types into the attempt, for a code the sign-in asks for. Answers
+    /// nothing. Owner or local desk only.
+    #[serde(rename = "accounts.login.input")]
+    AccountsLoginInput {
+        account_id: String,
+        id: String,
+        input: String,
+    },
+    /// Ends an attempt that is still running. Answers nothing. Owner or
+    /// local desk only.
+    #[serde(rename = "accounts.login.cancel")]
+    AccountsLoginCancel { account_id: String, id: String },
+    /// What setup the account's folder holds, by category, and where it came
+    /// from. Answers `AccountSetupView`. Owner or local desk only.
+    #[serde(rename = "accounts.setup.list")]
+    AccountsSetupList { account_id: String },
+    /// Copies This computer's setup for these categories over the
+    /// account's, each replacing what the account had. Answers
+    /// `SetupCopyReport`. Owner or local desk only.
+    #[serde(rename = "accounts.setup.copy")]
+    AccountsSetupCopy {
+        account_id: String,
+        categories: Vec<String>,
+    },
+    /// Sets the account a teammate runs on: one of its agent's accounts, or
+    /// on Hotline Agent a live credential of its model's provider. `null` or
+    /// absent is the default. The change applies once the teammate has no
+    /// work in flight. Answers the teammate's `SessionAccount`. Owner or
+    /// local desk only.
+    #[serde(rename = "persona.account")]
+    PersonaAccount {
+        persona_id: String,
+        #[ts(optional = nullable)]
+        account_id: Option<String>,
+    },
     /// Says which of the wire's newer shapes this socket understands, so the
     /// core sends it those and not the older ones: `threads2` is `link` events
     /// and `ThreadDelta`s in place of the per-kind markers and deltas. Answers

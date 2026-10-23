@@ -281,6 +281,22 @@ export function App() {
         } else openDock({ open });
     }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
+	const openPanel = useCallback(
+		(personaId: string, deskId?: string) => {
+			if (deskId !== undefined) {
+				openOnDesk(deskId, { personaId, inspector: true });
+				return;
+			}
+			select(personaId);
+			setDock(null);
+			setInspector(true);
+		},
+		[select, setDock, setInspector],
+	);
+	const [accountPage, setAccountPage] = useState<string | null>(null);
+	useEffect(() => {
+		if (pane !== "settings") setAccountPage(null);
+	}, [pane]);
 
 	/* A caption or the mark, pressed again with its work already open, closes it. */
 	const openWork = useCallback(
@@ -516,7 +532,10 @@ export function App() {
 				<Suspense fallback={null}>
 					<SettingsRail
 						section={settingsSection}
-						onSection={setSettingsSection}
+						onSection={(section) => {
+							setAccountPage(null);
+							setSettingsSection(section);
+						}}
 						onBack={closePane}
 						onDesk={(deskId) => openOnDesk(deskId, { pane: "settings", section: settingsSection })}
 						width={settingsWidth}
@@ -531,14 +550,7 @@ export function App() {
 				connection={connection}
 				onSelect={select}
 				elsewhere={elsewhere}
-				onEdit={(id, deskId) => {
-					if (deskId !== undefined) {
-						openOnDesk(deskId, { personaId: id, inspector: true });
-						return;
-					}
-					select(id);
-					setInspector(true);
-				}}
+				onEdit={openPanel}
 				onDelete={(id, name, deskId) => void removeTeammate(id, name, deskId)}
 				onPin={(id, slot, deskId) => void pinTeammate(id, slot, deskId)}
 				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
@@ -562,7 +574,13 @@ export function App() {
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
-						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
+						<Settings
+							section={settingsSection}
+							roster={roster}
+							account={accountPage ?? undefined}
+							onSection={setSettingsSection}
+							onAddDesk={() => togglePane("add-desk")}
+						/>
 					</Suspense>
 				) : pane === "add-desk" ? (
 					<AddDesk onClose={closePane} />
@@ -591,6 +609,7 @@ export function App() {
 								setSettingsSection("providers");
 								setPane("settings");
 							}}
+							onChooseAccount={() => openPanel(selected.persona.id)}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
@@ -623,6 +642,11 @@ export function App() {
 									setInspector(false);
 								}}
 								onOpenThread={openThread}
+								onAccountSetup={(accountId) => {
+									setAccountPage(accountId);
+									setSettingsSection("providers");
+									setPane("settings");
+								}}
 							/>
 						)}
 					</>

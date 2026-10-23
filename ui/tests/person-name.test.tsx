@@ -32,7 +32,7 @@ test("Your name round-trips through General settings and follows room updates", 
 	const root = createRoot(container);
 	try {
 		replaceDesks([{ id: "person-name-test", kind: "local", name: "Test", origin: "ws://localhost", token: "test" }]);
-		const render = async (key: string) => act(async () => { root.render(<Settings key={key} section="general" />); });
+		const render = async (key: string) => act(async () => { root.render(<Settings key={key} section="general" roster={[]} />); });
 		await render("first");
 		const field = () => container.querySelector<HTMLInputElement>("#setting-person-name")!;
 		expect(container.querySelector('label[for="setting-person-name"]')?.textContent).toBe("Your name");

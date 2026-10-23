@@ -72,6 +72,7 @@ fn persona(id: &str, cwd: &str) -> Persona {
         mode_id: None,
         effort_id: None,
         harness_override: None,
+        account_id: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::All,

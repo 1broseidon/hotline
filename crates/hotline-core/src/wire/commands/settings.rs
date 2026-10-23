@@ -46,6 +46,9 @@ pub(super) async fn apply_update(
     if patch.contains_key(room::TEAM_LEAD) {
         return Err("The lead is set with persona.lead.".to_string());
     }
+    if patch.contains_key(room::AGENT_ACCOUNTS) {
+        return Err("Agent accounts are changed with accounts.*.".to_string());
+    }
     for (key, value) in &mut patch {
         if !value.is_null() {
             *value = room::normalize_setting(key, value)?;
@@ -140,6 +143,7 @@ fn server_ids(log: &Log) -> Vec<String> {
 /// older build goes too.
 fn forget_removed_servers(log: &Log) -> Result<(), String> {
     let servers = server_ids(log);
+    let _writes = room::persona_write_lock();
     for mut persona in room::roster(log) {
         let granted = persona.mcp_policy.server_ids.len();
         persona

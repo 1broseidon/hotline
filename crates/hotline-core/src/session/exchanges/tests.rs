@@ -1505,3 +1505,30 @@ async fn a_saved_desk_handoff_cannot_recreate_a_live_calls_grant() {
     assert!(request.reply.contains("lead grant has ended"));
     assert!(request.thread.is_none(), "no work thread was created");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_standing_grant_and_a_checkpoint_write_never_undo_each_other() {
+    let (room, _agents) = setup("grant-and-checkpoint");
+    crate::room::checkpoint_session(&room.log, "bob", "claude-acp", None, "s1").unwrap();
+    let (go, clearing) = crate::test_support::clearing_checkpoints(&room.log, "bob");
+    let granting = tokio::spawn({
+        let room = room.clone();
+        async move {
+            let policy = room.policy_update_lock();
+            let _held = policy.lock().await;
+            room.allow_sender("bob", "ada")
+        }
+    });
+    until("the grant holds the policy gate", || {
+        room.policy_update_lock().try_lock().is_err() || granting.is_finished()
+    })
+    .await;
+    go.send(()).unwrap();
+    clearing.join().unwrap();
+    granting.await.unwrap().unwrap();
+    let bob = room.persona("bob").unwrap();
+    assert_eq!(
+        (bob.allowed_senders, bob.session_checkpoints),
+        (vec!["ada".to_string()], Vec::new())
+    );
+}

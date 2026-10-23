@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Window } from "happy-dom";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import type { SettingsSection } from "../src/components/Settings";
 import { installDom } from "./dom";
 
@@ -19,10 +19,11 @@ let container: HTMLDivElement;
 let teardown: () => Promise<void>;
 let opened: SettingsSection[];
 
-beforeEach(() => {
+beforeEach(async () => {
 	({ dom, teardown } = installDom());
 	(dom as unknown as { __hotlineDesk: unknown }).__hotlineDesk = { version: "0.39.0" };
 	opened = [];
+	const { createRoot } = await import("react-dom/client");
 	container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
@@ -56,6 +57,15 @@ describe("settings rail", () => {
 		await act(async () => { about.click(); });
 		await act(async () => { shortcuts.click(); });
 		expect(opened).toEqual(["about", "shortcuts"]);
+	});
+
+	test("accounts live under Providers, so the list has no Agent accounts", async () => {
+		await mount("providers");
+		const names = buttons().map((node) => node.textContent);
+		expect(names).not.toContain("Agent accounts");
+		expect(names.indexOf("Tools")).toBe(names.indexOf("Providers") + 1);
+		const providers = buttons().find((node) => node.textContent === "Providers")!;
+		expect(providers.getAttribute("aria-current")).toBe("true");
 	});
 
 	test("the open footer item carries aria-current", async () => {

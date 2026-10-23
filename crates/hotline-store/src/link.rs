@@ -52,6 +52,9 @@ pub enum ThreadState {
 pub struct AgentBinding {
     pub backend_id: String,
     pub session_id: String,
+    /// The agent account the session ran under. None is This computer, as is
+    /// every line written before accounts.
+    pub account_id: Option<String>,
 }
 
 /// One thread, as the line on its parent says it stands.
@@ -162,6 +165,13 @@ impl Link {
                 .as_ref()
                 .map(|binding| Value::from(binding.backend_id.clone())),
         );
+        put(
+            "accountId",
+            self.binding
+                .as_ref()
+                .and_then(|binding| binding.account_id.clone())
+                .map(Value::from),
+        );
         put("elapsedMs", self.elapsed_ms.map(Value::from));
         put(
             "openerId",
@@ -214,6 +224,7 @@ impl Link {
                 .map(|(session_id, backend_id)| AgentBinding {
                     backend_id,
                     session_id,
+                    account_id: text("accountId"),
                 }),
             elapsed_ms: event.get("elapsedMs").and_then(Value::as_i64),
             opener: text("openerId")
@@ -237,6 +248,7 @@ impl Link {
                 note,
                 session_id,
                 backend_id,
+                account_id,
                 opened_by,
             } => Some(Self {
                 id,
@@ -259,6 +271,7 @@ impl Link {
                     .map(|(session_id, backend_id)| AgentBinding {
                         backend_id,
                         session_id,
+                        account_id,
                     }),
                 elapsed_ms: None,
                 opener: opened_by.map(Opener::from),
@@ -327,6 +340,10 @@ impl Link {
                     .binding
                     .as_ref()
                     .map(|binding| binding.backend_id.clone()),
+                account_id: self
+                    .binding
+                    .as_ref()
+                    .and_then(|binding| binding.account_id.clone()),
                 opened_by: self.opener.clone().map(SideOpener::from),
             }),
             ThreadKind::Run => Some(TranscriptEvent::Subagent {
@@ -400,6 +417,7 @@ mod tests {
             binding: Some(AgentBinding {
                 backend_id: "claude".into(),
                 session_id: "sess".into(),
+                account_id: None,
             }),
             elapsed_ms: None,
             opener: None,
@@ -425,6 +443,60 @@ mod tests {
             opener: None,
         };
         assert_eq!(Link::read(&run.event()), Some(run));
+    }
+
+    #[test]
+    fn a_binding_keeps_the_account_its_session_ran_on() {
+        let on_account = Link {
+            binding: Some(AgentBinding {
+                backend_id: "claude".into(),
+                session_id: "sess".into(),
+                account_id: Some("acc-1".into()),
+            }),
+            ..closed_side()
+        };
+        let line = on_account.event();
+        assert_eq!(line["accountId"], "acc-1");
+        assert_eq!(Link::read(&line), Some(on_account));
+        let typed: TranscriptEvent = serde_json::from_value(Link::threads2(line.clone())).unwrap();
+        assert!(matches!(
+            typed,
+            TranscriptEvent::Link {
+                account_id: Some(account),
+                ..
+            } if account == "acc-1"
+        ));
+        assert_eq!(
+            Link::wire(line)["accountId"],
+            "acc-1",
+            "the marker a client that knows no links is sent keeps it"
+        );
+
+        let default = closed_side();
+        assert!(default.event().get("accountId").is_none());
+        assert_eq!(
+            Link::read(&default.event()).unwrap().binding,
+            default.binding
+        );
+        assert!(Link::wire(default.event()).get("accountId").is_none());
+        let legacy_link = json!({
+            "kind": "link", "id": "link:side:s1", "ts": 10, "thread": "s1",
+            "threadKind": "side", "personaId": "ada", "title": "Fix the badge",
+            "state": "parked", "sessionId": "sess", "backendId": "claude"
+        });
+        assert_eq!(Link::read(&legacy_link).unwrap().binding, default.binding);
+        let legacy_marker = json!({
+            "kind": "side", "id": "side:s1", "ts": 10, "sideId": "s1",
+            "personaId": "ada", "title": "Fix the badge", "status": "parked",
+            "sessionId": "sess", "backendId": "claude"
+        });
+        assert_eq!(Link::read(&legacy_marker).unwrap().binding, default.binding);
+        let mut marker = legacy_marker;
+        marker["accountId"] = json!("acc-1");
+        assert_eq!(
+            Link::read(&marker).unwrap().binding.unwrap().account_id,
+            Some("acc-1".to_string())
+        );
     }
 
     #[test]

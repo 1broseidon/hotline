@@ -60,6 +60,7 @@ async fn seat_snapshot(
         call_owner: "desk".into(),
         pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
+        account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),

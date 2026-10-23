@@ -34,6 +34,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
         mode_id: None,
         effort_id: None,
         harness_override: None,
+        account_id: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::None,
@@ -269,4 +270,34 @@ fn a_picture_is_read_only_by_a_genuine_hash() {
         read(dir.path(), "bob", &hash, 0).unwrap_err(),
         "That teammate has no such picture."
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clearing_a_picture_and_a_checkpoint_write_never_undo_each_other() {
+    let (_dir, room, _tools) = room();
+    let mut persona = room.persona("ada").unwrap();
+    persona.avatar = Some(Avatar {
+        hash: "a".repeat(64),
+        by: AvatarBy::Own,
+        updated_at: "2026-09-30T00:00:00.000Z".into(),
+    });
+    crate::room::append_persona(room.log(), &persona).unwrap();
+    crate::room::checkpoint_session(room.log(), "ada", "hotline", None, "s1").unwrap();
+    let (go, clearing) = crate::test_support::clearing_checkpoints(room.log(), "ada");
+    let clearing_picture = tokio::spawn({
+        let room = room.clone();
+        async move {
+            room.set_avatar("ada", &json!({ "clear": true }), None)
+                .await
+        }
+    });
+    crate::test_support::until("the clear holds the policy gate", || {
+        room.policy_update_lock().try_lock().is_err() || clearing_picture.is_finished()
+    })
+    .await;
+    go.send(()).unwrap();
+    clearing.join().unwrap();
+    clearing_picture.await.unwrap().unwrap();
+    let ada = room.persona("ada").unwrap();
+    assert_eq!((ada.avatar, ada.session_checkpoints), (None, Vec::new()));
 }

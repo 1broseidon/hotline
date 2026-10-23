@@ -363,6 +363,7 @@ fn the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create() {
             effort_id: None,
             computer: None,
             background_work: None,
+            account_id: None,
         }
     }));
 }
@@ -447,6 +448,24 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
         id: "ada".to_string(),
         patch: serde_json::json!({"computer": {"enabled": true, "secrets": ["GITHUB_TOKEN"]}}),
     }));
+}
+
+#[test]
+fn only_the_desk_and_the_owner_reach_agent_accounts() {
+    let mut commands: Vec<Command> = super::accounts::account_frames("Desk")
+        .iter()
+        .map(|frame| crate::wire::socket::read_command(frame).unwrap())
+        .collect();
+    commands.push(
+        crate::wire::socket::read_command(&json!({"cmd":"credential.update","params":{
+            "id":"cred-1","label":"Work","secret":"fixture-secret","baseUrl":"http://127.0.0.1:11434"}}))
+        .unwrap(),
+    );
+    assert_eq!(commands.len(), 13);
+    for c in &commands {
+        assert!(Seat::Desk.permits(c) && Seat::Owner.permits(c), "{c:?}");
+        assert!(!Seat::Phone.permits(c) && !Seat::Link.permits(c), "{c:?}");
+    }
 }
 
 /// Only person seats stop or resume automatic exchanges.
@@ -637,6 +656,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         call_owner: "desk".into(),
         pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
+        account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
@@ -720,6 +740,109 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         .await
         .unwrap();
     assert_eq!(log.load(&StreamId::Tape("ada".into())), [] as [Value; 0]);
+}
+
+#[tokio::test]
+async fn account_sign_in_belongs_to_its_desktop_socket_and_disconnect_revokes_it() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("account-sign-in-wire", quiet.clone());
+    let room = crate::wire::Agents {
+        log: log.clone(),
+        room: quiet.clone(),
+        parts: Parts::default(),
+    };
+    let (tx, mut frames) = mpsc::unbounded_channel();
+    let outbox = Outbox {
+        call_owner: "desk".into(),
+        pairing_cancel: tokio_util::sync::CancellationToken::new(),
+        auth_attempts: Arc::default(),
+        account_logins: Arc::default(),
+        pairing: Arc::default(),
+        uploads: Arc::default(),
+        threads2: Arc::default(),
+        roster_options: Arc::default(),
+        lean: Arc::default(),
+        sender: Outgoing::Desk(tx),
+        cancel: tokio_util::sync::CancellationToken::new(),
+        max: usize::MAX,
+    };
+    let commands = [
+        (
+            "accounts.login.start",
+            json!({"accountId":"acct-1","email":"ada@example.com"}),
+        ),
+        (
+            "accounts.login.poll",
+            json!({"accountId":"acct-1","id":"fixture-attempt"}),
+        ),
+        (
+            "accounts.login.input",
+            json!({"accountId":"acct-1","id":"fixture-attempt","input":"fixture input"}),
+        ),
+        (
+            "accounts.login.cancel",
+            json!({"accountId":"acct-1","id":"fixture-attempt"}),
+        ),
+    ];
+    for (cmd, params) in &commands {
+        let frame = json!({"id":1,"cmd":cmd,"params":params});
+        answer(
+            &frame,
+            Seat::Phone,
+            &room,
+            &outbox,
+            &mut HashMap::new(),
+            None,
+        )
+        .await;
+        let response: Value = serde_json::from_str(&frames.recv().await.unwrap()).unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["code"], FORBIDDEN, "{response}");
+    }
+    assert!(quiet.account_sign_ins.lock().unwrap().is_empty());
+    let mut socket = desk(port).await;
+    for (index, (cmd, params)) in commands.iter().enumerate() {
+        let id = index as i64 + 1;
+        ask(&mut socket, json!({"id":id,"cmd":cmd,"params":params})).await;
+        let response = answered(&mut socket, id).await;
+        assert_eq!(response["ok"], true, "{response}");
+        if index == 0 {
+            assert_eq!(response["result"]["id"], "fixture-attempt");
+        }
+        if index == 1 {
+            assert_eq!(response["result"]["output"], "ephemeral fixture output");
+        }
+    }
+    let mut other = desk(port).await;
+    for (index, (cmd, params)) in commands.iter().enumerate().skip(1) {
+        let id = index as i64 + 10;
+        ask(&mut other, json!({"id":id,"cmd":cmd,"params":params})).await;
+        let response = answered(&mut other, id).await;
+        assert_eq!(response["ok"], false, "{response}");
+        assert!(
+            response["error"]
+                .as_str()
+                .unwrap()
+                .contains("another desktop"),
+            "{response}"
+        );
+    }
+    let (owner, seat_is_desk) = quiet.account_sign_ins.lock().unwrap()[0].clone();
+    assert!(seat_is_desk);
+    assert_eq!(quiet.account_sign_ins.lock().unwrap().len(), 1);
+    assert!(!owner.is_cancelled());
+    socket.close(None).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), owner.cancelled())
+        .await
+        .unwrap();
+    for (cmd, params) in &commands {
+        let command =
+            crate::wire::socket::read_command(&json!({"cmd":cmd,"params":params})).unwrap();
+        assert_eq!(
+            crate::wire::commands::run(command, &log, &room.room, &Parts::default()).await,
+            Err("Sign-in requires its owning desktop connection.".to_string())
+        );
+    }
 }
 
 #[tokio::test]

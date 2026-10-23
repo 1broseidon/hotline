@@ -1,21 +1,24 @@
 import { useEffect, useState } from "react";
-import type { BackendChoice, ConfigChoice, FolderGrant, PersonaDraft } from "../generated/contract";
+import type { AccountSection, AccountsList, AccountView, BackendChoice, ConfigChoice, Credential, FolderGrant, PersonaDraft, Provider } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { useActiveDesk, useDesks } from "../desks";
-import { useRoomSettings } from "../room";
+import { preferredModel, useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Fold } from "../ui/Fold";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
+import { AccountPicker } from "./accounts/AccountPicker";
+import { AccountSignIn, settledAccounts } from "./accounts/AccountSignIn";
+import { AddAccountForm } from "./accounts/AddAccountForm";
+import { accountsFor, HOTLINE_AGENT, inUse, kindsIn, providerOf } from "./accounts/fits";
+import { NEVER_SEES_SIGN_IN, SYSTEM_DEFAULT } from "./accounts/words";
 import { BackendPicker } from "./BackendPicker";
+import { ConnectProvider } from "./ConnectProvider";
 import { PathField } from "./PathField";
 import { suggestName } from "../names";
 import { BACKGROUND_ABOUT, COMPUTER_ABOUT, FolderRows, MACHINE_ABOUT, SwitchRow, foldersNote } from "./Teammate";
-
-/** Hotline Agent's stored backend id. Any other id is an ACP harness. */
-const HOTLINE_AGENT = "hotline";
 
 /**
  * Creating a teammate: the things the person decides, and nothing else.
@@ -102,7 +105,9 @@ export function NewTeammateForm({
 	/** The welcome's first teammate: what it runs on was just chosen, and access keeps its safe defaults, so neither is asked again. */
 	simple?: boolean;
 }) {
-	const { defaultBackendId, defaultModelId, lastModelId } = useRoomSettings();
+	const room = useRoomSettings();
+	const { defaultBackendId } = room;
+	const preferred = preferredModel(room);
 	const [name, setName] = useState("");
 	const [goal, setGoal] = useState(suggestedGoal);
 	const [cwd, setCwd] = useState("");
@@ -120,9 +125,16 @@ export function NewTeammateForm({
 	const [picture, setPicture] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
-	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
+	const [accountsList, setAccountsList] = useState<AccountsList | null>(null);
+	const [providers, setProviders] = useState<Provider[]>([]);
+	const [accountSettling, setAccountSettling] = useState<{ accountId: string } | null>(null);
+	const [accountId, setAccountId] = useState(SYSTEM_DEFAULT);
+	const [addingAccount, setAddingAccount] = useState<AccountSection | null>(null);
+	const [signingAccount, setSigningAccount] = useState<{ view: AccountView; email: string | undefined } | null>(null);
+	const [accountFromDesk, setAccountFromDesk] = useState<string | null>(null);
+	const modelId = pickedModel ?? preferred ?? "";
 	// A blank draft runs on what the room prefers, else the first choice.
-	const fallback = models.find((one) => one.id === (defaultModelId ?? lastModelId)) ?? models[0];
+	const fallback = models.find((one) => one.id === preferred) ?? models[0];
 
 	useEffect(() => {
 		void wire
@@ -146,10 +158,90 @@ export function NewTeammateForm({
 			? defaultBackendId
 			: (backends.find((one) => one.unavailable === undefined)?.id ?? ""));
 	const onHotline = backendId === HOTLINE_AGENT || backendId === "";
+	// With no model sent, the core checks a choice against the room's preferred one.
+	const accountModelId = modelId || preferred;
+	const accountProvider = onHotline ? providerOf(accountModelId) : undefined;
+
+	// Read again once each sign-in here has ended.
+	useEffect(() => {
+		if (simple) return;
+		let cancelled = false;
+		const read =
+			accountSettling === null ? wire.command("accounts.list", {}) : settledAccounts(accountSettling.accountId, () => !cancelled);
+		void read.then(
+			(answer) => {
+				if (!cancelled && answer !== null) setAccountsList(answer);
+			},
+			() => {
+				if (!cancelled) setAccountsList(null);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [simple, accountSettling]);
+
+	useEffect(() => {
+		if (simple) return;
+		void wire.command("providers.list", {}).then(setProviders, () => setProviders([]));
+	}, [simple]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of agent, or of the model's provider, is what resets the choice.
+	useEffect(() => {
+		setAccountId(SYSTEM_DEFAULT);
+		setAddingAccount(null);
+		setSigningAccount(null);
+		setAccountFromDesk(null);
+	}, [backendId, accountProvider]);
+
+	const agent = onHotline ? undefined : accountsList?.agents.find((one) => one.backendId === backendId && one.supportsAccounts);
+	const provider = providers.find((one) => one.id === accountProvider);
+	const accountChoices =
+		accountsList === null
+			? []
+			: accountsFor(accountsList, onHotline ? { backendId: HOTLINE_AGENT, modelId: accountModelId } : { backendId, modelId: undefined });
+	const accountNames = accountChoices.filter((one) => one.id !== SYSTEM_DEFAULT).map((one) => one.name);
+	const selectedAccount = inUse(accountChoices, accountId);
+	const pickedAccount = accountChoices.find((one) => one.id === selectedAccount);
+	const draftAccount = pickedAccount !== undefined && pickedAccount.id !== SYSTEM_DEFAULT && !pickedAccount.isDefault ? pickedAccount : undefined;
+	const signingId = signingAccount?.view.account.id;
+	const shownChoices = accountChoices.map((one) => (one.id === signingId ? { ...one, detail: "Signing in…" } : one));
+	const readAccounts = () => wire.command("accounts.list", {}).then(setAccountsList, () => {});
+	const addAccount = (section: AccountSection) => () => {
+		setAccountFromDesk(null);
+		setAddingAccount(section);
+	};
+	const accountAdds = onHotline
+		? {
+				subscription: kindsIn(provider, "subscription").length > 0 ? addAccount("subscription") : undefined,
+				apiKey: kindsIn(provider, "api_key").length > 0 ? addAccount("api_key") : undefined,
+			}
+		: { subscription: signingAccount === null ? addAccount("subscription") : undefined };
+	const credentialAdded = async (made: Credential) => {
+		await readAccounts();
+		setAccountId(made.id);
+		setAddingAccount(null);
+	};
+	// A sign-in cancelled late may still have landed.
+	const credentialCancelled = () => {
+		setAddingAccount(null);
+		void readAccounts();
+	};
+	const accountAdded = (made: AccountView, email: string | undefined) => {
+		setAddingAccount(null);
+		setAccountId(made.account.id);
+		setAccountsList((was) => was && { ...was, accounts: [...was.accounts.filter((one) => one.account.id !== made.account.id), made] });
+		if (made.canSignInHere) setSigningAccount({ view: made, email });
+		else setAccountFromDesk(made.account.id);
+	};
+	const accountSignInEnded = () => {
+		if (signingAccount !== null) setAccountSettling({ accountId: signingAccount.view.account.id });
+		setSigningAccount(null);
+	};
 
 	const submit = async () => {
 		const trimmed = name.trim();
-		if (!trimmed || busy) return;
+		if (!trimmed || busy || signingAccount !== null) return;
 		setBusy(true);
 		setRefusal(null);
 		const draft: PersonaDraft = { name: trimmed };
@@ -161,6 +253,7 @@ export function NewTeammateForm({
 		if (backgroundWork) draft.backgroundWork = true;
 		if (computerReady && computer) draft.computer = { enabled: true };
 		if (folders.length > 0) draft.folders = folders;
+		if (draftAccount !== undefined) draft.accountId = draftAccount.id;
 		try {
 			const persona = await wire.command("persona.create", { draft });
 			// Opened as soon as it exists, not once it has started: a start
@@ -182,7 +275,8 @@ export function NewTeammateForm({
 
 	const modelName = models.find((one) => one.id === modelId)?.name ?? fallback?.name ?? "The best one available";
 	const backendName = backends.find((one) => one.id === backendId)?.name ?? "Hotline Agent";
-	const thinks = onHotline ? `Hotline Agent · ${modelName}` : backendName;
+	const accountNote = draftAccount === undefined ? "" : ` · ${draftAccount.name}`;
+	const thinks = onHotline ? `Hotline Agent · ${modelName}${accountNote}` : `${backendName}${accountNote}`;
 	const abilities = [
 		onHotline && machine ? "Whole machine" : "Its folder only",
 		backgroundWork ? "Works while you're away" : null,
@@ -198,6 +292,58 @@ export function NewTeammateForm({
 	].join("");
 	const [open, setOpen] = useState<"thinks" | "folder" | "abilities" | null>(null);
 	const fold = (which: "thinks" | "folder" | "abilities") => setOpen((was) => (was === which ? null : which));
+
+	// Shown only when there is a choice: one account that fits is nothing to pick.
+	const accountField = accountChoices.length >= 2 && (
+		<div>
+			<p className="label" id="new-account">
+				Account
+			</p>
+			<AccountPicker choices={shownChoices} selected={selectedAccount} label="Account" disabled={busy} onSelect={setAccountId} adds={accountAdds} />
+			{agent !== undefined && (signingAccount !== null || accountFromDesk !== null || addingAccount !== null) && (
+				<div className="grouped mt-2">
+					{signingAccount !== null && (
+						<div className="group-row flex-col items-stretch">
+							<AccountSignIn
+								account={signingAccount.view}
+								agentName={agent.name}
+								email={signingAccount.email}
+								cancelLabel="Sign in later"
+								onEnd={accountSignInEnded}
+							/>
+						</div>
+					)}
+					{accountFromDesk !== null && signingAccount === null && <p className="group-row text-sm text-ink-3">Sign in from the desk itself</p>}
+					{addingAccount !== null && (
+						<AddAccountForm
+							compact
+							backendId={agent.backendId}
+							agentName={agent.name}
+							takesEmail={agent.takesEmail}
+							taken={accountNames}
+							onAdded={accountAdded}
+							onRefused={() => void readAccounts()}
+							onCancel={() => setAddingAccount(null)}
+						/>
+					)}
+				</div>
+			)}
+			{agent !== undefined && (signingAccount !== null || addingAccount !== null) && <p className="hint">{NEVER_SEES_SIGN_IN}</p>}
+			{onHotline && addingAccount !== null && provider !== undefined && (
+				<div className="mt-3">
+					<ConnectProvider
+						key={addingAccount}
+						provider={provider}
+						kinds={kindsIn(provider, addingAccount)}
+						taken={accountNames}
+						onConnected={(made) => void credentialAdded(made)}
+						onCancel={credentialCancelled}
+					/>
+				</div>
+			)}
+			<p className="hint">Rename or remove accounts later in Settings › Providers.</p>
+		</div>
+	);
 
 	return (
 		<form
@@ -298,6 +444,7 @@ export function NewTeammateForm({
 							)}
 						</div>
 					)}
+					{!onHotline && accountField}
 					{onHotline && (
 						<div>
 							<p className="label" id="new-model">
@@ -313,6 +460,7 @@ export function NewTeammateForm({
 							/>
 						</div>
 					)}
+					{onHotline && accountField}
 				</Fold>
 				<Fold title="Folders" value={where} open={open === "folder"} onToggle={() => fold("folder")}>
 					<PathField
@@ -369,7 +517,7 @@ export function NewTeammateForm({
 						Cancel
 					</button>
 				)}
-				<button type="submit" className="control btn btn-primary nt-submit" disabled={busy || name.trim() === ""}>
+				<button type="submit" className="control btn btn-primary nt-submit" disabled={busy || name.trim() === "" || signingAccount !== null}>
 					{busy ? "Setting up…" : submitLabel}
 				</button>
 			</div>

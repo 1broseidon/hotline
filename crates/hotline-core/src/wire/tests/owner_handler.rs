@@ -32,6 +32,60 @@ async fn owner_commands_and_room_subscription_reach_the_real_handler() {
 }
 
 #[tokio::test]
+async fn an_unknown_account_refusal_is_private_for_the_desk_and_the_owner() {
+    use crate::credentials::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    for (persona_id, backend_id, agent, phase) in [
+        ("ada", "claude-acp", "Claude Code", "acp_start"),
+        ("hal", "hotline", "Hotline Agent", "start"),
+    ] {
+        let mut teammate = crate::session::tests::persona(persona_id);
+        teammate.backend_id = backend_id.to_string();
+        teammate.account_id = Some("33333333-3333-4333-8333-333333333333".to_string());
+        teammate.cwd = root.path().join(persona_id).to_string_lossy().into_owned();
+        crate::session::tests::enrol(&desk.log, &teammate);
+        for seat in [Seat::Desk, Seat::Owner] {
+            let answer = remote_control_answer(
+                seat,
+                &room,
+                &desk.log,
+                &desk.parts(),
+                json!({"id":1,"cmd":"session.start","params":{"personaId":persona_id}}),
+            )
+            .await;
+            let error = answer["error"].as_str().unwrap_or_default();
+            let private = format!(
+                "Pick a {agent} account for Ada: the one it was set to is not on this desk."
+            );
+            let phase = format!(r#""phase":"{phase}""#);
+            for part in [
+                private.as_str(),
+                r#""kind":"account_unavailable""#,
+                r#""code":"unknown_account""#,
+                phase.as_str(),
+            ] {
+                assert!(error.contains(part), "{answer}");
+            }
+        }
+    }
+    for command in ["session.start", "session.prompt"] {
+        let denied = remote_control_answer(
+            Seat::Phone,
+            &room,
+            &desk.log,
+            &desk.parts(),
+            json!({"id":2,"cmd":command,"params":{"personaId":"ada","text":"hi"}}),
+        )
+        .await;
+        assert_eq!(denied["code"], FORBIDDEN, "{denied}");
+    }
+}
+
+#[tokio::test]
 async fn voice_is_owner_only_through_the_real_handler() {
     use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
@@ -416,6 +470,123 @@ async fn cookie_push_is_operator_only_through_the_real_handler() {
         false
     );
     assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
+}
+
+#[tokio::test]
+async fn agent_accounts_are_operator_only_through_the_real_handler() {
+    let quiet = Arc::new(Quiet::new());
+    let room: Arc<dyn RoomHandle> = quiet.clone();
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        for frame in super::accounts::account_frames(&format!("{seat:?}")) {
+            let answer =
+                remote_control_answer(seat, &room, &log, &Parts::default(), frame.clone()).await;
+            assert_eq!(
+                answer["code"] == FORBIDDEN,
+                seat == Seat::Phone,
+                "{frame} {answer}"
+            );
+        }
+    }
+    let names: Vec<String> = room::agent_accounts(&log)
+        .into_iter()
+        .map(|account| account.name)
+        .collect();
+    assert_eq!(names, ["Desk", "Owner"]);
+    let starts: Vec<bool> = quiet
+        .account_sign_ins
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, seat_is_desk)| *seat_is_desk)
+        .collect();
+    assert_eq!(starts, [true, false]);
+}
+
+#[tokio::test]
+async fn removing_an_account_in_use_names_its_teammates_and_keeps_its_folder() {
+    let room: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let desk = |frame: Value| {
+        let (room, log) = (room.clone(), log.clone());
+        async move { remote_control_answer(Seat::Desk, &room, &log, &Parts::default(), frame).await }
+    };
+    let created = desk(json!({"id":1,"cmd":"accounts.create","params":{
+        "backendId":"claude-acp","name":"Account 1","startWith":"empty"}}))
+    .await;
+    let id = created["result"]["account"]["account"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut teammates = Vec::new();
+    for name in ["Ada", "Bob"] {
+        let made = desk(json!({"id":2,"cmd":"persona.create","params":{"draft":{
+            "name":name,"backendId":"claude-acp","accountId":id}}}))
+        .await;
+        assert_eq!(made["result"]["accountId"], json!(id), "{made}");
+        teammates.push(made["result"]["id"].as_str().unwrap().to_string());
+    }
+    let remove = json!({"id":3,"cmd":"accounts.remove","params":{"accountId":id}});
+    let refused = desk(remove.clone()).await;
+    assert_eq!(
+        refused["error"], "Account 1 can't be removed while Ada and Bob use it.",
+        "{refused}"
+    );
+    for teammate in &teammates {
+        let deleted = desk(json!({"id":4,"cmd":"persona.delete","params":{"id":teammate}})).await;
+        assert_eq!(deleted["ok"], true, "{deleted}");
+    }
+    let removed = desk(remove).await;
+    assert_eq!(removed, json!({"id":3,"ok":true}));
+    assert!(room::agent_accounts(&log).is_empty());
+    assert!(paths::agent_account_dir(root.path(), &id).unwrap().is_dir());
+}
+
+#[tokio::test]
+async fn persona_account_reaches_the_room_through_the_real_handler() {
+    use crate::credentials::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let ask = |frame: Value| {
+        let (room, desk) = (room.clone(), desk.clone());
+        async move { remote_control_answer(Seat::Desk, &room, &desk.log, &desk.parts(), frame).await }
+    };
+    let created = ask(json!({"id":1,"cmd":"accounts.create","params":{
+        "backendId":"claude-acp","name":"Account 1","startWith":"empty"}}))
+    .await;
+    let id = created["result"]["account"]["account"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let made = ask(json!({"id":2,"cmd":"persona.create","params":{"draft":{
+        "name":"Ada","backendId":"claude-acp"}}}))
+    .await;
+    let ada = made["result"]["id"].as_str().unwrap().to_string();
+    let chosen = || {
+        room::roster(&desk.log)
+            .into_iter()
+            .find(|persona| persona.id == ada)
+            .and_then(|persona| persona.account_id)
+    };
+    let set = ask(json!({"id":3,"cmd":"persona.account","params":{
+        "personaId":ada,"accountId":id}}))
+    .await;
+    assert_eq!(
+        (&set["ok"], &set["result"]["wanted"]),
+        (&json!(true), &json!(id)),
+        "{set}"
+    );
+    assert_eq!(chosen(), Some(id));
+    let cleared = ask(json!({"id":4,"cmd":"persona.account","params":{
+        "personaId":ada,"accountId":null}}))
+    .await;
+    assert_eq!(cleared["ok"], true, "{cleared}");
+    assert_eq!(chosen(), None);
 }
 
 #[tokio::test]

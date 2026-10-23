@@ -122,11 +122,20 @@ conversation's place.
 Providers and Tools are one shape, because they do one job: a list of
 things the room has. An add row heads the list in accent — the one accent
 in a pane, because adding is what an empty list is for — and opens the
-form in place, or for Providers the rows of what is not yet connected,
-in place too: nothing on these pages pops over them. Each
-row is the thing's name over one detail line (a key or a login, a command
-or a URL) and opens the thing's own page, with its fields and the way out
-(Remove, Sign out) at the foot. Nothing is edited on the row.
+form in place, or for Providers the rows of what is not yet connected, in
+place too: nothing on these pages pops over them. Each row is the thing's
+name over one detail line (what a provider holds, a command or a URL) and
+opens the thing's own page, with its fields and the way out (Remove, Sign
+out) at the foot. Nothing is edited on the row.
+A provider's page is every way into it, as lists of their own: its
+Subscriptions, with This computer last when an agent signs in to it
+itself, its API keys, and its servers, each headed by its own add row.
+These are accounts, not things with pages, so each row carries its
+Rename and its way out itself; a Claude Code account's row also opens
+that account's page, with its Setup and, at the foot, Remove. A sign-in
+stands under the row that asked for it; on a Windows desk it happens in
+the agent's own window, so the row says so in one line with Cancel, and
+never shows a terminal.
 
 The computer is two places. Settings › Computer is the room's word: the
 runtimes this machine could have as radio rows, the missing ones greyed
@@ -276,13 +285,23 @@ transition and animation, and holds the mark still.
   says the screen is the person's until Done, so the way to do the thing
   is the first thing on the card. The desktop opens in a window of its
   own, one per teammate; the band carries Screen while it runs.
+- Account cards: a failure about the teammate's agent account names the
+  account. A usage limit offers Continue on each other signed-in account
+  and This computer before Try again; a missing sign-in offers Sign in
+  {account} and Choose account; an account the desk cannot use offers
+  Choose account (and Show folder for its folder). Nothing switches an
+  account on its own.
 - Machinery between messages is folded into instrument rows on a 2px rule.
 - The inspector is 320px, so it shows state and folds detail. Its band
   says only Teammate. It opens on who they are, the way a contact card
   does: the face, the name at the heading's size and the goal under it
   like a bio, each plain text until pointed at, when it shows the field
-  it is. The working directory is a row of its own, the folder's name
-  (Main workspace when it is the teammate's) and three quiet keys (the
+  it is. Under the profile card, a teammate on an agent with accounts
+  has an "{agent} account" list whose radio rows carry the status, "In
+  use" on the running one and Add account in place; a pending switch
+  (Keep / Stop and switch now) or a held one sits under the rows, and the
+  list's one note says Restored or Fresh. The working directory is a row
+  of its own, the folder's name (Main workspace when it is the teammate's) and three quiet keys (the
   full path, choose, reveal), never a path field. Every grant is one row
   in one of three lists, ordered authority, equipment, outcome:
   Permissions (reach, background work and collaboration, each with an
@@ -326,6 +345,17 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-10-23 Settings › Agent accounts folds into Providers: a provider's
+  page lists every way into it in Subscriptions, API keys and Servers, and
+  an account is renamed, changed and removed on its own row.
+
+- 2026-10-21 The teammate pane's account list and the account cards; a
+  switch waits for the teammate's work and for the account's sign-in.
+
+- 2026-10-21 Settings › Agent accounts: a third Providers-shaped list,
+  three levels deep; Open hands a setup item to the system through the
+  shell, which touches nothing outside the account's folder.
 
 - 2026-10-09 A reply to a call carries what was said aloud as a transcript
   line above its bubble (0.36).

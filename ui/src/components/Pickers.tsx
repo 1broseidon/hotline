@@ -3,9 +3,7 @@ import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
-
-/** Hotline Agent's stored backend id. Any other id is an ACP harness. */
-const HOTLINE_AGENT = "hotline";
+import { HOTLINE_AGENT } from "./accounts/fits";
 
 /**
  * The open teammate's model and effort, on the window's top strip. They

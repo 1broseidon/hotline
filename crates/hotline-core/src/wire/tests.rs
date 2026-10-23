@@ -66,6 +66,7 @@ fn idle(persona_id: &str) -> SessionInfo {
         error: None,
         awaiting_subagents: false,
         processes: Vec::new(),
+        account: None,
     }
 }
 
@@ -93,6 +94,8 @@ struct Quiet {
     /// a provider slow to say what it can do.
     slow_read: Option<tokio_util::sync::CancellationToken>,
     auth_owner: Mutex<Option<tokio_util::sync::CancellationToken>>,
+    account_sign_ins: Mutex<Vec<(tokio_util::sync::CancellationToken, bool)>>,
+    account_attempt: Mutex<Option<(String, crate::contract::LoginAttemptView)>>,
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
     states: Mutex<HashMap<String, SessionInfo>>,
@@ -112,6 +115,8 @@ impl Quiet {
             pending_login: None,
             slow_read: None,
             auth_owner: Mutex::new(None),
+            account_sign_ins: Mutex::default(),
+            account_attempt: Mutex::default(),
             infos: broadcast::channel(16).0,
             deltas: broadcast::channel(16).0,
             states: Mutex::new(HashMap::new()),
@@ -325,7 +330,12 @@ impl RoomHandle for CoreHandle {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
-    async fn credential_login(&self, _provider_id: &str) -> Result<LoginPrompt, String> {
+    async fn credential_login(
+        &self,
+        _provider_id: &str,
+        _label: Option<&str>,
+        _into: Option<&str>,
+    ) -> Result<LoginPrompt, String> {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
@@ -523,12 +533,89 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
+    fn account_live(
+        &self,
+        account_id: &str,
+    ) -> (
+        crate::contract::AccountStatusView,
+        Option<crate::contract::LoginAttemptView>,
+    ) {
+        let attempt = self
+            .account_attempt
+            .lock()
+            .unwrap()
+            .clone()
+            .filter(|(id, _)| id == account_id)
+            .map(|(_, attempt)| attempt);
+        let status = crate::contract::AccountStatusView {
+            state: crate::contract::AccountStatusState::NotChecked,
+            checked_at: None,
+            email: None,
+            plan: None,
+        };
+        (status, attempt)
+    }
+    async fn accounts_login_start(
+        &self,
+        account_id: &str,
+        _email: Option<String>,
+        owner: tokio_util::sync::CancellationToken,
+        seat_is_desk: bool,
+    ) -> Result<String, String> {
+        assert_eq!(account_id, "acct-1");
+        self.account_sign_ins
+            .lock()
+            .unwrap()
+            .push((owner, seat_is_desk));
+        Ok("fixture-attempt".into())
+    }
+    fn accounts_login_poll(
+        &self,
+        account_id: &str,
+        id: &str,
+    ) -> Result<crate::wire::AuthStatus, String> {
+        assert_eq!((account_id, id), ("acct-1", "fixture-attempt"));
+        Ok(crate::wire::AuthStatus {
+            state: "running",
+            output: "ephemeral fixture output".into(),
+            error: None,
+        })
+    }
+    fn accounts_login_input(&self, account_id: &str, id: &str, input: &str) -> Result<(), String> {
+        assert_eq!(
+            (account_id, id, input),
+            ("acct-1", "fixture-attempt", "fixture input")
+        );
+        Ok(())
+    }
+    fn accounts_login_cancel(&self, account_id: &str, id: &str) -> Result<(), String> {
+        assert_eq!((account_id, id), ("acct-1", "fixture-attempt"));
+        Ok(())
+    }
+    async fn persona_account(
+        &self,
+        _persona_id: &str,
+        account_id: Option<String>,
+    ) -> Result<crate::contract::SessionAccount, String> {
+        Ok(crate::contract::SessionAccount {
+            running: None,
+            wanted: account_id,
+            held: None,
+        })
+    }
+
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
         self.policy_updates.clone()
     }
 
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
-        let mut info = idle(persona_id);
+        let mut info = self
+            .states
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(persona_id)
+            .cloned()
+            .unwrap_or_else(|| idle(persona_id));
         info.current_model_id = Some("anthropic/claude".to_string());
         self.set_info(info.clone());
         Ok(info)
@@ -705,7 +792,12 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
+    async fn credential_login(
+        &self,
+        provider_id: &str,
+        _label: Option<&str>,
+        _into: Option<&str>,
+    ) -> Result<LoginPrompt, String> {
         if let Some(pending) = &self.pending_login {
             let _dropped = pending.dropped.clone().drop_guard();
             pending.entered.cancel();
@@ -1054,6 +1146,7 @@ async fn remote_control_answer(
         call_owner: "desk".into(),
         pairing_cancel: tokio_util::sync::CancellationToken::new(),
         auth_attempts: Arc::default(),
+        account_logins: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
@@ -1119,6 +1212,7 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
     assert_eq!(read["ok"], false, "{read}");
 }
 
+mod accounts;
 mod asks;
 mod capabilities;
 mod deltas;

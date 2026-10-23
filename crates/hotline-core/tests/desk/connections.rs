@@ -4,43 +4,9 @@ use super::*;
 /// Settings and the conversation. No installed Ollama or cloud account needed.
 #[tokio::test(flavor = "multi_thread")]
 async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
-    use axum::{
-        Router,
-        body::Bytes,
-        http::HeaderMap,
-        routing::{get, post},
-    };
     use std::sync::Mutex;
-    let installed = Arc::new(Mutex::new(vec!["custom/coder:latest".to_string()]));
-    let tags = installed.clone();
-    let (requests_tx, mut requests_rx) = tokio::sync::mpsc::channel(4);
-    let app = Router::new()
-        .route("/api/tags", get(move |headers: HeaderMap| {
-            assert!(!headers.contains_key("authorization"));
-            let tags = tags.clone();
-            async move {
-                json!({"models": tags.lock().unwrap().iter().map(|id| json!({"name": id, "model": id})).collect::<Vec<_>>()}).to_string()
-            }
-        }))
-        .route("/api/chat", post(move |headers: HeaderMap, bytes: Bytes| {
-            assert!(!headers.contains_key("authorization"));
-            let tx = requests_tx.clone();
-            async move {
-                let request: Value = serde_json::from_slice(&bytes).unwrap();
-                tx.send(request).await.unwrap();
-                let chunk = json!({"model":"custom/coder:latest", "created_at":"2026-09-09T00:00:00Z",
-                    "message":{"role":"assistant", "content":"Hello from Ollama."}, "done":false});
-                let done = json!({"model":"custom/coder:latest", "created_at":"2026-09-09T00:00:00Z",
-                    "message":{"role":"assistant", "content":""}, "done":true, "done_reason":"stop",
-                    "prompt_eval_count":10, "eval_count":4});
-                ([("Content-Type", "application/x-ndjson")], format!("{chunk}\n{done}\n"))
-            }
-        }));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    let installed = Arc::new(Mutex::new(vec![FAKE_OLLAMA_MODEL.to_string()]));
+    let (url, mut requests_rx, server) = fake_ollama_listing("Ollama", installed.clone()).await;
     let (root, port) = open("ollama-local").await;
     let mut client = Client::connect(port, TOKEN).await;
     let providers = client.call("providers.list", json!({})).await;

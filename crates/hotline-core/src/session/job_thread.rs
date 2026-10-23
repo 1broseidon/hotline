@@ -134,6 +134,7 @@ struct Up {
     /// How far the agent's tools reach, as its view was narrowed.
     reach: Reach,
     backend_id: String,
+    account_id: Option<String>,
     /// The agent's own id for this conversation, as the driver reports it.
     reported: Option<String>,
 }
@@ -243,6 +244,7 @@ impl LiveJob {
                 .map(|session_id| AgentBinding {
                     backend_id: up.backend_id.clone(),
                     session_id,
+                    account_id: up.account_id.clone(),
                 })
         };
         let changed = {
@@ -460,6 +462,7 @@ impl Occupant for LiveJob {
         // A stop that landed after the last turn's end has no turn to stop.
         self.halted.store(false, Ordering::SeqCst);
         let _ = room.info_changes.send(room.info(&self.persona_id));
+        room.apply_account_when_idle(&self.persona_id);
     }
 }
 
@@ -707,6 +710,7 @@ impl Room {
             lease,
             reach: agent.view.reach.unwrap_or_default(),
             backend_id: agent.view.backend_id.clone(),
+            account_id: crate::accounts::account_of(&self.log, &agent.view),
             reported: agent.reported.clone(),
         })
     }

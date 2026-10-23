@@ -31,6 +31,7 @@
 //! tools, the workspace, or the harness invalidate old handles and queued
 //! work before a live session is rebuilt.
 
+mod accounts;
 mod agent;
 mod asking;
 pub(crate) mod avatar;
@@ -45,6 +46,7 @@ pub(crate) mod files;
 pub(crate) mod generate;
 mod job_thread;
 pub(crate) mod jobs;
+mod keys;
 pub(crate) use hotline_room::tool_ledger as ledger;
 mod calls;
 mod lifecycle;
@@ -73,6 +75,7 @@ use chapters::sweep_idle_chapters;
 use computer::{ComputerSetup, ComputerSwap};
 use driver_info::follow_model_changes;
 pub use hotline_room::provider_auth::ProviderAuth;
+pub use keys::ProviderKeys;
 use prompt::{PendingTool, stamped};
 use secrets::PasskeyArming;
 pub use stopping::Stopped;
@@ -160,59 +163,6 @@ const ASK_HOURS: u32 = 2;
 /// really waits for the person to come back.
 const ASK_MAX_HOURS: u32 = 24;
 
-/// Where the provider credentials come from.
-///
-/// The room never holds a secret: it asks at the start of every turn, so a
-/// key or login added on the desk is in force on the next one and nothing
-/// keeps a stale copy. The desk implements this from the vault and the room
-/// log; a test hands over a map.
-pub trait ProviderKeys: Send + Sync {
-    fn provider_auth(&self) -> HashMap<String, ProviderAuth>;
-
-    /// The models each provider may offer in the picker. An empty map shows
-    /// every model: a missing filter is not an empty one. The desk reads it
-    /// from the room log each time, so a saved filter is in force on the
-    /// next turn without a restart. Test doubles leave it empty.
-    fn enabled_models(&self) -> HashMap<String, Vec<String>> {
-        HashMap::new()
-    }
-
-    /// The model a Hotline Agent teammate starts on when it has no choice of
-    /// its own: the room's `defaultModelId`, else `lastModelId`. The desk
-    /// reads the log each time, like [`Self::enabled_models`]. Test doubles
-    /// leave it absent.
-    fn preferred_model(&self) -> Option<String> {
-        None
-    }
-
-    /// Validated live metadata, keyed by exact provider/model identity. Missing
-    /// fields fall back to that exact bundled entry; no labels choose routes.
-    fn model_metadata(&self) -> HashMap<String, crate::contract::CatalogModel> {
-        HashMap::new()
-    }
-
-    /// Discovered and permitted manual ids for each active connection. An
-    /// absent provider uses bundled fallback choices; a present empty list
-    /// remains empty. Test doubles leave the map empty.
-    fn account_models(&self) -> HashMap<String, Vec<String>> {
-        HashMap::new()
-    }
-
-    /// The API key saved for each web search provider that has one. The desk
-    /// reads them from the vault each time, so a key saved in Settings is in
-    /// force on the next search. Test doubles have none: every provider keyless.
-    fn web_search_keys(&self) -> crate::websearch::Keys {
-        HashMap::new()
-    }
-
-    /// The desk's spending budgets, which a teammate's turn on a per-token
-    /// key is metered against (the Chat budget). Test doubles have none, so
-    /// their turns are neither metered nor refused.
-    fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
-        None
-    }
-}
-
 /// What the room asks a model for: an agent to run a teammate's turns, and a
 /// single answer to a single question.
 ///
@@ -285,7 +235,8 @@ impl Agents for DeskAgents {
                 self.root.join("tool-output").join(&persona.id),
                 tools,
             )
-            .with_mcp(grant.servers, grant.missing);
+            .with_mcp(grant.servers, grant.missing)
+            .with_account(accounts::hotline_account(&self.log, persona)?);
             let driver = match &self.mcp_vault {
                 Some(vault) => driver.with_mcp_vault(vault.clone()),
                 None => driver,
@@ -296,6 +247,9 @@ impl Agents for DeskAgents {
             };
             return Ok(Arc::new(driver));
         }
+        // Before the registry, so a refused account needs no harness on this
+        // machine to say so.
+        let account = accounts::start_account(&self.root, &self.log, persona)?;
         // The registry answers whether this machine can start that harness at
         // all, and says what is missing when it cannot.
         acp::registry::launch(&self.root, &persona.backend_id)?;
@@ -307,7 +261,8 @@ impl Agents for DeskAgents {
         )
         .with_history(said)
         .with_mcp(grant.servers, grant.missing)
-        .with_start_bounds(self.acp_start);
+        .with_start_bounds(self.acp_start)
+        .with_account(account);
         let driver = match &self.mcp_vault {
             Some(vault) => driver.with_mcp_vault(vault.clone()),
             None => driver,
@@ -368,6 +323,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         error: None,
         awaiting_subagents: false,
         processes: Vec::new(),
+        account: None,
     }
 }
 
@@ -385,6 +341,10 @@ struct Session {
     /// Which agent is answering, because a checkpoint is kept per backend and
     /// the tape's chapter markers name the one that wrote them.
     backend_id: String,
+    /// The account the agent was started on, and that account's sign-in then:
+    /// a checkpoint is kept only while the teammate's record names both.
+    account_id: Option<String>,
+    account_login_at: Option<i64>,
     driver: Arc<dyn Driver>,
     info: Mutex<SessionInfo>,
     /// Queued lines and the claim on the active driver share one lock.
@@ -638,6 +598,7 @@ pub struct Room {
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
+    accounts: accounts::Accounts,
     /// Work holds a read lease; an installer can pause an idle room atomically.
     activity: Arc<tokio::sync::RwLock<()>>,
     /// Set once the desk is stopping for a restart: new work is refused while
@@ -680,7 +641,8 @@ impl Room {
             mcp_vault: Some(vault.clone()),
             acp_start,
         });
-        Self::with_agents_computers_and_vault(log, keys, agents, Computer::new(), Some(vault))
+        let computers = Computer::new();
+        Self::with_agents_computers_and_vault(log, keys, agents, computers, Some(vault), acp_start)
     }
 
     /// The room, on an agent seam a test can script. [`Room::new`] is this on
@@ -700,7 +662,8 @@ impl Room {
         agents: Arc<dyn Agents>,
         computers: Computer,
     ) -> Arc<Self> {
-        Self::with_agents_computers_and_vault(log, keys, agents, computers, None)
+        let acp_start = acp::StartBounds::default();
+        Self::with_agents_computers_and_vault(log, keys, agents, computers, None, acp_start)
     }
 
     /// The room with a vault to read a computer's granted secrets from.
@@ -710,6 +673,7 @@ impl Room {
         agents: Arc<dyn Agents>,
         computers: Computer,
         vault: Option<Arc<Vault>>,
+        acp_start: acp::StartBounds,
     ) -> Arc<Self> {
         let push = crate::push::Push::new(log.root());
         let indexer = match Indexer::open(&log) {
@@ -764,10 +728,12 @@ impl Room {
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
+            accounts: accounts::Accounts::new(acp_start),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
         });
         *lock(&room.me) = Arc::downgrade(&room);
+        room.account_statuses().report_to(Arc::downgrade(&room));
         room.settle();
         // What the person said that was still waiting when the last desk
         // stopped, and what came back to a job that had not heard it yet, is
@@ -860,10 +826,11 @@ impl Room {
     /// What the teammate's session is doing. A teammate with no session is
     /// idle, which is a state and not an absence.
     pub fn info(&self, persona_id: &str) -> SessionInfo {
-        let mut info = match lock(&self.sessions).get(persona_id) {
-            Some(session) => lock(&session.info).clone(),
-            None => idle_info(persona_id),
+        let (mut info, running) = match lock(&self.sessions).get(persona_id) {
+            Some(session) => (lock(&session.info).clone(), session.account_id.clone()),
+            None => (idle_info(persona_id), None),
         };
+        info.account = self.session_account(persona_id, running);
         for processes in self.sides.processes(persona_id) {
             info.processes.extend(processes.listed());
         }
@@ -903,6 +870,9 @@ impl Room {
             }
         }
         let _ = self.info_changes.send(self.info(persona_id));
+        if !running {
+            self.apply_account_when_idle(persona_id);
+        }
     }
 
     /// Marks a picture as being drawn until the guard drops, telling the
@@ -1055,10 +1025,14 @@ impl Room {
         let Some(session_id) = lock(&session.pending_checkpoint).take() else {
             return;
         };
+        if !self.checkpoint_still_ours(session) {
+            return;
+        }
         if let Err(error) = room::checkpoint_session(
             &self.log,
             &session.persona_id,
             &session.backend_id,
+            session.account_id.as_deref(),
             &session_id,
         ) {
             eprintln!(
@@ -1070,24 +1044,35 @@ impl Room {
         // chapter possible later. The persona record is what the next
         // start will find; the marker is what a resume points that record
         // back at.
-        self.stamp_chapter_session(&session.persona_id, &session_id);
+        self.stamp_chapter_session(
+            &session.persona_id,
+            &session_id,
+            session.account_id.as_deref(),
+        );
     }
 
-    /// Writes the agent's session id onto the open chapter marker, so a
-    /// later resume can point the checkpoint back at this stretch.
-    fn stamp_chapter_session(&self, persona_id: &str, session_id: &str) {
+    /// Writes the agent's session id, and the account it belongs to, onto the
+    /// open chapter marker, so a later resume can point the checkpoint back at
+    /// this stretch, and only for that account.
+    fn stamp_chapter_session(&self, persona_id: &str, session_id: &str, account_id: Option<&str>) {
         let (open, _) = self
             .log
             .chapter_activity(&StreamId::Tape(persona_id.to_string()));
         let Some(open) = open else {
             return;
         };
-        if open.get("sessionId").and_then(Value::as_str) == Some(session_id) {
+        if open.get("sessionId").and_then(Value::as_str) == Some(session_id)
+            && open.get("accountId").and_then(Value::as_str) == account_id
+        {
             return;
         }
         let mut stamped = open;
         if let Some(object) = stamped.as_object_mut() {
             object.insert("sessionId".into(), Value::from(session_id));
+            match account_id {
+                Some(account_id) => object.insert("accountId".into(), Value::from(account_id)),
+                None => object.remove("accountId"),
+            };
             self.write_value(persona_id, &stamped);
         }
     }

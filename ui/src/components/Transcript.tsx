@@ -11,6 +11,7 @@ import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { failedLast } from "../retryTurn";
+import { clock, daysBetween, shortDate } from "../clock";
 import { wire } from "../wire";
 import {
 	deliveryLine,
@@ -99,6 +100,8 @@ export function Transcript({
 	onOpenWork,
 	workOpen,
 	onProviders,
+	backendId,
+	onChooseAccount,
 	thread,
 	more = false,
 	onEarlier,
@@ -151,6 +154,8 @@ export function Transcript({
 	workOpen?: string | null | undefined;
 	/** Opens Settings › Providers, from a card saying no provider is connected. */
 	onProviders?(): void;
+	backendId?: string;
+	onChooseAccount?(): void;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -437,6 +442,8 @@ export function Transcript({
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
 									{...(onProviders !== undefined ? { onProviders } : {})}
+									{...(!speakers && thread === undefined && backendId !== undefined ? { backendId } : {})}
+									{...(!speakers && thread === undefined && onChooseAccount !== undefined ? { onChooseAccount } : {})}
 									onJump={onJump}
 								/>
 							)}
@@ -521,6 +528,8 @@ const Row = memo(function Row({
 	onOpenThread,
 	onOpenScreen,
 	onProviders,
+	backendId,
+	onChooseAccount,
 	onJump,
 }: {
 	personaId: string;
@@ -545,6 +554,8 @@ const Row = memo(function Row({
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenScreen?(): void;
 	onProviders?(): void;
+	backendId?: string;
+	onChooseAccount?(): void;
 	onJump(eventId: string): void;
 }) {
 	const run: Run = { top, bottom };
@@ -631,10 +642,13 @@ const Row = memo(function Row({
 				return (
 					<ErrorCard
 						text={event.text}
+						at={event.ts}
 						{...(!speakers ? { personaId } : {})}
 						{...(onRetry ? { onRetry } : {})}
 						{...(onRunAgain ? { onRunAgain } : {})}
 						{...(onProviders ? { onProviders } : {})}
+						{...(backendId !== undefined ? { backendId, teammate: ownerName } : {})}
+						{...(onChooseAccount ? { onChooseAccount } : {})}
 					/>
 				);
 			return (
@@ -903,10 +917,6 @@ function PlanMark({ status }: { status: string }) {
 	);
 }
 
-const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-
-const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
 
 function stampText(at: number): string {
@@ -921,10 +931,4 @@ function stampText(at: number): string {
 function runTime(at: number): string {
 	const when = new Date(at);
 	return daysBetween(when, new Date()) === 0 ? clock.format(when) : `${shortDate.format(when)}, ${clock.format(when)}`;
-}
-
-/** Calendar days apart, not elapsed hours: 11pm and 1am are a day apart. */
-function daysBetween(then: Date, now: Date): number {
-	const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-	return Math.round((midnight(now).getTime() - midnight(then).getTime()) / 86_400_000);
 }

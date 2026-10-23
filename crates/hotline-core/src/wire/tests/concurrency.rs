@@ -212,3 +212,48 @@ async fn teammate_commands_keep_their_order_while_other_lanes_answer() {
         assert_eq!(reply["ok"], true);
     }
 }
+
+#[test]
+fn every_account_command_but_a_running_sign_ins_is_independent() {
+    let account = "11111111-1111-4111-8111-111111111111";
+    let frame = |cmd: &str, params: Value| json!({"id":1,"cmd":cmd,"params":params});
+    for (cmd, params) in [
+        ("accounts.list", json!({})),
+        (
+            "accounts.create",
+            json!({"backendId":"claude-acp","name":"Work","startWith":"empty"}),
+        ),
+        (
+            "accounts.rename",
+            json!({"accountId":account,"name":"Home"}),
+        ),
+        ("accounts.remove", json!({"accountId":account})),
+        ("accounts.status", json!({"accountId":account})),
+        ("accounts.setup.list", json!({"accountId":account})),
+        (
+            "accounts.setup.copy",
+            json!({"accountId":account,"categories":["skills"]}),
+        ),
+        ("accounts.login.start", json!({"accountId":account})),
+    ] {
+        assert!(super::socket::independent(&frame(cmd, params)), "{cmd}");
+    }
+    for (cmd, params) in [
+        (
+            "accounts.login.poll",
+            json!({"accountId":account,"id":"a1"}),
+        ),
+        (
+            "accounts.login.input",
+            json!({"accountId":account,"id":"a1","input":"x"}),
+        ),
+        (
+            "accounts.login.cancel",
+            json!({"accountId":account,"id":"a1"}),
+        ),
+    ] {
+        let frame = frame(cmd, params);
+        assert!(super::socket::read_command(&frame).is_ok(), "{cmd}");
+        assert!(!super::socket::independent(&frame), "{cmd}");
+    }
+}

@@ -396,6 +396,12 @@ export async function openSentFile(path: string): Promise<void> {
 	await invoke("open_sent_file", { path });
 }
 
+/** Only a path `accounts.setup.list` answered is asked for, and the shell refuses anything outside the account's folder. */
+export async function openAccountSetup(path: string): Promise<void> {
+	if (!isDesktop()) throw new Error("Open the desktop application to open this.");
+	await invoke("open_account_setup", { path });
+}
+
 /**
  * Saves a copy of a file a teammate sent where the person picks, in the
  * system's save dialog. Where the copy went, or null when it was dismissed.

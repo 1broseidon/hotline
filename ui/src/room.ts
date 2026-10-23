@@ -179,6 +179,11 @@ export function useRoomSettings(): {
 	};
 }
 
+/** What a teammate with no model runs on, as the core reads it (`models::preferred_model`): the room's default, else the last one used. */
+export function preferredModel(settings: { defaultModelId: string | null; lastModelId: string | null }): string | undefined {
+	return settings.defaultModelId ?? settings.lastModelId ?? undefined;
+}
+
 /**
  * One setting as the owner last wrote it, undefined when they never did or
  * have cleared it. For a setting whose whole object a write replaces, so the

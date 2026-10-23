@@ -26,6 +26,14 @@ pub enum ProviderAuth {
     },
 }
 
+/// The credential a teammate is set to. It stands in for its own provider
+/// alone, so a turn on another provider's model never reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChosenAccount {
+    pub id: String,
+    pub provider_id: String,
+}
+
 /// Whether a provider id names a connection the owner configured themselves:
 /// `custom-` and a uuid, never a provider Hotline knows.
 pub fn is_custom(provider_id: &str) -> bool {

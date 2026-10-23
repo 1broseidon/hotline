@@ -40,6 +40,7 @@ use crate::tools::{
 use crate::vault::Vault;
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use hotline_room::provider_auth::ChosenAccount;
 use rig::message::{
     DocumentSourceKind, Image, ImageMediaType, Message, ToolResultContent, UserContent,
 };
@@ -58,7 +59,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
 const MAX_TURNS: usize = 10_000;
 
 /// The name a teammate on this driver answers to.
-const AGENT_NAME: &str = "Hotline Agent";
+pub(crate) const AGENT_NAME: &str = "Hotline Agent";
 
 /// Only the tool's subject, not the whole command, goes in the title line.
 const TITLE_CHARS: usize = 120;
@@ -247,6 +248,9 @@ pub struct InProcess {
     /// Commands this session's turns left running when they replied. They
     /// die with the driver, and with [`Driver::invalidate`].
     processes: Arc<crate::session::jobs::Processes>,
+    /// Named on every ask for the keys, whatever the model: the keys put it
+    /// in place of its own provider's default and leave the others alone.
+    account: Option<ChosenAccount>,
 }
 
 impl InProcess {
@@ -284,6 +288,7 @@ impl InProcess {
             capability: None,
             mcp_vault: None,
             processes: crate::session::jobs::Processes::new(output_dir),
+            account: None,
         }
     }
 
@@ -302,6 +307,11 @@ impl InProcess {
 
     pub(crate) fn with_mcp_vault(mut self, vault: Arc<Vault>) -> Self {
         self.mcp_vault = Some(vault);
+        self
+    }
+
+    pub(crate) fn with_account(mut self, account: Option<ChosenAccount>) -> Self {
+        self.account = account;
         self
     }
 
@@ -335,7 +345,7 @@ impl InProcess {
 #[async_trait]
 impl Driver for InProcess {
     fn current_info(&self) -> Option<DriverInfo> {
-        Some(self.info(&self.keys.provider_auth()))
+        Some(self.info(&self.keys.provider_auth_for(self.account.as_ref())))
     }
 
     /// A started driver has a model unless the desk had no provider to give
@@ -350,7 +360,7 @@ impl Driver for InProcess {
         if let Some(capability) = &self.capability {
             capability.check()?;
         }
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         // With no provider there is nothing to run a model on. The teammate
         // still comes up, with no model, so it can say why before anyone
         // sends it a word: see `startup_failure`.
@@ -474,7 +484,7 @@ impl Driver for InProcess {
     }
 
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         let provider = model_id.split('/').next().unwrap_or("");
         if !keys.contains_key(provider) {
             return Err(format!(
@@ -500,7 +510,7 @@ impl Driver for InProcess {
         if config_id != "effort" {
             return Err("This agent does not offer that setting.".to_string());
         }
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         let model = lock(&self.model).clone();
         if value.is_empty() {
             *lock(&self.effort) = models::default_effort(&model);
@@ -609,7 +619,7 @@ impl InProcess {
         let model = lock(&self.model).clone();
         let metadata = self.keys.model_metadata();
         let output_limit = metadata.get(&model).and_then(|model| model.output_limit);
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         let meter = turn::ChatMeter::for_model(self.keys.budget(), &keys, &model, &metadata);
         let turn = Turn {
             keys,
@@ -637,6 +647,8 @@ impl InProcess {
         };
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
+        let provider_keys = self.keys.clone();
+        let account = self.account.clone();
         tokio::spawn(async move {
             let origin = recovery::Origin::of(&turn.model, &turn.keys);
             let changed = lock(&history_origin)
@@ -662,6 +674,8 @@ impl InProcess {
             }
             if let Err(error) = result {
                 let mut error = error.checked_against_sign_in(&turn.model, &turn.keys).await;
+                error.account_id =
+                    account_on_notice(provider_keys.as_ref(), account.as_ref(), &turn.model);
                 for auth in turn.keys.values() {
                     match auth {
                         ProviderAuth::ApiKey(key)
@@ -688,6 +702,24 @@ impl InProcess {
             }
         });
         receiver
+    }
+}
+
+/// The credential a failed turn on `model` names: only one there was a choice
+/// of, so a room with one account per provider writes the notice it always
+/// has. Asked only once a turn has failed, since the default's id costs
+/// another read of the keychain.
+fn account_on_notice(
+    keys: &dyn ProviderKeys,
+    account: Option<&ChosenAccount>,
+    model: &str,
+) -> Option<String> {
+    let provider = model.split('/').next().unwrap_or_default();
+    match account {
+        Some(account) if account.provider_id == provider => Some(account.id.clone()),
+        _ => keys
+            .default_account(provider)
+            .and_then(|(id, others)| others.then_some(id)),
     }
 }
 

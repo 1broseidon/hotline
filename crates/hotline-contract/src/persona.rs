@@ -97,6 +97,11 @@ pub struct Persona {
     /// preference beyond those.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub harness_override: Option<HarnessChoice>,
+    /// On a CLI agent an agent account, on Hotline Agent a credential of its
+    /// model's provider, and absent is the default; an id that belongs to
+    /// another backend or provider stays stored and is ignored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
     /// A hop landed this teammate here and it has not been told yet. Machine-
     /// bound and consumed once: the first message after the move carries this
     /// ahead of the user's words, so the agent knows it changed machines and
@@ -163,6 +168,12 @@ pub struct PersonaNode {
 pub struct SessionCheckpoint {
     pub backend_id: String,
     pub session_id: String,
+    /// The agent account the session ran under. Absent means This computer,
+    /// so a checkpoint from before accounts still belongs to a teammate that
+    /// has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub account_id: Option<String>,
 }
 
 /// How far a teammate's tools reach. The one policy a teammate has, and it is
@@ -408,4 +419,9 @@ pub struct PersonaDraft {
     /// is off, as on the pane.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_work: Option<bool>,
+    /// On a CLI agent an agent account, on Hotline Agent a credential of its
+    /// model's provider, and absent is the default; an id that belongs to
+    /// another backend or provider stays stored and is ignored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }

@@ -5,7 +5,7 @@ import { CloseIcon, FolderIcon, PlusIcon, RevealIcon, TrashIcon } from "../icons
 import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { useRoomRead } from "../roomReads";
-import { useRoomSettings } from "../room";
+import { preferredModel, useRoomSettings } from "../room";
 import { MAX_PINS } from "../pins";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -15,6 +15,8 @@ import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
 import { Schedules } from "./Schedules";
 import type { ThreadRef } from "./Transcript";
+import { HOTLINE_AGENT } from "./accounts/fits";
+import { AccountRow } from "./teammate/AccountRow";
 import { ComputerRows } from "./teammate/ComputerRows";
 import { McpRows, SkillRows } from "./teammate/GrantRows";
 import { BACKGROUND_ABOUT, FoldRow, InfoKey, MACHINE_ABOUT, NESTED, RowText, SwitchRow } from "./teammate/rows";
@@ -51,6 +53,7 @@ export function Teammate({
 	onClose,
 	onDeleted,
 	onOpenThread,
+	onAccountSetup,
 }: {
 	persona: Persona;
 	session: SessionInfo;
@@ -60,15 +63,17 @@ export function Teammate({
 	onClose(): void;
 	onDeleted(): void;
 	onOpenThread(thread: ThreadRef): void;
+	onAccountSetup?: ((accountId: string) => void) | undefined;
 }) {
-	const servers = useRoomSettings().mcpServers;
+	const room = useRoomSettings();
+	const servers = room.mcpServers;
 	const [name, setName] = useState(persona.name);
 	const [goal, setGoal] = useState(persona.goal);
 	const [pathShown, setPathShown] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const goalField = useRef<HTMLTextAreaElement>(null);
-	const hotline = persona.backendId === "hotline";
+	const hotline = persona.backendId === HOTLINE_AGENT;
 	// Only a session that is up has said what it takes.
 	const running = session.state === "ready" || session.state === "thinking";
 	const folders = persona.folders ?? [];
@@ -244,6 +249,15 @@ export function Teammate({
 							</button>
 						</div>
 					</div>
+
+					<AccountRow
+						persona={persona}
+						session={session}
+						// As the core reads it: an empty current model is no model, and no model is the room's preferred one.
+						modelId={session.currentModelId || (persona.modelId ?? preferredModel(room))}
+						disabled={busy}
+						onSetup={onAccountSetup}
+					/>
 
 					<section>
 						<h3 className="label">Folders</h3>

@@ -4219,6 +4219,7 @@ version = "0.42.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
+ "dunce",
  "futures-util",
  "hotline-core",
  "objc2",
@@ -4403,6 +4404,7 @@ dependencies = [
 name = "hotline-support"
 version = "0.42.0"
 dependencies = [
+ "dunce",
  "getrandom 0.3.4",
  "hex",
  "image",

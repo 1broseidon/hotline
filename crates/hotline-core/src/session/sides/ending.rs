@@ -132,6 +132,10 @@ impl Room {
     pub(super) fn mark_side(&self, side: &LiveSide, state: ThreadState, outcome: Option<String>) {
         let thread = side.thread.clone();
         let saved = lock(&side.saved).clone();
+        let account_id = side
+            .up
+            .get()
+            .map_or_else(|| side.account_id.clone(), |up| up.account_id.clone());
         self.write_link(&Link {
             id: self.link_id(&thread),
             ts: side.started,
@@ -145,6 +149,7 @@ impl Room {
             binding: saved.map(|session_id| AgentBinding {
                 backend_id: side.backend_id.clone(),
                 session_id,
+                account_id,
             }),
             elapsed_ms: None,
             opener: side.opener.clone(),

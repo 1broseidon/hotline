@@ -6,13 +6,15 @@
 //! the remote desks and relays, and the wire that carries all of it to a
 //! window, a phone or another desk.
 
+pub(crate) mod accounts;
+pub use accounts::support::account_setup_items;
 pub mod boot;
 mod capabilities;
 pub mod computer;
 pub use hotline_contract as contract;
 #[cfg(windows)]
 use hotline_support::process_windows;
-pub use hotline_support::{credentials, log_file, paths, room_lock};
+pub use hotline_support::{credentials, log_file, paths, private_dir, room_lock};
 use hotline_support::{fence, images, thumbs};
 pub mod desk;
 pub mod driver;

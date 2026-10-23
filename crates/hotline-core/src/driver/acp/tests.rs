@@ -1,3 +1,4 @@
+mod accounts;
 mod config;
 mod oauth_proxy;
 mod session_new;
@@ -9,6 +10,8 @@ use super::oauth_proxy::{OAuthProxyState, ProxyCredential, oauth_proxy_request};
 use super::session::{Disposition, RawInitialize};
 use super::translate::{SUBAGENT_LAUNCH, finished, tool_kind, translate};
 use super::*;
+use crate::accounts::resolve::ResolvedAccount;
+use crate::accounts::support::CLAUDE;
 use crate::contract::SkillPolicy;
 use crate::contract::{McpPolicy, PolicyMode, SessionCheckpoint};
 use agent_client_protocol::schema::v1::SessionNotification;
@@ -56,6 +59,7 @@ pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona
         mode_id: None,
         effort_id: None,
         harness_override: None,
+        account_id: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
             mode: PolicyMode::All,
@@ -72,6 +76,16 @@ pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona
         last_session_id: None,
         created_at: 1_700_000_000_000,
         updated_at: 1_700_000_000_000,
+    }
+}
+
+pub(super) fn resolved(id: &str, dir: PathBuf) -> ResolvedAccount {
+    ResolvedAccount {
+        id: id.to_string(),
+        backend_id: "claude-acp".to_string(),
+        name: "Account 2".to_string(),
+        dir,
+        support: &CLAUDE,
     }
 }
 

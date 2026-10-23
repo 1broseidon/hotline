@@ -3,6 +3,10 @@
 //! configuration and disposition it reports back.
 
 use super::*;
+use crate::accounts::env::env_plan;
+use crate::accounts::resolve::AccountRefusal;
+use crate::driver::failure::Failure;
+use crate::{paths, private_dir};
 
 impl ChildAgent {
     /// Starts the child in a process group of its own and runs the handshake
@@ -13,9 +17,9 @@ impl ChildAgent {
         launch: &registry::Launch,
     ) -> Result<DriverInfo, String> {
         let mut command = tokio::process::Command::new(&launch.command);
+        env_plan(&launch.env, &[], self.account.as_ref()).apply(&mut command);
         command
             .args(&launch.args)
-            .envs(launch.env.iter().cloned())
             .current_dir(&persona.cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -83,6 +87,34 @@ impl ChildAgent {
             session.info.session_id = None;
         }
         self.live.publish_info()
+    }
+
+    /// The account's folder, checked again before every spawn: one swapped
+    /// for a link since the driver was built would send the sign-in
+    /// somewhere else. A refusal comes up failed the way [`Self::stalled`]
+    /// does, in the public sentence, since the tape is not only the desk's.
+    pub(super) fn refuse_unavailable_folder(&self, persona: &Persona) -> Option<DriverInfo> {
+        let account = self.account.as_ref()?;
+        let error = private_dir::checked_account_dir(&self.root, &account.id).err()?;
+        let refusal = AccountRefusal::FolderUnavailable {
+            account_id: account.id.clone(),
+            name: account.name.clone(),
+            path: paths::agent_account_dir(&self.root, &account.id)
+                .unwrap_or_else(|| account.dir.clone()),
+            kind: error.kind(),
+        };
+        let agent = registry::name_of(&self.root, &self.backend_id)
+            .unwrap_or_else(|| self.backend_id.clone());
+        let sentence = refusal.public_sentence(&persona.name, &agent);
+        let failure = Failure::account_unavailable(&refusal, &agent, sentence, "acp_start");
+        *lock(&self.live.startup_failure) = Some(failure.notice());
+        self.live.failed.store(true, Ordering::SeqCst);
+        {
+            let mut session = lock(&self.live.session);
+            session.id = None;
+            session.info.session_id = None;
+        }
+        Some(self.live.publish_info())
     }
 
     /// Everything after the child exists: the connection, the handshake, and
@@ -180,8 +212,16 @@ impl ChildAgent {
             self.publish_ledger(persona, serving);
         }
         if let Err(error) = self.open_session(&connection, persona, capabilities).await {
-            let failure = auth::failure(&self.live, &error, "acp_start");
-            if failure.kind == crate::driver::failure::Kind::AgentAuth && failure.sign_in.is_some()
+            let failure = auth::failure(
+                &self.live,
+                &error,
+                "",
+                "acp_start",
+                self.usage_limit_prefixes(),
+                self.account_id(),
+            );
+            if failure.kind == crate::driver::failure::Kind::AgentAuth
+                && (failure.sign_in.is_some() || failure.account_id.is_some())
             {
                 *lock(&self.live.startup_failure) = Some(failure.notice());
                 self.live.failed.store(true, Ordering::SeqCst);
@@ -242,7 +282,10 @@ impl ChildAgent {
         let previous = persona
             .session_checkpoints
             .iter()
-            .find(|checkpoint| checkpoint.backend_id == self.backend_id)
+            .find(|checkpoint| {
+                checkpoint.backend_id == self.backend_id
+                    && checkpoint.account_id.as_deref() == self.account_id()
+            })
             .map(|checkpoint| checkpoint.session_id.clone());
 
         if let Some(previous) = previous {

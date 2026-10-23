@@ -52,8 +52,8 @@ pub enum ThreadState {
 pub struct AgentBinding {
     pub backend_id: String,
     pub session_id: String,
-    /// The agent account the session ran under. None is the agent's System
-    /// default, as is every line written before accounts.
+    /// The agent account the session ran under. None is This computer, as is
+    /// every line written before accounts.
     pub account_id: Option<String>,
 }
 

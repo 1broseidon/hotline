@@ -368,7 +368,8 @@ spent" before anything is sent.
 
 Sign-ins to a subscription, local models, the desk's own speech models and
 coding tools such as Claude Code are not counted: their cost is the
-subscription's, or nothing.
+subscription's, or nothing. An OpenRouter sign-in is not counted either,
+though OpenRouter bills it per use.
 
 ## Teammates that bring their own login
 

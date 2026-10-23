@@ -1187,7 +1187,11 @@ among subscriptions only, never one of Hotline's keys.
   account.
 - **Grant source:** the operator, through `persona.account` (or a
   `persona.create` draft), `accounts.*` and `credential.*`, on the Desk or
-  Owner seat, under `policy_update_lock`. The `agentAccounts` setting holds no
+  Owner seat. `persona.account`, `persona.create`, the `accounts.*` writes
+  (`create`, `rename`, `remove`, `setup.copy`, and a sign-in recording its
+  time) and `credential.delete`'s check and revoke hold `policy_update_lock`;
+  `credential.create`, `credential.update` and `credential.login` do not.
+  The `agentAccounts` setting holds no
   secret and no path: `<data>/agent-accounts/<id>` is derived from the id,
   and the folder is private from its creation (`hotline_support::private_dir`).
   A credential's key or sign-in stays in the vault; the room stream holds its
@@ -1225,7 +1229,9 @@ among subscriptions only, never one of Hotline's keys.
     credential, revoked or not ("Work can't be removed while Ada uses it."),
     and `accounts.remove` while one uses the agent account. The credential's
     check and revoke hold `policy_update_lock`, and its deletion and the
-    provider sign-out run after, since a revoked credential cannot be chosen;
+    provider sign-out run after, since a revoked credential cannot be chosen.
+    No test pins that split: a stalled sign-out under the lock would pass
+    them all;
   - `credential.update` and `credential.login {id}` change a credential in
     place: the same id, name, teammates and place in the stream, so the
     default never moves. A sign-in again goes only into a live sign-in of the

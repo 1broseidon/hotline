@@ -134,15 +134,10 @@ fn agent_account_fields_are_additive_and_absent_is_system_default() {
         "createdAt":1,"updatedAt":1
     }))
     .unwrap();
-    assert!(
-        serde_json::to_value(&p)
-            .unwrap()
-            .get("agentAccountId")
-            .is_none()
-    );
+    assert!(serde_json::to_value(&p).unwrap().get("accountId").is_none());
     assert!(SessionCheckpoint::decl(&config).contains("accountId?: string"));
-    assert!(Persona::decl(&config).contains("agentAccountId?: string"));
-    assert!(PersonaDraft::decl(&config).contains("agentAccountId?: string"));
+    assert!(Persona::decl(&config).contains("accountId?: string"));
+    assert!(PersonaDraft::decl(&config).contains("accountId?: string"));
     assert!(SessionInfo::decl(&config).contains("account?: SessionAccount"));
     let events = TranscriptEvent::decl(&config);
     assert!(events.contains("backendId: string, accountId?: string"));

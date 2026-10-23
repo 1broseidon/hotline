@@ -82,7 +82,7 @@ pub(crate) fn resolve(
     log: &Log,
     persona: &Persona,
 ) -> Result<Option<ResolvedAccount>, AccountRefusal> {
-    let Some(account_id) = &persona.agent_account_id else {
+    let Some(account_id) = &persona.account_id else {
         return Ok(None);
     };
     if account_support(&persona.backend_id).is_none() {

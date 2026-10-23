@@ -26,7 +26,7 @@ pub(crate) const NO_ACCOUNTS: &str = "That agent does not use accounts.";
 /// cannot run under one, and is ignored there.
 pub(crate) fn account_of(persona: &Persona) -> Option<&str> {
     persona
-        .agent_account_id
+        .account_id
         .as_deref()
         .filter(|_| support::account_support(&persona.backend_id).is_some())
 }

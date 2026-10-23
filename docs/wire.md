@@ -114,14 +114,14 @@ answers itself (a phone's, a sign-in's, an upload's).
 
 | cmd | params | result |
 | --- | --- | --- |
-| `persona.create` | `{draft}` | the created `Persona`; a draft's `agentAccountId` must name an agent account of the draft's agent on this desk |
+| `persona.create` | `{draft}` | the created `Persona`; a draft's `accountId` must name an agent account of the draft's agent on this desk |
 | `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
 | `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
 | `mobile.persona_access` | `{id, reach?, modeId?, backgroundWork?}` | the teammate after the change: a Hotline Agent teammate's reach, a harness teammate's mode, and whether it may keep background work; at least one is named, a reach for a harness or a mode for Hotline Agent is refused. Reach and background work restart a live session as `persona.update` does; a mode switches live and is kept for the next start. Owner phone or local desk; advertised by the owner's `personaAccess` |
 | `mobile.prompt` | `{operationId, personaId, text, attachmentIds?, replyTo?, thread?}` | `{state: "accepted"\|"unknown"}`; the phone's `session.prompt`, which brings the teammate up first. `operationId` is the phone's own id for the message, so a retry is answered from its receipt and never runs twice; `unknown` means the desk could not record whether it ran. `attachmentIds` name files this phone uploaded with `mobile.attachment`; `thread` says it in one of the teammate's work threads instead. A paired phone only |
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
-| `persona.update` | `{id, patch}` | the teammate after the patch; a patch naming `agentAccountId` is refused ("A teammate's account is set with persona.account.") |
+| `persona.update` | `{id, patch}` | the teammate after the patch; a patch naming `accountId` is refused ("A teammate's account is set with persona.account.") |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
@@ -1029,7 +1029,7 @@ can be stopped; each is absent when there are none. A phone that declared `lean`
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A
 phone seat, lean or not, and any lean seat, is sent each row without
-`persona.agentAccountId` or `session.account`, and so is the reply to
+`persona.accountId` or `session.account`, and so is the reply to
 `mobile.persona_update`, `mobile.persona_create`, `mobile.persona_access`,
 `mobile.persona_computer`, `session.start`, `session.set_mode`,
 `session.set_model` and `session.set_config`; `settings.update` answers it

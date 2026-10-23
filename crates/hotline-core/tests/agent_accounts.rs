@@ -162,7 +162,7 @@ impl TestDesk {
             "name": name, "goal": "Say what it sees.", "cwd": cwd.to_string_lossy(), "backendId": BACKEND,
         });
         if let Some(account) = account {
-            draft["agentAccountId"] = json!(account);
+            draft["accountId"] = json!(account);
         }
         let created = self.ok("persona.create", json!({"draft": draft})).await;
         created["id"].as_str().unwrap().to_owned()

@@ -265,7 +265,7 @@ function AgentPage({
 	const [adding, setAdding] = useState(false);
 	// Only this desk's own teammates run on its System default, as only they can be on its accounts.
 	const onDefault = shared.roster
-		.filter((entry) => entry.persona.node === undefined && entry.persona.backendId === agent.backendId && entry.persona.agentAccountId === undefined)
+		.filter((entry) => entry.persona.node === undefined && entry.persona.backendId === agent.backendId && entry.persona.accountId === undefined)
 		.map((entry) => entry.persona.name);
 	return (
 		<div className="pane">

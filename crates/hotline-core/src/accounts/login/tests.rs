@@ -38,7 +38,7 @@ fn desk() -> Desk {
         &log,
         &Persona {
             backend_id: "claude-acp".to_string(),
-            agent_account_id: Some(A.to_string()),
+            account_id: Some(A.to_string()),
             ..persona("ada")
         },
     );
@@ -119,7 +119,7 @@ impl Desk {
             .into_iter()
             .find(|persona| persona.id == "ada")
             .unwrap();
-        ada.agent_account_id = Some(B.to_string());
+        ada.account_id = Some(B.to_string());
         crate::room::append_persona(&self.log, &ada).unwrap();
         assert_eq!(
             self.room.assign_account("ada", Some(A.to_string())).await,

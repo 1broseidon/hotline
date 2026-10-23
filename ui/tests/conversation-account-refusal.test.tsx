@@ -20,7 +20,7 @@ const ada = {
 		name: "Ada",
 		goal: "",
 		backendId: "claude-acp",
-		agentAccountId: "gone",
+		accountId: "gone",
 		cwd: "/work",
 		mcpPolicy: { mode: "all", serverIds: [] },
 		skillPolicy: { mode: "all", names: [] },

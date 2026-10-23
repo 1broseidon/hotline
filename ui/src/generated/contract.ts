@@ -1014,13 +1014,11 @@ effortId?: string,
  */
 harnessOverride?: HarnessChoice, 
 /**
- * The agent account this teammate's agent runs under. Absent means System
- * default, the sign-in the agent has without Hotline. The id is kept but
- * ignored while the teammate's agent has no accounts, and it applies
- * again if it returns to one that does. Only `persona.account` and
- * `persona.create` write it.
+ * On a CLI agent an agent account, on Hotline Agent a credential of its
+ * model's provider, and absent is the default; an id that belongs to
+ * another backend or provider stays stored and is ignored.
  */
-agentAccountId?: string, 
+accountId?: string, 
 /**
  * A hop landed this teammate here and it has not been told yet. Machine-
  * bound and consumed once: the first message after the move carries this
@@ -1141,10 +1139,11 @@ folders?: Array<FolderGrant>, modelId?: string, effortId?: string, computer?: Pe
  */
 backgroundWork?: boolean, 
 /**
- * The agent account to start on. Absent means System default; the id is
- * kept but ignored on an agent without accounts.
+ * On a CLI agent an agent account, on Hotline Agent a credential of its
+ * model's provider, and absent is the default; an id that belongs to
+ * another backend or provider stays stored and is ignored.
  */
-agentAccountId?: string, };
+accountId?: string, };
 
 /**
  * The linked desktop a teammate lives on.

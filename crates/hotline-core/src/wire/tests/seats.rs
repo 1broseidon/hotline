@@ -363,7 +363,7 @@ fn the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create() {
             effort_id: None,
             computer: None,
             background_work: None,
-            agent_account_id: None,
+            account_id: None,
         }
     }));
 }

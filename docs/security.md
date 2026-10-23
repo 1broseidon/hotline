@@ -1165,7 +1165,7 @@ once. Each agent's part is one row of `accounts::support`; Claude Code is
 the only agent with one.
 
 - **Default:** no teammate has an account. A record without
-  `agentAccountId`, a checkpoint, `link` line or chapter without
+  `accountId`, a checkpoint, `link` line or chapter without
   `accountId`, and a room without `agentAccounts` are all System default,
   which inherits the desk's environment exactly: nothing is removed and
   nothing is added.

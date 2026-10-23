@@ -213,7 +213,7 @@ export function NewTeammateForm({
 		if (backgroundWork) draft.backgroundWork = true;
 		if (computerReady && computer) draft.computer = { enabled: true };
 		if (folders.length > 0) draft.folders = folders;
-		if (!onHotline && agent !== undefined && accountId !== SYSTEM_DEFAULT) draft.agentAccountId = accountId;
+		if (!onHotline && agent !== undefined && accountId !== SYSTEM_DEFAULT) draft.accountId = accountId;
 		try {
 			const persona = await wire.command("persona.create", { draft });
 			// Opened as soon as it exists, not once it has started: a start

@@ -249,7 +249,7 @@ impl AccountStatuses {
         let in_use: BTreeSet<String> = roster(log)
             .into_iter()
             .filter(|persona| account_support(&persona.backend_id).is_some())
-            .filter_map(|persona| persona.agent_account_id)
+            .filter_map(|persona| persona.account_id)
             .collect();
         for account_id in in_use {
             if let Ok(account) = resolve::account(&root, log, &account_id) {

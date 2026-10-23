@@ -124,7 +124,7 @@ fn view(
 fn users<'a>(roster: &'a [Persona], account_id: &'a str) -> impl Iterator<Item = &'a Persona> {
     roster
         .iter()
-        .filter(move |persona| persona.agent_account_id.as_deref() == Some(account_id))
+        .filter(move |persona| persona.account_id.as_deref() == Some(account_id))
 }
 
 static CREATING: Mutex<Vec<(PathBuf, String, String)>> = Mutex::new(Vec::new());

@@ -1765,7 +1765,7 @@ mod tests {
             mode_id: None,
             effort_id: None,
             harness_override: None,
-            agent_account_id: None,
+            account_id: None,
             hop_notice: None,
             mcp_policy: McpPolicy {
                 mode: PolicyMode::None,
@@ -2072,7 +2072,7 @@ mod tests {
             room.log(),
             Persona {
                 backend_id: "claude-acp".to_string(),
-                agent_account_id: Some(account.to_string()),
+                account_id: Some(account.to_string()),
                 ..ada()
             },
         );
@@ -2082,7 +2082,7 @@ mod tests {
         let published = serde_json::to_string(&room.federation_roster_entries()).unwrap();
         assert!(published.contains("Ada"), "{published}");
         for seen in [&listed, &published] {
-            for private in [account, "Secret Account", "agentAccountId"] {
+            for private in [account, "Secret Account", "accountId"] {
                 assert!(!seen.contains(private), "{private} in {seen}");
             }
         }

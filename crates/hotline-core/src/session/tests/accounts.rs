@@ -31,7 +31,7 @@ fn accounts(log: &Log, a_login_at: i64) {
 fn on_account(log: &Log, account_id: &str) -> Persona {
     let mut ada = persona("ada");
     ada.backend_id = "claude-acp".to_string();
-    ada.agent_account_id = Some(account_id.to_string());
+    ada.account_id = Some(account_id.to_string());
     ada.cwd = log.root().join("ada").to_string_lossy().into_owned();
     ada
 }
@@ -184,7 +184,7 @@ fn running(room: &Room) -> Option<String> {
 }
 
 fn chosen(room: &Room) -> Option<String> {
-    room.persona("ada").unwrap().agent_account_id
+    room.persona("ada").unwrap().account_id
 }
 
 fn switching(running: &str, wanted: &str, held: Option<AccountHold>) -> SessionAccount {
@@ -230,7 +230,7 @@ async fn a_switch_during_a_dm_turn_waits_for_the_turn_and_then_applies() {
     assert_eq!(agents.views().len(), 1);
     gate.add_permits(10);
     until("switched", || running(&room) == Some(b.clone())).await;
-    assert_eq!(agents.views().last().unwrap().agent_account_id, Some(b));
+    assert_eq!(agents.views().last().unwrap().account_id, Some(b));
 }
 
 #[tokio::test]
@@ -249,7 +249,7 @@ async fn a_switch_waits_for_a_side_thread_mid_turn() {
     );
     room.start_side("ada", "Another task").await.unwrap();
     until("both sides have agents", || agents.views().len() == 3).await;
-    assert_eq!(agents.views().last().unwrap().agent_account_id, Some(a));
+    assert_eq!(agents.views().last().unwrap().account_id, Some(a));
     gate.add_permits(10);
     until("switched", || running(&room) == Some(b.clone())).await;
 }
@@ -282,7 +282,7 @@ async fn a_switch_waits_for_a_call_thread_mid_turn() {
         .unwrap();
     room.launch(launch);
     until("the call has an agent", || agents.views().len() == 2).await;
-    assert_eq!(agents.views()[1].agent_account_id, Some(a.clone()));
+    assert_eq!(agents.views()[1].account_id, Some(a.clone()));
     assert!(!room.working_calls("ada").is_empty());
     assert_eq!(
         room.assign_account("ada", Some(b.clone())).await.unwrap(),
@@ -345,7 +345,7 @@ async fn applying_clears_the_backends_checkpoints_and_the_next_start_is_new() {
     assert_eq!(saved(&room), []);
     let view = agents.views().pop().unwrap();
     assert_eq!(
-        (view.agent_account_id, view.session_checkpoints),
+        (view.account_id, view.session_checkpoints),
         (Some(b), Vec::new())
     );
 }
@@ -365,7 +365,7 @@ async fn stop_and_switch_now_starts_the_new_account_fresh() {
     room.start("ada").await.unwrap();
     until("the new session is on B, fresh", || {
         agents.views().last().is_some_and(|view| {
-            view.agent_account_id == Some(b.clone()) && view.session_checkpoints.is_empty()
+            view.account_id == Some(b.clone()) && view.session_checkpoints.is_empty()
         })
     })
     .await;
@@ -515,7 +515,7 @@ async fn a_switch_lost_to_a_restart_starts_fresh_on_the_chosen_account() {
     started(&room).await;
     let view = agents.views().pop().unwrap();
     assert_eq!(
-        (view.agent_account_id, view.session_checkpoints),
+        (view.account_id, view.session_checkpoints),
         (Some(B.to_string()), Vec::new())
     );
     assert_eq!(saved(&room), []);

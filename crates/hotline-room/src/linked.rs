@@ -625,13 +625,13 @@ mod tests {
         let account = "44444444-4444-4444-8444-444444444444";
         let sent: Vec<LinkedTeammate> = serde_json::from_value(json!([
             {"personaId":"lou","name":"Lou","state":"idle","workingOn":{"title":""},
-             "agent":"Claude Code","agentAccountId":account,
+             "agent":"Claude Code","accountId":account,
              "account":{"running":account},"backendId":"claude-acp"},
         ]))
         .unwrap();
         let published = serde_json::to_string(&plausible(sent)).unwrap();
         assert!(published.contains("lou"), "{published}");
-        assert!(!published.contains("agentAccountId"), "{published}");
+        assert!(!published.contains("accountId"), "{published}");
         assert!(!published.contains(account), "{published}");
     }
 

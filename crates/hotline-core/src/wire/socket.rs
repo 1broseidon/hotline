@@ -922,7 +922,7 @@ fn hidden_from_phones(command: &Command) -> Option<&'static str> {
         | Command::SessionSetModel { .. }
         | Command::SessionSetConfig { .. } => Some("account"),
         Command::MobilePersonaAccess { .. } | Command::MobilePersonaComputer { .. } => {
-            Some("agentAccountId")
+            Some("accountId")
         }
         Command::SettingsUpdate { .. } => Some(crate::room::AGENT_ACCOUNTS),
         _ => None,

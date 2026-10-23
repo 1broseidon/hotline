@@ -957,7 +957,7 @@ fn secret_account() -> crate::contract::AgentAccount {
 #[test]
 fn a_phone_roster_never_carries_an_account_lean_or_not() {
     let row = json!({
-        "persona": {"id": "ada", "backendId": "claude-acp", "agentAccountId": ACCOUNT},
+        "persona": {"id": "ada", "backendId": "claude-acp", "accountId": ACCOUNT},
         "session": {"personaId": "ada", "account": {"running": ACCOUNT}},
     });
     for (seat, lean, kept) in [
@@ -970,7 +970,7 @@ fn a_phone_roster_never_carries_an_account_lean_or_not() {
         let (outbox, _frames) = outbox(lean);
         let shaped = crate::wire::roster::shaped(&outbox, seat, row.clone());
         assert_eq!(
-            shaped["persona"].get("agentAccountId").is_some(),
+            shaped["persona"].get("accountId").is_some(),
             kept,
             "{seat:?} {lean} {shaped}"
         );
@@ -1032,7 +1032,7 @@ async fn a_phone_reply_never_carries_an_account() {
     let log = Log::open(root.path());
     room::write_agent_accounts(&log, &[secret_account()]).unwrap();
     let mut ada = crate::session::tests::persona("ada");
-    ada.agent_account_id = Some(ACCOUNT.to_string());
+    ada.account_id = Some(ACCOUNT.to_string());
     crate::session::tests::enrol(&log, &ada);
     let quiet = Arc::new(Quiet::new());
     let mut info = idle("ada");
@@ -1080,7 +1080,7 @@ async fn a_phone_reply_never_carries_an_account() {
             let answer = answered_on(seat, lean, &desk, access.clone()).await;
             assert_eq!(answer["ok"], true, "{answer}");
             assert_eq!(
-                answer["result"].get("agentAccountId").is_some(),
+                answer["result"].get("accountId").is_some(),
                 kept,
                 "{seat:?} {lean} {answer}"
             );

@@ -50,7 +50,7 @@ export function AccountRow({
 	const accounts = list.accounts.filter((one) => one.account.backendId === agent.backendId);
 	const nameOf = (id: string) => (id === SYSTEM_DEFAULT ? "System default" : (accounts.find((one) => one.account.id === id)?.account.name ?? id));
 
-	const chosen = persona.agentAccountId ?? SYSTEM_DEFAULT;
+	const chosen = persona.accountId ?? SYSTEM_DEFAULT;
 	const running = session.account?.running ?? SYSTEM_DEFAULT;
 	// A switch to System default has no id to send.
 	const wanted = session.account?.wanted ?? chosen;
@@ -171,7 +171,7 @@ export function AccountRow({
 				)}
 			</div>
 			{up && <p className="group-hint">{note}</p>}
-			{persona.agentAccountId !== undefined && onSetup !== undefined && accounts.some((one) => one.account.id === chosen) && (
+			{persona.accountId !== undefined && onSetup !== undefined && accounts.some((one) => one.account.id === chosen) && (
 				<p className="group-hint">
 					<button type="button" className="text-accent-ink hover:underline" onClick={() => onSetup(chosen)}>
 						{nameOf(chosen)}'s setup

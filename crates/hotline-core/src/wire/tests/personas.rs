@@ -48,7 +48,7 @@ async fn a_draft_that_names_things_keeps_them() {
         effort_id: None,
         computer: None,
         background_work: Some(true),
-        agent_account_id: None,
+        account_id: None,
     };
     ask(
         &mut socket,
@@ -304,7 +304,7 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
         effort_id: None,
         computer: None,
         background_work: None,
-        agent_account_id: None,
+        account_id: None,
     };
     ask(
         &mut socket,
@@ -413,7 +413,7 @@ async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
         effort_id: None,
         computer: None,
         background_work: None,
-        agent_account_id: None,
+        account_id: None,
     };
     ask(
         &mut socket,
@@ -519,12 +519,12 @@ async fn an_account_is_set_only_by_persona_account() {
         }],
     )
     .unwrap();
-    let create = |backend: &str, account_id: &str| json!({"draft":{"name":"Ada","backendId":backend,"agentAccountId":account_id}});
+    let create = |backend: &str, account_id: &str| json!({"draft":{"name":"Ada","backendId":backend,"accountId":account_id}});
 
     let ada = run(&log, &room, "persona.create", create("claude-acp", account))
         .await
         .unwrap();
-    assert_eq!(ada["agentAccountId"], account);
+    assert_eq!(ada["accountId"], account);
     let id = ada["id"].as_str().unwrap().to_string();
     assert_eq!(
         run(
@@ -548,7 +548,7 @@ async fn an_account_is_set_only_by_persona_account() {
             &log,
             &room,
             "persona.update",
-            json!({"id":id,"patch":{"agentAccountId":null}}),
+            json!({"id":id,"patch":{"accountId":null}}),
         )
         .await,
         Err("A teammate's account is set with persona.account.".to_string())
@@ -559,16 +559,13 @@ async fn an_account_is_set_only_by_persona_account() {
         &log,
         &room,
         "mobile.persona_update",
-        json!({"id":id,"name":"Ada 2","agentAccountId":null}),
+        json!({"id":id,"name":"Ada 2","accountId":null}),
     )
     .await
     .unwrap();
     assert_eq!(renamed["name"], "Ada 2");
-    assert!(renamed.get("agentAccountId").is_none(), "{renamed}");
-    assert_eq!(
-        room::roster(&log)[0].agent_account_id.as_deref(),
-        Some(account)
-    );
+    assert!(renamed.get("accountId").is_none(), "{renamed}");
+    assert_eq!(room::roster(&log)[0].account_id.as_deref(), Some(account));
 
     let retried = run(
         &log,
@@ -579,7 +576,7 @@ async fn an_account_is_set_only_by_persona_account() {
     .await
     .unwrap();
     assert_eq!(retried["id"], json!(id));
-    assert!(retried.get("agentAccountId").is_none(), "{retried}");
+    assert!(retried.get("accountId").is_none(), "{retried}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

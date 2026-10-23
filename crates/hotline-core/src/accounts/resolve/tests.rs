@@ -42,7 +42,7 @@ fn desk() -> Desk {
 
 fn ada(account: Option<&str>, backend_id: &str) -> Persona {
     Persona {
-        agent_account_id: account.map(str::to_string),
+        account_id: account.map(str::to_string),
         backend_id: backend_id.to_string(),
         ..persona("ada")
     }

@@ -485,7 +485,7 @@ of its own is one more row. Hotline holds no credential: the agent signs
 itself in into the folder and Hotline only asks the agent's CLI whether it
 did. A switch of account always starts the session Fresh, because one
 account's conversation was never heard by the other. The fields are
-additive and optional: `Persona.agentAccountId`, `SessionCheckpoint.accountId`,
+additive and optional: `Persona.accountId`, `SessionCheckpoint.accountId`,
 `TranscriptEvent::{Chapter, Side, Link}.accountId`, the `link` line's
 `accountId` (`hotline-store/src/link.rs`) and the room setting
 `agentAccounts`. Absent, each is System default, the behaviour from before

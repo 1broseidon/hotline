@@ -813,7 +813,7 @@ own when the teammate has an agent account — and does not apply
 its shell sandbox to the harness's own tools. Its turns are billed to the
 harness's own account, so they are not counted against the Chat budget.
 
-A teammate's agent account is `Persona.agentAccountId`, set by
+A teammate's agent account is `Persona.accountId`, set by
 `persona.create` or `persona.account` and never by `persona.update`; absent,
 the teammate is on its agent's System default.
 `DeskAgents::agent` resolves it once (`accounts/resolve.rs`) and the child

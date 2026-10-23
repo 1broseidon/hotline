@@ -342,7 +342,7 @@ fn catalogs(sender: &Outbox, watch: &Watched, mut row: Value, snapshot: bool) ->
 pub(super) fn shaped(sender: &Outbox, seat: Seat, mut row: Value) -> Value {
     if seat == Seat::Phone || sender.lean() {
         if let Some(persona) = row.get_mut("persona").and_then(Value::as_object_mut) {
-            persona.remove("agentAccountId");
+            persona.remove("accountId");
         }
         if let Some(session) = row.get_mut("session").and_then(Value::as_object_mut) {
             session.remove("account");

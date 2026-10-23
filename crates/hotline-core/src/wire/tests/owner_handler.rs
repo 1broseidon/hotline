@@ -41,7 +41,7 @@ async fn an_unknown_account_refusal_is_private_for_the_desk_and_the_owner() {
     let room: Arc<dyn RoomHandle> = desk.clone();
     let mut ada = crate::session::tests::persona("ada");
     ada.backend_id = "claude-acp".to_string();
-    ada.agent_account_id = Some("33333333-3333-4333-8333-333333333333".to_string());
+    ada.account_id = Some("33333333-3333-4333-8333-333333333333".to_string());
     ada.cwd = root.path().join("ada").to_string_lossy().into_owned();
     crate::session::tests::enrol(&desk.log, &ada);
     for seat in [Seat::Desk, Seat::Owner] {
@@ -513,9 +513,9 @@ async fn removing_an_account_in_use_names_its_teammates_and_keeps_its_folder() {
     let mut teammates = Vec::new();
     for name in ["Ada", "Bob"] {
         let made = desk(json!({"id":2,"cmd":"persona.create","params":{"draft":{
-            "name":name,"backendId":"claude-acp","agentAccountId":id}}}))
+            "name":name,"backendId":"claude-acp","accountId":id}}}))
         .await;
-        assert_eq!(made["result"]["agentAccountId"], json!(id), "{made}");
+        assert_eq!(made["result"]["accountId"], json!(id), "{made}");
         teammates.push(made["result"]["id"].as_str().unwrap().to_string());
     }
     let remove = json!({"id":3,"cmd":"accounts.remove","params":{"accountId":id}});
@@ -561,7 +561,7 @@ async fn persona_account_reaches_the_room_through_the_real_handler() {
         room::roster(&desk.log)
             .into_iter()
             .find(|persona| persona.id == ada)
-            .and_then(|persona| persona.agent_account_id)
+            .and_then(|persona| persona.account_id)
     };
     let set = ask(json!({"id":3,"cmd":"persona.account","params":{
         "personaId":ada,"accountId":id}}))

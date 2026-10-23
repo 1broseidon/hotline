@@ -29,7 +29,7 @@ const a3 = () => account("a3", "Account 3");
 const a4 = () => account("a4", "Account 4", { status: { state: "not_checked" } });
 
 const ada: Persona = {
-	id: "ada", name: "Ada", goal: "", backendId: "claude-acp", cwd: "/work/ada", agentAccountId: "a1",
+	id: "ada", name: "Ada", goal: "", backendId: "claude-acp", cwd: "/work/ada", accountId: "a1",
 	mcpPolicy: { mode: "none", serverIds: [] }, skillPolicy: { mode: "none", names: [] },
 	backgroundWork: false, allowedSenders: [], sessionCheckpoints: [], createdAt: 1, updatedAt: 1,
 };
@@ -41,7 +41,7 @@ function sessionOf(state: SessionInfo["state"], account?: SessionAccount, contex
 	};
 }
 const onA1 = sessionOf("ready", { running: "a1", wanted: "a1" });
-const { agentAccountId: _onA1, ...onDefault } = ada;
+const { accountId: _onA1, ...onDefault } = ada;
 
 class NoResize {
 	observe() {}
@@ -245,7 +245,7 @@ describe("a teammate's agent account", () => {
 	});
 
 	test("a pending switch offers Keep and Stop and switch now", async () => {
-		await mount({ ...ada, agentAccountId: "a2" }, sessionOf("thinking", { running: "a1", wanted: "a2" }));
+		await mount({ ...ada, accountId: "a2" }, sessionOf("thinking", { running: "a1", wanted: "a2" }));
 		expect(text()).toContain("Switches to Account 2 when its work ends.");
 		expect(text()).toContain("What is running now stays on Account 1. Stop and switch now stops all of Ada's work.");
 		expect(text()).not.toContain("In use");
@@ -268,11 +268,11 @@ describe("a teammate's agent account", () => {
 	});
 
 	test("a held switch keeps the current account", async () => {
-		await mount({ ...ada, agentAccountId: "a3" }, sessionOf("ready", { running: "a1", wanted: "a3", held: "not_signed_in" }));
+		await mount({ ...ada, accountId: "a3" }, sessionOf("ready", { running: "a1", wanted: "a3", held: "not_signed_in" }));
 		expect(text()).toContain("Account 3 is not signed in. Ada keeps Account 1 until it is.");
 		expect(text()).not.toContain("Switches to");
 
-		await remount({ ...ada, agentAccountId: "a3" }, sessionOf("ready", { running: "a1", wanted: "a3", held: "signing_in" }));
+		await remount({ ...ada, accountId: "a3" }, sessionOf("ready", { running: "a1", wanted: "a3", held: "signing_in" }));
 		expect(text()).toContain("Account 3 is still signing in. Ada keeps Account 1 until it is.");
 		expect(text()).not.toContain("Switches to");
 	});
@@ -339,7 +339,7 @@ describe("a teammate's agent account", () => {
 		await click("Account 1's setup");
 		expect(setupOpened).toEqual(["a1"]);
 
-		await remount({ ...ada, agentAccountId: "a9" }, onA1);
+		await remount({ ...ada, accountId: "a9" }, onA1);
 		expect(text()).not.toContain("'s setup");
 	});
 });

@@ -166,9 +166,9 @@ impl Room {
         let _writes = room::persona_write_lock();
         let mut persona = self.persona(persona_id)?;
         check_choice(&self.log, &persona.backend_id, account_id)?;
-        let previous = persona.agent_account_id.clone();
+        let previous = persona.account_id.clone();
         if previous.as_deref() != account_id {
-            persona.agent_account_id = account_id.map(str::to_string);
+            persona.account_id = account_id.map(str::to_string);
             persona.updated_at = now_ms();
             room::append_persona(&self.log, &persona)?;
         }
@@ -340,7 +340,7 @@ impl Room {
 
     pub(super) fn on_running_account(&self, mut persona: Persona) -> Persona {
         if let Some(pending) = lock(&self.accounts.switches).get(&persona.id) {
-            persona.agent_account_id.clone_from(&pending.from);
+            persona.account_id.clone_from(&pending.from);
         }
         persona
     }

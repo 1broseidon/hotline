@@ -298,7 +298,7 @@ async fn refresh_rechecks_the_folder_and_covers_only_accounts_in_use() {
             &log,
             &Persona {
                 backend_id: backend_id.to_string(),
-                agent_account_id: Some(account.to_string()),
+                account_id: Some(account.to_string()),
                 ..persona(id)
             },
         );

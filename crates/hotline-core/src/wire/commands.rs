@@ -283,13 +283,13 @@ pub(crate) async fn run(
             };
             mobile_persona_create(log, room, &request_id, asked)
                 .await
-                .map(|persona| without(persona, "agentAccountId"))
+                .map(|persona| without(persona, "accountId"))
         }
         Command::MobilePersonaUpdate { id, name, goal } => {
             let patch = mobile_persona_patch(name, goal)?;
             apply_persona_update(log, room, &id, &patch)
                 .await
-                .map(|persona| without(persona, "agentAccountId"))
+                .map(|persona| without(persona, "accountId"))
         }
         Command::MobilePersonaAccess {
             id,

@@ -35,13 +35,13 @@ const a1 = () => account("a1", "Account 1", { status: { state: "signed_in", chec
 const a2 = () => account("a2", "Account 2");
 const a3 = () => account("a3", "Account 3", { status: { state: "not_checked" } });
 
-function entry(id: string, name: string, agentAccountId?: string): RosterEntry {
+function entry(id: string, name: string, accountId?: string): RosterEntry {
 	return {
 		persona: {
 			id, name, goal: "", backendId: "claude-acp", cwd: "/work",
 			mcpPolicy: { mode: "all", serverIds: [] }, skillPolicy: { mode: "all", names: [] },
 			backgroundWork: false, allowedSenders: [], sessionCheckpoints: [], createdAt: 0, updatedAt: 0,
-			...(agentAccountId === undefined ? {} : { agentAccountId }),
+			...(accountId === undefined ? {} : { accountId }),
 		},
 		session: {
 			personaId: id, state: "idle", contextRestored: false, models: [], modes: [], configs: [], slashCommands: [],

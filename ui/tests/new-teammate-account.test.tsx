@@ -221,13 +221,13 @@ describe("a new teammate's agent account", () => {
 		await pick("Account 1");
 		expect(thinksWith().textContent).toContain("Claude Code · Account 1");
 		await submit("Ada");
-		expect(draft().agentAccountId).toBe("a1");
+		expect(draft().accountId).toBe("a1");
 		expect(draft().backendId).toBe("claude-acp");
 
 		await remount();
 		await agent("claude-acp");
 		await submit("Mack");
-		expect("agentAccountId" in draft()).toBe(false);
+		expect("accountId" in draft()).toBe(false);
 		expect(thinksWith().textContent).not.toContain("·");
 	});
 
@@ -282,7 +282,7 @@ describe("a new teammate's agent account", () => {
 
 		expect(button("Add teammate").disabled).toBe(false);
 		await click("Add teammate");
-		expect(draft().agentAccountId).toBe("a3");
+		expect(draft().accountId).toBe("a3");
 		expect(created).toEqual(["p1"]);
 	});
 

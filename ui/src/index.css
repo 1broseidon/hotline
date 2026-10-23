@@ -240,7 +240,8 @@
 		position: relative;
 		display: grid;
 		grid-template-columns: 1fr auto 1fr;
-		height: 32px;
+		/* The pane band's and the dock's height, so the chrome is one measure. */
+		height: 40px;
 		flex-shrink: 0;
 		align-items: center;
 		gap: 8px;

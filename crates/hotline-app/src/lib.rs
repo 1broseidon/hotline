@@ -484,8 +484,8 @@ fn start() -> Result<(), String> {
                 })
                 .initialization_script(&script);
             // Overlay puts the traffic lights on the page, and the inset
-            // puts their centre on the top strip's centre line: 16 logical
-            // pixels down, half the strip's 32. The number is tao's, not a
+            // puts their centre on the top strip's centre line: 20 logical
+            // pixels down, half the strip's 40. The number is tao's, not a
             // centre — it resizes AppKit's title bar container and the
             // buttons keep their seat in it, so the centre lands 2 above
             // the given y; measured, not derived. The strip leaves 80 for
@@ -497,7 +497,7 @@ fn start() -> Result<(), String> {
             let window = window
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true)
-                .traffic_light_position(tauri::LogicalPosition::new(12.0, 18.0))
+                .traffic_light_position(tauri::LogicalPosition::new(12.0, 22.0))
                 .accept_first_mouse(true);
             #[cfg(not(target_os = "macos"))]
             let window = window.decorations(false);

@@ -198,6 +198,9 @@ async fn a_claude_teammate_set_to_an_account_it_ignores_runs_on_none_and_keeps_i
             saved(&room) == [("s-new".to_string(), None)]
         })
         .await;
+        room.stop("ada").unwrap();
+        room.assign_account("ada", None).await.unwrap();
+        assert_eq!(saved(&room), [("s-new".to_string(), None)], "{kind}");
     }
 }
 
@@ -513,14 +516,64 @@ async fn a_pending_switch_is_dropped_when_its_teammate_is_removed_or_changes_age
         room.assign_account("ada", Some(b.clone())).await.unwrap(),
         switching(&a, &b, None)
     );
-    room.invalidate("ada").unwrap();
-    let mut moved = room.persona("ada").unwrap();
-    moved.backend_id = "hotline".to_string();
-    room::append_persona(&room.log, &moved).unwrap();
-    room.reattach("ada").await.unwrap();
+    moved_to(&room, "hotline").await;
     gate.add_permits(10);
     assert_eq!(room.info("ada").account, None);
     assert_eq!(agents.views().last().unwrap().backend_id, "hotline");
+
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let (room, a, b) = on_accounts("switch-held-moved", agents.clone());
+    started(&room).await;
+    room.account_statuses()
+        .put(&b, status(AccountStatusState::SignedOut));
+    assert_eq!(
+        room.assign_account("ada", Some(b.clone())).await.unwrap(),
+        switching(&a, &b, Some(AccountHold::NotSignedIn))
+    );
+    moved_to(&room, "hotline").await;
+    assert_eq!(room.info("ada").account, None);
+    assert_eq!(agents.views().last().unwrap().account_id, Some(b));
+
+    let (agents, gate) = gated();
+    let log = scratch("switch-moved-from-hotline");
+    let vault = Vault::open_with_store(
+        log.root(),
+        log.clone(),
+        Arc::new(crate::credentials::MemoryStore::default()),
+    )
+    .unwrap();
+    let credential = vault.create("anthropic", "C", "not-a-real-key").unwrap();
+    enrol(
+        &log,
+        &Persona {
+            model_id: Some("anthropic/claude-x".to_string()),
+            session_checkpoints: vec![SessionCheckpoint {
+                backend_id: "claude-acp".to_string(),
+                session_id: "s-old".to_string(),
+                account_id: None,
+            }],
+            ..persona("ada")
+        },
+    );
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+    started(&room).await;
+    mid_turn(&room).await;
+    room.assign_account("ada", Some(credential.id))
+        .await
+        .unwrap();
+    moved_to(&room, "claude-acp").await;
+    gate.add_permits(10);
+    assert_eq!(room.info("ada").account, None);
+    assert_eq!(saved(&room), [("s-old".to_string(), None)]);
+}
+
+/// As the wire moves a teammate to another agent.
+async fn moved_to(room: &Arc<Room>, backend_id: &str) {
+    room.invalidate("ada").unwrap();
+    let mut moved = room.persona("ada").unwrap();
+    moved.backend_id = backend_id.to_string();
+    room::append_persona(&room.log, &moved).unwrap();
+    room.reattach("ada").await.unwrap();
 }
 
 #[tokio::test]

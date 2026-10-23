@@ -24,6 +24,8 @@ use serde_json::Value;
 
 pub(crate) const NOT_ON_THIS_DESK: &str = "That account is not on this desk.";
 pub(crate) const NO_ACCOUNTS: &str = "That agent does not use accounts.";
+pub(crate) const SIGNED_OUT: &str = "That account is signed out. Sign in again first.";
+pub(crate) const NOT_FOR_THIS_MODEL: &str = "That account is not for this teammate's model.";
 
 /// Hotline Agent runs on a credential of its model's provider; a harness on
 /// one of its own accounts, if it has a row.
@@ -31,9 +33,10 @@ pub(crate) fn uses_accounts(backend_id: &str) -> bool {
     backend_id == HOTLINE_BACKEND_ID || support::account_support(backend_id).is_some()
 }
 
-/// The account `persona` runs under. A choice stays stored where it cannot
-/// run, on another agent's account or a credential on a harness, and is
-/// ignored there.
+/// The account `persona` runs under. On Hotline Agent that is the credential
+/// its driver holds, whatever its provider, though only turns on that provider
+/// use it; an agent's account there, or anything else its agent cannot run on,
+/// stays stored and reads as none.
 pub(crate) fn account_of(log: &Log, persona: &Persona) -> Option<String> {
     persona.account_id.as_ref()?;
     account_of_from(&log.load(&StreamId::Room), persona)
@@ -73,7 +76,7 @@ pub(crate) fn check_choice(
         Named::Agent(row) if row.backend_id == backend_id => Ok(()),
         Named::Credential(credential) if backend_id == HOTLINE_BACKEND_ID => {
             if credential.revoked {
-                return Err("That account is signed out. Sign in again first.".into());
+                return Err(SIGNED_OUT.into());
             }
             let model_id = model_id
                 .map(str::to_string)
@@ -83,7 +86,7 @@ pub(crate) fn check_choice(
                 .and_then(|model_id| model_id.split_once('/'))
                 .map(|(provider_id, _)| provider_id);
             if provider_id != Some(credential.provider_id.as_str()) {
-                return Err("That account is not for this teammate's model.".into());
+                return Err(NOT_FOR_THIS_MODEL.into());
             }
             Ok(())
         }

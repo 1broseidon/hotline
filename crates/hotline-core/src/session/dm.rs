@@ -38,6 +38,7 @@ use super::{Glance, Room, Session, Wired, call_origin, lock};
 use crate::contract::{Reach, SessionState, TranscriptEvent};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{MessageKind, Update};
+use crate::log::StreamId;
 use crate::room;
 use crate::voice::spoken::versions;
 use std::collections::HashMap;
@@ -430,16 +431,20 @@ impl Room {
     /// switch, or a sign-in replaced under it, must not leave a checkpoint the
     /// account's next session would reopen.
     pub(super) fn checkpoint_still_ours(&self, session: &Session) -> bool {
-        let Ok(persona) = self.persona(&session.persona_id) else {
+        let events = self.log.load(&StreamId::Room);
+        let Some(persona) = room::personas(&events)
+            .into_iter()
+            .find(|persona| persona.id == session.persona_id)
+        else {
             return false;
         };
-        if crate::accounts::account_of(&self.log, &persona) != session.account_id {
+        if crate::accounts::account_of_from(&events, &persona) != session.account_id {
             return false;
         }
         let Some(account_id) = &session.account_id else {
             return true;
         };
-        room::agent_accounts(&self.log).iter().any(|account| {
+        room::agent_accounts_from(&events).iter().any(|account| {
             account.id == *account_id && account.login_at == session.account_login_at
         })
     }

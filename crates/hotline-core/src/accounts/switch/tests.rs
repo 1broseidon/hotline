@@ -37,6 +37,7 @@ fn a_running_attempt_holds_as_signing_in_and_signed_out_as_not_signed_in() {
 fn the_session_account_shows_a_switch_until_it_applies() {
     let (a, b) = (Some("A".to_string()), Some("B".to_string()));
     let switching = PendingAccount {
+        backend_id: "claude-acp".to_string(),
         from: a.clone(),
         wanted: b.clone(),
         relogin: false,

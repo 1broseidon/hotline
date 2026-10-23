@@ -101,7 +101,9 @@ impl Agents for Built {
             extra_mcp.clone(),
         )?;
         // Its info is read with the account it holds.
-        assert!(built.current_info().is_some());
+        built
+            .current_info()
+            .ok_or("The desk's driver gave no info to read its account from.")?;
         self.scripted
             .agent(persona, preamble, said, tools, extra_mcp)
     }
@@ -162,6 +164,15 @@ fn held(desk: &Desk) -> Vec<Option<ChosenAccount>> {
     lock(&desk.held.0).clone()
 }
 
+/// Read from the file, because the stream folds a teammate's lines into one.
+fn persona_lines(room: &Room) -> usize {
+    std::fs::read_to_string(room.log.root().join("room.jsonl"))
+        .unwrap()
+        .lines()
+        .filter(|line| line.contains(r#""kind":"persona""#))
+        .count()
+}
+
 fn anthropic(id: &str) -> Option<ChosenAccount> {
     Some(ChosenAccount {
         id: id.to_string(),
@@ -172,7 +183,7 @@ fn anthropic(id: &str) -> Option<ChosenAccount> {
 #[tokio::test]
 async fn a_hotline_switch_waits_for_the_turn_and_rebuilds_on_the_new_account() {
     let (scripted, gate) = gated();
-    let desk = desk("hotline-switch-turn", scripted, false);
+    let desk = desk("hotline-switch-turn", scripted.clone(), false);
     let (room, b) = (&desk.room, desk.b.clone());
     started(room).await;
     mid_turn(room).await;
@@ -185,9 +196,18 @@ async fn a_hotline_switch_waits_for_the_turn_and_rebuilds_on_the_new_account() {
         }
     );
     assert_eq!(held(&desk), [None]);
+    let chosen_on_the_record = persona_lines(room);
     gate.add_permits(10);
     until("switched", || running(room) == Some(b.clone())).await;
     assert_eq!(held(&desk), [None, anthropic(&b)]);
+    assert_eq!(
+        words(lock(&scripted.seeds).last().unwrap().clone()),
+        [
+            Said::User("Work on it.".to_string()),
+            Said::Agent("Working.".to_string())
+        ]
+    );
+    assert_eq!(persona_lines(room), chosen_on_the_record);
 }
 
 #[tokio::test]
@@ -248,7 +268,15 @@ async fn a_hotline_choice_is_checked_against_the_teammates_model() {
     let not_for_the_model = Err("That account is not for this teammate's model.".to_string());
     let assign = |account_id: &str| room.assign_account("ada", Some(account_id.to_string()));
 
-    // The record's model, with the teammate idle.
+    // The record's model over the room's, with the teammate idle.
+    log.append(
+        &StreamId::Room,
+        &room::room_event(
+            "setting",
+            json!({"id": "defaultModelId", "value": "openai/gpt-x"}),
+        ),
+    )
+    .unwrap();
     for (account_id, refusal) in [
         (
             openai.as_str(),
@@ -273,31 +301,22 @@ async fn a_hotline_choice_is_checked_against_the_teammates_model() {
     assert_eq!(chosen(room), None);
     assign(&desk.a).await.unwrap();
 
-    // No model on the record: the room's preferred one.
+    // No model on the record: the room's.
     let mut ada = room.persona("ada").unwrap();
     ada.model_id = None;
     room::append_persona(&log, &ada).unwrap();
-    log.append(
-        &StreamId::Room,
-        &room::room_event(
-            "setting",
-            json!({"id": "defaultModelId", "value": "openai/gpt-x"}),
-        ),
-    )
-    .unwrap();
     assert_eq!(assign(&desk.b).await, not_for_the_model);
     assign(&openai).await.unwrap();
 
-    // The live session's model, over the room's and the record's.
-    started(room).await;
-    assign(&desk.b).await.unwrap();
+    // The live session's model, over the record's and the room's.
     let mut ada = room.persona("ada").unwrap();
     ada.model_id = Some("openai/gpt-x".to_string());
     room::append_persona(&log, &ada).unwrap();
-    assign(&desk.a).await.unwrap();
+    started(room).await;
+    assign(&desk.b).await.unwrap();
     room.set_model("ada", "openai/gpt-x").await.unwrap();
-    assert_eq!(assign(&desk.b).await, not_for_the_model);
-    assert_eq!(chosen(room), Some(desk.a.clone()));
+    assert_eq!(assign(&desk.a).await, not_for_the_model);
+    assert_eq!(chosen(room), Some(desk.b.clone()));
 }
 
 #[tokio::test]

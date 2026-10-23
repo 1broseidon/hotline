@@ -8,6 +8,9 @@ use crate::contract::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PendingAccount {
+    /// The agent the switch was made on. Its accounts mean nothing to
+    /// another agent, so a change of agent drops the switch.
+    pub(crate) backend_id: String,
     pub(crate) from: Option<String>,
     pub(crate) wanted: Option<String>,
     /// A newer sign-in owes the running session a restart, even when the

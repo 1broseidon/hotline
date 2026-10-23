@@ -149,6 +149,53 @@ fn an_account_of_another_backend_or_a_credential_is_ignored_and_an_unknown_one_r
 }
 
 #[test]
+fn a_teammate_runs_only_on_an_account_its_agent_can_use() {
+    const ON_HOTLINE: &str = "6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f607";
+    let desk = desk();
+    let mut rows = room::agent_accounts(&desk.log);
+    rows.push(AgentAccount {
+        id: ON_HOTLINE.to_string(),
+        backend_id: "hotline".to_string(),
+        ..rows[0].clone()
+    });
+    write_agent_accounts(&desk.log, &rows).unwrap();
+    let vault = crate::vault::Vault::open_with_store(
+        &desk.root,
+        desk.log.clone(),
+        std::sync::Arc::new(crate::credentials::MemoryStore::default()),
+    )
+    .unwrap();
+    let credential = vault
+        .create("anthropic", "Work", "not-a-real-key")
+        .unwrap()
+        .id;
+    let events = desk.log.load(&StreamId::Room);
+    for (backend_id, its_own, another) in [
+        ("claude-acp", ID, OTHER),
+        ("codex-acp", OTHER, ID),
+        ("hotline", ON_HOTLINE, ID),
+    ] {
+        for (kind, account_id, runs) in [
+            ("none", None, false),
+            ("its agent's", Some(its_own), backend_id == "claude-acp"),
+            ("another agent's", Some(another), false),
+            (
+                "credential",
+                Some(credential.as_str()),
+                backend_id == "hotline",
+            ),
+            ("unknown", Some(UNKNOWN), false),
+        ] {
+            assert_eq!(
+                crate::accounts::account_of_from(&events, &ada(account_id, backend_id)),
+                account_id.filter(|_| runs).map(str::to_string),
+                "{backend_id}, {kind}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_missing_or_replaced_folder_is_refused_with_its_kind() {
     let desk = desk();
     let path = agent_account_dir(&desk.root, ID).unwrap();

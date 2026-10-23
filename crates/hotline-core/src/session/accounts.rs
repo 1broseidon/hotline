@@ -12,7 +12,7 @@ use super::{Room, lock, now_ms};
 use crate::accounts::login::AccountLogins;
 use crate::accounts::status::AccountStatuses;
 use crate::accounts::switch::{self, PendingAccount};
-use crate::accounts::{account_of, check_choice, resolve, uses_accounts};
+use crate::accounts::{account_of, check_choice, resolve};
 use crate::contract::{AccountHold, AccountStatusView, LoginAttemptView, Persona, SessionAccount};
 use crate::driver::acp::StartBounds;
 use crate::log::Log;
@@ -133,7 +133,7 @@ impl Room {
         let pending = {
             let policy = self.policy_update_lock();
             let _held = policy.lock().await;
-            let previous = self.record_account(persona_id, account_id.as_deref())?;
+            let (previous, backend_id) = self.record_account(persona_id, account_id.as_deref())?;
             let running = lock(&self.sessions)
                 .get(persona_id)
                 .map(|session| session.account_id.clone());
@@ -148,6 +148,7 @@ impl Room {
                 .is_some_and(|pending| pending.relogin);
             if account_id != current || relogin {
                 let switch = PendingAccount {
+                    backend_id,
                     from: current,
                     wanted: account_id.clone(),
                     relogin,
@@ -171,11 +172,12 @@ impl Room {
         }))
     }
 
+    /// The account the record ran on before the choice, and its agent.
     fn record_account(
         &self,
         persona_id: &str,
         account_id: Option<&str>,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<(Option<String>, String), String> {
         let _writes = room::persona_write_lock();
         let mut persona = self.persona(persona_id)?;
         check_choice(
@@ -184,13 +186,13 @@ impl Room {
             self.choice_model(&persona).as_deref(),
             account_id,
         )?;
-        let previous = persona.account_id.clone();
-        if previous.as_deref() != account_id {
+        let previous = account_of(&self.log, &persona);
+        if persona.account_id.as_deref() != account_id {
             persona.account_id = account_id.map(str::to_string);
             persona.updated_at = now_ms();
             room::append_persona(&self.log, &persona)?;
         }
-        Ok(previous)
+        Ok((previous, persona.backend_id))
     }
 
     /// The model a Hotline Agent choice is checked against: the live
@@ -244,15 +246,15 @@ impl Room {
 
     /// The switch that may apply now, with the backend whose checkpoints it
     /// clears. The caller holds the start gate, so no start or new DM turn is
-    /// under way. A switch for a teammate that is gone or is now on an agent
-    /// without accounts is dropped.
+    /// under way. A switch for a teammate that is gone or is now on another
+    /// agent is dropped.
     fn switch_to_apply(&self, persona_id: &str) -> Option<(PendingAccount, String)> {
         let pending = self.ready_switch(persona_id)?;
         let backend_id = self
             .persona(persona_id)
             .ok()
             .map(|persona| persona.backend_id)
-            .filter(|backend_id| uses_accounts(backend_id));
+            .filter(|backend_id| *backend_id == pending.backend_id);
         if backend_id.is_none() {
             self.switch_applied(persona_id, &pending);
         }
@@ -330,21 +332,22 @@ impl Room {
             .into_iter()
             .find(|account| account.id == account_id)
             .and_then(|account| account.login_at);
-        let started_before: Vec<String> = lock(&self.sessions)
+        let started_before: Vec<(String, String)> = lock(&self.sessions)
             .values()
             .filter(|session| {
                 session.account_id.as_deref() == Some(account_id)
                     && session.account_login_at < login_at
             })
-            .map(|session| session.persona_id.clone())
+            .map(|session| (session.persona_id.clone(), session.backend_id.clone()))
             .collect();
         {
             let mut switches = lock(&self.accounts.switches);
-            for persona_id in started_before {
+            for (persona_id, backend_id) in started_before {
                 switches
                     .entry(persona_id)
                     .and_modify(|pending| pending.relogin = true)
                     .or_insert_with(|| PendingAccount {
+                        backend_id,
                         from: Some(account_id.to_string()),
                         wanted: Some(account_id.to_string()),
                         relogin: true,
@@ -403,8 +406,12 @@ impl Room {
     }
 
     pub(super) fn settle_account_switch(&self, persona: &Persona) {
-        if !uses_accounts(&persona.backend_id) {
-            self.forget_account_switch(&persona.id);
+        let mut switches = lock(&self.accounts.switches);
+        if switches
+            .get(&persona.id)
+            .is_some_and(|pending| pending.backend_id != persona.backend_id)
+        {
+            switches.remove(&persona.id);
         }
     }
 }

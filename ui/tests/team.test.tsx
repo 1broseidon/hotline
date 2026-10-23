@@ -76,6 +76,7 @@ test("one rail lists every desk's teammates with their desk, dims an unreachable
 				onPin={() => {}}
 				onLead={() => {}}
 				onAddDesk={() => {}}
+				settings={null}
 				search={null}
 				deskKey={null}
 			/>,

@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
+import { chordKeys } from "./chords";
+import { SettingsIcon } from "./icons";
 import { shownState } from "./activity";
 import type { ConfigChoice } from "./generated/contract";
 import { Conversation } from "./components/Conversation";
@@ -490,6 +492,18 @@ export function App() {
 	const deskCallKey = (className?: string) => (
 		<DeskCallKey call={call} available={voice} onCall={() => void startCall(nameOf)} {...(className !== undefined ? { className } : {})} />
 	);
+	const settingsKey = (className: string) => (
+		<button
+			type="button"
+			className={className}
+			title={`Settings (${chordKeys("settings")})`}
+			aria-label="Settings"
+			aria-pressed={pane === "settings"}
+			onClick={() => togglePane("settings")}
+		>
+			<SettingsIcon />
+		</button>
+	);
 	return (
 		<div className="flex h-full flex-col">
 			<Titlebar
@@ -498,8 +512,7 @@ export function App() {
 				search={teamSearch("under")}
 				deskKey={deskCallKey("control btn-icon titlebar-desk-call")}
 				onNew={newTeammate}
-				onSettings={() => togglePane("settings")}
-				settingsOpen={pane === "settings"}
+				settings={settingsKey("control btn-icon")}
 			/>
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
@@ -545,6 +558,7 @@ export function App() {
 				onAddDesk={() => togglePane("add-desk")}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
+				settings={settingsKey("rail-settings-key")}
 				search={teamSearch(faces ? "beside" : "dock")}
 				deskKey={deskCallKey()}
 				deskCard={deskInRail && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}

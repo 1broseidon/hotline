@@ -44,6 +44,7 @@ export function Rail({
 	onAddDesk,
 	width,
 	compact = false,
+	settings,
 	search,
 	deskKey,
 	deskCard,
@@ -71,7 +72,8 @@ export function Rail({
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
 	compact?: boolean;
-	/** The dock at the rail's foot: the team's search, and the desk's call key. */
+	/** The dock at the rail's foot: Settings, the team's search, and the desk's call key. */
+	settings: ReactNode;
 	search: ReactNode;
 	deskKey: ReactNode;
 	/** A call to the desk, as a card that grows up out of the dock. */
@@ -198,8 +200,9 @@ export function Rail({
 			</div>
 
 			{deskCard}
-			{/* The dock: search, and the desk's line. Settings and a new teammate are the title bar's. */}
+			{/* The dock: Settings in the window's corner, search, and the desk's line. A new teammate is the title bar's. */}
 			<footer className={compact ? "rail-dock rail-dock-compact" : "rail-dock"}>
+				{settings}
 				{search}
 				{deskKey}
 			</footer>

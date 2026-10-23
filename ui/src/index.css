@@ -4261,8 +4261,8 @@
 		}
 	}
 
-	/* The rail's dock (Rail.tsx): the team's search and the desk's call key
-	 * in one bar where Settings and New teammate were, the composer's twin
+	/* The rail's dock (Rail.tsx): Settings, the team's search and the desk's
+	 * call key in one bar in the window's bottom-left corner, the composer's twin
 	 * across the window: its height (6px, a 28px key, 6px), its material and
 	 * corners, on its line (16px off the foot, the composer's own margin), so
 	 * one line of two matching pills runs under the window. A hairline parts
@@ -4332,6 +4332,51 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--ink-4);
+	}
+	/* Settings: the bar's first key, in the window's bottom-left corner,
+	 * filling the pill's start, with a hairline after it. */
+	.rail-settings-key {
+		position: relative;
+		display: grid;
+		width: 36px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 15px 4px 4px 15px;
+		color: var(--ink-3);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	.rail-settings-key::after {
+		content: "";
+		position: absolute;
+		top: 5px;
+		right: -1.5px;
+		bottom: 5px;
+		width: var(--hairline);
+		background: var(--line);
+	}
+	.rail-dock:not(.rail-dock-compact) .rail-settings-key + .rail-search {
+		border-top-left-radius: 4px;
+		border-bottom-left-radius: 4px;
+	}
+	.rail-dock-compact .rail-settings-key {
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+	}
+	.rail-dock-compact .rail-settings-key::after {
+		top: auto;
+		right: 5px;
+		bottom: -1.5px;
+		left: 5px;
+		width: auto;
+		height: var(--hairline);
+	}
+	.rail-settings-key:hover,
+	.rail-settings-key[aria-pressed="true"] {
+		color: var(--ink);
+		background: var(--fill-hover);
 	}
 	/* The desk's call key: the bar's other half, with the hairline before
 	 * it, filling the pill's end; lit in the accent while the desk's call is on. */

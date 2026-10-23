@@ -1,13 +1,14 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RestoreIcon, SettingsIcon, SidebarIcon } from "../icons";
+import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RestoreIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
 import { HotlineMark } from "./HotlineMark";
 
 /**
  * The window's top strip, on every platform: the well itself, with the
  * rail's show-and-hide key at the left corner, the mark alone in the
- * centre, and the search at the right. It is the window's, not a
+ * centre, and a new teammate at the right, with Settings and the search
+ * beside it while the rail is closed. It is the window's, not a
  * teammate's: who is open, and their model and effort, are in the pane's
  * band. Where the shell draws no frame (Linux, Windows) the three
  * window controls sit flush to the right corner beyond them. macOS keeps
@@ -23,8 +24,7 @@ export function Titlebar({
 	search,
 	deskKey,
 	onNew,
-	onSettings,
-	settingsOpen = false,
+	settings,
 	bare = false,
 }: {
 	/** Whether the rail is open, and the key that opens and closes it; none in a narrow window. */
@@ -35,10 +35,10 @@ export function Titlebar({
 	 */
 	search?: ReactNode;
 	deskKey?: ReactNode;
-	/** The window's own keys, at the right: a new teammate, and Settings. */
+	/** A new teammate, at the right. */
 	onNew?: (() => void) | undefined;
-	onSettings?: (() => void) | undefined;
-	settingsOpen?: boolean;
+	/** Settings: the rail's dock holds it, at the window's bottom-left corner; while the rail is closed it stands here, first of the tools. */
+	settings?: ReactNode;
 	/** The welcome: the mark and the window's own controls, nothing that acts on a room that is not there yet. */
 	bare?: boolean;
 }) {
@@ -74,7 +74,8 @@ export function Titlebar({
 				<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
 			</p>
 			<div className="titlebar-tools" hidden={bare}>
-				{/* Search and the desk are the rail's; with the rail closed they stand here. */}
+				{/* Settings, search and the desk are the rail's; with the rail closed they stand here. */}
+				{(rail === undefined || !rail.open) && settings}
 				{rail !== undefined && !rail.open && (
 					<>
 						{search}
@@ -84,18 +85,6 @@ export function Titlebar({
 				{onNew !== undefined && (
 					<button type="button" className="control btn-icon" title={`New teammate (${chordKeys("new-teammate")})`} aria-label="New teammate" onClick={onNew}>
 						<PlusIcon />
-					</button>
-				)}
-				{onSettings !== undefined && (
-					<button
-						type="button"
-						className="control btn-icon"
-						title={`Settings (${chordKeys("settings")})`}
-						aria-label="Settings"
-						aria-pressed={settingsOpen}
-						onClick={onSettings}
-					>
-						<SettingsIcon />
 					</button>
 				)}
 			</div>

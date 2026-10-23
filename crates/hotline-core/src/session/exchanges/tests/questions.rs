@@ -1,6 +1,7 @@
 //! A colleague's ask is answered by the recipient's main conversation: it
 //! starts a turn there, or waits behind the one in flight, and the reply of
-//! that turn goes back to the asker. The pair's thread keeps both lines.
+//! that turn goes back to the asker. The pair's thread keeps both lines. One
+//! that names a handoff's thread is answered in that thread instead.
 use super::gates::{request, turn};
 use super::*;
 use tokio::sync::Semaphore;
@@ -469,4 +470,482 @@ async fn the_persons_cancel_fails_a_question_still_waiting_behind_the_turn() {
             .count(),
         1
     );
+}
+
+/// The id of the request a `message_teammate` call accepted.
+fn requested(sent: &serde_json::Value) -> String {
+    sent["requestId"].as_str().unwrap().to_string()
+}
+
+/// Ada asks `to`, in the work thread the handoff `thread` names.
+async fn ask_in(room: &Arc<Room>, to: &str, thread: &str, message: &str) -> Result<String, String> {
+    let sent = TeammateTools::new(room, "ada")
+        .call(
+            "message_teammate",
+            &json!({"to": to, "message": message, "intent": "ask", "thread": thread}),
+        )
+        .await?;
+    Ok(requested(&serde_json::from_str(&sent).unwrap()))
+}
+
+/// Ada's handoff to Bob, its result heard by her and its thread closed by it.
+async fn handed_back(room: &Arc<Room>, agents: &Fake) -> (String, String) {
+    let handoff = requested(
+        &hand_off(room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    done(room, &handoff).await;
+    let thread = work_thread(room, &handoff);
+    until("Ada has heard the result and the thread has closed", || {
+        agents.prompts().len() == 2 && !room.mid_turn("ada") && !room.work_is_open(&thread)
+    })
+    .await;
+    (handoff, thread)
+}
+
+fn in_thread(room: &Room, thread: &str) -> Vec<serde_json::Value> {
+    room.log.load(&StreamId::Side(thread.to_string()))
+}
+
+#[tokio::test]
+async fn an_ask_naming_a_thread_is_answered_in_it_and_leaves_it_open() {
+    let (room, agents) = setup("ask-in-thread");
+    room.allow_sender("bob", "ada").unwrap();
+    let (handoff, thread) = handed_back(&room, &agents).await;
+
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    done(&room, &id).await;
+
+    assert_eq!(
+        request(&room, "ada~bob", &id).thread.as_deref(),
+        Some(thread.as_str())
+    );
+    let stream = in_thread(&room, &thread);
+    let question = stream
+        .iter()
+        .position(|v| v["cause"]["kind"] == "question" && v["cause"]["requestId"] == id.as_str())
+        .expect("the question is in the work thread");
+    assert_eq!(stream[question]["cause"]["work"], "Fix the build.");
+    assert_eq!(stream[question]["cause"]["threadKey"], "ada~bob");
+    assert_eq!(stream[question]["text"], "Which branch is it on?");
+    let reply = stream[question..]
+        .iter()
+        .find(|v| v["kind"] == "agent")
+        .expect("the thread answers it");
+    let heard = agents
+        .prompts()
+        .into_iter()
+        .find(|p| p.contains("Which branch is it on?"))
+        .expect("the thread's agent heard it");
+    assert!(
+        heard.contains("Ada asks you about the work “Fix the build.”"),
+        "{heard}"
+    );
+
+    let answer = answer_to(&room, &id).expect("the answer reaches Ada");
+    assert_eq!(answer["cause"]["kind"], "peer");
+    assert_eq!(answer["cause"]["status"], "done");
+    assert_eq!(answer["text"], reply["text"]);
+    until("Ada hears the answer", || {
+        answer_to(&room, &id).is_some_and(|v| v["receipt"] == "read")
+    })
+    .await;
+    assert!(
+        room.work_is_open(&thread),
+        "answering an ask does not close the thread"
+    );
+    assert!(
+        room.tape("bob")
+            .iter()
+            .all(|v| v["cause"]["kind"] != "question"),
+        "Bob's main conversation never heard it"
+    );
+    assert!(notices(&room, "ada").is_empty(), "an answer is no report");
+    let pair = room.log.load(&StreamId::Pair("ada~bob".into()));
+    assert!(pair.iter().any(|v| v["id"] == format!("result:{id}")));
+}
+
+#[tokio::test]
+async fn an_ask_naming_a_thread_not_its_own_is_refused() {
+    let log = scratch("ask-in-thread-refused");
+    for id in ["ada", "bob", "carol"] {
+        enrol(&log, &persona(id));
+    }
+    let room = Room::with_agents(log, Arc::new(DeskKeys), Fake::new(Scripted::new(vec![])));
+    for (to, from) in [("bob", "ada"), ("carol", "ada"), ("bob", "carol")] {
+        room.allow_sender(to, from).unwrap();
+    }
+    let adas = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    let carols = requested(
+        &hand_off(&room, "carol", "bob", "Check the lint.", None)
+            .await
+            .unwrap(),
+    );
+    for (to, thread) in [
+        ("bob", carols.as_str()),
+        ("carol", adas.as_str()),
+        ("bob", "nope"),
+    ] {
+        let refused = ask_in(&room, to, thread, "How is it going?").await;
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|error| error.contains("is not a handoff you sent")),
+            "{to} in {thread}: {refused:?}"
+        );
+    }
+    assert_eq!(
+        room.exchange_pair("ada~bob").unwrap().requests.len(),
+        1,
+        "nothing refused was queued"
+    );
+    assert!(room.exchange_pair("ada~carol").is_none());
+    assert_eq!(room.exchange_pair("bob~carol").unwrap().requests.len(), 1);
+}
+
+#[tokio::test]
+async fn stop_exchange_stops_the_turn_answering_an_ask_in_a_thread() {
+    let (room, agents, gate) = gated(
+        "ask-in-thread-stopped",
+        vec![
+            turn("handed", "Build fixed.", "end_turn"),
+            turn("late", "Too late.", "end_turn"),
+            turn("noted", "Noted.", "end_turn"),
+        ],
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    until("the handoff's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let thread = work_thread(&room, &handoff);
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    until("the ask waits in the thread", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+    gate.add_permits(2);
+    until("the thread's turn answering the ask is running", || {
+        request(&room, "ada~bob", &id).started && questions_heard(&agents) == 1
+    })
+    .await;
+    let cancelled = agents.cancel_count();
+
+    room.stop_exchange("ada", "bob").unwrap();
+    assert!(
+        agents.cancel_count() > cancelled,
+        "the thread's turn is cancelled"
+    );
+    assert!(!room.work_is_open(&thread), "and its thread is closed");
+
+    gate.add_permits(10);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let stopped = request(&room, "ada~bob", &id);
+    assert_eq!(stopped.phase, Phase::Stopped);
+    assert!(stopped.failed);
+    assert_eq!(stopped.reply, "The person stopped this exchange.");
+    assert!(
+        answer_to(&room, &id).is_none(),
+        "no answer is delivered to Ada"
+    );
+    assert!(
+        room.tape("ada").iter().any(|v| v["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("exchange-ended:"))),
+        "Ada is told it stopped"
+    );
+}
+
+/// The handoff's turn is still at work when the ask arrives: the ask waits in
+/// the thread behind it, the thread that its result would close stays open
+/// for it, and the result is still the handoff's own turn's.
+#[tokio::test]
+async fn an_ask_sent_while_the_handoff_works_waits_behind_its_turn() {
+    let (room, agents, gate) = gated(
+        "ask-in-thread-behind-the-handoff",
+        vec![
+            turn("handed", "Build fixed.", "end_turn"),
+            turn("branch", "It is on main.", "end_turn"),
+            turn("noted-1", "Noted.", "end_turn"),
+            turn("noted-2", "Noted.", "end_turn"),
+        ],
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    until("the handoff's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let thread = work_thread(&room, &handoff);
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    until("the ask waits in the thread", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(agents.prompts().len(), 1, "no turn took the ask up");
+    assert!(!request(&room, "ada~bob", &id).started);
+
+    gate.add_permits(20);
+    done(&room, &handoff).await;
+    done(&room, &id).await;
+    let said: Vec<String> = in_thread(&room, &thread)
+        .iter()
+        .filter(|v| v["kind"] == "agent")
+        .map(|v| v["text"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert_ne!(said[0], said[1]);
+    assert_eq!(request(&room, "ada~bob", &handoff).reply, said[0]);
+    assert_eq!(request(&room, "ada~bob", &id).reply, said[1]);
+    assert_eq!(answer_to(&room, &handoff).unwrap()["text"], said[0]);
+    assert_eq!(answer_to(&room, &id).unwrap()["text"], said[1]);
+    assert!(room.work_is_open(&thread), "the ask kept the thread open");
+}
+
+#[test]
+fn an_ask_is_placed_where_its_handoff_opened_a_thread_and_never_opens_one() {
+    let handoff = |phase, thread: Option<&str>| {
+        let mut request = saved_request("h", Intent::Handoff, phase);
+        request.thread = thread.map(str::to_string);
+        request
+    };
+    let ask = |continues: &str| {
+        let mut request = saved_request("ask", Intent::Ask, Phase::Queued);
+        request.continues = Some(continues.to_string());
+        request
+    };
+    let pair = |requests| Pair {
+        id: "ada~bob".into(),
+        a: "ada".into(),
+        b: "bob".into(),
+        exchanges: 0,
+        paused: false,
+        requests,
+    };
+
+    let opened = pair(vec![handoff(Phase::Done, Some("t")), ask("h")]);
+    assert!(matches!(opened.place(&opened.requests[1]), Ok(Place::In(t)) if t == "t"));
+    let to_come = pair(vec![handoff(Phase::Queued, None), ask("h")]);
+    assert!(matches!(
+        to_come.place(&to_come.requests[1]),
+        Ok(Place::Later)
+    ));
+    let never = pair(vec![handoff(Phase::Reply, None), ask("h")]);
+    let refused = never.place(&never.requests[1]).err().unwrap();
+    assert!(refused.contains("has not been opened yet"), "{refused}");
+    let unknown = pair(vec![ask("nope")]);
+    assert!(unknown.place(&unknown.requests[0]).is_err());
+}
+
+/// Accepted into the thread, whose close or whose desk's stop kept its line
+/// from ever reaching a turn: the ask is Bob's to answer still.
+fn lost_ask(room: &Room, handoff: &str, thread: &str) {
+    let mut pair = room.exchange_pair("ada~bob").unwrap();
+    let mut lost = saved_request("lost", Intent::Ask, Phase::Running);
+    lost.message = "Which branch is it on?".into();
+    lost.request_counted = true;
+    lost.thread = Some(thread.to_string());
+    lost.continues = Some(handoff.to_string());
+    pair.requests.push(lost);
+    room.save_pair(&pair).unwrap();
+}
+
+#[tokio::test]
+async fn an_ask_that_never_reached_a_turn_in_its_thread_is_delivered_again() {
+    let (room, agents) = setup("ask-in-thread-lost");
+    room.allow_sender("bob", "ada").unwrap();
+    let (handoff, thread) = handed_back(&room, &agents).await;
+    lost_ask(&room, &handoff, &thread);
+    room.recover_queued_exchanges();
+    done(&room, "lost").await;
+    let answered = request(&room, "ada~bob", "lost");
+    assert!(!answered.failed, "{}", answered.reply);
+    assert_eq!(answer_to(&room, "lost").unwrap()["cause"]["status"], "done");
+    assert_eq!(questions_heard(&agents), 1);
+
+    // A restart finds it the same way, and a delivery already in the thread
+    // is not written twice.
+    let (old, old_agents) = setup("ask-in-thread-restart");
+    old.allow_sender("bob", "ada").unwrap();
+    let (handoff, thread) = handed_back(&old, &old_agents).await;
+    lost_ask(&old, &handoff, &thread);
+    let stream = StreamId::Side(thread.clone());
+    let mut link = old
+        .log
+        .load(&stream)
+        .into_iter()
+        .find(|v| v["kind"] == "link")
+        .unwrap();
+    link["state"] = json!("live");
+    for ended in ["end", "at", "outcome"] {
+        link.as_object_mut().unwrap().remove(ended);
+    }
+    old.log.append(&stream, &link).unwrap();
+    old.log
+        .append(&StreamId::Tape("bob".into()), &link)
+        .unwrap();
+    old.log
+        .append(
+            &stream,
+            &json!({"kind":"delivery","id":"question:lost","ts":1,
+                "from":{"thread":"ada~bob","kind":"pair"},
+                "cause":{"kind":"question","requestId":"lost","personaId":"ada","name":"Ada",
+                    "threadKey":"ada~bob","about":"Which branch is it on?"},
+                "text":"Which branch is it on?","receipt":"sent"}),
+        )
+        .unwrap();
+    let log = old.log.clone();
+    drop(old);
+    let agents = Fake::new(Scripted::new(turn("branch", "On main.", "end_turn")));
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    room.recover_queued_exchanges();
+    done(&room, "lost").await;
+    assert_eq!(answer_to(&room, "lost").unwrap()["text"], "On main.");
+    assert_eq!(questions_heard(&agents), 1, "heard once");
+    assert_eq!(
+        in_thread(&room, &thread)
+            .iter()
+            .filter(|v| v["cause"]["requestId"] == "lost")
+            .count(),
+        1
+    );
+}
+
+/// The person's cancel of a thread drops what waited behind its turn, an ask
+/// too: it fails to its asker at once, and nothing hands it over again.
+#[tokio::test]
+async fn the_persons_cancel_fails_an_ask_still_waiting_in_a_thread() {
+    let (room, agents, gate) = gated(
+        "ask-in-thread-cancelled-while-queued",
+        vec![
+            turn("handed", "Build fixed.", "end_turn"),
+            turn("noted", "Noted.", "end_turn"),
+        ],
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    until("the handoff's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let thread = work_thread(&room, &handoff);
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    until("the ask waits in the thread", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+
+    room.cancel_side(&thread).unwrap();
+    until("Ada is told", || answer_to(&room, &id).is_some()).await;
+    let asked = request(&room, "ada~bob", &id);
+    assert!(asked.failed && !asked.started);
+    let failure = answer_to(&room, &id).unwrap();
+    assert_eq!(failure["cause"]["status"], "failed");
+    assert!(
+        failure["text"]
+            .as_str()
+            .unwrap()
+            .contains("was stopped before answering this question"),
+        "{failure}"
+    );
+    gate.add_permits(20);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(questions_heard(&agents), 0, "no turn took the ask up");
+    assert_eq!(
+        room.tape("ada")
+            .iter()
+            .filter(|v| v["cause"]["requestId"] == id.as_str())
+            .count(),
+        1
+    );
+}
+
+/// Bob's first agent starts, and every one after it fails as a harness that
+/// went down does.
+struct DownAfterFirst {
+    agents: Arc<Fake>,
+    started: Mutex<bool>,
+}
+#[async_trait::async_trait]
+impl Agents for DownAfterFirst {
+    fn agent(
+        &self,
+        persona: &Persona,
+        preamble: String,
+        said: Vec<crate::driver::rig::Said>,
+        tools: TeammateTools,
+        mcp: Vec<crate::mcp::McpServer>,
+    ) -> Result<Arc<dyn Driver>, String> {
+        if persona.id == "bob" && std::mem::replace(&mut *lock(&self.started), true) {
+            return Err("the harness is down".into());
+        }
+        self.agents.agent(persona, preamble, said, tools, mcp)
+    }
+    async fn complete(&self, _model: &str, _system: &str, _prompt: &str) -> Result<String, String> {
+        Err("not needed".into())
+    }
+}
+
+#[tokio::test]
+async fn a_thread_that_cannot_start_to_answer_fails_the_ask() {
+    let log = scratch("ask-in-thread-cannot-start");
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let agents = Fake::new(Scripted::new(turn("handed", "Build fixed.", "end_turn")));
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Arc::new(DownAfterFirst {
+            agents: agents.clone(),
+            started: Mutex::new(false),
+        }),
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let (handoff, _) = handed_back(&room, &agents).await;
+
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    done(&room, &id).await;
+    let failed = request(&room, "ada~bob", &id);
+    assert!(failed.failed);
+    assert!(
+        failed.reply.contains("could not start a thread for this"),
+        "{}",
+        failed.reply
+    );
+    assert_eq!(answer_to(&room, &id).unwrap()["cause"]["status"], "failed");
 }

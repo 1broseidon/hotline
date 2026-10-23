@@ -39,6 +39,61 @@ impl Room {
         .await
     }
 
+    /// Hands an ask to the work thread a handoff of its sender's opened: a line
+    /// that waits behind the turn in flight, whose turn's reply is the ask's
+    /// answer, by the teammate doing the work. A thread that closed or parked
+    /// comes back for it, and one that cannot start fails the ask. Only a
+    /// handoff's result closes a thread, so this one stays open.
+    pub(super) async fn ask_in_thread(
+        self: &Arc<Self>,
+        key: &str,
+        request: &Request,
+        thread: String,
+    ) -> Result<(), String> {
+        let caller = self.participant(&request.from)?;
+        self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
+        self.set_handoff_thread(key, &request.id, &thread)?;
+        let (_, launch) = self
+            .wake_side(
+                &thread,
+                true,
+                Some(HandoffStart {
+                    key: key.into(),
+                    request: request.id.clone(),
+                }),
+            )
+            .await?;
+        let cause = DeliveryCause::Question {
+            request_id: request.id.clone(),
+            persona_id: caller.id.clone(),
+            name: super::super::links::shown(&caller),
+            thread_key: key.into(),
+            about: peers::about(&request.message),
+            work: self
+                .serving(&thread)
+                .map(|(_, handoff)| peers::about(&handoff.message)),
+        };
+        let from = self.delivery_source(&request.to, &cause);
+        let delivered = self
+            .deliver_into_work(
+                &thread,
+                &format!("question:{}", request.id),
+                cause,
+                from,
+                request.message.clone(),
+                Some(RequestLine {
+                    request: request.id.clone(),
+                    answer: None,
+                }),
+            )
+            .await;
+        // The line is queued first, so the agent's start finds it waiting.
+        if let Some(launch) = launch {
+            self.launch(launch);
+        }
+        delivered
+    }
+
     /// Fails at once each question the person's cancel dropped from `to`'s
     /// queue before its turn began. Their Stop drops what waited behind the
     /// turn, and a question no turn took up has nothing to inspect.

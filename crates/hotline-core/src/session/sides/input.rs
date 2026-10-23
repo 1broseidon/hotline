@@ -145,13 +145,21 @@ impl Room {
     }
 
     /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it. The thread stays live.
+    /// it, a colleague's question included, which fails to its asker. The
+    /// thread stays live.
     pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
         let side = self.live_side(side_id)?;
-        lock(&side.turns).clear();
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
+        self.fail_dropped_questions(
+            &side.persona_id,
+            dropped
+                .iter()
+                .filter_map(|line| line.request.as_ref())
+                .map(|line| line.request.as_str()),
+        );
         Ok(())
     }
 }

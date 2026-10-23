@@ -869,7 +869,7 @@ made it so.
   before, and the person still only reads a handed-over thread.
 - **Tests:** `session/exchanges/tests.rs`
   `a_handoff_naming_its_thread_continues_it_and_one_without_opens_another`,
-  `only_the_teammate_that_opened_a_thread_continues_it_and_only_by_handing_off`,
+  `only_the_teammate_that_opened_a_thread_continues_it`,
   `a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread`;
   `session/links/tests.rs`
   `a_handoff_naming_its_thread_continues_it_on_the_recipients_desk`; over the

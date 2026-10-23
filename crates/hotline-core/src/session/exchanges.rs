@@ -60,8 +60,9 @@ struct Request {
     #[serde(default)]
     human_actions: Vec<HumanGate>,
     /// The work thread that serves a handoff: it runs on the teammate it was
-    /// handed to, beside that teammate's DM. Absent on an ask, and on a
-    /// handoff saved before handoffs had threads of their own.
+    /// handed to, beside that teammate's DM. On an ask, the one it is answered
+    /// in; absent on an ask answered in the recipient's main conversation,
+    /// and on a handoff saved before handoffs had threads of their own.
     #[serde(default)]
     thread: Option<String>,
     /// The work thread the request was sent from, when it was sent from one:
@@ -105,11 +106,12 @@ pub(crate) struct Outgoing<'a> {
     pub to: &'a str,
     pub message: &'a str,
     pub intent: Intent,
-    /// For a handoff: the work thread it continues, named by the id of a
-    /// handoff that ran there.
+    /// The work thread a handoff continues, or an ask is answered in, named
+    /// by the id of a handoff that ran there.
     pub thread: Option<&'a str>,
 }
-/// Where a handoff's work is done.
+/// Where a handoff's work is done, or where an ask that names a thread is
+/// answered.
 enum Place {
     /// A thread of its own, opened for it.
     New,
@@ -153,10 +155,12 @@ impl Pair {
             .find(|r| r.id == named && r.from == from && r.to == to && r.intent == Intent::Handoff)
             .map(|r| r.continues.clone().unwrap_or_else(|| r.id.clone()))
     }
-    /// Where a handoff's work is done. One that names a thread follows the
-    /// handoffs before it into that thread, as its sender sent them; it is
-    /// refused when no handoff of its sender's to its recipient opened one by
-    /// that name, whatever another desk says.
+    /// Where a request that works in a thread is done. One that names a thread
+    /// follows the handoffs before it into that thread, as its sender sent
+    /// them; it is refused when no handoff of its sender's to its recipient
+    /// opened one by that name, whatever another desk says. An ask never
+    /// opens a thread: it waits for the handoff that will, and is refused
+    /// when none will.
     fn place(&self, request: &Request) -> Result<Place, String> {
         if let Some(thread) = &request.thread {
             return Ok(Place::In(thread.clone()));
@@ -176,21 +180,24 @@ impl Pair {
             })
             .collect();
         if !before.iter().any(|r| r.id == *opener) {
-            return Err(
-                "That work thread was not opened by this teammate's handoff. Send without a thread to open a new one."
-                    .into(),
-            );
+            return Err(match request.intent {
+                Intent::Ask => "That work thread was not opened by this teammate's handoff. Ask without a thread.",
+                Intent::Handoff => "That work thread was not opened by this teammate's handoff. Send without a thread to open a new one.",
+            }
+            .into());
         }
         if let Some(thread) = before.iter().rev().find_map(|r| r.thread.clone()) {
             return Ok(Place::In(thread));
         }
         // None of them has a thread yet: one still to be handed over opens
-        // it, and this follows; if none ever will, this one opens it.
+        // it, and this follows; if none ever will, a handoff opens it.
         if before
             .iter()
             .any(|r| matches!(r.phase, Phase::Queued | Phase::Running))
         {
             Ok(Place::Later)
+        } else if request.intent == Intent::Ask {
+            Err("That work thread has not been opened yet. Ask without a thread, or wait for its handoff to start.".into())
         } else {
             Ok(Place::New)
         }
@@ -272,11 +279,6 @@ impl Room {
             capability.check()?;
         }
         let intent = outgoing.intent;
-        if outgoing.thread.is_some() && intent != Intent::Handoff {
-            return Err(
-                "`thread` continues a handoff's work thread, so it needs intent handoff.".into(),
-            );
-        }
         let (caller, target, message) = self.checked(from, outgoing.to, outgoing.message)?;
         let key = thread_key(&caller.id, &target.id).ok_or("Invalid teammate pair")?;
         let id = new_id();
@@ -302,8 +304,12 @@ impl Room {
                     pair.thread_named(named, &caller.id, &target.id)
                         .ok_or_else(|| {
                             format!(
-                                "{named} is not a handoff you sent {}. Leave `thread` out to open a new work thread.",
-                                target.name
+                                "{named} is not a handoff you sent {}. Leave `thread` out to {}.",
+                                target.name,
+                                match intent {
+                                    Intent::Ask => "ask their main conversation",
+                                    Intent::Handoff => "open a new work thread",
+                                }
                             )
                         })?,
                 ),
@@ -567,14 +573,12 @@ impl Room {
             target.revoke();
         }
         self.settle_invalid_collaboration();
-        // An ask's turn is its recipient's main conversation's, and goes on:
+        // A handoff's turn, or the turn answering an ask in a handoff's thread,
+        // is running in that thread: stopping it stops that turn and closes
+        // the thread. One whose turn is over has nothing to stop, and what the
+        // person is saying to it now is theirs. An ask answered in its
+        // recipient's main conversation has no thread, and that turn goes on:
         // only its answer is no longer returned.
-        if request.intent == Intent::Ask {
-            return;
-        }
-        // A handoff's turn is running in its own thread: stopping it stops that
-        // turn and closes the thread. One whose turn is over has nothing to
-        // stop, and what the person is saying to it now is theirs.
         if request.phase == Phase::Running
             && let Some(thread) = &request.thread
         {
@@ -974,7 +978,8 @@ impl Room {
                 self.forward_queued(key, &request).await?;
             }
             Phase::Queued => {
-                let thread = if request.intent == Intent::Handoff {
+                let in_thread = request.intent == Intent::Handoff || request.continues.is_some();
+                let thread = if in_thread {
                     match pair.place(&request) {
                         Ok(Place::New) => None,
                         Ok(Place::In(thread)) => Some(thread),
@@ -986,12 +991,13 @@ impl Room {
                 } else {
                     None
                 };
-                // A handoff waits its turn for a place on its recipient: a
-                // teammate that has as many threads live as it may, every one of
-                // them mid-turn, takes it up when one has finished or can be
-                // parked. Nothing is refused and nothing is interrupted. One
-                // continuing a thread that is live already needs no place.
-                if request.intent == Intent::Handoff
+                // What works in a thread waits its turn for a place on its
+                // recipient: a teammate that has as many threads live as it
+                // may, every one of them mid-turn, takes it up when one has
+                // finished or can be parked. Nothing is refused and nothing is
+                // interrupted. One continuing a thread that is live already
+                // needs no place.
+                if in_thread
                     && thread
                         .as_deref()
                         .is_none_or(|thread| self.sides.get(thread).is_none())
@@ -1046,18 +1052,14 @@ impl Room {
                         self.exchange_card(&pair, ExchangePauseStatus::Pending);
                     }
                 }
-                if request.intent == Intent::Handoff {
-                    self.dispatch_handoff(key, &request, thread).await?;
-                } else if let Err(error) = self.ask_in_main(key, &request).await {
-                    self.set_exchange_reply(key, &request.id, error, true)?;
-                }
+                self.hand_over_request(key, &request, thread).await?;
             }
             Phase::Running => {
-                // A handoff whose turn has not begun, in no live thread, is
-                // handed over again: the desk restarted, or its thread closed
-                // with the handoff still waiting in it. A live dispatch has a
-                // thread by the time this looks.
-                if request.intent == Intent::Handoff
+                // A handoff, or an ask answered in a thread, whose turn has
+                // not begun, in no live thread, is handed over again: the desk
+                // restarted, or its thread closed with the line still waiting
+                // in it. A live dispatch has a thread by the time this looks.
+                if (request.intent == Intent::Handoff || request.thread.is_some())
                     && !request.started
                     && request
                         .thread
@@ -1072,7 +1074,7 @@ impl Room {
                             return self.set_exchange_reply(key, &request.id, error, true);
                         }
                     };
-                    self.dispatch_handoff(key, &request, thread).await?;
+                    self.hand_over_request(key, &request, thread).await?;
                 }
             }
             Phase::Waiting => {
@@ -1244,6 +1246,29 @@ impl Room {
         }
         self.save_pair(&pair)
     }
+    /// Hands an accepted request to the conversation that works it: a handoff
+    /// to its work thread, an ask to the thread it names, else to its
+    /// recipient's main conversation. An ask that cannot be handed over fails
+    /// to its sender.
+    async fn hand_over_request(
+        self: &Arc<Self>,
+        key: &str,
+        request: &Request,
+        thread: Option<String>,
+    ) -> Result<(), String> {
+        if request.intent == Intent::Handoff {
+            return self.dispatch_handoff(key, request, thread).await;
+        }
+        let handed_over = match thread {
+            Some(thread) => self.ask_in_thread(key, request, thread).await,
+            None => self.ask_in_main(key, request).await,
+        };
+        match handed_over {
+            Ok(()) => Ok(()),
+            Err(error) => self.set_exchange_reply(key, &request.id, error, true),
+        }
+    }
+
     /// Hands a handoff to a work thread on the teammate it was handed to, and
     /// its result is the reply the thread gives when it has done the work.
     /// `thread` is the one it continues, or its own from before a restart;

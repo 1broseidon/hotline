@@ -1572,7 +1572,7 @@ async fn a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread() {
 }
 
 #[tokio::test]
-async fn only_the_teammate_that_opened_a_thread_continues_it_and_only_by_handing_off() {
+async fn only_the_teammate_that_opened_a_thread_continues_it() {
     let log = scratch("handoff-continue-refused");
     for id in ["ada", "bob", "cara"] {
         enrol(&log, &persona(id));
@@ -1585,13 +1585,6 @@ async fn only_the_teammate_that_opened_a_thread_continues_it_and_only_by_handing
         .await
         .unwrap();
     let first_id = first["requestId"].as_str().unwrap().to_string();
-    let ask = TeammateTools::new(&room, "ada")
-        .call(
-            "message_teammate",
-            &json!({"to":"bob","message":"How is it going?","intent":"ask","thread":first_id}),
-        )
-        .await;
-    assert!(ask.unwrap_err().contains("handoff"));
     for (from, to, thread) in [
         ("cara", "bob", first_id.as_str()),
         ("ada", "cara", first_id.as_str()),

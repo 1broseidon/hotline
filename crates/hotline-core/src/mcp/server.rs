@@ -463,7 +463,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             MESSAGE_TEAMMATE,
-            "Send another teammate in this room a message. It returns as soon as the message is sent, and their answer arrives later as its own message in your conversation, so carry on meanwhile and do not poll. Choose intent: ask (default) for an answer or review from the recipient's main conversation, which knows everything it has done and which the person reads; handoff to implement or continue work in a work thread of their own, which starts from their main context, and report back automatically. What this returns for a handoff names its `thread`; to add to that work later (a follow-up, a correction, something they asked you for), hand off again with that `thread` and it lands in the same thread, where they still have everything said there. Without `thread` a handoff starts a new thread that knows nothing of earlier ones. Neither expands permissions. Say everything they need; they cannot see your conversation. Workspace callers need the operator's first-contact approval before the recipient uses its workspace and enabled tools; Whole machine Hotline Agent callers can initiate directly. They are started if they are not running. Every message and answer between the two of you is kept in your pair's thread, which both of you can read.",
+            "Send another teammate in this room a message. It returns as soon as the message is sent, and their answer arrives later as its own message in your conversation, so carry on meanwhile and do not poll. Choose intent: ask (default) for an answer or review from the recipient's main conversation, which knows everything it has done and which the person reads; handoff to implement or continue work in a work thread of their own, which starts from their main context, and report back automatically. What this returns for a handoff names its `thread`. Pass that `thread` again to continue the work there: a handoff adds to it, and an ask is answered in it, by the teammate doing the work, without closing it. Without `thread` a handoff starts a new thread that knows nothing of earlier ones, and an ask goes to their main conversation. Neither expands permissions. Say everything they need; they cannot see your conversation. Workspace callers need the operator's first-contact approval before the recipient uses its workspace and enabled tools; Whole machine Hotline Agent callers can initiate directly. They are started if they are not running. Every message and answer between the two of you is kept in your pair's thread, which both of you can read.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -475,7 +475,7 @@ fn descriptors() -> Vec<Tool> {
                     "intent": {"type":"string", "enum":["ask","handoff"], "default":"ask"},
                     "thread": {
                         "type": "string",
-                        "description": "Handoff only: the `thread` (or any requestId) of a handoff you sent this teammate, to continue that work thread instead of starting a new one.",
+                        "description": "The `thread` (or any requestId) of a handoff you sent this teammate: a handoff continues that work thread, and an ask is answered in it.",
                     },
                 },
                 "required": ["to", "message"],

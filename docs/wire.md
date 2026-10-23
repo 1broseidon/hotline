@@ -114,7 +114,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 
 | cmd | params | result |
 | --- | --- | --- |
-| `persona.create` | `{draft}` | the created `Persona`; a draft's `accountId` must name an agent account of the draft's agent on this desk |
+| `persona.create` | `{draft}` | the created `Persona`; a draft's `accountId` must fit the draft as `persona.account` checks it: an agent account of the draft's agent on this desk, or on Hotline Agent a live credential of its model's provider (the room's preferred model when the draft names none) |
 | `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
 | `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
 | `mobile.persona_access` | `{id, reach?, modeId?, backgroundWork?}` | the teammate after the change: a Hotline Agent teammate's reach, a harness teammate's mode, and whether it may keep background work; at least one is named, a reach for a harness or a mode for Hotline Agent is refused. Reach and background work restart a live session as `persona.update` does; a mode switches live and is kept for the next start. Owner phone or local desk; advertised by the owner's `personaAccess` |
@@ -131,16 +131,17 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `websearch.set_enabled` | `{provider, enabled}` | `WebSearchStatus`; one provider on or off for the whole desk; owner or local desk only |
 | `websearch.set_key` | `{provider, key?}` | `WebSearchStatus`; saves the provider's key in the vault, or forgets it when `key` is absent or blank. A keyed provider is tried before the keyless ones; owner or local desk only |
 | `capabilities.options` | `{}` | `CapabilityOptions` `{images, stt, tts, dispatcher, spending}`; owner or local desk only. Each job is `{selected?, automatic?, unavailable?, options}`: `selected` is the owner's pick (absent means automatic), `automatic` is what automatic resolves to now, `unavailable` is a sentence when no connected provider can do the job, and `options` is `[{providerId, providerName, models: [{id, label?, voices?}]}]` from connected providers only. `spending` is `{dayUsd, monthUsd, spentDayUsd, spentMonthUsd, unavailable?}` |
-| `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
-| `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
+| `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret); `label` is the account's name, 1 to 64 characters and one per provider and section whatever its case ("Anthropic already has an account named Work.") |
+| `credential.login` | `{providerId, label?, id?}` | `LoginPrompt` `{loginId, userCode, verificationUri}`; the new account is named `label`, checked as a create's is, or else takes the provider's next free name ("ChatGPT", "ChatGPT 2"); with `id` it signs that account in again instead, as `credential.login` below describes |
 | `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
 | `credential.login_cancel` | `{loginId}` | none; stops a pending sign-in, as `credential.login` below describes |
-| `credential.connect_local` | `{baseUrl}` | the `Credential`, a `local` one for an Ollama server |
+| `credential.connect_local` | `{baseUrl, label?}` | the `Credential`, a `local` one for an Ollama server, named `label` or else "Ollama Local", "Ollama Local 2" and so on |
+| `credential.update` | `{id, label?, secret?, baseUrl?}` | the `Credential`, changed in place: a new name, a key's new secret, or an Ollama server's new URL, whose models are found before anything is written and replace the old server's. Its id, its teammates and its place in the stream stay, so whether it is its provider's default never changes. A secret for anything but a key, a URL for anything but a server, either for a custom connection (that is `credential.custom_save`) and a change naming nothing are refused ("This account cannot be changed that way."). Owner or local desk only |
 | `credential.custom_save` | `{id?, draft}` | the `Credential`, a custom connection made or edited |
 | `credential.custom_models` | `{id?, baseUrl, secret?}` | model ids, sorted, nothing saved |
 | `credential.refresh_models` | `{providerId}` | `CatalogModel[]` that provider's catalogue after a re-fetch |
 | `credential.revoke` | `{id}` | none |
-| `credential.delete` | `{id}` | none |
+| `credential.delete` | `{id}` | none; revokes the credential, then forgets it and its key or sign-in. Refused while a teammate is set to it, revoked or not ("{label} can't be removed while Ada uses it." for one, "... while Ada and Bob use it." for more), leaving it as it was. The provider's default may go: the teammates that follow it move to the next. A sign-in's Sign out is this command |
 | `backends.list` | `{}` | `BackendChoice[]`: Hotline Agent first, then the ACP catalogue |
 | `credential.list` | `{}` | `Credential[]`, never a secret |
 | `welcome` | `{}` | `Welcome`: where a fresh room stands on its way to a first turn |
@@ -238,8 +239,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "asked" \| "approved" \| "stored", name?, rpId?, expiresAt?, ask?, secret?}` — where the making stands; `asked` and `approved` carry the site's request `{id, rpId, origin, rpName?, userName?, userDisplayName?, askedAt}`, which waits for the card on the teammate's tape; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
 | `secrets.passkey.answer` | `{personaId, askId, approved}` | `PasskeyRegistration` — the person's answer to the passkey card: approved, the browser makes it (`approved`, then `stored` once the room has it); denied, the arming ends (`idle`). Refused when no such request is waiting. The phone may send this one |
 | `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored; a card nobody answered expires |
-| `accounts.list` | `{}` | `AccountsList` `{agents: [{backendId, name, supportsAccounts, takesEmail}], accounts: AccountView[]}` — every harness but Hotline Agent, and each agent account with its cached `status`, its sign-in `attempt`, the `usedBy` teammate ids, its `folder` and `canSignInHere`. A status checked more than 10 minutes ago is rechecked in the background; one never checked stays `not_checked` until `accounts.status` or a sign-in. Owner or local desk only |
-| `accounts.create` | `{backendId, name, startWith: "system_default" \| "empty", categories?}` | `AccountCreated` `{account: AccountView, copy?: SetupCopyReport}` — makes the account's private folder and, from `system_default`, copies the setup categories named, every one when `categories` is absent. A name is 1 to 64 characters, one per agent whatever its case, and one that another create is still making is refused at once. A client `path` is ignored. A failed copy writes no account and leaves the folder. Owner or local desk only |
+| `accounts.list` | `{}` | `AccountsList` `{agents: [{backendId, name, supportsAccounts, takesEmail, providerId?}], accounts: AccountView[], credentials: CredentialAccount[]}` — every harness but Hotline Agent, with the provider whose page lists its accounts; each agent account with its cached `status`, its sign-in `attempt`, the `usedBy` teammate ids, its `folder` and `canSignInHere`; and each Hotline Agent credential as `{credential, section: "subscription" \| "api_key" \| "server", usedBy, default}`. A sign-in is a subscription but OpenRouter's, which mints a key billed per use; a server is an Ollama one. `default` marks the credential a teammate with no choice runs on, and `usedBy` holds the ids of the teammates set to it and, on the default, of the Hotline Agent teammates on its provider whose choice names none of its other credentials. A status checked more than 10 minutes ago is rechecked in the background; one never checked stays `not_checked` until `accounts.status` or a sign-in. Owner or local desk only |
+| `accounts.create` | `{backendId, name, startWith: "system_default" \| "empty", categories?}` | `AccountCreated` `{account: AccountView, copy?: SetupCopyReport}` — makes the account's private folder and, from `system_default`, This computer's setup, copies the setup categories named, every one when `categories` is absent. A name is 1 to 64 characters, one per agent whatever its case, and one that another create is still making is refused at once. A client `path` is ignored. A failed copy writes no account and leaves the folder. Owner or local desk only |
 | `accounts.rename` | `{accountId, name}` | `AccountView`; the name only, refused like a create's for a name taken or still being made. Owner or local desk only |
 | `accounts.remove` | `{accountId}` | none; forgets the account. Refused while a teammate uses it ("{account} can't be removed while Ada uses it." for one, "... while Ada and Bob use it." for more) or while its sign-in runs ("Finish or cancel {account}'s sign-in first."); the folder and the sign-in in it stay. Owner or local desk only |
 | `accounts.status` | `{accountId}` | `AccountStatusView` `{state: "not_checked" \| "checking" \| "signed_in" \| "signed_out" \| "unavailable", checkedAt?, email?, plan?}` — asks the agent's own CLI in the account's folder; one run per account, shared by every caller. Owner or local desk only |
@@ -248,8 +249,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `accounts.login.input` | `{accountId, id, input}` | none; a line typed into the sign-in's terminal. Owner or local desk only |
 | `accounts.login.cancel` | `{accountId, id}` | none, answered before the attempt ends; once the CLI has stopped it ends `failed` and the account's status is checked again, so read the account until its attempt is not `running`. Owner or local desk only |
 | `accounts.setup.list` | `{accountId}` | `AccountSetupView` `{setup?, categories: [{id, count, path?}]}` — where the account's setup came from and what its folder holds, with the `path` Open opens for desk and owner only; nothing is written. Owner or local desk only |
-| `accounts.setup.copy` | `{accountId, categories}` | `SetupCopyReport` `{copied, removedKeys, linksSkipped}`; each category named replaces the account's with the System default's. Owner or local desk only |
-| `persona.account` | `{personaId, accountId \| null}` | `SessionAccount` `{running?, wanted?, held?: "not_signed_in" \| "signing_in"}`; sets the account a local teammate's agent runs under, `null` for System default. Owner or local desk only |
+| `accounts.setup.copy` | `{accountId, categories}` | `SetupCopyReport` `{copied, removedKeys, linksSkipped}`; each category named replaces the account's with This computer's. Owner or local desk only |
+| `persona.account` | `{personaId, accountId \| null}` | `SessionAccount` `{running?, wanted?, held?: "not_signed_in" \| "signing_in"}`; sets the account a local teammate runs on: one of its agent's accounts, or on Hotline Agent a live credential of its model's provider (the live session's model, else the record's, else the room's preferred one). `null` is the default: This computer, or the provider's default. A choice that does not fit is refused before anything is written ("That account is not on this desk.", "That agent does not use accounts.", "That account is signed out. Sign in again first.", "That account is not for this teammate's model."). Owner or local desk only |
 | `files.browse` | `{path}` | `{path, parent, entries}`: a directory on the desk's own machine, by absolute path; the owner's file browser ([serve.md](serve.md)) |
 | `files.mkdir` | `{path}` | `{path}`, the directory made |
 | `files.download` | `{path, offset}` | `{name, mimeType, size, offset, data, next}`: at most 512 KiB of the file, as base64, with `next` JSON `null` at the end |
@@ -318,11 +319,12 @@ secret also hands every running computer the set its teammate is granted
 now, so a rotation or a revocation lands without a restart (see
 [security.md](security.md)).
 
-`accounts.*` and `persona.account` are the operator's, for an agent account:
-one sign-in to an agent's own CLI in a folder of its own
-([security.md](security.md#agent-accounts)). The companion, a linked desk
-and agent tools cannot reach them, and `persona.update`, `settings.update`
-and `mobile.persona_update` cannot set an account. `accounts.list`,
+`accounts.*`, `credential.*` and `persona.account` are the operator's. An
+account is an agent account, one sign-in to an agent's own CLI in a folder
+of its own, or a Hotline Agent credential ([security.md](security.md#accounts)).
+The companion, a linked desk and agent tools cannot reach them, and
+`persona.update`, `settings.update` and `mobile.persona_update` cannot set an
+account, nor does `session.set_model` change one. `accounts.list`,
 `accounts.create`, `accounts.rename`, `accounts.remove`, `accounts.status`,
 `accounts.setup.list`, `accounts.setup.copy` and `accounts.login.start` run
 independently, like `link.preview`, since an agent's CLI, a copy or a wait
@@ -334,11 +336,15 @@ ordered worker, and `persona.account` its teammate's lane. The desk rechecks
 the accounts in use once when it opens. `persona.account` stores the choice
 at once; the switch applies once the whole teammate is idle (no DM turn, and
 no side thread, call, job, subagent or pair mid-turn) and the account is not
-held. `held` says why it waits: `not_signed_in` while the account's last
-recorded status is signed out, a check in progress included, `signing_in`
-while a sign-in for it runs. Applying it archives the teammate's idle side
-and call threads and parks its job threads; a voice still connected to one of
-its calls loses its tools and work until it is called again. Choosing the running account again is Keep: it
+held. `held` says why it waits, on an agent account only: `not_signed_in`
+while the account's last recorded status is signed out, a check in progress
+included, `signing_in` while a sign-in for it runs. Applying it archives the
+teammate's idle side and call threads and parks its job threads; a voice
+still connected to one of its calls loses its tools and work until it is
+called again. On Hotline Agent it rebuilds the in-process driver on the new
+credential, handed the conversation, and a switch still pending outlives a
+change of model. A pending switch belongs to the agent it was made on, and a
+change of agent drops it. Choosing the running account again is Keep: it
 drops the pending switch and changes nothing else. A confirmed sign-in moves
 the account's `loginAt`.
 
@@ -664,8 +670,10 @@ connections continue to edit their IDs through `credential.custom_save`.
 
 `providers.list` also exposes `credentialKinds`, the methods each provider
 offers (`api_key`, `oauth`, or `local`). `credential.create` accepts only
-providers offering `api_key` and refuses blank keys.
-`credential.connect_local {baseUrl}` validates an Ollama HTTP/HTTPS URL,
+providers offering `api_key` and refuses blank keys, and a `label` that is
+blank, longer than 64 characters or already another account's name in the
+same provider and section, whatever its case.
+`credential.connect_local {baseUrl, label?}` validates an Ollama HTTP/HTTPS URL,
 discovers its models, and then records a `local` credential with that
 `baseUrl`. It writes no secret. The chosen server may have a reverse-proxy
 path, but the URL cannot contain credentials, a query or a fragment.
@@ -693,12 +701,20 @@ a `userCode`; OpenRouter leaves it empty and uses a loopback PKCE callback.
 It is start-then-poll so a sign-in does not hold the ordered mutation worker.
 `credential.login_status` reports `pending`, `done`, or `failed`; an unknown
 id is an error, and a finished login stays queryable until process exit.
-The login id is the credential id. `credential.login_cancel {loginId}`
-stops a pending attempt, closes its callback listener or polling future,
-and discards its unfinished vault files. A completed attempt stays completed.
-OpenRouter expires after five minutes waiting for the browser; all login
-attempts are bounded by ten minutes overall. Only credential metadata is
-returned through the wire; acquired keys remain in the private vault.
+A new sign-in's login id becomes its credential's id. With `id`,
+`credential.login` signs that account in again: it must be a live sign-in of
+the same provider, or the command is refused before anything starts ("This
+sign-in cannot replace that account's."). The attempt runs in a folder of its
+own under its own login id, and only when it succeeds do its tokens replace
+the account's, which keeps its id, name, teammates and place.
+`credential.login_status` then answers that account as `credential`; a sign-in
+again that fails or is cancelled leaves the account as it was.
+`credential.login_cancel {loginId}` stops a pending attempt, closes its
+callback listener or polling future, and discards its unfinished vault
+files. A completed attempt stays completed. OpenRouter expires after five
+minutes waiting for the browser; all login attempts are bounded by ten
+minutes overall. Only credential metadata is returned through the wire;
+acquired keys remain in the private vault.
 
 `mcp.auth_start` and `mcp.auth_reconnect` discover an HTTP MCP server's
 protected-resource and authorization-server metadata, register a native

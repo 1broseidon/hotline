@@ -326,7 +326,7 @@ fn a_legacy_checkpoint_is_the_system_default_one() {
             kept("claude-acp", None, "old"),
             kept("claude-acp", Some("acc-1"), "new")
         ],
-        "a checkpoint from before accounts is the System default's"
+        "a checkpoint from before accounts is This computer's"
     );
 
     clear_checkpoint(&log, "ada", "claude-acp", None).unwrap();

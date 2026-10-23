@@ -108,8 +108,8 @@ pub(crate) struct Failure {
     pub tools_may_have_run: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<super::auth::SignIn>,
-    /// Skipped when absent, so a System default teammate's notice is the
-    /// bytes it was before accounts.
+    /// Skipped when absent, so a notice from This computer, or from a
+    /// provider with one account, is the bytes it was before accounts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
 }

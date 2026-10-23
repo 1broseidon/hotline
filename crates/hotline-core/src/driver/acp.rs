@@ -424,7 +424,7 @@ impl ChildAgent {
     }
 
     /// From the agent's row whether or not the teammate is on an account, so
-    /// a System default teammate's usage limit is told apart too.
+    /// a usage limit on This computer is told apart too.
     fn usage_limit_prefixes(&self) -> &'static [&'static str] {
         account_support(&self.backend_id).map_or(&[], |support| support.usage_limit_prefixes)
     }

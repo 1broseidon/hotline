@@ -491,7 +491,7 @@ faces with the name under each, stacked above a hairline in the faces-only
 rail, with the same status, unread and busy marks. They reorder by dragging, or
 Move left / right in the row's context menu, and the Teammate 1–9 chords
 count pins first. While Settings is open the rail is its
-sections (General, Desks, Providers, Agent accounts, Tools, Skills, Computer,
+sections (General, Desks, Providers, Tools, Skills, Computer,
 Secrets, Remote, Updates and Import, with Keyboard shortcuts and About at its
 foot), with a back key in its band
 where the team's plus was, and the pane shows one section at a time. The

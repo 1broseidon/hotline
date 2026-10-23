@@ -420,8 +420,8 @@ pub enum TranscriptEvent {
     /// by id when it closes, carrying what the next chapter needs to know.
     /// `sessionId` is the agent's own memory of this stretch, so a chapter
     /// can be reopened rather than merely summarised. `accountId` is the
-    /// agent account that memory lives under, absent for System default: a
-    /// chapter reopens only on the account it ran on.
+    /// account that memory lives under, absent for the default: a chapter
+    /// reopens only on the account it ran on.
     Chapter {
         id: String,
         ts: i64,

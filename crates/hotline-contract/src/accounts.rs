@@ -4,8 +4,8 @@
 //! Only [`AgentAccount`] is kept (in the room's `agentAccounts` setting).
 //! Everything else here is a view built when asked: a status, a sign-in
 //! attempt and the setup a folder holds live in memory or on disk and are
-//! never written to a stream. Absent from a teammate, an account means the
-//! agent's own System default sign-in.
+//! never written to a stream. Absent from a teammate, an account means
+//! This computer: the agent's own sign-in.
 
 use crate::Credential;
 use serde::{Deserialize, Serialize};
@@ -157,7 +157,7 @@ pub struct AccountsList {
 }
 
 /// What `accounts.create` answers: the new account, and what was copied into
-/// its folder when it started from the System default.
+/// its folder when it started from This computer's setup.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -191,7 +191,7 @@ pub struct AccountSetupView {
     pub categories: Vec<SetupCategoryView>,
 }
 
-/// What a copy of the System default did.
+/// What a copy of This computer's setup did.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -228,7 +228,8 @@ pub enum AccountHold {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct SessionAccount {
-    /// The account the live session started with. Absent is System default.
+    /// The account the live session started with. Absent is the default:
+    /// This computer, or on Hotline Agent its model's provider's default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub running: Option<String>,
     /// The account the teammate is set to: the running one, unless a switch

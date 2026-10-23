@@ -45,7 +45,7 @@ pub(super) fn descriptor(live: &Live) -> Option<SignIn> {
 }
 
 /// A teammate on an account is never offered the harness's own sign-in,
-/// which would sign in the agent's System default instead; its card points at
+/// which would sign in This computer instead; its card points at
 /// the account.
 pub(super) fn failure(
     live: &Live,

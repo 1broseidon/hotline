@@ -168,7 +168,7 @@ pub struct PersonaNode {
 pub struct SessionCheckpoint {
     pub backend_id: String,
     pub session_id: String,
-    /// The agent account the session ran under. Absent means System default,
+    /// The agent account the session ran under. Absent means This computer,
     /// so a checkpoint from before accounts still belongs to a teammate that
     /// has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]

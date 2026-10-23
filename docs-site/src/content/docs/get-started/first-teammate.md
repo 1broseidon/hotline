@@ -38,7 +38,7 @@ click away. Sign in with an account you already have, or paste an API key.
 Keys and sign-ins are kept in your computer's keychain or in files only your
 account can read, never in a conversation or a file a teammate can read. One
 service is enough to start. The full list is in
-[Providers and keys](/docs/setup/providers/).
+[Providers and accounts](/docs/setup/providers/).
 
 For a coding tool, **Pick your tool** from the ones found on this computer.
 The first teammate runs on it. The first time a teammate uses it, the tool

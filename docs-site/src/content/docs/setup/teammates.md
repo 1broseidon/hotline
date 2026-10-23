@@ -44,7 +44,7 @@ in the data directory.
 Claude Code signs in with its own account, through Claude Code itself.
 Hotline runs the `claude` CLI you installed and never asks for or relays your
 Claude login. To give Claude Code teammates different Claude logins, see
-[Agent accounts](/docs/setup/agent-accounts/).
+[Claude subscriptions](/docs/setup/providers/#claude-subscriptions).
 
 The conversation's header shows the model and effort the tool advertises.
 In the teammate's pane, **Permissions** says **Managed by** the tool and

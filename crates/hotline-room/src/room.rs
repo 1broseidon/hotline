@@ -638,7 +638,7 @@ pub fn persona_write_lock() -> MutexGuard<'static, ()> {
 /// Cursor is never handed Claude's session id nor one account the other's.
 /// Moving between accounts is not such a return: the switch clears that
 /// backend's entries for every account (`clear_backend_checkpoints`). No
-/// account is the agent's System default.
+/// account is This computer, the agent's own sign-in.
 pub fn checkpoint_session(
     log: &Log,
     persona_id: &str,

@@ -477,23 +477,65 @@ into a phone login form or relay Claude session tokens. Unsupported methods and
 older failure notices keep the manual sign-in guidance. Proactive auth-status
 badges are not inferred from missing notifications or offered by this recovery.
 
-A Claude Code teammate can run under an **agent account**: the agent's own
+**Accounts.** An account is one named way into a provider, and a teammate
+names the one it runs on in `Persona.accountId`, beside `modelId` and never
+inside it, so a phone's `session.set_model` cannot change it. Only
+`persona.account` and a `persona.create` draft write it. Two stores keep
+accounts, because their secrets live under different rules
+([security.md](security.md#accounts)): an agent's CLI sign-in in a folder of
+its own (the room setting `agentAccounts`), and a Hotline Agent credential
+in the vault (the `credential` event). One rule says which accounts fit a
+teammate (`accounts::check_choice`, mirrored in the window by `accountsFor`):
+a CLI agent with a row in `accounts::support` picks among its own accounts
+and This computer, its sign-in from before accounts; a CLI agent without a
+row has none; Hotline Agent on a model `P/m` picks among the live
+credentials of provider `P`. The choice never crosses providers: ChatGPT
+(`openai-codex`) and OpenAI (`openai`) are two, so continuing on another
+provider is a change of model, not of account. The window offers a choice
+only where two or more accounts fit. A CLI agent is offered subscriptions
+alone; whether Hotline may hand one an API key or a base URL is open with
+the maintainer (Q1 in the
+[provider-accounts design](superpowers/specs/2026-10-22-provider-accounts-design.md)).
+
+An id that names another agent's account, a credential on a CLI agent, or a
+credential of another provider than the turn's model is kept and ignored,
+and applies again when the teammate comes back to where it fits; an id that
+names nothing on the desk refuses the start (`account_unavailable`,
+`unknown_account`) rather than falling back to the default. A Hotline Agent
+teammate with no choice runs each turn on its provider's default, the first
+credential in stream order that is not revoked and still holds its key or
+sign-in (`Vault::connections_from`), as every teammate did before accounts;
+one with a choice runs on it on every turn whose model is on that provider,
+and a chosen credential that is revoked or gone fails the turn as `auth`,
+never taking another credential in its place.
+So "the first credential created wins" holds now only for a teammate that
+chose none. A key, server or sign-in changed in place (`credential.update`,
+`credential.login {id}`) keeps its id and its place in the stream, so the
+default never moves under it. Voice, images, chapter notes, single
+completions and the model list still come from the default; whether they
+should follow the teammate's account is the maintainer's Q2.
+
+A Claude Code teammate on an **agent account** runs with the agent's own
 config folder, `<data>/agent-accounts/<id>`, given to that child alone as
 `CLAUDE_CONFIG_DIR`. Each agent's part is one row of `accounts::support`, and
 nothing outside the row names an agent, so another CLI with a config folder
 of its own is one more row. Hotline holds no credential: the agent signs
 itself in into the folder and Hotline only asks the agent's CLI whether it
-did. A switch of account always starts the session Fresh, because one
-account's conversation was never heard by the other. The fields are
-additive and optional: `Persona.accountId`, `SessionCheckpoint.accountId`,
+did. A switch of account, on a CLI agent or on Hotline Agent, waits until the
+teammate is idle and always starts the session Fresh, because one account's
+conversation was never heard by the other. The fields are additive and
+optional: `Persona.accountId` (which replaced `agentAccountId`, a name no
+released build wrote), `SessionCheckpoint.accountId`,
 `TranscriptEvent::{Chapter, Side, Link}.accountId`, the `link` line's
-`accountId` (`hotline-store/src/link.rs`) and the room setting
-`agentAccounts`. Absent, each is System default, the behaviour from before
-accounts. The importer writes none of these fields, because the reference
-tree has no accounts, so an imported teammate is on System default. An older
-build that rewrites a teammate's record drops the
-field, and the teammate returns to System default. An older window draws a
-generic card for `usage_limit` and `account_unavailable`; the
+`accountId` (`hotline-store/src/link.rs`), the room setting `agentAccounts`,
+and `accountId` on a Hotline Agent failure notice, written only when the
+teammate chose an account or its provider has more than one, so a room with
+one account per provider writes the bytes it always did. Absent, each is the
+default, the behaviour from before accounts. The importer writes none of
+these fields, because the reference tree has no accounts, so an imported
+teammate is on the default. An older build that rewrites a teammate's record
+drops the field, and the teammate returns to the default. An older window
+draws a generic card for `usage_limit` and `account_unavailable`; the
 `account_unavailable` notice carries `accountId` and `code`.
 
 ### 4. Tools as MCP, served in-process
@@ -666,7 +708,7 @@ teammates from spending the same rotated refresh token. Rig's xAI client
 still owns inference, with a bearer-refresh HTTP client that retries a 401
 once and never falls back to an API key. A 401 or 403 on a ChatGPT, Copilot
 or xAI sign-in is checked against that sign-in's model list before the card
-goes out (`Failure::checked_against_sign_in`, once per provider a minute):
+goes out (`Failure::checked_against_sign_in`, once per sign-in a minute):
 if the list answers, the card says the provider is refusing requests
 (`provider_refused`) rather than asking for a sign-in that would not help.
 Z.ai Standard and Coding Plan are
@@ -690,7 +732,9 @@ IDs belong to the existing connection and survive refreshes and releases.
 Unknown metadata remains unknown. Refresh changes the available list, never
 the selected model, connection endpoint, or credentials. Persisted connection
 data is separate from the application's bundled snapshot.
-Claude subscription access stays with Claude Code through ACP.
+Claude subscription access stays with Claude Code through ACP: a Claude Code
+teammate picks among Claude subscriptions only, and whether Hotline may give
+a CLI agent an Anthropic key is the maintainer's open Q1 (see Accounts above).
 
 Application updates follow Prism's Tauri updater: a six-hour GitHub check,
 brief notes in Settings, and user-triggered signed download, install and restart.

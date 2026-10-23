@@ -907,21 +907,22 @@ pub enum Command {
     /// Ends an arming without a passkey. Owner or local desk only.
     #[serde(rename = "secrets.passkey.cancel")]
     SecretsPasskeyCancel { persona_id: String },
-    /// The agents that can sign in under a named account, and every account
-    /// with its status, its sign-in attempt and who uses it. Answers
-    /// `AccountsList`. Owner or local desk only.
+    /// The agents that can sign in under a named account, every such account
+    /// with its status, its sign-in attempt and who uses it, and every
+    /// Hotline Agent credential with who it serves and whether it is its
+    /// provider's default. Answers `AccountsList`. Owner or local desk only.
     #[serde(rename = "accounts.list")]
     AccountsList {},
     /// Adds an account for `backend_id` and makes its folder, starting from a
-    /// copy of the System default's setup or from nothing. Answers
+    /// copy of This computer's setup or from nothing. Answers
     /// `AccountCreated`. Owner or local desk only.
     #[serde(rename = "accounts.create")]
     AccountsCreate {
         backend_id: String,
         name: String,
         start_with: SetupFrom,
-        /// Which setup categories to copy when starting from the System
-        /// default. Absent means all of them.
+        /// Which setup categories to copy when starting from This
+        /// computer's setup. Absent means all of them.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         categories: Option<Vec<String>>,
     },
@@ -965,7 +966,7 @@ pub enum Command {
     /// from. Answers `AccountSetupView`. Owner or local desk only.
     #[serde(rename = "accounts.setup.list")]
     AccountsSetupList { account_id: String },
-    /// Copies the System default's setup for these categories over the
+    /// Copies This computer's setup for these categories over the
     /// account's, each replacing what the account had. Answers
     /// `SetupCopyReport`. Owner or local desk only.
     #[serde(rename = "accounts.setup.copy")]
@@ -973,10 +974,11 @@ pub enum Command {
         account_id: String,
         categories: Vec<String>,
     },
-    /// Sets the account a teammate's agent runs under; `null` or absent is
-    /// the System default. The change applies once the teammate has no work
-    /// in flight. Answers the teammate's `SessionAccount`. Owner or local
-    /// desk only.
+    /// Sets the account a teammate runs on: one of its agent's accounts, or
+    /// on Hotline Agent a live credential of its model's provider. `null` or
+    /// absent is the default. The change applies once the teammate has no
+    /// work in flight. Answers the teammate's `SessionAccount`. Owner or
+    /// local desk only.
     #[serde(rename = "persona.account")]
     PersonaAccount {
         persona_id: String,

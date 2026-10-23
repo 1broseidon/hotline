@@ -106,7 +106,7 @@ fn an_agent_event_is_stamped_with_where_it_came_from_additively() {
 const A: &str = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 
 #[test]
-fn agent_account_fields_are_additive_and_absent_is_system_default() {
+fn account_fields_are_additive_and_absent_is_the_default() {
     let config = ts_rs::Config::default();
     let old = json!({"backendId":"claude-acp","sessionId":"s1"});
     let c: SessionCheckpoint = serde_json::from_value(old.clone()).unwrap();
@@ -147,6 +147,27 @@ fn agent_account_fields_are_additive_and_absent_is_system_default() {
             .count(),
         2
     );
+}
+
+/// #202 never shipped, so its field name has no alias.
+#[test]
+fn an_old_agent_account_id_is_read_as_no_account() {
+    let persona: Persona = serde_json::from_value(json!({
+        "id":"ada","name":"Ada","goal":"","backendId":"claude-acp","cwd":"/w",
+        "mcpPolicy":{"mode":"none","serverIds":[]},"sessionCheckpoints":[],
+        "createdAt":1,"updatedAt":1,"agentAccountId":A
+    }))
+    .unwrap();
+    assert_eq!(persona.account_id, None);
+    assert!(
+        serde_json::to_value(&persona)
+            .unwrap()
+            .get("agentAccountId")
+            .is_none()
+    );
+    let draft: PersonaDraft =
+        serde_json::from_value(json!({"name":"Ada","agentAccountId":A})).unwrap();
+    assert_eq!(draft.account_id, None);
 }
 
 #[test]

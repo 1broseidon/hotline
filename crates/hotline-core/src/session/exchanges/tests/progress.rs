@@ -5,7 +5,7 @@
 use super::gates::{ask_carol, ask_from, handed_off, idle, request, turn};
 use super::*;
 use crate::contract::{ScheduleKind, ScheduledJob, SideEnd};
-use crate::session::exchanges::progress::{REPORT_CHARS, TurnEnd, WAKE_LINE, turn_report};
+use crate::session::exchanges::progress::{REPORT_CHARS, TurnEnd, WAKE_LINE, release, turn_report};
 use crate::session::runner::Driven;
 use crate::session::{Wired, timed};
 
@@ -1018,4 +1018,182 @@ async fn a_closing_room_wakes_nobody_and_keeps_the_report() {
     assert_eq!(exchanges(&room), counted);
     let kept = request(&room, "ada~bob", &handoff);
     assert_eq!(kept.progress, ["Swatch 43 is ready."]);
+}
+
+/// A done handoff whose thread the person has talked in three times: Ada has
+/// three reports she has not heard.
+async fn with_unheard_reports(name: &str) -> (Arc<Room>, String, String) {
+    let (room, _agents, handoff, thread) = handed_over_and_done(name).await;
+    room.continue_side(&thread).await.unwrap();
+    for line in ["one", "two", "three"] {
+        room.prompt_side(&thread, line, None).await.unwrap();
+    }
+    until("three reports wait for ada", || {
+        request(&room, "ada~bob", &handoff).progress.len() == 3
+    })
+    .await;
+    (room, handoff, thread)
+}
+
+/// What the person's turns in the thread have written to a conversation:
+/// the reports shown there, whoever they are for.
+fn reports_shown(room: &Room, thread: &str) -> usize {
+    notices(room, "ada").len() + notices(room, "bob").len() + shown_in(room, thread).len()
+}
+
+/// The person talks in the thread, and that turn reports to nobody.
+async fn talks_without_a_report(room: &Arc<Room>, handoff: &str, thread: &str) {
+    let (shown, said) = (reports_shown(room, thread), said_in(room, thread).len());
+    room.continue_side(thread).await.unwrap();
+    room.prompt_side(thread, "and the date?", None)
+        .await
+        .unwrap();
+    until("bob's turn is over", || {
+        said_in(room, thread).len() > said && idle(room, thread)
+    })
+    .await;
+    assert_eq!(reports_shown(room, thread), shown, "no report is shown");
+    let saved = request(room, "ada~bob", handoff);
+    assert!(
+        saved.progress.is_empty() && !saved.progress_wakes,
+        "nor kept"
+    );
+}
+
+/// Every request of the pair has nothing for its sender to hear, and the
+/// handoff no longer reports.
+fn is_released(room: &Room, handoff: &str) {
+    for saved in room.exchange_pair("ada~bob").unwrap().requests {
+        assert!(
+            saved.progress.is_empty() && saved.progress_left_out == 0 && !saved.progress_wakes,
+            "{}: {:?}",
+            saved.id,
+            saved.progress
+        );
+    }
+    assert!(request(room, "ada~bob", handoff).released);
+}
+
+#[tokio::test]
+async fn stop_exchange_and_revocation_end_the_reports_and_drop_the_unheard_ones() {
+    let (room, handoff, thread) = with_unheard_reports("progress-stop-exchange").await;
+    room.stop_exchange("ada", "bob").unwrap();
+    is_released(&room, &handoff);
+    talks_without_a_report(&room, &handoff, &thread).await;
+
+    let (room, handoff, thread) = with_unheard_reports("progress-teammate-stopped").await;
+    room.stop("bob").unwrap();
+    is_released(&room, &handoff);
+    talks_without_a_report(&room, &handoff, &thread).await;
+
+    let (room, handoff, thread) = with_unheard_reports("progress-policy-change").await;
+    room.reattach("ada").await.unwrap();
+    is_released(&room, &handoff);
+    talks_without_a_report(&room, &handoff, &thread).await;
+}
+
+/// Review Focus 4: the delegator is stopped, or removed in the order the
+/// wire's delete does it, while the thread goes on.
+#[tokio::test]
+async fn a_stopped_or_removed_delegator_gets_no_report_and_nothing_breaks() {
+    let (room, _agents, handoff, thread) = handed_over_and_done("progress-ada-stopped").await;
+    room.stop("ada").unwrap();
+    assert!(request(&room, "ada~bob", &handoff).released);
+    talks_without_a_report(&room, &handoff, &thread).await;
+
+    let (room, _agents, handoff, thread) = handed_over_and_done("progress-ada-removed").await;
+    room.invalidate("ada").unwrap();
+    room.log
+        .append(
+            &StreamId::Room,
+            &json!({"kind": "persona", "id": "ada", "deleted": true}),
+        )
+        .unwrap();
+    room.forget("ada");
+    assert!(request(&room, "ada~bob", &handoff).released);
+    talks_without_a_report(&room, &handoff, &thread).await;
+}
+
+/// A lease that lapses under a waiting handoff stops it where the worker
+/// finds it, and what its sender had not heard goes with it.
+#[tokio::test]
+async fn a_handoff_stopped_for_a_lapsed_lease_drops_its_unheard_reports() {
+    let (room, handoff, _action) = suspended_handoff("progress-lapsed-lease").await;
+    until("ada is told", || !notices(&room, "ada").is_empty()).await;
+    assert_eq!(request(&room, "ada~bob", &handoff).progress.len(), 1);
+    room.capability_epoch("bob").invalidate();
+    room.wake_exchange("ada~bob");
+    until("the handoff is stopped", || {
+        request(&room, "ada~bob", &handoff).phase == Phase::Stopped
+    })
+    .await;
+    is_released(&room, &handoff);
+}
+
+/// A link that ends takes the delegations over it with it: nothing is left
+/// to cross, and nothing more is reported.
+#[tokio::test]
+async fn an_unlinked_desk_ends_the_delegations_with_its_teammates() {
+    let (room, _agents) = setup("progress-unlinked");
+    let mut handoff = saved_request("far", Intent::Handoff, Phase::Done);
+    handoff.from = "grizzly-desk/lou".into();
+    handoff.progress = vec!["Swatch 44 is ready.".into()];
+    handoff.progress_left_out = 2;
+    handoff.progress_wakes = true;
+    let mut ask = saved_request("question", Intent::Ask, Phase::Done);
+    ask.from = "grizzly-desk/lou".into();
+    room.save_pair(&Pair {
+        id: "bob~grizzly-desk/lou".into(),
+        a: "bob".into(),
+        b: "grizzly-desk/lou".into(),
+        exchanges: 0,
+        paused: false,
+        requests: vec![handoff, ask],
+    })
+    .unwrap();
+    let elsewhere = saved_request("near", Intent::Handoff, Phase::Done);
+    room.save_pair(&Pair {
+        id: "ada~bob".into(),
+        a: "ada".into(),
+        b: "bob".into(),
+        exchanges: 0,
+        paused: false,
+        requests: vec![elsewhere],
+    })
+    .unwrap();
+
+    room.stop_linked_exchanges("grizzly-desk", "grizzly");
+    let far = room.exchange_pair("bob~grizzly-desk/lou").unwrap().requests;
+    assert!(far[0].released);
+    assert!(far[0].progress.is_empty() && far[0].progress_left_out == 0 && !far[0].progress_wakes);
+    assert!(!far[1].released, "a question is no delegation");
+    assert!(!request(&room, "ada~bob", "near").released);
+}
+
+#[test]
+fn only_a_handoff_is_released_and_a_request_not_released_saves_without_it() {
+    let mut handoff = saved_request("handoff", Intent::Handoff, Phase::Done);
+    handoff.progress = vec!["Swatch 45 is ready.".into()];
+    handoff.progress_left_out = 1;
+    handoff.progress_wakes = true;
+    let mut ask = saved_request("ask", Intent::Ask, Phase::Done);
+    assert!(release(&mut handoff));
+    assert!(!release(&mut handoff), "it is released once");
+    assert!(!release(&mut ask));
+    assert!(handoff.released && !ask.released);
+    assert!(
+        handoff.progress.is_empty() && handoff.progress_left_out == 0 && !handoff.progress_wakes
+    );
+
+    let saved = serde_json::to_value(&handoff).unwrap();
+    assert_eq!(saved["released"], true);
+    assert!(
+        serde_json::to_value(&ask)
+            .unwrap()
+            .get("released")
+            .is_none()
+    );
+    let mut old = serde_json::to_value(&ask).unwrap();
+    old.as_object_mut().unwrap().remove("released");
+    assert!(!serde_json::from_value::<Request>(old).unwrap().released);
 }

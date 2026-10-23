@@ -93,6 +93,11 @@ struct Request {
     /// Whether any report in `progress` may wake its sender.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     progress_wakes: bool,
+    /// The person stopped the exchange, or collaboration was revoked, after
+    /// this handoff: its thread no longer reports to its sender or asks it
+    /// back without a card.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    released: bool,
 }
 /// What a teammate sends a colleague, as `message_teammate` takes it.
 pub(crate) struct Outgoing<'a> {
@@ -407,6 +412,7 @@ impl Room {
                 progress: Vec::new(),
                 progress_left_out: 0,
                 progress_wakes: false,
+                released: false,
             });
             self.save_pair(&pair)?;
             if let Answer::Later(sent_from) = answer
@@ -443,6 +449,7 @@ impl Room {
         if stop {
             let mut stopped = Vec::new();
             for request in &mut pair.requests {
+                progress::release(request);
                 if Self::exchange_pending(request) {
                     self.cancel_handoff(request);
                     request.phase = Phase::Stopped;
@@ -567,16 +574,20 @@ impl Room {
         let _guard = lock(&self.exchange_lock);
         let mut stopped = Vec::new();
         for mut pair in self.exchange_pairs() {
+            let ours = persona.is_some_and(|id| pair.a == id || pair.b == id);
             let mut changed = false;
             for request in &mut pair.requests {
+                if ours {
+                    changed |= progress::release(request);
+                }
                 if !Self::exchange_pending(request)
-                    || (!persona.is_some_and(|id| pair.a == id || pair.b == id)
-                        && self.exchange_lease_current(&request.id))
+                    || (!ours && self.exchange_lease_current(&request.id))
                 {
                     continue;
                 }
                 self.cancel_handoff(request);
                 request.phase = Phase::Stopped;
+                progress::release(request);
                 request.failed = true;
                 request.reply = "Collaboration was revoked or a participant stopped. Send again if still needed.".into();
                 stopped.push(request.clone());

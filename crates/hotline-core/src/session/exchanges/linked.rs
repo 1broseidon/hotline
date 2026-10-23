@@ -140,6 +140,7 @@ impl Room {
                 progress: Vec::new(),
                 progress_left_out: 0,
                 progress_wakes: false,
+                released: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
@@ -204,6 +205,7 @@ impl Room {
             }
             let mut changed = false;
             for request in &mut pair.requests {
+                changed |= progress::release(request);
                 if !Self::exchange_pending(request) {
                     continue;
                 }

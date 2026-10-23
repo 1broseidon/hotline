@@ -5,7 +5,9 @@
 //! next line it takes, one summary per thread. A report from a turn that
 //! stopped to wait wakes that conversation when it is idle and no other
 //! thread it handed over is at work, once however many end together, and
-//! each wake counts toward the pair's brake.
+//! each wake counts toward the pair's brake. Stopping the exchange or
+//! revoking collaboration releases the handoff: its thread reports no more,
+//! and what its sender had not heard is dropped.
 
 use super::*;
 use crate::contract::NoticeLevel;
@@ -80,6 +82,18 @@ fn keep(progress: &mut Vec<String>, left_out: &mut u32, text: String) {
 )]
 pub(super) fn is_zero(count: &u32) -> bool {
     *count == 0
+}
+
+/// Ends a handoff's delegation, and says whether that changed the request.
+pub(super) fn release(request: &mut Request) -> bool {
+    if request.intent != Intent::Handoff || request.released {
+        return false;
+    }
+    request.released = true;
+    request.progress.clear();
+    request.progress_left_out = 0;
+    request.progress_wakes = false;
+    true
 }
 
 struct ThreadReports {
@@ -204,6 +218,7 @@ impl Room {
 
     fn delegation_live(&self, request: &Request) -> bool {
         request.intent == Intent::Handoff
+            && !request.released
             && request.phase != Phase::Stopped
             && self.exchange_lease_current(&request.id)
     }

@@ -106,6 +106,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         progress: Vec::new(),
         progress_left_out: 0,
         progress_wakes: false,
+        released: false,
     }
 }
 /// A handoff from `from` to `to`, into the thread `thread` names when it does.

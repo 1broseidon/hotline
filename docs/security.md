@@ -619,9 +619,11 @@ question the change must answer in its PR description.
    the request's leases, scoped from both sides, so revoking the caller
    stops work done on its behalf. A colleague's question is answered by a
    turn of the answering conversation, under its owner's authority, with the
-   colleague's words fenced as data; revoking the caller stops only the
-   answer from returning. Never let a request borrow the authority of the
-   process it happens to run in.
+   colleague's words fenced as data. Revoking the caller cancels the turn
+   answering a question in a work thread it named; one answered by a
+   conversation of the recipient's own (its main one, or the one that handed
+   a thread over) runs on, and only its answer stops returning. Never let a
+   request borrow the authority of the process it happens to run in.
 3. **Choose the default and the migration.** The default grants nothing
    beyond the workspace. Decide explicitly what an existing record without
    the field means, and write it down beside the field in `contract`;
@@ -682,9 +684,11 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   answered in a work thread has only the turn answering it cancelled; an ask
   answered by the recipient's main conversation, or by the conversation that
   handed a thread over, is that conversation's own turn under its owner's
-  authority, which runs on while its answer is dropped. Ending a request also
-  releases a handoff's delegation, so its thread reports no more and asks
-  back with a card again. Each teammate's main session stays usable.
+  authority, which runs on while its answer is dropped. Stop exchange, a
+  revocation and an unlink also release the delegation of each handoff they
+  reach, done ones included, so its thread reports no more and asks back with
+  a card again; a handoff that simply finishes keeps its delegation. Each
+  teammate's main session stays usable.
 - **Active and queued work.** Revocation cancels the activity's shell jobs
   and settles their results, clears queued turns, and releases collaboration
   waits so a late answer cannot establish a grant. A colleague's question
@@ -947,8 +951,8 @@ and its questions back reach the conversation that handed it over.
 - **Grant source:**
   - The handoff the delegator sent is the grant for its thread's reports and
     for its questions back, without a card, while the delegation stands: the
-    latest request the thread serves is not stopped or released, and its
-    leases are current.
+    latest request the thread serves is not stopped or released, and, while
+    the process that accepted it runs, its leases are current.
   - Outside that, the recipient → delegator direction needs the ordinary
     collaboration grant, card and all.
   - The person owns the desk and already talks to the teammate: speaking in a
@@ -973,8 +977,9 @@ and its questions back reach the conversation that handed it over.
     ordinary grant.
   - `change_exchange`, `stop_revoked_exchanges` and `stop_linked_exchanges`
     release the delegation (`progress::release`) and erase the reports not yet
-    heard; `send_linked_progress` reads the request again under the lock, so
-    an erased report never starts to cross.
+    heard; `send_linked_progress` reads the request again under the lock
+    before it sends, so a report erased before then does not cross (one
+    already crossing may still arrive, below).
   - `authorize_collaboration`, through the `Queued` arm of `exchanges.rs`, for
     every question but a delegated thread's to its opener, those reaching a
     main conversation included; and through `resume_handoff_answer` before a
@@ -993,9 +998,9 @@ and its questions back reach the conversation that handed it over.
   delegated thread; besides it, `session/exchanges/tests/gates.rs` for a
   handoff waiting on its questions and the person's words answering its card,
   `session/exchanges/tests/progress.rs` for the rest of the reports and wakes,
-  `session/exchanges/tests/ask_back.rs` for questions back from a work thread
-  and a job, and `session/links/tests.rs` for reports and questions across a
-  link.
+  `session/exchanges/tests/ask_back.rs` for questions back to the
+  delegator's DM, work thread or job, and `session/links/tests.rs` for
+  reports and questions across a link.
 - **Residual risk:**
   - The delegator's conversation answers a question back with what it knows,
     and that goes to the colleague; that is the point, and the delegator could
@@ -1014,6 +1019,14 @@ and its questions back reach the conversation that handed it over.
     cross on their own.
   - A delegation stands until it is stopped or revoked, days after its result
     too: a thread continued much later still asks back without a card.
+  - A delegation's leases live only in the running process
+    (`exchange_lease_current` reads the in-memory `exchange_leases`, and a
+    request it holds nothing for passes). Within a run, a lapse ends the
+    delegation; after a restart only Stop exchange, a revocation or an unlink
+    does. So a delegation whose leases lapsed without a release, at an idle
+    chapter turnover or when the work thread it was sent from was parked, is
+    live again after a restart: its thread reports again and asks the
+    delegator back without a card.
   - A compromised linked desk can mark every report as waking; each wake
     counts toward the pair's twelve, which stops it. It can also send many
     reports for a live handoff, each a notice on the delegator's tape, within

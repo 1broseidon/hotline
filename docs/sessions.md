@@ -1247,8 +1247,9 @@ under that conversation's authority, so revoking the asker only stops the
 answer from coming back: the turn, and whatever it started, runs on. A
 question answered in the work thread it named has that turn cancelled, and
 the thread goes on. A handoff's work depends on the request's authority:
-revoking either side stops its turn and closes its thread, without touching
-either teammate's main conversation.
+revoking either side stops a running handoff's turn and closes its thread,
+while a handoff waiting on an answer leaves its thread open and idle;
+neither touches either teammate's main conversation.
 Pending approvals expire after ten minutes or when the requesting call is
 cancelled. They also settle when a participant stops, a policy changes, or the
 room closes. One pending first-contact decision is held per direction.
@@ -1271,8 +1272,9 @@ Three records come out of `message_teammate` (`session/peers.rs`,
   names, or the conversation that handed the asker's thread over (below).
   It starts a turn there, starting the recipient if it is not running, or
   waits behind the turn in flight, and the person sees it and the reply. The
-  agent hears who asks (and, asked back from a delegated thread, about which
-  work), the question fenced as their message data, and that its reply goes
+  agent hears who asks (and, asked back from a delegated thread or into a
+  named one, about which work: the start of the handoff that thread serves),
+  the question fenced as their message data, and that its reply goes
   back by itself, so it does not answer with `message_teammate`. That turn's
   reply is the answer; a turn that failed or was stopped adds that it ended
   without a result and is to be inspected before retrying.
@@ -1392,11 +1394,13 @@ reports survive the restart.
 
 **The delegation** is the handoff the thread serves: the latest one into it,
 in any phase, so a thread the person continues after its result still
-reports. It stands while the request has not been stopped, its leases hold
-and it has not been released. Stop exchange on the pair, a revocation that
-touches it, or the link to the delegator's desk ending releases every
-handoff of the pair: the thread reports no more, the reports not yet heard
-are dropped, and a question back needs the ordinary grant.
+reports. It stands while the request has not been stopped or released and,
+within a run, while its leases hold: they are kept only in memory, so after a
+restart a delegation whose leases had lapsed stands again. Stop exchange on
+the pair, a revocation that touches it, or the link to the delegator's desk
+ending releases every handoff of the pair: the thread reports no more, the
+reports not yet heard are dropped, and a question back needs the ordinary
+grant.
 
 Stop exchange and revocation stop a question as they stop any request, but
 only an ask answered in a thread has its turn cancelled there, and only when

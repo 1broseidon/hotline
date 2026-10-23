@@ -202,8 +202,8 @@ seat. Here the wire is one WebSocket carrying three things:
   has shown per teammate. A view is a snapshot followed by updates.
 
 The live roster keeps a small projection per watched tape: the last visible
-message, the current tool title and pending card ids. Live work and peer
-sessions likewise keep their pending-card projection for their own lifetime.
+message, the current tool title and pending card ids. Live work likewise keeps
+its pending-card projection for its own lifetime.
 Log seeds these from the folded stream and hands over a broadcast under the
 same writer lock; a lagged receiver replaces both together. This is derived
 state, not another folded-history cache: ordinary tool and session updates
@@ -1081,7 +1081,8 @@ person or expands the recipient's permissions.
 A colleague's question is a `delivery` with cause `question`, an additive
 variant the reference tree never wrote, so its tapes import unchanged. It
 names the asker, the pair's thread and the request, and, asked back from a
-delegated thread, the start of the handoff it is about. Its `from` names no
+delegated thread or into a named one, the start of the handoff that thread
+serves. Its `from` names no
 request, so a turn's door never takes it for a colleague's result.
 
 **A delegated thread** is the work thread a handoff opened. A handoff waits
@@ -1108,15 +1109,16 @@ the delegator, wakes the delegator when it is idle and no other thread it
 handed over is at work, once however many end together; each wake counts
 toward the pair's twelve, so two teammates that delegate to each other cannot
 wake each other forever. A report from the person's own turn, or from a
-stopped or failed one, waits for what the delegator hears next. A handoff waiting only on the
-delegator reports nothing, since the question reaches the delegator itself.
+stopped or failed one, waits for what the delegator hears next. A handoff
+waiting only on the delegator reports nothing, since the question reaches the delegator itself.
 
-The delegation stands, after the result too, while the leases it was sent
-under hold and until the person stops the exchange or collaboration is
-revoked: that releases it, its thread reports no more, and what the delegator
-had not heard is dropped. While it stands it is the grant for its thread's
-questions back to the delegator, which reach the delegating conversation
-without a card.
+The delegation stands, after the result too, until the person stops the
+exchange or collaboration is revoked: that releases it, its thread reports no
+more, and what the delegator had not heard is dropped. The leases it was sent
+under are kept only by the running process: within a run, one that lapses
+ends the delegation too, but after a restart only a stop, a revocation or an
+unlink does. While it stands it is the grant for its thread's questions back
+to the delegator, which reach the delegating conversation without a card.
 
 The person talks in a delegated thread and continues it once it has closed,
 but does not archive it: it ends with its result, which is the delegator's and

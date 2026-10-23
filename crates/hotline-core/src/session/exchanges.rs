@@ -573,16 +573,23 @@ impl Room {
             target.revoke();
         }
         self.settle_invalid_collaboration();
-        // A handoff's turn, or the turn answering an ask in a handoff's thread,
-        // is running in that thread: stopping it stops that turn and closes
-        // the thread. One whose turn is over has nothing to stop, and what the
-        // person is saying to it now is theirs. An ask answered in its
+        // A handoff's turn is running in its own thread: stopping it stops that
+        // turn and closes the thread. One whose turn is over has nothing to
+        // stop, and what the person is saying to it now is theirs.
+        //
+        // An ask answered in a thread is only a line in it, so stopping it
+        // stops only the turn answering it, when that is the turn in flight:
+        // the thread, the handoff's turn and the person's own go on, and a
+        // line not yet begun is skipped at the door. An ask answered in its
         // recipient's main conversation has no thread, and that turn goes on:
         // only its answer is no longer returned.
         if request.phase == Phase::Running
             && let Some(thread) = &request.thread
         {
-            self.stop_work(thread, "Stopped.");
+            match request.intent {
+                Intent::Handoff => self.stop_work(thread, "Stopped."),
+                Intent::Ask => self.cancel_turn_answering(thread, &request.id),
+            }
         }
     }
     pub(super) fn begin_request(&self, id: &str) -> Result<(), String> {
@@ -605,18 +612,22 @@ impl Room {
     /// Saves what a request's turn came to. `Answer` for an ask, whose reply
     /// the pair's thread keeps too. `Waiting` when a handoff's turn stopped to
     /// wait on the person or a colleague, so the work is not over: the result
-    /// is held until the answer has carried it on. `Gone` when the request was
-    /// stopped meanwhile.
+    /// is held until the answer has carried it on. `Gone` when a handoff was
+    /// stopped meanwhile; a stopped ask's turn ends as an `Answer` nobody is
+    /// owed, for an ask never closes the thread it was answered in.
     pub(super) fn finish_request(&self, id: &str, reply: String, failed: bool) -> Finished {
         let _guard = lock(&self.exchange_lock);
         for mut pair in self.exchange_pairs() {
-            let Some(request) = pair
-                .requests
-                .iter_mut()
-                .find(|r| r.id == id && r.phase == Phase::Running)
-            else {
+            let Some(request) = pair.requests.iter_mut().find(|r| r.id == id) else {
                 continue;
             };
+            if request.phase != Phase::Running {
+                return if request.intent == Intent::Ask {
+                    Finished::Answer
+                } else {
+                    Finished::Gone
+                };
+            }
             if request.intent == Intent::Ask {
                 request.phase = Phase::Reply;
                 request.reply = reply;
@@ -655,7 +666,9 @@ impl Room {
     }
     /// Keep routing in the pair record, not the lifetime of the asking turn:
     /// a request the person was asked in a handoff's thread is a gate the
-    /// handoff's result waits behind.
+    /// handoff's result waits behind. One asked while an ask is being
+    /// answered there is a gate for nothing: the ask is answered whatever the
+    /// person does, and their answer is heard as an ordinary one.
     pub(super) fn link_handoff_human(
         &self,
         thread: Option<&str>,
@@ -666,6 +679,14 @@ impl Room {
             .and_then(|side| side.request());
         let Some(id) = handoff else { return Ok(()) };
         let _guard = lock(&self.exchange_lock);
+        if self
+            .exchange_pairs()
+            .iter()
+            .flat_map(|pair| &pair.requests)
+            .any(|r| r.id == id && r.intent == Intent::Ask)
+        {
+            return Ok(());
+        }
         if !self.exchange_lease_current(&id) {
             return Err("This handoff’s originating capability expired.".into());
         }

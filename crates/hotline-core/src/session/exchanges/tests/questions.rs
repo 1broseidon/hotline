@@ -2,7 +2,7 @@
 //! starts a turn there, or waits behind the one in flight, and the reply of
 //! that turn goes back to the asker. The pair's thread keeps both lines. One
 //! that names a handoff's thread is answered in that thread instead.
-use super::gates::{request, turn};
+use super::gates::{idle, request, turn};
 use super::*;
 use tokio::sync::Semaphore;
 
@@ -652,10 +652,14 @@ async fn stop_exchange_stops_the_turn_answering_an_ask_in_a_thread() {
         agents.cancel_count() > cancelled,
         "the thread's turn is cancelled"
     );
-    assert!(!room.work_is_open(&thread), "and its thread is closed");
 
     gate.add_permits(10);
+    until("the cancelled turn ends", || idle(&room, &thread)).await;
     tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        room.work_is_open(&thread),
+        "the thread stays open: it was never the ask's to close"
+    );
     let stopped = request(&room, "ada~bob", &id);
     assert_eq!(stopped.phase, Phase::Stopped);
     assert!(stopped.failed);
@@ -669,6 +673,213 @@ async fn stop_exchange_stops_the_turn_answering_an_ask_in_a_thread() {
             .as_str()
             .is_some_and(|id| id.starts_with("exchange-ended:"))),
         "Ada is told it stopped"
+    );
+}
+
+/// The ask's sender ends before the handoff's does: the ask is stopped, and
+/// the handoff's turn, which the ask was waiting behind, goes on to its result.
+#[tokio::test]
+async fn a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone() {
+    let (room, agents, gate) = gated(
+        "ask-in-thread-sender-gone",
+        vec![
+            turn("handed", "Build fixed.", "end_turn"),
+            turn("noted", "Noted.", "end_turn"),
+        ],
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    until("the handoff's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let thread = work_thread(&room, &handoff);
+    let sender = room.capability_lease("ada").scoped();
+    let sent = TeammateTools::new(&room, "ada")
+        .with_capability(sender.clone())
+        .call(
+            "message_teammate",
+            &json!({"to":"bob","message":"Which branch is it on?","intent":"ask","thread":handoff}),
+        )
+        .await
+        .unwrap();
+    let id = requested(&serde_json::from_str(&sent).unwrap());
+    until("the ask waits in the thread", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+
+    sender.revoke();
+    until("the ask is stopped", || {
+        request(&room, "ada~bob", &id).phase == Phase::Stopped
+    })
+    .await;
+    assert_eq!(agents.cancel_count(), 0, "no turn is cancelled");
+    assert!(room.work_is_open(&thread));
+    let running = request(&room, "ada~bob", &handoff);
+    assert!(running.phase == Phase::Running && running.started);
+
+    gate.add_permits(20);
+    done(&room, &handoff).await;
+    let results: Vec<_> = room
+        .tape("ada")
+        .into_iter()
+        .filter(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == handoff.as_str())
+        .collect();
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0]["cause"]["status"], "done");
+    assert!(
+        room.work_is_open(&thread),
+        "the ask's stop did not close it"
+    );
+    assert!(!request(&room, "ada~bob", &id).started);
+    assert!(answer_to(&room, &id).is_none());
+    assert_eq!(questions_heard(&agents), 0, "no turn took the ask up");
+}
+
+/// The person's own turn is the one in flight, with the ask waiting behind
+/// it: stopping the exchange does not cancel their turn.
+#[tokio::test]
+async fn stop_exchange_leaves_the_persons_turn_in_a_thread_alone() {
+    let (room, agents, gate) = gated(
+        "ask-in-thread-behind-the-person",
+        vec![
+            turn("handed", "Build fixed.", "end_turn"),
+            turn("person", "Done for the person.", "end_turn"),
+            turn("noted-1", "Noted.", "end_turn"),
+            turn("noted-2", "Noted.", "end_turn"),
+        ],
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    until("the handoff's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let thread = work_thread(&room, &handoff);
+    room.prompt_side(&thread, "the person's work", None)
+        .await
+        .unwrap();
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    until("the ask waits in the thread", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+    gate.add_permits(2);
+    until("the person's turn is running", || {
+        agents
+            .prompts()
+            .iter()
+            .any(|p| p.contains("the person's work"))
+    })
+    .await;
+    let cancelled = agents.cancel_count();
+
+    room.stop_exchange("ada", "bob").unwrap();
+    assert_eq!(agents.cancel_count(), cancelled, "their turn goes on");
+    assert!(!idle(&room, &thread));
+    assert!(room.work_is_open(&thread));
+
+    gate.add_permits(20);
+    until("the person's turn ends", || idle(&room, &thread)).await;
+    assert_eq!(request(&room, "ada~bob", &id).phase, Phase::Stopped);
+    assert_eq!(questions_heard(&agents), 0, "no turn took the ask up");
+    assert!(room.work_is_open(&thread));
+}
+
+/// A card the thread raises while it answers an ask waits for nobody: the
+/// ask is answered whatever the person does, and when they answer the card
+/// the thread hears it as it would any other answer.
+#[tokio::test]
+async fn a_card_raised_while_an_ask_is_answered_in_a_thread_is_heard_when_answered() {
+    let (room, agents, gate) = gated(
+        "ask-in-thread-card",
+        vec![
+            turn("handed", "Build fixed.", "end_turn"),
+            turn("asked", "I asked which colour.", "end_turn"),
+            turn("noted-1", "Noted.", "end_turn"),
+            turn("noted-2", "Noted.", "end_turn"),
+            turn("blue", "Painting it blue.", "end_turn"),
+        ],
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    until("the handoff's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let thread = work_thread(&room, &handoff);
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    until("the ask waits in the thread", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+    gate.add_permits(2);
+    until("the thread's turn answering the ask is running", || {
+        request(&room, "ada~bob", &id).started && questions_heard(&agents) == 1
+    })
+    .await;
+    TeammateTools::new(&room, "bob")
+        .for_work(thread.clone())
+        .call("request_human", &json!({"reason": "Which colour?"}))
+        .await
+        .unwrap();
+    assert!(
+        request(&room, "ada~bob", &id).human_actions.is_empty(),
+        "the ask waits on no card"
+    );
+
+    gate.add_permits(20);
+    done(&room, &id).await;
+    let action = in_thread(&room, &thread)
+        .iter()
+        .find(|v| v["kind"] == "human_action")
+        .expect("the card is in the thread")["actionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    room.answer_human(
+        "bob",
+        &action,
+        crate::contract::HumanAnswer::Done,
+        Some("Blue".into()),
+    )
+    .unwrap();
+    until("the thread hears the person's answer", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["id"] == format!("human-answer:{action}") && v["receipt"] == "read")
+    })
+    .await;
+    assert!(
+        agents
+            .prompts()
+            .iter()
+            .any(|p| p.contains("The person answered your request") && p.contains("Blue")),
+        "{:?}",
+        agents.prompts()
     );
 }
 

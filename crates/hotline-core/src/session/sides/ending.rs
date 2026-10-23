@@ -25,6 +25,21 @@ impl Room {
         self.finish_side(&side, End::Stopped, Some(outcome.to_string()));
     }
 
+    /// Cancels the turn in flight in a live thread when it is the one
+    /// answering `request`, and nothing else: the thread stays open, and the
+    /// lines waiting behind the turn stay queued.
+    pub(in crate::session) fn cancel_turn_answering(&self, side_id: &str, request: &str) {
+        let Some(side) = self.sides.get(side_id) else {
+            return;
+        };
+        if side.request().as_deref() != Some(request) {
+            return;
+        }
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
+    }
+
     /// Lets go of a thread's agent and leaves the thread open.
     pub(super) fn park_side(&self, side: &Arc<LiveSide>) {
         self.end_side(side, Ending::Park);

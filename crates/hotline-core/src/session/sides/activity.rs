@@ -45,7 +45,7 @@ impl Room {
                             voice: room.attached_voice(&side.thread),
                             text,
                             attachments: Vec::new(),
-                            handoff: None,
+                            request: None,
                             from: None,
                             delivery: None,
                         },

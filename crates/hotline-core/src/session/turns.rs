@@ -85,10 +85,10 @@ pub(super) struct Line {
     pub voice: Option<crate::voice::Origin>,
     pub text: String,
     pub attachments: Vec<Attachment>,
-    /// Set when the turn this line starts is a handoff's: the exchange's
+    /// Set when the turn this line starts answers an exchange request: the
     /// request it answers. Said by whoever produced the line, never read back
     /// off an id.
-    pub handoff: Option<HandoffLine>,
+    pub request: Option<RequestLine>,
     /// Where the line came from, when something came back for the thread: a
     /// colleague's result carries the exchange request it answers, which is
     /// checked again as the turn begins.
@@ -98,11 +98,11 @@ pub(super) struct Line {
     pub delivery: Option<String>,
 }
 
-/// The handoff a turn of a work thread belongs to.
-pub(super) struct HandoffLine {
-    /// The exchange request that opened the thread.
+/// The exchange request a turn belongs to.
+pub(super) struct RequestLine {
+    /// The exchange request the turn answers.
     pub request: String,
-    /// The card this line is the person's answer to, when the handoff had
+    /// The card this line is the person's answer to, when the request had
     /// stopped to wait on one.
     pub answer: Option<String>,
 }

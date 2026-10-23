@@ -917,7 +917,7 @@ async fn turn_admission_refuses_expired_dependency_before_the_worker_observes_it
         (delegated, room.capability_lease("bob")),
     );
     origin.revoke();
-    assert!(room.begin_handoff("expired-at-admission").is_err());
+    assert!(room.begin_request("expired-at-admission").is_err());
     assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].started);
 }
 
@@ -951,7 +951,7 @@ async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
     let (room, id, action, gate) = handoff_asking(name).await;
     gate.add_permits(2);
     until("the request waits on a person and bob's turn ends", || {
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Waiting
             && !room.mid_turn("bob")
     })
     .await;

@@ -382,7 +382,7 @@ impl Room {
                     voice: None,
                     text: timed(now_ms(), &handed(&spec.brief.task)),
                     attachments: Vec::new(),
-                    handoff: None,
+                    request: None,
                     from: None,
                     delivery: None,
                 },

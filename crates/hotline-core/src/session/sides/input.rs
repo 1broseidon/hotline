@@ -69,7 +69,7 @@ impl Room {
                     voice: self.attached_voice(thread),
                     text: brief,
                     attachments: Vec::new(),
-                    handoff: None,
+                    request: None,
                     from: None,
                     delivery: None,
                 },

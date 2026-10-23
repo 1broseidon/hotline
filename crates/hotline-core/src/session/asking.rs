@@ -465,13 +465,13 @@ impl Room {
         let from = DeliveryFrom::new(&home, Some(action_id.to_string()));
         match home.kind {
             ThreadKind::Side | ThreadKind::Call => {
-                let handoff = self.handoff_awaiting(persona_id, action_id).map(|request| {
-                    turns::HandoffLine {
+                let request = self.handoff_awaiting(persona_id, action_id).map(|request| {
+                    turns::RequestLine {
                         request,
                         answer: Some(action_id.to_string()),
                     }
                 });
-                self.deliver_into_work(&home.key, &delivery_id, cause, from, text, handoff)
+                self.deliver_into_work(&home.key, &delivery_id, cause, from, text, request)
                     .await
             }
             ThreadKind::Job if self.job_lives(&home.key) => {

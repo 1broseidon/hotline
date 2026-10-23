@@ -14,6 +14,7 @@ const { replaceDesks } = await import("../src/desks");
 const { ProvidersSection } = await import("../src/components/settings/Providers");
 const { accountJob } = await import("../src/components/accounts/AccountSignIn");
 const { nextAccountName } = await import("../src/components/accounts/words");
+const { ConnectProvider } = await import("../src/components/ConnectProvider");
 Reflect.deleteProperty(globalThis, "localStorage");
 
 const epoch = 1_800_000_000_000;
@@ -25,6 +26,7 @@ const providers: Provider[] = [
 	{ id: "github-copilot", name: "GitHub Copilot", credentialKinds: ["oauth"], modelDiscovery: true },
 	{ id: "ollama", name: "Ollama Local", credentialKinds: ["local"], modelDiscovery: true },
 	{ id: "openai", name: "OpenAI", credentialKinds: ["api_key"], modelDiscovery: true },
+	{ id: "openrouter", name: "OpenRouter", credentialKinds: ["oauth", "api_key"], modelDiscovery: true },
 ];
 
 function account(id: string, name: string, extra: Partial<AccountView> = {}, loginAt?: number): AccountView {
@@ -96,6 +98,7 @@ let checked: AccountView["status"];
 let cancelLands: boolean;
 let createRefusal: string | null;
 let deleteRefusal: string | null;
+let updateRefusal: string | null;
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
@@ -122,6 +125,7 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 		return created.credential;
 	}
 	if (cmd === "credential.update") {
+		if (updateRefusal !== null) throw new Error(updateRefusal);
 		const { id, ...edit } = params;
 		credentials = credentials.map((one) => (one.credential.id === id ? { ...one, credential: { ...one.credential, ...edit } } : one));
 		return credentials.find((one) => one.credential.id === id)?.credential;
@@ -183,6 +187,7 @@ beforeEach(async () => {
 	cancelLands = true;
 	createRefusal = null;
 	deleteRefusal = null;
+	updateRefusal = null;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -277,6 +282,18 @@ async function type(input: HTMLInputElement, value: string) {
 		input.dispatchEvent(new window.Event("input", { bubbles: true }));
 	});
 }
+async function key(element: HTMLElement, name: string) {
+	await act(async () => {
+		element.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+	});
+	await settle();
+}
+function asked(question: string): HTMLElement {
+	const found = [...container.querySelectorAll("p")].find((node) => node.textContent === question);
+	if (!found) throw new Error(`Missing question ${question}: ${text()}`);
+	return found.closest(".group-row") as HTMLElement;
+}
+const hasLabel = (name: string) => [...container.querySelectorAll("label")].some((node) => node.textContent === name);
 async function tick(title: string) {
 	const found = [...container.querySelectorAll("label")].find((node) => node.querySelector("input") && node.textContent?.startsWith(title));
 	if (!found) throw new Error(`Missing choice ${title}: ${text()}`);
@@ -339,6 +356,7 @@ describe("Settings › Providers", () => {
 		await openProvider("Anthropic");
 		await click("Add API key");
 		expect(field("Name").placeholder).toBe("Anthropic 2");
+		expect(field("API key").type).toBe("password");
 		await type(field("API key"), "sk-three");
 		await click("Save key");
 		expect(calls).toContainEqual(["credential.create", { providerId: "anthropic", label: "Anthropic 2", secret: "sk-three" }]);
@@ -360,7 +378,8 @@ describe("Settings › Providers", () => {
 		await mount();
 		await openProvider("Anthropic");
 		await click("Change key", row("Prod key"));
-		expect([...container.querySelectorAll("label")].some((node) => node.textContent === "Name")).toBe(false);
+		expect(hasLabel("Name")).toBe(false);
+		expect(field("API key").type).toBe("password");
 		await type(field("API key"), "sk-new");
 		await click("Save key");
 		expect(calls).toContainEqual(["credential.update", { id: "k1", secret: "sk-new" }]);
@@ -391,14 +410,92 @@ describe("Settings › Providers", () => {
 		await mount();
 		await openProvider("Anthropic");
 		await click("Remove key", row("Prod key"));
+		await click("Remove key", asked("Remove Prod key?"));
 		expect(calls).toContainEqual(["credential.delete", { id: "k1" }]);
 		expect(text()).toContain("Prod key can't be removed while Rae uses it.");
 		expect(row("Prod key")).toBeDefined();
+		expect(text()).not.toContain("Remove Prod key?");
+		// Said where the remove was pressed, not past the models.
+		const refusal = container.querySelector(".refusal")!;
+		const models = [...container.querySelectorAll(".group-title")].find((node) => node.textContent === "Models in the picker")!;
+		expect(refusal.compareDocumentPosition(models) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
 
-		deleteRefusal = null;
+	test("remove key asks once before anything is lost", async () => {
+		await mount();
+		await openProvider("Anthropic");
 		await click("Remove key", row("Personal key"));
+		expect(text()).toContain("Remove Personal key?");
+		expect(text()).toContain("Hotline forgets this key. It still works at Anthropic until you revoke it there.");
+		expect(hasButton("Rename", row("Personal key"))).toBe(false);
+		expect(named("credential.delete")).toHaveLength(0);
+		await click("Cancel");
+		expect(named("credential.delete")).toHaveLength(0);
+		expect(text()).not.toContain("Remove Personal key?");
+
+		await click("Remove key", row("Personal key"));
+		await click("Remove key", asked("Remove Personal key?"));
 		expect(calls).toContainEqual(["credential.delete", { id: "k2" }]);
 		expect(rows("Personal key")).toHaveLength(0);
+	});
+
+	test("change server keeps the server and starts from its address", async () => {
+		agents = [codex];
+		accounts = [];
+		credentials = [server("o1", "Ollama Local", "http://192.168.1.5:11434")];
+		await mount();
+		await openProvider("Ollama Local");
+		await click("Change server", row("Ollama Local"));
+		expect(hasLabel("Name")).toBe(false);
+		expect(field("Server URL").value).toBe("http://192.168.1.5:11434");
+		await type(field("Server URL"), "http://192.168.1.9:11434");
+		await click("Connect");
+		expect(calls).toContainEqual(["credential.update", { id: "o1", baseUrl: "http://192.168.1.9:11434" }]);
+		expect(named("credential.connect_local")).toHaveLength(0);
+		expect(row("Ollama Local").textContent).toContain("http://192.168.1.9:11434");
+
+		await click("Disconnect", row("Ollama Local"));
+		expect(text()).toContain("Disconnect Ollama Local?");
+		expect(named("credential.delete")).toHaveLength(0);
+	});
+
+	test("a refused rename keeps the old name and says why on the row", async () => {
+		updateRefusal = "Anthropic already has an account named Personal key.";
+		await mount();
+		await openProvider("Anthropic");
+		await click("Rename", row("Prod key"));
+		await type(field("Account name"), "Personal key");
+		await click("Save");
+		expect(calls).toContainEqual(["credential.update", { id: "k1", label: "Personal key" }]);
+		const input = field("Account name");
+		expect(input.value).toBe("Personal key");
+		expect(input.closest(".group-row")?.textContent).toContain("Anthropic already has an account named Personal key.");
+		await key(input, "Escape");
+		expect(row("Prod key").textContent).toContain("Default");
+		expect(rows("Personal key")).toHaveLength(1);
+	});
+
+	test("an OpenRouter sign-in is a key billed per use, signed in again or signed out", async () => {
+		agents = [codex];
+		accounts = [];
+		const made = login("r1", "OpenRouter");
+		credentials = [{ ...made, section: "api_key", credential: { ...made.credential, providerId: "openrouter" } }];
+		await mount();
+		await openProvider("OpenRouter");
+		expect(titles()).toEqual(["API keys", "Models in the picker"]);
+		expect(row("OpenRouter").textContent).toContain("Signed in with OpenRouter · pay per use · Not used yet");
+		expect([...row("OpenRouter").querySelectorAll("button")].map((node) => node.textContent)).toEqual(["Rename", "Sign in again", "Sign out"]);
+		await click("Add API key");
+		expect(hasButton("Sign in")).toBe(true);
+		expect(hasButton("API key")).toBe(true);
+	});
+
+	test("a provider with only Claude Code accounts has no models to pick", async () => {
+		credentials = [];
+		await mount();
+		await openProvider("Anthropic");
+		expect(titles()).toEqual(["Subscriptions", "API keys"]);
+		expect(text()).toContain("Hotline never sees a password or token: each agent's CLI keeps its own sign-in.");
 	});
 
 	test("a sign-in again keeps its account, and a signed-out one offers only Remove", async () => {
@@ -438,6 +535,9 @@ describe("Settings › Providers", () => {
 		expect(container.querySelector(".nt-card")?.textContent).toContain("Chat Completions · http://localhost:1234/v1");
 		expect(titles()).toEqual(["Models in the picker"]);
 		await click("Remove connection");
+		expect(text()).toContain("Remove LM Studio?");
+		expect(named("credential.delete")).toHaveLength(0);
+		await click("Remove connection", asked("Remove LM Studio?"));
 		expect(calls).toContainEqual(["credential.delete", { id: "x1" }]);
 		expect(band()).toBe("Providers");
 	});
@@ -453,6 +553,7 @@ describe("Settings › Providers", () => {
 		expect(hasButton("API key")).toBe(true);
 		await click("Claude subscription");
 		expect(field("Name").placeholder).toBe("Account 1");
+		expect(text()).toContain("Hotline never sees a password or token: each agent's CLI keeps its own sign-in.");
 		await click("Add and sign in");
 		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 1", startWith: "system_default" }]);
 		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a9" }]);
@@ -755,5 +856,31 @@ describe("Settings › Providers › Anthropic: Claude Code accounts", () => {
 	test("the next blank name skips a taken one", () => {
 		expect(nextAccountName(["Account 1", "account 3"])).toBe("Account 4");
 		expect(nextAccountName([])).toBe("Account 1");
+	});
+});
+
+describe("Connecting a provider where no name is asked, as the welcome does", () => {
+	const copilot = providers.find((one) => one.id === "github-copilot")!;
+	const anthropic = providers.find((one) => one.id === "anthropic")!;
+	async function connect(provider: Provider) {
+		await act(async () => {
+			root!.render(<ConnectProvider provider={provider} onConnected={() => {}} onCancel={() => {}} />);
+		});
+		await settle();
+	}
+
+	test("a sign-in starts on the one click that chose it, with no name field", async () => {
+		await connect(copilot);
+		expect(calls).toContainEqual(["credential.login", { providerId: "github-copilot" }]);
+		expect(hasLabel("Name")).toBe(false);
+		expect(text()).toContain("ABCD-1234");
+	});
+
+	test("a key is named for its provider, with no name field", async () => {
+		await connect(anthropic);
+		expect(hasLabel("Name")).toBe(false);
+		await type(field("API key"), "sk-first");
+		await click("Save key");
+		expect(calls).toContainEqual(["credential.create", { providerId: "anthropic", label: "Anthropic", secret: "sk-first" }]);
 	});
 });

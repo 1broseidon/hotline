@@ -2,17 +2,16 @@ import { Fragment, type ReactNode, useState } from "react";
 import type { AccountAgent, AccountSection, AccountsList, AccountView, Credential, CredentialAccount, CredentialKind, Provider, RosterEntry } from "../../generated/contract";
 import { PlusIcon } from "../../icons";
 import { openLink } from "../../native";
-import { initialOf } from "../../ui/Avatar";
-import { BackKey, Band } from "../../ui/Band";
 import { Refusal } from "../../ui/Refusal";
-import { Scroll } from "../../ui/Scroll";
 import { wire } from "../../wire";
 import { AccountSignIn } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
-import { ownSignIn, THIS_COMPUTER } from "../accounts/words";
+import { RenameField } from "../accounts/RenameField";
+import { NEVER_SEES_SIGN_IN, namesOf, ownSignIn, THIS_COMPUTER, usedByWords } from "../accounts/words";
 import { ConnectProvider } from "../ConnectProvider";
 import { CustomProviderForm } from "../CustomProviderForm";
-import { CliAccountRow, type CliAccounts, namesOf, RenameField, usedByWords } from "./CliAccountPage";
+import { AccountCard, AccountFrame, Confirm } from "./AccountFrame";
+import { CliAccountRow, type CliAccounts } from "./CliAccountPage";
 import { ProviderModels } from "./ProviderModels";
 
 export type Holding = {
@@ -75,41 +74,18 @@ const SECTIONS: { section: AccountSection; title: string; add: string }[] = [
 const CHANGE: Record<CredentialKind, string> = { api_key: "Change key", local: "Change server", oauth: "Sign in again" };
 const REMOVE: Record<CredentialKind, string> = { api_key: "Remove key", local: "Disconnect", oauth: "Sign out" };
 
+function removalWords(credential: Credential, providerName: string): { question: string; detail: string } {
+	if (credential.credentialKind === "oauth") return { question: `Sign out of ${credential.label}?`, detail: "Hotline forgets this sign-in." };
+	if (credential.credentialKind === "local") {
+		return { question: `Disconnect ${credential.label}?`, detail: "Hotline forgets this server. The server itself keeps running." };
+	}
+	return { question: `Remove ${credential.label}?`, detail: `Hotline forgets this key. It still works at ${providerName} until you revoke it there.` };
+}
+
 type Form = { add: AccountSection } | { change: CredentialAccount };
 
 function dayOf(at: number): string {
 	return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function Header({ name, detail, children }: { name: string; detail: string; children?: ReactNode }) {
-	return (
-		<section className="nt-card">
-			<div className="flex items-center gap-3">
-				<span className="nt-avatar" aria-hidden="true">
-					{initialOf(name)}
-				</span>
-				<span className="flex min-w-0 flex-1 flex-col">
-					<span className="welcome-card-title">{name}</span>
-					<span className="truncate text-sm text-ink-2">{detail}</span>
-				</span>
-			</div>
-			{children}
-		</section>
-	);
-}
-
-function Page({ name, onBack, children }: { name: string; onBack(): void; children: ReactNode }) {
-	return (
-		<div className="pane">
-			<Band>
-				<BackKey onBack={onBack} />
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{name}</h2>
-			</Band>
-			<Scroll>
-				<div className="pane-column flex flex-col gap-6">{children}</div>
-			</Scroll>
-		</div>
-	);
 }
 
 export function ProviderPage({
@@ -133,6 +109,7 @@ export function ProviderPage({
 }) {
 	const [form, setForm] = useState<Form | null>(null);
 	const [renaming, setRenaming] = useState<string | null>(null);
+	const [removing, setRemoving] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const { provider, agent } = holding;
 	const live = liveOf(holding);
@@ -160,18 +137,19 @@ export function ProviderPage({
 			try {
 				await wire.command("credential.delete", { id });
 			} finally {
+				setRemoving(null);
 				await reload();
 			}
 		});
 
-	const rename = (send: () => Promise<unknown>) =>
-		run(async () => {
-			await send();
-			await reload();
-		});
+	// The form stays until the list has the account it made, so the page never shows it missing.
+	const connected = async () => {
+		await reload();
+		setForm(null);
+	};
 
 	// A sign-in cancelled late may still have landed, so a cancel reads the list too.
-	const closeForm = () => {
+	const cancelled = () => {
 		setForm(null);
 		void reload();
 	};
@@ -184,10 +162,9 @@ export function ProviderPage({
 				<ConnectProvider
 					key={credential.id}
 					provider={provider}
-					kinds={[credential.credentialKind]}
-					credentialId={credential.id}
-					onConnected={closeForm}
-					onCancel={closeForm}
+					credential={credential}
+					onConnected={() => void connected()}
+					onCancel={cancelled}
 				/>
 			);
 		}
@@ -214,8 +191,8 @@ export function ProviderPage({
 				provider={provider}
 				kinds={kindsIn(open.add)}
 				taken={live.map((one) => one.credential.label)}
-				onConnected={closeForm}
-				onCancel={closeForm}
+				onConnected={() => void connected()}
+				onCancel={cancelled}
 			/>
 		);
 	};
@@ -255,42 +232,58 @@ export function ProviderPage({
 					{dot}
 					<RenameField
 						name={credential.label}
-						onSave={(label) => {
+						busy={busy}
+						onSave={async (label) => {
+							await wire.command("credential.update", { id: credential.id, label });
+							await reload();
 							setRenaming(null);
-							void rename(() => wire.command("credential.update", { id: credential.id, label }));
 						}}
 						onCancel={() => setRenaming(null)}
 					/>
 				</div>
 			);
 		}
+		const confirming = removing === credential.id;
 		return (
-			<div key={credential.id} className="group-row">
-				{dot}
-				<span className="group-row-text">
-					<span className="group-row-title">{credential.label}</span>
-					<span className="group-row-detail">{detailOf(one)}</span>
-				</span>
-				{credential.revoked ? (
-					<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove(credential.id)}>
-						Remove
-					</button>
-				) : (
-					<>
-						<button type="button" className="control btn-quiet" disabled={busy} onClick={() => setRenaming(credential.id)}>
-							Rename
-						</button>
-						{provider !== undefined && (
-							<button type="button" className="control btn-quiet" disabled={busy} onClick={() => setForm({ change: one })}>
-								{CHANGE[credential.credentialKind]}
-							</button>
-						)}
+			<Fragment key={credential.id}>
+				<div className="group-row">
+					{dot}
+					<span className="group-row-text">
+						<span className="group-row-title">{credential.label}</span>
+						<span className="group-row-detail">{detailOf(one)}</span>
+					</span>
+					{credential.revoked ? (
 						<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove(credential.id)}>
-							{REMOVE[credential.credentialKind]}
+							Remove
 						</button>
-					</>
+					) : (
+						!confirming && (
+							<>
+								<button type="button" className="control btn-quiet" disabled={busy} onClick={() => setRenaming(credential.id)}>
+									Rename
+								</button>
+								{provider !== undefined && (
+									<button type="button" className="control btn-quiet" disabled={busy} onClick={() => setForm({ change: one })}>
+										{CHANGE[credential.credentialKind]}
+									</button>
+								)}
+								<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => setRemoving(credential.id)}>
+									{REMOVE[credential.credentialKind]}
+								</button>
+							</>
+						)
+					)}
+				</div>
+				{confirming && (
+					<Confirm
+						{...removalWords(credential, holding.name)}
+						action={REMOVE[credential.credentialKind]}
+						busy={busy}
+						onConfirm={() => void remove(credential.id)}
+						onCancel={() => setRemoving(null)}
+					/>
 				)}
-			</div>
+			</Fragment>
 		);
 	};
 
@@ -302,8 +295,12 @@ export function ProviderPage({
 						<CliAccountRow
 							view={view}
 							cli={cli}
+							busy={busy}
 							onOpen={() => onOpenAccount(view.account.id)}
-							onRename={(name) => void rename(() => wire.command("accounts.rename", { accountId: view.account.id, name }))}
+							onRename={async (name) => {
+								await wire.command("accounts.rename", { accountId: view.account.id, name });
+								await reload();
+							}}
 						/>
 						{cli.signing?.accountId === view.account.id && (
 							<div className="group-row flex-col items-stretch">
@@ -317,8 +314,11 @@ export function ProviderPage({
 	const shown = SECTIONS.filter(({ section }) => offers(section) || rowsIn(section).length > 0);
 
 	return (
-		<Page name={holding.name} onBack={onBack}>
-			<Header name={holding.name} detail={countsText(holding) || (holding.credentials.length > 0 ? "Signed out" : "No accounts yet")} />
+		<AccountFrame title={holding.name} onBack={onBack}>
+			<AccountCard
+				name={holding.name}
+				detail={<span className="truncate">{countsText(holding) || (holding.credentials.length > 0 ? "Signed out" : "No accounts yet")}</span>}
+			/>
 			{form !== null && formView(form)}
 			<section>
 				<div className="flex flex-col gap-6">
@@ -338,8 +338,8 @@ export function ProviderPage({
 							</div>
 							{section === "subscription" && agent !== undefined && (
 								<p className="group-hint">
-									{agent.name} keeps each account's sign-in, history and settings in its own folder. An API key or token in Hotline's environment is
-									not passed to a teammate on an account, so it cannot stand in for the sign-in.
+									{NEVER_SEES_SIGN_IN} {agent.name} keeps each account's sign-in, history and settings in its own folder. An API key or token in
+									Hotline's environment is not passed to a teammate on an account, so it cannot stand in for the sign-in.
 								</p>
 							)}
 							{section === "subscription" && holding.providerId === "github-copilot" && rowsIn(section).length > 0 && (
@@ -360,11 +360,11 @@ export function ProviderPage({
 				</div>
 				<p className="group-hint">A teammate on {holding.name} picks one of these when it has more than one to choose from.</p>
 			</section>
+			{refusal !== null && <Refusal message={refusal} />}
 			{live.length > 0 && (
 				<ProviderModels providerId={holding.providerId} discover={provider?.modelDiscovery ?? false} custom={false} enabledModels={enabledModels} />
 			)}
-			{refusal !== null && <Refusal message={refusal} />}
-		</Page>
+		</AccountFrame>
 	);
 }
 
@@ -407,6 +407,7 @@ export function ConnectionPage({
 	onBack(): void;
 }) {
 	const [editing, setEditing] = useState(false);
+	const [removing, setRemoving] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const how = `${credential.custom?.api === "responses" ? "Responses" : "Chat Completions"} · ${credential.baseUrl ?? ""}`;
 
@@ -421,24 +422,44 @@ export function ConnectionPage({
 			refuse(error instanceof Error ? error.message : String(error));
 		} finally {
 			setBusy(false);
+			setRemoving(false);
 			await reload();
 		}
 	};
 
 	return (
-		<Page name={credential.label} onBack={onBack}>
-			<Header name={credential.label} detail={credential.revoked ? "Signed out" : how}>
+		<AccountFrame title={credential.label} onBack={onBack}>
+			<AccountCard name={credential.label} detail={<span className="truncate">{credential.revoked ? "Signed out" : how}</span>}>
 				<div className="flex flex-wrap items-center justify-end gap-2">
 					{!credential.revoked && (
 						<button type="button" className="control btn" disabled={busy || editing} onClick={() => setEditing(true)}>
 							Edit connection
 						</button>
 					)}
-					<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove()}>
-						{credential.revoked ? "Remove" : "Remove connection"}
-					</button>
+					{!removing && (
+						<button
+							type="button"
+							className="control btn-quiet text-danger"
+							disabled={busy}
+							onClick={() => (credential.revoked ? void remove() : setRemoving(true))}
+						>
+							{credential.revoked ? "Remove" : "Remove connection"}
+						</button>
+					)}
 				</div>
-			</Header>
+			</AccountCard>
+			{removing && (
+				<section className="grouped">
+					<Confirm
+						question={`Remove ${credential.label}?`}
+						detail="Hotline forgets this connection and any key it keeps for it."
+						action="Remove connection"
+						busy={busy}
+						onConfirm={() => void remove()}
+						onCancel={() => setRemoving(false)}
+					/>
+				</section>
+			)}
 			{editing && (
 				<CustomProviderForm
 					credential={credential}
@@ -449,8 +470,8 @@ export function ConnectionPage({
 					onCancel={() => setEditing(false)}
 				/>
 			)}
-			{!credential.revoked && <ProviderModels providerId={credential.providerId} discover={false} custom enabledModels={enabledModels} />}
 			{refusal !== null && <Refusal message={refusal} />}
-		</Page>
+			{!credential.revoked && <ProviderModels providerId={credential.providerId} discover={false} custom enabledModels={enabledModels} />}
+		</AccountFrame>
 	);
 }

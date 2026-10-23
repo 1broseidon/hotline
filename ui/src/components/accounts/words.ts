@@ -1,9 +1,11 @@
-import type { AccountStatusState, AccountStatusView } from "../../generated/contract";
+import type { AccountStatusState, AccountStatusView, RosterEntry } from "../../generated/contract";
 
 /** Nothing here names an agent; the agent's own name comes from the registry and is passed in. */
 
 export const SYSTEM_DEFAULT = "";
 export const THIS_COMPUTER = "This computer";
+
+export const NEVER_SEES_SIGN_IN = "Hotline never sees a password or token: each agent's CLI keeps its own sign-in.";
 
 export function ownSignIn(agentName: string): string {
 	return `${agentName}'s own sign-in, as before`;
@@ -40,6 +42,15 @@ export function freeName(base: string, taken: string[]): string {
 	let name = base;
 	for (let number = 2; names.has(name.toLowerCase()); number++) name = `${base} ${number}`;
 	return name;
+}
+
+/** The core answers teammate ids; a teammate the roster no longer has keeps its id. */
+export function namesOf(ids: string[], roster: RosterEntry[]): string[] {
+	return ids.map((id) => roster.find((entry) => entry.persona.id === id)?.persona.name ?? id);
+}
+
+export function usedByWords(names: string[]): string {
+	return names.length === 0 ? "Not used yet" : `Used by ${names.join(", ")}`;
 }
 
 export function namesList(names: string[]): string {

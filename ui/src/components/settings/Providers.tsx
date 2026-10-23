@@ -8,6 +8,7 @@ import { Scroll } from "../../ui/Scroll";
 import { tagsFor } from "../../useFor";
 import { wire } from "../../wire";
 import { AddAccountForm } from "../accounts/AddAccountForm";
+import { NEVER_SEES_SIGN_IN } from "../accounts/words";
 import { Budgets } from "../Budgets";
 import { ConnectProvider, connectionMethod, ProviderRow } from "../ConnectProvider";
 import { UseFor } from "../UseFor";
@@ -184,9 +185,10 @@ export function ProvidersSection({
 								go(providerId, null);
 								cli.added(made, email);
 							}}
-							onConnected={(providerId) => {
+							onConnected={async (providerId) => {
+								// Its page opens once the list has it, never on a page that lacks it.
+								await reload();
 								setAdding(null);
-								void reload();
 								go(providerId, null);
 							}}
 							onRefused={() => void reload()}
@@ -281,7 +283,7 @@ function Adding({
 	agents: AccountAgent[];
 	onWay(way: Way): void;
 	onAdded(made: AccountView, email: string | undefined, providerId: string): void;
-	onConnected(providerId: string): void;
+	onConnected(providerId: string): Promise<void>;
 	onRefused(): void;
 	onCancel(): void;
 }) {
@@ -312,17 +314,21 @@ function Adding({
 			</section>
 		);
 	}
+	// A provider on the add list holds no account yet, so no name is taken.
 	if ("agent" in way) {
 		return (
-			<AddAccountForm
-				backendId={way.agent.backendId}
-				agentName={way.agent.name}
-				takesEmail={way.agent.takesEmail}
-				taken={[]}
-				onAdded={(made, email) => onAdded(made, email, provider.id)}
-				onRefused={onRefused}
-				onCancel={onCancel}
-			/>
+			<div>
+				<AddAccountForm
+					backendId={way.agent.backendId}
+					agentName={way.agent.name}
+					takesEmail={way.agent.takesEmail}
+					taken={[]}
+					onAdded={(made, email) => onAdded(made, email, provider.id)}
+					onRefused={onRefused}
+					onCancel={onCancel}
+				/>
+				<p className="group-hint">{NEVER_SEES_SIGN_IN}</p>
+			</div>
 		);
 	}
 	return (
@@ -330,7 +336,8 @@ function Adding({
 			key={provider.id}
 			provider={provider}
 			kinds={way.kinds}
-			onConnected={(made) => onConnected(made.providerId)}
+			taken={[]}
+			onConnected={(made) => void onConnected(made.providerId)}
 			onCancel={onCancel}
 		/>
 	);

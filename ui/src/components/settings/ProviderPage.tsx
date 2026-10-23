@@ -241,7 +241,7 @@ export function ProviderPage({
 					{dot}
 					<span className="group-row-text">
 						<span className="group-row-title">{credential.label}</span>
-						<span className="group-row-detail">{detailOf(one)}</span>
+						<span className="group-row-detail whitespace-normal">{detailOf(one)}</span>
 					</span>
 					{credential.revoked ? (
 						<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove(credential.id)}>

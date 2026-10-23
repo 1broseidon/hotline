@@ -172,7 +172,7 @@ async fn a_delegated_threads_question_to_its_opener_reaches_the_job_it_was_hande
 }
 
 /// The card the person has not answered yet on `whose` tape.
-fn open_card(room: &Room, whose: &str) -> Option<serde_json::Value> {
+pub(super) fn open_card(room: &Room, whose: &str) -> Option<serde_json::Value> {
     room.tape(whose)
         .into_iter()
         .find(|v| v["kind"] == "permission" && v.get("decision").is_none())

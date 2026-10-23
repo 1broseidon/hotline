@@ -200,7 +200,7 @@ impl Room {
             .iter()
             .find_map(|gate| match self.human_card(&request.to, &gate.id) {
                 Some((TranscriptEvent::HumanAction { reason, .. }, _)) => Some(reason),
-                _ => None,
+                _ => self.collaboration_card(&requests, &gate.id),
             });
         turn_report(
             driven,
@@ -208,6 +208,28 @@ impl Room {
                 card: card.as_deref(),
             },
         )
+    }
+
+    /// The card a question waits behind before it can be asked at all: the
+    /// person allowing its asker to ask that colleague, on the asker's main
+    /// conversation. A question to another desk is allowed there.
+    fn collaboration_card(&self, requests: &[Request], ask: &str) -> Option<String> {
+        let ask = requests
+            .iter()
+            .find(|r| r.id == ask && r.intent == Intent::Ask && r.phase == Phase::Queued)?;
+        if crate::linked::is_linked(&ask.to) || self.about_live(ask).is_some() {
+            return None;
+        }
+        let asker = self.participant(&ask.from).ok()?;
+        let colleague = self.persona(&ask.to).ok()?;
+        if self.collaboration_granted(&asker, &colleague, false) {
+            return None;
+        }
+        let asker = crate::session::links::shown(&asker);
+        Some(format!(
+            "Allow {asker} to ask {} to work? The card is in {asker}'s main conversation.",
+            colleague.name
+        ))
     }
 
     /// The latest handoff into a thread, in any phase: a thread the person

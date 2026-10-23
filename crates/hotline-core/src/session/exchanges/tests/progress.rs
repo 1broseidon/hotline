@@ -2,6 +2,7 @@
 //! reaches the teammate that handed it over as a report: shown at once, kept
 //! until heard, and heard once, one summary per thread. A report that may
 //! wake its delegator wakes it once when it is idle.
+use super::ask_back::open_card;
 use super::gates::{ask_carol, ask_from, handed_off, idle, request, turn};
 use super::*;
 use crate::contract::{ScheduleKind, ScheduledJob, SideEnd};
@@ -243,6 +244,54 @@ async fn a_handoff_turn_waiting_on_another_colleague_reports_it() {
         shown[0].ends_with(": I asked Carol which colour.\n\nWaiting on a colleague's answer."),
         "{shown:?}"
     );
+}
+
+/// Bob may not ask Carol yet: his question waits on the person's card in his
+/// main conversation, and the handoff's report says so.
+#[tokio::test]
+async fn a_handoff_turn_waiting_on_a_question_the_person_must_allow_reports_the_card() {
+    let log = scratch("progress-collaboration-card");
+    enrol(&log, &persona("ada"));
+    for (id, name) in [("bob", "Bob"), ("carol", "Carol")] {
+        enrol(
+            &log,
+            &Persona {
+                name: name.into(),
+                reach: Some(crate::contract::Reach::Workspace),
+                ..persona(id)
+            },
+        );
+    }
+    let gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::new(turn("asked", "I asked Carol which colour.", "end_turn")).gated(gate.clone()),
+    );
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Arc::new(super::gates::Apart {
+            bob: bob.clone(),
+            others: Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn"))),
+        }),
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = send(&room, "handoff").await;
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let thread = work_thread(&room, &handoff);
+    ask_carol(&room, &thread).await;
+    gate.add_permits(2);
+    until("ada is told", || !notices(&room, "ada").is_empty()).await;
+    assert_eq!(
+        notices(&room, "ada"),
+        [
+            "Bob, in your handoff thread “work handoff”: I asked Carol which colour.\n\nWaiting on the person: Allow Bob to ask Carol to work? The card is in Bob's main conversation."
+        ]
+    );
+    assert_eq!(request(&room, "ada~bob", &handoff).progress.len(), 1);
+    until("the card is up in Bob's main conversation", || {
+        open_card(&room, "bob").is_some()
+    })
+    .await;
 }
 
 /// The question reaches the teammate that handed the thread over by itself,

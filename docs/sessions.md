@@ -1374,7 +1374,11 @@ that handoff on (below).
 delegated thread that is not the handoff's result reports to its opener: the
 teammate's own last words, cut to 400 characters, with "Waiting on the
 person: …" and the card's reason, "Waiting on a colleague's answer.", "This
-turn was stopped." or "This turn failed." after them as the turn ended. What
+turn was stopped." or "This turn failed." after them as the turn ended. A
+question to a colleague that the person must first allow is a wait on the
+person: its reason is the collaboration card's own question, "Allow Mack to
+ask Clementine to work?", and that the card is in the asker's main
+conversation, since grants are per teammate and that is where it is raised. What
 the person said in the thread is never in it; a turn of the person's that
 ended well with the teammate saying nothing reports nothing, and so does a
 handoff turn waiting only on questions to its opener. The report goes where the result would (the

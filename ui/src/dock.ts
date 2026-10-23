@@ -1,4 +1,4 @@
-import type { Ability, LinkState, ScheduleEntry, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { Ability, LinkState, RosterEntry, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import { sideTitle } from "./links";
 
 /**
@@ -214,6 +214,38 @@ export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false)
  */
 export function threadOwnerId(row: ThreadSummary | undefined, listedFor: string): string {
 	return row === undefined || row.thread.kind === "pair" ? listedFor : row.personaId;
+}
+
+/**
+ * Whether a turn of a thread is running, as the roster row of the teammate
+ * whose agent it is says. The roster hears a turn start and end first; a list
+ * is read at a moment, and in the pane of the teammate who handed a thread
+ * over it is not read again when the receiver's turn ends. A pair, which no
+ * roster row follows, is the list's word.
+ */
+export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, row: ThreadSummary | undefined): boolean {
+	if (owner === undefined) return row?.working === true;
+	switch (thread.kind) {
+		case "side":
+			return owner.sides?.some((side) => side.sideId === thread.key && side.working) ?? false;
+		case "run":
+			return owner.subagents?.some((run) => run.runId === thread.key) ?? false;
+		case "job":
+			return owner.workingJobs?.includes(thread.key) ?? false;
+		case "call":
+			return owner.workingCalls?.includes(thread.key) ?? false;
+		default:
+			return row?.working === true;
+	}
+}
+
+/** The listed rows, each running or not as `turnRunning` says. */
+export function withTurns(rows: ThreadSummary[], roster: RosterEntry[], listedFor: string): ThreadSummary[] {
+	return rows.map((row) => {
+		const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
+		const working = turnRunning(owner, row.thread, row);
+		return working === row.working ? row : { ...row, working };
+	});
 }
 
 /** The teammate who handed a work thread over, when one did rather than the person. */

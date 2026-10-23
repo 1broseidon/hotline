@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ScheduleEntry, ThreadSummary } from "../src/generated/contract";
+import type { RosterEntry, ScheduleEntry, ThreadSummary } from "../src/generated/contract";
 import {
 	clampDock,
 	DOCK_KEY,
@@ -23,8 +23,10 @@ import {
 	saveDockWidth,
 	threadDot,
 	threadOwnerId,
+	turnRunning,
 	withLinks,
 	withoutWords,
+	withTurns,
 } from "../src/dock";
 
 const thread = (key: string, kind: ThreadSummary["thread"]["kind"] = "side", extra: Partial<ThreadSummary> = {}): ThreadSummary => ({
@@ -245,6 +247,20 @@ describe("what a person can do in a thread", () => {
 		expect(threadOwnerId(handed, "poe")).toBe("poe");
 		expect(threadOwnerId(thread("ada~mack", "pair", { personaId: "ada" }), "mack")).toBe("mack");
 		expect(threadOwnerId(undefined, "mack")).toBe("mack");
+	});
+
+	test("runs a turn as the roster of the teammate whose agent it is says, over a list read at a moment", () => {
+		const rosterOf = (id: string, rest: Partial<RosterEntry> = {}) => ({ persona: { id }, waiting: false, drawing: false, ...rest }) as RosterEntry;
+		const handed = thread("h", "side", { personaId: "poe", opener: { personaId: "mack", name: "Mack" }, working: true });
+		const roster = [rosterOf("mack"), rosterOf("poe", { sides: [{ sideId: "h", title: "h", startedAt: 1, working: false }] })];
+		// Listed in Mack's pane while Poe's agent started, then Poe's roster said it rests.
+		expect(withTurns([handed], roster, "mack")[0]?.working).toBe(false);
+		expect(turnRunning(roster[1], handed.thread, handed)).toBe(false);
+		expect(turnRunning(rosterOf("poe", { sides: [{ sideId: "h", title: "h", startedAt: 1, working: true }] }), handed.thread, undefined)).toBe(true);
+		// No roster row follows a pair, nor a teammate gone from the roster: the list says.
+		const pair = thread("ada~mack", "pair", { personaId: "ada", working: true });
+		expect(withTurns([pair], [rosterOf("mack")], "mack")[0]?.working).toBe(true);
+		expect(turnRunning(undefined, handed.thread, handed)).toBe(true);
 	});
 
 	test("knows a handoff by a teammate opener other than its own teammate", () => {

@@ -40,6 +40,7 @@ use crate::tools::{
 use crate::vault::Vault;
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use hotline_room::provider_auth::ChosenAccount;
 use rig::message::{
     DocumentSourceKind, Image, ImageMediaType, Message, ToolResultContent, UserContent,
 };
@@ -58,7 +59,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
 const MAX_TURNS: usize = 10_000;
 
 /// The name a teammate on this driver answers to.
-const AGENT_NAME: &str = "Hotline Agent";
+pub(crate) const AGENT_NAME: &str = "Hotline Agent";
 
 /// Only the tool's subject, not the whole command, goes in the title line.
 const TITLE_CHARS: usize = 120;
@@ -247,6 +248,9 @@ pub struct InProcess {
     /// Commands this session's turns left running when they replied. They
     /// die with the driver, and with [`Driver::invalidate`].
     processes: Arc<crate::session::jobs::Processes>,
+    /// Named on every ask for the keys, whatever the model: the keys put it
+    /// in place of its own provider's default and leave the others alone.
+    account: Option<ChosenAccount>,
 }
 
 impl InProcess {
@@ -284,6 +288,7 @@ impl InProcess {
             capability: None,
             mcp_vault: None,
             processes: crate::session::jobs::Processes::new(output_dir),
+            account: None,
         }
     }
 
@@ -303,6 +308,25 @@ impl InProcess {
     pub(crate) fn with_mcp_vault(mut self, vault: Arc<Vault>) -> Self {
         self.mcp_vault = Some(vault);
         self
+    }
+
+    pub(crate) fn with_account(mut self, account: Option<ChosenAccount>) -> Self {
+        self.account = account;
+        self
+    }
+
+    /// A failed turn names its credential only when there was a choice of
+    /// one, so a room with one account per provider writes the notice it
+    /// always has.
+    fn account_on_notice(&self, model: &str) -> Option<String> {
+        let provider = model.split('/').next().unwrap_or_default();
+        match &self.account {
+            Some(account) if account.provider_id == provider => Some(account.id.clone()),
+            _ => self
+                .keys
+                .default_account(provider)
+                .and_then(|(id, others)| others.then_some(id)),
+        }
     }
 
     fn info(&self, keys: &HashMap<String, ProviderAuth>) -> DriverInfo {
@@ -335,7 +359,7 @@ impl InProcess {
 #[async_trait]
 impl Driver for InProcess {
     fn current_info(&self) -> Option<DriverInfo> {
-        Some(self.info(&self.keys.provider_auth()))
+        Some(self.info(&self.keys.provider_auth_for(self.account.as_ref())))
     }
 
     /// A started driver has a model unless the desk had no provider to give
@@ -350,7 +374,7 @@ impl Driver for InProcess {
         if let Some(capability) = &self.capability {
             capability.check()?;
         }
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         // With no provider there is nothing to run a model on. The teammate
         // still comes up, with no model, so it can say why before anyone
         // sends it a word: see `startup_failure`.
@@ -474,7 +498,7 @@ impl Driver for InProcess {
     }
 
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         let provider = model_id.split('/').next().unwrap_or("");
         if !keys.contains_key(provider) {
             return Err(format!(
@@ -500,7 +524,7 @@ impl Driver for InProcess {
         if config_id != "effort" {
             return Err("This agent does not offer that setting.".to_string());
         }
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         let model = lock(&self.model).clone();
         if value.is_empty() {
             *lock(&self.effort) = models::default_effort(&model);
@@ -609,10 +633,11 @@ impl InProcess {
         let model = lock(&self.model).clone();
         let metadata = self.keys.model_metadata();
         let output_limit = metadata.get(&model).and_then(|model| model.output_limit);
-        let keys = self.keys.provider_auth();
+        let keys = self.keys.provider_auth_for(self.account.as_ref());
         let meter = turn::ChatMeter::for_model(self.keys.budget(), &keys, &model, &metadata);
         let turn = Turn {
             keys,
+            account_on_notice: self.account_on_notice(&model),
             model: model.clone(),
             output_limit,
             context_limit: metadata.get(&model).and_then(|m| m.context_limit),
@@ -662,6 +687,7 @@ impl InProcess {
             }
             if let Err(error) = result {
                 let mut error = error.checked_against_sign_in(&turn.model, &turn.keys).await;
+                error.account_id.clone_from(&turn.account_on_notice);
                 for auth in turn.keys.values() {
                     match auth {
                         ProviderAuth::ApiKey(key)
@@ -695,6 +721,7 @@ impl InProcess {
 /// so the turn owns it and the driver stays free to answer other calls.
 struct Turn {
     keys: HashMap<String, ProviderAuth>,
+    account_on_notice: Option<String>,
     model: String,
     /// The Chat budget this turn's rounds are metered against; `None` for a
     /// model that costs nothing per token, or a desk without budgets.

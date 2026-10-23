@@ -98,6 +98,7 @@ fn scripted(
 fn fixture() -> (Turn, Template) {
     let turn = Turn {
         keys: HashMap::new(),
+        account_on_notice: None,
         model: "test/model".into(),
         output_limit: None,
         context_limit: None,

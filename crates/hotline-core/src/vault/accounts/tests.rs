@@ -129,6 +129,25 @@ fn a_chosen_accounts_turn_reads_the_keychain_once() {
 }
 
 #[test]
+fn the_default_account_says_whether_its_provider_has_another_live_one() {
+    let vault = vault("accounts-default-account");
+    let a = vault.create("anthropic", "A", "key-a").unwrap();
+    let b = vault.create("anthropic", "B", "key-b").unwrap();
+    let c = vault.create("openai", "C", "key-c").unwrap();
+    let d = vault.create("openai", "D", "key-d").unwrap();
+    vault.revoke(&d.id).unwrap();
+
+    assert_eq!(
+        vault.default_account("anthropic"),
+        Some((a.id.clone(), true))
+    );
+    assert_eq!(vault.default_account("openai"), Some((c.id, false)));
+    assert_eq!(vault.default_account("xai"), None);
+    vault.revoke(&a.id).unwrap();
+    assert_eq!(vault.default_account("anthropic"), Some((b.id, false)));
+}
+
+#[test]
 fn a_chosen_account_that_is_revoked_or_gone_never_becomes_another() {
     let vault = vault("accounts-signed-out");
     vault.create("anthropic", "A", "key-a").unwrap();

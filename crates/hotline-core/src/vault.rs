@@ -359,7 +359,7 @@ impl Vault {
         Self::credentials(&self.log.load(&StreamId::Room))
     }
 
-    fn credentials(events: &[Value]) -> Vec<Credential> {
+    pub(crate) fn credentials(events: &[Value]) -> Vec<Credential> {
         events
             .iter()
             .filter(|event| event.get("kind").and_then(Value::as_str) == Some("credential"))

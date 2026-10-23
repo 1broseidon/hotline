@@ -39,27 +39,35 @@ async fn an_unknown_account_refusal_is_private_for_the_desk_and_the_owner() {
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     let room: Arc<dyn RoomHandle> = desk.clone();
-    let mut ada = crate::session::tests::persona("ada");
-    ada.backend_id = "claude-acp".to_string();
-    ada.account_id = Some("33333333-3333-4333-8333-333333333333".to_string());
-    ada.cwd = root.path().join("ada").to_string_lossy().into_owned();
-    crate::session::tests::enrol(&desk.log, &ada);
-    for seat in [Seat::Desk, Seat::Owner] {
-        let answer = remote_control_answer(
-            seat,
-            &room,
-            &desk.log,
-            &desk.parts(),
-            json!({"id":1,"cmd":"session.start","params":{"personaId":"ada"}}),
-        )
-        .await;
-        let error = answer["error"].as_str().unwrap_or_default();
-        for part in [
-            "Pick a Claude Code account for Ada: the one it was set to is not on this desk.",
-            r#""kind":"account_unavailable""#,
-            r#""code":"unknown_account""#,
-        ] {
-            assert!(error.contains(part), "{answer}");
+    for (persona_id, backend_id, agent) in [
+        ("ada", "claude-acp", "Claude Code"),
+        ("hal", "hotline", "Hotline Agent"),
+    ] {
+        let mut teammate = crate::session::tests::persona(persona_id);
+        teammate.backend_id = backend_id.to_string();
+        teammate.account_id = Some("33333333-3333-4333-8333-333333333333".to_string());
+        teammate.cwd = root.path().join(persona_id).to_string_lossy().into_owned();
+        crate::session::tests::enrol(&desk.log, &teammate);
+        for seat in [Seat::Desk, Seat::Owner] {
+            let answer = remote_control_answer(
+                seat,
+                &room,
+                &desk.log,
+                &desk.parts(),
+                json!({"id":1,"cmd":"session.start","params":{"personaId":persona_id}}),
+            )
+            .await;
+            let error = answer["error"].as_str().unwrap_or_default();
+            let private = format!(
+                "Pick a {agent} account for Ada: the one it was set to is not on this desk."
+            );
+            for part in [
+                private.as_str(),
+                r#""kind":"account_unavailable""#,
+                r#""code":"unknown_account""#,
+            ] {
+                assert!(error.contains(part), "{answer}");
+            }
         }
     }
     for command in ["session.start", "session.prompt"] {

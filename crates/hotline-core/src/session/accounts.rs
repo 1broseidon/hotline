@@ -18,6 +18,7 @@ use crate::contract::{AccountHold, AccountStatusView, LoginAttemptView, Persona,
 use crate::driver::acp::StartBounds;
 use crate::log::Log;
 use crate::room;
+use hotline_room::provider_auth::ChosenAccount;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -33,6 +34,14 @@ pub(super) fn start_account(
             .unwrap_or_else(|| persona.backend_id.clone());
         refusal.public_sentence(&persona.name, &agent)
     })
+}
+
+pub(super) fn hotline_account(
+    log: &Log,
+    persona: &Persona,
+) -> Result<Option<ChosenAccount>, String> {
+    resolve::hotline(log, persona)
+        .map_err(|refusal| refusal.public_sentence(&persona.name, crate::driver::rig::AGENT_NAME))
 }
 
 pub(super) struct Accounts {

@@ -2,9 +2,11 @@
 //!
 //! The wire asks a [`RoomHandle`] for what it does not own — a session, a
 //! secret, the models a key can reach — and the session room asks a
-//! [`ProviderKeys`] for credentials. This is the one place those two seams
-//! are joined to the real things, so the shell and the headless harness open
-//! a desk the same way and get the same room.
+//! [`ProviderKeys`](crate::session::ProviderKeys) for credentials. This is
+//! the one place those two seams are joined to the real things, so the shell
+//! and the headless harness open a desk the same way and get the same room.
+
+mod keys;
 
 use crate::contract::{
     AccountStatusView, Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary,
@@ -16,12 +18,13 @@ use crate::log::{Log, StreamId};
 use crate::mcp::{McpOAuth, McpServer};
 use crate::models::Client;
 use crate::providers::rig_login;
-use crate::session::{ProviderAuth, ProviderKeys, Room};
+use crate::session::{ProviderAuth, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use crate::{room, skills};
 use async_trait::async_trait;
 pub(crate) use hotline_room::tls::install_crypto_provider;
+use keys::DeskCredentials;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -30,47 +33,6 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
 use tokio_util::sync::CancellationToken;
-
-/// The vault's keys and the room's model settings, as one seam.
-///
-/// The driver builds `SessionInfo.models` from [`ProviderKeys`] alone and
-/// has no log. Reading the filter and the preferred model here, each time,
-/// is how a saved choice is in force on the next turn without a restart.
-struct DeskCredentials {
-    vault: Arc<Vault>,
-    log: Log,
-    budget: Arc<crate::voice::metering::Budget>,
-}
-
-impl ProviderKeys for DeskCredentials {
-    fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
-        Vault::provider_auth(&self.vault)
-    }
-
-    fn enabled_models(&self) -> HashMap<String, Vec<String>> {
-        crate::models::enabled_models(&crate::room::settings(&self.log))
-    }
-
-    fn preferred_model(&self) -> Option<String> {
-        crate::models::preferred_model(&crate::room::settings(&self.log))
-    }
-
-    fn model_metadata(&self) -> HashMap<String, CatalogModel> {
-        self.vault.model_metadata()
-    }
-
-    fn account_models(&self) -> HashMap<String, Vec<String>> {
-        self.vault.account_models()
-    }
-
-    fn web_search_keys(&self) -> crate::websearch::Keys {
-        self.vault.web_search_keys()
-    }
-
-    fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
-        Some(self.budget.clone())
-    }
-}
 
 /// How far an in-flight device-code login has got. Lives only in this
 /// process: a finished login stays queryable until Hotline exits.

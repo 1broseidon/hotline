@@ -462,6 +462,7 @@ async fn a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question() 
         context_limit: None,
         meter: None,
         keys: HashMap::new(),
+        account_on_notice: None,
         model: "nope/none".to_string(),
         effort: None,
         preamble: "you are Ada".to_string(),
@@ -1033,6 +1034,7 @@ async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
                 token_dir: dir.clone(),
             },
         )]),
+        account_on_notice: None,
         model: "github-copilot/claude-opus-5.5".to_string(),
         effort: None,
         preamble: "you are Ada".to_string(),
@@ -1215,4 +1217,5 @@ async fn a_computer_server_writes_its_eight_tools_on_the_ledger_under_origin_com
     served.abort();
 }
 
+mod accounts;
 mod pins;

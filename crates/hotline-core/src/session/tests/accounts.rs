@@ -2,6 +2,7 @@ use super::*;
 use crate::contract::{
     AccountHold, AccountStatusState, AccountStatusView, AgentAccount, SessionAccount, ThreadKind,
 };
+use hotline_room::provider_auth::ChosenAccount;
 
 const A: &str = "11111111-1111-4111-8111-111111111111";
 const B: &str = "22222222-2222-4222-8222-222222222222";
@@ -153,6 +154,76 @@ async fn an_unknown_account_refuses_the_start_in_public_words() {
         room.start("ada").await.unwrap_err(),
         "Ada can't start: its Claude Code account needs attention at the desk."
     );
+}
+
+#[tokio::test]
+async fn an_unknown_hotline_account_refuses_the_start_in_public_words() {
+    let log = scratch("hotline-account-unknown");
+    enrol(
+        &log,
+        &Persona {
+            account_id: Some("33333333-3333-4333-8333-333333333333".to_string()),
+            ..persona("ada")
+        },
+    );
+    let room = Room::new(log, Arc::new(DeskKeys));
+    assert_eq!(
+        room.start("ada").await.unwrap_err(),
+        "Ada can't start: its Hotline Agent account needs attention at the desk."
+    );
+}
+
+/// The account each of the driver's asks names.
+#[derive(Default)]
+struct Asked(Mutex<Vec<Option<ChosenAccount>>>);
+
+impl ProviderKeys for Asked {
+    fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
+        DeskKeys.provider_auth()
+    }
+
+    fn provider_auth_for(&self, account: Option<&ChosenAccount>) -> HashMap<String, ProviderAuth> {
+        lock(&self.0).push(account.cloned());
+        DeskKeys.provider_auth()
+    }
+}
+
+#[tokio::test]
+async fn a_hotline_driver_holds_a_credential_of_any_provider_and_no_agent_account() {
+    let log = scratch("hotline-account-held");
+    accounts(&log, 1);
+    let vault = Vault::open_with_store(
+        log.root(),
+        log.clone(),
+        Arc::new(crate::credentials::MemoryStore::default()),
+    )
+    .unwrap();
+    let work = vault.create("anthropic", "Work", "not-a-real-key").unwrap();
+    let old = vault.create("openai", "Old", "not-a-real-key").unwrap();
+    vault.revoke(&old.id).unwrap();
+    let held = |credential: &crate::contract::Credential| ChosenAccount {
+        id: credential.id.clone(),
+        provider_id: credential.provider_id.clone(),
+    };
+    for (account_id, expected) in [
+        (work.id.clone(), Some(held(&work))),
+        (old.id.clone(), Some(held(&old))),
+        (A.to_string(), None),
+    ] {
+        enrol(
+            &log,
+            &Persona {
+                account_id: Some(account_id),
+                ..persona("ada")
+            },
+        );
+        let keys = Arc::new(Asked::default());
+        let room = Room::new(log.clone(), keys.clone());
+        room.start("ada").await.unwrap();
+        let asked = lock(&keys.0).clone();
+        assert!(!asked.is_empty());
+        assert!(asked.iter().all(|asked| *asked == expected), "{asked:?}");
+    }
 }
 
 fn on_accounts(name: &str, agents: Arc<Fake>) -> (Arc<Room>, String, String) {

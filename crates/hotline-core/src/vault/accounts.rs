@@ -29,6 +29,18 @@ impl Vault {
             .collect()
     }
 
+    pub(crate) fn default_account(&self, provider_id: &str) -> Option<(String, bool)> {
+        let events = self.log.load(&StreamId::Room);
+        let (credential, _) = self
+            .connections_from(&events, &self.read_secrets())
+            .remove(provider_id)?;
+        let live = Self::credentials(&events)
+            .iter()
+            .filter(|credential| credential.provider_id == provider_id && !credential.revoked)
+            .count();
+        Some((credential.id, live > 1))
+    }
+
     pub fn provider_auth_for(
         &self,
         account: Option<&ChosenAccount>,

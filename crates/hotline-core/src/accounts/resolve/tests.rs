@@ -106,10 +106,6 @@ fn an_account_this_desk_does_not_have_is_refused_in_both_sentences() {
         unknown(UNKNOWN)
     );
     assert_eq!(
-        resolve(&desk.root, &desk.log, &on_its_agent(OTHER)).unwrap_err(),
-        unknown(OTHER)
-    );
-    assert_eq!(
         account(&desk.root, &desk.log, OTHER).unwrap_err(),
         unknown(OTHER)
     );
@@ -122,6 +118,33 @@ fn an_account_this_desk_does_not_have_is_refused_in_both_sentences() {
     assert_eq!(
         refusal.public_sentence("Ada", "Claude Code"),
         "Ada can't start: its Claude Code account needs attention at the desk."
+    );
+}
+
+#[test]
+fn an_account_of_another_backend_or_a_credential_is_ignored_and_an_unknown_one_refused() {
+    let desk = desk();
+    let vault = crate::vault::Vault::open_with_store(
+        &desk.root,
+        desk.log.clone(),
+        std::sync::Arc::new(crate::credentials::MemoryStore::default()),
+    )
+    .unwrap();
+    let credential = vault.create("anthropic", "Work", "not-a-real-key").unwrap();
+    let revoked = vault.create("openai", "Old", "not-a-real-key").unwrap();
+    vault.revoke(&revoked.id).unwrap();
+    for account_id in [OTHER, &credential.id, &revoked.id] {
+        assert!(
+            matches!(
+                resolve(&desk.root, &desk.log, &ada(Some(account_id), "claude-acp")),
+                Ok(None)
+            ),
+            "{account_id}"
+        );
+    }
+    assert_eq!(
+        resolve(&desk.root, &desk.log, &ada(Some(UNKNOWN), "claude-acp")).unwrap_err(),
+        unknown(UNKNOWN)
     );
 }
 

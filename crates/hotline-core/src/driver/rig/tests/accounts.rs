@@ -1,0 +1,200 @@
+use super::*;
+use crate::driver::failure::ACCOUNT_SIGNED_OUT;
+use hotline_room::provider_auth::ChosenAccount;
+
+/// What the vault would hand a turn: `chosen` when the driver names an
+/// account, `default` when it names none. Every ask is kept, so a call site
+/// that forgot the account shows up as a `None` among the `Some`s.
+struct Keys {
+    default: HashMap<String, ProviderAuth>,
+    chosen: HashMap<String, ProviderAuth>,
+    default_account: Option<(String, bool)>,
+    asked: Mutex<Vec<Option<ChosenAccount>>>,
+}
+
+impl ProviderKeys for Keys {
+    fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
+        self.default.clone()
+    }
+
+    fn provider_auth_for(&self, account: Option<&ChosenAccount>) -> HashMap<String, ProviderAuth> {
+        lock(&self.asked).push(account.cloned());
+        match account {
+            Some(_) => self.chosen.clone(),
+            None => self.default.clone(),
+        }
+    }
+
+    fn default_account(&self, _provider_id: &str) -> Option<(String, bool)> {
+        self.default_account.clone()
+    }
+}
+
+fn unavailable(why: &str) -> ProviderAuth {
+    ProviderAuth::Unavailable(why.to_string())
+}
+
+fn keys(default: ProviderAuth, chosen: ProviderAuth) -> Keys {
+    Keys {
+        default: HashMap::from([("anthropic".to_string(), default)]),
+        chosen: HashMap::from([("anthropic".to_string(), chosen)]),
+        default_account: None,
+        asked: Mutex::default(),
+    }
+}
+
+fn account_b() -> ChosenAccount {
+    ChosenAccount {
+        id: "b".to_string(),
+        provider_id: "anthropic".to_string(),
+    }
+}
+
+/// The teammate's tools hold the room weakly, so the test holds it.
+struct Agent {
+    driver: InProcess,
+    _room: Arc<crate::session::Room>,
+    _scratch: tempfile::TempDir,
+}
+
+async fn started(name: &str, keys: Arc<Keys>, account: Option<ChosenAccount>) -> Agent {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let room = crate::session::Room::new(crate::log::Log::open(root.join("room")), keys.clone());
+    let persona = Persona {
+        cwd: root.to_string_lossy().into_owned(),
+        reach: Some(Reach::Workspace),
+        model_id: Some("anthropic/claude-sonnet-4-5".to_string()),
+        ..test_persona(&format!("rig-accounts-{name}"))
+    };
+    let driver = InProcess::new(
+        keys,
+        String::new(),
+        Vec::new(),
+        root.join("out"),
+        TeammateTools::new(&room, persona.id.clone()),
+    )
+    .with_account(account);
+    Driver::start(&driver, &persona).await.unwrap();
+    Agent {
+        driver,
+        _room: room,
+        _scratch: scratch,
+    }
+}
+
+/// The notice a turn that cannot reach its provider ends with.
+async fn failed_turn(driver: &InProcess) -> String {
+    let mut updates = driver
+        .prompt(
+            "Is the crane free?".to_string(),
+            Vec::new(),
+            Reach::Workspace,
+        )
+        .await;
+    let mut notice = None;
+    while let Some(update) = updates.recv().await {
+        match update {
+            Update::Notice { text, .. } => notice = Some(text),
+            Update::Turn { stop_reason, .. } => {
+                assert_eq!(stop_reason, "failed");
+                break;
+            }
+            _ => {}
+        }
+    }
+    notice.expect("a failed turn says why")
+}
+
+#[tokio::test]
+async fn a_chosen_account_signs_only_its_providers_turns() {
+    for account in [Some(account_b()), None] {
+        let keys = Arc::new(Keys {
+            default: HashMap::from([
+                ("anthropic".to_string(), unavailable("anthropic's default")),
+                ("openai".to_string(), unavailable("openai's default")),
+            ]),
+            chosen: HashMap::from([
+                ("anthropic".to_string(), unavailable("account b")),
+                ("openai".to_string(), unavailable("openai's default")),
+            ]),
+            default_account: None,
+            asked: Mutex::default(),
+        });
+        let agent = started("chosen-signs", keys.clone(), account.clone()).await;
+        let driver = &agent.driver;
+        assert!(driver.current_info().is_some());
+        driver.set_config("effort", "").await.unwrap();
+        let on_anthropic = failed_turn(driver).await;
+        driver.set_model("openai/gpt-5.5").await.unwrap();
+        let on_openai = failed_turn(driver).await;
+
+        assert_eq!(*lock(&keys.asked), vec![account.clone(); 6]);
+        let signed_by = if account.is_some() {
+            "account b"
+        } else {
+            "anthropic's default"
+        };
+        assert!(on_anthropic.contains(signed_by), "{on_anthropic}");
+        assert_eq!(
+            on_anthropic.contains(r#""accountId":"b""#),
+            account.is_some(),
+            "{on_anthropic}"
+        );
+        assert!(on_openai.contains("openai's default"), "{on_openai}");
+        assert!(!on_openai.contains("accountId"), "{on_openai}");
+    }
+}
+
+#[tokio::test]
+async fn a_turn_on_a_signed_out_account_fails_as_a_sign_in_and_names_it_by_id() {
+    const LABEL: &str = "Work laptop";
+    let keys = Arc::new(keys(unavailable(LABEL), unavailable(ACCOUNT_SIGNED_OUT)));
+    let agent = started("signed-out", keys, Some(account_b())).await;
+    let notice = failed_turn(&agent.driver).await;
+    for part in [r#""kind":"auth""#, r#""accountId":"b""#, ACCOUNT_SIGNED_OUT] {
+        assert!(notice.contains(part), "{part}: {notice}");
+    }
+    assert!(!notice.contains(LABEL), "{notice}");
+}
+
+#[tokio::test]
+async fn a_locked_keychain_fails_the_chosen_account_with_its_own_words() {
+    let keys = Arc::new(keys(
+        unavailable("the default credential"),
+        unavailable("token store failed: keychain locked"),
+    ));
+    let agent = started("keychain", keys.clone(), Some(account_b())).await;
+    let notice = failed_turn(&agent.driver).await;
+    for part in [
+        r#""kind":"keychain""#,
+        "keychain locked",
+        r#""accountId":"b""#,
+    ] {
+        assert!(notice.contains(part), "{part}: {notice}");
+    }
+    assert!(!notice.contains("the default credential"), "{notice}");
+    assert!(
+        lock(&keys.asked)
+            .iter()
+            .all(|asked| *asked == Some(account_b()))
+    );
+}
+
+#[tokio::test]
+async fn a_failed_turn_names_the_default_account_only_when_its_provider_has_others() {
+    for (default_account, named) in [
+        (Some(("a".to_string(), true)), true),
+        (Some(("a".to_string(), false)), false),
+        (None, false),
+    ] {
+        let keys = Arc::new(Keys {
+            default_account,
+            ..keys(unavailable("x"), unavailable("x"))
+        });
+        let agent = started("default-named", keys, None).await;
+        let notice = failed_turn(&agent.driver).await;
+        assert_eq!(notice.contains(r#""accountId":"a""#), named, "{notice}");
+        assert_eq!(notice.contains("accountId"), named, "{notice}");
+    }
+}

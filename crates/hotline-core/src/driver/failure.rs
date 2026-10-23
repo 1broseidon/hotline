@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -188,6 +189,7 @@ impl Failure {
         {
             Kind::Quota
         } else if matches!(status, Some(401 | 403))
+            || body == ACCOUNT_SIGNED_OUT
             || contains(&[
                 "invalid_api_key",
                 "authentication_error",
@@ -369,8 +371,8 @@ impl Failure {
     }
 
     /// A 401 or 403 on a turn says the provider refused, not why. When the
-    /// teammate's provider is a sign-in with a model list, the list is asked
-    /// once with the same sign-in: if it still answers, the sign-in is fine and
+    /// turn was signed by a sign-in with a model list, the list is asked once
+    /// with that same sign-in: if it still answers, the sign-in is fine and
     /// the notice says the provider is refusing, instead of sending the person
     /// to sign in again. Any other provider keeps the sign-in wording.
     pub async fn checked_against_sign_in(
@@ -391,17 +393,17 @@ impl Failure {
         match (wiring.client, auth) {
             (Client::ChatGpt, ProviderAuth::Login { token_dir }) => {
                 let listing = crate::providers::chatgpt::list_models(token_dir);
-                self.refused_if_listed(provider, "ChatGPT is refusing requests", listing)
+                self.refused_if_listed(token_dir, "ChatGPT is refusing requests", listing)
                     .await
             }
             (Client::Copilot, ProviderAuth::Login { token_dir }) => {
                 let listing = crate::providers::copilot::list_models(token_dir);
-                self.refused_if_listed(provider, "GitHub Copilot is refusing requests", listing)
+                self.refused_if_listed(token_dir, "GitHub Copilot is refusing requests", listing)
                     .await
             }
             (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
                 let listing = crate::providers::xai::list_models(tokens);
-                self.refused_if_listed(provider, "xAI is refusing requests", listing)
+                self.refused_if_listed(tokens.path(), "xAI is refusing requests", listing)
                     .await
             }
             _ => self,
@@ -409,20 +411,21 @@ impl Failure {
     }
 
     /// The probe itself. `listing` is only awaited when no verdict on this
-    /// provider's sign-in is fresher than [`VERDICT_FRESH`]; one that fails or
-    /// does not answer in time leaves the sign-in wording.
+    /// sign-in is fresher than [`VERDICT_FRESH`]; one that fails or does not
+    /// answer in time leaves the sign-in wording. A verdict is kept by where
+    /// the sign-in lives, since a provider may have several.
     async fn refused_if_listed(
         mut self,
-        provider: &str,
+        sign_in: &Path,
         title: &'static str,
         listing: impl Future<Output = Result<Vec<ListedModel>, String>>,
     ) -> Self {
-        static VERDICTS: Mutex<Option<HashMap<String, (Instant, bool)>>> = Mutex::new(None);
+        static VERDICTS: Mutex<Option<HashMap<PathBuf, (Instant, bool)>>> = Mutex::new(None);
         let fresh = {
             let verdicts = VERDICTS.lock().unwrap_or_else(PoisonError::into_inner);
             verdicts
                 .as_ref()
-                .and_then(|verdicts| verdicts.get(provider))
+                .and_then(|verdicts| verdicts.get(sign_in))
                 .filter(|(asked, _)| asked.elapsed() < VERDICT_FRESH)
                 .map(|(_, listed)| *listed)
         };
@@ -437,7 +440,7 @@ impl Failure {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .get_or_insert_with(HashMap::new)
-                .insert(provider.to_string(), (Instant::now(), listed));
+                .insert(sign_in.to_path_buf(), (Instant::now(), listed));
             listed
         };
         if listed {
@@ -889,13 +892,8 @@ mod tests {
             let models_url = format!("{base}/{sign_in}/models");
             let listing =
                 crate::providers::chatgpt::list_models_at(dir.path(), &models_url, "0.161.2");
-            // Each case is its own provider to the verdict cache.
             let failure = failure
-                .refused_if_listed(
-                    &format!("chatgpt-{sign_in}"),
-                    "ChatGPT is refusing requests",
-                    listing,
-                )
+                .refused_if_listed(dir.path(), "ChatGPT is refusing requests", listing)
                 .await;
             verdicts.push(failure);
         }
@@ -928,16 +926,43 @@ mod tests {
                 "request",
             )
         };
-        let provider = format!("probe-once-{}", uuid::Uuid::new_v4());
+        let sign_in = std::env::temp_dir().join(format!("probe-once-{}", uuid::Uuid::new_v4()));
         let first = refused()
-            .refused_if_listed(&provider, "X is refusing requests", probe())
+            .refused_if_listed(&sign_in, "X is refusing requests", probe())
             .await;
         let second = refused()
-            .refused_if_listed(&provider, "X is refusing requests", probe())
+            .refused_if_listed(&sign_in, "X is refusing requests", probe())
             .await;
         assert_eq!(first.kind, Kind::ProviderRefused);
         assert_eq!(second.kind, Kind::ProviderRefused);
         assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn two_sign_ins_of_one_provider_do_not_share_a_verdict() {
+        let refused = || {
+            Failure::classify(
+                r#"{"error":{"code":"invalid_api_key"}}"#,
+                Some(401),
+                "request",
+            )
+        };
+        let run = uuid::Uuid::new_v4();
+        let a = std::env::temp_dir().join(format!("openai-codex-a-{run}"));
+        let b = std::env::temp_dir().join(format!("openai-codex-b-{run}"));
+        let listed = refused()
+            .refused_if_listed(&a, "ChatGPT is refusing requests", async { Ok(Vec::new()) })
+            .await;
+        let asked = std::sync::atomic::AtomicBool::new(false);
+        let unlisted = refused()
+            .refused_if_listed(&b, "ChatGPT is refusing requests", async {
+                asked.store(true, std::sync::atomic::Ordering::SeqCst);
+                Err("This sign-in is gone.".to_string())
+            })
+            .await;
+        assert_eq!(listed.kind, Kind::ProviderRefused);
+        assert!(asked.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(unlisted.kind, Kind::Auth);
     }
 
     /// A provider with no model list to ask, or a failure that is not a

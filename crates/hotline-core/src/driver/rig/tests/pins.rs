@@ -129,6 +129,7 @@ fn turn_on(
 ) -> Turn {
     Turn {
         keys,
+        account_on_notice: None,
         model: model.into(),
         meter: None,
         output_limit: None,

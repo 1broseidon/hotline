@@ -58,11 +58,21 @@ fn refused_at_the_desk(log: &Log, persona_id: &str, error: String) -> String {
     let Ok(persona) = living(log, persona_id) else {
         return error;
     };
-    let Err(refusal) = crate::accounts::resolve::resolve(log.root(), log, &persona) else {
+    let (refused, agent) = if persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
+        (
+            crate::accounts::resolve::hotline(log, &persona).err(),
+            crate::driver::rig::AGENT_NAME.to_string(),
+        )
+    } else {
+        (
+            crate::accounts::resolve::resolve(log.root(), log, &persona).err(),
+            crate::driver::acp::registry::name_of(log.root(), &persona.backend_id)
+                .unwrap_or_else(|| persona.backend_id.clone()),
+        )
+    };
+    let Some(refusal) = refused else {
         return error;
     };
-    let agent = crate::driver::acp::registry::name_of(log.root(), &persona.backend_id)
-        .unwrap_or_else(|| persona.backend_id.clone());
     if !error.contains(&refusal.public_sentence(&persona.name, &agent)) {
         return error;
     }

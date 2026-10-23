@@ -6,9 +6,11 @@
 //! send an account's sign-in somewhere else.
 
 use super::support::{AccountSupport, account_support};
-use crate::contract::Persona;
-use crate::log::Log;
+use crate::contract::{Credential, Persona};
+use crate::log::{Log, StreamId};
+use crate::vault::Vault;
 use crate::{paths, private_dir, room};
+use hotline_room::provider_auth::ChosenAccount;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -74,9 +76,10 @@ impl AccountRefusal {
     }
 }
 
-/// The account `persona` runs under: `None` when it has none, or when its agent
-/// cannot run under one (the choice stays stored and is ignored, so it applies
-/// again if the teammate returns to an agent that can).
+/// The account `persona` runs under: `None` when it has none, when its agent
+/// cannot run under one, or when it is set to another agent's account or to a
+/// Hotline Agent credential. The choice stays stored and is ignored, so it
+/// applies again if the teammate returns to where it can.
 pub(crate) fn resolve(
     root: &Path,
     log: &Log,
@@ -88,13 +91,52 @@ pub(crate) fn resolve(
     if account_support(&persona.backend_id).is_none() {
         return Ok(None);
     }
-    let resolved = account(root, log, account_id)?;
-    if resolved.backend_id != persona.backend_id {
-        return Err(AccountRefusal::UnknownAccount {
+    match room::agent_accounts(log)
+        .into_iter()
+        .find(|row| &row.id == account_id)
+    {
+        Some(row) if row.backend_id == persona.backend_id => {
+            account(root, log, account_id).map(Some)
+        }
+        Some(_) => Ok(None),
+        None if credential(log, account_id).is_some() => Ok(None),
+        None => Err(AccountRefusal::UnknownAccount {
             account_id: account_id.clone(),
-        });
+        }),
     }
-    Ok(Some(resolved))
+}
+
+/// The credential a Hotline Agent teammate is set to, revoked or not and of
+/// whichever provider: a turn on another provider's model ignores it. An
+/// agent's account is ignored here, as a credential is by [`resolve`].
+pub(crate) fn hotline(
+    log: &Log,
+    persona: &Persona,
+) -> Result<Option<ChosenAccount>, AccountRefusal> {
+    let Some(account_id) = &persona.account_id else {
+        return Ok(None);
+    };
+    if let Some(credential) = credential(log, account_id) {
+        return Ok(Some(ChosenAccount {
+            id: credential.id,
+            provider_id: credential.provider_id,
+        }));
+    }
+    if room::agent_accounts(log)
+        .iter()
+        .any(|row| &row.id == account_id)
+    {
+        return Ok(None);
+    }
+    Err(AccountRefusal::UnknownAccount {
+        account_id: account_id.clone(),
+    })
+}
+
+fn credential(log: &Log, id: &str) -> Option<Credential> {
+    Vault::credentials(&log.load(&StreamId::Room))
+        .into_iter()
+        .find(|credential| credential.id == id)
 }
 
 /// The account with `account_id`, for a command about the account itself: its

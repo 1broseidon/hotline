@@ -128,27 +128,13 @@ impl Room {
                     unprompted: None,
                     retry: false,
                     wake: false,
+                    request: None,
                 },
                 attachments,
             },
         )
         .await;
         Ok(())
-    }
-
-    /// Something that came back for a teammate, into its own conversation:
-    /// written to its tape first, so it survives a restart and is heard once,
-    /// and then handed to the driver behind the turn in flight, or on a turn
-    /// of its own if there is none. It never cuts into a turn, and a teammate
-    /// that is not running is started for it.
-    pub(crate) async fn deliver_into(
-        self: &Arc<Self>,
-        persona_id: &str,
-        cause: DeliveryCause,
-        text: String,
-    ) -> Result<(), String> {
-        self.deliver_identified(persona_id, &new_id(), cause, text)
-            .await
     }
 
     pub(super) fn handoff_queued(&self, persona_id: &str, id: &str) -> bool {
@@ -161,12 +147,18 @@ impl Room {
         })
     }
 
+    /// Something for a teammate, into its own conversation: written to its
+    /// tape first, so it survives a restart and is heard once, and then handed
+    /// to the driver behind the turn in flight, or on a turn of its own if
+    /// there is none. It never cuts into a turn, and a teammate that is not
+    /// running is started for it. `request` is the ask its turn answers.
     pub(super) async fn deliver_identified(
         self: &Arc<Self>,
         persona_id: &str,
         id: &str,
         cause: DeliveryCause,
         text: String,
+        request: Option<turns::RequestLine>,
     ) -> Result<(), String> {
         let _working = self.working()?;
         if self.handoff_queued(persona_id, id) {
@@ -204,6 +196,7 @@ impl Room {
         let mut wired = Wired::words(timed(ts, &wire));
         wired.said = Some(id.into());
         wired.from = Some(from);
+        wired.request = request;
         lock(&session.dispatched_deliveries).insert(id.into());
         self.dispatch(session, wired);
         Ok(())
@@ -506,6 +499,7 @@ pub(super) fn said(events: &[Value]) -> Vec<Said> {
                         && matches!(
                             cause,
                             DeliveryCause::Handoff { .. }
+                                | DeliveryCause::Question { .. }
                                 | DeliveryCause::Peer {
                                     request_id: Some(_),
                                     ..

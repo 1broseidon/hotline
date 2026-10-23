@@ -493,6 +493,8 @@ struct Wired {
     retry: bool,
     /// Only wakes the agent to hear its reports: skipped once they are heard.
     wake: bool,
+    /// The colleague's ask this line's turn answers.
+    request: Option<turns::RequestLine>,
 }
 
 /// The call a queued line came from, if it came from one: the thread it says
@@ -519,6 +521,7 @@ impl Wired {
             unprompted: None,
             retry: false,
             wake: false,
+            request: None,
         }
     }
 

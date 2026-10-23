@@ -275,6 +275,34 @@ async fn an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_
 }
 
 #[tokio::test]
+async fn a_linked_teammates_ask_is_answered_by_the_recipients_main_conversation() {
+    let (laptop, grizzly) = pair("ask-main");
+    let _channel = Channel::open(&laptop, &grizzly);
+    grizzly
+        .allow_sender("lou", &format!("{LAPTOP}/clementine"))
+        .unwrap();
+    let id = message(&laptop, "clementine", "Lou", "ask").await.unwrap();
+    until("the answer is in Clementine's conversation", || {
+        delivered(&laptop, "clementine", &id).is_some()
+    })
+    .await;
+
+    let lou = grizzly.tape("lou");
+    let question = lou
+        .iter()
+        .position(|v| v["cause"]["kind"] == "question" && v["cause"]["requestId"] == id.as_str())
+        .expect("the question is in Lou's main conversation on grizzly");
+    assert_eq!(lou[question]["text"], "Check the CI runners.");
+    let reply = lou[question..]
+        .iter()
+        .find(|v| v["kind"] == "agent")
+        .expect("Lou answers it there");
+    let answer = delivered(&laptop, "clementine", &id).unwrap();
+    assert_eq!(answer["cause"]["status"], "done");
+    assert_eq!(answer["text"], reply["text"]);
+}
+
+#[tokio::test]
 async fn a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread()
  {
     let (laptop, grizzly) = pair("handoff");

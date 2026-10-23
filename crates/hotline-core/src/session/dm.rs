@@ -51,6 +51,8 @@ pub(super) struct Hold {
     from_voice: bool,
     /// The lines the driver took mid-turn, in the order it took them.
     steered: Vec<Wired>,
+    /// The colleague's ask this turn answers.
+    request: Option<String>,
 }
 
 impl Occupant for Session {
@@ -109,6 +111,15 @@ impl Occupant for Session {
             session.abandon();
             return Begin::Stop;
         }
+        // A colleague's question is answered only while its ask is still
+        // open: one stopped while it waited here is never taken up.
+        let request = wired.request.as_ref().map(|line| line.request.clone());
+        if let Some(request) = &request
+            && let Err(error) = room.begin_request(request)
+        {
+            eprintln!("question not taken up: {error}");
+            return Begin::Skip;
+        }
         if let Some(said) = wired.said.clone() {
             lock(&session.unread).push(said);
         }
@@ -140,6 +151,7 @@ impl Occupant for Session {
             reach,
             from_voice,
             steered: Vec::new(),
+            request,
         })
     }
 
@@ -193,6 +205,15 @@ impl Occupant for Session {
                 wire
             };
             lock(&session.turns).waiting.push_front(wire);
+        }
+        if let Some(request) = &held.request {
+            let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
+                matches!(
+                    reason,
+                    "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
+                )
+            });
+            room.finish_request(request, driven.replies.join("\n\n"), failed);
         }
         Then::Next
     }

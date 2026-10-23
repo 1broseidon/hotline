@@ -511,7 +511,7 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
     assert!(Seat::Desk.permits(&Command::ThreadCancel {
         thread: thread(ThreadKind::Job),
     }));
-    // `peers.answer_permission` is the owner's, so a pair's card is.
+    // A pair raises no card, so a companion answers none there.
     for kind in [
         ThreadKind::Dm,
         ThreadKind::Side,

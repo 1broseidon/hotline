@@ -498,18 +498,14 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
 }
 
 /// The agent asked the person; the answer flips the same card and unblocks
-/// the tool with the sentence the agent reads. A colleague's side session
-/// asks this way: it has no conversation of its own to be answered in.
+/// the wait with the sentence the agent reads.
 #[tokio::test]
 async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
     let room = room("human-done", Fake::new(Scripted::new(vec![])));
-    let tools =
-        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
-        let tools = tools.clone();
+        let room = room.clone();
         tokio::spawn(async move {
-            tools
-                .call("request_human", &json!({ "reason": "Tap the 2FA prompt" }))
+            room.request_human("ada", "Tap the 2FA prompt", HUMAN_DEADLINE)
                 .await
         })
     };
@@ -536,16 +532,10 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
 #[tokio::test]
 async fn an_answered_human_request_carries_the_note() {
     let room = room("human-answered-note", Fake::new(Scripted::new(vec![])));
-    let tools =
-        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
-        let tools = tools.clone();
+        let room = room.clone();
         tokio::spawn(async move {
-            tools
-                .call(
-                    "request_human",
-                    &json!({ "reason": "Which branch should I use?" }),
-                )
+            room.request_human("ada", "Which branch should I use?", HUMAN_DEADLINE)
                 .await
         })
     };
@@ -576,16 +566,10 @@ async fn an_answered_human_request_carries_the_note() {
 #[tokio::test]
 async fn a_declined_human_request_carries_the_note() {
     let room = room("human-declined", Fake::new(Scripted::new(vec![])));
-    let tools =
-        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
-        let tools = tools.clone();
+        let room = room.clone();
         tokio::spawn(async move {
-            tools
-                .call(
-                    "request_human",
-                    &json!({ "reason": "Enter the vault password" }),
-                )
+            room.request_human("ada", "Enter the vault password", HUMAN_DEADLINE)
                 .await
         })
     };
@@ -672,10 +656,10 @@ async fn a_teammate_with_no_id_does_not_stop_the_room_opening() {
     assert!(room.persona("").is_err());
 }
 
-/// A permission raised inside a peer turn lives on the thread and nowhere
-/// else, and no seat is shown one. A card that outlived the process that
-/// received it is a button nobody is behind, on a stream nothing else
-/// revisits.
+/// A permission an older version raised inside a peer turn lives on the
+/// thread and nowhere else, and no seat is shown one. A card that outlived the
+/// process that received it is a button nobody is behind, on a stream nothing
+/// else revisits.
 #[tokio::test]
 async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
     let log = scratch("thread-settle");
@@ -710,20 +694,17 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
     assert_eq!(card["id"], "perm:req-1");
 }
 
-/// The tool that asked the person is inside the turn, so a cancelled turn is
-/// an agent that has stopped listening. The card goes with it: a live button
-/// that writes `done` for nobody is the failure these cards exist to avoid.
+/// A wait on the person is inside the turn, so a cancelled turn is an agent
+/// that has stopped listening. The card goes with it: a live button that
+/// writes `done` for nobody is the failure these cards exist to avoid.
 #[tokio::test]
 async fn cancelling_a_turn_takes_the_card_it_asked_the_person_with() {
     let room = room("human-cancel", Fake::new(Scripted::new(vec![])));
     room.start("ada").await.unwrap();
-    let tools =
-        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
-        let tools = tools.clone();
+        let room = room.clone();
         tokio::spawn(async move {
-            tools
-                .call("request_human", &json!({ "reason": "Tap the 2FA prompt" }))
+            room.request_human("ada", "Tap the 2FA prompt", HUMAN_DEADLINE)
                 .await
         })
     };
@@ -877,15 +858,6 @@ async fn a_name_approval_cannot_survive_expiry_or_room_restart() {
     let agents = Fake::new(Scripted::new(vec![]));
     let room = Room::with_agents(log.clone(), Arc::new(DeskKeys), agents.clone());
     let epoch = CapabilityEpoch::default();
-    let peer = TeammateTools::new(&room, "ada")
-        .for_peer(ThreadId::pair("ada-bob"))
-        .with_capability(epoch.lease());
-    assert!(!peer.tool_names().contains(&"set_person_name"));
-    assert!(
-        peer.call("set_person_name", &json!({"name":"George"}))
-            .await
-            .is_err()
-    );
     let tools = TeammateTools::new(&room, "ada").with_capability(epoch.lease());
     tools
         .call("set_person_name", &json!({"name":"George"}))

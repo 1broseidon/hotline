@@ -774,13 +774,11 @@ impl Room {
         let open = chapter_view::open_chapter(&events)?.clone();
         // A chapter replacement is a session boundary for collaboration
         // authority even when the existing driver remains alive until the
-        // next user line reaches it. Peer sessions are dropped with the
-        // chapter so an active or cached conversation cannot keep using the
-        // old chapter's temporary authority.
+        // next user line reaches it. Temporary grants are dropped with the
+        // chapter so a later request cannot use the old chapter's authority.
         {
             let _lifecycle = lock(&self.lifecycle);
             self.peers.advance_generation(persona_id);
-            self.drop_peer_sessions(persona_id);
         }
         self.settle_collaboration(persona_id);
         let persona = self.persona(persona_id).ok()?;

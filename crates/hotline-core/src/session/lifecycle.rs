@@ -67,9 +67,9 @@ impl Room {
     }
 
     /// The idle policy of the kinds whose live threads the room holds in
-    /// memory. A thread with a turn running is left alone. A peer session that
-    /// has gone quiet is the same kind of fact as a chapter that has: nothing
-    /// to arm when a message lands and nothing to cancel when a teammate is
+    /// memory. A thread with a turn running is left alone. A thread that has
+    /// gone quiet is the same kind of fact as a chapter that has: nothing to
+    /// arm when a message lands and nothing to cancel when a teammate is
     /// deleted.
     pub(super) fn sweep_threads(&self, now: i64) {
         // Silence detaches the voice, never the agent doing its work.
@@ -84,7 +84,6 @@ impl Room {
             ThreadKind::Side,
             ThreadKind::Run,
             ThreadKind::Call,
-            ThreadKind::Pair,
             ThreadKind::Job,
         ] {
             for quiet in self.quiet(kind) {
@@ -99,7 +98,8 @@ impl Room {
                 }
             }
         }
-        self.tidy_peers();
+        // A collaboration card whose leases have gone has nobody behind it.
+        self.settle_invalid_collaboration();
     }
 
     fn quiet(&self, kind: ThreadKind) -> Vec<Quiet> {
@@ -128,17 +128,8 @@ impl Room {
                 .collect(),
             // A call that nobody has spoken on for a while: the voice keeps the
             // time, and the room's clock reads it. A desk call is here too,
-            // with no thread behind it.
-            ThreadKind::Call => Vec::new(),
-            ThreadKind::Pair => self
-                .quiet_peers()
-                .into_iter()
-                .map(|(thread, since, working)| Quiet {
-                    thread,
-                    since,
-                    working,
-                })
-                .collect(),
+            // with no thread behind it. A pair's thread has no agent.
+            ThreadKind::Call | ThreadKind::Pair => Vec::new(),
             ThreadKind::Job => self
                 .idle_jobs()
                 .into_iter()
@@ -161,12 +152,9 @@ impl Room {
                     self.end_side(&side, ending);
                 }
             }
-            // A pair's agent is stopped; the thread is the stream, and the next
-            // exchange reads it again.
-            ThreadKind::Pair => self.park_peer(&thread.key),
             // A job's agent is let go of; the job goes on firing.
             ThreadKind::Job => self.park_job(&thread.key),
-            ThreadKind::Run | ThreadKind::Dm => {}
+            ThreadKind::Run | ThreadKind::Dm | ThreadKind::Pair => {}
         }
     }
 
@@ -182,11 +170,11 @@ impl Room {
     /// by the importer or the previous edition has never been indexed here at
     /// all.
     ///
-    /// Threads are settled with the tapes. A card raised inside a peer turn is
-    /// written to the thread and nowhere else, and the resolver behind it only
-    /// ever existed in the process that received the request — so a thread
-    /// left unfolded draws a live button forever, on a stream nothing else
-    /// revisits.
+    /// Threads are settled with the tapes. A card an older version raised
+    /// inside a peer turn is written to the thread and nowhere else, and the
+    /// resolver behind it only ever existed in the process that received the
+    /// request — so a thread left unfolded draws a live button forever, on a
+    /// stream nothing else revisits.
     pub(super) fn settle(&self) {
         let now = now_ms();
         let teammates: Vec<String> = crate::room::roster(&self.log)

@@ -653,22 +653,6 @@ pub(crate) async fn run(
         Command::PeersMarkRead { key, event_ids } => {
             Ok(json!(room.mark_peer_read(&key, &event_ids)))
         }
-        Command::PeersAnswerPermission {
-            key,
-            request_id,
-            option_id,
-        } => {
-            threads::answer(
-                log,
-                room,
-                &ThreadId::pair(key),
-                ThreadAnswer::Permission {
-                    request_id,
-                    option_id,
-                },
-            )
-            .await
-        }
 
         Command::ClientHello { .. } => {
             Err("A hello is read at the door, on the socket it names.".into())

@@ -259,6 +259,7 @@ impl Room {
                 unprompted: None,
                 retry: false,
                 wake: false,
+                request: None,
             },
         );
         Ok(())

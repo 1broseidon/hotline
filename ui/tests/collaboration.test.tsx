@@ -112,6 +112,15 @@ describe("Ask or hand off", () => {
 		});
 	});
 
+	test("a question says who asks", () => {
+		const question = {
+			...delivery,
+			text: "Which port?",
+			cause: { kind: "question" as const, requestId: "r", personaId: "ada", name: "Ada", threadKey: "ada~mack", about: "Which port?" },
+		};
+		expect(deliveryLine(question)).toEqual({ name: "Ada", said: "asks: Which port?" });
+	});
+
 	const marker: Extract<TranscriptEvent, { kind: "peer" }> = {
 		kind: "peer", id: "peer-1", ts: 0, threadKey: "ada~mack", withPersonaId: "mack", withName: "Mack",
 		role: "caller", exchanges: 1, status: "done",

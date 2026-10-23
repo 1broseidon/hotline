@@ -158,7 +158,7 @@ impl Room {
         };
         let (report, wakes) = match answered {
             // The result goes back as it is.
-            Some((_, Finished::Result | Finished::Gone)) => return,
+            Some((_, Finished::Result | Finished::Answer | Finished::Gone)) => return,
             Some((handoff, Finished::Waiting)) => (
                 self.waiting_report(handoff, &opener.persona_id, driven),
                 true,

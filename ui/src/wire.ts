@@ -246,7 +246,6 @@ type Results = {
 	"side.answer_permission": null;
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
-	"peers.answer_permission": null;
 	/** What this core can do for the seat; declares `threads2` when it names it. */
 	"client.hello": { capabilities: string[] };
 	/** Every kind of thread as one list: live first, then parked, then closed. */

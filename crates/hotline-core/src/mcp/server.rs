@@ -298,7 +298,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             REQUEST_HUMAN,
-            "Ask the person to take an action you cannot — tap a 2FA prompt, solve a CAPTCHA, look at a screen, make a payment, confirm a deletion. For a login or passkey, use request_credential instead; never put credential values in a reason or note. For a yes/no question or approval of your plan, use ask_question instead. A card appears in your conversation and this call returns at once. Their answer, done or declined with whatever note they typed, arrives later as its own message, so carry on with anything that does not depend on it and do not poll. The card stays up two hours, then is taken down and you are told; pass `wait_hours` (up to 24) only when the ask really waits for the person to come back. The call returns the request's id: if you stop needing the answer, because you found another way or the work moved on, call withdraw_request with it so the person is not left being asked. (Answering a colleague in a private thread, the call waits up to ten minutes instead.) Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it, so get the page that needs them on screen before you ask.",
+            "Ask the person to take an action you cannot — tap a 2FA prompt, solve a CAPTCHA, look at a screen, make a payment, confirm a deletion. For a login or passkey, use request_credential instead; never put credential values in a reason or note. For a yes/no question or approval of your plan, use ask_question instead. A card appears in your conversation and this call returns at once. Their answer, done or declined with whatever note they typed, arrives later as its own message, so carry on with anything that does not depend on it and do not poll. The card stays up two hours, then is taken down and you are told; pass `wait_hours` (up to 24) only when the ask really waits for the person to come back. The call returns the request's id: if you stop needing the answer, because you found another way or the work moved on, call withdraw_request with it so the person is not left being asked. Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it, so get the page that needs them on screen before you ask.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -463,7 +463,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             MESSAGE_TEAMMATE,
-            "Send another teammate in this room a message. It returns as soon as the message is sent, and their answer arrives later as its own message in your conversation, so carry on meanwhile and do not poll. (Answering a colleague in a private thread, you wait for the reply instead.) Choose intent: ask (default) for a bounded answer or review in a side session with none of the recipient’s main conversation; handoff to implement or continue work in a work thread of their own, which starts from their main context, and report back automatically. What this returns for a handoff names its `thread`; to add to that work later (a follow-up, a correction, something they asked you for), hand off again with that `thread` and it lands in the same thread, where they still have everything said there. Without `thread` a handoff starts a new thread that knows nothing of earlier ones. Neither expands permissions. Say everything they need; they cannot see your conversation. Workspace callers need the operator's first-contact approval before the recipient uses its workspace and enabled tools; Whole machine Hotline Agent callers can initiate directly. They are started if they are not running. The two of you have a standing private thread, and they can see what was said in it before.",
+            "Send another teammate in this room a message. It returns as soon as the message is sent, and their answer arrives later as its own message in your conversation, so carry on meanwhile and do not poll. Choose intent: ask (default) for an answer or review from the recipient's main conversation, which knows everything it has done and which the person reads; handoff to implement or continue work in a work thread of their own, which starts from their main context, and report back automatically. What this returns for a handoff names its `thread`; to add to that work later (a follow-up, a correction, something they asked you for), hand off again with that `thread` and it lands in the same thread, where they still have everything said there. Without `thread` a handoff starts a new thread that knows nothing of earlier ones. Neither expands permissions. Say everything they need; they cannot see your conversation. Workspace callers need the operator's first-contact approval before the recipient uses its workspace and enabled tools; Whole machine Hotline Agent callers can initiate directly. They are started if they are not running. The two of you have a standing private thread, and they can see what was said in it before.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -604,10 +604,6 @@ pub struct TeammateTools {
     run: bool,
     /// Whether these are a voice front's: [`FRONT_TOOLS`] and nothing else.
     front: bool,
-    /// Whether these answer a colleague in a peer session. That session has
-    /// no conversation of its own for an answer to come back into, so a
-    /// message it sends a third teammate waits for the reply.
-    peer: bool,
     /// The work thread these are for: the teammate's tools less
     /// [`WORK_WITHOUT`], and what they post, the cards they raise and the
     /// answers they wait for are that thread's rather than the DM's.
@@ -633,7 +629,6 @@ impl TeammateTools {
             subagents: false,
             run: false,
             front: false,
-            peer: false,
             work: None,
             job: None,
         }
@@ -665,13 +660,6 @@ impl TeammateTools {
         self.thread = ThreadId::job(&job_id);
         self.job = Some(job_id);
         self.subagents = false;
-        self
-    }
-
-    /// Marks these as the pair thread `thread`'s: see [`TeammateTools::peer`].
-    pub(crate) fn for_peer(mut self, thread: ThreadId) -> Self {
-        self.peer = true;
-        self.thread = thread;
         self
     }
 
@@ -896,14 +884,6 @@ impl TeammateTools {
                     intent,
                     thread,
                 };
-                if self.peer {
-                    let answered = room
-                        .send_peer_waiting(&self.persona_id, &outgoing, self.capability.clone())
-                        .await?;
-                    return Ok(
-                        json!({ "from": answered.from, "reply": answered.reply }).to_string()
-                    );
-                }
                 let sent = room.send_intent(
                     &self.persona_id,
                     &outgoing,
@@ -931,9 +911,6 @@ impl TeammateTools {
                 Ok(sent_json.to_string())
             }
             SET_PERSON_NAME => {
-                if self.peer {
-                    return Err("Ask to save a name in the person's own conversation, not a colleague's thread.".into());
-                }
                 let name = arguments["name"]
                     .as_str()
                     .ok_or("set_person_name needs a name.")?;
@@ -951,11 +928,6 @@ impl TeammateTools {
                     .capability
                     .clone()
                     .ok_or("This question has no live session lease.")?;
-                if self.peer {
-                    return room
-                        .request_question(&self.persona_id, question, capability)
-                        .await;
-                }
                 room.ask_question(&self.persona_id, question, &self.thread, capability)
             }
             REQUEST_CREDENTIAL => {
@@ -976,11 +948,6 @@ impl TeammateTools {
                     .ok_or_else(|| {
                         "request_human needs a `reason` of at least three characters.".to_string()
                     })?;
-                if self.peer {
-                    return room
-                        .request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
-                        .await;
-                }
                 let hours = arguments
                     .get("wait_hours")
                     .and_then(Value::as_u64)
@@ -1247,7 +1214,6 @@ impl TeammateTools {
         TOOL_NAMES
             .into_iter()
             .filter(|name| !(images_off && *name == GENERATE_IMAGE))
-            .filter(|name| !(self.peer && *name == SET_PERSON_NAME))
             .collect()
     }
 
@@ -1274,7 +1240,6 @@ impl TeammateTools {
         tools
             .into_iter()
             .filter(|tool| !(images_off && tool.name == GENERATE_IMAGE))
-            .filter(|tool| !(self.peer && tool.name == SET_PERSON_NAME))
             .collect()
     }
 

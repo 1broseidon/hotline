@@ -212,7 +212,7 @@ impl Room {
                 self.revoke_session(session);
             }
         }
-        self.drop_peer_sessions(persona_id);
+        self.peers.expire_grants(persona_id);
         self.drop_sides(persona_id);
         self.let_go_of_jobs(Some(persona_id));
         self.revoke_exchanges(persona_id);
@@ -262,7 +262,7 @@ impl Room {
         for persona_id in &roster_ids {
             self.revoke_exchanges(persona_id);
         }
-        self.peers.invalidate_all();
+        self.peers.expire_all_grants();
         self.drop_all_sides();
         self.let_go_of_jobs(None);
         self.settle_all_collaboration();
@@ -274,12 +274,11 @@ impl Room {
         Ok(())
     }
 
-    /// A deleted teammate: its own session stopped, every peer session it was
-    /// a side of dropped, and its start gate let go, because nothing should
-    /// wait behind — or be kept for — an id that names nobody any more.
+    /// A deleted teammate: its own session stopped, with the collaboration
+    /// grants it held or was given, and its start gate let go, because nothing
+    /// should wait behind — or be kept for — an id that names nobody any more.
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
-        self.drop_peer_sessions(persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
         let computers = self.computers.clone();
@@ -321,7 +320,7 @@ impl Room {
             epoch.stop();
             (lock(&self.sessions).remove(persona_id), epoch.lease())
         };
-        self.drop_peer_sessions(persona_id);
+        self.peers.expire_grants(persona_id);
         let Some(session) = session else {
             self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);

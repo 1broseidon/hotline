@@ -569,21 +569,10 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
     Ok(())
 }
 
-/// The side threads, runs and calls a teammate's tape carries a link for, and
-/// the pair threads it carries a marker for. A job's thread has no line on
-/// the tape: see [`jobs_of`].
+/// The side threads, runs and calls a teammate's tape carries a link for. A
+/// pair's thread and a job's have no line of their own on the tape: see
+/// [`pairs_of`] and [`jobs_of`].
 fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
-    let pairs = events
-        .iter()
-        .filter(|event| event.get("kind").and_then(Value::as_str) == Some("peer"))
-        .filter_map(|event| event.get("threadKey").and_then(Value::as_str))
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .map(ThreadId::pair)
-        .filter_map(|thread| {
-            let stream = StreamId::of_thread(&thread)?;
-            Some((thread, stream))
-        });
     events
         .iter()
         .filter_map(Link::read)
@@ -597,7 +586,14 @@ fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
             let stream = StreamId::of_thread(&link.thread)?;
             Some((link.thread, stream))
         })
-        .chain(pairs)
+        .collect()
+}
+
+/// The pair threads a teammate is one side of, as their files name them.
+fn pairs_of(log: &Log, persona_id: &str) -> Vec<(ThreadId, StreamId)> {
+    crate::log::thread::keys_for(log.root(), persona_id)
+        .into_iter()
+        .map(|key| (ThreadId::pair(&key), StreamId::Pair(key)))
         .collect()
 }
 
@@ -662,11 +658,12 @@ fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Resu
             index_message(database, persona_id, id, None, event)?;
         }
     }
-    // The threads the tape holds a marker for, and the teammate's jobs, come
-    // after it, so a rebuild keeps what the write path indexed as they were
-    // said.
+    // The threads the tape holds a link for, the teammate's pairs and its
+    // jobs come after it, so a rebuild keeps what the write path indexed as
+    // they were said.
     for (thread, stream) in threads_on(&events)
         .into_iter()
+        .chain(pairs_of(log, persona_id))
         .chain(jobs_of(log, persona_id))
     {
         for event in log.load(&stream) {

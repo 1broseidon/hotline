@@ -621,6 +621,20 @@ pub enum DeliveryCause {
         /// The start of the message, clipped to a line.
         about: String,
     },
+    /// A colleague's question. The reply of the turn it starts goes back to
+    /// them by itself.
+    Question {
+        request_id: String,
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        /// The start of the question, clipped to a line.
+        about: String,
+        /// The start of the handoff the question is about, when it is about one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        work: Option<String>,
+    },
     /// The person answered a `request_human` card the teammate did not wait
     /// on, or its lifetime ran out without an answer (`expired`). `text` is the
     /// note they typed with it, or empty.

@@ -644,7 +644,7 @@ fn deliver(route: &Mutex<Route>, id: String, outcome: Finished) {
 /// replaced or revoked, and when it is dropped.
 ///
 /// Only a session that listens for their ends ([`Self::subscribe`]) is handed
-/// any: a subagent run, a side thread or a peer session has nobody to wake,
+/// any: a subagent run or a side thread has nobody to wake,
 /// and its turn waits on its own commands as before.
 ///
 /// The desk sees them too, as the session's `processes`: it is told when the

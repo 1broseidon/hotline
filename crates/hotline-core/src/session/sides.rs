@@ -342,7 +342,11 @@ impl Occupant for LiveSide {
             let finished = room.finish_request(&request, reply, failed);
             let answered = Some((request.as_str(), finished));
             room.report_turn(&side.id, side.opener.as_ref(), answered, &driven);
-            if finished != Finished::Waiting && lock(&side.turns).waiting.is_empty() {
+            // Answering an ask never closes the thread: only a handoff's
+            // result does.
+            if matches!(finished, Finished::Result | Finished::Gone)
+                && lock(&side.turns).waiting.is_empty()
+            {
                 room.finish_side(side, if failed { End::Failed } else { End::Agent }, None);
                 return Then::Stop;
             }
@@ -1113,9 +1117,6 @@ impl Room {
 
     /// Whether this work thread has a turn in flight, without listing its history.
     pub(crate) fn work_thread_working(&self, thread: &ThreadId) -> bool {
-        if thread.kind == ThreadKind::Pair {
-            return self.peers.answering_in(&thread.key).is_some();
-        }
         self.sides
             .get(&thread.key)
             .is_some_and(|live| live.thread == *thread && live.working())

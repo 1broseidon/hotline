@@ -1014,7 +1014,7 @@ impl Room {
                         self.deliver_into_job(&job.id, &id, cause, from, text)
                     }
                     _ => {
-                        self.deliver_identified(&job.persona_id, &id, cause, text)
+                        self.deliver_identified(&job.persona_id, &id, cause, text, None)
                             .await
                     }
                 };

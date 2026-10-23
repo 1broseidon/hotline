@@ -102,3 +102,20 @@ fn an_agent_event_is_stamped_with_where_it_came_from_additively() {
     let event: TranscriptEvent = serde_json::from_value(posted.clone()).unwrap();
     assert_eq!(serde_json::to_value(&event).unwrap(), posted);
 }
+
+#[test]
+fn a_question_delivery_round_trips_with_and_without_its_work() {
+    let plain = json!({
+        "kind":"delivery","id":"q","ts":1,
+        "cause":{"kind":"question","requestId":"r","personaId":"ada","name":"Ada","threadKey":"ada~bob","about":"x"},
+        "text":"t",
+    });
+    let event: TranscriptEvent = serde_json::from_value(plain.clone()).unwrap();
+    let written = serde_json::to_value(&event).unwrap();
+    assert_eq!(written, plain);
+    assert!(written["cause"].get("work").is_none());
+    let mut about_work = plain;
+    about_work["cause"]["work"] = json!("w");
+    let event: TranscriptEvent = serde_json::from_value(about_work.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&event).unwrap(), about_work);
+}

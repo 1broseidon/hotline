@@ -220,8 +220,8 @@ fn federation_command(command: &Command) -> bool {
 /// The `thread.*` commands a companion may run, each as what it already may do
 /// with the same thing under the older name: the person speaks to a teammate
 /// from the phone through `mobile.prompt`, so `thread.prompt` is for a work
-/// thread only; a card in a pair is the owner's to answer, as
-/// `peers.answer_permission` is; a job is cancelled, and its firing stopped,
+/// thread only; a pair raises no card, so there is none there for it to
+/// answer; a job is cancelled, and its firing stopped,
 /// only where `schedule.cancel` is run; and a thread it could not subscribe to it
 /// cannot page. `thread.list` leaves out what it could not read, and pairs for
 /// the same reason `peers.list` is refused.

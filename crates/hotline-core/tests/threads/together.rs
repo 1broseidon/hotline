@@ -280,9 +280,9 @@ impl Desk {
 /// One teammate on each driver, and every thread they post from: the DM may
 /// not, being the chat already, on either driver; a quiet job on ACP posts
 /// once, stamped with its job; a work thread's file and post land stamped
-/// from the thread; a pair posts to its target's chat, stamped from the
-/// pair; and a subagent reaches back into the DM with `search_thread` and is
-/// refused the chat.
+/// from the thread; a colleague's question is answered by the target's DM,
+/// which may not post either; and a subagent reaches back into the DM with
+/// `search_thread` and is refused the chat.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_thread_reaches_the_chat_through_one_door_on_both_drivers() {
     let mut desk = open().await;
@@ -339,23 +339,26 @@ async fn every_thread_reaches_the_chat_through_one_door_on_both_drivers() {
     let post = desk.posted(&ada, "The winch log is in the chat.").await;
     assert_eq!(post["from"], stamp);
 
-    // A pair posts to its target's chat, never the asker's.
+    // A colleague's question is answered by the target's main conversation,
+    // whose reply is already the chat: it posts to neither chat.
     let ask = json!({
         "to": "Bob", "intent": "ask",
-        "message": r#"CALL post_to_chat {"text":"Ada asked me about the crane."}"#,
+        "message": "About the crane:\nCALL post_to_chat {\"text\":\"Ada asked me about the crane.\"}",
     });
     desk.ok(
         "session.prompt",
         json!({"personaId": ada, "text": format!("CALL message_teammate {ask}")}),
     )
     .await;
-    let from_pair = desk.posted(&bob, "Ada asked me about the crane.").await;
-    assert_eq!(from_pair["from"]["kind"], "pair", "{from_pair}");
-    assert!(
-        desk.chat(&ada)
-            .iter()
-            .all(|event| event["text"] != "Ada asked me about the crane.")
-    );
+    let answered = desk.results(StreamId::Tape(bob.clone()), 1).await;
+    assert!(answered.contains("already the chat"), "{answered}");
+    for whose in [&ada, &bob] {
+        assert!(
+            desk.chat(whose)
+                .iter()
+                .all(|event| event["text"] != "Ada asked me about the crane.")
+        );
+    }
 
     // A subagent reaches back into the DM under its lease, and may not post.
     let task = [

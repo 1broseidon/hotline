@@ -102,6 +102,7 @@ pub(super) struct Line {
 }
 
 /// The exchange request a turn belongs to.
+#[derive(Clone)]
 pub(super) struct RequestLine {
     /// The exchange request the turn answers.
     pub request: String,

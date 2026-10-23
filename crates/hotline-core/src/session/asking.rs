@@ -120,35 +120,13 @@ impl Room {
     /// `deadline` runs out.
     ///
     /// The wait is a oneshot this room holds by `actionId`. The card is
-    /// superseded with the outcome; the sentence the tool returns is what
-    /// the agent reads. Tests pass a short deadline; the tool uses
-    /// [`HUMAN_DEADLINE`].
+    /// superseded with the outcome, and the sentence returned is what the
+    /// agent reads.
     pub async fn request_human(
         &self,
         persona_id: &str,
         reason: &str,
         deadline: Duration,
-    ) -> Result<String, String> {
-        self.request_card(persona_id, reason, deadline, None).await
-    }
-
-    pub(crate) async fn request_question(
-        &self,
-        persona_id: &str,
-        reason: &str,
-        capability: CapabilityLease,
-    ) -> Result<String, String> {
-        capability.check()?;
-        self.request_card(persona_id, reason, HUMAN_DEADLINE, Some(capability))
-            .await
-    }
-
-    async fn request_card(
-        &self,
-        persona_id: &str,
-        reason: &str,
-        deadline: Duration,
-        question: Option<CapabilityLease>,
     ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
@@ -165,16 +143,6 @@ impl Room {
                 sender,
             },
         );
-        let informational = question.is_some();
-        if let Some(capability) = question {
-            lock(&self.voice_questions).insert(
-                action_id.clone(),
-                Question {
-                    capability,
-                    person_name: None,
-                },
-            );
-        }
         self.write(
             persona_id,
             &TranscriptEvent::HumanAction {
@@ -183,7 +151,7 @@ impl Room {
                 ts: now_ms(),
                 action_id: action_id.clone(),
                 reason: reason.clone(),
-                question: informational.then_some(true),
+                question: None,
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: None,
@@ -478,7 +446,7 @@ impl Room {
                 self.deliver_into_job(&home.key, &delivery_id, cause, from, text)
             }
             _ => {
-                self.deliver_identified(persona_id, &delivery_id, cause, text)
+                self.deliver_identified(persona_id, &delivery_id, cause, text, None)
                     .await
             }
         }

@@ -268,7 +268,7 @@ async fn a_handoff_waiting_on_a_colleague_carries_on_after_a_restart() {
         handed.bob_gate.add_permits(2);
         until("the handoff waits on Carol, who is answering", || {
             request(&handed.room, "ada~bob", &handed.handoff).phase == Phase::Waiting
-                && request(&handed.room, "bob~carol", &ask).phase == Phase::Running
+                && request(&handed.room, "bob~carol", &ask).started
                 && idle(&handed.room, &handed.thread)
         })
         .await;

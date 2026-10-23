@@ -34,10 +34,17 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     let snapshot = heard(&mut socket).await;
     assert_eq!(snapshot["snapshot"], json!([]));
 
-    let delivery = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "read Bob's private file").await })
-    };
+    let sent = crate::mcp::server::TeammateTools::new(&room, "ada")
+        .call(
+            "message_teammate",
+            &json!({ "to": "bob", "message": "read Bob's private file" }),
+        )
+        .await
+        .unwrap();
+    let id = serde_json::from_str::<Value>(&sent).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let card = heard_where(&mut socket, |frame| {
         frame["sub"] == 1 && frame["event"]["kind"] == "permission"
     })
@@ -46,7 +53,7 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     assert!(request_id.starts_with("collab:"), "{card}");
     assert_eq!(
         card["event"]["title"],
-        "Allow Ada to ask Bob to work?\n\nBob can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
+        "Allow Ada to ask Bob to work?\n\nAda's questions reach Bob's main conversation with you, and Bob answers from everything said there, including what you told it. Bob can also take handoffs in a work thread of its own, and uses its own workspace and enabled tools to fulfill Ada's requests."
     );
 
     ask(
@@ -60,8 +67,25 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     .await;
     let answer = answered(&mut socket, 2).await;
     assert_eq!(answer["ok"], true, "{answer}");
-    let denied = delivery.await.unwrap().unwrap_err();
-    assert!(denied.contains("denied"), "{denied}");
+    // The refusal is the ask's saved answer; this room has no agent to hear it.
+    let refused = || {
+        log.load(&StreamId::Room)
+            .into_iter()
+            .filter(|event| event["kind"] == "exchange_pair")
+            .flat_map(|pair| pair["requests"].as_array().cloned().unwrap_or_default())
+            .rfind(|request| request["id"] == id.as_str() && request["failed"] == true)
+    };
+    crate::test_support::until("the ask is refused", || refused().is_some()).await;
+    let refused = refused().unwrap();
+    assert!(
+        refused["reply"].as_str().unwrap().contains("denied"),
+        "{refused}"
+    );
+    assert_eq!(
+        log.load(&StreamId::Tape("bob".into())),
+        [] as [Value; 0],
+        "nothing reached Bob"
+    );
     assert_eq!(
         log.load(&StreamId::Pair("ada~bob".to_string())),
         [] as [Value; 0]

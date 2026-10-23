@@ -433,7 +433,7 @@ impl Room {
         let Ok(persona) = self.persona(&session.persona_id) else {
             return false;
         };
-        if crate::accounts::account_of(&persona) != session.account_id.as_deref() {
+        if crate::accounts::account_of(&self.log, &persona) != session.account_id {
             return false;
         }
         let Some(account_id) = &session.account_id else {

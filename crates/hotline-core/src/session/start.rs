@@ -99,7 +99,7 @@ impl Room {
         let persona = agent.view.clone();
         // The view the driver was built from, not the record now: a switch
         // that is held keeps the session on the account it started with.
-        let account_id = crate::accounts::account_of(&persona).map(str::to_string);
+        let account_id = crate::accounts::account_of(&self.log, &persona);
         let account_login_at = account_id.as_deref().and_then(|id| {
             accounts
                 .into_iter()

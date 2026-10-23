@@ -6,11 +6,12 @@
 //! send an account's sign-in somewhere else.
 
 use super::support::{AccountSupport, account_support};
-use crate::contract::{AgentAccount, Persona};
+use crate::contract::{AgentAccount, Credential, Persona};
 use crate::log::{Log, StreamId};
 use crate::vault::Vault;
 use crate::{paths, private_dir, room};
 use hotline_room::provider_auth::ChosenAccount;
+use serde_json::Value;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -91,7 +92,7 @@ pub(crate) fn resolve(
     if account_support(&persona.backend_id).is_none() {
         return Ok(None);
     }
-    match named(log, account_id) {
+    match named(&log.load(&StreamId::Room), account_id) {
         Named::Agent(row) if row.backend_id == persona.backend_id => checked(root, row).map(Some),
         Named::Agent(_) | Named::Credential(_) => Ok(None),
         Named::Nothing => Err(AccountRefusal::UnknownAccount {
@@ -110,8 +111,11 @@ pub(crate) fn hotline(
     let Some(account_id) = &persona.account_id else {
         return Ok(None);
     };
-    match named(log, account_id) {
-        Named::Credential(credential) => Ok(Some(credential)),
+    match named(&log.load(&StreamId::Room), account_id) {
+        Named::Credential(credential) => Ok(Some(ChosenAccount {
+            id: credential.id,
+            provider_id: credential.provider_id,
+        })),
         Named::Agent(_) => Ok(None),
         Named::Nothing => Err(AccountRefusal::UnknownAccount {
             account_id: account_id.clone(),
@@ -120,29 +124,24 @@ pub(crate) fn hotline(
 }
 
 /// What an account id names on this desk.
-enum Named {
+pub(crate) enum Named {
     Agent(AgentAccount),
-    Credential(ChosenAccount),
+    Credential(Credential),
     Nothing,
 }
 
-fn named(log: &Log, account_id: &str) -> Named {
-    let events = log.load(&StreamId::Room);
-    if let Some(row) = room::agent_accounts_from(&events)
+/// `events` are the room stream's.
+pub(crate) fn named(events: &[Value], account_id: &str) -> Named {
+    if let Some(row) = room::agent_accounts_from(events)
         .into_iter()
         .find(|row| row.id == account_id)
     {
         return Named::Agent(row);
     }
-    Vault::credentials(&events)
+    Vault::credentials(events)
         .into_iter()
         .find(|credential| credential.id == account_id)
-        .map_or(Named::Nothing, |credential| {
-            Named::Credential(ChosenAccount {
-                id: credential.id,
-                provider_id: credential.provider_id,
-            })
-        })
+        .map_or(Named::Nothing, Named::Credential)
 }
 
 /// The account with `account_id`, for a command about the account itself: its

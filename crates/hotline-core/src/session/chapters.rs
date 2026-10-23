@@ -709,7 +709,8 @@ impl Room {
         // has no checkpoint; its restore is the tape slice `said` will seed.
         // A session another account wrote opens fresh, and leaves no
         // checkpoint on any account to reopen it later.
-        let account_id = crate::accounts::account_of(&persona);
+        let account = crate::accounts::account_of(&self.log, &persona);
+        let account_id = account.as_deref();
         {
             let policy_updates = self.policy_update_lock();
             let _held = policy_updates.lock().await;

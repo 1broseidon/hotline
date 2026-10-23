@@ -1,19 +1,18 @@
-//! What the room knows of its agent accounts while it runs: each account's
+//! What the room knows of its accounts while it runs: each agent account's
 //! last status, its sign-in attempt, and each teammate's switch still to
 //! apply, in memory only.
 //!
-//! A switch applies like any policy change: only when the teammate has no
-//! work in flight anywhere and the account it wants is not held, and then the
-//! old lease dies, that backend's checkpoints go, and the session is rebuilt.
-//! Until then every thread is built on the account the switch is from.
+//! A switch applies like any policy change, on a harness or on Hotline Agent:
+//! only when the teammate has no work in flight anywhere and the account it
+//! wants is not held, and then the old lease dies, that backend's checkpoints
+//! go, and the session is rebuilt. Until then every thread is built on the
+//! account the switch is from.
 
 use super::{Room, lock, now_ms};
-use crate::accounts::check_choice;
 use crate::accounts::login::AccountLogins;
-use crate::accounts::resolve;
 use crate::accounts::status::AccountStatuses;
-use crate::accounts::support::account_support;
 use crate::accounts::switch::{self, PendingAccount};
+use crate::accounts::{account_of, check_choice, resolve, uses_accounts};
 use crate::contract::{AccountHold, AccountStatusView, LoginAttemptView, Persona, SessionAccount};
 use crate::driver::acp::StartBounds;
 use crate::log::Log;
@@ -125,7 +124,12 @@ impl Room {
         account_id: Option<String>,
     ) -> Result<SessionAccount, String> {
         let record = self.persona(persona_id)?;
-        check_choice(&self.log, &record.backend_id, account_id.as_deref())?;
+        check_choice(
+            &self.log,
+            &record.backend_id,
+            self.choice_model(&record).as_deref(),
+            account_id.as_deref(),
+        )?;
         let pending = {
             let policy = self.policy_update_lock();
             let _held = policy.lock().await;
@@ -174,7 +178,12 @@ impl Room {
     ) -> Result<Option<String>, String> {
         let _writes = room::persona_write_lock();
         let mut persona = self.persona(persona_id)?;
-        check_choice(&self.log, &persona.backend_id, account_id)?;
+        check_choice(
+            &self.log,
+            &persona.backend_id,
+            self.choice_model(&persona).as_deref(),
+            account_id,
+        )?;
         let previous = persona.account_id.clone();
         if previous.as_deref() != account_id {
             persona.account_id = account_id.map(str::to_string);
@@ -182,6 +191,17 @@ impl Room {
             room::append_persona(&self.log, &persona)?;
         }
         Ok(previous)
+    }
+
+    /// The model a Hotline Agent choice is checked against: the live
+    /// session's, else the record's. A session that came up with no provider
+    /// reports an empty one.
+    fn choice_model(&self, persona: &Persona) -> Option<String> {
+        lock(&self.sessions)
+            .get(&persona.id)
+            .and_then(|session| lock(&session.info).current_model_id.clone())
+            .filter(|model_id| !model_id.is_empty())
+            .or_else(|| persona.model_id.clone())
     }
 
     /// From the last answer recorded: a switch the last answer held stays
@@ -232,7 +252,7 @@ impl Room {
             .persona(persona_id)
             .ok()
             .map(|persona| persona.backend_id)
-            .filter(|backend_id| account_support(backend_id).is_some());
+            .filter(|backend_id| uses_accounts(backend_id));
         if backend_id.is_none() {
             self.switch_applied(persona_id, &pending);
         }
@@ -369,10 +389,9 @@ impl Room {
     /// cleared: it never heard what was said since.
     fn clear_lost_switch(&self, persona_id: &str) -> Result<(), String> {
         let persona = self.persona(persona_id)?;
-        let account_id = crate::accounts::account_of(&persona);
+        let account_id = account_of(&self.log, &persona);
         if persona.session_checkpoints.iter().any(|checkpoint| {
-            checkpoint.backend_id == persona.backend_id
-                && checkpoint.account_id.as_deref() != account_id
+            checkpoint.backend_id == persona.backend_id && checkpoint.account_id != account_id
         }) {
             room::clear_backend_checkpoints(&self.log, persona_id, &persona.backend_id)?;
         }
@@ -384,7 +403,7 @@ impl Room {
     }
 
     pub(super) fn settle_account_switch(&self, persona: &Persona) {
-        if account_support(&persona.backend_id).is_none() {
+        if !uses_accounts(&persona.backend_id) {
             self.forget_account_switch(&persona.id);
         }
     }

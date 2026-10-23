@@ -27,6 +27,7 @@ mod chapters;
 mod chat;
 #[cfg(unix)]
 mod computer;
+mod hotline_accounts;
 mod posting;
 mod preamble;
 mod reading;

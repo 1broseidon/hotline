@@ -538,6 +538,10 @@ async fn an_account_is_set_only_by_persona_account() {
     );
     assert_eq!(
         run(&log, &room, "persona.create", create("hotline", account)).await,
+        Err("That account is not on this desk.".to_string())
+    );
+    assert_eq!(
+        run(&log, &room, "persona.create", create("codex-acp", account)).await,
         Err("That agent does not use accounts.".to_string())
     );
     assert_eq!(room::roster(&log).len(), 1);

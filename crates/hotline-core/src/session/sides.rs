@@ -727,7 +727,7 @@ impl Room {
         // What the marker held stays on it while the agent starts, so that
         // the start can still reopen it, but only if it is one this harness
         // issued under this account.
-        let account_id = crate::accounts::account_of(&persona).map(str::to_string);
+        let account_id = crate::accounts::account_of(&self.log, &persona);
         let kept = start
             .saved
             .filter(|saved| {
@@ -840,7 +840,7 @@ impl Room {
             .await?;
         let up = Up {
             driver: agent.driver.clone(),
-            account_id: crate::accounts::account_of(&agent.view).map(str::to_string),
+            account_id: crate::accounts::account_of(&self.log, &agent.view),
             holder: agent.holder.clone(),
         };
         let _ = side.up.set(up);

@@ -375,7 +375,7 @@ impl Room {
             None => Vec::new(),
         };
         let transcript = || chapters::serialize_chapter(&earlier);
-        let account_id = crate::accounts::account_of(&view).map(str::to_string);
+        let account_id = crate::accounts::account_of(&self.log, &view);
         let reopening = resumable(
             policy.resume,
             ThreadStore::new(&self.log)

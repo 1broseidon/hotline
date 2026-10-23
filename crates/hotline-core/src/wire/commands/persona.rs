@@ -61,7 +61,12 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
             .into_owned()
     });
     let folders = checked_folders(draft.folders, &cwd, log.root())?;
-    crate::accounts::check_choice(log, &backend_id, draft.account_id.as_deref())?;
+    crate::accounts::check_choice(
+        log,
+        &backend_id,
+        model_id.as_deref(),
+        draft.account_id.as_deref(),
+    )?;
     let persona = Persona {
         node: None,
         id,

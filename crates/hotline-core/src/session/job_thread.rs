@@ -710,7 +710,7 @@ impl Room {
             lease,
             reach: agent.view.reach.unwrap_or_default(),
             backend_id: agent.view.backend_id.clone(),
-            account_id: crate::accounts::account_of(&agent.view).map(str::to_string),
+            account_id: crate::accounts::account_of(&self.log, &agent.view),
             reported: agent.reported.clone(),
         })
     }

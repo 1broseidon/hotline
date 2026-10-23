@@ -2,9 +2,8 @@ use super::*;
 use crate::contract::{
     AccountHold, AccountStatusState, AccountStatusView, AgentAccount, SessionAccount, ThreadKind,
 };
-use hotline_room::provider_auth::ChosenAccount;
 
-const A: &str = "11111111-1111-4111-8111-111111111111";
+pub(super) const A: &str = "11111111-1111-4111-8111-111111111111";
 const B: &str = "22222222-2222-4222-8222-222222222222";
 
 fn account(id: &str, name: &str, login_at: i64) -> AgentAccount {
@@ -18,7 +17,7 @@ fn account(id: &str, name: &str, login_at: i64) -> AgentAccount {
     }
 }
 
-fn accounts(log: &Log, a_login_at: i64) {
+pub(super) fn accounts(log: &Log, a_login_at: i64) {
     room::write_agent_accounts(
         log,
         &[
@@ -157,72 +156,48 @@ async fn an_unknown_account_refuses_the_start_in_public_words() {
 }
 
 #[tokio::test]
-async fn an_unknown_hotline_account_refuses_the_start_in_public_words() {
-    let log = scratch("hotline-account-unknown");
-    enrol(
-        &log,
-        &Persona {
-            account_id: Some("33333333-3333-4333-8333-333333333333".to_string()),
-            ..persona("ada")
-        },
-    );
-    let room = Room::new(log, Arc::new(DeskKeys));
-    assert_eq!(
-        room.start("ada").await.unwrap_err(),
-        "Ada can't start: its Hotline Agent account needs attention at the desk."
-    );
-}
-
-/// The account each of the driver's asks names.
-#[derive(Default)]
-struct Asked(Mutex<Vec<Option<ChosenAccount>>>);
-
-impl ProviderKeys for Asked {
-    fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
-        DeskKeys.provider_auth()
-    }
-
-    fn provider_auth_for(&self, account: Option<&ChosenAccount>) -> HashMap<String, ProviderAuth> {
-        lock(&self.0).push(account.cloned());
-        DeskKeys.provider_auth()
-    }
-}
-
-#[tokio::test]
-async fn a_hotline_driver_holds_a_credential_of_any_provider_and_no_agent_account() {
-    let log = scratch("hotline-account-held");
-    accounts(&log, 1);
-    let vault = Vault::open_with_store(
-        log.root(),
-        log.clone(),
-        Arc::new(crate::credentials::MemoryStore::default()),
-    )
-    .unwrap();
-    let work = vault.create("anthropic", "Work", "not-a-real-key").unwrap();
-    let old = vault.create("openai", "Old", "not-a-real-key").unwrap();
-    vault.revoke(&old.id).unwrap();
-    let held = |credential: &crate::contract::Credential| ChosenAccount {
-        id: credential.id.clone(),
-        provider_id: credential.provider_id.clone(),
-    };
-    for (account_id, expected) in [
-        (work.id.clone(), Some(held(&work))),
-        (old.id.clone(), Some(held(&old))),
-        (A.to_string(), None),
-    ] {
-        enrol(
+async fn a_claude_teammate_set_to_an_account_it_ignores_runs_on_none_and_keeps_its_checkpoint() {
+    const ELSEWHERE: &str = "33333333-3333-4333-8333-333333333333";
+    for kind in ["credential", "elsewhere"] {
+        let log = scratch(&format!("account-ignored-{kind}"));
+        let vault = Vault::open_with_store(
+            log.root(),
+            log.clone(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+        )
+        .unwrap();
+        let credential = vault.create("anthropic", "Work", "not-a-real-key").unwrap();
+        room::write_agent_accounts(
             &log,
-            &Persona {
-                account_id: Some(account_id),
-                ..persona("ada")
-            },
-        );
-        let keys = Arc::new(Asked::default());
-        let room = Room::new(log.clone(), keys.clone());
-        room.start("ada").await.unwrap();
-        let asked = lock(&keys.0).clone();
-        assert!(!asked.is_empty());
-        assert!(asked.iter().all(|asked| *asked == expected), "{asked:?}");
+            &[AgentAccount {
+                backend_id: "codex-acp".to_string(),
+                ..account(ELSEWHERE, "Elsewhere", 1)
+            }],
+        )
+        .unwrap();
+        let ignored = if kind == "credential" {
+            credential.id.as_str()
+        } else {
+            ELSEWHERE
+        };
+        let mut ada = on_account(&log, ignored);
+        ada.session_checkpoints = vec![SessionCheckpoint {
+            backend_id: "claude-acp".to_string(),
+            session_id: "s-old".to_string(),
+            account_id: None,
+        }];
+        enrol(&log, &ada);
+        let agents = Fake::new(Scripted::new(saying("1", "Done.")));
+        agents.reporting("s-new", false);
+        let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+        started(&room).await;
+        assert_eq!(running(&room), None, "{kind}");
+        assert_eq!(saved(&room), [("s-old".to_string(), None)], "{kind}");
+        room.prompt("ada", "Work on it.", None, None).await.unwrap();
+        until("the new session is kept", || {
+            saved(&room) == [("s-new".to_string(), None)]
+        })
+        .await;
     }
 }
 
@@ -234,31 +209,31 @@ fn on_accounts(name: &str, agents: Arc<Fake>) -> (Arc<Room>, String, String) {
     (room, A.to_string(), B.to_string())
 }
 
-fn gated() -> (Arc<Fake>, Arc<Semaphore>) {
+pub(super) fn gated() -> (Arc<Fake>, Arc<Semaphore>) {
     let gate = Arc::new(Semaphore::new(0));
     let agents = Fake::new(Scripted::new(saying("1", "Working.")).gated(gate.clone()));
     (agents, gate)
 }
 
-async fn started(room: &Arc<Room>) {
+pub(super) async fn started(room: &Arc<Room>) {
     room.start("ada").await.unwrap();
     until_state(room, "ada", SessionState::Ready).await;
 }
 
-async fn mid_turn(room: &Arc<Room>) {
+pub(super) async fn mid_turn(room: &Arc<Room>) {
     room.prompt("ada", "Work on it.", None, None).await.unwrap();
     until_state(room, "ada", SessionState::Thinking).await;
 }
 
-fn running(room: &Room) -> Option<String> {
+pub(super) fn running(room: &Room) -> Option<String> {
     room.info("ada").account.and_then(|account| account.running)
 }
 
-fn chosen(room: &Room) -> Option<String> {
+pub(super) fn chosen(room: &Room) -> Option<String> {
     room.persona("ada").unwrap().account_id
 }
 
-fn switching(running: &str, wanted: &str, held: Option<AccountHold>) -> SessionAccount {
+pub(super) fn switching(running: &str, wanted: &str, held: Option<AccountHold>) -> SessionAccount {
     SessionAccount {
         running: Some(running.to_string()),
         wanted: Some(wanted.to_string()),
@@ -486,6 +461,7 @@ async fn an_assignment_is_checked_before_anything_is_written() {
         &room.log,
         &Persona {
             name: "Hal".to_string(),
+            backend_id: "codex-acp".to_string(),
             ..persona("hal")
         },
     );

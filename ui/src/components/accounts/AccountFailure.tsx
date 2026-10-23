@@ -88,7 +88,10 @@ export function AccountFailure({
 				}
 			},
 			() => {
-				if (!cancelled) setList(NONE);
+				if (cancelled) return;
+				setList(NONE);
+				// An earlier read's checks were dropped with it, and none of their answers is coming.
+				setProbing(0);
 			},
 		);
 		return () => {
@@ -165,7 +168,14 @@ export function AccountFailure({
 			const session = agent === undefined ? "session" : `${agent.name} session`;
 			body = `Now on ${nowOn.name}: a fresh ${session} that is handed this conversation. The failed turn may have done part of its work, so Try again tells it to check before repeating anything.`;
 		} else if (deciding && list !== null) {
-			below = <p className="mt-2 text-sm text-ink-3">Checking the other accounts…</p>;
+			keys = (
+				<>
+					<span className="text-sm text-ink-3">Checking the other accounts…</span>
+					<button type="button" className="control btn-quiet btn-sm" onClick={() => setDeclined(true)}>
+						Try again later
+					</button>
+				</>
+			);
 		} else if (open) {
 			keys = (
 				<>

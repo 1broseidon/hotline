@@ -373,6 +373,44 @@ describe("a usage limit's offer", () => {
 		expect(buttons()).not.toContain("Try again");
 	});
 
+	test("Try again later while the other accounts are checked closes the offer", async () => {
+		accounts = [signedIn("work", "Work", ["ada"]), account("personal", "Personal", { status: { state: "not_checked" } })];
+		fresh.set("personal", { state: "signed_in", checkedAt: 2, email: "personal@example.com" });
+		let release = () => {};
+		statusGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		await mount(limit({ accountId: "work" }));
+		expect(text()).toContain("Checking the other accounts…");
+		await click("Try again later");
+		expect(text()).not.toContain("Checking the other accounts…");
+		expect(buttons()).toContain("Try again");
+
+		release();
+		await settle();
+		expect(picker()).toBeNull();
+		expect(buttons()).not.toContain("Continue");
+		expect(calls.filter(([cmd]) => cmd === "persona.account")).toEqual([]);
+	});
+
+	test("a list that cannot be read leaves no card checking the other accounts", async () => {
+		accounts = [signedIn("work", "Work", ["ada"]), signedIn("personal", "Personal"), signedIn("agency", "Agency")];
+		statusGate = new Promise(() => {});
+		await mount(limit({ accountId: "work" }));
+		expect(text()).toContain("Checking the other accounts…");
+
+		// Read again for another account, and this time the list does not come back.
+		const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
+			calls.push([cmd, params]);
+			if (cmd === "accounts.list") throw new Error("The desk did not answer.");
+			return respond(cmd, params);
+		}) as typeof wire.command);
+		restores.push(() => command.mockRestore());
+		await mount(limit({ accountId: "personal" }));
+		expect(text()).not.toContain("Checking the other accounts…");
+		expect(buttons()).toContain("Try again");
+	});
+
 	test("a status that fails to answer still settles the offer", async () => {
 		accounts = [signedIn("work", "Work", ["ada"]), signedIn("personal", "Personal")];
 		const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {

@@ -536,6 +536,26 @@ fn requests(log: &Log) -> Vec<Value> {
         .collect()
 }
 
+/// The id of the exchange request with these words, once it is saved.
+fn sent(log: &Log, message: &str) -> Option<String> {
+    requests(log)
+        .into_iter()
+        .find(|request| request["message"] == message)
+        .and_then(|request| request["id"].as_str().map(str::to_string))
+}
+
+/// The delivery among `events` with this cause for this request.
+fn delivered(events: &[Value], cause: &str, id: &str) -> Option<Value> {
+    events
+        .iter()
+        .find(|event| {
+            event["kind"] == "delivery"
+                && event["cause"]["kind"] == cause
+                && event["cause"]["requestId"] == id
+        })
+        .cloned()
+}
+
 /// A follow-up handed into the thread a handoff ran in. Ada hands Bob work;
 /// once the result is back she hands him more, naming the thread the first
 /// ran in, and it lands in that same work thread of Bob's, with the first
@@ -621,4 +641,258 @@ async fn a_follow_up_handoff_lands_in_the_thread_the_first_ran_in() {
         result_for(&desk, &second_id).unwrap()["cause"]["status"],
         "done"
     );
+}
+
+/// A delegated thread, the whole of it. Ada hands Bob work and its result
+/// comes back; the person speaks in Bob's thread, and Ada is shown his report
+/// without their words and hears it once with her next line, never woken for
+/// it. Ada's ask naming the thread is answered there, the person has Bob ask
+/// Ada back, which reaches her conversation without a card, and her plain
+/// ask is answered by Bob's main conversation.
+///
+/// Each message opens with a line of its own, since a delivery names the
+/// message and the work it is about by their first lines, and the model plays
+/// the first `SAY` it reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_delegated_thread_reports_back_takes_the_persons_words_and_answers_questions_where_the_work_is()
+ {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    // Bob keeps to his workspace, so only the delegation lets him ask Ada
+    // back without a card.
+    let bob_draft = json!({"name":"Bob","goal":"Keep the harbour.","cwd":desk.workspace});
+    let bob = desk.ok("persona.create", json!({"draft": bob_draft})).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    desk.ok("session.start", json!({"personaId": bob})).await;
+    let tape =
+        |desk: &Desk, persona_id: &str| desk.log.load(&StreamId::Tape(persona_id.to_string()));
+    let answered = |desk: &Desk| -> Vec<String> {
+        tape(desk, &ada)
+            .iter()
+            .filter(|event| event["kind"] == "delivery")
+            .filter_map(|event| event["cause"]["requestId"].as_str().map(str::to_string))
+            .collect()
+    };
+
+    let handoff =
+        json!({"to": "Bob", "intent": "handoff", "message": "Mind the crane.\nSAY Report one."});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL message_teammate {handoff}")}),
+    )
+    .await;
+    let card = || {
+        tape(&desk, &ada)
+            .into_iter()
+            .find(|event| event["kind"] == "permission" && event.get("decision").is_none())
+            .and_then(|event| event["requestId"].as_str().map(str::to_string))
+    };
+    until("the handoff asks the person", || card().is_some()).await;
+    let card = card().unwrap();
+    desk.ok(
+        "session.answer_permission",
+        json!({"personaId": ada, "requestId": card, "optionId": "allow_always"}),
+    )
+    .await;
+    until("the handoff is queued", || !requests(&desk.log).is_empty()).await;
+    let first_id = requests(&desk.log)[0]["id"].as_str().unwrap().to_owned();
+    until("the result is back and Ada has taken it", || {
+        delivered(&tape(&desk, &ada), "peer", &first_id)
+            .is_some_and(|result| result["receipt"] == "read")
+    })
+    .await;
+    let result = delivered(&tape(&desk, &ada), "peer", &first_id).unwrap();
+    let pair = StreamId::Pair(result["cause"]["threadKey"].as_str().unwrap().to_owned());
+    let thread = requests(&desk.log)[0]["thread"]
+        .as_str()
+        .expect("a work thread")
+        .to_owned();
+    let side = json!({"kind": "side", "key": thread});
+    let work = StreamId::Side(thread.clone());
+
+    // The person's turn in Bob's thread reaches Ada as his report alone.
+    desk.ok("thread.continue", json!({"thread": side})).await;
+    desk.ok(
+        "thread.prompt",
+        json!({"thread": side, "text": "my secret is swordfish\nSAY Report two."}),
+    )
+    .await;
+    let report = || {
+        tape(&desk, &ada).into_iter().find(|event| {
+            event["kind"] == "notice"
+                && event["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("progress:"))
+                && event["text"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("Report two."))
+        })
+    };
+    until("Ada is shown Bob's report", || report().is_some()).await;
+    let report = report().unwrap();
+    assert!(
+        !report["text"].as_str().unwrap().contains("swordfish"),
+        "{report}"
+    );
+    let results = answered(&desk);
+    assert_eq!(
+        results.iter().filter(|id| **id == first_id).count(),
+        1,
+        "the person's turn is no result: {results:?}"
+    );
+
+    // Ada was not woken for it, and hears it once with her next line.
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": "SAY Heard."}),
+    )
+    .await;
+    until("Ada hears the person's next line", || {
+        !desk.heard("SAY Heard.").is_empty()
+    })
+    .await;
+    let carrying = desk.heard("Report two.");
+    assert_eq!(carrying.len(), 2, "Bob's turn and Ada's line: {carrying:?}");
+    assert!(carrying[0].contains("swordfish"), "{carrying:?}");
+    assert!(carrying[1].contains("SAY Heard."), "{carrying:?}");
+    assert_eq!(
+        carrying[1].matches("Report two.").count(),
+        1,
+        "{carrying:?}"
+    );
+    assert!(!carrying[1].contains("swordfish"), "{carrying:?}");
+
+    // An ask naming the thread is answered in it, and it stays open.
+    let three = "About the crane:\nSAY Answer three.";
+    let in_thread = json!({"to": "Bob", "intent": "ask", "thread": first_id, "message": three});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL message_teammate {in_thread}")}),
+    )
+    .await;
+    until("Ada asks in the thread", || {
+        sent(&desk.log, three).is_some()
+    })
+    .await;
+    let three = sent(&desk.log, three).unwrap();
+    until("Ada has the thread's answer", || {
+        delivered(&tape(&desk, &ada), "peer", &three).is_some()
+    })
+    .await;
+    assert!(
+        delivered(&desk.log.load(&work), "question", &three).is_some(),
+        "the question is asked in Bob's thread"
+    );
+    let answer = delivered(&tape(&desk, &ada), "peer", &three).unwrap();
+    assert_eq!(answer["cause"]["status"], "done", "{answer}");
+    assert_eq!(answer["text"], "Answer three.");
+    let link = tape(&desk, &bob)
+        .into_iter()
+        .find(|event| event["kind"] == "link" && event["thread"] == thread.as_str())
+        .expect("Bob's tape links his thread");
+    assert_ne!(link["state"], "closed", "{link}");
+
+    // Bob's question back reaches the conversation that handed the work
+    // over, and its answer returns to his thread.
+    let four = "About the crane:\nSAY Back four.";
+    let back = json!({"to": "Ada", "intent": "ask", "message": four});
+    desk.ok(
+        "thread.prompt",
+        json!({"thread": side, "text": format!("CALL message_teammate {back}")}),
+    )
+    .await;
+    until("Bob asks Ada back", || sent(&desk.log, four).is_some()).await;
+    let four = sent(&desk.log, four).unwrap();
+    until("Bob's thread has Ada's answer", || {
+        delivered(&desk.log.load(&work), "peer", &four).is_some()
+    })
+    .await;
+    let ada_tape = tape(&desk, &ada);
+    let question = ada_tape
+        .iter()
+        .position(|event| {
+            event["kind"] == "delivery"
+                && event["cause"]["kind"] == "question"
+                && event["cause"]["requestId"] == four.as_str()
+        })
+        .expect("the question reaches Ada's conversation");
+    assert!(
+        ada_tape[question..]
+            .iter()
+            .any(|event| event["kind"] == "agent" && event["text"] == "Back four."),
+        "Ada answers it there"
+    );
+    assert_eq!(
+        delivered(&desk.log.load(&work), "peer", &four).unwrap()["text"],
+        "Back four."
+    );
+
+    // A plain ask is answered by Bob's main conversation, and the pair's
+    // thread keeps both lines.
+    let five = "About the crane:\nSAY Main five.";
+    let plain = json!({"to": "Bob", "intent": "ask", "message": five});
+    desk.ok(
+        "session.prompt",
+        json!({"personaId": ada, "text": format!("CALL message_teammate {plain}")}),
+    )
+    .await;
+    until("Ada asks Bob", || sent(&desk.log, five).is_some()).await;
+    let five_id = sent(&desk.log, five).unwrap();
+    let kept = |desk: &Desk, id: &str, text: &str| {
+        desk.log
+            .load(&pair)
+            .iter()
+            .any(|event| event["id"] == id && event["text"] == text)
+    };
+    until("Ada has Bob's answer and the pair keeps it", || {
+        delivered(&tape(&desk, &ada), "peer", &five_id).is_some()
+            && kept(&desk, &format!("result:{five_id}"), "Main five.")
+    })
+    .await;
+    let bob_tape = tape(&desk, &bob);
+    let question = bob_tape
+        .iter()
+        .position(|event| {
+            event["kind"] == "delivery"
+                && event["cause"]["kind"] == "question"
+                && event["cause"]["requestId"] == five_id.as_str()
+        })
+        .expect("the ask reaches Bob's main conversation");
+    assert!(
+        bob_tape[question..]
+            .iter()
+            .any(|event| event["kind"] == "agent" && event["text"] == "Main five."),
+        "Bob answers it there"
+    );
+    let answer = delivered(&tape(&desk, &ada), "peer", &five_id).unwrap();
+    assert_eq!(answer["cause"]["status"], "done", "{answer}");
+    assert_eq!(answer["text"], "Main five.");
+    assert!(kept(&desk, &five_id, five), "the pair keeps the question");
+
+    // The first handoff's card is the only one, and each request came back
+    // to Ada once.
+    let cards: usize = [
+        StreamId::Room,
+        StreamId::Tape(ada.clone()),
+        StreamId::Tape(bob.clone()),
+        work,
+        pair,
+    ]
+    .iter()
+    .map(|stream| {
+        desk.log
+            .load(stream)
+            .iter()
+            .filter(|event| event["kind"] == "permission")
+            .count()
+    })
+    .sum();
+    assert_eq!(cards, 1);
+    let results = answered(&desk);
+    let mut once = results.clone();
+    once.sort();
+    once.dedup();
+    assert_eq!(once.len(), results.len(), "{results:?}");
 }

@@ -137,20 +137,23 @@ impl Failure {
         {
             failure.set_kind(Kind::Transport);
         }
-        failure.retry_after_seconds = error
-            .provider_response_headers()
-            .and_then(|headers| headers.get("retry-after"))
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| {
-                value.parse().ok().or_else(|| {
-                    chrono::DateTime::parse_from_rfc2822(value)
-                        .ok()
-                        .map(|date| {
-                            (date.timestamp() - chrono::Utc::now().timestamp()).max(0) as u64
-                        })
+        // A usage limit's reset time is the body's; a header is for waits.
+        if failure.kind != Kind::UsageLimit {
+            failure.retry_after_seconds = error
+                .provider_response_headers()
+                .and_then(|headers| headers.get("retry-after"))
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| {
+                    value.parse().ok().or_else(|| {
+                        chrono::DateTime::parse_from_rfc2822(value)
+                            .ok()
+                            .map(|date| {
+                                (date.timestamp() - chrono::Utc::now().timestamp()).max(0) as u64
+                            })
+                    })
                 })
-            })
-            .or(failure.retry_after_seconds);
+                .or(failure.retry_after_seconds);
+        }
         failure
     }
 

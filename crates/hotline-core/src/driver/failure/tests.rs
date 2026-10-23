@@ -275,6 +275,27 @@ fn retry_hints_survive_and_retry_budget_is_bounded() {
 }
 
 #[test]
+fn a_usage_limits_reset_time_comes_from_its_body_not_a_retry_after_header() {
+    let resets = chrono::Utc::now().timestamp() + 3_600;
+    let mut headers = http::HeaderMap::new();
+    headers.insert("retry-after", "30".parse().unwrap());
+    let error = ProviderError::ProviderResponse(
+        rig::ProviderResponseError::new(
+            http::StatusCode::TOO_MANY_REQUESTS,
+            format!(r#"{{"error":{{"type":"usage_limit_reached","resets_at":{resets}}}}}"#),
+        )
+        .with_headers(Some(headers)),
+    );
+    let failure = Failure::provider(error, "request");
+    assert_eq!(failure.kind, Kind::UsageLimit);
+    assert!(
+        failure
+            .retry_after_seconds
+            .is_some_and(|s| (3_500..=3_600).contains(&s))
+    );
+}
+
+#[test]
 fn a_refused_responses_item_is_repaired_but_an_arbitrary_bad_setting_is_not() {
     let replay = Failure::classify(
         r#"{"error":{"code":"invalid_value","param":"input[2].id","message":"Expected an ID without colons"}}"#,
@@ -366,7 +387,11 @@ fn a_chatgpt_usage_limit_is_a_usage_limit_and_says_when_it_resets() {
 #[test]
 fn a_chatgpt_usage_limit_names_its_sign_in_and_gives_no_time_for_a_reset_gone_by() {
     let past = chrono::Utc::now().timestamp() - 60;
-    for resets in [format!(r#","resets_at":{past}"#), String::new()] {
+    for resets in [
+        format!(r#","resets_at":{past}"#),
+        r#","resets_at":"soon""#.to_string(),
+        String::new(),
+    ] {
         let body =
             format!(r#"{{"error":{{"type":"usage_limit_reached","plan_type":"plus"{resets}}}}}"#);
         let failure = Failure::classify(&body, Some(429), "stream");
@@ -384,6 +409,12 @@ fn a_chatgpt_usage_limit_names_its_sign_in_and_gives_no_time_for_a_reset_gone_by
         "stream",
     );
     assert_eq!(rate_limited.kind, Kind::RateLimit);
+}
+
+#[test]
+fn the_vaults_locked_keychain_sentence_is_a_keychain_failure() {
+    let failure = Failure::classify(KEYCHAIN_LOCKED, None, "request");
+    assert_eq!(failure.kind, Kind::Keychain);
 }
 
 #[test]

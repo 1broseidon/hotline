@@ -36,7 +36,6 @@ pub trait SecretStore: Send + Sync {
 #[derive(Default)]
 pub struct NativeStore;
 
-/// The core's failure classifier tells a locked keychain by this sentence.
 pub const KEYCHAIN_LOCKED: &str = "OS credential storage is locked or inaccessible. Unlock it and retry; Hotline does not fall back to plaintext.";
 
 fn native_error(error: keyring::Error) -> io::Error {

@@ -103,6 +103,10 @@ struct Request {
     /// handoff that thread serves, whose reply route the question takes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     about: Option<String>,
+    /// A stopped ask sent from a thread a colleague handed over: that thread
+    /// is owed its failure until it is delivered there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    owed_to_thread: bool,
 }
 /// What a teammate sends a colleague, as `message_teammate` takes it.
 pub(crate) struct Outgoing<'a> {
@@ -356,6 +360,7 @@ impl Room {
                 progress_wakes: false,
                 released: false,
                 about,
+                owed_to_thread: false,
             });
             self.save_pair(&pair)?;
             if intent == Intent::Ask {
@@ -396,6 +401,7 @@ impl Room {
                     request.phase = Phase::Stopped;
                     request.failed = true;
                     request.reply = "The person stopped this exchange.".into();
+                    request.owed_to_thread = self.delegated_origin(request).is_some();
                     stopped.push(request.clone());
                 }
             }
@@ -467,10 +473,11 @@ impl Room {
     /// ends every message a teammate had waiting on another at once, and a
     /// line for each buried the sender's conversation under the same words;
     /// so the messages one sender had to one teammate share a line, which
-    /// names that teammate rather than giving its id.
+    /// names that teammate rather than giving its id. A thread a colleague
+    /// handed over hears what of its own was stopped there instead.
     fn exchange_notices(&self, stopped: &[Request]) {
         let mut groups: Vec<(&str, &str, Vec<&Request>)> = Vec::new();
-        for request in stopped {
+        for request in stopped.iter().filter(|r| !r.owed_to_thread) {
             match groups
                 .iter_mut()
                 .find(|(from, to, _)| *from == request.from && *to == request.to)
@@ -526,6 +533,7 @@ impl Room {
                 {
                     continue;
                 }
+                request.owed_to_thread = self.owes_thread(request, persona);
                 self.cancel_handoff(request);
                 request.phase = Phase::Stopped;
                 progress::release(request);
@@ -927,8 +935,7 @@ impl Room {
                     let _guard = lock(&room.exchange_lock);
                     if room.exchange_pair(&key).is_none_or(|pair| {
                         pair.requests.iter().all(|r| {
-                            matches!(r.phase, Phase::Done | Phase::Stopped)
-                                && !Self::owes_linked_answer(r)
+                            matches!(r.phase, Phase::Done | Phase::Stopped) && !Self::owes_answer(r)
                         })
                     }) {
                         lock(&room.exchange_workers).remove(&key);
@@ -944,13 +951,12 @@ impl Room {
         let Some(pair) = self.exchange_pair(key) else {
             return Ok(());
         };
-        // A linked sender whose request was stopped here hears so first.
-        if let Some(owed) = pair
-            .requests
-            .iter()
-            .find(|r| Self::owes_linked_answer(r))
-            .cloned()
-        {
+        // A sender whose request was stopped here, on a linked desk or in
+        // a thread a colleague handed over, hears so first.
+        if let Some(owed) = pair.requests.iter().find(|r| Self::owes_answer(r)).cloned() {
+            if owed.owed_to_thread {
+                return self.tell_thread_stopped(key, &owed).await;
+            }
             if self
                 .return_linked(&owed.id, &owed.from, &owed.reply, true)
                 .await
@@ -1237,13 +1243,8 @@ impl Room {
     /// lives, else the work thread it was sent from while that is open, else
     /// the sender's own conversation.
     fn route_of(&self, request: &Request) -> Route {
-        if request.intent == Intent::Ask
-            && let Some(thread) = request
-                .reply_thread
-                .as_deref()
-                .filter(|thread| self.opener_of(thread).is_some())
-        {
-            return Route::Work(thread.to_string());
+        if let Some(thread) = self.delegated_origin(request) {
+            return Route::Work(thread);
         }
         if let Some(job_id) = request
             .reply_job

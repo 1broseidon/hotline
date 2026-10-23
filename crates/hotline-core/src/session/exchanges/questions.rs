@@ -1,6 +1,7 @@
 //! A colleague's question, delivered to the conversation that answers it.
 
 use super::*;
+use crate::session::job_thread::JobLine;
 use crate::session::runner::Driven;
 
 impl Room {
@@ -81,6 +82,68 @@ impl Room {
                 self.deliver_into_job(&job_id, &id, cause, from, text, answers)
             }
         }
+    }
+
+    /// The thread a colleague handed over that an ask was sent from: what
+    /// comes of the ask, its answer or its failure, is heard there.
+    pub(super) fn delegated_origin(&self, request: &Request) -> Option<String> {
+        request
+            .reply_thread
+            .clone()
+            .filter(|thread| request.intent == Intent::Ask && self.opener_of(thread).is_some())
+    }
+
+    /// Whether an ask stopped by a revocation leaves its thread owed its
+    /// failure: it was sent from a thread a colleague handed over, and the
+    /// asker's own authority, which that thread runs under, has not ended.
+    /// A teammate the person stopped is not woken to hear it. Asked before
+    /// the ask's leases are revoked.
+    pub(super) fn owes_thread(&self, request: &Request, revoked: Option<&str>) -> bool {
+        self.delegated_origin(request).is_some()
+            && revoked != Some(request.from.as_str())
+            && lock(&self.exchange_leases)
+                .get(&request.id)
+                .is_none_or(|(asker, _)| asker.is_current())
+    }
+
+    /// Hands a stopped ask's failure to the thread a colleague handed over
+    /// that asked it: a handoff waiting on the ask carries on with it, as it
+    /// would with an answer, else the thread hears it as any delivery. A
+    /// sender deleted since has no thread left to hear it.
+    pub(super) async fn tell_thread_stopped(
+        self: &Arc<Self>,
+        key: &str,
+        ask: &Request,
+    ) -> Result<(), String> {
+        if let Some(thread) = self.delegated_origin(ask)
+            && self.participant(&ask.from).is_ok()
+        {
+            let (id, cause, from, text) = self.answer_delivery(key, ask)?;
+            let carried = self.carried_on(ask);
+            self.deliver_into_work(&thread, &id, cause, from, text, carried)
+                .await?;
+        }
+        let _guard = lock(&self.exchange_lock);
+        let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
+        if let Some(told) = pair.requests.iter_mut().find(|r| r.id == ask.id) {
+            told.owed_to_thread = false;
+        }
+        self.save_pair(&pair)
+    }
+
+    /// Fails at once each question among the lines a job dropped, as the
+    /// person's cancel fails one.
+    pub(in crate::session) fn fail_dropped_job_lines(
+        &self,
+        persona_id: &str,
+        dropped: impl IntoIterator<Item = JobLine>,
+    ) {
+        let asks: Vec<String> = dropped
+            .into_iter()
+            .filter_map(|dropped| dropped.line.request)
+            .map(|line| line.request)
+            .collect();
+        self.fail_dropped_questions(persona_id, asks.iter().map(String::as_str));
     }
 
     /// For a question sent from a thread a colleague handed over, to that

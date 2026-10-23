@@ -142,6 +142,7 @@ impl Room {
                 progress_wakes: false,
                 released: false,
                 about: None,
+                owed_to_thread: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
@@ -222,6 +223,7 @@ impl Room {
                 request.phase = Phase::Stopped;
                 request.failed = true;
                 request.reply = format!("{name} is on {desk_name}, which isn't linked any more.");
+                request.owed_to_thread = self.delegated_origin(request).is_some();
                 // Its desk is not linked to be told.
                 request.returned = true;
                 stopped.push(request.clone());
@@ -230,6 +232,7 @@ impl Room {
             if changed && let Err(error) = self.save_pair(&pair) {
                 eprintln!("unlink exchange: {error}");
             }
+            self.wake_owed(&pair);
         }
         self.exchange_notices(&stopped);
     }
@@ -242,17 +245,18 @@ impl Room {
         }
         self.save_pair(&pair)
     }
-    /// A request from a linked teammate that was stopped here, whose desk has
-    /// not been told: its sender is waiting on an answer until it is.
-    pub(super) fn owes_linked_answer(request: &Request) -> bool {
+    /// A request stopped here whose sender has not been told: one from a
+    /// linked teammate whose desk has not heard, or an ask whose thread is
+    /// owed its failure. Its sender is waiting on an answer until it is.
+    pub(super) fn owes_answer(request: &Request) -> bool {
         request.phase == Phase::Stopped
-            && crate::linked::is_linked(&request.from)
-            && !request.returned
+            && (request.owed_to_thread
+                || (crate::linked::is_linked(&request.from) && !request.returned))
     }
-    /// Sees that a stopped request's linked sender is told, by the pair's
-    /// worker, whichever path stopped it.
+    /// Sees that a stopped request's sender is told, by the pair's worker,
+    /// whichever path stopped it.
     pub(super) fn wake_owed(&self, pair: &Pair) {
-        if pair.requests.iter().any(Self::owes_linked_answer)
+        if pair.requests.iter().any(Self::owes_answer)
             && let Some(room) = lock(&self.me).upgrade()
         {
             room.wake_exchange(&pair.id);

@@ -221,6 +221,13 @@ impl LiveJob {
         self.say(room, &super::peers::stamped(event, Receipt::Read));
     }
 
+    /// Drops what waits behind the turn in flight: a colleague's question
+    /// among it fails to its asker.
+    fn drop_waiting(&self, room: &Room) {
+        let dropped: Vec<JobLine> = lock(&self.turns).waiting.drain(..).collect();
+        room.fail_dropped_job_lines(&self.persona_id, dropped);
+    }
+
     /// Stops the turn in flight and drops what waited behind it.
     fn interrupt(&self) {
         lock(&self.turns).clear();
@@ -349,6 +356,7 @@ impl Occupant for LiveJob {
                         format!("This job could not start its agent: {error}"),
                     );
                     room.mark_job(self, ThreadState::Parked, None);
+                    room.fail_dropped_job_lines(&self.persona_id, [line]);
                     return Begin::Skip;
                 }
             }
@@ -465,7 +473,7 @@ impl Occupant for LiveJob {
             if let Some(final_word) = &final_word {
                 self.post_as_job(room, &held.run, final_word);
             }
-            lock(&self.turns).clear();
+            self.drop_waiting(room);
             room.close_job(self, End::Done, final_word);
             return Then::Stop;
         }
@@ -1135,16 +1143,9 @@ impl Room {
             .cloned()
             .filter(|live| lock(&live.turns).running)
             .ok_or_else(|| "That job has no turn running.".to_string())?;
-        let dropped: Vec<JobLine> = lock(&live.turns).waiting.drain(..).collect();
+        live.drop_waiting(self);
         live.halted.store(true, Ordering::SeqCst);
         live.interrupt();
-        self.fail_dropped_questions(
-            &live.persona_id,
-            dropped
-                .iter()
-                .filter_map(|line| line.line.request.as_ref())
-                .map(|line| line.request.as_str()),
-        );
         Ok(())
     }
 
@@ -1197,11 +1198,12 @@ impl Room {
             Some(live) if report.is_some() && lock(&live.turns).running => {
                 // The turn that ended it closes the thread when it is over.
                 live.done.store(true, Ordering::SeqCst);
-                lock(&live.turns).clear();
+                live.drop_waiting(self);
                 self.mark_job(&live, ThreadState::Closed(by), final_word);
             }
             Some(live) => {
                 live.stopped.store(true, Ordering::SeqCst);
+                live.drop_waiting(self);
                 live.interrupt();
                 live.let_go(self);
                 lock(&self.job_threads).remove(&job.id);

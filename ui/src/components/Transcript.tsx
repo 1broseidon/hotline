@@ -578,7 +578,8 @@ const Row = memo(function Row({
 	}
 	switch (event.kind) {
 		case "user":
-			if (thread.kind === "call") return <>
+			// Only a pair's user lines are a teammate's; a call, and a thread a teammate handed over, are spoken in by the person.
+			if (thread.kind === "call" || (thread.kind === "side" && speakers !== undefined)) return <>
                 <p className="said-name text-right">You</p>
                 <UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
             </>;

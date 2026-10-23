@@ -716,7 +716,7 @@ function AnswerField({ thread, name, actionId, onRefused }: { thread: ThreadId; 
 	};
 	return (
 		<div className="handoff-answer">
-			<p className="text-xs text-ink-3">Your answer goes to {name}. The thread goes back to read-only after.</p>
+			<p className="text-xs text-ink-3">Your answer goes to {name} and carries the work on. You can keep talking here after.</p>
 			<input
 				className="field w-full"
 				aria-label={`Answer ${name}`}

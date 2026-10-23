@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { initialOf } from "../../ui/Avatar";
 import { BackKey, Band } from "../../ui/Band";
 import { Scroll } from "../../ui/Scroll";
@@ -35,7 +35,7 @@ export function AccountCard({ name, title, detail, children }: { name: string; t
 	);
 }
 
-/** Losing an account asks once, in place, before anything is sent. */
+/** Losing an account asks once, in place, before anything is sent. The button that asked is gone, so Cancel takes the focus. */
 export function Confirm({
 	question,
 	detail,
@@ -51,12 +51,23 @@ export function Confirm({
 	onConfirm(): void;
 	onCancel(): void;
 }) {
+	const cancel = useRef<HTMLButtonElement>(null);
+	useEffect(() => cancel.current?.focus(), []);
 	return (
-		<div className="group-row flex-col items-stretch gap-2">
+		// biome-ignore lint/a11y/noStaticElementInteractions: Escape is heard from the question's own buttons, as it bubbles.
+		<div
+			className="group-row flex-col items-stretch gap-2"
+			onKeyDown={(event) => {
+				if (event.key !== "Escape") return;
+				// Escape here puts the question away; it does not also leave Settings.
+				event.stopPropagation();
+				onCancel();
+			}}
+		>
 			<p>{question}</p>
 			<p className="text-sm text-ink-3">{detail}</p>
 			<div className="flex justify-end gap-2">
-				<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
+				<button ref={cancel} type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
 					Cancel
 				</button>
 				<button type="button" className="control btn btn-danger" disabled={busy} onClick={onConfirm}>

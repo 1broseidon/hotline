@@ -444,6 +444,58 @@ describe("Settings › Providers", () => {
 		expect(rows("Personal key")).toHaveLength(0);
 	});
 
+	test("a remove's question takes the focus to Cancel, and Escape puts it away", async () => {
+		await mount();
+		await openProvider("Anthropic");
+		await click("Remove key", row("Personal key"));
+		const cancel = button("Cancel", asked("Remove Personal key?"));
+		expect(document.activeElement === cancel).toBe(true);
+		await key(cancel, "Escape");
+		expect(text()).not.toContain("Remove Personal key?");
+		expect(hasButton("Rename", row("Personal key"))).toBe(true);
+		expect(named("credential.delete")).toHaveLength(0);
+
+		await openAccount("Account 2");
+		await click("Remove account");
+		const cancelRemove = button("Cancel", asked("Remove Account 2?"));
+		expect(document.activeElement === cancelRemove).toBe(true);
+		await key(cancelRemove, "Escape");
+		expect(text()).not.toContain("Remove Account 2?");
+		expect(band()).toBe("Account 2");
+		expect(named("accounts.remove")).toHaveLength(0);
+	});
+
+	test("a refusal goes once a later rename succeeds", async () => {
+		deleteRefusal = "Prod key can't be removed while Rae uses it.";
+		await mount();
+		await openProvider("Anthropic");
+		await click("Remove key", row("Prod key"));
+		await click("Remove key", asked("Remove Prod key?"));
+		expect(text()).toContain("Prod key can't be removed while Rae uses it.");
+
+		await click("Rename", row("Personal key"));
+		await type(field("Account name"), "Spare key");
+		await click("Save");
+		expect(row("Spare key")).toBeDefined();
+		expect(text()).not.toContain("can't be removed");
+	});
+
+	test("a remove's question goes when its account is signed out meanwhile", async () => {
+		await mount();
+		await openProvider("Anthropic");
+		await click("Remove key", row("Personal key"));
+		expect(text()).toContain("Remove Personal key?");
+
+		// Signed out elsewhere; the page learns it when it next reads the list.
+		credentials = credentials.map((one) => (one.credential.id === "k2" ? { ...one, credential: { ...one.credential, revoked: true } } : one));
+		await click("Rename", row("Prod key"));
+		await type(field("Account name"), "Main key");
+		await click("Save");
+		expect(row("Personal key").textContent).toContain("Signed out");
+		expect(text()).not.toContain("Remove Personal key?");
+		expect([...row("Personal key").querySelectorAll("button")].map((node) => node.textContent)).toEqual(["Remove"]);
+	});
+
 	test("change server keeps the server and starts from its address", async () => {
 		agents = [codex];
 		accounts = [];

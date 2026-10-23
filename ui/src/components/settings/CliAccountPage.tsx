@@ -242,6 +242,7 @@ export function CliAccountPage({
 
 	const rename = async (next: string) => {
 		onRenamed(await wire.command("accounts.rename", { accountId: view.account.id, name: next }));
+		refuse(null);
 		setRenaming(false);
 	};
 

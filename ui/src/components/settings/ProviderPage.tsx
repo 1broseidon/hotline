@@ -225,6 +225,7 @@ export function ProviderPage({
 						busy={busy}
 						onSave={async (label) => {
 							await wire.command("credential.update", { id: credential.id, label });
+							refuse(null);
 							await reload();
 							setRenaming(null);
 						}}
@@ -233,7 +234,7 @@ export function ProviderPage({
 				</div>
 			);
 		}
-		const confirming = removing === credential.id;
+		const confirming = removing === credential.id && !credential.revoked;
 		return (
 			<Fragment key={credential.id}>
 				<div className="group-row">
@@ -289,6 +290,7 @@ export function ProviderPage({
 							onOpen={() => onOpenAccount(view.account.id)}
 							onRename={async (name) => {
 								await wire.command("accounts.rename", { accountId: view.account.id, name });
+								refuse(null);
 								await reload();
 							}}
 						/>

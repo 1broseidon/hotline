@@ -24,8 +24,10 @@ import {
 	type ThreadDot,
 	threadDot,
 	threadOwnerId,
+	turnRunning,
 	withLinks,
 	withoutWords,
+	withTurns,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
 import { firstLine, nextText } from "../room";
@@ -83,7 +85,9 @@ export function Dock({
 	}, []);
 
 	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
-	const { rows, list, reload } = useThreadRows(entry);
+	const { rows: listed, list, reload } = useThreadRows(entry);
+	const listedFor = entry?.persona.id ?? "";
+	const rows = useMemo(() => withTurns(listed, roster, listedFor), [listed, roster, listedFor]);
 	const jobs = useJobs(entry?.persona.id);
 	/* A teammate on a linked desk is in no roster here; its pair's row names it ("Lou on grizzly"). */
 	const nameOf = useCallback(
@@ -95,6 +99,8 @@ export function Dock({
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
 	const at = state.open;
+	const row = at === null ? undefined : rows.find((one) => sameThread(one.thread, at.thread));
+	const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
@@ -117,12 +123,12 @@ export function Dock({
 						<ThreadView
 							key={`${at.thread.kind}:${at.thread.key}`}
 							open={at}
-							row={rows.find((row) => sameThread(row.thread, at.thread))}
+							row={row}
 							job={at.thread.kind === "job" ? jobs.find((one) => one.id === at.thread.key) : undefined}
 							teammate={teammate}
 							nameOf={nameOf}
 							people={people}
-							working={entry !== null && workingNow(entry, at)}
+							working={turnRunning(owner, at.thread, row)}
 							onChanged={reload}
 							onOpen={(open) => onState({ open })}
 							onBack={() => onState({ open: null })}
@@ -134,15 +140,6 @@ export function Dock({
 			</aside>
 		</div>
 	);
-}
-
-/** Whether a turn of this thread is running, as the roster, which hears of it first, says. */
-function workingNow(entry: RosterEntry, open: ThreadRef): boolean {
-	if (open.thread.kind === "side") return entry.sides?.find((side) => side.sideId === open.thread.key)?.working ?? false;
-	if (open.thread.kind === "run") return entry.subagents?.some((run) => run.runId === open.thread.key) ?? false;
-	if (open.thread.kind === "job") return entry.workingJobs?.includes(open.thread.key) ?? false;
-	if (open.thread.kind === "call") return entry.workingCalls?.includes(open.thread.key) ?? false;
-	return false;
 }
 
 /** The pane's header: what it holds, and the way out. */
@@ -414,7 +411,7 @@ function ThreadView({
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
 	nameOf(personaId: string): string | undefined;
 	people: ReadonlyMap<string, Person>;
-	/** A turn of this thread is running, as the roster says. */
+	/** A turn of this thread is running: see `turnRunning`. */
 	working: boolean;
 	/** The thread was archived or continued: the list reads itself again. */
 	onChanged(): void;
@@ -435,7 +432,7 @@ function ThreadView({
 	const powers = powersOf(id.kind, state, opener !== undefined);
 	const closed = state === "closed";
 	const parked = state === "parked";
-	const turning = (working || row?.working === true) && !closed;
+	const turning = working && !closed;
 	const other = id.kind === "pair" ? pairWith(id.key, self.id) : undefined;
 	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
 	const title = row !== undefined ? rowTitle(row, self.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));

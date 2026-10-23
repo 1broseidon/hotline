@@ -1,5 +1,26 @@
 use super::*;
+use crate::credentials::MemoryStore;
 use crate::vault::tests::{ids, listed, vault};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[derive(Default)]
+struct CountingStore {
+    secrets: MemoryStore,
+    reads: AtomicUsize,
+}
+
+impl SecretStore for CountingStore {
+    fn get(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.secrets.get(key)
+    }
+    fn set(&self, key: &str, bytes: &[u8]) -> io::Result<()> {
+        self.secrets.set(key, bytes)
+    }
+    fn delete(&self, key: &str) -> io::Result<()> {
+        self.secrets.delete(key)
+    }
+}
 
 fn key(secret: &str) -> CredentialChange {
     CredentialChange {
@@ -90,6 +111,21 @@ fn a_chosen_account_replaces_only_its_providers_entry() {
     assert_eq!(auth["openai"], ProviderAuth::ApiKey("key-c".into()));
     assert_eq!(auth.len(), 2);
     assert_eq!(vault.provider_auth_for(None), vault.provider_auth());
+}
+
+#[test]
+fn a_chosen_accounts_turn_reads_the_keychain_once() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(CountingStore::default());
+    let vault = Vault::open_with_store(root.path(), Log::open(root.path()), store.clone()).unwrap();
+    vault.create("anthropic", "A", "key-a").unwrap();
+    let b = vault.create("anthropic", "B", "key-b").unwrap();
+    vault.create("openai", "C", "key-c").unwrap();
+
+    store.reads.store(0, Ordering::SeqCst);
+    let auth = vault.provider_auth_for(Some(&chosen(&b.id, "anthropic")));
+    assert_eq!(auth["anthropic"], ProviderAuth::ApiKey("key-b".into()));
+    assert_eq!(store.reads.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -286,6 +322,36 @@ fn a_sign_in_adopted_in_place_keeps_its_id_and_a_failed_one_leaves_the_old_token
             token_dir: into_dir
         }
     );
+}
+
+#[test]
+fn a_copilot_sign_in_adopted_in_place_leaves_exactly_its_own_records() {
+    let vault = vault("accounts-adopt-copilot");
+    let (into, into_dir) = signed_in(&vault, "github-copilot", b"stray");
+    let into_copilot = vault.files.file(into_dir.join(COPILOT_RECORD));
+    into_copilot.write(b"old-copilot").unwrap();
+    write_beside_login(&into_dir, "endpoints.json", b"old-endpoints").unwrap();
+
+    let (from, from_dir) = vault.begin_login().unwrap();
+    vault
+        .files
+        .file(from_dir.join(COPILOT_RECORD))
+        .write(b"new-copilot")
+        .unwrap();
+    write_beside_login(&from_dir, "endpoints.json", b"new-endpoints").unwrap();
+    vault.adopt_login(&from, &into.id).unwrap();
+
+    assert_eq!(
+        into_copilot.read().unwrap().as_deref(),
+        Some(&b"new-copilot"[..])
+    );
+    assert_eq!(tokens(&vault, &into.id), None);
+    assert!(!into_dir.join(rig_login::CHATGPT_RECORD).exists());
+    assert_eq!(
+        fs::read(into_dir.join("endpoints.json")).unwrap(),
+        b"new-endpoints"
+    );
+    assert!(!from_dir.exists());
 }
 
 #[test]

@@ -34,21 +34,27 @@ impl Vault {
         account: Option<&ChosenAccount>,
     ) -> HashMap<String, ProviderAuth> {
         let events = self.log.load(&StreamId::Room);
+        let secrets = self.read_secrets();
         let mut auth: HashMap<String, ProviderAuth> = self
-            .connections_from(&events)
+            .connections_from(&events, &secrets)
             .into_iter()
             .map(|(provider_id, (_, auth))| (provider_id, auth))
             .collect();
         if let Some(account) = account {
             auth.insert(
                 account.provider_id.clone(),
-                self.chosen_auth(&events, account),
+                self.chosen_auth(&events, &secrets, account),
             );
         }
         auth
     }
 
-    fn chosen_auth(&self, events: &[Value], account: &ChosenAccount) -> ProviderAuth {
+    fn chosen_auth(
+        &self,
+        events: &[Value],
+        secrets: &io::Result<BTreeMap<String, String>>,
+        account: &ChosenAccount,
+    ) -> ProviderAuth {
         let signed_out = || ProviderAuth::Unavailable(ACCOUNT_SIGNED_OUT.into());
         let Some(credential) = Self::credentials(events).into_iter().find(|credential| {
             credential.id == account.id
@@ -57,7 +63,7 @@ impl Vault {
         }) else {
             return signed_out();
         };
-        match self.credential_auth(&credential, &self.read_secrets()) {
+        match self.credential_auth(&credential, secrets) {
             Ok(Some(auth)) => auth,
             Ok(None) => signed_out(),
             Err(error) => ProviderAuth::Unavailable(error.to_string()),

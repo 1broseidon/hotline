@@ -388,17 +388,22 @@ impl Vault {
     }
 
     fn connections(&self) -> HashMap<String, (Credential, ProviderAuth)> {
-        self.connections_from(&self.log.load(&StreamId::Room))
+        self.connections_from(&self.log.load(&StreamId::Room), &self.read_secrets())
     }
 
-    fn connections_from(&self, events: &[Value]) -> HashMap<String, (Credential, ProviderAuth)> {
-        let secrets = self.read_secrets();
+    /// The secrets are read by the caller, once, so a turn that also reads a
+    /// chosen account's key sees the same keychain read and asks for it once.
+    fn connections_from(
+        &self,
+        events: &[Value],
+        secrets: &io::Result<BTreeMap<String, String>>,
+    ) -> HashMap<String, (Credential, ProviderAuth)> {
         let mut connections = HashMap::new();
         for credential in Self::credentials(events) {
             if credential.revoked {
                 continue;
             }
-            let auth = match self.credential_auth(&credential, &secrets) {
+            let auth = match self.credential_auth(&credential, secrets) {
                 Ok(Some(auth)) => auth,
                 Ok(None) => continue,
                 Err(error) => ProviderAuth::Unavailable(error.to_string()),
@@ -498,7 +503,7 @@ impl Vault {
 
     pub(crate) fn model_choices(&self) -> Vec<crate::contract::ConfigChoice> {
         let events = self.log.load(&StreamId::Room);
-        let sources = self.model_sources_from(self.connections_from(&events));
+        let sources = self.model_sources_from(self.connections_from(&events, &self.read_secrets()));
         let auth = sources
             .connections
             .iter()

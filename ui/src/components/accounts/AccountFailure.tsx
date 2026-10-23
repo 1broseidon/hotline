@@ -5,13 +5,24 @@ import { onServer, showPath } from "../../serverFiles";
 import { Refusal, refused, type Refused } from "../../ui/Refusal";
 import { wire } from "../../wire";
 import type { FailureDetails } from "../ErrorCard";
+import { AccountPicker } from "./AccountPicker";
 import { AccountSignIn } from "./AccountSignIn";
+import { accountsFor, providerAccounts, suggested } from "./fits";
 import { SYSTEM_DEFAULT, THIS_COMPUTER } from "./words";
 
 const NONE: AccountsList = { agents: [], accounts: [], credentials: [] };
+const HOTLINE_AGENT = "hotline";
+
+/** Whether the card offers another account, or the teammate has already moved off the one that failed. */
+export type AccountOffer = "none" | "open" | "moved";
 
 // Read from usedBy rather than kept by the card, so a card mounted again after a Continue still knows where the teammate went.
-function currentAccount(list: AccountsList, backendId: string, personaId: string): string {
+// Nothing when the list cannot say: a Hotline Agent teammate off the failed account's provider, or an agent the list lacks.
+function currentAccount(list: AccountsList, backendId: string, providerId: string | undefined, personaId: string): string | undefined {
+	if (backendId === HOTLINE_AGENT) {
+		return list.credentials.find((one) => one.credential.providerId === providerId && one.usedBy.includes(personaId))?.credential.id;
+	}
+	if (!list.agents.some((one) => one.backendId === backendId)) return undefined;
 	return list.accounts.find((one) => one.account.backendId === backendId && one.usedBy.includes(personaId))?.account.id ?? SYSTEM_DEFAULT;
 }
 
@@ -23,6 +34,7 @@ export function AccountFailure({
 	latest,
 	onChooseAccount,
 	onRetry,
+	onOffer,
 }: {
 	error: FailureDetails;
 	personaId: string;
@@ -31,10 +43,13 @@ export function AccountFailure({
 	latest: boolean;
 	onChooseAccount?: (() => void) | undefined;
 	onRetry?: (() => void) | undefined;
+	onOffer?: ((offer: AccountOffer) => void) | undefined;
 }) {
 	const [list, setList] = useState<AccountsList | null>(null);
 	const [statuses, setStatuses] = useState<Record<string, AccountStatusView>>({});
 	const [movedTo, setMovedTo] = useState<string | null>(null);
+	const [picked, setPicked] = useState<string | null>(null);
+	const [declined, setDeclined] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [signing, setSigning] = useState(false);
 	const [signedIn, setSignedIn] = useState(false);
@@ -50,7 +65,8 @@ export function AccountFailure({
 				if (cancelled) return;
 				setList(answer);
 				// Each status runs the agent's CLI, so only a card that can still move the teammate asks.
-				if (kind !== "usage_limit" || !latest || currentAccount(answer, backendId, personaId) !== failedOn) return;
+				if (backendId === HOTLINE_AGENT || kind !== "usage_limit" || !latest) return;
+				if (currentAccount(answer, backendId, undefined, personaId) !== failedOn) return;
 				for (const view of answer.accounts) {
 					const id = view.account.id;
 					if (view.account.backendId !== backendId || id === failedOn) continue;
@@ -72,22 +88,41 @@ export function AccountFailure({
 	}, [kind, backendId, failedOn, latest, personaId]);
 
 	const known = list ?? NONE;
-	const agent = known.agents.find((one) => one.backendId === backendId);
-	const accounts = known.accounts
-		.filter((one) => one.account.backendId === backendId)
-		.map((one) => {
+	const hotline = backendId === HOTLINE_AGENT;
+	const fresh: AccountsList = {
+		...known,
+		accounts: known.accounts.map((one) => {
 			const status = statuses[one.account.id];
 			return status === undefined ? one : { ...one, status };
-		});
-	const failed = accounts.find((one) => one.account.id === error.accountId);
-	const nameOf = (id: string) => (id === SYSTEM_DEFAULT ? THIS_COMPUTER : (accounts.find((one) => one.account.id === id)?.account.name ?? id));
+		}),
+	};
+	const agent = known.agents.find((one) => one.backendId === backendId);
+	const failed = fresh.accounts.find((one) => one.account.backendId === backendId && one.account.id === error.accountId);
+	const failedCredential = hotline ? known.credentials.find((one) => one.credential.id === error.accountId)?.credential : undefined;
+	const choices = hotline ? providerAccounts(known, failedCredential?.providerId) : accountsFor(fresh, { backendId, modelId: undefined });
+	const nameOf = (id: string) => choices.find((one) => one.id === id)?.name ?? id;
+
+	const limit = kind === "usage_limit" || (kind === "quota" && error.accountId !== undefined);
+	const current = list === null ? undefined : (movedTo ?? currentAccount(known, backendId, failedCredential?.providerId, personaId));
+	const switched = limit && current !== undefined && current !== failedOn;
+	// A CLI account is offered once its agent says it is signed in; This computer's own sign-in is never asked about.
+	const others = choices.filter((one) => one.id !== failedOn && (hotline || one.signedIn || one.id === SYSTEM_DEFAULT));
+	const selected = picked !== null && others.some((one) => one.id === picked) ? picked : (suggested(others, failedOn) ?? others[0]?.id);
+	const open = limit && latest && !declined && current === failedOn && selected !== undefined;
+	const offer: AccountOffer = open ? "open" : switched ? "moved" : "none";
+
+	useEffect(() => {
+		onOffer?.(offer);
+	}, [offer, onOffer]);
 
 	const continueOn = async (accountId: string) => {
 		if (busy) return;
 		setBusy(true);
 		setRefusal(null);
+		// On Hotline Agent the default's row means following the default, as it does in the teammate's pane.
+		const followsDefault = hotline && choices.some((one) => one.id === accountId && one.isDefault);
 		try {
-			await wire.command("persona.account", { personaId, accountId: accountId === SYSTEM_DEFAULT ? null : accountId });
+			await wire.command("persona.account", { personaId, accountId: accountId === SYSTEM_DEFAULT || followsDefault ? null : accountId });
 			setMovedTo(accountId);
 		} catch (reason) {
 			setRefusal(refused("Couldn't change the account", reason));
@@ -108,29 +143,34 @@ export function AccountFailure({
 	let keys: ReactNode = null;
 	let below: ReactNode = null;
 
-	if (kind === "usage_limit") {
-		const current = movedTo ?? currentAccount(known, backendId, personaId);
-		const switched = list !== null && current !== failedOn;
-		if (failedOn === SYSTEM_DEFAULT) title = `${THIS_COMPUTER} hit its usage limit`;
-		else if (failed !== undefined) title = `${failed.account.name} hit its usage limit`;
+	if (limit) {
+		if (kind === "usage_limit") {
+			if (hotline) {
+				if (failedCredential !== undefined) title = `${failedCredential.label} hit its usage limit`;
+			} else if (failedOn === SYSTEM_DEFAULT) title = `${THIS_COMPUTER} hit its usage limit`;
+			else if (failed !== undefined) title = `${failed.account.name} hit its usage limit`;
+		}
 		if (switched) {
 			const session = agent === undefined ? "session" : `${agent.name} session`;
 			body = `Now on ${nameOf(current)}: a fresh ${session} that is handed this conversation. The failed turn may have done part of its work, so Try again tells it to check before repeating anything.`;
-		} else if (list !== null) {
-			const others = accounts.filter((one) => one.account.id !== failedOn && one.status.state === "signed_in").map((one) => one.account.id);
-			const choices = failedOn === SYSTEM_DEFAULT ? others : [...others, SYSTEM_DEFAULT];
-			keys = choices.length === 0 ? null : choices.map((id, index) => (
-				<button
-					key={id === SYSTEM_DEFAULT ? "system-default" : id}
-					type="button"
-					className={index === 0 ? "control btn btn-sm btn-primary" : "control btn btn-sm"}
-					disabled={busy}
-					onClick={() => void continueOn(id)}
-				>
-					Continue on {nameOf(id)}
-				</button>
-			));
+		} else if (open) {
+			keys = (
+				<>
+					<span className="text-sm text-ink-2">Continue on</span>
+					<div className="w-64 min-w-0 max-w-full">
+						<AccountPicker choices={others} selected={selected} label="Continue on" disabled={busy} onSelect={setPicked} />
+					</div>
+					<button type="button" className="control btn btn-sm btn-primary" disabled={busy} onClick={() => void continueOn(selected)}>
+						Continue
+					</button>
+					<button type="button" className="control btn-quiet btn-sm" disabled={busy} onClick={() => setDeclined(true)}>
+						Try again later
+					</button>
+				</>
+			);
 		}
+	} else if (kind === "auth") {
+		keys = chooseKey(true);
 	} else if (kind === "agent_auth") {
 		if (failed !== undefined && agent !== undefined) {
 			const name = failed.account.name;

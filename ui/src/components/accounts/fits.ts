@@ -74,13 +74,7 @@ export function kindsIn(provider: Provider | undefined, section: AccountSection)
 
 /** The window's copy of the core's rule for which accounts fit a teammate. */
 export function accountsFor(list: AccountsList, teammate: { backendId: string; modelId: string | undefined }): AccountChoice[] {
-	if (teammate.backendId === HOTLINE_AGENT) {
-		const providerId = providerOf(teammate.modelId);
-		if (providerId === undefined) return [];
-		return list.credentials
-			.filter((one) => one.credential.providerId === providerId && !one.credential.revoked)
-			.map(credentialChoice);
-	}
+	if (teammate.backendId === HOTLINE_AGENT) return providerAccounts(list, providerOf(teammate.modelId));
 	const agent = list.agents.find((one) => one.backendId === teammate.backendId && one.supportsAccounts);
 	if (agent === undefined) return [];
 	const thisComputer: AccountChoice = {
@@ -94,6 +88,12 @@ export function accountsFor(list: AccountsList, teammate: { backendId: string; m
 	};
 	const accounts = list.accounts.filter((one) => one.account.backendId === agent.backendId).map(agentAccountChoice);
 	return [...accounts, thisComputer];
+}
+
+/** What Hotline Agent picks among on a model of `providerId`: that provider's live credentials. */
+export function providerAccounts(list: AccountsList, providerId: string | undefined): AccountChoice[] {
+	if (providerId === undefined) return [];
+	return list.credentials.filter((one) => one.credential.providerId === providerId && !one.credential.revoked).map(credentialChoice);
 }
 
 /** Absent a running account, Hotline Agent runs on its provider's default and a CLI agent on This computer. */

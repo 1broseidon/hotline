@@ -641,6 +641,7 @@ const Row = memo(function Row({
 				return (
 					<ErrorCard
 						text={event.text}
+						at={event.ts}
 						{...(!speakers ? { personaId } : {})}
 						{...(onRetry ? { onRetry } : {})}
 						{...(onRunAgain ? { onRunAgain } : {})}

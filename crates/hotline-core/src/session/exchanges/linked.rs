@@ -137,6 +137,9 @@ impl Room {
                 returned: false,
                 lead_call: None,
                 continues,
+                progress: Vec::new(),
+                progress_left_out: 0,
+                progress_wakes: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(

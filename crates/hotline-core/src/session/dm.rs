@@ -124,8 +124,12 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         } else {
+            let mut text = wired.text;
+            if let Some(heard) = room.take_heard(&session.thread()) {
+                text = format!("{heard}\n\n{text}");
+            }
             Source::Say {
-                text: wired.text,
+                text,
                 attachments: wired.attachments,
             }
         };

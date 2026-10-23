@@ -307,7 +307,7 @@ impl Occupant for LiveJob {
         !self.stopped.load(Ordering::SeqCst) && room.persona(&self.persona_id).is_ok()
     }
 
-    async fn begin(self: &Arc<Self>, room: &Arc<Room>, line: JobLine) -> Begin<JobTurn> {
+    async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: JobLine) -> Begin<JobTurn> {
         let Some(job) = room::all_jobs(&room.log)
             .into_iter()
             .find(|job| job.id == self.job_id)
@@ -353,6 +353,9 @@ impl Occupant for LiveJob {
         }
         if let Some(id) = &line.line.delivery {
             self.heard(room, id);
+        }
+        if let Some(heard) = room.take_heard(&Occupant::thread(&**self)) {
+            line.line.text = format!("{heard}\n\n{}", line.line.text);
         }
         Begin::Go(JobTurn {
             line: Some(line.line),

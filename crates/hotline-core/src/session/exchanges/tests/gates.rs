@@ -50,16 +50,16 @@ fn turn(id: &str, text: &str, ends: &str) -> Vec<Update> {
 
 /// Ada's handoff to Bob, its turn held mid-way at `bob_gate`, in a room where
 /// Carol's answers are held at `carol_gate`.
-struct HandedOff {
-    room: Arc<Room>,
-    bob: Arc<Fake>,
-    bob_gate: Arc<Semaphore>,
-    carol_gate: Arc<Semaphore>,
-    handoff: String,
-    thread: String,
+pub(super) struct HandedOff {
+    pub(super) room: Arc<Room>,
+    pub(super) bob: Arc<Fake>,
+    pub(super) bob_gate: Arc<Semaphore>,
+    pub(super) carol_gate: Arc<Semaphore>,
+    pub(super) handoff: String,
+    pub(super) thread: String,
 }
 
-async fn handed_off(name: &str, first_turn_ends: &str) -> HandedOff {
+pub(super) async fn handed_off(name: &str, first_turn_ends: &str) -> HandedOff {
     let log = scratch(name);
     for id in ["ada", "bob", "carol"] {
         enrol(&log, &persona(id));
@@ -100,11 +100,11 @@ async fn handed_off(name: &str, first_turn_ends: &str) -> HandedOff {
 }
 
 /// Bob asks Carol from inside the work thread `thread`, with its tools.
-async fn ask_carol(room: &Arc<Room>, thread: &str) -> String {
+pub(super) async fn ask_carol(room: &Arc<Room>, thread: &str) -> String {
     ask_from(room, thread, "carol").await
 }
 
-async fn ask_from(room: &Arc<Room>, thread: &str, to: &str) -> String {
+pub(super) async fn ask_from(room: &Arc<Room>, thread: &str, to: &str) -> String {
     let sent = TeammateTools::new(room, "bob")
         .for_work(thread.to_string())
         .call(
@@ -119,7 +119,7 @@ async fn ask_from(room: &Arc<Room>, thread: &str, to: &str) -> String {
         .to_string()
 }
 
-fn request(room: &Room, key: &str, id: &str) -> Request {
+pub(super) fn request(room: &Room, key: &str, id: &str) -> Request {
     room.exchange_pair(key)
         .and_then(|pair| pair.requests.into_iter().find(|r| r.id == id))
         .expect("the request is saved")
@@ -149,7 +149,7 @@ fn closed(room: &Room, thread: &str) -> bool {
     )
 }
 
-fn idle(room: &Room, thread: &str) -> bool {
+pub(super) fn idle(room: &Room, thread: &str) -> bool {
     !room.work_thread_working(&ThreadId::side(thread))
 }
 

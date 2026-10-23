@@ -1,5 +1,6 @@
 mod gates;
 mod pause;
+mod progress;
 
 use super::*;
 use crate::driver::{MessageKind, Update};
@@ -67,6 +68,19 @@ fn work_thread(room: &Room, id: &str) -> String {
         })
         .expect("the handoff opened a work thread")
 }
+/// The reports from threads it handed over that a teammate's tape shows.
+fn notices(room: &Room, persona: &str) -> Vec<String> {
+    room.tape(persona)
+        .into_iter()
+        .filter(|v| {
+            v["kind"] == "notice"
+                && v["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("progress:"))
+        })
+        .map(|v| v["text"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
 fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
     Request {
         id: id.into(),
@@ -89,6 +103,9 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         returned: false,
         lead_call: None,
         continues: None,
+        progress: Vec::new(),
+        progress_left_out: 0,
+        progress_wakes: false,
     }
 }
 /// A handoff from `from` to `to`, into the thread `thread` names when it does.

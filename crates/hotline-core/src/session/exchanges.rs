@@ -82,6 +82,17 @@ struct Request {
     /// handoff that opened it, which is the thread's name to its sender.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     continues: Option<String>,
+    /// Reports from this handoff's thread that its sender has not heard yet,
+    /// oldest first. On the recipient's desk of a linked sender, the ones
+    /// still to cross.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    progress: Vec<String>,
+    /// How many reports the limit dropped from `progress`.
+    #[serde(default, skip_serializing_if = "progress::is_zero")]
+    progress_left_out: u32,
+    /// Whether any report in `progress` may wake its sender.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    progress_wakes: bool,
 }
 /// What a teammate sends a colleague, as `message_teammate` takes it.
 pub(crate) struct Outgoing<'a> {
@@ -393,6 +404,9 @@ impl Room {
                     _ => None,
                 },
                 continues: continues.clone(),
+                progress: Vec::new(),
+                progress_left_out: 0,
+                progress_wakes: false,
             });
             self.save_pair(&pair)?;
             if let Answer::Later(sent_from) = answer
@@ -1413,6 +1427,7 @@ impl Room {
 
 mod gates;
 mod linked;
+mod progress;
 
 #[cfg(test)]
 mod tests;

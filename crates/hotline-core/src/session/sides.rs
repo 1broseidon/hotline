@@ -262,6 +262,9 @@ impl Occupant for LiveSide {
         if let Some(id) = &line.delivery {
             self.heard(room, id);
         }
+        if let Some(heard) = room.take_heard(&self.thread) {
+            line.text = format!("{heard}\n\n{}", line.text);
+        }
         Begin::Go(WorkTurn { line: Some(line) })
     }
 
@@ -333,14 +336,19 @@ impl Occupant for LiveSide {
             } else {
                 driven.replies.join("\n\n")
             };
-            let waiting = room.finish_request(&request, reply, failed) == Finished::Waiting;
-            if !waiting && lock(&side.turns).waiting.is_empty() {
+            let finished = room.finish_request(&request, reply, failed);
+            let answered = Some((request.as_str(), finished));
+            room.report_turn(&side.id, side.opener.as_ref(), answered, &driven);
+            if finished != Finished::Waiting && lock(&side.turns).waiting.is_empty() {
                 room.finish_side(side, if failed { End::Failed } else { End::Agent }, None);
                 return Then::Stop;
             }
-        } else if let Some(summary) = said_so {
-            room.finish_side(side, End::Agent, Some(summary));
-            return Then::Stop;
+        } else {
+            room.report_turn(&side.id, side.opener.as_ref(), None, &driven);
+            if let Some(summary) = said_so {
+                room.finish_side(side, End::Agent, Some(summary));
+                return Then::Stop;
+            }
         }
         Then::Next
     }

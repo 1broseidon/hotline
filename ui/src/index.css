@@ -252,6 +252,12 @@
 	html[data-platform="macos"]:not([data-fullscreen]) .titlebar {
 		padding-left: 80px;
 	}
+	/* 16: the last key on the right over the pane band's last key (the
+	 * window's 8px gutter and the band's 8px). Where the page draws the
+	 * window controls they stand there instead. */
+	html[data-platform="macos"] .titlebar {
+		padding-right: 16px;
+	}
 	.titlebar-drag {
 		position: absolute;
 		inset: 0;

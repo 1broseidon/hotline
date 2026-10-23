@@ -119,3 +119,30 @@ fn a_question_delivery_round_trips_with_and_without_its_work() {
     let event: TranscriptEvent = serde_json::from_value(about_work.clone()).unwrap();
     assert_eq!(serde_json::to_value(&event).unwrap(), about_work);
 }
+
+#[test]
+fn a_linked_delivery_grows_by_a_report_and_by_the_handoff_an_ask_is_about() {
+    let plain = json!({
+        "kind":"request","requestId":"r","fromPersonaId":"ada","to":"bob",
+        "message":"m","intent":"ask",
+    });
+    let request: LinkedDelivery = serde_json::from_value(plain.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&request).unwrap(), plain);
+    let mut asked_back = plain;
+    asked_back["about"] = json!("h");
+    let request: LinkedDelivery = serde_json::from_value(asked_back.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&request).unwrap(), asked_back);
+    assert!(LinkedDelivery::decl(&ts_rs::Config::default()).contains("about?: string"));
+
+    let report = json!({"kind":"progress","requestId":"h","text":"runner 3 is green","wakes":true});
+    let delivery: LinkedDelivery = serde_json::from_value(report.clone()).unwrap();
+    assert_eq!(
+        delivery,
+        LinkedDelivery::Progress {
+            request_id: "h".into(),
+            text: "runner 3 is green".into(),
+            wakes: true,
+        }
+    );
+    assert_eq!(serde_json::to_value(&delivery).unwrap(), report);
+}

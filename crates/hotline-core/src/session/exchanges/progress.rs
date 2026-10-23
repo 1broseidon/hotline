@@ -18,7 +18,7 @@ use crate::session::{Wired, timed};
 
 pub(in crate::session) const REPORT_CHARS: usize = 400;
 
-const PROGRESS_CHARS: usize = 1_600;
+pub(super) const PROGRESS_CHARS: usize = 1_600;
 
 pub(super) const WAKE_LINE: &str = "The reports above came in while you were idle. Act on what needs you, and say in a line what they change.";
 
@@ -97,7 +97,10 @@ pub(super) fn release(request: &mut Request) -> bool {
 }
 
 struct ThreadReports {
-    thread: String,
+    /// The thread's id, or the handoff's for a thread on a linked desk,
+    /// which has no id here.
+    from: String,
+    thread: Option<String>,
     name: String,
     reports: Vec<String>,
     left_out: u32,
@@ -110,10 +113,13 @@ impl ThreadReports {
         } else {
             String::new()
         };
+        let side = self
+            .thread
+            .as_ref()
+            .map_or_else(String::new, |thread| format!(" (side:{thread})"));
         format!(
-            "{}, in the thread you handed them (side:{}):\n{}{left_out}",
+            "{}, in the thread you handed them{side}:\n{}{left_out}",
             self.name,
-            self.thread,
             self.reports.join("\n---\n")
         )
     }
@@ -232,16 +238,47 @@ impl Room {
         let Some((key, request)) = self.serving(side_id) else {
             return;
         };
-        // A sender on a linked desk has no conversation here to hear it in.
-        if !self.delegation_live(&request) || crate::linked::is_linked(&request.from) {
+        if !self.delegation_live(&request) {
             return;
         }
-        if let Err(error) = self.hear_progress(&key, &request.id, &text, wakes) {
+        // A sender on a linked desk hears it there, once the pair's worker
+        // has sent it.
+        let kept = if crate::linked::is_linked(&request.from) {
+            self.keep_for_link(&key, &request.id, text, wakes)
+        } else {
+            self.hear_progress(&key, &request.id, &text, wakes)
+        };
+        if let Err(error) = kept {
             eprintln!("report from thread {side_id}: {error}");
         }
     }
 
-    fn hear_progress(
+    fn keep_for_link(
+        self: &Arc<Self>,
+        key: &str,
+        id: &str,
+        text: String,
+        wakes: bool,
+    ) -> Result<(), String> {
+        {
+            let _guard = lock(&self.exchange_lock);
+            let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
+            let Some(request) = pair
+                .requests
+                .iter_mut()
+                .find(|r| r.id == id && self.delegation_live(r))
+            else {
+                return Ok(());
+            };
+            keep(&mut request.progress, &mut request.progress_left_out, text);
+            request.progress_wakes |= wakes;
+            self.save_pair(&pair)?;
+        }
+        self.wake_exchange(key);
+        Ok(())
+    }
+
+    pub(super) fn hear_progress(
         self: &Arc<Self>,
         key: &str,
         id: &str,
@@ -308,6 +345,10 @@ impl Room {
         let Some((_, request)) = self.serving(side_id) else {
             return;
         };
+        // Whether a sender on a linked desk is woken is its desk's call.
+        if crate::linked::is_linked(&request.from) {
+            return;
+        }
         let _guard = lock(&self.exchange_lock);
         self.wake_for_progress(&self.route_of(&request), side_id);
     }
@@ -438,10 +479,11 @@ impl Room {
                 {
                     continue;
                 }
-                let thread = request.thread.clone().unwrap_or_default();
-                if !threads.iter().any(|heard| heard.thread == thread) {
+                let from = request.thread.clone().unwrap_or_else(|| request.id.clone());
+                if !threads.iter().any(|heard| heard.from == from) {
                     threads.push(ThreadReports {
-                        thread: thread.clone(),
+                        from: from.clone(),
+                        thread: request.thread.clone(),
                         name: self.participant(&request.to).map_or_else(
                             |_| request.to.clone(),
                             |persona| crate::session::links::shown(&persona),
@@ -452,7 +494,7 @@ impl Room {
                 }
                 let heard = threads
                     .iter_mut()
-                    .find(|heard| heard.thread == thread)
+                    .find(|heard| heard.from == from)
                     .expect("this thread's reports were found or added just above");
                 heard.left_out += request.progress_left_out;
                 for report in request.progress.drain(..) {

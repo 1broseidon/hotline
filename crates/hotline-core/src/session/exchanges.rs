@@ -937,7 +937,9 @@ impl Room {
                     let _guard = lock(&room.exchange_lock);
                     if room.exchange_pair(&key).is_none_or(|pair| {
                         pair.requests.iter().all(|r| {
-                            matches!(r.phase, Phase::Done | Phase::Stopped) && !Self::owes_answer(r)
+                            matches!(r.phase, Phase::Done | Phase::Stopped)
+                                && !Self::owes_answer(r)
+                                && !Self::owes_linked_progress(r)
                         })
                     }) {
                         lock(&room.exchange_workers).remove(&key);
@@ -953,6 +955,13 @@ impl Room {
         let Some(pair) = self.exchange_pair(key) else {
             return Ok(());
         };
+        for request in pair
+            .requests
+            .iter()
+            .filter(|r| Self::owes_linked_progress(r))
+        {
+            self.send_linked_progress(key, request).await;
+        }
         // A sender whose request was stopped here, on a linked desk or in
         // a thread a colleague handed over, hears so first.
         if let Some(owed) = pair.requests.iter().find(|r| Self::owes_answer(r)).cloned() {

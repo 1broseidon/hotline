@@ -692,7 +692,8 @@ export type LinkState = "live" | "parked" | "closed";
 
 /**
  * What crosses a link for the exchange queue: a teammate's message for one
- * of the other desk's, or the answer to one.
+ * of the other desk's, the answer to one, or a report from the work thread
+ * one opened.
  */
 export type LinkedDelivery = { "kind": "request", requestId: string, fromPersonaId: string, to: string, message: string, 
 /**
@@ -700,11 +701,18 @@ export type LinkedDelivery = { "kind": "request", requestId: string, fromPersona
  */
 intent: string, 
 /**
- * For a handoff into the work thread an earlier one opened: the
- * request id of that earlier handoff. A desk that predates this
- * opens a new thread instead.
+ * For a handoff into the work thread an earlier one opened, or an
+ * ask answered in it: the request id of that earlier handoff. An
+ * older desk opens a new thread for a handoff instead, and answers
+ * an ask without the thread or refuses it.
  */
-continues?: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, };
+continues?: string, 
+/**
+ * For an ask from a work thread that a handoff of the receiving
+ * desk's teammate opened: that handoff's request id, which the
+ * receiving desk looks up in its own record.
+ */
+about?: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, } | { "kind": "progress", requestId: string, text: string, wakes: boolean, };
 
 /**
  * What a linked desk publishes about one of its teammates: exactly what

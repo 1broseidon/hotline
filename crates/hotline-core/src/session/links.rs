@@ -13,7 +13,7 @@
 //! under the recipient's `allowedSenders` and the person's first-contact card,
 //! and its result is sent back instead of being delivered to a tape.
 
-use super::exchanges::Intent;
+use super::exchanges::{Intent, Outgoing};
 use super::{Room, TEAMMATE_MESSAGE_MAX, lock};
 use crate::contract::Persona;
 use crate::contract::{LinkedDelivery, LinkedTeammate, Profile};
@@ -269,7 +269,8 @@ impl Room {
     }
 
     /// A linked desk's frame for the exchange queue: a request for one of
-    /// this desk's teammates, or the answer to one of theirs.
+    /// this desk's teammates, the answer to one of theirs, or a report from
+    /// the thread one of theirs opened there.
     pub(crate) fn federation_deliver(
         self: &Arc<Self>,
         desk_id: &str,
@@ -286,6 +287,13 @@ impl Room {
                 reply,
                 failed,
             } => self.receive_linked_result(desk_id, &request_id, reply, failed),
+            LinkedDelivery::Progress {
+                request_id,
+                text,
+                wakes,
+            } => self
+                .receive_linked_progress(desk_id, &request_id, crossing(&text), wakes)
+                .map(|()| Value::Null),
         }
     }
 
@@ -307,6 +315,7 @@ impl Room {
             message,
             intent,
             continues,
+            about,
         } = request
         else {
             return Err("That is not a message for a teammate.".into());
@@ -319,14 +328,20 @@ impl Room {
         if !linked::valid_persona_id(&request_id) || !linked::valid_persona_id(&from_persona_id) {
             return Err("That message does not say plainly who sent it.".into());
         }
-        // The thread a handoff continues is named by an earlier request's
-        // id, looked up in this desk's own record of the pair when it is
-        // taken up.
+        // The thread a handoff continues, or an ask is answered in, and the
+        // handoff a question back is about, are named by a request's id,
+        // looked up in this desk's own record of the pair when it is taken
+        // up.
         if continues
             .as_deref()
-            .is_some_and(|id| intent != Intent::Handoff || !linked::valid_persona_id(id))
+            .is_some_and(|id| !linked::valid_persona_id(id))
         {
-            return Err("Only a handoff continues a work thread, named by a request's id.".into());
+            return Err("A work thread is named by a request's id.".into());
+        }
+        if about.as_deref().is_some_and(|id| {
+            intent != Intent::Ask || continues.is_some() || !linked::valid_persona_id(id)
+        }) {
+            return Err("Only an ask names the handoff it is about, by a request's id.".into());
         }
         let from = linked::qualified(&record.desk_id, &from_persona_id);
         self.participant(&from).map_err(|_| {
@@ -341,7 +356,13 @@ impl Room {
         let target = self
             .persona(&to)
             .map_err(|_| "There is no such teammate on this desk.".to_string())?;
-        self.accept_linked_request(&request_id, &from, &target.id, message, intent, continues)?;
+        let outgoing = Outgoing {
+            to: &target.id,
+            message,
+            intent,
+            thread: continues.as_deref(),
+        };
+        self.accept_linked_request(&request_id, &from, &outgoing, about)?;
         Ok(json!({"accepted": true}))
     }
 
@@ -366,25 +387,24 @@ impl Room {
         &self,
         request_id: &str,
         from: &str,
-        to: &str,
-        message: &str,
-        intent: Intent,
-        continues: Option<&str>,
+        outgoing: &Outgoing<'_>,
+        about: Option<&str>,
     ) -> Result<bool, String> {
         let (desk_id, persona_id) =
-            linked::split(to).ok_or("That teammate is not on a linked desk.")?;
+            linked::split(outgoing.to).ok_or("That teammate is not on a linked desk.")?;
         let caller = self.persona(from)?;
         let delivery = LinkedDelivery::Request {
             request_id: request_id.to_string(),
             from_persona_id: caller.id,
             to: persona_id.to_string(),
-            message: message.to_string(),
-            intent: match intent {
+            message: outgoing.message.to_string(),
+            intent: match outgoing.intent {
                 Intent::Ask => "ask",
                 Intent::Handoff => "handoff",
             }
             .to_string(),
-            continues: continues.map(str::to_string),
+            continues: outgoing.thread.map(str::to_string),
+            about: about.map(str::to_string),
         };
         match self
             .links

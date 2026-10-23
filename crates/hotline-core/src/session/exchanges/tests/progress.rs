@@ -5,6 +5,7 @@
 use super::gates::{ask_carol, ask_from, handed_off, idle, request, turn};
 use super::*;
 use crate::contract::{ScheduleKind, ScheduledJob, SideEnd};
+use crate::session::exchanges::linked::take_sent;
 use crate::session::exchanges::progress::{REPORT_CHARS, TurnEnd, WAKE_LINE, release, turn_report};
 use crate::session::runner::Driven;
 use crate::session::{Wired, timed};
@@ -1196,4 +1197,33 @@ fn only_a_handoff_is_released_and_a_request_not_released_saves_without_it() {
     let mut old = serde_json::to_value(&ask).unwrap();
     old.as_object_mut().unwrap().remove("released");
     assert!(!serde_json::from_value::<Request>(old).unwrap().released);
+}
+
+#[test]
+fn reports_sent_over_a_link_leave_the_ones_made_while_they_crossed() {
+    let mut sending = saved_request("handoff", Intent::Handoff, Phase::Done);
+    sending.progress = vec!["Swatch 46 is ready.".into(), "Swatch 47 is ready.".into()];
+    sending.progress_left_out = 1;
+    sending.progress_wakes = true;
+
+    let mut kept = sending.clone();
+    take_sent(&mut kept, &sending);
+    assert!(kept.progress.is_empty() && kept.progress_left_out == 0 && !kept.progress_wakes);
+
+    let mut kept = sending.clone();
+    kept.progress.push("Swatch 48 is ready.".into());
+    take_sent(&mut kept, &sending);
+    assert_eq!(kept.progress, ["Swatch 48 is ready."]);
+    assert_eq!(kept.progress_left_out, 0);
+
+    // The limit dropped both that were sent and one made since.
+    let mut kept = sending.clone();
+    kept.progress = vec!["Swatch 49 is ready.".into()];
+    kept.progress_left_out = 4;
+    take_sent(&mut kept, &sending);
+    assert_eq!(kept.progress, ["Swatch 49 is ready."]);
+    assert_eq!(
+        kept.progress_left_out, 1,
+        "only the one never sent is left out"
+    );
 }

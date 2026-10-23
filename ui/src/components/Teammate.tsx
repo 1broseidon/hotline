@@ -5,7 +5,7 @@ import { CloseIcon, FolderIcon, PlusIcon, RevealIcon, TrashIcon } from "../icons
 import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { useRoomRead } from "../roomReads";
-import { useRoomSettings } from "../room";
+import { preferredModel, useRoomSettings } from "../room";
 import { MAX_PINS } from "../pins";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -64,7 +64,8 @@ export function Teammate({
 	onOpenThread(thread: ThreadRef): void;
 	onAccountSetup?: ((accountId: string) => void) | undefined;
 }) {
-	const servers = useRoomSettings().mcpServers;
+	const room = useRoomSettings();
+	const servers = room.mcpServers;
 	const [name, setName] = useState(persona.name);
 	const [goal, setGoal] = useState(persona.goal);
 	const [pathShown, setPathShown] = useState(false);
@@ -251,8 +252,8 @@ export function Teammate({
 					<AccountRow
 						persona={persona}
 						session={session}
-						// As the core reads it: an empty current model is no model.
-						modelId={session.currentModelId || persona.modelId}
+						// As the core reads it: an empty current model is no model, and no model is the room's preferred one.
+						modelId={session.currentModelId || (persona.modelId ?? preferredModel(room))}
 						disabled={busy}
 						onSetup={onAccountSetup}
 					/>

@@ -3,7 +3,7 @@ import type { AccountSection, AccountsList, AccountView, BackendChoice, ConfigCh
 import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { useActiveDesk, useDesks } from "../desks";
-import { useRoomSettings } from "../room";
+import { preferredModel, useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Fold } from "../ui/Fold";
@@ -108,7 +108,9 @@ export function NewTeammateForm({
 	/** The welcome's first teammate: what it runs on was just chosen, and access keeps its safe defaults, so neither is asked again. */
 	simple?: boolean;
 }) {
-	const { defaultBackendId, defaultModelId, lastModelId } = useRoomSettings();
+	const room = useRoomSettings();
+	const { defaultBackendId } = room;
+	const preferred = preferredModel(room);
 	const [name, setName] = useState("");
 	const [goal, setGoal] = useState(suggestedGoal);
 	const [cwd, setCwd] = useState("");
@@ -133,9 +135,9 @@ export function NewTeammateForm({
 	const [addingAccount, setAddingAccount] = useState<AccountSection | null>(null);
 	const [signingAccount, setSigningAccount] = useState<{ view: AccountView; email: string | undefined } | null>(null);
 	const [accountFromDesk, setAccountFromDesk] = useState<string | null>(null);
-	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
+	const modelId = pickedModel ?? preferred ?? "";
 	// A blank draft runs on what the room prefers, else the first choice.
-	const fallback = models.find((one) => one.id === (defaultModelId ?? lastModelId)) ?? models[0];
+	const fallback = models.find((one) => one.id === preferred) ?? models[0];
 
 	useEffect(() => {
 		void wire
@@ -160,7 +162,7 @@ export function NewTeammateForm({
 			: (backends.find((one) => one.unavailable === undefined)?.id ?? ""));
 	const onHotline = backendId === HOTLINE_AGENT || backendId === "";
 	// With no model sent, the core checks a choice against the room's preferred one.
-	const accountModelId = modelId || (defaultModelId ?? lastModelId ?? undefined);
+	const accountModelId = modelId || preferred;
 	const accountProvider = onHotline ? providerOf(accountModelId) : undefined;
 
 	// Read again once each sign-in here has ended.

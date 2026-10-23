@@ -88,7 +88,8 @@ export function AccountRow({
 		if (credential !== undefined) return hotline && credential.revoked && credential.providerId === providerId;
 		return !list.accounts.some((one) => one.account.id === id);
 	};
-	const stranded = persona.accountId !== undefined && strandedOn(persona.accountId);
+	const set = persona.accountId;
+	const stranded = set !== undefined && strandedOn(set);
 	const offered = choices.length >= 2 || (stranded && choices.length === 1);
 	if (!offered) return null;
 	const agent = hotline ? undefined : list.agents.find((one) => one.backendId === persona.backendId && one.supportsAccounts);
@@ -97,14 +98,21 @@ export function AccountRow({
 	// No account is the provider's default on Hotline Agent and This computer on a CLI agent, as is one that does not fit.
 	const nameOf = (id: string) => choices.find((one) => one.id === inUse(choices, id))?.name ?? id;
 
-	const chosen = persona.accountId ?? inUse(choices, undefined);
+	// An id the core ignores runs on the default, so the default is what is checked; one it refuses checks nothing.
+	const chosen = stranded ? set : inUse(choices, set);
 	const running = session.account?.running ?? SYSTEM_DEFAULT;
-	// A switch to no account has no id to send.
-	const wanted = session.account?.wanted ?? persona.accountId ?? SYSTEM_DEFAULT;
+	// The session says where it is going, never the record, which can name an id the core ignores. A switch to no account has no id.
+	const wanted = session.account === undefined ? running : (session.account.wanted ?? SYSTEM_DEFAULT);
 	const held = session.account?.held;
 	const up = session.state === "ready" || session.state === "thinking";
-	const pending = up && held === undefined && wanted !== running;
-	const inUseNow = up && wanted === running ? inUse(choices, session.account?.running) : undefined;
+	// As the accounts they resolve to: a switch that lands where the session already runs is no switch.
+	const runningNow = inUse(choices, running);
+	const switching = inUse(choices, wanted) !== runningNow;
+	const pending = up && held === undefined && switching;
+	// A teammate whose every turn is refused runs on nothing.
+	const inUseNow = up && !stranded && !switching ? runningNow : undefined;
+	// The core refuses an account that does not fit the model, so Keep is offered only for one that does.
+	const keepable = running === SYSTEM_DEFAULT || choices.some((one) => one.id === running);
 
 	const send = async (step: () => Promise<unknown>) => {
 		if (busy) return;
@@ -233,9 +241,11 @@ export function AccountRow({
 							What is running now stays on {nameOf(running)}. Stop and switch now stops all of {persona.name}'s work.
 						</p>
 						<div className="flex justify-end gap-2">
-							<button type="button" className="control btn-quiet" disabled={disabled || busy} onClick={() => void assign(running)}>
-								Keep {nameOf(running)}
-							</button>
+							{keepable && (
+								<button type="button" className="control btn-quiet" disabled={disabled || busy} onClick={() => void assign(running)}>
+									Keep {nameOf(running)}
+								</button>
+							)}
 							<button type="button" className="control btn" disabled={disabled || busy} onClick={stopAndSwitch}>
 								Stop and switch now
 							</button>
@@ -263,7 +273,7 @@ export function AccountRow({
 					/>
 				</div>
 			)}
-			{up && <p className="group-hint">{note}</p>}
+			{up && !stranded && <p className="group-hint">{note}</p>}
 			{!hotline && onSetup !== undefined && choices.some((one) => one.id === chosen && one.id !== SYSTEM_DEFAULT) && (
 				<p className="group-hint">
 					<button type="button" className="text-accent-ink hover:underline" onClick={() => onSetup(chosen)}>

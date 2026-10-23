@@ -6,7 +6,7 @@ import { installDom } from "./dom";
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Teammate } = await import("../src/components/Teammate");
-const { wire } = await import("../src/wire");
+const { Wire, wire } = await import("../src/wire");
 const { replaceDesks } = await import("../src/desks");
 
 const agents = [
@@ -358,6 +358,66 @@ describe("a Hotline Agent teammate's account", () => {
 		expect(text()).not.toContain(ANTHROPIC);
 	});
 
+	test("set to a key of the provider its model left, the new provider's default is checked and in use", async () => {
+		credentials = [...credentials, key("P", "Personal OpenAI", "openai")];
+		await mount({ ...onClaudeX, accountId: "B" }, sessionOf("ready", { running: "B", wanted: "B" }, false, "openai/gpt-x"));
+		expect(titles(OPENAI)).toEqual(["OpenAI key", "Personal OpenAI"]);
+		expect(checked("OpenAI key", OPENAI)).toBe(true);
+		expect(checked("Personal OpenAI", OPENAI)).toBe(false);
+		expect(row("OpenAI key", OPENAI).textContent).toContain("In use");
+		expect(text()).not.toContain("Switches to");
+		expect(text()).toContain("On OpenAI key · Fresh");
+	});
+
+	test("a switch that lands on the account already running is never shown as pending", async () => {
+		// The phone moved the model to another provider while a switch to B waited: both sides are now OpenAI's default.
+		credentials = [...credentials, key("P", "Personal OpenAI", "openai")];
+		await mount({ ...onClaudeX, accountId: "B" }, sessionOf("thinking", { running: "A", wanted: "B" }, false, "openai/gpt-x"));
+		expect(text()).not.toContain("Switches to");
+		expect(text()).not.toContain("stays on");
+		expect(checked("OpenAI key", OPENAI)).toBe(true);
+
+		// A wire caller pinned the default while the session runs on it unpinned.
+		await remount({ ...onClaudeX, accountId: "A" }, sessionOf("thinking", { wanted: "A" }));
+		expect(text()).not.toContain("Switches to");
+		expect(text()).not.toContain("stays on");
+		expect(row("Key A", ANTHROPIC).textContent).toContain("In use");
+	});
+
+	test("set to a signed-out key of its model's provider, no account says it is in use", async () => {
+		credentials = [...credentials, revoked(key("R", "Old OpenAI key", "openai"))];
+		await mount({ ...onClaudeX, modelId: "openai/gpt-x", accountId: "R" }, sessionOf("ready", { running: "R", wanted: "R" }));
+		expect(titles(OPENAI)).toEqual(["OpenAI key"]);
+		expect(checked("OpenAI key", OPENAI)).toBe(false);
+		expect(text()).not.toContain("In use");
+		expect(text()).not.toContain("On OpenAI key");
+	});
+
+	test("Keep is offered only when the running account fits the model", async () => {
+		credentials = [...credentials, key("P", "Personal OpenAI", "openai")];
+		await mount({ ...onClaudeX, accountId: "P" }, sessionOf("thinking", { running: "A", wanted: "P" }, false, "openai/gpt-x"));
+		expect(text()).toContain("Switches to Personal OpenAI when its work ends.");
+		expect(text()).toContain("What is running now stays on OpenAI key.");
+		expect([...container.querySelectorAll("button")].some((node) => node.textContent?.startsWith("Keep"))).toBe(false);
+		expect(button("Stop and switch now")).toBeDefined();
+	});
+
+	test("with no model of its own and no session, the section is for the room's preferred model", async () => {
+		const room = [
+			{ kind: "setting", id: "defaultModelId", value: "openai/gpt-x" },
+			{ kind: "setting", id: "lastModelId", value: "anthropic/claude-x" },
+		];
+		const subscribe = spyOn(Wire.prototype, "subscribe").mockImplementation(((target: unknown, handlers: { snapshot(items: unknown[]): void }) => {
+			if (target === "room") handlers.snapshot(room);
+			return () => {};
+		}) as typeof Wire.prototype.subscribe);
+		restores.push(() => subscribe.mockRestore());
+		credentials = [...credentials, key("P", "Personal OpenAI", "openai")];
+		await mount({ ...onDefault, backendId: "hotline" }, sessionOf("idle"));
+		expect(titles(OPENAI)).toEqual(["OpenAI key", "Personal OpenAI"]);
+		expect(checked("OpenAI key", OPENAI)).toBe(true);
+	});
+
 	test("Add API key adds a key in place and moves the teammate onto it", async () => {
 		await mount(onClaudeX, sessionOf("ready"));
 		await click("Add API key");
@@ -426,7 +486,7 @@ describe("a Claude Code teammate's account", () => {
 		expect(text()).toContain("Switches to Account 2 when its work ends.");
 		await remount(onDefault, sessionOf("thinking", { running: "a1" }));
 		expect(text()).toContain("Switches to This computer when its work ends.");
-		await remount(ada, sessionOf("thinking", { running: "a1" }));
+		await remount(ada, sessionOf("thinking", { running: "a1", wanted: "a1" }));
 		expect(text()).not.toContain("Switches to");
 		expect(row("Account 1").textContent).toContain("In use");
 	});

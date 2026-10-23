@@ -258,6 +258,7 @@ impl Room {
                 spoken: line.said.starts_with("voice:"),
                 unprompted: None,
                 retry: false,
+                wake: false,
             },
         );
         Ok(())

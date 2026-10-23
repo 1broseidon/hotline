@@ -2,16 +2,23 @@
 //! handoff's result to the teammate that handed it over: the report is shown
 //! at once in the conversation the result would go to, kept with the handoff
 //! until that conversation's agent hears it, and heard there once, with the
-//! next line it takes, one summary per thread.
+//! next line it takes, one summary per thread. A report from a turn that
+//! stopped to wait wakes that conversation when it is idle and no other
+//! thread it handed over is at work, once however many end together, and
+//! each wake counts toward the pair's brake.
 
 use super::*;
 use crate::contract::NoticeLevel;
+use crate::session::job_thread::JobLine;
 use crate::session::runner::Driven;
-use crate::session::timed;
+use crate::session::turns::Line;
+use crate::session::{Wired, timed};
 
 pub(in crate::session) const REPORT_CHARS: usize = 400;
 
 const PROGRESS_CHARS: usize = 1_600;
+
+pub(super) const WAKE_LINE: &str = "The reports above came in while you were idle. Act on what needs you, and say in a line what they change.";
 
 pub(in crate::session) enum TurnEnd<'a> {
     Waiting { card: Option<&'a str> },
@@ -264,7 +271,105 @@ impl Room {
             text.to_string(),
         );
         request.progress_wakes |= wakes;
-        self.save_pair(&pair)
+        let route = self.route_of(request);
+        let source = request.thread.clone().unwrap_or_default();
+        self.save_pair(&pair)?;
+        if wakes {
+            self.wake_for_progress(key, &route, &source);
+        }
+        Ok(())
+    }
+
+    /// Decided under the exchange lock its caller holds, so threads that end
+    /// together wake their delegator once.
+    fn wake_for_progress(self: &Arc<Self>, key: &str, route: &Route, source: &str) {
+        let conversation = route.thread(self);
+        let another_at_work = self.sides.all().iter().any(|side| {
+            side.id != source
+                && side.working()
+                && self.serving(&side.id).is_some_and(|(_, request)| {
+                    self.delegation_live(&request)
+                        && self.route_of(&request).thread(self) == conversation
+                })
+        });
+        let pairs = self.exchange_pairs();
+        let wakes = pairs
+            .iter()
+            .flat_map(|pair| &pair.requests)
+            .any(|r| r.progress_wakes && self.route_of(r).thread(self) == conversation);
+        let Some(mut pair) = pairs.into_iter().find(|pair| pair.id == key) else {
+            return;
+        };
+        if another_at_work || pair.paused || !wakes || !self.wake(route) {
+            return;
+        }
+        pair.exchanges += 1;
+        pair.paused = pair.exchanges >= EXCHANGE_CAP;
+        if let Err(error) = self.save_pair(&pair) {
+            eprintln!("count a wake: {error}");
+        }
+        if pair.paused {
+            self.exchange_card(&pair, ExchangePauseStatus::Pending);
+        }
+    }
+
+    /// Hands an idle conversation the line that wakes it, and says whether
+    /// it did.
+    fn wake(self: &Arc<Self>, route: &Route) -> bool {
+        let Ok(_working) = self.lease() else {
+            return false;
+        };
+        let line = Line {
+            voice: None,
+            text: timed(now_ms(), WAKE_LINE),
+            attachments: Vec::new(),
+            request: None,
+            from: None,
+            delivery: None,
+            wake: true,
+        };
+        match route {
+            Route::Dm(persona_id) => {
+                let Some(session) = self
+                    .session(persona_id)
+                    .ok()
+                    .filter(|session| !lock(&session.turns).running)
+                else {
+                    return false;
+                };
+                self.dispatch(
+                    session,
+                    Wired {
+                        wake: true,
+                        ..Wired::words(line.text)
+                    },
+                );
+            }
+            Route::Work(thread) => {
+                let Some(side) = self.sides.get(thread).filter(|side| !side.working()) else {
+                    return false;
+                };
+                self.queue_in_side(&side, line);
+            }
+            Route::Job(job_id) => {
+                if !self.job_idle(job_id) {
+                    return false;
+                }
+                let Some(live) = lock(&self.job_threads).get(job_id).cloned() else {
+                    return false;
+                };
+                let line = JobLine {
+                    line,
+                    firing: None,
+                    last: false,
+                };
+                if let Err(error) = self.queue_job(&live, line) {
+                    eprintln!("wake job {job_id}: {error}");
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// Opens with when the reports are heard, since they go ahead of a line

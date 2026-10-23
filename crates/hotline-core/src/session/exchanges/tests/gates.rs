@@ -34,7 +34,7 @@ impl Agents for Apart {
 }
 
 /// One scripted turn: what the teammate says, and how the turn ends.
-fn turn(id: &str, text: &str, ends: &str) -> Vec<Update> {
+pub(super) fn turn(id: &str, text: &str, ends: &str) -> Vec<Update> {
     vec![
         Update::Message {
             kind: MessageKind::Agent,

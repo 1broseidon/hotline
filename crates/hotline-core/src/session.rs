@@ -491,6 +491,8 @@ struct Wired {
     /// The person's Retry of the turn that failed on this line: the driver
     /// runs it again rather than taking a new line.
     retry: bool,
+    /// Only wakes the agent to hear its reports: skipped once they are heard.
+    wake: bool,
 }
 
 /// The call a queued line came from, if it came from one: the thread it says
@@ -516,6 +518,7 @@ impl Wired {
             spoken: false,
             unprompted: None,
             retry: false,
+            wake: false,
         }
     }
 

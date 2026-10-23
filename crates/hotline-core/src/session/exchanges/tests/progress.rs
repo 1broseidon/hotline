@@ -1,11 +1,120 @@
 //! Each turn of a thread a teammate handed over that is not its result
 //! reaches the teammate that handed it over as a report: shown at once, kept
-//! until heard, and heard once, one summary per thread.
-use super::gates::{ask_carol, ask_from, handed_off, idle, request};
+//! until heard, and heard once, one summary per thread. A report that may
+//! wake its delegator wakes it once when it is idle.
+use super::gates::{ask_carol, ask_from, handed_off, idle, request, turn};
 use super::*;
-use crate::contract::SideEnd;
-use crate::session::exchanges::progress::{REPORT_CHARS, TurnEnd, turn_report};
+use crate::contract::{ScheduleKind, ScheduledJob, SideEnd};
+use crate::session::exchanges::progress::{REPORT_CHARS, TurnEnd, WAKE_LINE, turn_report};
 use crate::session::runner::Driven;
+use crate::session::{Wired, timed};
+
+/// Ada's agents, and Bob's one for each of his threads in the order they are
+/// built, the last standing for every one after it: a script and a gate per
+/// thread, so one thread's turn ends while another's still runs.
+struct Builds {
+    ada: Arc<Fake>,
+    bob: Vec<Arc<Fake>>,
+    built: Mutex<usize>,
+}
+#[async_trait::async_trait]
+impl Agents for Builds {
+    fn agent(
+        &self,
+        persona: &Persona,
+        preamble: String,
+        said: Vec<crate::driver::rig::Said>,
+        tools: TeammateTools,
+        mcp: Vec<crate::mcp::McpServer>,
+    ) -> Result<Arc<dyn Driver>, String> {
+        if persona.id != "bob" {
+            return self.ada.agent(persona, preamble, said, tools, mcp);
+        }
+        let mut built = lock(&self.built);
+        let bob = &self.bob[(*built).min(self.bob.len() - 1)];
+        *built += 1;
+        bob.agent(persona, preamble, said, tools, mcp)
+    }
+    async fn complete(&self, _model: &str, _system: &str, _prompt: &str) -> Result<String, String> {
+        Err("not needed".into())
+    }
+}
+
+fn room_with(name: &str, ada: &Arc<Fake>, bob: Vec<Arc<Fake>>) -> Arc<Room> {
+    let log = scratch(name);
+    for id in ["ada", "bob"] {
+        enrol(&log, &persona(id));
+    }
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Arc::new(Builds {
+            ada: ada.clone(),
+            bob,
+            built: Mutex::new(0),
+        }),
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    room
+}
+
+/// A handoff from Ada to Bob, sent with `tools`, whose turn has raised a
+/// card and waits at its gate to end.
+async fn asking(
+    room: &Arc<Room>,
+    tools: TeammateTools,
+    bob: &Fake,
+    task: &str,
+) -> (String, String) {
+    let sent = tools
+        .call(
+            "message_teammate",
+            &json!({"to":"bob","message":task,"intent":"handoff"}),
+        )
+        .await
+        .unwrap();
+    let handoff = serde_json::from_str::<serde_json::Value>(&sent).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("bob's turn is running", || !bob.prompts().is_empty()).await;
+    let thread = work_thread(room, &handoff);
+    TeammateTools::new(room, "bob")
+        .for_work(thread.clone())
+        .call(
+            "request_human",
+            &json!({"reason": format!("Approve {task}")}),
+        )
+        .await
+        .unwrap();
+    (handoff, thread)
+}
+
+/// Whether a turn holds Ada's DM, or has just been handed it.
+fn claimed(room: &Room) -> bool {
+    room.session("ada")
+        .is_ok_and(|session| lock(&session.turns).running)
+}
+
+/// How many turns a report has woken.
+fn woken(agents: &Fake) -> usize {
+    agents
+        .prompts()
+        .iter()
+        .filter(|prompt| prompt.ends_with(WAKE_LINE))
+        .count()
+}
+
+fn exchanges(room: &Room) -> i64 {
+    room.exchange_pair("ada~bob").unwrap().exchanges
+}
+
+fn paused_cards(room: &Room, whose: &str) -> Vec<serde_json::Value> {
+    room.tape(whose)
+        .into_iter()
+        .filter(|v| v["kind"] == "exchange_paused")
+        .collect()
+}
 
 /// What the teammate said in a thread, in order.
 fn said_in(room: &Room, thread: &str) -> Vec<String> {
@@ -349,13 +458,35 @@ async fn a_report_is_heard_in_the_work_thread_it_was_handed_from_or_in_the_dm_on
     assert!(notices(&room, "ada").is_empty(), "it was shown once, in W");
     assert!(request(&room, "ada~bob", &handoff).progress.is_empty());
 
+    // Made once W has closed, a report is shown in the DM and heard there.
+    room.prompt_side(&thread, "and the date?", None)
+        .await
+        .unwrap();
+    until("a third report waits for ada", || {
+        request(&room, "ada~bob", &handoff).progress.len() == 1
+    })
+    .await;
+    let after = said_in(&room, &thread).last().unwrap().clone();
+    let shown = notices(&room, "ada");
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(shown[0].ends_with(&after));
+    assert_eq!(shown_in(&room, &work).len(), 2);
+    room.prompt("ada", "and now?", None, None).await.unwrap();
+    until("ada hears her line", || {
+        heard_with(&agents, "and now?").is_some()
+    })
+    .await;
+    let heard = heard_with(&agents, "and now?").unwrap();
+    assert_eq!(heard.matches(&after).count(), 1, "{heard}");
+
     room.continue_side(&work).await.unwrap();
     room.prompt_side(&work, "still there?", None).await.unwrap();
     until("ada's work thread hears its line", || {
         heard_with(&agents, "still there?").is_some()
     })
     .await;
-    assert!(!heard_with(&agents, "still there?").unwrap().contains(&late));
+    let heard = heard_with(&agents, "still there?").unwrap();
+    assert!(!heard.contains(&late) && !heard.contains(&after), "{heard}");
 }
 
 /// A report is cut by characters, not bytes, and a turn that said nothing
@@ -382,4 +513,347 @@ fn a_report_is_cut_by_characters_and_an_empty_one_is_not_sent() {
         turn_report(&ended_on_a_tool, TurnEnd::Failed).as_deref(),
         Some("Running the build.\n\nThis turn failed.")
     );
+}
+
+/// Threads that end together wake the teammate that handed them over once,
+/// with every report, once none of them is still at work.
+#[tokio::test]
+async fn a_report_waits_while_another_handed_over_thread_works_and_wakes_once_with_both() {
+    let ada = Fake::new(Scripted::new(turn("heard", "On it.", "end_turn")));
+    let gates = [Arc::new(Semaphore::new(0)), Arc::new(Semaphore::new(0))];
+    let bobs: Vec<Arc<Fake>> = gates
+        .iter()
+        .map(|gate| {
+            Fake::new(
+                Scripted::new(turn("waiting", "Waiting for the person.", "end_turn"))
+                    .gated(gate.clone()),
+            )
+        })
+        .collect();
+    let room = room_with("progress-wakes-once", &ada, bobs.clone());
+    room.start("ada").await.unwrap();
+    let mut handed = Vec::new();
+    for (bob, task) in bobs.iter().zip(["paint the shed", "fix the gate"]) {
+        handed.push(asking(&room, TeammateTools::new(&room, "ada"), bob, task).await);
+    }
+    let counted = exchanges(&room);
+
+    gates[0].add_permits(2);
+    until("the first thread waits on its card, its turn over", || {
+        request(&room, "ada~bob", &handed[0].0).phase == Phase::Waiting && idle(&room, &handed[0].1)
+    })
+    .await;
+    assert_eq!(notices(&room, "ada").len(), 1);
+    assert!(!claimed(&room), "the other thread is still at work");
+
+    gates[1].add_permits(2);
+    until("ada is woken and her turn is over", || {
+        woken(&ada) == 1 && !claimed(&room)
+    })
+    .await;
+    let prompts = ada.prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    for (_, thread) in &handed {
+        assert!(
+            prompts[0].contains(&format!("(side:{thread})")),
+            "{}",
+            prompts[0]
+        );
+    }
+    assert_eq!(notices(&room, "ada").len(), 2);
+    assert_eq!(exchanges(&room), counted + 1, "the wake is one exchange");
+}
+
+/// The person's turn, a stopped one and a failed one are shown at once and
+/// wait for what the delegator hears next.
+#[tokio::test]
+async fn a_persons_stopped_or_failed_turn_waits_for_the_delegators_next_line() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let handing =
+        Fake::new(Scripted::new(turn("result", "Handed back.", "end_turn")).gated(gate.clone()));
+    // An agent of its own once the thread is continued: the first one is
+    // stopped as the thread closes, and that stop would cut its next turn.
+    let bob = Fake::new(
+        Scripted::turns(vec![
+            turn("plain", "Renamed the file.", "end_turn"),
+            turn("cut", "Starting the migration.", "end_turn"),
+            turn("broke", "The build broke.", "failed"),
+        ])
+        .on_cancel(vec![Update::Turn {
+            stop_reason: "cancelled".into(),
+            usage: None,
+        }])
+        .gated(gate.clone()),
+    );
+    let room = room_with("progress-waits", &ada, vec![handing, bob.clone()]);
+    let handoff = send(&room, "handoff").await;
+    gate.add_permits(2);
+    done(&room, &handoff).await;
+    let thread = work_thread(&room, &handoff);
+    until(
+        "ada has heard the result and bob's thread has closed",
+        || ada.prompts().len() == 1 && !claimed(&room) && !room.work_is_open(&thread),
+    )
+    .await;
+    let reports = || request(&room, "ada~bob", &handoff).progress.len();
+    room.continue_side(&thread).await.unwrap();
+
+    room.prompt_side(&thread, "rename it", None).await.unwrap();
+    gate.add_permits(2);
+    until("the person's turn is reported", || reports() == 1).await;
+    room.prompt_side(&thread, "migrate it", None).await.unwrap();
+    until("bob's turn is running", || bob.prompts().len() == 2).await;
+    room.cancel_side(&thread).unwrap();
+    until("the stopped turn is reported", || reports() == 2).await;
+    room.prompt_side(&thread, "build it", None).await.unwrap();
+    gate.add_permits(2);
+    until("the failed turn is reported", || reports() == 3).await;
+
+    assert_eq!(notices(&room, "ada").len(), 3);
+    assert!(!claimed(&room));
+    assert_eq!(ada.prompts().len(), 1, "nothing woke ada");
+    room.prompt("ada", "what happened?", None, None)
+        .await
+        .unwrap();
+    until("ada hears her line", || {
+        heard_with(&ada, "what happened?").is_some()
+    })
+    .await;
+    let heard = heard_with(&ada, "what happened?").unwrap();
+    for report in [
+        "Renamed the file.",
+        "This turn was stopped.",
+        "The build broke.\n\nThis turn failed.",
+    ] {
+        assert!(heard.contains(report), "{heard}");
+    }
+    assert_eq!(woken(&ada), 0);
+}
+
+#[tokio::test]
+async fn a_busy_delegator_is_not_woken_and_hears_the_report_with_its_next_line() {
+    let ada_gate = Arc::new(Semaphore::new(0));
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")).gated(ada_gate.clone()));
+    let bob_gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::new(turn("waiting", "Waiting for the person.", "end_turn"))
+            .gated(bob_gate.clone()),
+    );
+    let room = room_with("progress-busy", &ada, vec![bob.clone()]);
+    room.start("ada").await.unwrap();
+    let (handoff, thread) = asking(
+        &room,
+        TeammateTools::new(&room, "ada"),
+        &bob,
+        "paint the shed",
+    )
+    .await;
+    room.prompt("ada", "busy?", None, None).await.unwrap();
+    until("ada's turn is running", || ada.prompts().len() == 1).await;
+
+    bob_gate.add_permits(2);
+    until("the report waits for ada", || {
+        request(&room, "ada~bob", &handoff).progress.len() == 1 && idle(&room, &thread)
+    })
+    .await;
+    assert!(request(&room, "ada~bob", &handoff).progress_wakes);
+    assert_eq!(notices(&room, "ada").len(), 1);
+    assert_eq!(ada.prompts().len(), 1, "a busy delegator is not woken");
+    ada_gate.add_permits(2);
+    until("ada's turn is over", || !claimed(&room)).await;
+    assert_eq!(ada.prompts().len(), 1, "nor when her turn ends");
+
+    room.prompt("ada", "next", None, None).await.unwrap();
+    ada_gate.add_permits(2);
+    until("ada hears her next line", || {
+        heard_with(&ada, "next").is_some()
+    })
+    .await;
+    let heard = heard_with(&ada, "next").unwrap();
+    assert!(
+        heard.contains("Waiting on the person: Approve paint the shed"),
+        "{heard}"
+    );
+    assert_eq!(woken(&ada), 0);
+}
+
+/// Each wake is an automatic exchange of the pair's twelve: once the pair
+/// pauses, reports only wait, until the person speaks.
+#[tokio::test]
+async fn wakes_count_toward_the_pairs_twelve_and_then_reports_only_wait() {
+    let (room, agents, handoff, thread) = handed_over_and_done("progress-wakes-count").await;
+    let mut pair = room.exchange_pair("ada~bob").unwrap();
+    pair.exchanges = 10;
+    room.save_pair(&pair).unwrap();
+    for (woke, count) in [(1, 11), (2, 12)] {
+        room.report_progress(&thread, format!("report {woke}"), true);
+        until("ada is woken and her turn is over", || {
+            woken(&agents) == woke && !claimed(&room)
+        })
+        .await;
+        assert_eq!(exchanges(&room), count);
+    }
+    assert!(room.exchange_pair("ada~bob").unwrap().paused);
+    for whose in ["ada", "bob"] {
+        let cards = paused_cards(&room, whose);
+        assert_eq!(cards.len(), 1, "{whose}: {cards:?}");
+        assert_eq!(cards[0]["status"], "pending");
+    }
+
+    room.report_progress(&thread, "report 3".into(), true);
+    assert!(!claimed(&room), "a paused pair wakes nobody");
+    assert_eq!(woken(&agents), 2);
+    assert!(notices(&room, "ada").last().unwrap().ends_with("report 3"));
+    assert!(request(&room, "ada~bob", &handoff).progress_wakes);
+
+    room.prompt("ada", "hi", None, None).await.unwrap();
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    assert_eq!(pair.exchanges, 0);
+    assert!(!pair.paused);
+    for whose in ["ada", "bob"] {
+        assert_eq!(paused_cards(&room, whose)[0]["status"], "resumed");
+    }
+    until("ada hears her line", || heard_with(&agents, "hi").is_some()).await;
+    assert!(heard_with(&agents, "hi").unwrap().contains("report 3"));
+}
+
+/// A wake whose reports another line heard first is no turn: dispatched
+/// with the person's line, a report is heard once, and a wake that lost
+/// that race waits behind the line that heard it.
+#[tokio::test]
+async fn a_wake_that_finds_its_reports_heard_is_skipped() {
+    let (room, agents, _handoff, thread) = handed_over_and_done("progress-wake-skipped").await;
+    let (said, ()) = tokio::join!(room.prompt("ada", "hi", None, None), async {
+        room.report_progress(&thread, "Swatch 41 is ready.".into(), true);
+    });
+    said.unwrap();
+    until("ada has heard her line and is idle", || {
+        heard_with(&agents, "hi").is_some() && !claimed(&room)
+    })
+    .await;
+    let carried = agents
+        .prompts()
+        .iter()
+        .filter(|prompt| prompt.contains("Swatch 41 is ready."))
+        .count();
+    assert_eq!(carried, 1);
+
+    room.report_progress(&thread, "Swatch 42 is ready.".into(), false);
+    room.prompt("ada", "and now?", None, None).await.unwrap();
+    room.dispatch(
+        room.session("ada").unwrap(),
+        Wired {
+            wake: true,
+            ..Wired::words(timed(now_ms(), WAKE_LINE))
+        },
+    );
+    until("ada has heard her line and is idle", || {
+        heard_with(&agents, "and now?").is_some() && !claimed(&room)
+    })
+    .await;
+    assert!(
+        heard_with(&agents, "and now?")
+            .unwrap()
+            .contains("Swatch 42 is ready.")
+    );
+    let prompts = agents.prompts();
+    assert!(
+        prompts.iter().all(|prompt| prompt != WAKE_LINE),
+        "{prompts:?}"
+    );
+}
+
+/// The job a handoff is sent from: a loop not due for an hour.
+fn planted_job(room: &Room, id: &str) -> ScheduledJob {
+    let now = now_ms();
+    let job = ScheduledJob {
+        id: id.to_string(),
+        persona_id: "ada".to_string(),
+        kind: ScheduleKind::Loop,
+        when: None,
+        every: Some(3_600_000),
+        prompt: "watch the build".to_string(),
+        quiet: None,
+        reminder: None,
+        goal: None,
+        until: None,
+        times: None,
+        without: None,
+        operator_created: true,
+        next_at: now + 3_600_000,
+        created_at: now,
+        last_post: None,
+        ended_at: None,
+    };
+    crate::room::append_schedule(&room.log, &job).unwrap();
+    job
+}
+
+/// A report wakes the work thread or the job it was handed from, when that
+/// is where it is heard and is idle.
+#[tokio::test]
+async fn a_report_wakes_the_idle_work_thread_or_job_it_was_handed_from() {
+    for from in ["work", "job"] {
+        let ada = Fake::new(Scripted::new(turn("heard", "On it.", "end_turn")));
+        let gate = Arc::new(Semaphore::new(0));
+        let bob = Fake::new(
+            Scripted::new(turn("waiting", "Waiting for the person.", "end_turn"))
+                .gated(gate.clone()),
+        );
+        let room = room_with(&format!("progress-wakes-a-{from}"), &ada, vec![bob.clone()]);
+        let (tools, conversation) = if from == "work" {
+            let work = room
+                .start_side("ada", "plan the release")
+                .await
+                .unwrap()
+                .side_id;
+            (
+                TeammateTools::new(&room, "ada").for_work(work.clone()),
+                ThreadId::side(&work),
+            )
+        } else {
+            let job = planted_job(&room, "job-build");
+            room.prompt_job(&job.id, "watch it", None).await.unwrap();
+            (
+                TeammateTools::new(&room, "ada")
+                    .with_capability(room.capability_lease("ada"))
+                    .for_job(job.id.clone()),
+                ThreadId::job(&job.id),
+            )
+        };
+        let rests = || {
+            if from == "work" {
+                idle(&room, &conversation.key)
+            } else {
+                room.job_idle(&conversation.key)
+            }
+        };
+        until("ada's thread has had its turn", || {
+            ada.prompts().len() == 1 && rests()
+        })
+        .await;
+        let (_handoff, thread) = asking(&room, tools, &bob, "paint the shed").await;
+
+        gate.add_permits(2);
+        until("ada's thread is woken and rests again", || {
+            woken(&ada) == 1 && rests()
+        })
+        .await;
+        let woke = ada.prompts().pop().unwrap();
+        assert!(woke.contains(&format!("(side:{thread})")), "{woke}");
+        assert!(notices(&room, "ada").is_empty(), "{from}");
+        assert!(!claimed(&room), "{from}");
+        let shown = room
+            .log
+            .load(&StreamId::of_thread(&conversation).unwrap())
+            .into_iter()
+            .filter(|v| {
+                v["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("progress:"))
+            })
+            .count();
+        assert_eq!(shown, 1, "{from}");
+    }
 }

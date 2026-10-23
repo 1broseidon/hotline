@@ -127,6 +127,8 @@ impl Occupant for Session {
             let mut text = wired.text;
             if let Some(heard) = room.take_heard(&session.thread()) {
                 text = format!("{heard}\n\n{text}");
+            } else if wired.wake {
+                return Begin::Skip;
             }
             Source::Say {
                 text,

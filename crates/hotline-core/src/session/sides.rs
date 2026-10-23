@@ -264,6 +264,8 @@ impl Occupant for LiveSide {
         }
         if let Some(heard) = room.take_heard(&self.thread) {
             line.text = format!("{heard}\n\n{}", line.text);
+        } else if line.wake {
+            return Begin::Skip;
         }
         Begin::Go(WorkTurn { line: Some(line) })
     }
@@ -308,6 +310,7 @@ impl Occupant for LiveSide {
                     request: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 });
             }
         }
@@ -1275,12 +1278,13 @@ impl Room {
                 request: None,
                 from: None,
                 delivery: None,
+                wake: false,
             },
         );
     }
 
     /// Hands a line to the thread's agent now, or behind the turn in flight.
-    fn queue_in_side(self: &Arc<Self>, side: &Arc<LiveSide>, line: Line) {
+    pub(super) fn queue_in_side(self: &Arc<Self>, side: &Arc<LiveSide>, line: Line) {
         let Some(queued) = lock(&side.turns).claim(line) else {
             return;
         };
@@ -1372,6 +1376,7 @@ impl Room {
                     request,
                     from: Some(from),
                     delivery: Some(id.to_string()),
+                    wake: false,
                 },
             );
             Ok(())

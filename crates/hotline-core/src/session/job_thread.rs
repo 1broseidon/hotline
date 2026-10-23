@@ -147,11 +147,11 @@ struct Overruns {
 
 /// One line for a job's agent.
 pub(super) struct JobLine {
-    line: Line,
+    pub(super) line: Line,
     /// The firing this line is, when it is one rather than the person's.
-    firing: Option<ScheduledRun>,
+    pub(super) firing: Option<ScheduledRun>,
     /// This firing is the job's last: it ends after it.
-    last: bool,
+    pub(super) last: bool,
 }
 
 /// What a job's turn keeps from its door to its end.
@@ -356,6 +356,8 @@ impl Occupant for LiveJob {
         }
         if let Some(heard) = room.take_heard(&Occupant::thread(&**self)) {
             line.line.text = format!("{heard}\n\n{}", line.line.text);
+        } else if line.line.wake {
+            return Begin::Skip;
         }
         Begin::Go(JobTurn {
             line: Some(line.line),
@@ -758,6 +760,7 @@ impl Room {
                     request: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 firing: Some(run),
                 last,
@@ -810,7 +813,11 @@ impl Room {
     }
 
     /// Hands a line to the job's agent now, or behind the turn in flight.
-    fn queue_job(self: &Arc<Self>, live: &Arc<LiveJob>, line: JobLine) -> Result<(), String> {
+    pub(super) fn queue_job(
+        self: &Arc<Self>,
+        live: &Arc<LiveJob>,
+        line: JobLine,
+    ) -> Result<(), String> {
         let Some(queued) = lock(&live.turns).claim(line) else {
             return Ok(());
         };
@@ -886,11 +893,18 @@ impl Room {
                     request: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 firing: None,
                 last: false,
             },
         )
+    }
+
+    pub(super) fn job_idle(&self, job_id: &str) -> bool {
+        lock(&self.job_threads)
+            .get(job_id)
+            .is_some_and(|live| !lock(&live.turns).running)
     }
 
     /// Whether a job is still on the room stream and has not ended: what it
@@ -963,6 +977,7 @@ impl Room {
                     request: None,
                     from: Some(from),
                     delivery: Some(id.to_string()),
+                    wake: false,
                 },
                 firing: None,
                 last: false,

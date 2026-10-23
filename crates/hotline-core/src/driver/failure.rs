@@ -300,6 +300,10 @@ impl Failure {
         failure.status = status;
         failure.code = code.map(|code| sanitize(&code));
         failure.retry_after_seconds = retry_after_seconds;
+        // The provider never answered: the teammate's own account is what is missing.
+        if body == ACCOUNT_SIGNED_OUT {
+            failure.summary = Cow::Borrowed(ACCOUNT_SIGNED_OUT);
+        }
         if chatgpt_usage_limit && kind == Kind::UsageLimit {
             failure.title = Cow::Borrowed("ChatGPT usage limit reached");
             failure.summary = Cow::Borrowed("This ChatGPT sign-in reached its usage limit.");

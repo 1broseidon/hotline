@@ -13,8 +13,10 @@ import { Refusal, refused, type Refused } from "../ui/Refusal";
  */
 const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "keychain", "usage_limit", "unknown"]);
 
-/** The limits whose wait is hours, not seconds, so the card says it in words. */
+/** The limits whose wait is hours, not seconds, so the card says when they lift. */
 const RESETS = new Set(["usage_limit", "quota"]);
+
+const HOTLINE_AGENT = "hotline";
 
 export type FailureDetails = {
     title: string;
@@ -73,31 +75,37 @@ function signInAction(failure: { kind?: unknown; signIn?: unknown }): AgentSignI
 }
 
 // A sign-in missing on an account never offers the harness's own methods: they would sign in This computer, not the account.
-function aboutAccount(error: FailureDetails): boolean {
+// A provider's spent credit or refused sign-in names an account only on Hotline Agent; a CLI agent's card stays its own.
+function aboutAccount(error: FailureDetails, backendId: string): boolean {
     if (error.kind === "usage_limit" || error.kind === "account_unavailable") return true;
-    return error.accountId !== undefined && (error.kind === "agent_auth" || error.kind === "quota" || error.kind === "auth");
+    if (error.accountId === undefined) return false;
+    if (error.kind === "agent_auth") return true;
+    return backendId === HOTLINE_AGENT && (error.kind === "quota" || error.kind === "auth");
 }
 
-function about(amount: number, unit: "minute" | "hour" | "day"): string {
-    if (amount === 1) return unit === "hour" ? "an hour" : `a ${unit}`;
-    return `${amount} ${unit}s`;
+const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
+/** Calendar days apart, not elapsed hours: 11pm and 1am are a day apart. */
+function daysBetween(then: Date, now: Date): number {
+    const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    return Math.round((midnight(now).getTime() - midnight(then).getTime()) / 86_400_000);
 }
 
-export function resetWords(seconds: number): string {
-    if (seconds < 60) return "Resets in under a minute.";
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return `Resets in about ${about(minutes, "minute")}.`;
-    const hours = Math.round(seconds / 3600);
-    if (hours < 24) return `Resets in about ${about(hours, "hour")}.`;
-    return `Resets in about ${about(Math.round(seconds / 86_400), "day")}.`;
+export function resetWords(resetAt: number, now: number): string {
+    const when = new Date(resetAt);
+    const days = daysBetween(new Date(now), when);
+    if (days === 0) return `Resets at ${clock.format(when)}.`;
+    if (days === 1) return `Resets tomorrow at ${clock.format(when)}.`;
+    return `Resets ${shortDate.format(when)} at ${clock.format(when)}.`;
 }
 
-// The wait is counted from when the notice was written, so a card read later never promises a reset that has passed.
+// The reset is counted from when the notice was written, and a card read after it says nothing of it.
 function withReset(error: FailureDetails, at: number | undefined): FailureDetails {
     if (error.retryAfterSeconds === undefined || !RESETS.has(error.kind ?? "")) return error;
-    const waited = at === undefined ? 0 : Math.max(0, (Date.now() - at) / 1000);
-    const left = error.retryAfterSeconds - waited;
-    return left > 0 ? { ...error, summary: `${error.summary} ${resetWords(left)}` } : error;
+    const now = Date.now();
+    const resetAt = (at ?? now) + error.retryAfterSeconds * 1000;
+    return resetAt > now ? { ...error, summary: `${error.summary} ${resetWords(resetAt, now)}` } : error;
 }
 
 export function ErrorCard({
@@ -127,7 +135,7 @@ export function ErrorCard({
     const error = withReset(errorDetails(text), at);
     const [again, setAgain] = useState<"idle" | "trying" | Refused>("idle");
     const [offer, setOffer] = useState<AccountOffer>("none");
-    const account = personaId !== undefined && backendId !== undefined && aboutAccount(error);
+    const account = personaId !== undefined && backendId !== undefined && aboutAccount(error, backendId);
     // A turn moved to another account is worth another try whatever stopped it; while the move is offered, the move is the choice.
     const worthIt = offer === "moved" || (error.kind !== undefined && WORTH_ANOTHER_TRY.has(error.kind));
     const offerAgain = onRunAgain !== undefined && offer !== "open" && worthIt;

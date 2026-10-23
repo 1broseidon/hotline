@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 import type { AccountStatusView, AccountView, CredentialAccount, CredentialKind } from "../src/generated/contract";
@@ -68,6 +68,8 @@ let calls: Call[];
 let accounts: AccountView[];
 let credentials: CredentialAccount[];
 let fresh: Map<string, AccountStatusView>;
+let statusGate: Promise<void> | null;
+let accountRefusal: string | null;
 let poll: { state: "running" | "succeeded" | "failed"; output: string };
 let chosen: number;
 let retried: number;
@@ -97,11 +99,15 @@ beforeEach(async () => {
 	accounts = [a1(), a2(), a3()];
 	credentials = [];
 	fresh = new Map();
+	statusGate = null;
+	accountRefusal = null;
 	poll = { state: "running", output: "" };
 	chosen = 0;
 	retried = 0;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
+		if (cmd === "accounts.status" && statusGate !== null) await statusGate;
+		if (cmd === "persona.account" && accountRefusal !== null) throw new Error(accountRefusal);
 		return respond(cmd, params);
 	}) as typeof wire.command);
 	restores.push(() => command.mockRestore());
@@ -115,6 +121,7 @@ afterEach(async () => {
 	await unmount();
 	replaceDesks([]);
 	for (const restore of restores.reverse()) restore();
+	setSystemTime();
 	await teardown();
 });
 
@@ -343,6 +350,101 @@ describe("a usage limit's offer", () => {
 		expect(picker()).toBeNull();
 	});
 
+	test("nothing is offered, and Try again stays hidden, until every other account's status is back", async () => {
+		const stale = { state: "not_checked" as const };
+		accounts = [signedIn("work", "Work", ["ada"]), account("personal", "Personal", { status: stale }), account("agency", "Agency", { status: stale })];
+		fresh.set("personal", { state: "signed_in", checkedAt: 2, email: "personal@example.com" });
+		let release = () => {};
+		statusGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		await mount(limit({ accountId: "work" }));
+		expect(calls.filter(([cmd]) => cmd === "accounts.status")).toHaveLength(2);
+		expect(buttons()).not.toContain("Try again");
+		expect(buttons()).not.toContain("Continue");
+		expect(picker()).toBeNull();
+		expect(text()).toContain("Checking the other accounts…");
+
+		release();
+		await settle();
+		expect(text()).not.toContain("Checking the other accounts…");
+		expect(picker()!.textContent).toContain("Personal");
+		expect(buttons()).toContain("Continue");
+		expect(buttons()).not.toContain("Try again");
+	});
+
+	test("a status that fails to answer still settles the offer", async () => {
+		accounts = [signedIn("work", "Work", ["ada"]), signedIn("personal", "Personal")];
+		const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
+			calls.push([cmd, params]);
+			if (cmd === "accounts.status") throw new Error("Claude Code did not answer.");
+			return respond(cmd, params);
+		}) as typeof wire.command);
+		restores.push(() => command.mockRestore());
+		await mount(limit({ accountId: "work" }));
+		expect(text()).not.toContain("Checking the other accounts…");
+		expect(picker()!.textContent).toContain("Personal");
+	});
+
+	test("on This computer the signed-in accounts are offered, and This computer is not", async () => {
+		accounts = [a1([]), a2(), a3()];
+		await mount(limit());
+		expect(text()).toContain("This computer hit its usage limit");
+		expect(picker()!.textContent).toContain("Account 1");
+		await openPicker();
+		expect(optionNames()).toEqual(["Account 1", "Account 2"]);
+		await pick("Account 2");
+		await click("Continue");
+		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "a2" }]);
+		expect(text()).toContain("Now on Account 2: a fresh Claude Code session");
+	});
+
+	test("a CLI agent's spent credit is the card it always was", async () => {
+		await mount(quota({ accountId: "a1" }));
+		expect(text()).toContain("Provider quota exhausted");
+		expect(text()).toContain("Check your provider balance or usage limit before continuing.");
+		expect(picker()).toBeNull();
+		expect(buttons()).not.toContain("Choose account");
+		expect(buttons()).not.toContain("Try again");
+		expect(calls).toEqual([]);
+	});
+
+	test("a Hotline Agent quota put off with Try again later never offers Try again", async () => {
+		credentials = [credential("key-a", "Key A", "api_key", { usedBy: ["ada"], default: true }), credential("key-b", "Key B", "api_key")];
+		await mount(quota({ accountId: "key-a" }), { backendId: "hotline" });
+		expect(buttons()).not.toContain("Try again");
+		await click("Try again later");
+		expect(picker()).toBeNull();
+		expect(buttons()).not.toContain("Try again");
+		expect(text()).toContain("Provider quota exhausted");
+	});
+
+	test("a refused switch says the core's sentence and keeps the offer", async () => {
+		credentials = [credential("key-a", "Key A", "api_key", { usedBy: ["ada"], default: true }), credential("key-b", "Key B", "api_key")];
+		accountRefusal = "Key B is signed out. Sign it in again in Settings › Providers.";
+		await mount(quota({ accountId: "key-a" }), { backendId: "hotline" });
+		await click("Continue");
+		expect(text()).toContain("Key B is signed out. Sign it in again in Settings › Providers.");
+		expect(picker()).not.toBeNull();
+		expect(button("Continue").disabled).toBe(false);
+		expect(buttons()).not.toContain("Try again");
+
+		accountRefusal = null;
+		await click("Continue");
+		expect(text()).toContain("Now on Key B");
+		expect(text()).not.toContain("Key B is signed out.");
+	});
+
+	test("a teammate now on an account that does not fit is never named by its id", async () => {
+		const gone = credential("gone", "Old key", "api_key", { usedBy: ["ada"] });
+		credentials = [credential("key-a", "Key A", "api_key", { default: true }), { ...gone, credential: { ...gone.credential, revoked: true } }, credential("key-b", "Key B", "api_key")];
+		await mount(quota({ accountId: "key-a" }), { backendId: "hotline" });
+		expect(text()).not.toContain("Now on");
+		expect(text()).not.toContain("gone");
+		expect(text()).toContain("Check your provider balance or usage limit before continuing.");
+		expect(picker()).toBeNull();
+	});
+
 	test("a signed-out chosen credential offers Choose account", async () => {
 		credentials = [credential("key-a", "Key A", "api_key", { usedBy: ["ada"] }), credential("key-b", "Key B", "api_key", { default: true })];
 		await mount(
@@ -364,36 +466,39 @@ describe("a usage limit's offer", () => {
 });
 
 describe("a limit's reset time", () => {
-	test("is said in plain words, never in seconds", () => {
-		expect(resetWords(0)).toBe("Resets in under a minute.");
-		expect(resetWords(59)).toBe("Resets in under a minute.");
-		expect(resetWords(60)).toBe("Resets in about a minute.");
-		expect(resetWords(90)).toBe("Resets in about 2 minutes.");
-		expect(resetWords(20 * 60)).toBe("Resets in about 20 minutes.");
-		expect(resetWords(3569)).toBe("Resets in about 59 minutes.");
-		expect(resetWords(3570)).toBe("Resets in about an hour.");
-		expect(resetWords(5 * 3600)).toBe("Resets in about 5 hours.");
-		expect(resetWords(84_599)).toBe("Resets in about 23 hours.");
-		expect(resetWords(84_600)).toBe("Resets in about a day.");
-		expect(resetWords(3 * 86_400)).toBe("Resets in about 3 days.");
+	const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+	const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+	// Local dates on both sides, so the zone the tests run in never moves a day.
+	const now = new Date(2026, 9, 23, 14, 0).getTime();
+	const at = (day: number, hour: number, minute: number) => new Date(2026, 9, day, hour, minute);
+
+	test("is the local clock time today, tomorrow with its day word, and a short date after", () => {
+		expect(resetWords(at(23, 17, 40).getTime(), now)).toBe(`Resets at ${clock.format(at(23, 17, 40))}.`);
+		expect(resetWords(at(23, 23, 59).getTime(), now)).toBe(`Resets at ${clock.format(at(23, 23, 59))}.`);
+		expect(resetWords(at(24, 0, 10).getTime(), now)).toBe(`Resets tomorrow at ${clock.format(at(24, 0, 10))}.`);
+		expect(resetWords(at(24, 9, 10).getTime(), now)).toBe(`Resets tomorrow at ${clock.format(at(24, 9, 10))}.`);
+		expect(resetWords(at(25, 0, 0).getTime(), now)).toBe(`Resets ${shortDate.format(at(25, 0, 0))} at ${clock.format(at(25, 0, 0))}.`);
+		expect(resetWords(at(30, 9, 10).getTime(), now)).toBe(`Resets ${shortDate.format(at(30, 9, 10))} at ${clock.format(at(30, 9, 10))}.`);
 	});
 
-	test("a limit's card says when it resets, counted from its notice, and a short wait keeps its seconds", async () => {
+	test("a limit's card says when it resets from its notice's time, and a short wait keeps its seconds", async () => {
+		setSystemTime(new Date(now));
 		credentials = [credential("plus", "Plus", "oauth", { usedBy: ["ada"], default: true }, "openai-codex")];
-		await mount(chatgptLimit({ retryAfterSeconds: 5 * 3600 }), { backendId: "hotline", at: Date.now() });
-		expect(text()).toContain("This ChatGPT sign-in reached its usage limit. Resets in about 5 hours.");
+		const written = now - 3600_000;
+		await mount(chatgptLimit({ retryAfterSeconds: 5 * 3600 }), { backendId: "hotline", at: written });
+		expect(text()).toContain(`This ChatGPT sign-in reached its usage limit. Resets at ${clock.format(at(23, 18, 0))}.`);
 		expect(text()).not.toContain("Retry after");
 
-		await remount(chatgptLimit({ retryAfterSeconds: 5 * 3600 }), { backendId: "hotline", at: Date.now() - 4 * 3600 * 1000 });
-		expect(text()).toContain("Resets in about an hour.");
+		await remount(chatgptLimit({ retryAfterSeconds: 20 * 3600 }), { backendId: "hotline", at: written });
+		expect(text()).toContain(`Resets tomorrow at ${clock.format(at(24, 9, 0))}.`);
 
-		await remount(chatgptLimit({ retryAfterSeconds: 5 * 3600 }), { backendId: "hotline", at: Date.now() - 6 * 3600 * 1000 });
+		await remount(chatgptLimit({ retryAfterSeconds: 3600 }), { backendId: "hotline", at: now - 6 * 3600_000 });
 		expect(text()).toContain("This ChatGPT sign-in reached its usage limit.");
-		expect(text()).not.toContain("Resets in");
+		expect(text()).not.toContain("Resets");
 
 		await remount(notice({ kind: "rate_limit", title: "Provider rate limit", summary: "The provider is temporarily limiting requests.", retryAfterSeconds: 20 }));
 		expect(text()).toContain("Retry after 20s");
-		expect(text()).not.toContain("Resets in");
+		expect(text()).not.toContain("Resets");
 	});
 });
 
@@ -492,7 +597,7 @@ describe("an account's failure card", () => {
 		await mount(notice({ kind: "agent_auth", title: "Claude Code sign-in required", summary: "Sign in again", signIn }));
 		expect(text()).toContain("Sign-in method");
 		await remount(notice({ kind: "quota", title: "Quota spent", summary: "No credit left" }));
-		await remount(notice({ kind: "auth", title: "Provider sign-in required", summary: "Check its credentials" }));
+		await remount(notice({ kind: "auth", title: "Provider sign-in required", summary: "Check its credentials", accountId: "a1" }));
 		await remount("Plain diagnostic text");
 		expect(calls).toEqual([]);
 	});

@@ -1,8 +1,8 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useState } from "react";
 import type { AccountsList, AccountStatusView } from "../../generated/contract";
 import { ClockIcon, WarningIcon } from "../../icons";
 import { onServer, showPath } from "../../serverFiles";
-import { Refusal, refused, type Refused } from "../../ui/Refusal";
+import { Refusal, type Refused } from "../../ui/Refusal";
 import { wire } from "../../wire";
 import type { FailureDetails } from "../ErrorCard";
 import { AccountPicker } from "./AccountPicker";
@@ -47,6 +47,7 @@ export function AccountFailure({
 }) {
 	const [list, setList] = useState<AccountsList | null>(null);
 	const [statuses, setStatuses] = useState<Record<string, AccountStatusView>>({});
+	const [probing, setProbing] = useState(0);
 	const [movedTo, setMovedTo] = useState<string | null>(null);
 	const [picked, setPicked] = useState<string | null>(null);
 	const [declined, setDeclined] = useState(false);
@@ -57,6 +58,9 @@ export function AccountFailure({
 	const [refusal, setRefusal] = useState<Refused | null>(null);
 	const kind = error.kind;
 	const failedOn = error.accountId ?? SYSTEM_DEFAULT;
+	const hotline = backendId === HOTLINE_AGENT;
+	// A CLI agent's spent credit is its own card, as it always was.
+	const limit = kind === "usage_limit" || (hotline && kind === "quota");
 
 	useEffect(() => {
 		let cancelled = false;
@@ -65,17 +69,22 @@ export function AccountFailure({
 				if (cancelled) return;
 				setList(answer);
 				// Each status runs the agent's CLI, so only a card that can still move the teammate asks.
-				if (backendId === HOTLINE_AGENT || kind !== "usage_limit" || !latest) return;
-				if (currentAccount(answer, backendId, undefined, personaId) !== failedOn) return;
-				for (const view of answer.accounts) {
+				const asks = !hotline && limit && latest && currentAccount(answer, backendId, undefined, personaId) === failedOn;
+				const others = asks ? answer.accounts.filter((view) => view.account.backendId === backendId && view.account.id !== failedOn) : [];
+				setProbing(others.length);
+				for (const view of others) {
 					const id = view.account.id;
-					if (view.account.backendId !== backendId || id === failedOn) continue;
-					void wire.command("accounts.status", { accountId: id }).then(
-						(status) => {
-							if (!cancelled) setStatuses((was) => ({ ...was, [id]: status }));
-						},
-						() => {},
-					);
+					void wire
+						.command("accounts.status", { accountId: id })
+						.then(
+							(status) => {
+								if (!cancelled) setStatuses((was) => ({ ...was, [id]: status }));
+							},
+							() => {},
+						)
+						.finally(() => {
+							if (!cancelled) setProbing((left) => left - 1);
+						});
 				}
 			},
 			() => {
@@ -85,10 +94,9 @@ export function AccountFailure({
 		return () => {
 			cancelled = true;
 		};
-	}, [kind, backendId, failedOn, latest, personaId]);
+	}, [hotline, limit, backendId, failedOn, latest, personaId]);
 
 	const known = list ?? NONE;
-	const hotline = backendId === HOTLINE_AGENT;
 	const fresh: AccountsList = {
 		...known,
 		accounts: known.accounts.map((one) => {
@@ -100,18 +108,20 @@ export function AccountFailure({
 	const failed = fresh.accounts.find((one) => one.account.backendId === backendId && one.account.id === error.accountId);
 	const failedCredential = hotline ? known.credentials.find((one) => one.credential.id === error.accountId)?.credential : undefined;
 	const choices = hotline ? providerAccounts(known, failedCredential?.providerId) : accountsFor(fresh, { backendId, modelId: undefined });
-	const nameOf = (id: string) => choices.find((one) => one.id === id)?.name ?? id;
 
-	const limit = kind === "usage_limit" || (kind === "quota" && error.accountId !== undefined);
 	const current = list === null ? undefined : (movedTo ?? currentAccount(known, backendId, failedCredential?.providerId, personaId));
-	const switched = limit && current !== undefined && current !== failedOn;
+	// Only an account that fits has a name to say; the card never says an id.
+	const nowOn = limit && current !== failedOn ? choices.find((one) => one.id === current) : undefined;
+	// Until every status is back, This computer would be suggested over a signed-in account, and Try again would run the spent one.
+	const deciding = limit && latest && !declined && (list === null || probing > 0);
 	// A CLI account is offered once its agent says it is signed in; This computer's own sign-in is never asked about.
 	const others = choices.filter((one) => one.id !== failedOn && (hotline || one.signedIn || one.id === SYSTEM_DEFAULT));
 	const selected = picked !== null && others.some((one) => one.id === picked) ? picked : (suggested(others, failedOn) ?? others[0]?.id);
-	const open = limit && latest && !declined && current === failedOn && selected !== undefined;
-	const offer: AccountOffer = open ? "open" : switched ? "moved" : "none";
+	const open = limit && latest && !declined && !deciding && current === failedOn && selected !== undefined;
+	const offer: AccountOffer = deciding || open ? "open" : nowOn !== undefined ? "moved" : "none";
 
-	useEffect(() => {
+	// Before the first paint, so Try again never shows on a card that is about to offer another account.
+	useLayoutEffect(() => {
 		onOffer?.(offer);
 	}, [offer, onOffer]);
 
@@ -125,7 +135,8 @@ export function AccountFailure({
 			await wire.command("persona.account", { personaId, accountId: accountId === SYSTEM_DEFAULT || followsDefault ? null : accountId });
 			setMovedTo(accountId);
 		} catch (reason) {
-			setRefusal(refused("Couldn't change the account", reason));
+			// The core refuses a switch in a sentence written for the person, as the teammate's pane shows it.
+			setRefusal({ message: reason instanceof Error ? reason.message : String(reason) });
 		} finally {
 			setBusy(false);
 		}
@@ -150,9 +161,11 @@ export function AccountFailure({
 			} else if (failedOn === SYSTEM_DEFAULT) title = `${THIS_COMPUTER} hit its usage limit`;
 			else if (failed !== undefined) title = `${failed.account.name} hit its usage limit`;
 		}
-		if (switched) {
+		if (nowOn !== undefined) {
 			const session = agent === undefined ? "session" : `${agent.name} session`;
-			body = `Now on ${nameOf(current)}: a fresh ${session} that is handed this conversation. The failed turn may have done part of its work, so Try again tells it to check before repeating anything.`;
+			body = `Now on ${nowOn.name}: a fresh ${session} that is handed this conversation. The failed turn may have done part of its work, so Try again tells it to check before repeating anything.`;
+		} else if (deciding && list !== null) {
+			below = <p className="mt-2 text-sm text-ink-3">Checking the other accounts…</p>;
 		} else if (open) {
 			keys = (
 				<>

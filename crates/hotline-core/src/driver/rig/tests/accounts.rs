@@ -162,9 +162,14 @@ async fn a_turn_on_a_signed_out_account_fails_as_a_sign_in_and_names_it_by_id() 
     ));
     let agent = started("signed-out", keys, Some(account_b())).await;
     let notice = failed_turn(&agent.driver).await;
-    for part in [r#""kind":"auth""#, r#""accountId":"b""#, ACCOUNT_SIGNED_OUT] {
+    let summary = format!(r#""summary":"{ACCOUNT_SIGNED_OUT}""#);
+    for part in [r#""kind":"auth""#, r#""accountId":"b""#, summary.as_str()] {
         assert!(notice.contains(part), "{part}: {notice}");
     }
+    assert!(
+        !notice.contains("The provider refused this connection"),
+        "{notice}"
+    );
     assert!(!notice.contains(DEFAULTS_WORDS), "{notice}");
 }
 

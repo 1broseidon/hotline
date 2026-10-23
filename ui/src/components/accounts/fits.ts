@@ -1,4 +1,4 @@
-import type { AccountSection, AccountsList, AccountView, CredentialAccount } from "../../generated/contract";
+import type { AccountSection, AccountsList, AccountView, CredentialAccount, CredentialKind, Provider } from "../../generated/contract";
 import { ownSignIn, statusWords, SYSTEM_DEFAULT, THIS_COMPUTER, whoLine } from "./words";
 
 const HOTLINE_AGENT = "hotline";
@@ -49,12 +49,34 @@ function credentialChoice(one: CredentialAccount): AccountChoice {
 	};
 }
 
+/** Where no section heading says so, a key's own line says it bills per use. */
+export function detailLine(choice: AccountChoice): string {
+	return choice.payPerUse ? `${choice.detail} · pay per use` : choice.detail;
+}
+
+export function providerOf(modelId: string | undefined): string | undefined {
+	if (modelId === undefined || !modelId.includes("/")) return undefined;
+	return modelId.slice(0, modelId.indexOf("/"));
+}
+
+/** The core's own rule (`Vault::section_of`): an OpenRouter sign-in mints a key billed per use. */
+function sectionOf(providerId: string, kind: CredentialKind): AccountSection {
+	if (kind === "local") return "server";
+	if (kind === "oauth" && providerId !== "openrouter") return "subscription";
+	return "api_key";
+}
+
+/** The ways into a provider that make an account of that section. */
+export function kindsIn(provider: Provider | undefined, section: AccountSection): CredentialKind[] {
+	if (provider === undefined) return [];
+	return provider.credentialKinds.filter((kind) => sectionOf(provider.id, kind) === section);
+}
+
 /** The window's copy of the core's rule for which accounts fit a teammate. */
 export function accountsFor(list: AccountsList, teammate: { backendId: string; modelId: string | undefined }): AccountChoice[] {
 	if (teammate.backendId === HOTLINE_AGENT) {
-		const modelId = teammate.modelId ?? "";
-		if (!modelId.includes("/")) return [];
-		const providerId = modelId.slice(0, modelId.indexOf("/"));
+		const providerId = providerOf(teammate.modelId);
+		if (providerId === undefined) return [];
 		return list.credentials
 			.filter((one) => one.credential.providerId === providerId && !one.credential.revoked)
 			.map(credentialChoice);

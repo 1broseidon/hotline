@@ -1,29 +1,46 @@
 import { useEffect, useState } from "react";
-import type { AccountsList, AccountView, Persona, SessionInfo } from "../../generated/contract";
+import type { AccountSection, AccountsList, AccountView, Credential, Persona, Provider, SessionInfo } from "../../generated/contract";
 import { PlusIcon } from "../../icons";
 import { Refusal } from "../../ui/Refusal";
 import { wire } from "../../wire";
-import { AccountChoices } from "../accounts/AccountChoices";
 import { AccountSignIn, settledAccounts } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
-import { SYSTEM_DEFAULT, THIS_COMPUTER } from "../accounts/words";
+import { accountsFor, detailLine, inUse, kindsIn, providerOf } from "../accounts/fits";
+import { NEVER_SEES_SIGN_IN, SYSTEM_DEFAULT } from "../accounts/words";
+import { ConnectProvider } from "../ConnectProvider";
+
+const HOTLINE_AGENT = "hotline";
+
+const ADDS: readonly { section: AccountSection; label: string }[] = [
+	{ section: "subscription", label: "Add subscription" },
+	{ section: "api_key", label: "Add API key" },
+];
 
 type Signing = { view: AccountView; email: string | undefined };
 
+/**
+ * The accounts that fit the teammate, as radios. Hotline Agent picks among
+ * its model's provider's accounts, a CLI agent among its own sign-ins and
+ * This computer; with fewer than two there is nothing to pick, so nothing shows.
+ */
 export function AccountRow({
 	persona,
 	session,
+	modelId,
 	disabled,
 	onSetup,
 }: {
 	persona: Persona;
 	session: SessionInfo;
+	modelId: string | undefined;
 	disabled: boolean;
 	onSetup?: ((accountId: string) => void) | undefined;
 }) {
+	const hotline = persona.backendId === HOTLINE_AGENT;
 	const [list, setList] = useState<AccountsList | null>(null);
+	const [providers, setProviders] = useState<Provider[] | null>(null);
 	const [settling, setSettling] = useState<{ accountId: string } | null>(null);
-	const [adding, setAdding] = useState(false);
+	const [adding, setAdding] = useState<AccountSection | null>(null);
 	const [signing, setSigning] = useState<Signing | null>(null);
 	const [fromDesk, setFromDesk] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -45,18 +62,46 @@ export function AccountRow({
 		};
 	}, [settling]);
 
-	const agent = list?.agents.find((one) => one.backendId === persona.backendId && one.supportsAccounts);
-	if (list === null || agent === undefined) return null;
-	const accounts = list.accounts.filter((one) => one.account.backendId === agent.backendId);
-	const nameOf = (id: string) => (id === SYSTEM_DEFAULT ? THIS_COMPUTER : (accounts.find((one) => one.account.id === id)?.account.name ?? id));
+	// The provider's name titles the section, and its ways in are the add rows.
+	useEffect(() => {
+		if (!hotline) return;
+		let cancelled = false;
+		void wire.command("providers.list", {}).then(
+			(answer) => {
+				if (!cancelled) setProviders(answer);
+			},
+			() => {
+				if (!cancelled) setProviders([]);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [hotline]);
 
-	const chosen = persona.accountId ?? SYSTEM_DEFAULT;
+	if (list === null || (hotline && providers === null)) return null;
+	const choices = accountsFor(list, { backendId: persona.backendId, modelId });
+	const onThisDesk = (id: string) =>
+		list.accounts.some((one) => one.account.id === id) || list.credentials.some((one) => one.credential.id === id && !one.credential.revoked);
+	// Set to an account this desk does not have, it cannot start until it is given another, even the only one that fits.
+	const stranded = persona.accountId !== undefined && !onThisDesk(persona.accountId);
+	const offered = choices.length >= 2 || (stranded && choices.length === 1);
+	if (!offered) return null;
+	const agent = hotline ? undefined : list.agents.find((one) => one.backendId === persona.backendId && one.supportsAccounts);
+	const providerId = providerOf(modelId);
+	const provider = providers?.find((one) => one.id === providerId);
+	const title = `${agent?.name ?? provider?.name ?? providerId} account`;
+	// No account is the provider's default on Hotline Agent and This computer on a CLI agent, as is one that does not fit.
+	const nameOf = (id: string) => choices.find((one) => one.id === inUse(choices, id))?.name ?? id;
+
+	const chosen = persona.accountId ?? inUse(choices, undefined);
 	const running = session.account?.running ?? SYSTEM_DEFAULT;
-	// A switch to This computer has no id to send.
-	const wanted = session.account?.wanted ?? chosen;
+	// A switch to no account has no id to send.
+	const wanted = session.account?.wanted ?? persona.accountId ?? SYSTEM_DEFAULT;
 	const held = session.account?.held;
 	const up = session.state === "ready" || session.state === "thinking";
 	const pending = up && held === undefined && wanted !== running;
+	const inUseNow = up && wanted === running ? inUse(choices, session.account?.running) : undefined;
 
 	const send = async (step: () => Promise<unknown>) => {
 		if (busy) return;
@@ -80,9 +125,10 @@ export function AccountRow({
 			await wire.command("session.stop", { personaId: persona.id });
 			await wire.command("session.start", { personaId: persona.id });
 		});
+	const reload = () => wire.command("accounts.list", {}).then(setList, () => {});
 
 	const added = (made: AccountView, email: string | undefined) => {
-		setAdding(false);
+		setAdding(null);
 		setList((was) => was && { ...was, accounts: [...was.accounts.filter((one) => one.account.id !== made.account.id), made] });
 		if (made.canSignInHere) setSigning({ view: made, email });
 		else setFromDesk(made.account.id);
@@ -94,58 +140,86 @@ export function AccountRow({
 		if (signedIn) void assign(ended.view.account.id);
 		setSettling({ accountId: ended.view.account.id });
 	};
+	const connected = async (made: Credential) => {
+		await reload();
+		setAdding(null);
+		void assign(made.id);
+	};
+	// A sign-in cancelled late may still have landed.
+	const connectCancelled = () => {
+		setAdding(null);
+		void reload();
+	};
+	const offers = (section: AccountSection) => (hotline ? kindsIn(provider, section).length > 0 : section === "subscription");
 
-	const title = `${agent.name} account`;
-	const note = session.contextRestored
-		? `On ${nameOf(running)} · Restored: ${agent.name} reopened its own session for this account.`
-		: `On ${nameOf(running)} · Fresh: a new ${agent.name} session for this account, handed this conversation. Another account's session is never reopened here.`;
+	const note = hotline
+		? `On ${nameOf(running)} · Fresh: a new session on this account, handed this conversation.`
+		: session.contextRestored
+			? `On ${nameOf(running)} · Restored: ${agent?.name} reopened its own session for this account.`
+			: `On ${nameOf(running)} · Fresh: a new ${agent?.name} session for this account, handed this conversation. Another account's session is never reopened here.`;
 	return (
 		<section>
 			<h3 className="label">{title}</h3>
 			<div className="grouped" role="radiogroup" aria-label={title}>
-				<AccountChoices
-					agentName={agent.name}
-					accounts={accounts}
-					selected={chosen}
-					inUse={up && wanted === running ? running : undefined}
-					signing={signing?.view.account.id}
-					name={`account-${persona.id}`}
-					disabled={disabled || busy}
-					onSelect={pick}
-				/>
-				{signing !== null && (
+				{choices.map((choice) => {
+					const isSigning = signing?.view.account.id === choice.id;
+					const signedOut = !isSigning && list.accounts.find((view) => view.account.id === choice.id)?.status.state === "signed_out";
+					const detail = isSigning ? "Signing in…" : signedOut ? "Not signed in · sign in to use it" : detailLine(choice);
+					return (
+						<label key={choice.id === SYSTEM_DEFAULT ? "this-computer" : choice.id} className="group-row group-row-choice">
+							<input
+								type="radio"
+								className="radio"
+								name={`account-${persona.id}`}
+								checked={chosen === choice.id}
+								disabled={disabled || busy}
+								onChange={() => pick(choice.id)}
+							/>
+							<span className="group-row-text">
+								<span className="group-row-title">{choice.name}</span>
+								<span className={signedOut ? "group-row-detail text-warn" : "group-row-detail"} style={{ whiteSpace: "normal" }}>
+									{detail}
+								</span>
+							</span>
+							{inUseNow === choice.id && <span className="shrink-0 text-sm text-ink-3">In use</span>}
+						</label>
+					);
+				})}
+				{signing !== null && agent !== undefined && (
 					<div className="group-row flex-col items-stretch">
 						<AccountSignIn account={signing.view} agentName={agent.name} email={signing.email} onEnd={signInEnded} />
 					</div>
 				)}
 				{fromDesk !== null && signing === null && <p className="group-row text-sm text-ink-3">Sign in from the desk itself</p>}
-				{adding ? (
+				{adding !== null && agent !== undefined && (
 					<AddAccountForm
 						compact
 						backendId={agent.backendId}
 						agentName={agent.name}
 						takesEmail={agent.takesEmail}
-						taken={accounts.map((one) => one.account.name)}
+						taken={list.accounts.filter((one) => one.account.backendId === agent.backendId).map((one) => one.account.name)}
 						onAdded={added}
-						onRefused={() => void wire.command("accounts.list", {}).then(setList, () => {})}
-						onCancel={() => setAdding(false)}
+						onRefused={() => void reload()}
+						onCancel={() => setAdding(null)}
 					/>
-				) : (
-					signing === null && (
+				)}
+				{adding === null &&
+					signing === null &&
+					ADDS.filter(({ section }) => offers(section)).map(({ section, label }) => (
 						<button
+							key={section}
 							type="button"
 							className="group-row group-row-add"
 							disabled={disabled}
 							onClick={() => {
 								setFromDesk(null);
-								setAdding(true);
+								setAdding(section);
 							}}
 						>
 							<PlusIcon />
-							Add account
+							{label}
 						</button>
-					)
-				)}
+					))}
 				{pending && (
 					<div className="group-row flex-col items-stretch gap-1">
 						<p>Switches to {nameOf(wanted)} when its work ends.</p>
@@ -170,8 +244,21 @@ export function AccountRow({
 					</p>
 				)}
 			</div>
+			{agent !== undefined && (adding !== null || signing !== null) && <p className="group-hint">{NEVER_SEES_SIGN_IN}</p>}
+			{hotline && adding !== null && provider !== undefined && (
+				<div className="mt-3">
+					<ConnectProvider
+						key={adding}
+						provider={provider}
+						kinds={kindsIn(provider, adding)}
+						taken={choices.map((one) => one.name)}
+						onConnected={(made) => void connected(made)}
+						onCancel={connectCancelled}
+					/>
+				</div>
+			)}
 			{up && <p className="group-hint">{note}</p>}
-			{persona.accountId !== undefined && onSetup !== undefined && accounts.some((one) => one.account.id === chosen) && (
+			{!hotline && onSetup !== undefined && list.accounts.some((one) => one.account.id === chosen) && (
 				<p className="group-hint">
 					<button type="button" className="text-accent-ink hover:underline" onClick={() => onSetup(chosen)}>
 						{nameOf(chosen)}'s setup

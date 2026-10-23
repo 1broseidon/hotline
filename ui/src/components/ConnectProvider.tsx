@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { Credential, CredentialKind, LoginPrompt, Provider, ProviderJob } from "../generated/contract";
 import { ChevronRightIcon } from "../icons";
 import { openLink } from "../native";
@@ -22,6 +22,9 @@ const SIGN_IN_FAILED = "Sign-in failed";
  * The credential is handed up once it exists and its models are read; what
  * to do with it — list it, open its page, move on to the first teammate —
  * is the caller's. Cancelling a sign-in cancels it on the core too.
+ *
+ * There is no <form> here: New teammate nests this in its own, and a form
+ * may not hold another, so a field takes its own Enter.
  */
 export function ConnectProvider({
 	provider,
@@ -57,7 +60,8 @@ export function ConnectProvider({
 	const finished = useRef(false);
 	const placeholder = freeName(provider.name, taken ?? []);
 	const label = name.trim() || placeholder;
-	const nameRow = naming ? <NameRow value={name} placeholder={placeholder} busy={busy} onChange={setName} /> : undefined;
+	const nameRow = (submit: () => void) =>
+		naming ? <NameRow value={name} placeholder={placeholder} busy={busy} onChange={setName} onSubmit={submit} /> : undefined;
 
 	/* The credential exists. Its models are read now, so the first picker
 	 * that opens has them; a provider whose list needs an account, or a
@@ -235,12 +239,7 @@ export function ConnectProvider({
 				<KeyForm title={changing ? "Change key" : `Add ${provider.name}`} nameRow={nameRow} doc={provider.doc} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={onCancel} />
 			)}
 			{method === "oauth" && (
-				<form
-					onSubmit={(event) => {
-						event.preventDefault();
-						void signIn();
-					}}
-				>
+				<div>
 					<h3 className="group-title">
 						Sign in to {provider.name}
 						{changing ? " again" : ""}
@@ -263,21 +262,21 @@ export function ConnectProvider({
 						) : busy ? (
 							<p className="group-row text-sm text-ink-3">Preparing sign-in…</p>
 						) : (
-							nameRow
+							nameRow(() => void signIn())
 						)}
 						<div className="group-row justify-end">
 							<button type="button" className="control btn-quiet" onClick={() => void cancelLogin()}>
 								Cancel
 							</button>
 							{!busy && (
-								<button type="submit" className="control btn-primary">
+								<button type="button" className="control btn-primary" onClick={() => void signIn()}>
 									Sign in
 								</button>
 							)}
 						</div>
 					</div>
 					{busy && <p className="group-hint">{login?.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>}
-				</form>
+				</div>
 			)}
 			{refusal !== null && <Refusal {...refusal} />}
 		</>
@@ -314,7 +313,28 @@ export function connectionMethod(kind: CredentialKind): string {
 	return kind === "oauth" ? "Sign in" : kind === "local" ? "Server URL" : "API key";
 }
 
-function NameRow({ value, placeholder, busy, onChange }: { value: string; placeholder: string; busy: boolean; onChange(value: string): void }) {
+/** Enter in a field does what its form's main button does. */
+function onEnter(submit: () => void) {
+	return (event: KeyboardEvent<HTMLInputElement>) => {
+		if (event.key !== "Enter") return;
+		event.preventDefault();
+		submit();
+	};
+}
+
+function NameRow({
+	value,
+	placeholder,
+	busy,
+	onChange,
+	onSubmit,
+}: {
+	value: string;
+	placeholder: string;
+	busy: boolean;
+	onChange(value: string): void;
+	onSubmit(): void;
+}) {
 	const id = useId();
 	return (
 		<div className="group-row">
@@ -327,6 +347,7 @@ function NameRow({ value, placeholder, busy, onChange }: { value: string; placeh
 				placeholder={placeholder}
 				value={value}
 				onChange={(event) => onChange(event.target.value)}
+				onKeyDown={onEnter(onSubmit)}
 				disabled={busy}
 				spellCheck={false}
 				autoComplete="off"
@@ -345,22 +366,20 @@ function LocalProviderForm({
 }: {
 	title: string;
 	url: string;
-	nameRow: ReactNode;
+	nameRow: (submit: () => void) => ReactNode;
 	busy: boolean;
 	onSave(url: string): void;
 	onCancel(): void;
 }) {
 	const [url, setUrl] = useState(current);
+	const save = () => {
+		if (url.trim()) onSave(url.trim());
+	};
 	return (
-		<form
-			onSubmit={(event) => {
-				event.preventDefault();
-				if (url.trim()) onSave(url.trim());
-			}}
-		>
+		<div>
 			<h3 className="group-title">{title}</h3>
 			<div className="grouped">
-				{nameRow}
+				{nameRow(save)}
 				<div className="group-row">
 					<label htmlFor="ollama-url" className="w-24 shrink-0 text-sm text-ink-2">
 						Server URL
@@ -371,6 +390,7 @@ function LocalProviderForm({
 						className="field flex-1 font-mono text-sm"
 						value={url}
 						onChange={(event) => setUrl(event.target.value)}
+						onKeyDown={onEnter(save)}
 						disabled={busy}
 						spellCheck={false}
 						autoComplete="off"
@@ -380,13 +400,13 @@ function LocalProviderForm({
 					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
 						Cancel
 					</button>
-					<button type="submit" className="control btn-primary" disabled={busy || !url.trim()}>
+					<button type="button" className="control btn-primary" disabled={busy || !url.trim()} onClick={save}>
 						{busy ? "Connecting…" : "Connect"}
 					</button>
 				</div>
 			</div>
 			<p className="group-hint">Start Ollama first. Hotline discovers the models installed on this server. Cloud models available through your Ollama sign-in work here too.</p>
-		</form>
+		</div>
 	);
 }
 
@@ -400,7 +420,7 @@ function KeyForm({
 	onCancel,
 }: {
 	title: string;
-	nameRow: ReactNode;
+	nameRow: (submit: () => void) => ReactNode;
 	doc: string | undefined;
 	busy: boolean;
 	onSave(secret: string): void;
@@ -409,16 +429,14 @@ function KeyForm({
 	const [secret, setSecret] = useState("");
 	const field = useRef<HTMLInputElement>(null);
 	useEffect(() => field.current?.focus(), []);
+	const save = () => {
+		if (secret.trim() !== "") onSave(secret.trim());
+	};
 	return (
-		<form
-			onSubmit={(event) => {
-				event.preventDefault();
-				if (secret.trim() !== "") onSave(secret.trim());
-			}}
-		>
+		<div>
 			<h3 className="group-title">{title}</h3>
 			<div className="grouped">
-				{nameRow}
+				{nameRow(save)}
 				<div className="group-row">
 					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
 						API key
@@ -432,6 +450,7 @@ function KeyForm({
 						autoComplete="off"
 						value={secret}
 						onChange={(event) => setSecret(event.target.value)}
+						onKeyDown={onEnter(save)}
 					/>
 				</div>
 				<div className="group-row">
@@ -445,11 +464,11 @@ function KeyForm({
 					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
 						Cancel
 					</button>
-					<button type="submit" className="control btn-primary" disabled={busy || secret.trim() === ""}>
+					<button type="button" className="control btn-primary" disabled={busy || secret.trim() === ""} onClick={save}>
 						{busy ? "Saving…" : "Save key"}
 					</button>
 				</div>
 			</div>
-		</form>
+		</div>
 	);
 }

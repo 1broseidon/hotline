@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { AccountSection } from "../../generated/contract";
 import { CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon } from "../../icons";
 import { usePlacement } from "../../ui/Menu";
-import type { AccountChoice } from "./fits";
+import { type AccountChoice, detailLine } from "./fits";
 
 const SECTIONS: readonly { section: AccountSection; title: string }[] = [
 	{ section: "subscription", title: "Subscriptions" },
@@ -13,12 +13,7 @@ const SECTIONS: readonly { section: AccountSection; title: string }[] = [
 
 const SEARCH_PAST = 8;
 
-type Adds = { subscription?: () => void; apiKey?: () => void };
-
-// Shut, the picker shows no heading, so the button itself says a key bills per use.
-function line(choice: AccountChoice): string {
-	return choice.payPerUse ? `${choice.detail} · pay per use` : choice.detail;
-}
+type Adds = { subscription?: (() => void) | undefined; apiKey?: (() => void) | undefined };
 
 /** The list floats on the window as its menus do, so no card or row that holds the picker grows or clips it. */
 export function AccountPicker({
@@ -50,7 +45,7 @@ export function AccountPicker({
 			>
 				<span className="picker-label">
 					{current?.name ?? selected}
-					{current !== undefined && <span className="text-ink-3"> · {line(current)}</span>}
+					{current !== undefined && <span className="text-ink-3"> · {detailLine(current)}</span>}
 				</span>
 				<ChevronDownIcon className="picker-chevron" />
 			</button>
@@ -183,7 +178,7 @@ function AccountMenu({
 
 	let index = -1;
 	return createPortal(
-		<div ref={root} className="menu account-picker-menu" style={style}>
+		<div ref={root} tabIndex={-1} className="menu account-picker-menu" style={style}>
 			{searchable && (
 				<label className="search-field account-picker-search">
 					<SearchIcon className="shrink-0" />

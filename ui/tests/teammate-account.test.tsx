@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
-import type { AccountView, Persona, SessionAccount, SessionInfo } from "../src/generated/contract";
+import type { AccountView, Credential, CredentialAccount, Persona, Provider, SessionAccount, SessionInfo } from "../src/generated/contract";
 import { installDom } from "./dom";
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
@@ -10,8 +10,12 @@ const { wire } = await import("../src/wire");
 const { replaceDesks } = await import("../src/desks");
 
 const agents = [
-	{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true },
+	{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true, providerId: "anthropic" },
 	{ backendId: "codex-acp", name: "Codex", supportsAccounts: false, takesEmail: false },
+];
+const providers: Provider[] = [
+	{ id: "anthropic", name: "Anthropic", credentialKinds: ["api_key"], modelDiscovery: false },
+	{ id: "openai", name: "OpenAI", credentialKinds: ["api_key"], modelDiscovery: false },
 ];
 function account(id: string, name: string, extra: Partial<AccountView> = {}): AccountView {
 	return {
@@ -27,21 +31,31 @@ const a1 = () => account("a1", "Account 1", { status: { state: "signed_in", chec
 const a2 = () => account("a2", "Account 2", { status: { state: "signed_in", checkedAt: 1, email: "reviewer@example.com", plan: "pro" } });
 const a3 = () => account("a3", "Account 3");
 const a4 = () => account("a4", "Account 4", { status: { state: "not_checked" } });
+function key(id: string, label: string, providerId = "anthropic", isDefault = false): CredentialAccount {
+	return {
+		credential: { id, providerId, credentialKind: "api_key", label, revoked: false, createdAt: 1, updatedAt: 1 },
+		section: "api_key",
+		usedBy: [],
+		default: isDefault,
+	};
+}
 
 const ada: Persona = {
 	id: "ada", name: "Ada", goal: "", backendId: "claude-acp", cwd: "/work/ada", accountId: "a1",
 	mcpPolicy: { mode: "none", serverIds: [] }, skillPolicy: { mode: "none", names: [] },
 	backgroundWork: false, allowedSenders: [], sessionCheckpoints: [], createdAt: 1, updatedAt: 1,
 };
-function sessionOf(state: SessionInfo["state"], account?: SessionAccount, contextRestored = false): SessionInfo {
+function sessionOf(state: SessionInfo["state"], account?: SessionAccount, contextRestored = false, currentModelId?: string): SessionInfo {
 	return {
 		personaId: "ada", state, contextRestored, models: [], modes: [], configs: [], slashCommands: [],
 		capabilities: { activeInput: false, loadSession: false, resume: false, fork: false, mcpHttp: false, image: false, additionalDirectories: false },
 		...(account === undefined ? {} : { account }),
+		...(currentModelId === undefined ? {} : { currentModelId }),
 	};
 }
 const onA1 = sessionOf("ready", { running: "a1", wanted: "a1" });
 const { accountId: _onA1, ...onDefault } = ada;
+const onClaudeX: Persona = { ...onDefault, backendId: "hotline", modelId: "anthropic/claude-x" };
 
 class NoResize {
 	observe() {}
@@ -52,6 +66,7 @@ class NoResize {
 type Call = [string, Record<string, unknown>];
 let calls: Call[];
 let accounts: AccountView[];
+let credentials: CredentialAccount[];
 let poll: { state: "running" | "succeeded" | "failed"; output: string; error?: string };
 let setupOpened: string[];
 let createRefusal: string | null;
@@ -67,7 +82,21 @@ function change(id: unknown, edit: (view: AccountView) => AccountView) {
 }
 
 function respond(cmd: string, params: Record<string, unknown>): unknown {
-	if (cmd === "accounts.list") return { agents, accounts };
+	if (cmd === "accounts.list") return { agents, accounts, credentials };
+	if (cmd === "providers.list") return providers;
+	if (cmd === "credential.create") {
+		const made: Credential = {
+			id: "C",
+			providerId: params["providerId"] as string,
+			credentialKind: "api_key",
+			label: params["label"] as string,
+			revoked: false,
+			createdAt: 2,
+			updatedAt: 2,
+		};
+		credentials = [...credentials, { credential: made, section: "api_key", usedBy: [], default: false }];
+		return made;
+	}
 	if (cmd === "persona.account") return { running: "a1", ...(params["accountId"] ? { wanted: params["accountId"] } : {}) };
 	if (cmd === "session.stop" || cmd === "session.start") return null;
 	if (cmd === "accounts.create") {
@@ -104,9 +133,11 @@ beforeEach(async () => {
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
 	accounts = [a1(), a2(), a3()];
+	credentials = [key("A", "Key A", "anthropic", true), key("B", "Key B"), key("O", "OpenAI key", "openai", true)];
 	poll = { state: "running", output: "" };
 	setupOpened = [];
 	createRefusal = null;
+	title = "Claude Code account";
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -166,16 +197,18 @@ async function settle() {
 }
 const text = () => container.textContent ?? "";
 const named = (prefix: string) => calls.filter(([cmd]) => cmd.startsWith(prefix));
+let title = "Claude Code account";
 function section(): HTMLElement {
-	const group = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Claude Code account"]');
-	if (!group) throw new Error(`No account list: ${text()}`);
+	const group = container.querySelector<HTMLElement>(`[role="radiogroup"][aria-label="${title}"]`);
+	if (!group) throw new Error(`No ${title} list: ${text()}`);
 	return group;
 }
 function row(name: string): HTMLElement {
-	const title = [...section().querySelectorAll(".group-row-title")].find((node) => node.textContent === name);
-	if (!title) throw new Error(`Missing row ${name}: ${text()}`);
-	return title.closest(".group-row") as HTMLElement;
+	const found = [...section().querySelectorAll(".group-row-title")].find((node) => node.textContent === name);
+	if (!found) throw new Error(`Missing row ${name}: ${text()}`);
+	return found.closest(".group-row") as HTMLElement;
 }
+const checked = (name: string) => (row(name).querySelector("input") as HTMLInputElement).checked;
 async function pick(name: string) {
 	const radio = row(name).querySelector("input")!;
 	await act(async () => {
@@ -195,19 +228,113 @@ async function click(label: string) {
 	});
 	await settle();
 }
+async function type(input: HTMLInputElement, value: string) {
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+		input.dispatchEvent(new window.Event("input", { bubbles: true }));
+	});
+}
+const NEVER_SEES = "Hotline never sees a password or token: each agent's CLI keeps its own sign-in.";
 
-describe("a teammate's agent account", () => {
-	test("no account section for Hotline Agent or an agent without accounts", async () => {
-		await mount({ ...ada, backendId: "hotline" }, sessionOf("idle"));
-		expect(calls.map(([cmd]) => cmd)).not.toContain("accounts.list");
-		expect(container.querySelector('[role="radiogroup"]')).toBeNull();
-
-		await remount({ ...ada, backendId: "codex-acp" }, sessionOf("idle"));
+describe("a teammate's account section", () => {
+	test("no section when fewer than two accounts fit: an agent without accounts, This computer alone, one key", async () => {
+		await mount({ ...ada, backendId: "codex-acp" }, sessionOf("idle"));
 		expect(calls.map(([cmd]) => cmd)).toContain("accounts.list");
 		expect(text()).not.toContain("Codex account");
 		expect(container.querySelector('[role="radiogroup"]')).toBeNull();
+
+		accounts = [];
+		await remount(onDefault, sessionOf("ready"));
+		expect(text()).not.toContain("Claude Code account");
+		expect(container.querySelector('[role="radiogroup"]')).toBeNull();
+
+		await remount({ ...onClaudeX, modelId: "openai/gpt-x" }, sessionOf("ready"));
+		expect(text()).not.toContain("OpenAI account");
+		expect(container.querySelector('[role="radiogroup"]')).toBeNull();
+
+		// Set to another provider's key, it runs on this one's default: nothing to fix.
+		await remount({ ...onClaudeX, modelId: "openai/gpt-x", accountId: "B" }, sessionOf("ready"));
+		expect(container.querySelector('[role="radiogroup"]')).toBeNull();
 	});
 
+	test("set to an account this desk does not have, the one account that fits is offered unpicked", async () => {
+		accounts = [];
+		await mount({ ...ada, accountId: "gone" }, sessionOf("idle"));
+		expect([...section().querySelectorAll(".group-row-title")].map((node) => node.textContent)).toEqual(["This computer"]);
+		expect(checked("This computer")).toBe(false);
+		expect(text()).not.toContain("'s setup");
+		await pick("This computer");
+		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: null }]);
+
+		title = "OpenAI account";
+		await remount({ ...onClaudeX, modelId: "openai/gpt-x", accountId: "gone" }, sessionOf("idle"));
+		expect(checked("OpenAI key")).toBe(false);
+		await pick("OpenAI key");
+		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "O" }]);
+	});
+});
+
+describe("a Hotline Agent teammate's account", () => {
+	test("its provider's accounts are radios, In use on the default, and picking B sends persona.account", async () => {
+		title = "Anthropic account";
+		await mount(onClaudeX, sessionOf("ready"));
+		expect([...container.querySelectorAll("h3")].map((node) => node.textContent)).toContain("Anthropic account");
+		expect([...section().querySelectorAll(".group-row-title")].map((node) => node.textContent)).toEqual(["Key A", "Key B"]);
+		expect(row("Key A").textContent).toContain("API key · pay per use");
+		expect(row("Key A").textContent).toContain("In use");
+		expect(row("Key B").textContent).not.toContain("In use");
+		expect(checked("Key A")).toBe(true);
+		expect(text()).toContain("On Key A · Fresh: a new session on this account, handed this conversation.");
+		expect(text()).not.toContain("'s setup");
+		expect(text()).not.toContain("Add subscription");
+		expect(button("Add API key")).toBeDefined();
+
+		await pick("Key B");
+		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "B" }]);
+		expect(named("persona.account")).toHaveLength(1);
+	});
+
+	test("a pending switch offers Keep and Stop and switch now", async () => {
+		title = "Anthropic account";
+		await mount({ ...onClaudeX, accountId: "B" }, sessionOf("thinking", { wanted: "B" }));
+		expect(text()).toContain("Switches to Key B when its work ends.");
+		expect(text()).not.toContain("In use");
+		expect(checked("Key B")).toBe(true);
+
+		await click("Keep Key A");
+		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: null }]);
+		await click("Stop and switch now");
+		expect(named("session.").map(([cmd]) => cmd)).toEqual(["session.stop", "session.start"]);
+
+		await remount({ ...onClaudeX, accountId: "B" }, sessionOf("ready", { running: "B", wanted: "B" }));
+		expect(text()).not.toContain("Switches to");
+		expect(row("Key B").textContent).toContain("In use");
+		expect(text()).toContain("On Key B · Fresh: a new session on this account, handed this conversation.");
+	});
+
+	test("the accounts are those of the model the session runs now", async () => {
+		credentials = [...credentials, key("P", "Personal OpenAI", "openai")];
+		title = "OpenAI account";
+		await mount(onClaudeX, sessionOf("ready", undefined, false, "openai/gpt-x"));
+		expect([...section().querySelectorAll(".group-row-title")].map((node) => node.textContent)).toEqual(["OpenAI key", "Personal OpenAI"]);
+		expect(text()).not.toContain("Anthropic account");
+	});
+
+	test("Add API key adds a key in place and moves the teammate onto it", async () => {
+		title = "Anthropic account";
+		await mount(onClaudeX, sessionOf("ready"));
+		await click("Add API key");
+		expect(text()).not.toContain(NEVER_SEES);
+		await type(container.querySelector<HTMLInputElement>("#key-secret")!, "sk-three");
+		await click("Save key");
+		expect(calls).toContainEqual(["credential.create", { providerId: "anthropic", label: "Anthropic", secret: "sk-three" }]);
+		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "C" }]);
+		expect(container.querySelector("#key-secret")).toBeNull();
+		expect(row("Anthropic")).toBeDefined();
+	});
+});
+
+describe("a Claude Code teammate's account", () => {
 	test("picking an account sends persona.account; This computer sends null", async () => {
 		await mount(ada, onA1);
 		expect([...container.querySelectorAll("h3")].map((node) => node.textContent)).toContain("Claude Code account");
@@ -281,7 +408,7 @@ describe("a teammate's agent account", () => {
 		await mount(ada, onA1);
 		accounts = [...accounts, account("r1", "Reviewer")];
 		createRefusal = "There is already an account named Reviewer for that agent.";
-		await click("Add account");
+		await click("Add subscription");
 		await click("Add and sign in");
 		expect(text()).toContain("There is already an account named Reviewer for that agent.");
 		expect(row("Reviewer")).toBeDefined();
@@ -289,9 +416,11 @@ describe("a teammate's agent account", () => {
 
 	test("an account added here is assigned only after its sign-in succeeds", async () => {
 		await mount(ada, onA1);
-		await click("Add account");
+		expect(text()).not.toContain(NEVER_SEES);
+		await click("Add subscription");
 		expect(text()).toContain("Starts with your Claude Code setup · Change or customize");
-		const name = container.querySelector<HTMLInputElement>('input[aria-label="New account name"]')!;
+		expect(text()).toContain(NEVER_SEES);
+		const name =container.querySelector<HTMLInputElement>('input[aria-label="New account name"]')!;
 		expect(name.placeholder).toBe("Account 4");
 		const email = container.querySelector<HTMLInputElement>('input[aria-label="Email of the Claude Code account (optional)"]')!;
 		expect(email.placeholder).toBe("Email (optional)");
@@ -309,14 +438,14 @@ describe("a teammate's agent account", () => {
 		expect(named("accounts.list").length).toBeGreaterThan(listed);
 
 		poll = { state: "succeeded", output: "" };
-		await click("Add account");
+		await click("Add subscription");
 		await click("Add and sign in");
 		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "a4" }]);
 	});
 
 	test("a cancelled sign-in leaves the new account as the core checked it after", async () => {
 		await mount(ada, onA1);
-		await click("Add account");
+		await click("Add subscription");
 		await click("Add and sign in");
 		expect(row("Account 4").textContent).toContain("Signing in…");
 		const panel = container.querySelector('section[aria-label="Harness sign-in"]')!;

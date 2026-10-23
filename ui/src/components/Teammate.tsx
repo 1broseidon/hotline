@@ -248,7 +248,14 @@ export function Teammate({
 						</div>
 					</div>
 
-					{!hotline && <AccountRow persona={persona} session={session} disabled={busy} onSetup={onAccountSetup} />}
+					<AccountRow
+						persona={persona}
+						session={session}
+						// As the core reads it: an empty current model is no model.
+						modelId={session.currentModelId || persona.modelId}
+						disabled={busy}
+						onSetup={onAccountSetup}
+					/>
 
 					<section>
 						<h3 className="label">Folders</h3>

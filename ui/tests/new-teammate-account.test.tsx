@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
-import type { AccountView, PersonaDraft } from "../src/generated/contract";
+import type { AccountView, ConfigChoice, Credential, CredentialAccount, PersonaDraft, Provider } from "../src/generated/contract";
 import { installDom } from "./dom";
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false, addEventListener() {} }) } });
@@ -15,8 +15,16 @@ const backends = [
 	{ id: "codex-acp", name: "Codex", description: "OpenAI's CLI." },
 ];
 const agents = [
-	{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true },
+	{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true, providerId: "anthropic" },
 	{ backendId: "codex-acp", name: "Codex", supportsAccounts: false, takesEmail: false },
+];
+const providers: Provider[] = [
+	{ id: "anthropic", name: "Anthropic", credentialKinds: ["api_key"], modelDiscovery: false },
+	{ id: "openai", name: "OpenAI", credentialKinds: ["api_key"], modelDiscovery: false },
+];
+const models: ConfigChoice[] = [
+	{ id: "anthropic/claude-x", name: "Claude X" },
+	{ id: "openai/gpt-x", name: "GPT X" },
 ];
 function account(id: string, name: string, extra: Partial<AccountView> = {}): AccountView {
 	return {
@@ -31,6 +39,14 @@ function account(id: string, name: string, extra: Partial<AccountView> = {}): Ac
 const a1 = () => account("a1", "Account 1", { status: { state: "signed_in", checkedAt: 1, email: "dev@example.com", plan: "max" }, usedBy: ["ada"] });
 const a2 = () => account("a2", "Account 2");
 const a3 = () => account("a3", "Account 3", { status: { state: "not_checked" } });
+function key(id: string, label: string, providerId = "anthropic", isDefault = false): CredentialAccount {
+	return {
+		credential: { id, providerId, credentialKind: "api_key", label, revoked: false, createdAt: 1, updatedAt: 1 },
+		section: "api_key",
+		usedBy: [],
+		default: isDefault,
+	};
+}
 
 class NoResize {
 	observe() {}
@@ -41,6 +57,7 @@ class NoResize {
 type Call = [string, Record<string, unknown>];
 let calls: Call[];
 let accounts: AccountView[];
+let credentials: CredentialAccount[];
 let created: string[];
 let createRefusal: string | null;
 let root: Root | null;
@@ -56,9 +73,23 @@ function change(id: unknown, edit: (view: AccountView) => AccountView) {
 
 function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "backends.list") return backends;
-	if (cmd === "accounts.list") return { agents, accounts };
+	if (cmd === "providers.list") return providers;
+	if (cmd === "accounts.list") return { agents, accounts, credentials };
 	if (cmd === "persona.create") return { id: "p1", ...(params["draft"] as PersonaDraft) };
 	if (cmd === "session.start") return null;
+	if (cmd === "credential.create") {
+		const made: Credential = {
+			id: "C",
+			providerId: params["providerId"] as string,
+			credentialKind: "api_key",
+			label: params["label"] as string,
+			revoked: false,
+			createdAt: 2,
+			updatedAt: 2,
+		};
+		credentials = [...credentials, { credential: made, section: "api_key", usedBy: [], default: false }];
+		return made;
+	}
 	if (cmd === "accounts.create") {
 		if (createRefusal !== null) throw new Error(createRefusal);
 		accounts = [...accounts, a3()];
@@ -91,6 +122,7 @@ beforeEach(async () => {
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
 	accounts = [a1(), a2()];
+	credentials = [key("A", "Key A", "anthropic", true), key("B", "Key B"), key("O", "OpenAI key", "openai", true)];
 	created = [];
 	createRefusal = null;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
@@ -114,7 +146,7 @@ afterEach(async () => {
 
 async function mount() {
 	await act(async () => {
-		root!.render(<NewTeammateForm models={[]} onCreated={(id) => created.push(id)} />);
+		root!.render(<NewTeammateForm models={models} onCreated={(id) => created.push(id)} />);
 	});
 	await settle();
 	await act(async () => {
@@ -157,18 +189,53 @@ async function agent(id: string) {
 	});
 	await settle();
 }
-function accountList(): HTMLElement | null {
-	return container.querySelector<HTMLElement>('[role="radiogroup"][aria-labelledby="new-account"]');
-}
-function row(name: string): HTMLElement {
-	const title = [...(accountList()?.querySelectorAll(".group-row-title") ?? [])].find((node) => node.textContent === name);
-	if (!title) throw new Error(`Missing row ${name}: ${text()}`);
-	return title.closest(".group-row") as HTMLElement;
-}
-const radio = (name: string) => row(name).querySelector("input") as HTMLInputElement;
-async function pick(name: string) {
+const picker = () => container.querySelector<HTMLButtonElement>('button[aria-label="Account"]');
+const labels = () => [...container.querySelectorAll("p.label")].map((node) => node.textContent);
+const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+const optionNames = () => options().map((one) => one.querySelector(".menu-item-text")?.firstChild?.textContent);
+async function openPicker() {
+	const shut = picker();
+	if (!shut) throw new Error(`No Account field: ${text()}`);
 	await act(async () => {
-		radio(name).click();
+		shut.click();
+	});
+	await settle();
+}
+async function closePicker() {
+	await act(async () => {
+		document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+	});
+	await settle();
+}
+async function choose(name: string) {
+	await openPicker();
+	const option = options().find((one) => one.querySelector(".menu-item-text")?.firstChild?.textContent === name);
+	if (!option) throw new Error(`No account ${name}: ${optionNames().join(", ")}`);
+	await act(async () => {
+		option.click();
+	});
+	await settle();
+}
+async function add(label: string) {
+	await openPicker();
+	const row = [...document.querySelectorAll<HTMLButtonElement>(".account-picker-add")].find((node) => node.textContent === label);
+	if (!row) throw new Error(`No ${label}`);
+	await act(async () => {
+		row.click();
+	});
+	await settle();
+}
+async function model(name: string) {
+	const shut = container.querySelector<HTMLButtonElement>('button[aria-label="Model"]')!;
+	await act(async () => {
+		shut.click();
+	});
+	const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+		(one) => one.querySelector(".menu-item-text")?.firstChild?.textContent === name,
+	);
+	if (!item) throw new Error(`No model ${name}`);
+	await act(async () => {
+		item.click();
 	});
 	await settle();
 }
@@ -190,26 +257,43 @@ async function type(input: HTMLInputElement, value: string) {
 		input.dispatchEvent(new window.Event("input", { bubbles: true }));
 	});
 }
+async function enter(input: HTMLInputElement): Promise<boolean> {
+	const press = new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+	await act(async () => {
+		input.dispatchEvent(press);
+	});
+	await settle();
+	return press.defaultPrevented;
+}
 async function submit(name: string) {
 	await type(container.querySelector<HTMLInputElement>("#new-name")!, name);
 	await click("Add teammate");
 }
 const draft = () => named("persona.create").at(-1)?.[1]["draft"] as PersonaDraft;
+const NEVER_SEES = "Hotline never sees a password or token: each agent's CLI keeps its own sign-in.";
 
-describe("a new teammate's agent account", () => {
-	test("the Account list shows only for an agent with accounts", async () => {
+describe("a new Claude Code teammate's account", () => {
+	test("This computer alone is nothing to pick, so there is no Account field", async () => {
+		accounts = [];
 		await mount();
+		await agent("claude-acp");
+		expect(named("accounts.list").length).toBeGreaterThan(0);
 		expect(container.querySelector("#new-account")).toBeNull();
-		expect(named("accounts.list")).toHaveLength(0);
+		expect(picker()).toBeNull();
+	});
 
+	test("one subscription shows the field, starting on This computer", async () => {
+		accounts = [a1()];
+		await mount();
 		await agent("claude-acp");
 		expect(container.querySelector("#new-account")?.textContent).toBe("Account");
-		expect(accountList()).not.toBeNull();
-		expect(row("This computer").textContent).toContain("Claude Code's own sign-in, as before");
-		expect(row("Account 1").textContent).toContain("dev@example.com · Max");
-		expect(row("Account 2").textContent).toContain("Not signed in · sign in to use it");
-		expect(radio("This computer").checked).toBe(true);
+		expect(picker()!.textContent).toBe("This computer · Claude Code's own sign-in, as before");
 		expect(text()).toContain("Rename or remove accounts later in Settings › Providers.");
+		await openPicker();
+		expect(optionNames()).toEqual(["Account 1", "This computer"]);
+		expect(options()[0]!.textContent).toContain("dev@example.com · Max");
+		expect([...document.querySelectorAll(".account-picker-add")].map((node) => node.textContent)).toEqual(["Add subscription"]);
+		await closePicker();
 
 		await agent("codex-acp");
 		expect(container.querySelector("#new-account")).toBeNull();
@@ -218,7 +302,8 @@ describe("a new teammate's agent account", () => {
 	test("the picked account rides in the draft; This computer adds nothing", async () => {
 		await mount();
 		await agent("claude-acp");
-		await pick("Account 1");
+		await choose("Account 1");
+		expect(picker()!.textContent).toBe("Account 1 · dev@example.com · Max");
 		expect(thinksWith().textContent).toContain("Claude Code · Account 1");
 		await submit("Ada");
 		expect(draft().accountId).toBe("a1");
@@ -231,11 +316,13 @@ describe("a new teammate's agent account", () => {
 		expect(thinksWith().textContent).not.toContain("·");
 	});
 
-	test("Add account starts with your setup, and Change or customize opens Start with", async () => {
+	test("Add subscription starts with your setup, says Hotline never sees the sign-in, and Change or customize opens Start with", async () => {
 		await mount();
 		await agent("claude-acp");
-		await click("Add account");
+		expect(text()).not.toContain(NEVER_SEES);
+		await add("Add subscription");
 		expect(text()).toContain("Starts with your Claude Code setup · Change or customize");
+		expect(text()).toContain(NEVER_SEES);
 		expect(text()).not.toContain("My Claude Code setup");
 		await click("Change or customize");
 		expect(text()).toContain("My Claude Code setup");
@@ -248,37 +335,37 @@ describe("a new teammate's agent account", () => {
 		await agent("claude-acp");
 		accounts = [...accounts, account("r1", "Reviewer")];
 		createRefusal = "There is already an account named Reviewer for that agent.";
-		await click("Add account");
+		await add("Add subscription");
 		await click("Add and sign in");
 		expect(text()).toContain("There is already an account named Reviewer for that agent.");
-		expect(row("Reviewer")).toBeDefined();
+		await openPicker();
+		expect(optionNames()).toContain("Reviewer");
 	});
 
 	test("an inline account is selected at once, and Sign in later leaves it Not signed in", async () => {
 		await mount();
 		await agent("claude-acp");
 		await type(container.querySelector<HTMLInputElement>("#new-name")!, "Ada");
-		await click("Add account");
+		await add("Add subscription");
 		await click("Add and sign in");
 		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 3", startWith: "system_default" }]);
-		expect(radio("Account 3").checked).toBe(true);
-		expect(row("Account 3").textContent).toContain("Signing in…");
+		expect(picker()!.textContent).toBe("Account 3 · Signing in…");
 		expect(text()).toContain("A Claude Code window opened for Account 3.");
+		expect(text()).toContain(NEVER_SEES);
 		expect(button("Add teammate").disabled).toBe(true);
-		const enter = new window.Event("submit", { bubbles: true, cancelable: true });
+		const enterOnForm = new window.Event("submit", { bubbles: true, cancelable: true });
 		await act(async () => {
-			container.querySelector("form")!.dispatchEvent(enter);
+			container.querySelector("form")!.dispatchEvent(enterOnForm);
 		});
 		await settle();
-		expect(enter.defaultPrevented).toBe(true);
+		expect(enterOnForm.defaultPrevented).toBe(true);
 		expect(named("persona.create")).toHaveLength(0);
 		expect(named("accounts.login.cancel")).toHaveLength(0);
 
 		await click("Sign in later");
 		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a3", id: "l1" }]);
 		expect(calls.findIndex(([cmd]) => cmd === "accounts.status")).toBeGreaterThan(calls.findIndex(([cmd]) => cmd === "accounts.login.cancel"));
-		expect(radio("Account 3").checked).toBe(true);
-		expect(row("Account 3").textContent).toContain("Not signed in · sign in to use it");
+		expect(picker()!.textContent).toBe("Account 3 · Not signed in");
 
 		expect(button("Add teammate").disabled).toBe(false);
 		await click("Add teammate");
@@ -290,17 +377,90 @@ describe("a new teammate's agent account", () => {
 		await mount();
 		await agent("claude-acp");
 		await type(container.querySelector<HTMLInputElement>("#new-name")!, "Ada");
-		await click("Add account");
+		await add("Add subscription");
 		const email = container.querySelector<HTMLInputElement>('input[aria-label="Email of the Claude Code account (optional)"]')!;
 		await type(email, "dev@example.com");
-		const enter = new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
-		await act(async () => {
-			email.dispatchEvent(enter);
-		});
-		await settle();
-		expect(enter.defaultPrevented).toBe(true);
+		expect(await enter(email)).toBe(true);
 		expect(named("accounts.create")).toHaveLength(1);
 		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a3", email: "dev@example.com" }]);
+		expect(named("persona.create")).toHaveLength(0);
+	});
+});
+
+describe("a new Hotline Agent teammate's account", () => {
+	test("two keys of the model's provider show the field under the model, on the default; picking B sends B", async () => {
+		await mount();
+		expect(picker()).toBeNull();
+		await model("Claude X");
+		expect(labels().slice(-2)).toEqual(["Model", "Account"]);
+		expect(picker()!.textContent).toBe("Key A · API key · pay per use");
+		await openPicker();
+		expect(optionNames()).toEqual(["Key A", "Key B"]);
+		await closePicker();
+		await submit("Ada");
+		expect(draft().modelId).toBe("anthropic/claude-x");
+		expect("accountId" in draft()).toBe(false);
+
+		await remount();
+		await model("Claude X");
+		await choose("Key B");
+		expect(thinksWith().textContent).toContain("Hotline Agent · Claude X · Key B");
+		await choose("Key A");
+		await submit("Mack");
+		expect("accountId" in draft()).toBe(false);
+
+		await remount();
+		await model("Claude X");
+		await choose("Key B");
+		await submit("Rae");
+		expect(draft().accountId).toBe("B");
+		expect(draft().modelId).toBe("anthropic/claude-x");
+	});
+
+	test("a model of another provider hides the field and drops the choice, and coming back starts on the default", async () => {
+		await mount();
+		await model("Claude X");
+		await choose("Key B");
+		await model("GPT X");
+		expect(picker()).toBeNull();
+		expect(thinksWith().textContent).not.toContain("Key B");
+		await model("Claude X");
+		expect(picker()!.textContent).toContain("Key A");
+		await model("GPT X");
+		await submit("Ada");
+		expect(draft().modelId).toBe("openai/gpt-x");
+		expect("accountId" in draft()).toBe(false);
+	});
+
+	test("Add API key opens the key form in place and selects the new key", async () => {
+		await mount();
+		await model("Claude X");
+		await type(container.querySelector<HTMLInputElement>("#new-name")!, "Ada");
+		await add("Add API key");
+		expect(container.querySelectorAll("form form")).toHaveLength(0);
+		expect(text()).not.toContain(NEVER_SEES);
+		const name = container.querySelector<HTMLInputElement>('input[placeholder="Anthropic"]')!;
+		expect(name).not.toBeNull();
+		await type(container.querySelector<HTMLInputElement>("#key-secret")!, "sk-three");
+		await click("Save key");
+		expect(calls).toContainEqual(["credential.create", { providerId: "anthropic", label: "Anthropic", secret: "sk-three" }]);
+		expect(named("persona.create")).toHaveLength(0);
+		expect(container.querySelector("#key-secret")).toBeNull();
+		expect(picker()!.textContent).toBe("Anthropic · API key · pay per use");
+
+		await click("Add teammate");
+		expect(draft().accountId).toBe("C");
+	});
+
+	test("Enter in the new key saves the key, not the teammate", async () => {
+		await mount();
+		await model("Claude X");
+		await type(container.querySelector<HTMLInputElement>("#new-name")!, "Ada");
+		await add("Add API key");
+		const secret = container.querySelector<HTMLInputElement>("#key-secret")!;
+		await type(secret, "sk-three");
+		expect(await enter(secret)).toBe(true);
+		expect(named("credential.create")).toHaveLength(1);
 		expect(named("persona.create")).toHaveLength(0);
 	});
 });

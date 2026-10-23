@@ -82,7 +82,7 @@ class FakeCore {
 		} else if (frame["cmd"] === "session.start") {
 			reply({ id, ok: false, error: refusal });
 		} else if (frame["cmd"] === "accounts.list") {
-			reply({ id, ok: true, result: { agents: [{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true }], accounts: [] } });
+			reply({ id, ok: true, result: { agents: [{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true }], accounts: [], credentials: [] } });
 		} else {
 			reply({ id, ok: false, error: "Not in this test." });
 		}

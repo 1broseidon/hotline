@@ -6,6 +6,7 @@ import { Refusal } from "../../ui/Refusal";
 import { wire } from "../../wire";
 import { AccountSignIn } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
+import { kindsIn } from "../accounts/fits";
 import { RenameField } from "../accounts/RenameField";
 import { NEVER_SEES_SIGN_IN, namesOf, ownSignIn, THIS_COMPUTER, usedByWords } from "../accounts/words";
 import { ConnectProvider } from "../ConnectProvider";
@@ -58,13 +59,6 @@ export function countsText(holding: Holding): string {
 		.join(" · ");
 }
 
-/** The core's own rule (`Vault::section_of`): an OpenRouter sign-in mints a key billed per use. */
-function sectionOf(providerId: string, kind: CredentialKind): AccountSection {
-	if (kind === "local") return "server";
-	if (kind === "oauth" && providerId !== "openrouter") return "subscription";
-	return "api_key";
-}
-
 const SECTIONS: { section: AccountSection; title: string; add: string }[] = [
 	{ section: "subscription", title: "Subscriptions", add: "Add subscription" },
 	{ section: "api_key", title: "API keys", add: "Add API key" },
@@ -113,9 +107,8 @@ export function ProviderPage({
 	const [busy, setBusy] = useState(false);
 	const { provider, agent } = holding;
 	const live = liveOf(holding);
-	const kindsIn = (section: AccountSection) => (provider?.credentialKinds ?? []).filter((kind) => sectionOf(holding.providerId, kind) === section);
 	const rowsIn = (section: AccountSection) => holding.credentials.filter((one) => one.section === section);
-	const offers = (section: AccountSection) => kindsIn(section).length > 0 || (section === "subscription" && agent !== undefined);
+	const offers = (section: AccountSection) => kindsIn(provider, section).length > 0 || (section === "subscription" && agent !== undefined);
 	const adding = (section: AccountSection) => form !== null && "add" in form && form.add === section;
 
 	const run = async (work: () => Promise<unknown>) => {
@@ -189,7 +182,7 @@ export function ProviderPage({
 			<ConnectProvider
 				key={open.add}
 				provider={provider}
-				kinds={kindsIn(open.add)}
+				kinds={kindsIn(provider, open.add)}
 				taken={live.map((one) => one.credential.label)}
 				onConnected={() => void connected()}
 				onCancel={cancelled}

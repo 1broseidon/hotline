@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import type { AccountsList, AccountView, BackendChoice, ConfigChoice, FolderGrant, PersonaDraft } from "../generated/contract";
+import type { AccountSection, AccountsList, AccountView, BackendChoice, ConfigChoice, Credential, FolderGrant, PersonaDraft, Provider } from "../generated/contract";
 import { chordKeys } from "../chords";
-import { CloseIcon, PlusIcon } from "../icons";
+import { CloseIcon } from "../icons";
 import { useActiveDesk, useDesks } from "../desks";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
@@ -9,11 +9,13 @@ import { Picker } from "../ui/Menu";
 import { Fold } from "../ui/Fold";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
-import { AccountChoices } from "./accounts/AccountChoices";
+import { AccountPicker } from "./accounts/AccountPicker";
 import { AccountSignIn, settledAccounts } from "./accounts/AccountSignIn";
 import { AddAccountForm } from "./accounts/AddAccountForm";
-import { SYSTEM_DEFAULT } from "./accounts/words";
+import { accountsFor, inUse, kindsIn, providerOf } from "./accounts/fits";
+import { NEVER_SEES_SIGN_IN, SYSTEM_DEFAULT } from "./accounts/words";
 import { BackendPicker } from "./BackendPicker";
+import { ConnectProvider } from "./ConnectProvider";
 import { PathField } from "./PathField";
 import { suggestName } from "../names";
 import { BACKGROUND_ABOUT, COMPUTER_ABOUT, FolderRows, MACHINE_ABOUT, SwitchRow, foldersNote } from "./Teammate";
@@ -125,9 +127,10 @@ export function NewTeammateForm({
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [accountsList, setAccountsList] = useState<AccountsList | null>(null);
+	const [providers, setProviders] = useState<Provider[]>([]);
 	const [accountSettling, setAccountSettling] = useState<{ accountId: string } | null>(null);
 	const [accountId, setAccountId] = useState(SYSTEM_DEFAULT);
-	const [addingAccount, setAddingAccount] = useState(false);
+	const [addingAccount, setAddingAccount] = useState<AccountSection | null>(null);
 	const [signingAccount, setSigningAccount] = useState<{ view: AccountView; email: string | undefined } | null>(null);
 	const [accountFromDesk, setAccountFromDesk] = useState<string | null>(null);
 	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
@@ -156,10 +159,13 @@ export function NewTeammateForm({
 			? defaultBackendId
 			: (backends.find((one) => one.unavailable === undefined)?.id ?? ""));
 	const onHotline = backendId === HOTLINE_AGENT || backendId === "";
+	// With no model sent, the core checks a choice against the room's preferred one.
+	const accountModelId = modelId || (defaultModelId ?? lastModelId ?? undefined);
+	const accountProvider = onHotline ? providerOf(accountModelId) : undefined;
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: read when an agent other than Hotline Agent is first picked, and again once each sign-in here has ended.
+	// Read again once each sign-in here has ended.
 	useEffect(() => {
-		if (onHotline || simple) return;
+		if (simple) return;
 		let cancelled = false;
 		const read =
 			accountSettling === null ? wire.command("accounts.list", {}) : settledAccounts(accountSettling.accountId, () => !cancelled);
@@ -174,21 +180,57 @@ export function NewTeammateForm({
 		return () => {
 			cancelled = true;
 		};
-	}, [onHotline, accountSettling]);
+	}, [simple, accountSettling]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of agent is what resets the choice.
+	useEffect(() => {
+		if (simple) return;
+		void wire.command("providers.list", {}).then(setProviders, () => setProviders([]));
+	}, [simple]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of agent, or of the model's provider, is what resets the choice.
 	useEffect(() => {
 		setAccountId(SYSTEM_DEFAULT);
-		setAddingAccount(false);
+		setAddingAccount(null);
 		setSigningAccount(null);
 		setAccountFromDesk(null);
-	}, [backendId]);
+	}, [backendId, accountProvider]);
 
 	const agent = onHotline ? undefined : accountsList?.agents.find((one) => one.backendId === backendId && one.supportsAccounts);
-	const agentAccounts = agent === undefined ? [] : (accountsList?.accounts ?? []).filter((one) => one.account.backendId === agent.backendId);
-	const accountName = agentAccounts.find((one) => one.account.id === accountId)?.account.name ?? accountId;
+	const provider = providers.find((one) => one.id === accountProvider);
+	const accountChoices =
+		accountsList === null
+			? []
+			: accountsFor(accountsList, onHotline ? { backendId: HOTLINE_AGENT, modelId: accountModelId } : { backendId, modelId: undefined });
+	const accountNames = accountChoices.filter((one) => one.id !== SYSTEM_DEFAULT).map((one) => one.name);
+	const selectedAccount = inUse(accountChoices, accountId);
+	const pickedAccount = accountChoices.find((one) => one.id === selectedAccount);
+	// Staying on the default or on This computer sends nothing.
+	const draftAccount = pickedAccount !== undefined && pickedAccount.id !== SYSTEM_DEFAULT && !pickedAccount.isDefault ? pickedAccount : undefined;
+	const signingId = signingAccount?.view.account.id;
+	const shownChoices = accountChoices.map((one) => (one.id === signingId ? { ...one, detail: "Signing in…" } : one));
+	const readAccounts = () => wire.command("accounts.list", {}).then(setAccountsList, () => {});
+	const addAccount = (section: AccountSection) => () => {
+		setAccountFromDesk(null);
+		setAddingAccount(section);
+	};
+	const accountAdds = onHotline
+		? {
+				subscription: kindsIn(provider, "subscription").length > 0 ? addAccount("subscription") : undefined,
+				apiKey: kindsIn(provider, "api_key").length > 0 ? addAccount("api_key") : undefined,
+			}
+		: { subscription: signingAccount === null ? addAccount("subscription") : undefined };
+	const credentialAdded = async (made: Credential) => {
+		await readAccounts();
+		setAccountId(made.id);
+		setAddingAccount(null);
+	};
+	// A sign-in cancelled late may still have landed.
+	const credentialCancelled = () => {
+		setAddingAccount(null);
+		void readAccounts();
+	};
 	const accountAdded = (made: AccountView, email: string | undefined) => {
-		setAddingAccount(false);
+		setAddingAccount(null);
 		setAccountId(made.account.id);
 		setAccountsList((was) => was && { ...was, accounts: [...was.accounts.filter((one) => one.account.id !== made.account.id), made] });
 		if (made.canSignInHere) setSigningAccount({ view: made, email });
@@ -213,7 +255,7 @@ export function NewTeammateForm({
 		if (backgroundWork) draft.backgroundWork = true;
 		if (computerReady && computer) draft.computer = { enabled: true };
 		if (folders.length > 0) draft.folders = folders;
-		if (!onHotline && agent !== undefined && accountId !== SYSTEM_DEFAULT) draft.accountId = accountId;
+		if (draftAccount !== undefined) draft.accountId = draftAccount.id;
 		try {
 			const persona = await wire.command("persona.create", { draft });
 			// Opened as soon as it exists, not once it has started: a start
@@ -235,11 +277,8 @@ export function NewTeammateForm({
 
 	const modelName = models.find((one) => one.id === modelId)?.name ?? fallback?.name ?? "The best one available";
 	const backendName = backends.find((one) => one.id === backendId)?.name ?? "Hotline Agent";
-	const thinks = onHotline
-		? `Hotline Agent · ${modelName}`
-		: agent !== undefined && accountId !== SYSTEM_DEFAULT
-			? `${backendName} · ${accountName}`
-			: backendName;
+	const accountNote = draftAccount === undefined ? "" : ` · ${draftAccount.name}`;
+	const thinks = onHotline ? `Hotline Agent · ${modelName}${accountNote}` : `${backendName}${accountNote}`;
 	const abilities = [
 		onHotline && machine ? "Whole machine" : "Its folder only",
 		backgroundWork ? "Works while you're away" : null,
@@ -255,6 +294,58 @@ export function NewTeammateForm({
 	].join("");
 	const [open, setOpen] = useState<"thinks" | "folder" | "abilities" | null>(null);
 	const fold = (which: "thinks" | "folder" | "abilities") => setOpen((was) => (was === which ? null : which));
+
+	// Shown only when there is a choice: one account that fits is nothing to pick.
+	const accountField = accountChoices.length >= 2 && (
+		<div>
+			<p className="label" id="new-account">
+				Account
+			</p>
+			<AccountPicker choices={shownChoices} selected={selectedAccount} label="Account" onSelect={setAccountId} adds={accountAdds} />
+			{agent !== undefined && (signingAccount !== null || accountFromDesk !== null || addingAccount !== null) && (
+				<div className="grouped mt-2">
+					{signingAccount !== null && (
+						<div className="group-row flex-col items-stretch">
+							<AccountSignIn
+								account={signingAccount.view}
+								agentName={agent.name}
+								email={signingAccount.email}
+								cancelLabel="Sign in later"
+								onEnd={accountSignInEnded}
+							/>
+						</div>
+					)}
+					{accountFromDesk !== null && signingAccount === null && <p className="group-row text-sm text-ink-3">Sign in from the desk itself</p>}
+					{addingAccount !== null && (
+						<AddAccountForm
+							compact
+							backendId={agent.backendId}
+							agentName={agent.name}
+							takesEmail={agent.takesEmail}
+							taken={accountNames}
+							onAdded={accountAdded}
+							onRefused={() => void readAccounts()}
+							onCancel={() => setAddingAccount(null)}
+						/>
+					)}
+				</div>
+			)}
+			{agent !== undefined && (signingAccount !== null || addingAccount !== null) && <p className="hint">{NEVER_SEES_SIGN_IN}</p>}
+			{onHotline && addingAccount !== null && provider !== undefined && (
+				<div className="mt-3">
+					<ConnectProvider
+						key={addingAccount}
+						provider={provider}
+						kinds={kindsIn(provider, addingAccount)}
+						taken={accountNames}
+						onConnected={(made) => void credentialAdded(made)}
+						onCancel={credentialCancelled}
+					/>
+				</div>
+			)}
+			<p className="hint">Rename or remove accounts later in Settings › Providers.</p>
+		</div>
+	);
 
 	return (
 		<form
@@ -355,66 +446,7 @@ export function NewTeammateForm({
 							)}
 						</div>
 					)}
-					{!simple && agent !== undefined && (
-						<div>
-							<p className="label" id="new-account">
-								Account
-							</p>
-							<div className="grouped" role="radiogroup" aria-labelledby="new-account">
-								<AccountChoices
-									agentName={agent.name}
-									accounts={agentAccounts}
-									selected={accountId}
-									signing={signingAccount?.view.account.id}
-									name="new-account"
-									disabled={busy}
-									onSelect={setAccountId}
-								/>
-								{signingAccount !== null && (
-									<div className="group-row flex-col items-stretch">
-										<AccountSignIn
-											account={signingAccount.view}
-											agentName={agent.name}
-											email={signingAccount.email}
-											cancelLabel="Sign in later"
-											onEnd={accountSignInEnded}
-										/>
-									</div>
-								)}
-								{accountFromDesk !== null && signingAccount === null && (
-									<p className="group-row text-sm text-ink-3">Sign in from the desk itself</p>
-								)}
-								{addingAccount ? (
-									<AddAccountForm
-										compact
-										backendId={agent.backendId}
-										agentName={agent.name}
-										takesEmail={agent.takesEmail}
-										taken={agentAccounts.map((one) => one.account.name)}
-										onAdded={accountAdded}
-										onRefused={() => void wire.command("accounts.list", {}).then(setAccountsList, () => {})}
-										onCancel={() => setAddingAccount(false)}
-									/>
-								) : (
-									signingAccount === null && (
-										<button
-											type="button"
-											className="group-row group-row-add"
-											disabled={busy}
-											onClick={() => {
-												setAccountFromDesk(null);
-												setAddingAccount(true);
-											}}
-										>
-											<PlusIcon />
-											Add account
-										</button>
-									)
-								)}
-							</div>
-							<p className="hint">Rename or remove accounts later in Settings › Providers.</p>
-						</div>
-					)}
+					{!onHotline && accountField}
 					{onHotline && (
 						<div>
 							<p className="label" id="new-model">
@@ -430,6 +462,7 @@ export function NewTeammateForm({
 							/>
 						</div>
 					)}
+					{onHotline && accountField}
 				</Fold>
 				<Fold title="Folders" value={where} open={open === "folder"} onToggle={() => fold("folder")}>
 					<PathField

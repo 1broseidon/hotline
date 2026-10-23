@@ -88,6 +88,9 @@ async function open() {
 	await act(async () => {
 		root!.render(<App />);
 	});
+	await settle();
+}
+async function settle() {
 	for (let turn = 0; turn < 5; turn++) {
 		await act(async () => {
 			await new Promise((resolve) => setTimeout(resolve, 5));
@@ -113,6 +116,7 @@ describe("an empty room", () => {
 		await act(async () => {
 			button!.click();
 		});
+		await settle();
 		// The pane is the plus's own form, in the conversation's place.
 		expect(text()).toContain("An AI helper with a name and a job.");
 		expect(text()).not.toContain("Add one to start a conversation.");

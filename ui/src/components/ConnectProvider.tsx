@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { Credential, CredentialKind, LoginPrompt, Provider, ProviderJob } from "../generated/contract";
 import { ChevronRightIcon } from "../icons";
 import { openLink } from "../native";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { wire } from "../wire";
+import { freeName } from "./accounts/words";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 const SIGN_IN_FAILED = "Sign-in failed";
@@ -14,29 +15,43 @@ const SIGN_IN_FAILED = "Sign-in failed";
  * connection form. Settings › Providers and the welcome pane both render
  * this, so a key is pasted the same way on the first day as on any other.
  *
+ * With `credentialId` it changes that account in place instead: a new key,
+ * a new server, or a sign-in again. The account keeps its id, name and
+ * teammates, so its provider's default never moves.
+ *
  * The credential is handed up once it exists and its models are read; what
  * to do with it — list it, open its page, move on to the first teammate —
  * is the caller's. Cancelling a sign-in cancels it on the core too.
  */
 export function ConnectProvider({
 	provider,
-	replacing,
+	kinds = provider.credentialKinds,
+	credentialId,
+	taken = [],
 	onConnected,
 	onCancel,
 }: {
 	provider: Provider;
-	/** The connection being replaced, for a custom edit or a sign-in again. */
-	replacing?: Credential | undefined;
+	/** The ways in offered; a provider's page offers one section's. */
+	kinds?: CredentialKind[];
+	credentialId?: string | undefined;
+	/** Its accounts' names, so a blank name takes the next free one. */
+	taken?: string[];
 	onConnected(made: Credential): void;
 	onCancel(): void;
 }) {
-	const initial = provider.credentialKinds.length === 1 ? (provider.credentialKinds[0] ?? null) : null;
+	const initial = kinds.length === 1 ? (kinds[0] ?? null) : null;
+	const changing = credentialId !== undefined;
 	const [method, setMethod] = useState<CredentialKind | null>(initial);
+	const [name, setName] = useState("");
 	const [login, setLogin] = useState<LoginPrompt | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<Refused | null>(null);
 	const attempt = useRef(0);
 	const finished = useRef(false);
+	const placeholder = freeName(provider.name, taken);
+	const label = name.trim() || placeholder;
+	const naming = changing ? undefined : <NameRow value={name} placeholder={placeholder} busy={busy} onChange={setName} />;
 
 	/* The credential exists. Its models are read now, so the first picker
 	 * that opens has them; a provider whose list needs an account, or a
@@ -57,7 +72,10 @@ export function ConnectProvider({
 		setMethod("oauth");
 		const mine = ++attempt.current;
 		try {
-			const prompt = await wire.command("credential.login", { providerId: provider.id });
+			const prompt = await wire.command(
+				"credential.login",
+				credentialId !== undefined ? { providerId: provider.id, id: credentialId } : { providerId: provider.id, label },
+			);
 			if (mine !== attempt.current) {
 				await wire.command("credential.login_cancel", { loginId: prompt.loginId });
 				return;
@@ -67,14 +85,13 @@ export function ConnectProvider({
 			if (mine !== attempt.current) return;
 			setRefusal(refused(SIGN_IN_FAILED, error));
 			setBusy(false);
-			setMethod(initial === "oauth" ? null : initial);
 		}
 	};
 
-	// A provider with one way in, and that way a sign-in, starts it at once.
+	// A sign-in again starts at once: the account it signs in has its name already.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a sign-in starts once, when the form opens.
 	useEffect(() => {
-		if (initial === "oauth") void signIn();
+		if (changing && initial === "oauth") void signIn();
 		return () => {
 			attempt.current += 1;
 		};
@@ -104,7 +121,6 @@ export function ConnectProvider({
 						setRefusal(status.error === undefined ? { message: SIGN_IN_FAILED } : refused(SIGN_IN_FAILED, status.error));
 						setLogin(null);
 						setBusy(false);
-						setMethod(initial === "oauth" ? null : initial);
 						return;
 					}
 					timer = setTimeout(tick, 2000);
@@ -137,32 +153,34 @@ export function ConnectProvider({
 		}
 	};
 
-	const saveKey = async (secret: string) => {
+	const save = async (work: () => Promise<Credential>) => {
 		if (busy) return;
 		setBusy(true);
 		setRefusal(null);
 		try {
-			await finish(await wire.command("credential.create", { providerId: provider.id, label: provider.name, secret }));
+			await finish(await work());
 		} catch (error) {
 			setRefusal(refused("Connection failed", error));
 			setBusy(false);
 		}
 	};
 
-	const connectLocal = async (baseUrl: string) => {
-		if (busy) return;
-		setBusy(true);
-		setRefusal(null);
-		try {
-			await finish(await wire.command("credential.connect_local", { baseUrl }));
-		} catch (error) {
-			setRefusal(refused("Connection failed", error));
-			setBusy(false);
-		}
-	};
+	const saveKey = (secret: string) =>
+		save(() =>
+			credentialId !== undefined
+				? wire.command("credential.update", { id: credentialId, secret })
+				: wire.command("credential.create", { providerId: provider.id, label, secret }),
+		);
+
+	const connectLocal = (baseUrl: string) =>
+		save(() =>
+			credentialId !== undefined
+				? wire.command("credential.update", { id: credentialId, baseUrl })
+				: wire.command("credential.connect_local", { baseUrl, label }),
+		);
 
 	if (provider.id === "openai-compatible") {
-		return <CustomProviderForm key={replacing?.id ?? "new"} credential={replacing} onSaved={(made) => void finish(made)} onCancel={onCancel} />;
+		return <CustomProviderForm credential={undefined} onSaved={(made) => void finish(made)} onCancel={onCancel} />;
 	}
 
 	return (
@@ -171,13 +189,13 @@ export function ConnectProvider({
 				<section>
 					<h3 className="group-title">Connect {provider.name}</h3>
 					<div className="grouped">
-						{provider.credentialKinds.map((kind) => (
+						{kinds.map((kind) => (
 							<button
 								key={kind}
 								type="button"
 								className="group-row group-row-choice w-full text-left"
 								disabled={busy}
-								onClick={() => (kind === "oauth" ? void signIn() : setMethod(kind))}
+								onClick={() => setMethod(kind)}
 							>
 								<span className="group-row-text">
 									{provider.id === "xai" && kind === "oauth" ? "Sign in with SuperGrok or X Premium+" : connectionMethod(kind)}
@@ -193,15 +211,25 @@ export function ConnectProvider({
 					</div>
 				</section>
 			)}
-			{method === "local" && <LocalProviderForm busy={busy} onSave={(url) => void connectLocal(url)} onCancel={onCancel} />}
-			{method === "api_key" && <KeyForm provider={provider} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={onCancel} />}
+			{method === "local" && (
+				<LocalProviderForm title={changing ? "Change server" : "Connect Ollama Local"} naming={naming} busy={busy} onSave={(url) => void connectLocal(url)} onCancel={onCancel} />
+			)}
+			{method === "api_key" && (
+				<KeyForm title={changing ? "Change key" : `Add ${provider.name}`} naming={naming} doc={provider.doc} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={onCancel} />
+			)}
 			{method === "oauth" && (
-				<section>
-					<h3 className="group-title">Sign in to {provider.name}</h3>
+				<form
+					onSubmit={(event) => {
+						event.preventDefault();
+						void signIn();
+					}}
+				>
+					<h3 className="group-title">
+						Sign in to {provider.name}
+						{changing ? " again" : ""}
+					</h3>
 					<div className="grouped">
-						{login === null ? (
-							<p className="group-row text-sm text-ink-3">Preparing sign-in…</p>
-						) : (
+						{login !== null ? (
 							<>
 								{login.userCode !== "" && (
 									<div className="group-row">
@@ -215,15 +243,24 @@ export function ConnectProvider({
 								</div>
 								<p className="group-row text-sm text-ink-3">Waiting for you to sign in…</p>
 							</>
+						) : busy ? (
+							<p className="group-row text-sm text-ink-3">Preparing sign-in…</p>
+						) : (
+							naming
 						)}
 						<div className="group-row justify-end">
 							<button type="button" className="control btn-quiet" onClick={() => void cancelLogin()}>
 								Cancel
 							</button>
+							{!busy && (
+								<button type="submit" className="control btn-primary">
+									Sign in
+								</button>
+							)}
 						</div>
 					</div>
-					<p className="group-hint">{login?.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>
-				</section>
+					{busy && <p className="group-hint">{login?.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>}
+				</form>
 			)}
 			{refusal !== null && <Refusal {...refusal} />}
 		</>
@@ -260,7 +297,40 @@ export function connectionMethod(kind: CredentialKind): string {
 	return kind === "oauth" ? "Sign in" : kind === "local" ? "Server URL" : "API key";
 }
 
-function LocalProviderForm({ busy, onSave, onCancel }: { busy: boolean; onSave(url: string): void; onCancel(): void }) {
+function NameRow({ value, placeholder, busy, onChange }: { value: string; placeholder: string; busy: boolean; onChange(value: string): void }) {
+	const id = useId();
+	return (
+		<div className="group-row">
+			<label htmlFor={id} className="w-24 shrink-0 text-sm text-ink-2">
+				Name
+			</label>
+			<input
+				id={id}
+				className="field flex-1"
+				placeholder={placeholder}
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+				disabled={busy}
+				spellCheck={false}
+				autoComplete="off"
+			/>
+		</div>
+	);
+}
+
+function LocalProviderForm({
+	title,
+	naming,
+	busy,
+	onSave,
+	onCancel,
+}: {
+	title: string;
+	naming: ReactNode;
+	busy: boolean;
+	onSave(url: string): void;
+	onCancel(): void;
+}) {
 	const [url, setUrl] = useState("http://localhost:11434");
 	return (
 		<form
@@ -269,8 +339,9 @@ function LocalProviderForm({ busy, onSave, onCancel }: { busy: boolean; onSave(u
 				if (url.trim()) onSave(url.trim());
 			}}
 		>
-			<h3 className="group-title">Connect Ollama Local</h3>
+			<h3 className="group-title">{title}</h3>
 			<div className="grouped">
+				{naming}
 				<div className="group-row">
 					<label htmlFor="ollama-url" className="w-24 shrink-0 text-sm text-ink-2">
 						Server URL
@@ -302,12 +373,16 @@ function LocalProviderForm({ busy, onSave, onCancel }: { busy: boolean; onSave(u
 
 /** The key field, in place, for the provider just chosen. */
 function KeyForm({
-	provider,
+	title,
+	naming,
+	doc,
 	busy,
 	onSave,
 	onCancel,
 }: {
-	provider: Provider;
+	title: string;
+	naming: ReactNode;
+	doc: string | undefined;
 	busy: boolean;
 	onSave(secret: string): void;
 	onCancel(): void;
@@ -322,8 +397,9 @@ function KeyForm({
 				if (secret.trim() !== "") onSave(secret.trim());
 			}}
 		>
-			<h3 className="group-title">Add {provider.name}</h3>
+			<h3 className="group-title">{title}</h3>
 			<div className="grouped">
+				{naming}
 				<div className="group-row">
 					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
 						API key
@@ -341,8 +417,8 @@ function KeyForm({
 				</div>
 				<div className="group-row">
 					<span className="min-w-0 flex-1">
-						{provider.doc !== undefined && (
-							<button type="button" className="nt-fold-action" onClick={() => void openLink(provider.doc ?? "")}>
+						{doc !== undefined && (
+							<button type="button" className="nt-fold-action" onClick={() => void openLink(doc)}>
 								Where to get a key ↗
 							</button>
 						)}

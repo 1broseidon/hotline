@@ -59,13 +59,13 @@ describe("settings rail", () => {
 		expect(opened).toEqual(["about", "shortcuts"]);
 	});
 
-	test("Agent accounts stands right after Providers", async () => {
-		await mount("accounts");
+	test("accounts live under Providers, so the list has no Agent accounts", async () => {
+		await mount("providers");
 		const names = buttons().map((node) => node.textContent);
-		expect(names).toContain("Agent accounts");
-		expect(names.indexOf("Agent accounts")).toBe(names.indexOf("Providers") + 1);
-		const accounts = buttons().find((node) => node.textContent === "Agent accounts")!;
-		expect(accounts.getAttribute("aria-current")).toBe("true");
+		expect(names).not.toContain("Agent accounts");
+		expect(names.indexOf("Tools")).toBe(names.indexOf("Providers") + 1);
+		const providers = buttons().find((node) => node.textContent === "Providers")!;
+		expect(providers.getAttribute("aria-current")).toBe("true");
 	});
 
 	test("the open footer item carries aria-current", async () => {

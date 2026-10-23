@@ -3019,9 +3019,9 @@
 		background: none;
 		box-shadow: inset 0 0 0 1.5px var(--ink-3);
 	}
-	/* Settings › Agent accounts. An account's dot is what the agent said of
-	 * its sign-in: green signed in, amber while it is being found out, red
-	 * when the last sign-in did not finish, grey for the rest. An account
+	/* An account on a provider's page. Its dot is what was last found of its
+	 * sign-in: green signed in, amber while it is being found out, red when
+	 * the last sign-in did not finish, grey for the rest. A CLI account
 	 * nobody has asked about has no dot, only the room for one. */
 	.agent-account-dot,
 	.agent-account-nodot {
@@ -3042,19 +3042,6 @@
 	}
 	.agent-account-dot[data-state="failed"] {
 		background: var(--danger);
-	}
-	/* An agent's initial on a rounded square, so it never reads as a teammate. */
-	.agent-account-initial {
-		display: inline-grid;
-		width: 28px;
-		height: 28px;
-		flex-shrink: 0;
-		place-items: center;
-		border-radius: 8px;
-		background: var(--fill-hover);
-		color: var(--ink-2);
-		font-size: var(--text-sm);
-		font-weight: 600;
 	}
 	.agent-account-chip {
 		display: inline-flex;

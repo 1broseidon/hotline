@@ -644,7 +644,7 @@ export function App() {
 								onOpenThread={openThread}
 								onAccountSetup={(accountId) => {
 									setAccountPage(accountId);
-									setSettingsSection("accounts");
+									setSettingsSection("providers");
 									setPane("settings");
 								}}
 							/>

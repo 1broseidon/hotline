@@ -412,7 +412,7 @@ export function NewTeammateForm({
 									)
 								)}
 							</div>
-							<p className="hint">Rename or remove accounts later in Settings › Agent accounts.</p>
+							<p className="hint">Rename or remove accounts later in Settings › Providers.</p>
 						</div>
 					)}
 					{onHotline && (

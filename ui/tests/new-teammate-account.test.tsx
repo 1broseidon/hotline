@@ -209,7 +209,7 @@ describe("a new teammate's agent account", () => {
 		expect(row("Account 1").textContent).toContain("dev@example.com · Max");
 		expect(row("Account 2").textContent).toContain("Not signed in · sign in to use it");
 		expect(radio("This computer").checked).toBe(true);
-		expect(text()).toContain("Rename or remove accounts later in Settings › Agent accounts.");
+		expect(text()).toContain("Rename or remove accounts later in Settings › Providers.");
 
 		await agent("codex-acp");
 		expect(container.querySelector("#new-account")).toBeNull();

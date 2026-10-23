@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
-import type { AccountStatusState, AccountView, RosterEntry } from "../src/generated/contract";
+import type { AccountAgent, AccountStatusState, AccountView, CredentialAccount, Provider, RosterEntry } from "../src/generated/contract";
 import { installDom } from "./dom";
 
 // Loading the window's modules reads the platform, and the theme, before any test has a DOM.
@@ -11,16 +11,22 @@ Object.assign(globalThis, {
 });
 const { wire } = await import("../src/wire");
 const { replaceDesks } = await import("../src/desks");
-const { AgentAccountsSection } = await import("../src/components/settings/AgentAccounts");
+const { ProvidersSection } = await import("../src/components/settings/Providers");
 const { accountJob } = await import("../src/components/accounts/AccountSignIn");
 const { nextAccountName } = await import("../src/components/accounts/words");
 Reflect.deleteProperty(globalThis, "localStorage");
 
 const epoch = 1_800_000_000_000;
-const agents = [
-	{ backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true },
-	{ backendId: "codex-acp", name: "Codex", supportsAccounts: false, takesEmail: false },
+const day = 86_400_000;
+const claudeCode: AccountAgent = { backendId: "claude-acp", name: "Claude Code", supportsAccounts: true, takesEmail: true, providerId: "anthropic" };
+const codex: AccountAgent = { backendId: "codex-acp", name: "Codex", supportsAccounts: false, takesEmail: false };
+const providers: Provider[] = [
+	{ id: "anthropic", name: "Anthropic", credentialKinds: ["api_key"], modelDiscovery: true },
+	{ id: "github-copilot", name: "GitHub Copilot", credentialKinds: ["oauth"], modelDiscovery: true },
+	{ id: "ollama", name: "Ollama Local", credentialKinds: ["local"], modelDiscovery: true },
+	{ id: "openai", name: "OpenAI", credentialKinds: ["api_key"], modelDiscovery: true },
 ];
+
 function account(id: string, name: string, extra: Partial<AccountView> = {}, loginAt?: number): AccountView {
 	return {
 		account: { id, backendId: "claude-acp", name, createdAt: epoch, ...(loginAt === undefined ? {} : { loginAt }) },
@@ -35,12 +41,32 @@ const a1 = () => account("a1", "Account 1", { status: { state: "signed_in", chec
 const a2 = () => account("a2", "Account 2");
 const a3 = () => account("a3", "Account 3", { status: { state: "not_checked" } });
 
-function entry(id: string, name: string, accountId?: string): RosterEntry {
+function credential(id: string, label: string, extra: Partial<CredentialAccount> = {}, createdAt = epoch): CredentialAccount {
+	return {
+		credential: { id, providerId: "anthropic", credentialKind: "api_key", label, revoked: false, createdAt, updatedAt: createdAt },
+		section: "api_key",
+		usedBy: [],
+		default: false,
+		...extra,
+	};
+}
+function login(id: string, label: string, revoked = false): CredentialAccount {
+	const made = credential(id, label, { section: "subscription" });
+	return { ...made, credential: { ...made.credential, providerId: "github-copilot", credentialKind: "oauth", revoked } };
+}
+function server(id: string, label: string, baseUrl: string): CredentialAccount {
+	const made = credential(id, label, { section: "server" });
+	return { ...made, credential: { ...made.credential, providerId: "ollama", credentialKind: "local", baseUrl } };
+}
+const keys = () => [credential("k1", "Prod key", { default: true, usedBy: ["rae"] }), credential("k2", "Personal key")];
+
+function entry(id: string, name: string, accountId?: string, backendId = "claude-acp"): RosterEntry {
 	return {
 		persona: {
-			id, name, goal: "", backendId: "claude-acp", cwd: "/work",
+			id, name, goal: "", backendId, cwd: "/work",
 			mcpPolicy: { mode: "all", serverIds: [] }, skillPolicy: { mode: "all", names: [] },
 			backgroundWork: false, allowedSenders: [], sessionCheckpoints: [], createdAt: 0, updatedAt: 0,
+			...(backendId === "hotline" ? { modelId: "anthropic/claude-sonnet" } : {}),
 			...(accountId === undefined ? {} : { accountId }),
 		},
 		session: {
@@ -51,7 +77,7 @@ function entry(id: string, name: string, accountId?: string): RosterEntry {
 		drawing: false,
 	} as RosterEntry;
 }
-const roster = [entry("ada", "Ada", "a1"), entry("mack", "Mack")];
+const roster = [entry("ada", "Ada", "a1"), entry("mack", "Mack"), entry("rae", "Rae", undefined, "hotline")];
 
 class NoResize {
 	observe() {}
@@ -61,12 +87,15 @@ class NoResize {
 
 type Call = [string, Record<string, unknown>];
 let calls: Call[];
+let agents: AccountAgent[];
 let accounts: AccountView[];
+let credentials: CredentialAccount[];
 let made: AccountView;
 let poll: { state: "running" | "succeeded" | "failed"; output: string; error?: string };
 let checked: AccountView["status"];
 let cancelLands: boolean;
 let createRefusal: string | null;
+let deleteRefusal: string | null;
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
@@ -83,7 +112,28 @@ function cancelled(view: AccountView): AccountView {
 }
 
 function respond(cmd: string, params: Record<string, unknown>): unknown {
-	if (cmd === "accounts.list") return { agents, accounts };
+	if (cmd === "accounts.list") return { agents, accounts, credentials };
+	if (cmd === "providers.list") return providers;
+	if (cmd === "capabilities.options") throw new Error("Not on this desk.");
+	if (cmd === "models.catalog" || cmd === "credential.refresh_models") return [];
+	if (cmd === "credential.create") {
+		const created = credential(`k${credentials.length + 1}`, String(params["label"]));
+		credentials = [...credentials, created];
+		return created.credential;
+	}
+	if (cmd === "credential.update") {
+		const { id, ...edit } = params;
+		credentials = credentials.map((one) => (one.credential.id === id ? { ...one, credential: { ...one.credential, ...edit } } : one));
+		return credentials.find((one) => one.credential.id === id)?.credential;
+	}
+	if (cmd === "credential.delete") {
+		if (deleteRefusal !== null) throw new Error(deleteRefusal);
+		credentials = credentials.filter((one) => one.credential.id !== params["id"]);
+		return null;
+	}
+	if (cmd === "credential.login") return { loginId: "c-login", userCode: "ABCD-1234", verificationUri: "https://example.com/device" };
+	if (cmd === "credential.login_status") return { state: "pending" };
+	if (cmd === "credential.login_cancel") return null;
 	if (cmd === "accounts.create") {
 		if (createRefusal !== null) throw new Error(createRefusal);
 		accounts = [...accounts, made];
@@ -124,12 +174,15 @@ beforeEach(async () => {
 	(dom as unknown as { __hotlineDesk: unknown }).__hotlineDesk = { platform: "windows" };
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
+	agents = [claudeCode, codex];
 	accounts = [a1(), a2()];
+	credentials = keys();
 	made = a3();
 	poll = { state: "running", output: "" };
 	checked = { state: "signed_in", checkedAt: Date.now(), email: "two@example.com", plan: "pro" };
 	cancelLands = true;
 	createRefusal = null;
+	deleteRefusal = null;
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -149,9 +202,9 @@ afterEach(async () => {
 	await teardown();
 });
 
-async function mount() {
+async function mount(opening?: string) {
 	await act(async () => {
-		root!.render(<AgentAccountsSection roster={roster} />);
+		root!.render(<ProvidersSection enabledModels={{}} roster={roster} {...(opening === undefined ? {} : { opening })} />);
 	});
 	await settle();
 }
@@ -160,6 +213,14 @@ async function unmount() {
 		root?.unmount();
 		root = null;
 	});
+}
+async function remount() {
+	await unmount();
+	await act(async () => {
+		const { createRoot } = await import("react-dom/client");
+		root = createRoot(container);
+	});
+	await mount();
 }
 async function settle() {
 	for (let round = 0; round < 6; round++) {
@@ -171,17 +232,22 @@ async function settle() {
 const text = () => container.textContent ?? "";
 const band = () => container.querySelector(".band h2")?.textContent;
 const named = (cmd: string) => calls.filter(([one]) => one === cmd);
+const titles = () => [...container.querySelectorAll(".group-title")].map((node) => node.textContent);
+const shortDay = (at: number) => new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function rows(name: string): HTMLElement[] {
+	return [...container.querySelectorAll(".group-row-title")].filter((node) => node.textContent === name).map((node) => node.closest(".group-row") as HTMLElement);
+}
 function row(name: string): HTMLElement {
-	const title = [...container.querySelectorAll(".group-row-title")].find((node) => node.textContent === name);
-	if (!title) throw new Error(`Missing row ${name}: ${text()}`);
-	return title.closest(".group-row") as HTMLElement;
+	const found = rows(name)[0];
+	if (!found) throw new Error(`Missing row ${name}: ${text()}`);
+	return found;
 }
 function button(label: string, within: ParentNode = container) {
 	const found = [...within.querySelectorAll("button")].find((node) => node.textContent === label || node.getAttribute("aria-label") === label);
 	if (!found) throw new Error(`Missing button ${label}: ${text()}`);
 	return found as HTMLButtonElement;
 }
-const hasButton = (label: string) => [...container.querySelectorAll("button")].some((node) => node.textContent === label);
+const hasButton = (label: string, within: ParentNode = container) => [...within.querySelectorAll("button")].some((node) => node.textContent === label);
 async function click(label: string, within?: ParentNode) {
 	const found = button(label, within);
 	await act(async () => {
@@ -189,17 +255,15 @@ async function click(label: string, within?: ParentNode) {
 	});
 	await settle();
 }
-async function openAgent() {
+async function press(element: HTMLElement) {
 	await act(async () => {
-		row("Claude Code").click();
+		element.click();
 	});
 	await settle();
 }
+const openProvider = (name: string) => press(row(name));
 async function openAccount(name: string) {
-	await act(async () => {
-		row(name).querySelector("button")!.click();
-	});
-	await settle();
+	await press(row(name).querySelector("button")!);
 }
 function field(label: string): HTMLInputElement {
 	const found = [...container.querySelectorAll("label")].find((node) => node.textContent?.startsWith(label));
@@ -221,24 +285,196 @@ async function tick(title: string) {
 	});
 }
 
-describe("Settings › Agent accounts", () => {
-	test("an agent with accounts opens its page; the others use their own sign-in", async () => {
+describe("Settings › Providers", () => {
+	test("a provider row counts its subscriptions and keys", async () => {
+		credentials = [...keys(), server("o1", "Ollama Local", "http://localhost:11434")];
 		await mount();
 		expect(named("accounts.list")).toHaveLength(1);
-		expect(band()).toBe("Agent accounts");
-		expect(row("Claude Code").textContent).toContain("2 accounts · 1 not signed in");
-		expect(row("Codex").closest("button")).toBeNull();
-		expect(text()).toContain("Uses its own sign-in");
-		expect(text()).toContain("Hotline never sees a password or token: each agent's CLI keeps its own sign-in.");
-		await openAgent();
-		expect(band()).toBe("Claude Code");
+		expect(band()).toBe("Providers");
+		expect(row("Anthropic").textContent).toContain("2 subscriptions · 2 API keys · All models");
+		expect(row("Ollama Local").textContent).toContain("1 server · All models");
+		expect(text()).not.toContain("Codex");
+		await openProvider("Anthropic");
+		expect(band()).toBe("Anthropic");
+		expect(container.querySelector(".nt-card")?.textContent).toContain("2 subscriptions · 2 API keys");
 	});
 
-	test("the agent page shows This computer and each account's line", async () => {
+	test("a provider whose accounts are all signed out says so", async () => {
+		agents = [codex];
+		accounts = [];
+		credentials = [login("c1", "GitHub Copilot", true)];
 		await mount();
-		await openAgent();
+		expect(row("GitHub Copilot").textContent).toContain("Signed out");
+		await click("Add provider");
+		expect(rows("GitHub Copilot")).toHaveLength(1);
+	});
+
+	test("the provider page lists every way in, with who uses each and the default", async () => {
+		credentials = [...keys(), server("o1", "Ollama Local", "http://localhost:11434")];
+		await mount();
+		await openProvider("Anthropic");
+		expect(titles()).toEqual(["Subscriptions", "API keys", "Models in the picker"]);
+		expect(row("This computer").textContent).toContain("Built in");
+		expect(row("Account 1").textContent).toContain("Used by Ada");
+		expect(row("Prod key").textContent).toContain("API key · pay per use · Default · Used by Rae");
+		expect(row("Personal key").textContent).toContain("API key · pay per use · Not used yet");
+		expect(row("Personal key").textContent).not.toContain("Default");
+		expect(hasButton("Add subscription")).toBe(true);
+		expect(hasButton("Add API key")).toBe(true);
+		expect(text()).toContain("A teammate on Anthropic picks one of these when it has more than one to choose from.");
+
+		await click("Back to the team");
+		await openProvider("Ollama Local");
+		expect(titles()).toEqual(["Servers", "Models in the picker"]);
+		expect(row("Ollama Local").textContent).toContain("http://localhost:11434 · Not used yet");
+		expect(row("Ollama Local").textContent).not.toContain("Default");
+		expect(hasButton("Change server", row("Ollama Local"))).toBe(true);
+		expect(hasButton("Disconnect", row("Ollama Local"))).toBe(true);
+		expect(hasButton("Add server")).toBe(true);
+	});
+
+	test("adding a key with no name takes the next free one", async () => {
+		credentials = [credential("k1", "Anthropic", { default: true }), credential("k2", "Anthropic", {}, epoch + 3 * day)];
+		await mount();
+		await openProvider("Anthropic");
+		await click("Add API key");
+		expect(field("Name").placeholder).toBe("Anthropic 2");
+		await type(field("API key"), "sk-three");
+		await click("Save key");
+		expect(calls).toContainEqual(["credential.create", { providerId: "anthropic", label: "Anthropic 2", secret: "sk-three" }]);
+		expect(rows("Anthropic 2")).toHaveLength(1);
+		expect(hasButton("Save key")).toBe(false);
+	});
+
+	test("two old keys with one name are told apart by date", async () => {
+		credentials = [credential("k1", "Anthropic", { default: true }), credential("k2", "Anthropic", {}, epoch + 3 * day), credential("k3", "Spare")];
+		await mount();
+		await openProvider("Anthropic");
+		const [first, second] = rows("Anthropic").map((one) => one.textContent ?? "");
+		expect(first).toContain(`Added ${shortDay(epoch)}`);
+		expect(second).toContain(`Added ${shortDay(epoch + 3 * day)}`);
+		expect(row("Spare").textContent).not.toContain("Added");
+	});
+
+	test("change key updates the same credential", async () => {
+		await mount();
+		await openProvider("Anthropic");
+		await click("Change key", row("Prod key"));
+		expect([...container.querySelectorAll("label")].some((node) => node.textContent === "Name")).toBe(false);
+		await type(field("API key"), "sk-new");
+		await click("Save key");
+		expect(calls).toContainEqual(["credential.update", { id: "k1", secret: "sk-new" }]);
+		expect(named("credential.create")).toHaveLength(0);
+		expect(named("credential.delete")).toHaveLength(0);
+		expect(row("Prod key").textContent).toContain("Default");
+	});
+
+	test("a row renames its account in place", async () => {
+		await mount();
+		await openProvider("Anthropic");
+		await click("Rename", row("Personal key"));
+		await type(field("Account name"), "  Spare key ");
+		await click("Save");
+		expect(calls).toContainEqual(["credential.update", { id: "k2", label: "Spare key" }]);
+		expect(row("Spare key")).toBeDefined();
+
+		await click("Rename", row("Account 2"));
+		await type(field("Account name"), "Reviewer seat");
+		await click("Save");
+		expect(calls).toContainEqual(["accounts.rename", { accountId: "a2", name: "Reviewer seat" }]);
+		expect(row("Reviewer seat")).toBeDefined();
+		expect(band()).toBe("Anthropic");
+	});
+
+	test("remove refused names its teammates", async () => {
+		deleteRefusal = "Prod key can't be removed while Rae uses it.";
+		await mount();
+		await openProvider("Anthropic");
+		await click("Remove key", row("Prod key"));
+		expect(calls).toContainEqual(["credential.delete", { id: "k1" }]);
+		expect(text()).toContain("Prod key can't be removed while Rae uses it.");
+		expect(row("Prod key")).toBeDefined();
+
+		deleteRefusal = null;
+		await click("Remove key", row("Personal key"));
+		expect(calls).toContainEqual(["credential.delete", { id: "k2" }]);
+		expect(rows("Personal key")).toHaveLength(0);
+	});
+
+	test("a sign-in again keeps its account, and a signed-out one offers only Remove", async () => {
+		agents = [codex];
+		accounts = [];
+		credentials = [login("c1", "GitHub Copilot"), login("c2", "Work Copilot", true)];
+		await mount();
+		await openProvider("GitHub Copilot");
+		expect(row("GitHub Copilot").textContent).toContain("Signed in · Not used yet");
+		expect(row("Work Copilot").textContent).toContain("Signed out");
+		expect([...row("Work Copilot").querySelectorAll("button")].map((node) => node.textContent)).toEqual(["Remove"]);
+		await click("Sign in again", row("GitHub Copilot"));
+		expect(calls).toContainEqual(["credential.login", { providerId: "github-copilot", id: "c1" }]);
+		expect(text()).toContain("ABCD-1234");
+		await click("Cancel");
+		expect(calls).toContainEqual(["credential.login_cancel", { loginId: "c-login" }]);
+
+		await click("Remove", row("Work Copilot"));
+		expect(calls).toContainEqual(["credential.delete", { id: "c2" }]);
+		expect(rows("Work Copilot")).toHaveLength(0);
+	});
+
+	test("a custom connection is a row and a page of its own, with no sections", async () => {
+		agents = [codex];
+		accounts = [];
+		const made = credential("x1", "LM Studio");
+		credentials = [
+			{
+				...made,
+				credential: { ...made.credential, providerId: "custom-x1", baseUrl: "http://localhost:1234/v1", custom: { api: "chat_completions", models: ["qwen"] } },
+			},
+		];
+		await mount();
+		expect(row("LM Studio").textContent).toContain("Chat Completions · All models");
+		await openProvider("LM Studio");
+		expect(band()).toBe("LM Studio");
+		expect(container.querySelector(".nt-card")?.textContent).toContain("Chat Completions · http://localhost:1234/v1");
+		expect(titles()).toEqual(["Models in the picker"]);
+		await click("Remove connection");
+		expect(calls).toContainEqual(["credential.delete", { id: "x1" }]);
+		expect(band()).toBe("Providers");
+	});
+
+	test("adding anthropic asks which way in when Claude Code takes accounts", async () => {
+		accounts = [];
+		credentials = [];
+		made = account("a9", "Account 1", { status: { state: "not_checked" } });
+		await mount();
+		await click("Add provider");
+		await press(row("Anthropic"));
+		expect(hasButton("Claude subscription")).toBe(true);
+		expect(hasButton("API key")).toBe(true);
+		await click("Claude subscription");
+		expect(field("Name").placeholder).toBe("Account 1");
+		await click("Add and sign in");
+		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 1", startWith: "system_default" }]);
+		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a9" }]);
+		expect(band()).toBe("Anthropic");
+		expect(row("Account 1").textContent).toContain("Signing in…");
+
+		agents = [codex];
+		await remount();
+		await click("Add provider");
+		await press(row("Anthropic"));
+		expect(hasButton("Claude subscription")).toBe(false);
+		expect(field("API key")).toBeDefined();
+		expect(field("Name").placeholder).toBe("Anthropic");
+	});
+});
+
+describe("Settings › Providers › Anthropic: Claude Code accounts", () => {
+	test("the page shows This computer and each account's line", async () => {
+		await mount();
+		await openProvider("Anthropic");
 		expect(text()).toContain("Claude Code's own sign-in, as before · Used by Mack");
-		expect(text()).toContain("Built in");
+		expect(row("This computer").textContent).toContain("Built in");
 		expect(row("Account 1").textContent).toContain("Signed in · dev@example.com · Used by Ada");
 		expect(row("Account 1").textContent).not.toContain("Max");
 		expect(row("Account 2").textContent).toContain("Not signed in · Not used yet");
@@ -255,12 +491,12 @@ describe("Settings › Agent accounts", () => {
 		];
 		accounts = words.map(([state], index) => account(`s${index}`, `Account ${index + 1}`, { status: { state } }));
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		for (const [index, [state, said]] of words.entries()) {
 			const line = row(`Account ${index + 1}`);
 			expect(line.textContent).toContain(said);
 			expect(line.querySelector(".agent-account-dot")?.getAttribute("data-state") ?? null).toBe(state === "not_checked" ? null : state);
-			expect([...line.querySelectorAll("button")].some((node) => node.textContent === "Check")).toBe(state === "not_checked" || state === "unavailable");
+			expect(hasButton("Check", line)).toBe(state === "not_checked" || state === "unavailable");
 		}
 		expect(row("Account 1").querySelector(".agent-account-dot")).toBeNull();
 		await click("Check", row("Account 1"));
@@ -270,10 +506,10 @@ describe("Settings › Agent accounts", () => {
 
 	test("a blank name adds Account 3 and a Windows sign-in shows only Cancel", async () => {
 		await mount();
-		await openAgent();
-		await click("Add account");
+		await openProvider("Anthropic");
+		await click("Add subscription");
 		expect(field("Name").placeholder).toBe("Account 3");
-		expect([...container.querySelectorAll(".group-title")].map((node) => node.textContent)).toContain("What a new account starts with");
+		expect(titles()).toContain("What a new account starts with");
 		expect(text()).toContain("Chosen once, here. After that the account is edited on its own in its Setup, where it can also copy from your setup again.");
 		const choice = container.querySelector('[role="radiogroup"]')!;
 		const label = document.getElementById(choice.getAttribute("aria-labelledby") ?? "");
@@ -299,10 +535,10 @@ describe("Settings › Agent accounts", () => {
 
 	test("a name refused as taken reads the accounts again, so the account it names is listed", async () => {
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		accounts = [...accounts, account("r1", "Reviewer")];
 		createRefusal = "There is already an account named Reviewer for that agent.";
-		await click("Add account");
+		await click("Add subscription");
 		await type(field("Name"), "Reviewer");
 		await click("Add and sign in");
 		expect(text()).toContain("There is already an account named Reviewer for that agent.");
@@ -312,11 +548,12 @@ describe("Settings › Agent accounts", () => {
 	test("Back mid sign-in leaves the row as the cancelled attempt ended", async () => {
 		checked = { state: "signed_out", checkedAt: Date.now() };
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		await openAccount("Account 2");
 		await click("Sign in");
 		expect(calls).toContainEqual(["accounts.login.start", { accountId: "a2" }]);
 		await click("Back to the team");
+		expect(band()).toBe("Anthropic");
 		expect(calls).toContainEqual(["accounts.login.cancel", { accountId: "a2", id: "l1" }]);
 		expect(row("Account 2").textContent).toContain("Sign-in did not finish: Sign-in cancelled.");
 		expect(row("Account 2").textContent).not.toContain("Signing in…");
@@ -327,7 +564,7 @@ describe("Settings › Agent accounts", () => {
 		checked = { state: "signed_out", checkedAt: Date.now() };
 		cancelLands = false;
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		await openAccount("Account 2");
 		await click("Sign in");
 		await click("Back to the team");
@@ -348,7 +585,7 @@ describe("Settings › Agent accounts", () => {
 	test("an attempt running elsewhere reads Signing in… on the account page, with neither Sign in nor Check", async () => {
 		accounts = [a1(), { ...a2(), attempt: { id: "l0", state: "running" } }];
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		await openAccount("Account 2");
 		expect(container.querySelector(".nt-card")?.textContent).toContain("Signing in…");
 		expect(hasButton("Sign in")).toBe(false);
@@ -358,8 +595,8 @@ describe("Settings › Agent accounts", () => {
 	test("an owner seat adds an account and is told to sign it in from the desk", async () => {
 		made = { ...a3(), canSignInHere: false };
 		await mount();
-		await openAgent();
-		await click("Add account");
+		await openProvider("Anthropic");
+		await click("Add subscription");
 		await click("Add and sign in");
 		expect(calls).toContainEqual(["accounts.create", { backendId: "claude-acp", name: "Account 3", startWith: "system_default" }]);
 		expect(named("accounts.login.start")).toHaveLength(0);
@@ -370,22 +607,17 @@ describe("Settings › Agent accounts", () => {
 
 	test("Customize what is copied sends the ticked; Empty sends none", async () => {
 		await mount();
-		await openAgent();
-		await click("Add account");
+		await openProvider("Anthropic");
+		await click("Add subscription");
 		await click("Customize what is copied…");
 		await tick("Settings");
 		await click("Add and sign in");
 		expect(named("accounts.create").at(-1)?.[1]).toEqual({ backendId: "claude-acp", name: "Account 3", startWith: "system_default", categories: ["instructions", "skills", "plugins", "mcp"] });
 
-		await unmount();
 		accounts = [a1(), a2()];
-		await act(async () => {
-			const { createRoot } = await import("react-dom/client");
-			root = createRoot(container);
-		});
-		await mount();
-		await openAgent();
-		await click("Add account");
+		await remount();
+		await openProvider("Anthropic");
+		await click("Add subscription");
 		await click("Customize what is copied…");
 		await tick("Settings");
 		await tick("Empty");
@@ -396,7 +628,7 @@ describe("Settings › Agent accounts", () => {
 
 	test("rename saves the trimmed name", async () => {
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		await openAccount("Account 1");
 		await click("Rename");
 		await type(field("Account name"), "  Reviewer seat ");
@@ -413,10 +645,10 @@ describe("Settings › Agent accounts", () => {
 
 	test("remove is refused in place while Ada uses it, and frees an unused account", async () => {
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		await openAccount("Account 1");
 		await click("Remove account");
-		expect(text()).toContain("Account 1 can't be removed while Ada use it.");
+		expect(text()).toContain("Account 1 can't be removed while Ada uses it.");
 		expect(text()).toContain("Give them another account in their settings first; Hotline never moves a teammate to another account for you.");
 		await click("OK");
 		expect(named("accounts.remove")).toHaveLength(0);
@@ -429,13 +661,22 @@ describe("Settings › Agent accounts", () => {
 		expect(text()).toContain("Hotline forgets Account 2. Its folder and the sign-in in it stay at /data/agent-accounts/a2; sign out there with Claude Code's own sign-out if you no longer need it.");
 		await click("Remove");
 		expect(calls).toContainEqual(["accounts.remove", { accountId: "a2" }]);
-		expect(band()).toBe("Claude Code");
+		expect(band()).toBe("Anthropic");
 		expect(text()).not.toContain("Account 2");
+	});
+
+	test("an account two teammates use names both when its removal is refused", async () => {
+		accounts = [{ ...a1(), usedBy: ["ada", "mack"] }, a2()];
+		await mount();
+		await openProvider("Anthropic");
+		await openAccount("Account 1");
+		await click("Remove account");
+		expect(text()).toContain("Account 1 can't be removed while Ada and Mack use it.");
 	});
 
 	test("Check asks the agent; an owner seat signs in from the desk", async () => {
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		await openAccount("Account 2");
 		expect(text()).toContain("Its teammates ask you to sign in at their next message");
 		await click("Check");
@@ -443,14 +684,9 @@ describe("Settings › Agent accounts", () => {
 		expect(text()).toContain("two@example.com · Pro");
 		expect(text()).toContain("Checked with Claude Code just now");
 
-		await unmount();
 		accounts = [a1(), { ...a2(), canSignInHere: false }];
-		await act(async () => {
-			const { createRoot } = await import("react-dom/client");
-			root = createRoot(container);
-		});
-		await mount();
-		await openAgent();
+		await remount();
+		await openProvider("Anthropic");
 		await openAccount("Account 2");
 		expect(text()).toContain("Sign in from the desk itself");
 		expect(hasButton("Sign in")).toBe(false);
@@ -459,7 +695,7 @@ describe("Settings › Agent accounts", () => {
 	test("a second sign-in says its teammates start fresh; a first one does not", async () => {
 		poll = { state: "succeeded", output: "" };
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		await openAccount("Account 1");
 		expect(text()).toContain("dev@example.com · Max");
 		await click("Sign in again");
@@ -481,7 +717,7 @@ describe("Settings › Agent accounts", () => {
 			{ ...a2(), attempt: { id: "l0", state: "failed", error: "Claude Code closed before it was signed in." } },
 		];
 		await mount();
-		await openAgent();
+		await openProvider("Anthropic");
 		expect(row("Account 1").textContent).toContain("Signed in · Sign-in did not finish: Sign-in cancelled.");
 		expect(row("Account 1").querySelector(".agent-account-dot")?.getAttribute("data-state")).toBe("signed_in");
 		expect(row("Account 2").textContent).toContain("Sign-in did not finish: Claude Code closed before it was signed in.");
@@ -509,14 +745,11 @@ describe("Settings › Agent accounts", () => {
 		expect(Object.keys(calls.at(-1)![1])).toEqual(["accountId"]);
 	});
 
-	test("opening lands on the account's page with its agent behind Back", async () => {
-		await act(async () => {
-			root!.render(<AgentAccountsSection roster={roster} opening="a1" />);
-		});
-		await settle();
+	test("opening lands on the account's page with its provider behind Back", async () => {
+		await mount("a1");
 		expect(band()).toBe("Account 1");
 		await click("Back to the team");
-		expect(band()).toBe("Claude Code");
+		expect(band()).toBe("Anthropic");
 	});
 
 	test("the next blank name skips a taken one", () => {

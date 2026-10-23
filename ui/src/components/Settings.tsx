@@ -18,7 +18,6 @@ import { onServer } from "../serverFiles";
 import { DesksSection } from "./DesksSection";
 import { useActiveDesk, useDesks } from "../desks";
 import type { RosterEntry } from "../generated/contract";
-import { AgentAccountsSection } from "./settings/AgentAccounts";
 import { ComputerSection } from "./settings/Computer";
 import { GeneralSection } from "./settings/General";
 import { ImportSection } from "./settings/Import";
@@ -31,7 +30,6 @@ export type SettingsSection =
 	| "general"
 	| "desks"
 	| "providers"
-	| "accounts"
 	| "tools"
 	| "skills"
 	| "computer"
@@ -46,7 +44,6 @@ const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
 	{ id: "desks", title: "Desks" },
 	{ id: "providers", title: "Providers" },
-	{ id: "accounts", title: "Agent accounts" },
 	{ id: "tools", title: "Tools" },
 	{ id: "skills", title: "Skills" },
 	{ id: "computer", title: "Computer" },
@@ -198,13 +195,11 @@ export function Settings({
 		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
 
-	// Providers, Agent accounts, Tools and Skills have a page under them, so
-	// their bands are their own; Secrets keeps its own list, so it draws
-	// itself the same way.
-	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
-	if (section === "accounts") {
+	// Providers, Tools and Skills have a page under them, so their bands are
+	// their own; Secrets keeps its own list, so it draws itself the same way.
+	if (section === "providers") {
 		// Keyed so that opening on another account remounts the section instead of keeping the page it was left on.
-		return <AgentAccountsSection key={account ?? ""} roster={roster} onBack={onBack} {...(account !== undefined ? { opening: account } : {})} />;
+		return <ProvidersSection key={account ?? ""} enabledModels={settings.enabledModels} roster={roster} opening={account} onBack={onBack} />;
 	}
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;

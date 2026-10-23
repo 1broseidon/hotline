@@ -119,19 +119,23 @@ it is measured on the room the rail leaves, not the window, so a closed
 rail makes space for both and a wide one hands the inspector the
 conversation's place.
 
-Providers, Tools and Agent accounts are one shape, because they do one
-job: a list of things the room has. An add row heads the list in accent —
-the one accent in a pane, because adding is what an empty list is for —
-and opens the form in place, or for Providers the rows of what is not yet
-connected, in place too: nothing on these pages pops over them. Each
-row is the thing's name over one detail line (a key or a login, a command
-or a URL) and opens the thing's own page, with its fields and the way out
-(Remove, Sign out) at the foot. Nothing is edited on the row.
-Agent accounts goes one level deeper: the agents, then an agent's
-accounts with This computer first, then an account's page with its
-Setup and, at the foot, Remove. A sign-in stands under the row that asked
-for it; on a Windows desk it happens in the agent's own window, so the row
-says so in one line with Cancel, and never shows a terminal.
+Providers and Tools are one shape, because they do one job: a list of
+things the room has. An add row heads the list in accent — the one accent
+in a pane, because adding is what an empty list is for — and opens the
+form in place, or for Providers the rows of what is not yet connected, in
+place too: nothing on these pages pops over them. Each row is the thing's
+name over one detail line (what a provider holds, a command or a URL) and
+opens the thing's own page, with its fields and the way out (Remove, Sign
+out) at the foot. Nothing is edited on the row.
+A provider's page is every way into it, as lists of their own: its
+Subscriptions, with This computer last when an agent signs in to it
+itself, its API keys, and its servers, each headed by its own add row.
+These are accounts, not things with pages, so each row carries its
+Rename and its way out itself; a Claude Code account's row also opens
+that account's page, with its Setup and, at the foot, Remove. A sign-in
+stands under the row that asked for it; on a Windows desk it happens in
+the agent's own window, so the row says so in one line with Cancel, and
+never shows a terminal.
 
 The computer is two places. Settings › Computer is the room's word: the
 runtimes this machine could have as radio rows, the missing ones greyed
@@ -341,6 +345,10 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-10-23 Settings › Agent accounts folds into Providers: a provider's
+  page lists every way into it in Subscriptions, API keys and Servers, and
+  an account is renamed, changed and removed on its own row.
 
 - 2026-10-21 The teammate pane's account list and the account cards; a
   switch waits for the teammate's work and for the account's sign-in.

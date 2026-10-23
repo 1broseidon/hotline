@@ -34,6 +34,14 @@ export function nextAccountName(taken: string[]): string {
 	return `Account ${number}`;
 }
 
+/** The core's own rule for a blank credential name, so the field shows the name it will take. */
+export function freeName(base: string, taken: string[]): string {
+	const names = new Set(taken.map((name) => name.toLowerCase()));
+	let name = base;
+	for (let number = 2; names.has(name.toLowerCase()); number++) name = `${base} ${number}`;
+	return name;
+}
+
 export function namesList(names: string[]): string {
 	if (names.length < 2) return names.join("");
 	return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;

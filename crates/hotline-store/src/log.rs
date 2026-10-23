@@ -123,7 +123,7 @@ pub struct Log {
     /// file to say where its bytes landed and may relocate a legacy flat file
     /// on the way, and a compaction rewrites the file it just read. A tape has
     /// several writers above it — the line a person typed, the turn it
-    /// started, the idle sweep, a colleague's peer session — and this is where
+    /// started, the idle sweep, a colleague's delivery — and this is where
     /// they become one.
     writer: Arc<Mutex<cache::Cache>>,
 }
@@ -817,7 +817,7 @@ mod tests {
     }
 
     /// A tape has several writers above it — the line a person typed, the turn
-    /// it started, the idle sweep, a colleague's peer session — and the
+    /// it started, the idle sweep, a colleague's delivery — and the
     /// offsets the log answers with are what a mirror will ship the bytes by.
     /// Two of them measuring the same file before either has written would
     /// each be told the same place.

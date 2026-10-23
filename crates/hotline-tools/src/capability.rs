@@ -108,18 +108,19 @@ impl CapabilityLease {
         }
     }
 
-    /// Permanently invalidates this lease and every handle cloned from it.
-    /// Peer sessions use this in addition to their caller and target room
-    /// epochs, because revoking the caller must also kill a target driver that
-    /// is otherwise still within the target's current policy epoch.
+    /// Permanently invalidates this lease, every handle cloned from it and
+    /// every lease scoped from it. A request between two teammates holds a
+    /// lease for each side, so stopping it ends both while each teammate's
+    /// epoch stays current.
     pub fn revoke(&self) {
         self.revoked.store(true, Ordering::SeqCst);
     }
 
     /// Creates an independently revocable child lease in this same session
-    /// generation. A peer session must be able to end without revoking the
-    /// caller's main tool handles, while a stop or policy change on the
-    /// caller still invalidates the peer through the shared epoch.
+    /// generation. A thread, a job's agent or a request between teammates
+    /// must be able to end without revoking the teammate's main tool handles,
+    /// while a stop or policy change on the teammate still ends it through
+    /// the shared epoch.
     pub fn scoped(&self) -> Self {
         Self {
             epoch: self.epoch.clone(),

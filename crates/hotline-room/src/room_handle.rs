@@ -142,7 +142,8 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     /// Revokes existing execution before a new policy is written to the log.
     fn invalidate(&self, persona_id: &str) -> Result<(), String>;
-    /// A gateway change revokes every session, including cached peer sessions.
+    /// A gateway change revokes every session, with every teammate's threads,
+    /// job agents and exchanges.
     fn invalidate_all(&self) -> Result<(), String>;
     /// Rebuilds a live session from the teammate's current record.
     async fn reattach(&self, persona_id: &str) -> Result<(), String>;
@@ -452,8 +453,9 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Manual model IDs are unavailable on this room.".into())
     }
 
-    /// A teammate is gone: its agent is stopped, every peer session it was a
-    /// side of is dropped, and nothing is kept for its id.
+    /// A teammate is gone: its agent, its threads and its jobs' agents are
+    /// stopped, every exchange it was a side of is stopped, and nothing is
+    /// kept for its id.
     fn forget(&self, persona_id: &str);
 
     /// Test harnesses without a runtime return conservative, explicit defaults.

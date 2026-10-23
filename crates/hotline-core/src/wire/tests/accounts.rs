@@ -569,7 +569,7 @@ async fn removing_a_chosen_credential_is_refused_naming_its_teammates_and_the_de
 
     assert_eq!(
         run(log, &room, "credential.delete", json!({"id":second})).await,
-        Err("Work can't be removed while Ada use it.".to_string())
+        Err("Work can't be removed while Ada uses it.".to_string())
     );
     assert!(
         room.credentials()
@@ -807,7 +807,7 @@ async fn a_revoked_credential_a_teammate_is_set_to_cannot_be_removed() {
 
     assert_eq!(
         run(log, &room, "credential.delete", json!({ "id": old })).await,
-        Err("Old can't be removed while Ada use it.".to_string())
+        Err("Old can't be removed while Ada uses it.".to_string())
     );
     assert!(room.credentials().iter().any(|row| row.id == old));
 }

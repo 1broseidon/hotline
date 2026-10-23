@@ -5,7 +5,7 @@ use super::*;
 #[tokio::test(flavor = "multi_thread")]
 async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
     use std::sync::Mutex;
-    let installed = Arc::new(Mutex::new(vec!["custom/coder:latest".to_string()]));
+    let installed = Arc::new(Mutex::new(vec![FAKE_OLLAMA_MODEL.to_string()]));
     let (url, mut requests_rx, server) = fake_ollama_listing("Ollama", installed.clone()).await;
     let (root, port) = open("ollama-local").await;
     let mut client = Client::connect(port, TOKEN).await;

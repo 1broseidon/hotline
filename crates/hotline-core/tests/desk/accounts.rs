@@ -12,6 +12,14 @@ fn forget_what_was_asked(requests: &mut mpsc::Receiver<Value>) {
     while requests.try_recv().is_ok() {}
 }
 
+fn failure_in(notice: &str) -> Value {
+    let at = notice
+        .find(r#"{"hotlineFailure":"#)
+        .unwrap_or_else(|| panic!("the notice carries no diagnosis: {notice}"));
+    let diagnosis: Value = serde_json::from_str(&notice[at..]).unwrap();
+    diagnosis["hotlineFailure"].clone()
+}
+
 fn never_asked(server: &str, requests: &mut mpsc::Receiver<Value>) {
     assert_eq!(
         requests.try_recv(),
@@ -25,7 +33,7 @@ fn never_asked(server: &str, requests: &mut mpsc::Receiver<Value>) {
 /// the chosen account is revoked the teammate's turn fails naming it, and the
 /// default is never asked in its place.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_teammate_runs_on_its_chosen_account() {
+async fn a_teammate_runs_on_its_chosen_account_and_others_on_the_default() {
     let (one_url, mut one, one_server) = fake_ollama("one").await;
     let (two_url, mut two, two_server) = fake_ollama("two").await;
     let (root, port) = open("accounts").await;
@@ -106,7 +114,7 @@ async fn a_teammate_runs_on_its_chosen_account() {
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(
         refused["error"],
-        "Ollama Local 2 can't be removed while Ada use it."
+        "Ollama Local 2 can't be removed while Ada uses it."
     );
     let kept = client.call("credential.list", json!({})).await;
     assert!(
@@ -154,14 +162,12 @@ async fn a_teammate_runs_on_its_chosen_account() {
                 && frame["event"]["kind"] == "notice"
                 && frame["event"]["text"]
                     .as_str()
-                    .is_some_and(|text| text.contains(r#""kind":"auth""#))
+                    .is_some_and(|text| text.contains(r#"{"hotlineFailure":"#))
         })
         .await;
-    let text = notice["event"]["text"].as_str().unwrap();
-    assert!(
-        text.contains(&format!(r#""accountId":"{two_id}""#)),
-        "{text}"
-    );
+    let failure = failure_in(notice["event"]["text"].as_str().unwrap());
+    assert_eq!(failure["kind"], "auth", "{failure}");
+    assert_eq!(failure["accountId"], json!(two_id), "{failure}");
     let turn = client
         .next_where(Duration::from_secs(15), |frame| {
             is_sub(frame, ada_tape, "event") && frame["event"]["kind"] == "turn"

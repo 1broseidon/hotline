@@ -180,11 +180,7 @@ pub(super) fn check_unused(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> R
     if names.is_empty() {
         return Ok(());
     }
-    Err(format!(
-        "{} can't be removed while {} use it.",
-        credential.label,
-        joined(&names)
-    ))
+    Err(in_use(&credential.label, &names))
 }
 
 fn view(
@@ -368,11 +364,7 @@ async fn remove(log: &Log, room: &Arc<dyn RoomHandle>, account_id: &str) -> Resu
         .map(|persona| persona.name.as_str())
         .collect();
     if !names.is_empty() {
-        return Err(format!(
-            "{} can't be removed while {} use it.",
-            account.name,
-            joined(&names)
-        ));
+        return Err(in_use(&account.name, &names));
     }
     accounts.retain(|account| account.id != account_id);
     write(log, &accounts)
@@ -499,6 +491,16 @@ fn not_copied(name: &str, error: &std::io::Error) -> String {
 
 fn agent_name(root: &Path, backend_id: &str) -> String {
     registry::name_of(root, backend_id).unwrap_or_else(|| backend_id.to_string())
+}
+
+/// Why a removal is refused: "Work can't be removed while Ada uses it." for
+/// one teammate, "... while Ada and Bob use it." for more.
+fn in_use(name: &str, teammates: &[&str]) -> String {
+    let verb = if teammates.len() == 1 { "uses" } else { "use" };
+    format!(
+        "{name} can't be removed while {} {verb} it.",
+        joined(teammates)
+    )
 }
 
 /// "A", "A and B", "A, B and C".

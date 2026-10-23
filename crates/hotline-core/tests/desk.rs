@@ -74,13 +74,9 @@ async fn said_this_turn(client: &mut Client, tape: i64, patience: Duration) -> S
     }
 }
 
-/// The one model a fake Ollama server lists, unless it is handed another list.
 const FAKE_OLLAMA_MODEL: &str = "custom/coder:latest";
 
-/// An Ollama server on a port of its own. It lists whatever `installed`
-/// holds when asked, answers every chat "Hello from {name}.", and hands each
-/// chat request's body to the receiver. A test that grows the list mid-test
-/// keeps its own handle on `installed`, so this form takes one.
+/// A test that grows the model list mid-test keeps its own handle on `installed`.
 async fn fake_ollama_listing(
     name: &str,
     installed: Arc<std::sync::Mutex<Vec<String>>>,
@@ -124,7 +120,6 @@ async fn fake_ollama_listing(
     (url, requests_rx, server)
 }
 
-/// The same, listing only `FAKE_OLLAMA_MODEL`.
 async fn fake_ollama(name: &str) -> (String, mpsc::Receiver<Value>, JoinHandle<()>) {
     let installed = Arc::new(std::sync::Mutex::new(vec![FAKE_OLLAMA_MODEL.to_string()]));
     fake_ollama_listing(name, installed).await

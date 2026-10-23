@@ -17,6 +17,21 @@ fn said_in(room: &Room, thread: &str) -> Vec<String> {
         .collect()
 }
 
+/// The reports shown in a work thread, as the person reads them.
+fn shown_in(room: &Room, thread: &str) -> Vec<String> {
+    room.log
+        .load(&StreamId::Side(thread.to_string()))
+        .into_iter()
+        .filter(|v| {
+            v["kind"] == "notice"
+                && v["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("progress:"))
+        })
+        .map(|v| v["text"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
 /// The first line a driver heard that ends with `line`.
 fn heard_with(agents: &Fake, line: &str) -> Option<String> {
     agents.prompts().into_iter().find(|p| p.ends_with(line))
@@ -288,19 +303,9 @@ async fn a_report_is_heard_in_the_work_thread_it_was_handed_from_or_in_the_dm_on
     })
     .await;
     let report = said_in(&room, &thread).last().unwrap().clone();
-    let shown: Vec<serde_json::Value> = room
-        .log
-        .load(&StreamId::Side(work.clone()))
-        .into_iter()
-        .filter(|v| {
-            v["kind"] == "notice"
-                && v["id"]
-                    .as_str()
-                    .is_some_and(|id| id.starts_with("progress:"))
-        })
-        .collect();
+    let shown = shown_in(&room, &work);
     assert_eq!(shown.len(), 1, "{shown:?}");
-    assert!(shown[0]["text"].as_str().unwrap().ends_with(&report));
+    assert!(shown[0].ends_with(&report));
     assert!(notices(&room, "ada").is_empty());
     room.prompt_side(&work, "what came back?", None)
         .await
@@ -315,19 +320,21 @@ async fn a_report_is_heard_in_the_work_thread_it_was_handed_from_or_in_the_dm_on
             .contains(&report)
     );
 
+    // Shown in the work thread while it is open, then the thread closes
+    // before it takes another line: the DM is where it is heard.
     until("ada's work thread is idle", || idle(&room, &work)).await;
-    room.archive_side(&work, SideEnd::Person, None).unwrap();
     room.prompt_side(&thread, "and the summary?", None)
         .await
         .unwrap();
-    until("the report waits for ada's DM", || {
+    until("a second report waits for ada", || {
         request(&room, "ada~bob", &handoff).progress.len() == 1
     })
     .await;
-    let report = said_in(&room, &thread).last().unwrap().clone();
-    let shown = notices(&room, "ada");
-    assert_eq!(shown.len(), 1, "{shown:?}");
-    assert!(shown[0].ends_with(&report));
+    let late = said_in(&room, &thread).last().unwrap().clone();
+    let shown = shown_in(&room, &work);
+    assert_eq!(shown.len(), 2, "{shown:?}");
+    assert!(shown[1].ends_with(&late));
+    room.archive_side(&work, SideEnd::Person, None).unwrap();
     room.start("ada").await.unwrap();
     room.prompt("ada", "anything new?", None, None)
         .await
@@ -336,11 +343,19 @@ async fn a_report_is_heard_in_the_work_thread_it_was_handed_from_or_in_the_dm_on
         heard_with(&agents, "anything new?").is_some()
     })
     .await;
-    assert!(
-        heard_with(&agents, "anything new?")
-            .unwrap()
-            .contains(&report)
-    );
+    let heard = heard_with(&agents, "anything new?").unwrap();
+    assert_eq!(heard.matches(&late).count(), 1, "{heard}");
+    assert!(!heard.contains(&report), "{heard}");
+    assert!(notices(&room, "ada").is_empty(), "it was shown once, in W");
+    assert!(request(&room, "ada~bob", &handoff).progress.is_empty());
+
+    room.continue_side(&work).await.unwrap();
+    room.prompt_side(&work, "still there?", None).await.unwrap();
+    until("ada's work thread hears its line", || {
+        heard_with(&agents, "still there?").is_some()
+    })
+    .await;
+    assert!(!heard_with(&agents, "still there?").unwrap().contains(&late));
 }
 
 /// A report is cut by characters, not bytes, and a turn that said nothing

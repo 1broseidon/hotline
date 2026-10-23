@@ -1,8 +1,8 @@
 //! A colleague's question, delivered to the conversation that answers it.
 
 use super::*;
-use crate::session::job_thread::JobLine;
 use crate::session::runner::Driven;
+use crate::session::turns::Line;
 
 impl Room {
     /// Hands an ask to its recipient's main conversation: a line that starts a
@@ -17,18 +17,22 @@ impl Room {
             .await
     }
 
-    /// Hands a question a delegated thread asks the teammate that handed it
-    /// over to the conversation that did, by the handoff's reply route. The
-    /// turn answering it is that conversation's own, so stopping the ask
-    /// never cancels it: only its answer is no longer returned.
+    /// Hands a question the delegation was the grant for to the conversation
+    /// that handed its thread over, by the handoff's reply route. One whose
+    /// delegation has ended since fails rather than reach a conversation no
+    /// grant was given for. The turn answering it is that conversation's own,
+    /// so stopping the ask never cancels it: only its answer is no longer
+    /// returned.
     pub(super) async fn ask_back(
         self: &Arc<Self>,
         key: &str,
         request: &Request,
-        handoff: &Request,
     ) -> Result<(), String> {
+        let handoff = self.about_live(request).ok_or(
+            "The handoff this question was about ended before it could be asked. Ask again if you still need it.",
+        )?;
         let work = peers::about(&handoff.message);
-        self.ask_in(key, request, self.route_of(handoff), Some(work))
+        self.ask_in(key, request, self.route_of(&handoff), Some(work))
             .await
     }
 
@@ -109,41 +113,68 @@ impl Room {
     /// Hands a stopped ask's failure to the thread a colleague handed over
     /// that asked it: a handoff waiting on the ask carries on with it, as it
     /// would with an answer, else the thread hears it as any delivery. A
-    /// sender deleted since has no thread left to hear it.
+    /// thread closed since, by this stop or another, is not opened again for
+    /// it, and one that cannot take it now is not waited on: its sender is
+    /// told in their DM instead. Either way the debt is settled once.
     pub(super) async fn tell_thread_stopped(
         self: &Arc<Self>,
         key: &str,
         ask: &Request,
     ) -> Result<(), String> {
-        if let Some(thread) = self.delegated_origin(ask)
-            && self.participant(&ask.from).is_ok()
+        let delivered = match self.delegated_origin(ask) {
+            Some(thread) if self.work_is_open(&thread) => {
+                let (id, cause, from, text) = self.answer_delivery(key, ask)?;
+                let carried = self.carried_on(ask);
+                let handed = self
+                    .deliver_into_work(&thread, &id, cause, from, text, carried)
+                    .await;
+                if let Err(error) = &handed {
+                    eprintln!("a stopped question's thread could not take it: {error}");
+                }
+                handed.is_ok()
+            }
+            _ => false,
+        };
         {
-            let (id, cause, from, text) = self.answer_delivery(key, ask)?;
-            let carried = self.carried_on(ask);
-            self.deliver_into_work(&thread, &id, cause, from, text, carried)
-                .await?;
+            let _guard = lock(&self.exchange_lock);
+            let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
+            if let Some(told) = pair.requests.iter_mut().find(|r| r.id == ask.id) {
+                told.owed_to_thread = false;
+            }
+            self.save_pair(&pair)?;
         }
-        let _guard = lock(&self.exchange_lock);
-        let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
-        if let Some(told) = pair.requests.iter_mut().find(|r| r.id == ask.id) {
-            told.owed_to_thread = false;
+        if !delivered {
+            self.exchange_notices(&[Request {
+                owed_to_thread: false,
+                ..ask.clone()
+            }]);
         }
-        self.save_pair(&pair)
+        Ok(())
     }
 
-    /// Fails at once each question among the lines a job dropped, as the
-    /// person's cancel fails one.
-    pub(in crate::session) fn fail_dropped_job_lines(
+    /// Fails each question among the lines a thread or a job dropped, as the
+    /// person's cancel fails one. On a task of its own, since a stop ends a
+    /// thread under the exchange lock this takes.
+    pub(in crate::session) fn fail_dropped_lines(
         &self,
         persona_id: &str,
-        dropped: impl IntoIterator<Item = JobLine>,
+        dropped: impl IntoIterator<Item = Line>,
     ) {
         let asks: Vec<String> = dropped
             .into_iter()
-            .filter_map(|dropped| dropped.line.request)
+            .filter_map(|line| line.request)
             .map(|line| line.request)
             .collect();
-        self.fail_dropped_questions(persona_id, asks.iter().map(String::as_str));
+        if asks.is_empty() {
+            return;
+        }
+        let Some(room) = lock(&self.me).upgrade() else {
+            return;
+        };
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            room.fail_dropped_questions(&persona_id, asks.iter().map(String::as_str));
+        });
     }
 
     /// For a question sent from a thread a colleague handed over, to that

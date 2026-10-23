@@ -12,10 +12,10 @@ use crate::session::{Wired, timed};
 /// Ada's agents, and Bob's one for each of his threads in the order they are
 /// built, the last standing for every one after it: a script and a gate per
 /// thread, so one thread's turn ends while another's still runs.
-struct Builds {
-    ada: Arc<Fake>,
-    bob: Vec<Arc<Fake>>,
-    built: Mutex<usize>,
+pub(super) struct Builds {
+    pub(super) ada: Arc<Fake>,
+    pub(super) bob: Vec<Arc<Fake>>,
+    pub(super) built: Mutex<usize>,
 }
 #[async_trait::async_trait]
 impl Agents for Builds {

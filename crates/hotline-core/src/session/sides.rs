@@ -295,6 +295,10 @@ impl Occupant for LiveSide {
         let side = self;
         *lock(&side.last_used) = now_ms();
         if side.closed.load(Ordering::SeqCst) {
+            // A thread ended under a turn still settles the ask it answered.
+            if let Some(request) = lock(&side.request).take() {
+                room.answer_question(&request, &driven);
+            }
             return Then::Stop;
         }
         if let Some(driver) = side.driver() {

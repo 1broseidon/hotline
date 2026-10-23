@@ -219,11 +219,11 @@ impl Room {
                 let name = self
                     .participant(linked_side)
                     .map_or_else(|_| "That teammate".to_string(), |persona| persona.name);
+                request.owed_to_thread = self.owes_thread(request, None);
                 self.cancel_handoff(request);
                 request.phase = Phase::Stopped;
                 request.failed = true;
                 request.reply = format!("{name} is on {desk_name}, which isn't linked any more.");
-                request.owed_to_thread = self.delegated_origin(request).is_some();
                 // Its desk is not linked to be told.
                 request.returned = true;
                 stopped.push(request.clone());

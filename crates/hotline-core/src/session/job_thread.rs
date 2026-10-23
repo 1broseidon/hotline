@@ -225,7 +225,7 @@ impl LiveJob {
     /// among it fails to its asker.
     fn drop_waiting(&self, room: &Room) {
         let dropped: Vec<JobLine> = lock(&self.turns).waiting.drain(..).collect();
-        room.fail_dropped_job_lines(&self.persona_id, dropped);
+        room.fail_dropped_lines(&self.persona_id, dropped.into_iter().map(|job| job.line));
     }
 
     /// Stops the turn in flight and drops what waited behind it.
@@ -356,7 +356,7 @@ impl Occupant for LiveJob {
                         format!("This job could not start its agent: {error}"),
                     );
                     room.mark_job(self, ThreadState::Parked, None);
-                    room.fail_dropped_job_lines(&self.persona_id, [line]);
+                    room.fail_dropped_lines(&self.persona_id, [line.line]);
                     return Begin::Skip;
                 }
             }

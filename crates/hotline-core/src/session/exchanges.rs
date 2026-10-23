@@ -229,20 +229,21 @@ impl Room {
         target: &crate::contract::Persona,
         a: &CapabilityLease,
         b: &CapabilityLease,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         a.check()?;
         b.check()?;
         // While it stands, the delegation is the grant for its thread's
-        // questions back to the teammate that handed it over.
+        // questions back to the teammate that handed it over. Says so, for
+        // the hand-over to keep to it.
         if self.about_live(request).is_some() {
-            return Ok(());
+            return Ok(true);
         }
         if let Some(thread) = &request.lead_call {
             if request.intent == Intent::Handoff
                 && target.node.is_none()
                 && self.lead_call(&caller.id, thread)
             {
-                return Ok(());
+                return Ok(false);
             }
             return Err("The desk call's lead grant has ended.".into());
         }
@@ -259,6 +260,7 @@ impl Room {
             origin.as_ref(),
         )
         .await
+        .map(|()| false)
     }
 
     fn exchange_pairs(&self) -> Vec<Pair> {
@@ -397,11 +399,11 @@ impl Room {
             for request in &mut pair.requests {
                 progress::release(request);
                 if Self::exchange_pending(request) {
+                    request.owed_to_thread = self.owes_thread(request, None);
                     self.cancel_handoff(request);
                     request.phase = Phase::Stopped;
                     request.failed = true;
                     request.reply = "The person stopped this exchange.".into();
-                    request.owed_to_thread = self.delegated_origin(request).is_some();
                     stopped.push(request.clone());
                 }
             }
@@ -1065,10 +1067,10 @@ impl Room {
                     }
                     auth = self.authorize_exchange(&request, &caller, &target, &caller_capability, &target_capability) => auth,
                 };
-                if let Err(error) = auth {
-                    self.set_exchange_reply(key, &request.id, error, true)?;
-                    return Ok(());
-                }
+                let by_delegation = match auth {
+                    Ok(by_delegation) => by_delegation,
+                    Err(error) => return self.set_exchange_reply(key, &request.id, error, true),
+                };
                 {
                     let _guard = lock(&self.exchange_lock);
                     let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
@@ -1093,7 +1095,8 @@ impl Room {
                         self.exchange_card(&pair, ExchangePauseStatus::Pending);
                     }
                 }
-                self.hand_over_request(key, &request, thread).await?;
+                self.hand_over_request(key, &request, thread, by_delegation)
+                    .await?;
             }
             Phase::Running => {
                 // A handoff, or an ask answered in a thread, whose turn has
@@ -1115,7 +1118,7 @@ impl Room {
                             return self.set_exchange_reply(key, &request.id, error, true);
                         }
                     };
-                    self.hand_over_request(key, &request, thread).await?;
+                    self.hand_over_request(key, &request, thread, false).await?;
                 }
             }
             Phase::Waiting => {
@@ -1283,25 +1286,24 @@ impl Room {
         self.save_pair(&pair)
     }
     /// Hands an accepted request to the conversation that works it: a handoff
-    /// to its work thread, an ask to the thread it names, one a delegated
-    /// thread asks back to the conversation that handed it over while the
-    /// delegation stands, else to its recipient's main conversation. An ask
-    /// that cannot be handed over fails to its sender.
+    /// to its work thread, an ask to the thread it names, one the delegation
+    /// was the grant for to the conversation that handed its thread over,
+    /// else to its recipient's main conversation. An ask that cannot be
+    /// handed over fails to its sender.
     async fn hand_over_request(
         self: &Arc<Self>,
         key: &str,
         request: &Request,
         thread: Option<String>,
+        by_delegation: bool,
     ) -> Result<(), String> {
         if request.intent == Intent::Handoff {
             return self.dispatch_handoff(key, request, thread).await;
         }
         let handed_over = match thread {
             Some(thread) => self.ask_in_thread(key, request, thread).await,
-            None => match self.about_live(request) {
-                Some(handoff) => self.ask_back(key, request, &handoff).await,
-                None => self.ask_in_main(key, request).await,
-            },
+            None if by_delegation => self.ask_back(key, request).await,
+            None => self.ask_in_main(key, request).await,
         };
         match handed_over {
             Ok(()) => Ok(()),

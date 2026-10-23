@@ -18,7 +18,8 @@ impl Room {
         let Some(side) = self.sides.get(side_id) else {
             return;
         };
-        lock(&side.turns).clear();
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
@@ -50,7 +51,8 @@ impl Room {
             return;
         }
         self.sides.remove(&side.id);
-        lock(&side.turns).clear();
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
         side.capability.revoke();
         // A thread ended while its agent is still starting has none to stop
         // here: the start sees that it is closed and stops it itself.

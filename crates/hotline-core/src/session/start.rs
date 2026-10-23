@@ -218,7 +218,6 @@ impl Room {
         self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
         Ok(())
     }
@@ -268,7 +267,6 @@ impl Room {
         self.settle_all_collaboration();
         for session in sessions {
             self.settle_permissions(&session.persona_id);
-            self.release_human_waits(&session.persona_id);
             self.computers.mark_idle(&session.persona_id, now_ms());
         }
         Ok(())
@@ -324,7 +322,6 @@ impl Room {
         let Some(session) = session else {
             self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);
-            self.release_human_waits(persona_id);
             self.computers.mark_idle(persona_id, now_ms());
             return capability;
         };
@@ -332,7 +329,6 @@ impl Room {
         session.driver.invalidate();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;

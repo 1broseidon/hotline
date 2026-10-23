@@ -497,82 +497,19 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
     );
 }
 
-/// The agent asked the person; the answer flips the same card and unblocks
-/// the wait with the sentence the agent reads.
-#[tokio::test]
-async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
-    let room = room("human-done", Fake::new(Scripted::new(vec![])));
-    let waiting = {
-        let room = room.clone();
-        tokio::spawn(async move {
-            room.request_human("ada", "Tap the 2FA prompt", HUMAN_DEADLINE)
-                .await
-        })
-    };
-    let action_id = pending_human(&room, "ada").await;
-    room.answer_human("ada", &action_id, HumanAnswer::Done, Some("  ".to_string()))
-        .unwrap();
-    let text = waiting.await.unwrap().unwrap();
-    assert_eq!(text, "The person answered.");
-
-    let card = tape(&room, "ada")
-        .into_iter()
-        .find(|event| event["kind"] == "human_action")
-        .expect("the card is on the tape");
-    assert_eq!(card["id"], format!("human:{action_id}"));
-    assert_eq!(card["status"], "done");
-    assert_eq!(card["reason"], "Tap the 2FA prompt");
-    assert!(
-        room.answer_human("ada", &action_id, HumanAnswer::Declined, None)
-            .is_err()
-    );
-}
-
-/// An answered question carries the person's note on both the result and card.
-#[tokio::test]
-async fn an_answered_human_request_carries_the_note() {
-    let room = room("human-answered-note", Fake::new(Scripted::new(vec![])));
-    let waiting = {
-        let room = room.clone();
-        tokio::spawn(async move {
-            room.request_human("ada", "Which branch should I use?", HUMAN_DEADLINE)
-                .await
-        })
-    };
-    let action_id = pending_human(&room, "ada").await;
-    room.answer_human(
-        "ada",
-        &action_id,
-        HumanAnswer::Done,
-        Some(" Use the release branch. ".to_string()),
-    )
-    .unwrap();
-    let text = waiting.await.unwrap().unwrap();
-    assert_eq!(
-        text,
-        "The person answered. They said: Use the release branch."
-    );
-    let card = tape(&room, "ada")
-        .into_iter()
-        .find(|event| event["kind"] == "human_action")
-        .expect("the card is on the tape");
-    assert_eq!(card["status"], "done");
-    assert_eq!(card["note"], "Use the release branch.");
-}
-
-/// The person's note reaches the agent word for word, on the sentence and
-/// on the card, so a declined card says why and a card that asked a
-/// question gets its answer.
+/// The person's note reaches the agent word for word, on the delivery and
+/// on the card, so a declined card says why.
 #[tokio::test]
 async fn a_declined_human_request_carries_the_note() {
-    let room = room("human-declined", Fake::new(Scripted::new(vec![])));
-    let waiting = {
-        let room = room.clone();
-        tokio::spawn(async move {
-            room.request_human("ada", "Enter the vault password", HUMAN_DEADLINE)
-                .await
-        })
-    };
+    let agents = Fake::new(Scripted::new(saying("a1", "noted")));
+    let room = room("human-declined", agents.clone());
+    TeammateTools::new(&room, "ada")
+        .call(
+            "request_human",
+            &json!({ "reason": "Enter the vault password" }),
+        )
+        .await
+        .unwrap();
     let action_id = pending_human(&room, "ada").await;
     room.answer_human(
         "ada",
@@ -581,10 +518,14 @@ async fn a_declined_human_request_carries_the_note() {
         Some(" It is in the shared vault, use that. ".to_string()),
     )
     .unwrap();
-    let text = waiting.await.unwrap().unwrap();
-    assert_eq!(
-        text,
-        "The person declined. They said: It is in the shared vault, use that."
+    let delivery = heard_delivery(&room, "ada", 1).await;
+    assert_eq!(delivery["cause"]["status"], "dismissed");
+    assert_eq!(delivery["text"], "It is in the shared vault, use that.");
+    let last = lock(&agents.driver.prompts).last().unwrap().clone();
+    assert!(
+        last.contains("The person declined your request (\"Enter the vault password\").")
+            && last.contains("It is in the shared vault, use that."),
+        "{last}"
     );
     let card = tape(&room, "ada")
         .into_iter()
@@ -592,22 +533,6 @@ async fn a_declined_human_request_carries_the_note() {
         .expect("the card is on the tape");
     assert_eq!(card["status"], "dismissed");
     assert_eq!(card["note"], "It is in the shared vault, use that.");
-}
-
-/// The deadline is injectable so a test does not sit for ten minutes.
-#[tokio::test]
-async fn a_human_request_expires_when_nobody_answers() {
-    let room = room("human-timeout", Fake::new(Scripted::new(vec![])));
-    let text = room
-        .request_human("ada", "Tap 2FA", Duration::from_millis(20))
-        .await
-        .unwrap();
-    assert_eq!(text, "Nobody answered in ten minutes.");
-    let card = tape(&room, "ada")
-        .into_iter()
-        .find(|event| event["kind"] == "human_action")
-        .expect("the card is on the tape");
-    assert_eq!(card["status"], "expired");
 }
 
 /// A card left pending when the process died is a button nobody is behind.
@@ -692,42 +617,6 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
         .expect("the card is still on the thread");
     assert_eq!(card["decision"], "expired");
     assert_eq!(card["id"], "perm:req-1");
-}
-
-/// A wait on the person is inside the turn, so a cancelled turn is an agent
-/// that has stopped listening. The card goes with it: a live button that
-/// writes `done` for nobody is the failure these cards exist to avoid.
-#[tokio::test]
-async fn cancelling_a_turn_takes_the_card_it_asked_the_person_with() {
-    let room = room("human-cancel", Fake::new(Scripted::new(vec![])));
-    room.start("ada").await.unwrap();
-    let waiting = {
-        let room = room.clone();
-        tokio::spawn(async move {
-            room.request_human("ada", "Tap the 2FA prompt", HUMAN_DEADLINE)
-                .await
-        })
-    };
-    let action_id = pending_human(&room, "ada").await;
-
-    room.cancel("ada").unwrap();
-
-    let released = tokio::time::timeout(Duration::from_secs(5), waiting)
-        .await
-        .expect("the tool was left parked on a turn that had been cancelled")
-        .unwrap()
-        .unwrap();
-    assert_eq!(released, "Nobody answered in ten minutes.");
-    let card = tape(&room, "ada")
-        .into_iter()
-        .find(|event| event["kind"] == "human_action")
-        .expect("the card is on the tape");
-    assert_eq!(card["status"], "expired");
-    assert!(
-        room.answer_human("ada", &action_id, HumanAnswer::Done, None)
-            .is_err(),
-        "a card nobody is behind still took an answer"
-    );
 }
 
 #[tokio::test]

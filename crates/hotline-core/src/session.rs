@@ -71,7 +71,6 @@ mod stopping;
 mod threads;
 mod turns;
 mod web_search;
-use asking::HumanWait;
 use chapters::sweep_idle_chapters;
 use computer::{ComputerSetup, ComputerSwap};
 use driver_info::follow_model_changes;
@@ -149,8 +148,7 @@ const SWEEP_EVERY: Duration = Duration::from_secs(60);
 /// While a turn is running at the idle mark, look again after this long.
 const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 
-/// How long a `request_human` card waits for the person. Tests pass a
-/// shorter deadline; the tool uses this.
+/// How long a collaboration card waits for the person before it expires.
 pub const HUMAN_DEADLINE: Duration = Duration::from_mins(10);
 
 /// How long a `request_human` card that delivers stays up unanswered before
@@ -610,14 +608,10 @@ pub struct Room {
     /// fire never holds this across its session start or prompt: it takes the
     /// lock only when it is ready to re-fold and append the next durable word.
     schedule_mutations: Mutex<()>,
-    /// The sessions teammates answer each other out of.
+    /// The collaboration grants, and the cards waiting to give one.
     peers: peers::Peers,
     /// The side threads that are live: second conversations with a teammate.
     sides: sides::Sides,
-    /// A `request_human` wait, by the card's action id. The tool parks on
-    /// the oneshot; the person's answer, the deadline, or a settle (session
-    /// stop, room restart) is what sends.
-    human_waits: Mutex<HashMap<String, HumanWait>>,
     voice_questions: Mutex<HashMap<String, asking::Question>>,
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
@@ -767,7 +761,6 @@ impl Room {
             schedule_mutations: Mutex::new(()),
             peers: peers::Peers::default(),
             sides: sides::Sides::default(),
-            human_waits: Mutex::new(HashMap::new()),
             voice_questions: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
             links: Arc::default(),

@@ -76,6 +76,8 @@ pub(crate) struct Scripted {
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
+    /// Each line steered into a turn in flight, by its words.
+    steered: Arc<Mutex<Vec<String>>>,
     /// Each prompt exactly as handed over, stamp and all.
     heard: Arc<Mutex<Vec<String>>>,
     /// Each retry, by its words, apart from the prompts it also counts as.
@@ -112,6 +114,7 @@ impl Scripted {
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
+            steered: Arc::new(Mutex::new(Vec::new())),
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
             start_gate: None,
@@ -148,6 +151,13 @@ impl Scripted {
 
     pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
         self.gate = Some(gate);
+        self
+    }
+
+    /// An agent that takes lines into the turn in flight, as a driver with
+    /// active input does.
+    pub(super) fn steerable(mut self) -> Self {
+        self.unconsumed = Some(Arc::new(Mutex::new(Vec::new())));
         self
     }
 
@@ -260,6 +270,7 @@ impl Driver for Scripted {
         let Some(unconsumed) = &self.unconsumed else {
             return false;
         };
+        lock(&self.steered).push(words_of(&text));
         lock(unconsumed).push((text, attachments));
         true
     }
@@ -401,6 +412,11 @@ impl Fake {
     /// Every line any driver in this room has been handed, in order.
     pub(super) fn prompts(&self) -> Vec<String> {
         lock(&self.driver.prompts).clone()
+    }
+
+    /// Every line steered into a turn in flight, in order.
+    pub(super) fn steered(&self) -> Vec<String> {
+        lock(&self.driver.steered).clone()
     }
 
     /// A room whose summariser is asked and refused, which is the shape of

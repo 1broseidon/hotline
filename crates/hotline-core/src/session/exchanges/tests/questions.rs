@@ -275,3 +275,131 @@ async fn an_ask_to_a_teammate_gone_quiet_is_answered_in_its_next_chapter() {
         "the question opened Bob's next chapter"
     );
 }
+
+/// A question's turn that is cancelled or fails says nothing certain: its
+/// asker is told the turn ended without a result and to look before trying
+/// again, not that it was merely unanswered.
+#[tokio::test]
+async fn a_cancelled_question_turn_tells_the_asker_to_inspect_before_retrying() {
+    let (room, _, gate) = gated(
+        "ask-cancelled-turn",
+        vec![turn("late", "Too late.", "end_turn")],
+    );
+    let id = send(&room, "ask").await;
+    until("Bob's question turn is running", || {
+        request(&room, "ada~bob", &id).started && room.mid_turn("bob")
+    })
+    .await;
+    room.cancel("bob").unwrap();
+    done(&room, &id).await;
+    let failure = answer_to(&room, &id).unwrap();
+    assert_eq!(failure["cause"]["status"], "failed");
+    let text = failure["text"].as_str().unwrap();
+    assert!(text.contains("without a result"), "{text}");
+    assert!(text.contains("inspect before retrying"), "{text}");
+    gate.add_permits(10);
+}
+
+/// A question stopped, or whose asker's authority is revoked, while it waits
+/// behind the person's turn is skipped at the door: no turn answers it, and
+/// its asker hears only that it was stopped.
+#[tokio::test]
+async fn an_ask_stopped_while_its_question_waits_is_never_answered() {
+    for revoke in [false, true] {
+        let (room, agents, gate) = gated(
+            &format!("ask-dropped-while-queued-{revoke}"),
+            vec![
+                turn("person", "Done for the person.", "end_turn"),
+                turn("never", "Never said.", "end_turn"),
+            ],
+        );
+        room.start("bob").await.unwrap();
+        room.prompt("bob", "the person's work", None, None)
+            .await
+            .unwrap();
+        until("the person's turn is running", || {
+            agents.prompts().len() == 1
+        })
+        .await;
+        let id = send(&room, "ask").await;
+        until("the question waits in Bob's conversation", || {
+            room.tape("bob")
+                .iter()
+                .any(|v| v["cause"]["kind"] == "question" && v["cause"]["requestId"] == id.as_str())
+        })
+        .await;
+        if revoke {
+            room.invalidate("ada").unwrap();
+        } else {
+            room.stop_exchange("ada", "bob").unwrap();
+        }
+        assert_eq!(request(&room, "ada~bob", &id).phase, Phase::Stopped);
+
+        gate.add_permits(20);
+        until("Bob's queue is empty and idle", || {
+            !room.mid_turn("bob") && lock(&room.session("bob").unwrap().turns).waiting.is_empty()
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(agents.prompts().len(), 1, "no turn took the question up");
+        assert!(!request(&room, "ada~bob", &id).started);
+        assert!(
+            answer_to(&room, &id).is_none(),
+            "nothing came back as an answer"
+        );
+        assert!(
+            room.tape("ada")
+                .iter()
+                .any(|v| v["id"] == format!("exchange-ended:{id}")),
+            "Ada is told it stopped"
+        );
+    }
+}
+
+/// While Bob's main conversation answers a colleague, what the person says
+/// to Bob is not steered into that turn, whose whole reply goes to the
+/// asker: it waits, and is answered on a turn of its own.
+#[tokio::test]
+async fn the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_own() {
+    let log = scratch("ask-not-steered");
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            turn("port", "The port is 8080.", "end_turn"),
+            turn("noon", "It is noon.", "end_turn"),
+        ])
+        .gated(gate.clone())
+        .steerable(),
+    );
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    let id = send(&room, "ask").await;
+    until("Bob's question turn is running", || {
+        request(&room, "ada~bob", &id).started && agents.prompts().len() == 1
+    })
+    .await;
+    room.prompt("bob", "what time is it?", None, None)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(agents.steered(), [] as [String; 0], "not steered in");
+    assert!(
+        lock(&room.session("bob").unwrap().turns)
+            .waiting
+            .iter()
+            .any(|line| line.text.contains("what time is it?")),
+        "the person's line waits behind the question"
+    );
+
+    gate.add_permits(20);
+    done(&room, &id).await;
+    assert_eq!(answer_to(&room, &id).unwrap()["text"], "The port is 8080.");
+    until("the person's line gets a turn of its own", || {
+        agents
+            .prompts()
+            .iter()
+            .any(|p| p.contains("what time is it?") && !p.contains("asks you"))
+    })
+    .await;
+}

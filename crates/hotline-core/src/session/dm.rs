@@ -164,6 +164,7 @@ impl Occupant for Session {
             steered: &mut held.steered,
             from_voice: held.from_voice,
             card: None,
+            answering_a_question: held.request.is_some(),
         };
         room.threads()
             .drive(
@@ -183,9 +184,7 @@ impl Occupant for Session {
         room.turn_ended(session);
         if driven.asked {
             // A permission the turn left open is a button nobody is
-            // behind. A `request_human` wait is not: the tool is still
-            // parked on it, and only the person, the deadline, or a
-            // session stop settles that card.
+            // behind.
             room.threads()
                 .expire_asked(&session.thread(), &session.persona_id);
         }
@@ -213,7 +212,16 @@ impl Occupant for Session {
                     "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
                 )
             });
-            room.finish_request(request, driven.replies.join("\n\n"), failed);
+            let mut reply = driven.replies.join("\n\n");
+            if failed {
+                let ended = "The turn answering this question ended without a result; inspect before retrying.";
+                reply = if reply.is_empty() {
+                    ended.to_string()
+                } else {
+                    format!("{reply}\n\n{ended}")
+                };
+            }
+            room.finish_request(request, reply, failed);
         }
         Then::Next
     }
@@ -239,6 +247,9 @@ struct Heard<'a> {
     from_voice: bool,
     /// The card the update in hand raises, until its event is written.
     card: Option<(String, crate::push::Waiting)>,
+    /// Whether the turn answers a colleague's question, whose whole reply
+    /// goes to them: nothing the person says is steered into it.
+    answering_a_question: bool,
 }
 
 impl Heard<'_> {
@@ -392,7 +403,9 @@ impl Witness for Heard<'_> {
     }
 
     fn steer(&mut self) {
-        self.room.steer_waiting(self.session, self.steered);
+        if !self.answering_a_question {
+            self.room.steer_waiting(self.session, self.steered);
+        }
     }
 }
 
@@ -435,9 +448,6 @@ impl Room {
         }
         drop(turns);
         if steered {
-            // A new instruction is neither an answer nor permission. Release
-            // an obsolete human wait so the model can reconsider the request.
-            self.release_human_waits(&session.persona_id);
             // A turn that was only waiting on its subagents has a line to
             // answer now, so it is working again.
             self.await_subagents(session, false);

@@ -116,67 +116,6 @@ impl Room {
         Ok(())
     }
 
-    /// Posts a `human_action` card and waits until the person answers it or
-    /// `deadline` runs out.
-    ///
-    /// The wait is a oneshot this room holds by `actionId`. The card is
-    /// superseded with the outcome, and the sentence returned is what the
-    /// agent reads.
-    pub async fn request_human(
-        &self,
-        persona_id: &str,
-        reason: &str,
-        deadline: Duration,
-    ) -> Result<String, String> {
-        self.persona(persona_id)?;
-        let reason = reason.trim();
-        if reason.len() < 3 {
-            return Err("request_human needs a `reason` of at least three characters.".to_string());
-        }
-        let reason: String = reason.chars().take(500).collect();
-        let action_id = new_id();
-        let (sender, receiver) = oneshot::channel();
-        lock(&self.human_waits).insert(
-            action_id.clone(),
-            HumanWait {
-                persona_id: persona_id.to_string(),
-                sender,
-            },
-        );
-        self.write(
-            persona_id,
-            &TranscriptEvent::HumanAction {
-                from: None,
-                id: format!("human:{action_id}"),
-                ts: now_ms(),
-                action_id: action_id.clone(),
-                reason: reason.clone(),
-                question: None,
-                status: HumanActionStatus::Pending,
-                note: None,
-                delivers: None,
-                expires_at: None,
-                thread: None,
-            },
-        );
-        self.push.notify(
-            &self.needs_you(persona_id),
-            &reason,
-            persona_id,
-            Some(crate::push::Waiting::Human {
-                action_id: action_id.clone(),
-            }),
-        );
-        let answer = tokio::select! {
-            answered = receiver => answered.unwrap_or_else(|_| HumanAnswered::expired()),
-            () = tokio::time::sleep(deadline) => {
-                self.expire_human(&action_id);
-                HumanAnswered::expired()
-            }
-        };
-        Ok(human_outcome(answer))
-    }
-
     /// Posts a `human_action` card and returns: the asking turn goes on,
     /// and the person's answer comes back to the teammate as a delivery
     /// whenever they give it (see [`Room::answer_human`]). The card is the
@@ -309,12 +248,11 @@ impl Room {
 
     /// Resolves a `request_human` card and supersedes it.
     ///
-    /// A card a tool is waiting on is answered through that wait. One that
-    /// delivers is answered off the tape, so it can be answered after a
+    /// The card is answered off the tape, so it can be answered after a
     /// restart, and the answer goes to the teammate as a delivery. Refused
-    /// when nothing is behind that id any more — the deadline passed, the
-    /// session stopped, or somebody else answered first — so a stale button
-    /// cannot quietly settle a wait that is already gone.
+    /// when nothing is behind that id any more — it expired, was withdrawn,
+    /// or somebody else answered first — so a stale button cannot quietly
+    /// settle a card that is already gone.
     pub fn answer_human(
         self: &Arc<Self>,
         persona_id: &str,
@@ -329,17 +267,7 @@ impl Room {
         let note = note
             .map(|note| note.trim().chars().take(2_000).collect::<String>())
             .filter(|note| !note.is_empty());
-        let wait = lock(&self.human_waits).remove(action_id);
-        let Some(wait) = wait else {
-            return self.answer_later(persona_id, action_id, status, note);
-        };
-        if wait.persona_id != persona_id {
-            lock(&self.human_waits).insert(action_id.to_string(), wait);
-            return Err("That request is no longer waiting for an answer.".to_string());
-        }
-        self.supersede_human(persona_id, action_id, status, note.clone());
-        let _ = wait.sender.send(HumanAnswered { status, note });
-        Ok(())
+        self.answer_later(persona_id, action_id, status, note)
     }
 
     /// The answer to a card that delivers: superseded on the tape, then
@@ -541,44 +469,6 @@ impl Room {
         }
     }
 
-    /// Unblocks every `request_human` still waiting for this teammate.
-    ///
-    /// The cards are already expired by [`Room::settle_permissions`] — the
-    /// same fold that expires a permission left open. What remains is the
-    /// oneshot the tool is parked on, so it hears expired rather than
-    /// hanging until its own deadline.
-    pub(super) fn release_human_waits(&self, persona_id: &str) {
-        let senders: Vec<oneshot::Sender<HumanAnswered>> = {
-            let mut waits = lock(&self.human_waits);
-            let ids: Vec<String> = waits
-                .iter()
-                .filter(|(_, wait)| wait.persona_id == persona_id)
-                .map(|(id, _)| id.clone())
-                .collect();
-            ids.into_iter()
-                .filter_map(|id| waits.remove(&id).map(|wait| wait.sender))
-                .collect()
-        };
-        for sender in senders {
-            let _ = sender.send(HumanAnswered::expired());
-        }
-    }
-
-    /// The deadline won: take the wait if it is still there and expire the
-    /// card. An answer that landed first already removed the wait, so this
-    /// is a no-op then.
-    fn expire_human(&self, action_id: &str) {
-        let Some(wait) = lock(&self.human_waits).remove(action_id) else {
-            return;
-        };
-        self.supersede_human(
-            &wait.persona_id,
-            action_id,
-            HumanActionStatus::Expired,
-            None,
-        );
-    }
-
     pub(super) fn supersede_human(
         &self,
         persona_id: &str,
@@ -661,48 +551,6 @@ impl Room {
             )
             .chain(self.cards_in_jobs(persona_id))
             .collect()
-    }
-}
-
-/// A `request_human` wait the room holds until the person answers, the
-/// deadline passes, or the session stops.
-pub(super) struct HumanWait {
-    persona_id: String,
-    sender: oneshot::Sender<HumanAnswered>,
-}
-
-/// What came back for a `request_human` card: the outcome, and the words
-/// the person added to it, if any.
-struct HumanAnswered {
-    status: HumanActionStatus,
-    note: Option<String>,
-}
-
-impl HumanAnswered {
-    fn expired() -> Self {
-        Self {
-            status: HumanActionStatus::Expired,
-            note: None,
-        }
-    }
-}
-
-/// The sentence the tool returns. The person's note, when there is one,
-/// follows it word for word, so a card that asked a question gets its
-/// answer. The expired wording always says ten minutes, even when a test
-/// injected a shorter deadline: that is what the agent is told in life,
-/// and a test that checks the sentence should see the same words.
-fn human_outcome(answer: HumanAnswered) -> String {
-    let outcome = match answer.status {
-        HumanActionStatus::Done => "The person answered.",
-        HumanActionStatus::Dismissed => "The person declined.",
-        HumanActionStatus::Expired | HumanActionStatus::Pending | HumanActionStatus::Withdrawn => {
-            return "Nobody answered in ten minutes.".to_string();
-        }
-    };
-    match answer.note {
-        Some(note) => format!("{outcome} They said: {note}"),
-        None => outcome.to_string(),
     }
 }
 

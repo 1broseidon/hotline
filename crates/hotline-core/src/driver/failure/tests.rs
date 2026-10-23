@@ -348,6 +348,45 @@ fn an_agents_usage_limit_is_its_own_kind_in_its_own_words() {
 }
 
 #[test]
+fn a_chatgpt_usage_limit_is_a_usage_limit_and_says_when_it_resets() {
+    let resets = chrono::Utc::now().timestamp() + 3_600;
+    let body = format!(
+        r#"{{"error":{{"type":"usage_limit_reached","plan_type":"plus","resets_at":{resets}}}}}"#
+    );
+    let failure = Failure::classify(&body, Some(429), "stream");
+    assert_eq!(failure.kind, Kind::UsageLimit);
+    assert!(
+        failure
+            .retry_after_seconds
+            .is_some_and(|s| (3_500..=3_600).contains(&s))
+    );
+    assert!(failure.retry_delay(0).is_none());
+}
+
+#[test]
+fn a_chatgpt_usage_limit_names_its_sign_in_and_gives_no_time_for_a_reset_gone_by() {
+    let past = chrono::Utc::now().timestamp() - 60;
+    for resets in [format!(r#","resets_at":{past}"#), String::new()] {
+        let body =
+            format!(r#"{{"error":{{"type":"usage_limit_reached","plan_type":"plus"{resets}}}}}"#);
+        let failure = Failure::classify(&body, Some(429), "stream");
+        assert_eq!(failure.kind, Kind::UsageLimit);
+        assert_eq!(failure.title, "ChatGPT usage limit reached");
+        assert_eq!(
+            failure.summary,
+            "This ChatGPT sign-in reached its usage limit."
+        );
+        assert_eq!(failure.retry_after_seconds, None);
+    }
+    let rate_limited = Failure::classify(
+        r#"{"error":{"type":"rate_limit_exceeded"}}"#,
+        Some(429),
+        "stream",
+    );
+    assert_eq!(rate_limited.kind, Kind::RateLimit);
+}
+
+#[test]
 fn an_account_refusal_card_names_the_account_by_id_alone() {
     let refusal = AccountRefusal::FolderUnavailable {
         account_id: "a1".into(),

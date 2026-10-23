@@ -1,4 +1,5 @@
 use super::*;
+use crate::credentials::KEYCHAIN_LOCKED;
 use crate::driver::failure::ACCOUNT_SIGNED_OUT;
 use hotline_room::provider_auth::ChosenAccount;
 use std::sync::atomic::AtomicUsize;
@@ -172,10 +173,7 @@ async fn a_turn_on_a_signed_out_account_fails_as_a_sign_in_and_names_it_by_id() 
 #[tokio::test]
 async fn a_locked_keychain_fails_the_chosen_account_with_its_own_words() {
     const DEFAULTS_WORDS: &str = "the default credential";
-    for locked in [
-        "OS credential storage is locked or inaccessible. Unlock it and retry; Hotline does not fall back to plaintext.",
-        "token store failed: keychain locked",
-    ] {
+    for locked in [KEYCHAIN_LOCKED, "token store failed: keychain locked"] {
         let keys = Arc::new(keys(unavailable(DEFAULTS_WORDS), unavailable(locked)));
         let agent = started("keychain", keys.clone(), Some(account_b())).await;
         let notice = failed_turn(&agent.driver).await;

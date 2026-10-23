@@ -1,5 +1,6 @@
 //! Classify at the provider boundary, before diagnostic data becomes display text.
 use crate::accounts::resolve::AccountRefusal;
+use crate::credentials::KEYCHAIN_LOCKED;
 use crate::models::Client;
 use crate::providers::discovery::ListedModel;
 use crate::session::ProviderAuth;
@@ -73,10 +74,6 @@ const USAGE_LIMIT_BYTES: usize = 500;
 /// How Rig names a failure of the store a sign-in's tokens are kept in
 /// (`AuthError::Store`): for ChatGPT and Copilot, the OS keychain.
 const KEYCHAIN_FAILED: &str = "token store failed";
-
-/// How the vault's own store says the OS keychain is locked, when a key's
-/// secret is read for a turn (`hotline_support::credentials`), in lower case.
-const KEYCHAIN_LOCKED: &str = "os credential storage is locked";
 
 /// What a stream the provider never finished reads as.
 pub(crate) const TRUNCATED: &str = "The model stream ended without a complete response.";
@@ -180,7 +177,14 @@ impl Failure {
                             .rsplit_once('.')
                             .is_some_and(|(_, field)| field == "id" || field == "encrypted_content")
                 });
-        let kind = if contains(&[KEYCHAIN_FAILED, KEYCHAIN_LOCKED]) {
+        // Body shape from openai/codex, codex-rs/codex-api/src/api_bridge.rs, UsageErrorBody.
+        let chatgpt_usage_limit = status == Some(429)
+            && value
+                .as_ref()
+                .and_then(|value| value.pointer("/error/type"))
+                .and_then(Value::as_str)
+                == Some("usage_limit_reached");
+        let kind = if body.contains(KEYCHAIN_LOCKED) || contains(&[KEYCHAIN_FAILED]) {
             Kind::Keychain
         } else if contains(&[
             "insufficient_quota",
@@ -219,6 +223,8 @@ impl Failure {
             ])
         {
             Kind::Replay
+        } else if chatgpt_usage_limit {
+            Kind::UsageLimit
         } else if status == Some(429)
             || contains(&["rate_limit", "rate limit", "too many requests"])
         {
@@ -291,6 +297,14 @@ impl Failure {
         failure.status = status;
         failure.code = code.map(|code| sanitize(&code));
         failure.retry_after_seconds = retry_after_seconds;
+        if chatgpt_usage_limit && kind == Kind::UsageLimit {
+            failure.title = Cow::Borrowed("ChatGPT usage limit reached");
+            failure.summary = Cow::Borrowed("This ChatGPT sign-in reached its usage limit.");
+            failure.retry_after_seconds = value
+                .as_ref()
+                .and_then(seconds_until_reset)
+                .or(failure.retry_after_seconds);
+        }
         failure
     }
 
@@ -645,6 +659,12 @@ fn usage_limit_text(message: &str, prefixes: &[&str]) -> Option<String> {
     let mut text = redact_text(line.strip_suffix(": {").unwrap_or(line).trim());
     text.truncate(text.floor_char_boundary(USAGE_LIMIT_BYTES));
     Some(text)
+}
+
+fn seconds_until_reset(value: &Value) -> Option<u64> {
+    let resets_at = value.pointer("/error/resets_at")?.as_i64()?;
+    let seconds = resets_at.saturating_sub(chrono::Utc::now().timestamp());
+    u64::try_from(seconds).ok().filter(|seconds| *seconds > 0)
 }
 
 fn retry_hint(value: &Value, depth: usize) -> Option<u64> {

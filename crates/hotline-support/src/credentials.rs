@@ -36,13 +36,15 @@ pub trait SecretStore: Send + Sync {
 #[derive(Default)]
 pub struct NativeStore;
 
+/// The core's failure classifier tells a locked keychain by this sentence.
+pub const KEYCHAIN_LOCKED: &str = "OS credential storage is locked or inaccessible. Unlock it and retry; Hotline does not fall back to plaintext.";
+
 fn native_error(error: keyring::Error) -> io::Error {
     // Platform errors can include backend details. None belong in the wire.
     match error {
-        keyring::Error::NoStorageAccess(_) => io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "OS credential storage is locked or inaccessible. Unlock it and retry; Hotline does not fall back to plaintext.",
-        ),
+        keyring::Error::NoStorageAccess(_) => {
+            io::Error::new(io::ErrorKind::PermissionDenied, KEYCHAIN_LOCKED)
+        }
         _ => io::Error::other(
             "OS credential storage is unavailable. Check your keychain or Secret Service and retry; Hotline does not fall back to plaintext.",
         ),

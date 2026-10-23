@@ -1,3 +1,4 @@
+mod gates;
 mod pause;
 
 use super::*;

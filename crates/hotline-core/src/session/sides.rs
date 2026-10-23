@@ -222,7 +222,7 @@ impl Occupant for LiveSide {
 
     /// A request's turn is the exchange's: it begins only while the request is
     /// still running, and its result is saved when it ends.
-    async fn begin(self: &Arc<Self>, room: &Arc<Room>, line: Line) -> Begin<WorkTurn> {
+    async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: Line) -> Begin<WorkTurn> {
         // A result that came back from a colleague is heard once: it is
         // consumed as its turn begins, and one the exchange has since stopped,
         // or whose authority has been revoked, is never heard, however long
@@ -238,15 +238,21 @@ impl Occupant for LiveSide {
         {
             return Begin::Skip;
         }
-        if let Some(request_line) = &line.request {
-            if let Some(action) = &request_line.answer
-                && let Err(error) = room
-                    .resume_handoff_answer(&request_line.request, action)
-                    .await
-            {
+        if let Some(RequestLine {
+            request,
+            answer: Some(answer),
+        }) = &line.request
+            && let Err(error) = room.resume_handoff_answer(request, answer).await
+        {
+            // A colleague's answer is still heard once its handoff has
+            // stopped waiting on it, as an ordinary turn; a card's is not.
+            if !room.is_exchange_request(answer) {
                 eprintln!("handoff answer not started: {error}");
                 return Begin::Skip;
             }
+            line.request = None;
+        }
+        if let Some(request_line) = &line.request {
             if let Err(error) = room.begin_request(&request_line.request) {
                 eprintln!("handoff not started: {error}");
                 return Begin::Skip;
@@ -313,9 +319,9 @@ impl Occupant for LiveSide {
         if let Some(request) = request {
             // The handoff's result is what the teammate said when it was
             // done. The thread closes with it unless the turn stopped to
-            // wait for the person, in which case it is the person's answer
-            // that carries it on, or another handoff is already waiting in
-            // it, which carries it on now.
+            // wait for the person or a colleague, in which case it is the
+            // answer that carries it on, or another handoff is already
+            // waiting in it, which carries it on now.
             let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
                 matches!(
                     reason,
@@ -611,18 +617,23 @@ impl Room {
     /// what it asks them, on its card. Saying something in it, or bringing it
     /// back once it has ended, is refused here, whatever the window shows.
     fn refuse_handed_over(&self, side_id: &str) -> Result<(), String> {
-        let opener = match self.sides.get(side_id) {
-            Some(side) => side.opener.clone(),
-            None => self
-                .link_of(&self.work_thread(side_id))
-                .and_then(|link| link.opener),
-        };
-        match opener {
+        match self.opener_of(side_id) {
             Some(opener) => Err(format!(
                 "{} handed this thread over, so it is read along. Talk to {} about it, or answer what it asks you on its card.",
                 opener.name, opener.name
             )),
             None => Ok(()),
+        }
+    }
+
+    /// The teammate that handed this thread over, when one did: as the live
+    /// thread holds it, else as its link records it.
+    pub(super) fn opener_of(&self, side_id: &str) -> Option<Opener> {
+        match self.sides.get(side_id) {
+            Some(side) => side.opener.clone(),
+            None => self
+                .link_of(&self.work_thread(side_id))
+                .and_then(|link| link.opener),
         }
     }
 

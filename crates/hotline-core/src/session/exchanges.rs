@@ -395,6 +395,11 @@ impl Room {
                 continues: continues.clone(),
             });
             self.save_pair(&pair)?;
+            if let Answer::Later(sent_from) = answer
+                && intent == Intent::Ask
+            {
+                self.gate_on_ask(sent_from, &id);
+            }
             lock(&self.exchange_leases).insert(id.clone(), leases);
             continues
         };
@@ -648,9 +653,9 @@ impl Room {
         Err("This handoff was stopped before its turn.".into())
     }
     /// Saves what a request's turn came to. `Waiting` when the turn stopped to
-    /// wait on the person, so the work is not over: the result is held until
-    /// the answer has carried it on. `Gone` when the request was stopped
-    /// meanwhile.
+    /// wait on the person or a colleague, so the work is not over: the result
+    /// is held until the answer has carried it on. `Gone` when the request was
+    /// stopped meanwhile.
     pub(super) fn finish_request(&self, id: &str, reply: String, failed: bool) -> Finished {
         let _guard = lock(&self.exchange_lock);
         for mut pair in self.exchange_pairs() {
@@ -738,8 +743,8 @@ impl Room {
         Ok(())
     }
 
-    /// The handoff a card was raised in, if the card is one a handoff waits
-    /// behind: the exchange request that is answered by it.
+    /// The handoff a card or a question was raised in, if a handoff waits
+    /// behind it: the exchange request that is answered by it.
     pub(super) fn handoff_awaiting(&self, persona: &str, action: &str) -> Option<String> {
         self.exchange_pairs()
             .iter()
@@ -1114,8 +1119,10 @@ impl Room {
                 }
             }
             Phase::Waiting => {
-                // The card is durable before dispatch. Repair an answer saved
-                // just before the desk stopped, without replaying an old turn.
+                // The card or the question is durable before dispatch. Repair
+                // an answer saved just before the desk stopped, without
+                // replaying an old turn. A question's answer still at `Reply`
+                // is its own pair's to deliver.
                 for gate in request.human_actions.iter().filter(|g| !g.consumed) {
                     if let Some((
                         TranscriptEvent::HumanAction {
@@ -1129,6 +1136,23 @@ impl Room {
                         && status != HumanActionStatus::Pending
                     {
                         self.hand_over_answer(&request.to, &gate.id, &reason, status, note, home)
+                            .await?;
+                    }
+                    if let Some(thread) = &request.thread
+                        && let Some((asked, ask)) =
+                            self.exchange_pairs().into_iter().find_map(|p| {
+                                p.requests
+                                    .into_iter()
+                                    .find(|r| r.id == gate.id && r.phase == Phase::Done)
+                                    .map(|r| (p.id, r))
+                            })
+                    {
+                        let (id, cause, from, text) = self.answer_delivery(&asked, &ask)?;
+                        let carried = RequestLine {
+                            request: request.id.clone(),
+                            answer: Some(ask.id),
+                        };
+                        self.deliver_into_work(thread, &id, cause, from, text, Some(carried))
                             .await?;
                     }
                 }
@@ -1155,19 +1179,7 @@ impl Room {
                         self.exchange_card(&pair, ExchangePauseStatus::Pending);
                     }
                 }
-                let target = self.participant(&request.to)?;
-                let cause = DeliveryCause::Peer {
-                    request_id: Some(request.id.clone()),
-                    persona_id: target.id,
-                    name: target.name,
-                    thread_key: key.into(),
-                    status: if request.failed {
-                        PeerStatus::Failed
-                    } else {
-                        PeerStatus::Done
-                    },
-                    about: peers::about(&request.message),
-                };
+                let (id, cause, from, text) = self.answer_delivery(key, &request)?;
                 // A handoff's answer is the pair thread's last word. So is a
                 // linked teammate's answer here: no peer session on this desk
                 // wrote it there.
@@ -1189,26 +1201,17 @@ impl Room {
                         return Ok(());
                     }
                 } else if !request.inline {
-                    let from = self.delivery_source(&request.from, &cause);
-                    let id = format!("exchange-result:{}", request.id);
                     match self.route_of(&request) {
                         Route::Job(job) => {
-                            self.deliver_into_job(&job, &id, cause, from, request.reply.clone())?;
+                            self.deliver_into_job(&job, &id, cause, from, text)?;
                         }
                         Route::Work(thread) => {
-                            self.deliver_into_work(
-                                &thread,
-                                &id,
-                                cause,
-                                from,
-                                request.reply.clone(),
-                                None,
-                            )
-                            .await?;
+                            let carried = self.carried_on(&request);
+                            self.deliver_into_work(&thread, &id, cause, from, text, carried)
+                                .await?;
                         }
                         Route::Dm(sender) => {
-                            self.deliver_identified(&sender, &id, cause, request.reply.clone())
-                                .await?;
+                            self.deliver_identified(&sender, &id, cause, text).await?;
                         }
                     }
                 }
@@ -1227,10 +1230,20 @@ impl Room {
         }
         Ok(())
     }
-    /// Where the sender hears what came of a request: the job it was sent from
-    /// while that job lives, else the work thread it was sent from while that
-    /// is open, else its own conversation.
+    /// Where the sender hears what came of a request. A question asked from a
+    /// thread a colleague handed over comes back to that thread, open or not.
+    /// Anything else comes back to the job it was sent from while that job
+    /// lives, else the work thread it was sent from while that is open, else
+    /// the sender's own conversation.
     fn route_of(&self, request: &Request) -> Route {
+        if request.intent == Intent::Ask
+            && let Some(thread) = request
+                .reply_thread
+                .as_deref()
+                .filter(|thread| self.opener_of(thread).is_some())
+        {
+            return Route::Work(thread.to_string());
+        }
         if let Some(job_id) = request
             .reply_job
             .as_deref()
@@ -1383,6 +1396,7 @@ impl Room {
     }
 }
 
+mod gates;
 mod linked;
 
 #[cfg(test)]

@@ -1,11 +1,13 @@
 //! A question a thread a colleague handed over asks the teammate that
 //! handed it over is answered by the conversation that did, by that
-//! handoff's reply route, without a card while the delegation stands; what
-//! comes of it, its answer or its failure, is heard in the thread.
+//! handoff's reply route, without a card while the delegation stands; its
+//! answer or its failure is heard in the thread, and a stop of it is only
+//! shown there.
 use super::gates::{Apart, ask_from, handed_off, idle, request, turn};
 use super::progress::{Builds, planted_job};
 use super::questions::{answer_to, copied, handed_back, in_thread, questions_heard, requested};
 use super::*;
+use crate::session::turns::{Line, RequestLine};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Semaphore;
 
@@ -242,6 +244,7 @@ impl Agents for AdaApart {
 struct Separate {
     room: Arc<Room>,
     ada: Arc<Fake>,
+    bob: Arc<Fake>,
     gate: Arc<Semaphore>,
     ada_down: Arc<AtomicBool>,
 }
@@ -260,7 +263,7 @@ fn apart(name: &str, ada_turns: Vec<Vec<Update>>) -> Separate {
     let ada_down = Arc::new(AtomicBool::new(false));
     let agents = Arc::new(AdaApart {
         agents: Apart {
-            bob,
+            bob: bob.clone(),
             others: ada.clone(),
         },
         down: ada_down.clone(),
@@ -271,18 +274,30 @@ fn apart(name: &str, ada_turns: Vec<Vec<Update>>) -> Separate {
     Separate {
         room,
         ada,
+        bob,
         gate,
         ada_down,
     }
 }
 
+/// The line a thread shows when a question it asked was stopped.
+fn stopped_line(room: &Room, thread: &str, id: &str) -> Option<serde_json::Value> {
+    in_thread(room, thread)
+        .into_iter()
+        .find(|v| v["kind"] == "notice" && v["id"] == format!("exchange-stopped:{id}"))
+}
+
 /// Ada's turn answering the question goes on to its end, and the thread that
-/// asked hears the question's failure as a delivery of its own: no answer,
-/// and no notice in Bob's DM.
+/// asked shows that the question was stopped in a line that starts no turn
+/// there: the stop does not set Bob going again, to send it anew.
 #[tokio::test]
 async fn stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question() {
     let Separate {
-        room, ada, gate, ..
+        room,
+        ada,
+        bob,
+        gate,
+        ..
     } = apart(
         "ask-back-stopped",
         vec![
@@ -300,6 +315,8 @@ async fn stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question()
         request(&room, "ada~bob", &id).started && room.mid_turn("ada")
     })
     .await;
+    let prompted = bob.prompts().len();
+    let sent = room.exchange_pair("ada~bob").unwrap().requests.len();
 
     room.stop_exchange("ada", "bob").unwrap();
     assert_eq!(ada.cancel_count(), 0, "Ada's turn is not cancelled");
@@ -308,14 +325,19 @@ async fn stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question()
     assert_eq!(stopped.phase, Phase::Stopped);
     assert!(stopped.failed);
 
-    until("a turn in the thread hears the failure", || {
-        answer_in(&room, &thread, &id).is_some_and(|v| v["receipt"] == "read")
+    until("the thread shows the question was stopped", || {
+        stopped_line(&room, &thread, &id).is_some()
     })
     .await;
-    let failure = answer_in(&room, &thread, &id).unwrap();
-    assert_eq!(failure["id"], format!("exchange-stopped:{id}"));
-    assert_eq!(failure["cause"]["status"], "failed");
-    assert_eq!(failure["text"], "The person stopped this exchange.");
+    let line = stopped_line(&room, &thread, &id).unwrap();
+    assert_eq!(line["level"], "info");
+    assert!(
+        line["text"]
+            .as_str()
+            .unwrap()
+            .contains("The person stopped this exchange."),
+        "{line}"
+    );
     assert!(
         room.tape("bob")
             .iter()
@@ -325,33 +347,40 @@ async fn stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question()
 
     gate.add_permits(10);
     until("Ada's turn ends", || !room.mid_turn("ada")).await;
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
         room.tape("ada")
             .iter()
             .any(|v| v["kind"] == "agent" && v["text"] == "The port is 8080."),
         "her turn ended as it would have"
     );
-    let heard: Vec<serde_json::Value> = in_thread(&room, &thread)
-        .into_iter()
-        .filter(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == id.as_str())
-        .collect();
-    assert_eq!(
-        heard.len(),
-        1,
-        "only the failure reaches the thread: {heard:?}"
+    assert!(
+        answer_in(&room, &thread, &id).is_none(),
+        "nothing about the question is delivered to the thread's agent"
     );
-    assert_eq!(request(&room, "ada~bob", &id).phase, Phase::Stopped);
+    assert_eq!(bob.prompts().len(), prompted, "no turn ran in the thread");
+    assert_eq!(
+        room.exchange_pair("ada~bob").unwrap().requests.len(),
+        sent,
+        "nothing was sent again"
+    );
+    let settled = request(&room, "ada~bob", &id);
+    assert_eq!(settled.phase, Phase::Stopped);
+    assert!(!settled.owed_to_thread);
 }
 
 /// Revoking the delegator stops the question, and the thread that asked it
-/// hears the failure. Stopping the asker himself tells him in his DM
-/// instead, and wakes nothing of his.
+/// shows so in a line that starts no turn. Stopping the asker himself tells
+/// him in his DM instead, and wakes nothing of his.
 #[tokio::test]
-async fn a_revoked_question_back_is_heard_in_its_thread_unless_its_asker_was_stopped() {
+async fn a_revoked_question_back_is_shown_in_its_thread_unless_its_asker_was_stopped() {
     for asker_stopped in [false, true] {
         let Separate {
-            room, ada, gate, ..
+            room,
+            ada,
+            bob,
+            gate,
+            ..
         } = apart(
             &format!("ask-back-revoked-{asker_stopped}"),
             vec![
@@ -369,6 +398,7 @@ async fn a_revoked_question_back_is_heard_in_its_thread_unless_its_asker_was_sto
             request(&room, "ada~bob", &id).started && room.mid_turn("ada")
         })
         .await;
+        let prompted = bob.prompts().len();
 
         if asker_stopped {
             room.stop("bob").unwrap();
@@ -384,15 +414,18 @@ async fn a_revoked_question_back_is_heard_in_its_thread_unless_its_asker_was_sto
         if asker_stopped {
             assert!(told_in_dm(), "Bob is told in his DM");
             tokio::time::sleep(Duration::from_millis(300)).await;
-            assert!(answer_in(&room, &thread, &id).is_none());
+            assert!(stopped_line(&room, &thread, &id).is_none());
             assert!(room.sides.get(&thread).is_none(), "his thread stays down");
         } else {
-            until("a turn in the thread hears the failure", || {
-                answer_in(&room, &thread, &id).is_some_and(|v| v["receipt"] == "read")
+            until("the thread shows the question was stopped", || {
+                stopped_line(&room, &thread, &id).is_some()
             })
             .await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
             assert!(!told_in_dm());
+            assert_eq!(bob.prompts().len(), prompted, "no turn ran in the thread");
         }
+        assert!(answer_in(&room, &thread, &id).is_none());
         gate.add_permits(10);
     }
 }
@@ -543,6 +576,58 @@ async fn a_question_waiting_in_a_job_that_ends_fails_once_to_its_asker() {
         }
         failed_once_unheard(&handed, &id).await;
     }
+}
+
+/// A question that reaches a job as the person cancels it, behind the turn
+/// being stopped, fails to its asker when that turn ends rather than waiting
+/// in a job nothing runs any more.
+#[tokio::test]
+async fn a_question_queued_behind_a_cancelled_jobs_turn_fails_to_its_asker() {
+    let handed = job_handed_back("ask-back-job-cancelled-under-it").await;
+    let Separate {
+        room, ada, gate, ..
+    } = &handed.separate;
+    room.prompt_job(&handed.job, "and now?", None)
+        .await
+        .unwrap();
+    until("the person's turn in the job is running", || {
+        ada.prompts().len() == 3
+    })
+    .await;
+    let mut asked = saved_request("asked-as-it-ends", Intent::Ask, Phase::Running);
+    asked.from = "bob".into();
+    asked.to = "ada".into();
+    asked.reply_thread = Some(handed.thread.clone());
+    let mut pair = room.exchange_pair("ada~bob").unwrap();
+    pair.requests.push(asked);
+    room.save_pair(&pair).unwrap();
+    let live = lock(&room.job_threads).get(&handed.job).cloned().unwrap();
+
+    room.schedule_cancel(&handed.job).unwrap();
+    room.queue_job(
+        &live,
+        crate::session::job_thread::JobLine {
+            line: Line {
+                voice: None,
+                text: "Which port?".into(),
+                attachments: Vec::new(),
+                request: Some(RequestLine {
+                    request: "asked-as-it-ends".into(),
+                    answer: None,
+                }),
+                from: None,
+                delivery: None,
+                wake: false,
+            },
+            firing: None,
+            last: false,
+        },
+    )
+    .unwrap();
+    gate.add_permits(20);
+    done(room, "asked-as-it-ends").await;
+    let asked = request(room, "ada~bob", "asked-as-it-ends");
+    assert!(asked.failed && !asked.started);
 }
 
 /// A job whose agent cannot start for Bob's question fails it to him at
@@ -793,11 +878,12 @@ async fn a_question_whose_delegation_lapses_before_it_is_handed_over_fails() {
     assert_eq!(told["cause"]["status"], "failed");
 }
 
-/// A stopped question whose thread cannot take its failure, all of Bob's
-/// places being mid-turn, is told in Bob's DM once instead, and holds up
-/// nothing else between the two.
+/// A stopped question no handoff waits on is shown in its parked thread even
+/// when all of Bob's places are mid-turn: the line needs no turn, so the
+/// thread stays parked, Bob's DM is not told, and nothing else between the
+/// two is held up.
 #[tokio::test]
-async fn a_stopped_question_its_thread_cannot_take_is_told_in_the_dm_once() {
+async fn a_stopped_question_is_shown_in_its_parked_thread_with_no_place_free() {
     let log = scratch("ask-back-no-place");
     enrol(&log, &persona("ada"));
     enrol(&log, &persona("bob"));
@@ -846,20 +932,23 @@ async fn a_stopped_question_its_thread_cannot_take_is_told_in_the_dm_once() {
     .await;
 
     room.stop_exchange("ada", "bob").unwrap();
-    let notices = || {
-        room.tape("bob")
-            .iter()
-            .filter(|v| v["id"] == format!("exchange-ended:{ask}"))
-            .count()
-    };
-    until("Bob is told in his DM", || notices() == 1).await;
+    until("the thread shows the question was stopped", || {
+        stopped_line(&room, &thread, &ask).is_some()
+    })
+    .await;
     until("the pair's worker rests", || {
         !lock(&room.exchange_workers).contains("ada~bob")
     })
     .await;
     assert!(!request(&room, "ada~bob", &ask).owed_to_thread);
     assert!(answer_in(&room, &thread, &ask).is_none());
-    assert_eq!(notices(), 1);
+    assert!(room.sides.get(&thread).is_none(), "the thread stays parked");
+    assert!(
+        room.tape("bob")
+            .iter()
+            .all(|v| v["id"] != format!("exchange-ended:{ask}")),
+        "Bob's DM is not told"
+    );
     ada_gate.add_permits(20);
     bob_gate.add_permits(20);
 }

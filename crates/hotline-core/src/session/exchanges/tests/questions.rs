@@ -676,6 +676,50 @@ async fn stop_exchange_stops_the_turn_answering_an_ask_in_a_thread() {
     );
 }
 
+/// A turn answering an ask in a thread that fails without a word tells the
+/// asker it was the question's turn, as a main conversation's does.
+#[tokio::test]
+async fn a_failed_turn_answering_an_ask_in_a_thread_says_it_was_the_questions() {
+    let (room, agents, gate) = gated(
+        "ask-in-thread-failed",
+        vec![
+            turn("handed", "Build fixed.", "end_turn"),
+            vec![Update::Turn {
+                stop_reason: "failed".into(),
+                usage: None,
+            }],
+        ],
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = requested(
+        &hand_off(&room, "ada", "bob", "Fix the build.", None)
+            .await
+            .unwrap(),
+    );
+    until("the handoff's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let thread = work_thread(&room, &handoff);
+    let id = ask_in(&room, "bob", &handoff, "Which branch is it on?")
+        .await
+        .unwrap();
+    until("the ask waits in the thread", || {
+        in_thread(&room, &thread)
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+    gate.add_permits(10);
+    done(&room, &id).await;
+    let failed = request(&room, "ada~bob", &id);
+    assert!(failed.failed);
+    assert_eq!(
+        failed.reply,
+        "The turn answering this question ended without a result; inspect before retrying."
+    );
+}
+
 /// The ask's sender ends before the handoff's does: the ask is stopped, and
 /// the handoff's turn, which the ask was waiting behind, goes on to its result.
 #[tokio::test]

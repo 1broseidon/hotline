@@ -228,9 +228,9 @@ impl LiveJob {
         room.fail_dropped_lines(&self.persona_id, dropped.into_iter().map(|job| job.line));
     }
 
-    /// Stops the turn in flight and drops what waited behind it.
+    /// Stops the turn in flight. What waits behind it is the caller's to
+    /// drop, once, so a question queued meanwhile is never cleared unfailed.
     fn interrupt(&self) {
-        lock(&self.turns).clear();
         if let Some(up) = lock(&self.up).as_ref() {
             up.driver.cancel();
         }
@@ -422,6 +422,7 @@ impl Occupant for LiveJob {
             room.answer_question(request, &driven);
         }
         if self.stopped.load(Ordering::SeqCst) {
+            self.drop_waiting(room);
             return Then::Stop;
         }
         self.remember_session(room, &driven);
@@ -1318,6 +1319,7 @@ impl Room {
             if !lock(&live.turns).running {
                 continue;
             }
+            lock(&live.turns).clear();
             live.interrupt();
             live.notice(
                 self,

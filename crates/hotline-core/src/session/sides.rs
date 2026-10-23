@@ -339,7 +339,7 @@ impl Occupant for LiveSide {
                 )
             });
             let reply = if failed && driven.replies.is_empty() {
-                "The handoff turn ended without a result; inspect before retrying.".to_string()
+                room.ended_without_result(&request).to_string()
             } else {
                 driven.replies.join("\n\n")
             };
@@ -935,7 +935,9 @@ impl Room {
     }
 
     /// Archives a side thread, live or parked. Archiving one that is already
-    /// archived is answered as done, so a second press is not an error.
+    /// archived is answered as done, so a second press is not an error. The
+    /// person's Archive is refused on a thread a colleague handed over,
+    /// whatever its state: it ends with its result.
     pub fn archive_side(
         &self,
         side_id: &str,

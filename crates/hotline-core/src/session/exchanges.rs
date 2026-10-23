@@ -403,7 +403,7 @@ impl Room {
                     self.cancel_handoff(request);
                     request.phase = Phase::Stopped;
                     request.failed = true;
-                    request.reply = "The person stopped this exchange.".into();
+                    request.reply = peers::STOPPED_BY_THE_PERSON.into();
                     stopped.push(request.clone());
                 }
             }
@@ -476,7 +476,7 @@ impl Room {
     /// line for each buried the sender's conversation under the same words;
     /// so the messages one sender had to one teammate share a line, which
     /// names that teammate rather than giving its id. A thread a colleague
-    /// handed over hears what of its own was stopped there instead.
+    /// handed over is told there instead what of its own was stopped.
     fn exchange_notices(&self, stopped: &[Request]) {
         let mut groups: Vec<(&str, &str, Vec<&Request>)> = Vec::new();
         for request in stopped.iter().filter(|r| !r.owed_to_thread) {
@@ -489,28 +489,31 @@ impl Room {
             }
         }
         for (from, to, requests) in groups {
-            let first = requests[0];
-            let last = requests[requests.len() - 1];
-            let name = self
-                .participant(to)
-                .map_or_else(|_| to.to_string(), |p| super::links::shown(&p));
-            let text = match requests.len() {
-                1 => format!(
-                    "Message to {name} ({}): {}",
-                    peers::about(&first.message),
-                    first.reply
-                ),
-                n => format!(
-                    "{n} messages to {name} stopped, the last ({}): {}",
-                    peers::about(&last.message),
-                    last.reply
-                ),
-            };
             self.write_value(
                 from,
-                &json!({"kind":"notice", "id":format!("exchange-ended:{}",first.id),
-                "ts":now_ms(), "level":"info", "text":text}),
+                &json!({"kind":"notice", "id":format!("exchange-ended:{}",requests[0].id),
+                "ts":now_ms(), "level":"info", "text":self.stopped_line(to, &requests)}),
             );
+        }
+    }
+    /// What a sender is shown of the messages of theirs to `to` a stop ended.
+    fn stopped_line(&self, to: &str, requests: &[&Request]) -> String {
+        let first = requests[0];
+        let last = requests[requests.len() - 1];
+        let name = self
+            .participant(to)
+            .map_or_else(|_| to.to_string(), |p| super::links::shown(&p));
+        match requests.len() {
+            1 => format!(
+                "Message to {name} ({}): {}",
+                peers::about(&first.message),
+                first.reply
+            ),
+            n => format!(
+                "{n} messages to {name} stopped, the last ({}): {}",
+                peers::about(&last.message),
+                last.reply
+            ),
         }
     }
     fn exchange_pending(request: &Request) -> bool {
@@ -703,12 +706,7 @@ impl Room {
             .and_then(|side| side.request());
         let Some(id) = handoff else { return Ok(()) };
         let _guard = lock(&self.exchange_lock);
-        if self
-            .exchange_pairs()
-            .iter()
-            .flat_map(|pair| &pair.requests)
-            .any(|r| r.id == id && r.intent == Intent::Ask)
-        {
+        if self.is_ask(&id) {
             return Ok(());
         }
         if !self.exchange_lease_current(&id) {
@@ -889,8 +887,10 @@ impl Room {
                     }
                     // A read receipt proves a turn began, not that it finished. Never
                     // replay potentially side-effecting work after an interrupted turn.
-                    // A question is delivered into the recipient's DM, and so was a
-                    // handoff saved before it had a thread: their receipts are there.
+                    // Every turn that takes a request up marks it started first; the
+                    // receipts are read on the recipient's DM tape, where a question
+                    // to its main conversation lands, as did a handoff saved before it
+                    // had a thread.
                     let read = self.tape(&request.to).iter().any(|v| {
                         matches!(v["cause"]["kind"].as_str(), Some("handoff" | "question"))
                             && v["cause"]["requestId"] == request.id.as_str()
@@ -1108,10 +1108,12 @@ impl Room {
                     .await?;
             }
             Phase::Running => {
-                // A handoff, or an ask answered in a thread, whose turn has
-                // not begun, in no live thread, is handed over again: the desk
-                // restarted, or its thread closed with the line still waiting
-                // in it. A live dispatch has a thread by the time this looks.
+                // A handoff whose turn has not begun, in no live thread, is
+                // handed over again: the desk restarted, or its thread closed
+                // with the line still waiting in it. So is an ask answered in
+                // a thread after a restart; a thread that closes or parks with
+                // one waiting fails it instead. A live dispatch has a thread
+                // by the time this looks.
                 if (request.intent == Intent::Handoff || request.thread.is_some())
                     && !request.started
                     && request

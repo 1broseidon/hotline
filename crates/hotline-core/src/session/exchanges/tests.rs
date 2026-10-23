@@ -961,6 +961,48 @@ async fn a_withdrawn_card_lets_a_running_handoff_finish_and_a_waiting_one_keeps_
     ));
 }
 
+/// Stop exchange leaves a waiting handoff's card up. The person's answer to
+/// it is still heard in the thread, as a plain answer, and carries nothing
+/// back to Ada.
+#[tokio::test]
+async fn the_persons_answer_to_a_stopped_handoffs_card_is_still_heard() {
+    let (room, id, action, gate) = handoff_asking("human-answer-after-stop").await;
+    gate.add_permits(2);
+    until("the request waits on a person and bob's turn ends", || {
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Waiting
+            && !room.mid_turn("bob")
+    })
+    .await;
+    let thread = work_thread(&room, &id);
+    room.stop_exchange("ada", "bob").unwrap();
+    room.answer_human(
+        "bob",
+        &action,
+        crate::contract::HumanAnswer::Done,
+        Some("Ship it on Friday.".into()),
+    )
+    .unwrap();
+    gate.add_permits(2);
+    until("a turn in the thread hears the person's answer", || {
+        room.log
+            .load(&StreamId::Side(thread.clone()))
+            .iter()
+            .any(|v| v["id"] == format!("human-answer:{action}") && v["receipt"] == "read")
+    })
+    .await;
+    assert_eq!(
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        Phase::Stopped
+    );
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|v| v["kind"] != "delivery" || v["cause"]["requestId"] != id),
+        "Ada hears no result"
+    );
+}
+
 fn restart_human_room(old: Arc<Room>) -> (Arc<Room>, Arc<Fake>) {
     let log = old.log.clone();
     drop(old);
@@ -1168,7 +1210,14 @@ async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
             .unwrap();
         room.recover_exchanges().await;
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(agents.prompts(), [] as [String; 0]);
+        assert!(
+            agents
+                .prompts()
+                .iter()
+                .all(|prompt| prompt.starts_with("The person answered your request")),
+            "the answer is heard only as the person's own: {:?}",
+            agents.prompts()
+        );
         assert_eq!(
             room.exchange_pair("ada~bob").unwrap().requests[0].phase,
             Phase::Stopped
@@ -1177,6 +1226,12 @@ async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
             room.tape("ada")
                 .iter()
                 .any(|v| v["id"] == format!("exchange-ended:{id}"))
+        );
+        assert!(
+            room.tape("ada")
+                .iter()
+                .all(|v| v["kind"] != "delivery" || v["cause"]["requestId"] != id.as_str()),
+            "the handoff does not resume to a result"
         );
     }
 }

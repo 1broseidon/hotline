@@ -329,9 +329,10 @@ impl Room {
 
     /// Hands the person's answer to a card to the agent that raised it: in its
     /// work thread when the card was raised in one (waking it if it was parked,
-    /// and carrying on a handoff that was waiting behind it), in its job's
-    /// thread while the job lives, else in its DM. Handing over the same
-    /// answer twice delivers it once.
+    /// and carrying on a handoff still waiting behind it; once that handoff is
+    /// stopped, the answer is heard as a plain one), in its job's thread while
+    /// the job lives, else in its DM. Handing over the same answer twice
+    /// delivers it once.
     pub(super) async fn hand_over_answer(
         self: &Arc<Self>,
         persona_id: &str,
@@ -361,12 +362,13 @@ impl Room {
         let from = DeliveryFrom::new(&home, Some(action_id.to_string()));
         match home.kind {
             ThreadKind::Side | ThreadKind::Call => {
-                let request = self.handoff_awaiting(persona_id, action_id).map(|request| {
-                    turns::RequestLine {
+                let request = self
+                    .handoff_awaiting(persona_id, action_id)
+                    .filter(|handoff| self.handoff_is_open(handoff))
+                    .map(|request| turns::RequestLine {
                         request,
                         answer: Some(action_id.to_string()),
-                    }
-                });
+                    });
                 self.deliver_into_work(&home.key, &delivery_id, cause, from, text, request)
                     .await
             }

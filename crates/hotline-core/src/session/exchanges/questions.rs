@@ -1,8 +1,12 @@
 //! A colleague's question, delivered to the conversation that answers it.
 
 use super::*;
+use crate::contract::NoticeLevel;
 use crate::session::runner::Driven;
 use crate::session::turns::Line;
+
+const QUESTION_ENDED: &str =
+    "The turn answering this question ended without a result; inspect before retrying.";
 
 impl Room {
     /// Hands an ask to its recipient's main conversation: a line that starts a
@@ -88,8 +92,8 @@ impl Room {
         }
     }
 
-    /// The thread a colleague handed over that an ask was sent from: what
-    /// comes of the ask, its answer or its failure, is heard there.
+    /// The thread a colleague handed over that an ask was sent from: the
+    /// ask's answer or failure is heard there, and its stop is shown there.
     pub(super) fn delegated_origin(&self, request: &Request) -> Option<String> {
         request
             .reply_thread
@@ -110,12 +114,14 @@ impl Room {
                 .is_none_or(|(asker, _)| asker.is_current())
     }
 
-    /// Hands a stopped ask's failure to the thread a colleague handed over
-    /// that asked it: a handoff waiting on the ask carries on with it, as it
-    /// would with an answer, else the thread hears it as any delivery. A
-    /// thread closed since, by this stop or another, is not opened again for
-    /// it, and one that cannot take it now is not waited on: its sender is
-    /// told in their DM instead. Either way the debt is settled once.
+    /// Tells the thread a colleague handed over that an ask it sent was
+    /// stopped. A handoff waiting on the ask carries on with its failure, as
+    /// it would with an answer. Otherwise the thread only shows the stop, in
+    /// a line that starts no turn: a turn told of it would send the question
+    /// again and undo the stop. A thread closed since, by this stop or
+    /// another, is not opened again for it, and one that cannot take the
+    /// handoff's delivery now is not waited on: its sender is told in their
+    /// DM instead. Either way the debt is settled once.
     pub(super) async fn tell_thread_stopped(
         self: &Arc<Self>,
         key: &str,
@@ -123,15 +129,28 @@ impl Room {
     ) -> Result<(), String> {
         let delivered = match self.delegated_origin(ask) {
             Some(thread) if self.work_is_open(&thread) => {
-                let (id, cause, from, text) = self.answer_delivery(key, ask)?;
-                let carried = self.carried_on(ask);
-                let handed = self
-                    .deliver_into_work(&thread, &id, cause, from, text, carried)
-                    .await;
-                if let Err(error) = &handed {
-                    eprintln!("a stopped question's thread could not take it: {error}");
+                if let Some(carried) = self.carried_on(ask) {
+                    let (id, cause, from, text) = self.answer_delivery(key, ask)?;
+                    let handed = self
+                        .deliver_into_work(&thread, &id, cause, from, text, Some(carried))
+                        .await;
+                    if let Err(error) = &handed {
+                        eprintln!("a stopped question's thread could not take it: {error}");
+                    }
+                    handed.is_ok()
+                } else {
+                    self.threads().write(
+                        &self.work_thread(&thread),
+                        &ask.from,
+                        &TranscriptEvent::Notice {
+                            id: format!("exchange-stopped:{}", ask.id),
+                            ts: now_ms(),
+                            level: NoticeLevel::Info,
+                            text: self.stopped_line(&ask.to, &[ask]),
+                        },
+                    );
+                    true
                 }
-                handed.is_ok()
             }
             _ => false,
         };
@@ -216,15 +235,30 @@ impl Room {
         });
         let mut reply = driven.replies.join("\n\n");
         if failed {
-            let ended =
-                "The turn answering this question ended without a result; inspect before retrying.";
             reply = if reply.is_empty() {
-                ended.to_string()
+                QUESTION_ENDED.to_string()
             } else {
-                format!("{reply}\n\n{ended}")
+                format!("{reply}\n\n{QUESTION_ENDED}")
             };
         }
         self.finish_request(request, reply, failed);
+    }
+
+    /// What a failed turn that said nothing returns for the request it
+    /// answered, worded for the question or the handoff it was.
+    pub(in crate::session) fn ended_without_result(&self, request: &str) -> &'static str {
+        if self.is_ask(request) {
+            QUESTION_ENDED
+        } else {
+            "The handoff turn ended without a result; inspect before retrying."
+        }
+    }
+
+    pub(super) fn is_ask(&self, id: &str) -> bool {
+        self.exchange_pairs()
+            .iter()
+            .flat_map(|pair| &pair.requests)
+            .any(|r| r.id == id && r.intent == Intent::Ask)
     }
 
     /// Hands an ask to the work thread a handoff of its sender's opened: a line

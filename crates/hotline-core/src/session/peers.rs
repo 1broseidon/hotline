@@ -402,10 +402,6 @@ pub(super) fn about(message: &str) -> String {
     format!("{}…", clipped.trim_end())
 }
 
-/// What the agent hears when a delivery reaches it: who answered what, and the
-/// answer quoted, exactly as a colleague's message is quoted to the one it
-/// was sent to. Built from the tape's record alone, so a delivery sent again
-/// after a restart, or replayed into a chapter, reads the same.
 /// Where a delivery came from, as a field of it. A peer's answer and a handoff
 /// come from the pair's thread, and the request they answer is the exchange's;
 /// the person's answer to a card comes from the teammate's own DM, and answers
@@ -433,6 +429,14 @@ pub(super) fn delivery_from(persona_id: &str, cause: &DeliveryCause) -> Delivery
     }
 }
 
+/// Why a request the person's Stop exchange ended failed. Its sender is never
+/// asked to send it again: the stop was the person's.
+pub(super) const STOPPED_BY_THE_PERSON: &str = "The person stopped this exchange.";
+
+/// What the agent hears when a delivery reaches it: who answered what, and the
+/// answer quoted, exactly as a colleague's message is quoted to the one it
+/// was sent to. Built from the tape's record alone, so a delivery sent again
+/// after a restart, or replayed into a chapter, reads the same.
 pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
     let named = |about: &str| match about {
         "" => String::new(),
@@ -497,11 +501,17 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
             status: PeerStatus::Failed,
             about,
             ..
-        } => format!(
-            "Your message to {name}{} was not answered: {text}\n\
-             Send it again if you still need it.",
-            named(about),
-        ),
+        } => {
+            let again = if text == STOPPED_BY_THE_PERSON {
+                ""
+            } else {
+                "\nSend it again if you still need it."
+            };
+            format!(
+                "{name} did not answer your message{}: {text}{again}",
+                named(about)
+            )
+        }
         DeliveryCause::Peer { name, about, .. } if text.trim().is_empty() => format!(
             "{name} finished with your message{} without saying anything back.",
             named(about),

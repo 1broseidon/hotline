@@ -412,6 +412,11 @@ async fn a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_fa
     .await;
     room.stop_exchange("bob", "carol").unwrap();
     carries_on_with_the_failure(&handed, &ask, "Ada", "The person stopped this exchange.").await;
+    assert!(
+        !handed.bob.prompts()[1].contains("Send it again"),
+        "the person's stop is not the agent's to undo: {}",
+        handed.bob.prompts()[1]
+    );
 }
 
 /// The question's failure reaches the thread under the name `name`, the
@@ -476,6 +481,11 @@ async fn a_question_to_a_desk_that_unlinks_carries_the_handoff_on_with_the_failu
         "Lou is on grizzly, which isn't linked any more.",
     )
     .await;
+    assert!(
+        handed.bob.prompts()[1].contains("That teammate did not answer your message"),
+        "{}",
+        handed.bob.prompts()[1]
+    );
 }
 
 /// Carol is deleted while the handoff waits on her answer, in the order the

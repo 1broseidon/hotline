@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RestoreIcon, SidebarIcon } from "../icons";
+import { CloseIcon, MaximizeIcon, MinimizeIcon, PersonPlusIcon, RestoreIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
 import { HotlineMark } from "./HotlineMark";
 
@@ -84,7 +84,7 @@ export function Titlebar({
 				)}
 				{onNew !== undefined && (
 					<button type="button" className="control btn-icon" title={`New teammate (${chordKeys("new-teammate")})`} aria-label="New teammate" onClick={onNew}>
-						<PlusIcon />
+						<PersonPlusIcon />
 					</button>
 				)}
 			</div>

@@ -35,6 +35,14 @@ export const PlusIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/* A new teammate: a face, as the rail's rows are, with one more beside it. */
+export const PersonPlusIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<circle cx="6" cy="5" r="2.25" />
+		<path d="M2 13c0-2.2 1.8-4 4-4s4 1.8 4 4M12.5 4.5v4M10.5 6.5h4" />
+	</Icon>
+);
+
 /* The window's own controls, drawn small: a frame's glyphs are marks on
  * the chrome, not buttons in the page. */
 export const MinimizeIcon = ({ className }: IconProps) => (

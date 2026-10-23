@@ -608,16 +608,20 @@ question the change must answer in its PR description.
 
 1. **Inventory the paths.** List every way the new thing executes or
    reads: Hotline Agent tool closures, the in-process MCP server, ACP file
-   callbacks, the scheduler's queued turns, cached peer sessions, and the
-   wire. If a path is missed, the boundary has a hole in exactly that
-   place; the collaboration and background-work steps each found one in
-   the built-in tools because those are always registered rather than
-   granted.
+   callbacks, the scheduler's queued turns, the turns that answer a
+   colleague's question or carry a handoff, and the wire. If a path is
+   missed, the boundary has a hole in exactly that place; the collaboration
+   and background-work steps each found one in the built-in tools because
+   those are always registered rather than granted.
 2. **Name whose authority a request uses.** The caller's? The recipient's?
-   The person's (only through the authenticated desk wire)? A request that
-   arrives through a peer session carries the caller's lease as a
-   dependency, so revoking the caller kills work done on its behalf. Never
-   let a request borrow the authority of the process it happens to run in.
+   The person's (only through the authenticated desk wire)? A handoff's
+   work thread runs under the recipient's current authority and depends on
+   the request's leases, scoped from both sides, so revoking the caller
+   stops work done on its behalf. A colleague's question is answered by a
+   turn of the answering conversation, under its owner's authority, with the
+   colleague's words fenced as data; revoking the caller stops only the
+   answer from returning. Never let a request borrow the authority of the
+   process it happens to run in.
 3. **Choose the default and the migration.** The default grants nothing
    beyond the workspace. Decide explicitly what an existing record without
    the field means, and write it down beside the field in `contract`;
@@ -631,7 +635,7 @@ question the change must answer in its PR description.
 5. **Make revocation reach it.** A new handle is cloned from the session's
    lease or scoped from it; it is never a fresh lease of its own. Confirm
    the change is covered by the lifecycle below, including queued work and
-   sessions cached for a peer.
+   a colleague's question waiting in a conversation's queue.
 6. **Tell the truth in three places.** The ledger row, the Reach or Tools
    card, and the preamble say what the code enforces, and distinguish what
    Hotline enforces from what a grantee enforces for itself.
@@ -669,18 +673,22 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   are permanently dead, a later explicit start uses the current policy. A
   stop also invalidates a replacement session captured before its startup
   began.
-- **Delegation.** A peer session holds a lease `scoped()` from the caller's
-  and dependent on the target's. Peer teardown revokes only the scoped
-  lease; a stop or policy change on either side revokes the peer through
-  the shared epoch. Third-party sessions delegated from a peer follow the
-  same chain and stop when the original request's authority goes, while
-  each teammate's independent main session stays usable.
-- **Caching.** Cached peer sessions are revoked whether the changed
-  teammate was caller or recipient, including peer-only sessions whose
-  main session is stopped.
+- **Delegation.** Each request between two teammates holds two leases, one
+  `scoped()` from the caller's (the session or thread it was sent from) and
+  one from the recipient's, checked before it is taken up and at its turn's
+  door. A stop, a policy change or a revocation on either side stops the
+  request: a handoff at work has its turn cancelled and its thread closed,
+  and one waiting on an answer leaves its thread open and idle; an ask
+  answered in a work thread has only the turn answering it cancelled; an ask
+  answered by the recipient's main conversation, or by the conversation that
+  handed a thread over, is that conversation's own turn under its owner's
+  authority, which runs on while its answer is dropped. Ending a request also
+  releases a handoff's delegation, so its thread reports no more and asks
+  back with a card again. Each teammate's main session stays usable.
 - **Active and queued work.** Revocation cancels the activity's shell jobs
   and settles their results, clears queued turns, and releases collaboration
-  and human waits so a late answer cannot establish a grant. Stale turns
+  waits so a late answer cannot establish a grant. A colleague's question
+  dropped with a queue fails to its asker at once. Stale turns
   cannot publish state or checkpoints. Unix shell cancellation, deadlines and
   task drops send `SIGSTOP` to the owned process group before `SIGKILL`, so
   killing a waited child cannot wake its shell into the next statement while
@@ -692,8 +700,8 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   (`session/jobs.rs` `Processes`), so it outlives the turn. Default: nothing
   new is granted; the command was launched under the shell grant and the
   turn's lease, and only the DM session, the one that subscribes to its
-  wakes, takes processes (a subagent run, side thread or peer session still
-  waits on its own commands). Enforcement: the driver holds them and
+  wakes, takes processes (a subagent run or side thread still waits on its
+  own commands). Enforcement: the driver holds them and
   `invalidate` kills every one, so a stop, a removal, a grant change
   (which rebuilds the session, by design) or a revoked lease kills them with
   their whole process group; dropping the driver or quitting the desk drops
@@ -795,6 +803,7 @@ extend; when a change adds a boundary, it adds a row.
 | A passkey is made only under an arming for one teammate and one site, and only once the person approves the site's request: a bad site or name is refused before the computer is touched, arming starts the computer, the site's request raises a `passkey_ask` card on the tape with the site, origin and account, nothing is stored while the card waits, an answer must name the request, one answer per request, an approval lets the browser mint and the look that finds it made stores it, ticks it for the teammate, hands the computer the set and ends the arming; a denial ends the arming with nothing stored and the card says so; a request that left with its page expires its card and the next request is a new card; a cancel stores nothing and expires a waiting card; the room's own watch does all of this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a release from before passkeys is named | `session/tests/computer.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room`, `a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires` | Unix |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
+| A delegated thread's turn reaches its opener only as the teammate's own report, never the person's words, shown at once and heard once per thread; it wakes an idle opener only for a handoff's own waiting turn, once for threads that end together, and counts toward the twelve; Stop exchange and revocation end the delegation and drop what was unheard; a question back to the opener needs no card only while the delegation stands, one not sent back from the delegated thread meets the ordinary grant, and one whose delegation lapsed before it was handed over fails; any other ask reaches the colleague's main conversation only through the collaboration grant, and stopping it stops only the answer, while an ask answered in a thread has only its own turn stopped; an ask names only a thread its sender's handoff opened on that recipient; the person talks in a delegated thread and continues it but cannot archive it; a linked desk's request id is only a lookup key, and an older desk that refuses a report still gets the result | `session/exchanges/tests/progress.rs` `the_persons_turn_in_a_delegated_thread_reaches_the_delegator_as_one_report_without_their_words`, `a_persons_stopped_or_failed_turn_waits_for_the_delegators_next_line`, `a_report_waits_while_another_handed_over_thread_works_and_wakes_once_with_both`, `wakes_count_toward_the_pairs_twelve_and_then_reports_only_wait`, `stop_exchange_and_revocation_end_the_reports_and_drop_the_unheard_ones`; `session/exchanges/tests/questions.rs` `an_ask_is_answered_by_the_colleagues_main_conversation`, `stop_exchange_leaves_the_main_conversations_turn_alone_and_fails_the_ask`, `an_ask_naming_a_thread_not_its_own_is_refused`, `stop_exchange_stops_the_turn_answering_an_ask_in_a_thread`, `a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone`; `session/exchanges/tests/ask_back.rs` `a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card`, `a_question_back_after_the_delegation_was_stopped_needs_the_ordinary_grant`, `a_question_not_asked_back_meets_the_ordinary_grant`, `a_question_back_whose_delegation_lapsed_by_lease_meets_the_ordinary_grant`, `a_question_whose_delegation_lapses_before_it_is_handed_over_fails`, `stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question`; `session/sides/tests.rs` `a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them`; `session/links/tests.rs` `a_turn_report_crosses_the_link_without_the_persons_words`, `an_older_desk_refusing_a_report_still_gets_the_handoffs_result`, `a_linked_desk_reports_and_asks_back_only_by_this_desks_own_requests`, `a_report_from_a_desk_the_handoff_was_not_sent_to_is_refused`, `a_question_back_about_another_teammates_handoff_meets_the_card`; `tests/threads/together.rs` `a_delegated_thread_reports_back_takes_the_persons_words_and_answers_questions_where_the_work_is` | — |
 
 Where real macOS execution is required: every `hotline-tools/src/shell/macos.rs` row.
 `make check` in macOS CI on both architectures runs the isolation and
@@ -829,56 +838,199 @@ made it so.
   not authorize Handoff. Old `link` records grant nothing and are ignored.
 - **Grant source:** the existing directional collaboration permission card,
   answered by the person over `permission.answer`, explains main-context
-  handoffs as well as workspace/tool delegation. Session consent is bound to
-  both live leases; a standing approval records the sender's stable id and an
-  informed-consent room record. Phone seats may answer session consent but
+  handoffs as well as workspace/tool delegation, and says that the caller's
+  questions reach the recipient's main conversation, which answers from
+  everything said there, what the person said included. Session consent is
+  bound to both live leases; a standing approval records the sender's stable
+  id and an informed-consent room record. Phone seats may answer session consent but
   not standing consent. Keep going and Stop exchange are person-seat commands,
   not teammate tools, and do not grant collaboration authority.
 - **Enforcement:** `session/exchanges.rs` persists acceptance and checks live
   leases and `authorize_collaboration` before starting either intent. Handoff
-  uses the recipient's existing main session and permissions; Ask uses its
-  isolated peer session. `invalidate`, stop and grant revocation settle queued
-  work; turn dispatch rejects stopped handoffs/results. A cap counts requests
+  uses the recipient's existing main session's context and its permissions in
+  a work thread of its own; Ask is a line in the recipient's main
+  conversation (`exchanges/questions.rs` `ask_in_main`), answered by a turn
+  of that session under its own lease, which the ask is bound to when it is
+  handed over, so a recipient whose chapter turned over meanwhile answers in
+  the session the ask reaches. The person's lines are not steered into that
+  turn. `invalidate`, stop and grant revocation settle queued work; turn
+  dispatch rejects stopped handoffs, asks and results. A cap counts requests
   and automatic replies together, never receipts, and survives restart.
-- **Tests:** `session/exchanges/tests.rs` covers default Ask isolation, main
-  context Handoff and automatic request correlation, cross-intent counting,
-  a held twelfth-message reply, paused restart, started-work crash settlement,
-  Stop/revocation and legacy informed approval. `wire/tests.rs` covers both
+- **Tests:** `session/exchanges/tests.rs` covers main context Handoff and
+  automatic request correlation, cross-intent counting, a held
+  twelfth-message reply, paused restart, started-work crash settlement,
+  Stop/revocation and legacy informed approval;
+  `session/exchanges/tests/questions.rs` an ask answered in the main conversation, waiting behind the person's turn,
+  a stop that leaves that turn alone, a restart during it and the person's
+  cancel failing a question still queued. `wire/tests.rs` covers both
   person seats' resume/stop authority and existing permission-card handling.
 - **Residual risk:** a recipient may use every permission it already has and
-  disclose context in its answer. A crash after work starts but before its
+  disclose context in its answer. An ask is answered by the recipient's main
+  conversation, which holds everything the person said there, so an
+  authorized colleague may be told some of it; the collaboration grant now
+  covers that, and the card says so. A standing grant given before the card
+  said it still authorizes asks. A crash after work starts but before its
   result is saved produces an explicit uncertain failure, not replayed work;
   inspect side effects before retrying. Stopping a handoff cancels its active
-  turn but cannot undo completed effects.
+  turn but cannot undo completed effects, and stopping an ask, or revoking
+  its asker, does not stop the main conversation's turn answering it, nor
+  what that turn started (a handoff to a third teammate, say): only the
+  answer is dropped. An ask to a teammate quiet past the room's idle window
+  opens its next chapter, and the chapter's turnover ends what was in flight
+  under the old session's leases.
 
 ### Continuing a handoff's work thread
 
-- **Default:** a handoff without `thread` opens a new work thread, as before.
-  Old requests have no `continues` and old desks ignore it, so a continuation
-  sent to an older desk opens a new thread there.
-- **Grant source:** none new. A continuation is a handoff and passes the same
-  directional collaboration check, against the same live leases, before it
-  runs.
-- **Enforcement:** `enqueue_exchange` refuses a `thread` on an ask, and one
-  that names no handoff from the same sender to the same recipient in the
-  pair's record. On the recipient's desk `Pair::place` resolves the name
+- **Default:** a handoff without `thread` opens a new work thread, as before,
+  and an ask without one goes elsewhere (below). Old requests have no
+  `continues`. A desk older than `continues` ignores it, so a continuation
+  sent there opens a new thread and an ask is answered as a plain one; a
+  desk that takes it only on a handoff refuses an ask that carries it.
+- **Grant source:** none new. A continuation is a handoff, and an ask naming
+  the thread is an ask; each passes the same directional collaboration check,
+  against the same live leases, before it runs.
+- **Enforcement:** `send_intent` refuses a `thread` that names no handoff
+  from the same sender to the same recipient in the pair's record, for an ask
+  as for a handoff. On the recipient's desk `Pair::place` resolves the name
   against that desk's own record, scoped to the request's sender and
-  recipient, and fails the request when it names none; a linked desk's id is
-  never used as a thread id or a path. The thread is brought back under the
-  recipient's current authority (`Room::bring_up`), never the one it had
-  before, and the person still only reads a handed-over thread.
+  recipient, and fails the request when it names none; an ask never opens a
+  thread. A linked desk's id is never used as a thread id or a path. The
+  thread is brought back under the recipient's current authority
+  (`Room::bring_up`), never the one it had before. An ask answered there is a
+  line whose turn's reply is its answer, and only a handoff's result closes
+  the thread; stopping the ask cancels only the turn answering it, when that
+  is the turn in flight (`cancel_turn_answering`), never the thread, the
+  handoff's turn or the person's.
 - **Tests:** `session/exchanges/tests.rs`
   `a_handoff_naming_its_thread_continues_it_and_one_without_opens_another`,
   `only_the_teammate_that_opened_a_thread_continues_it`,
   `a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread`;
+  `session/exchanges/tests/questions.rs`
+  `an_ask_naming_a_thread_is_answered_in_it_and_leaves_it_open`,
+  `an_ask_naming_a_thread_not_its_own_is_refused`,
+  `an_ask_is_placed_where_its_handoff_opened_a_thread_and_never_opens_one`,
+  `stop_exchange_stops_the_turn_answering_an_ask_in_a_thread`,
+  `a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone`,
+  `stop_exchange_leaves_the_persons_turn_in_a_thread_alone`;
   `session/links/tests.rs`
-  `a_handoff_naming_its_thread_continues_it_on_the_recipients_desk`; over the
+  `a_handoff_naming_its_thread_continues_it_on_the_recipients_desk`,
+  `an_ask_naming_a_thread_and_a_question_back_cross_the_link`; over the
   wire, `tests/threads/together.rs`
   `a_follow_up_handoff_lands_in_the_thread_the_first_ran_in`.
 - **Residual risk:** the recipient hears everything said in the thread before,
   including what an earlier brief carried (a password, say), for as long as
   the thread lasts; that is the point of continuing it, and a sender that wants
-  a clean context opens a new one.
+  a clean context opens a new one. An ask naming the thread, sent to a linked
+  desk that takes `continues` only on a handoff, fails there with that desk's
+  sentence ("Only a handoff continues a work thread…") instead of becoming a
+  plain ask.
+
+### Reports and questions between a delegated thread and its opener
+
+A delegated thread is the work thread a handoff opened on its recipient. It
+reports each turn to the teammate that handed it over, the person talks in it,
+and its questions back reach the conversation that handed it over.
+
+- **Default and old records:**
+  - Reports exist only for a thread with an opener, a handoff's, and never
+    carry what the person said there.
+  - An ask reaches a thread only by naming it with `thread`, checked as a
+    handoff of the same sender's to the same recipient.
+  - An ask reaches the delegator without a card only when it is sent from a
+    delegated thread to that thread's own opener (`about`, the handoff the
+    thread serves).
+  - Any other ask, which an isolated ask session answered before, reaches the
+    colleague's main conversation, under the same collaboration grant as
+    before.
+  - A pair record without `progress`, `released` or `about` has no report
+    waiting, no delegation released and no question back.
+- **Grant source:**
+  - The handoff the delegator sent is the grant for its thread's reports and
+    for its questions back, without a card, while the delegation stands: the
+    latest request the thread serves is not stopped or released, and its
+    leases are current.
+  - Outside that, the recipient → delegator direction needs the ordinary
+    collaboration grant, card and all.
+  - The person owns the desk and already talks to the teammate: speaking in a
+    delegated thread widens nothing the teammate reaches.
+- **Enforcement points:**
+  - `exchanges.rs` `authorize_exchange`, whose shortcut is taken only when
+    `about_live` finds, in this desk's own record, a live handoff from the
+    ask's recipient to its sender; and `send_intent`, which accepts `thread`
+    only for a handoff of the same pair and direction and sets `about` only
+    for an ask from a delegated thread to its own opener
+    (`exchanges/questions.rs` `asked_back_about`). `ask_back` checks the
+    delegation again when it hands the question over, and fails a question
+    whose delegation lapsed rather than let it through without a card.
+  - `exchanges/progress.rs` `report_progress` and `hear_progress`, which keep
+    and show a report only while `delegation_live` holds in this desk's
+    record, and route it by the handoff's own reply route.
+  - `exchanges/linked.rs` `receive_linked_progress` and `links.rs`
+    `receive_linked_request`: a `requestId` or an `about` from another desk is
+    only a key to look up a handoff in this desk's own record, never a
+    destination; a report for a handoff this desk did not send to that desk
+    is refused, and an `about` naming a handoff of another pair meets the
+    ordinary grant.
+  - `change_exchange`, `stop_revoked_exchanges` and `stop_linked_exchanges`
+    release the delegation (`progress::release`) and erase the reports not yet
+    heard; `send_linked_progress` reads the request again under the lock, so
+    an erased report never starts to cross.
+  - `authorize_collaboration`, through the `Queued` arm of `exchanges.rs`, for
+    every question but a delegated thread's to its opener, those reaching a
+    main conversation included; and through `resume_handoff_answer` before a
+    question's answer carries a handoff on.
+  - `cancel_handoff`, which for an ask answered in a thread cancels only the
+    turn answering it, never a main conversation's turn or the delegator's.
+  - `sides.rs` `refuse_archiving_handed_over`, for the person's Archive.
+
+  The thread runs under the recipient's current authority (`bring_up`),
+  revocable through its lease; the turn answering a question runs under the
+  authority of the conversation's owner. A colleague's words arrive fenced as
+  their message data (`hotline_teammate_message`), and so do reports
+  (`hotline_teammate_progress`), which an `info` notice shows the person and
+  no model reads.
+- **Tests:** the [regression matrix](#the-regression-matrix) row for a
+  delegated thread; besides it, `session/exchanges/tests/gates.rs` for a
+  handoff waiting on its questions and the person's words answering its card,
+  `session/exchanges/tests/progress.rs` for the rest of the reports and wakes,
+  `session/exchanges/tests/ask_back.rs` for questions back from a work thread
+  and a job, and `session/links/tests.rs` for reports and questions across a
+  link.
+- **Residual risk:**
+  - The delegator's conversation answers a question back with what it knows,
+    and that goes to the colleague; that is the point, and the delegator could
+    always have sent it.
+  - Every question from an authorized colleague is answered by the main
+    conversation, which holds all the teammate said with the person; the ask
+    session that answered before held none of it. A colleague may be told in
+    an answer what the person said there. The collaboration grant covers that,
+    and the card says so.
+  - Revoking the asker, or stopping the exchange, does not stop the turn its
+    question started in the recipient's main conversation, or in the
+    delegator's: only the answer stops coming back. The ask session this
+    replaces held the asker's lease and died with it.
+  - A report may quote what the person said in the thread, at the teammate's
+    discretion, and cross to another person's desk; the person's words never
+    cross on their own.
+  - A delegation stands until it is stopped or revoked, days after its result
+    too: a thread continued much later still asks back without a card.
+  - A compromised linked desk can mark every report as waking; each wake
+    counts toward the pair's twelve, which stops it. It can also send many
+    reports for a live handoff, each a notice on the delegator's tape, within
+    the link's frame budget.
+  - A report crosses at least once: one whose crossing was cut off is sent
+    again and may be shown twice. A report already crossing when Stop exchange
+    lands may still arrive.
+  - Whether another thread the delegator handed over is at work, which holds
+    a wake back, is known only for threads on the delegator's own desk.
+  - Reports are taken in at a turn's door, once: a turn that fails before its
+    model reads them loses them, though the person saw each as a notice.
+  - A crash between saving that a question's answer was taken up and saving
+    that the handoff no longer waits on it leaves the handoff waiting until
+    the person stops the exchange.
+  - An ask sent from a work thread holds a lease scoped from that thread's,
+    so parking the thread, after three idle hours or to make room for
+    another, stops the ask as a revocation does.
 
 
 ### Human-gated handoff continuation (BRO-128)
@@ -972,8 +1124,9 @@ it lets a colleague use another's tools.
   authenticated refusal at the next dial, runs `Room::unlinked`: the record
   goes, the channel and dialing stop, waiting requests to or from that desk
   fail with a sentence, every capability epoch of that desk's teammates is
-  invalidated — which withdraws their pending cards, ends session grants and
-  peer sessions and stops their handoffs — and they leave `list_teammates`.
+  invalidated — which withdraws their pending cards, ends session grants,
+  stops their handoffs and asks and releases the delegations between the two
+  desks — and they leave `list_teammates`.
   The standing grants the person gave them here end too: their qualified ids
   leave every `allowedSenders` and their informed consent is withdrawn, so a
   link made again starts from nothing.
@@ -986,8 +1139,10 @@ it lets a colleague use another's tools.
   `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`;
   `session/links/tests.rs` (cards on the recipient's desk, standing grants
   by qualified id, a denied linked sender, offline queueing both ways, an
-  ended link failing and withdrawing what waited, ambiguous names, and the
-  roster carrying no field but a roster row's); the tests of `linked.rs` in
+  ended link failing and withdrawing what waited, ambiguous names, the
+  roster carrying no field but a roster row's, and the reports and questions
+  of [a delegated thread](#reports-and-questions-between-a-delegated-thread-and-its-opener)
+  crossing it); the tests of `linked.rs` in
   `hotline-room`, among them `a_record_written_back_as_its_link_ends_stays_ended` and
   `a_linked_desk_may_send_a_burst_and_then_only_so_many_frames_a_second`.
 - **Residual risk:** a compromised linked desk can publish any roster and
@@ -1803,7 +1958,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   | verb | companion may | because |
   | --- | --- | --- |
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
-  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, `peers.answer_permission` is the owner's |
+  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed; a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
   | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |

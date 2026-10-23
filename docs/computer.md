@@ -108,7 +108,7 @@ A computer that fails, at once or behind the session, leaves the teammate
 answering without it, with the reason in its preamble and the desk's log;
 the persona keeps the grant, so the next start tries again. None of this is
 narrated on the tape: the conversation carries on as one conversation.
-Peer sessions still wait for their computer. The token lives in the container's private process environment, never
+The token lives in the container's private process environment, never
 in room settings. Hotline recovers it from runtime inspection after an app restart,
 so an existing computer keeps its jobs and viewer. A container without a
 recoverable token is recreated. Idle uses the room's sweep:

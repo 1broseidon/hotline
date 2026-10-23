@@ -315,20 +315,6 @@ impl InProcess {
         self
     }
 
-    /// A failed turn names its credential only when there was a choice of
-    /// one, so a room with one account per provider writes the notice it
-    /// always has.
-    fn account_on_notice(&self, model: &str) -> Option<String> {
-        let provider = model.split('/').next().unwrap_or_default();
-        match &self.account {
-            Some(account) if account.provider_id == provider => Some(account.id.clone()),
-            _ => self
-                .keys
-                .default_account(provider)
-                .and_then(|(id, others)| others.then_some(id)),
-        }
-    }
-
     fn info(&self, keys: &HashMap<String, ProviderAuth>) -> DriverInfo {
         let model = lock(&self.model).clone();
         let effort = lock(&self.effort).clone();
@@ -637,7 +623,6 @@ impl InProcess {
         let meter = turn::ChatMeter::for_model(self.keys.budget(), &keys, &model, &metadata);
         let turn = Turn {
             keys,
-            account_on_notice: self.account_on_notice(&model),
             model: model.clone(),
             output_limit,
             context_limit: metadata.get(&model).and_then(|m| m.context_limit),
@@ -662,6 +647,8 @@ impl InProcess {
         };
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
+        let provider_keys = self.keys.clone();
+        let account = self.account.clone();
         tokio::spawn(async move {
             let origin = recovery::Origin::of(&turn.model, &turn.keys);
             let changed = lock(&history_origin)
@@ -687,7 +674,8 @@ impl InProcess {
             }
             if let Err(error) = result {
                 let mut error = error.checked_against_sign_in(&turn.model, &turn.keys).await;
-                error.account_id.clone_from(&turn.account_on_notice);
+                error.account_id =
+                    account_on_notice(provider_keys.as_ref(), account.as_ref(), &turn.model);
                 for auth in turn.keys.values() {
                     match auth {
                         ProviderAuth::ApiKey(key)
@@ -717,11 +705,28 @@ impl InProcess {
     }
 }
 
+/// The credential a failed turn on `model` names: only one there was a choice
+/// of, so a room with one account per provider writes the notice it always
+/// has. Asked only once a turn has failed, since the default's id costs
+/// another read of the keychain.
+fn account_on_notice(
+    keys: &dyn ProviderKeys,
+    account: Option<&ChosenAccount>,
+    model: &str,
+) -> Option<String> {
+    let provider = model.split('/').next().unwrap_or_default();
+    match account {
+        Some(account) if account.provider_id == provider => Some(account.id.clone()),
+        _ => keys
+            .default_account(provider)
+            .and_then(|(id, others)| others.then_some(id)),
+    }
+}
+
 /// Everything one turn needs, taken from the session at the moment it starts
 /// so the turn owns it and the driver stays free to answer other calls.
 struct Turn {
     keys: HashMap<String, ProviderAuth>,
-    account_on_notice: Option<String>,
     model: String,
     /// The Chat budget this turn's rounds are metered against; `None` for a
     /// model that costs nothing per token, or a desk without budgets.

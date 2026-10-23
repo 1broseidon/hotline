@@ -362,8 +362,15 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
 
 /// The room's agent accounts, in the order they were added.
 pub fn agent_accounts(log: &Log) -> Vec<AgentAccount> {
+    agent_accounts_from(&log.load(&StreamId::Room))
+}
+
+/// The same, from room events the caller has already loaded.
+pub fn agent_accounts_from(events: &[Value]) -> Vec<AgentAccount> {
     crate::agent_accounts::normalize_accounts(
-        settings(log).get(AGENT_ACCOUNTS).unwrap_or(&Value::Null),
+        settings_from_events(events)
+            .get(AGENT_ACCOUNTS)
+            .unwrap_or(&Value::Null),
     )
 }
 

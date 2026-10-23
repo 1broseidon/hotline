@@ -106,7 +106,7 @@ impl ChildAgent {
         let agent = registry::name_of(&self.root, &self.backend_id)
             .unwrap_or_else(|| self.backend_id.clone());
         let sentence = refusal.public_sentence(&persona.name, &agent);
-        let failure = Failure::account_unavailable(&refusal, &agent, sentence);
+        let failure = Failure::account_unavailable(&refusal, &agent, sentence, "acp_start");
         *lock(&self.live.startup_failure) = Some(failure.notice());
         self.live.failed.store(true, Ordering::SeqCst);
         {

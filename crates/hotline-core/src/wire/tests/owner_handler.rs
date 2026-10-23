@@ -39,9 +39,9 @@ async fn an_unknown_account_refusal_is_private_for_the_desk_and_the_owner() {
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     let room: Arc<dyn RoomHandle> = desk.clone();
-    for (persona_id, backend_id, agent) in [
-        ("ada", "claude-acp", "Claude Code"),
-        ("hal", "hotline", "Hotline Agent"),
+    for (persona_id, backend_id, agent, phase) in [
+        ("ada", "claude-acp", "Claude Code", "acp_start"),
+        ("hal", "hotline", "Hotline Agent", "start"),
     ] {
         let mut teammate = crate::session::tests::persona(persona_id);
         teammate.backend_id = backend_id.to_string();
@@ -61,10 +61,12 @@ async fn an_unknown_account_refusal_is_private_for_the_desk_and_the_owner() {
             let private = format!(
                 "Pick a {agent} account for Ada: the one it was set to is not on this desk."
             );
+            let phase = format!(r#""phase":"{phase}""#);
             for part in [
                 private.as_str(),
                 r#""kind":"account_unavailable""#,
                 r#""code":"unknown_account""#,
+                phase.as_str(),
             ] {
                 assert!(error.contains(part), "{answer}");
             }

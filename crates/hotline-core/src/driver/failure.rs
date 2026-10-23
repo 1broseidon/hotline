@@ -74,6 +74,10 @@ const USAGE_LIMIT_BYTES: usize = 500;
 /// (`AuthError::Store`): for ChatGPT and Copilot, the OS keychain.
 const KEYCHAIN_FAILED: &str = "token store failed";
 
+/// How the vault's own store says the OS keychain is locked, when a key's
+/// secret is read for a turn (`hotline_support::credentials`), in lower case.
+const KEYCHAIN_LOCKED: &str = "os credential storage is locked";
+
 /// What a stream the provider never finished reads as.
 pub(crate) const TRUNCATED: &str = "The model stream ended without a complete response.";
 
@@ -176,7 +180,7 @@ impl Failure {
                             .rsplit_once('.')
                             .is_some_and(|(_, field)| field == "id" || field == "encrypted_content")
                 });
-        let kind = if contains(&[KEYCHAIN_FAILED]) {
+        let kind = if contains(&[KEYCHAIN_FAILED, KEYCHAIN_LOCKED]) {
             Kind::Keychain
         } else if contains(&[
             "insufficient_quota",
@@ -315,14 +319,19 @@ impl Failure {
 
     /// The account goes by its id alone: its name and folder may only be in
     /// a private `sentence`.
-    pub fn account_unavailable(refusal: &AccountRefusal, agent: &str, sentence: String) -> Self {
+    pub fn account_unavailable(
+        refusal: &AccountRefusal,
+        agent: &str,
+        sentence: String,
+        phase: &'static str,
+    ) -> Self {
         let (account_id, code) = match refusal {
             AccountRefusal::UnknownAccount { account_id } => (account_id, "unknown_account"),
             AccountRefusal::FolderUnavailable { account_id, .. } => {
                 (account_id, "folder_unavailable")
             }
         };
-        let mut failure = Self::of(Kind::AccountUnavailable, sentence.clone(), "acp_start");
+        let mut failure = Self::of(Kind::AccountUnavailable, sentence.clone(), phase);
         failure.title = format!("{agent} account unavailable").into();
         failure.summary = Cow::Owned(sentence);
         failure.code = Some(code.to_string());
@@ -938,31 +947,41 @@ mod tests {
         assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
+    /// Two Copilot sign-ins on one stub, of which only the first still lists
+    /// its models: the second is probed itself, not answered by the first.
     #[tokio::test]
     async fn two_sign_ins_of_one_provider_do_not_share_a_verdict() {
-        let refused = || {
-            Failure::classify(
+        use crate::providers::copilot::tests::seeded_login;
+        use axum::{Router, routing::get};
+        let app = Router::new().route(
+            "/listed/models",
+            get(|| async { r#"{"data":[{"id":"gpt-5-mini"}]}"# }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let mut kinds = Vec::new();
+        for sign_in in ["listed", "gone"] {
+            let token_dir =
+                seeded_login(&format!("verdict-{sign_in}"), &format!("{base}/{sign_in}"));
+            let keys = HashMap::from([(
+                "github-copilot".to_string(),
+                ProviderAuth::Login { token_dir },
+            )]);
+            let refused = Failure::classify(
                 r#"{"error":{"code":"invalid_api_key"}}"#,
                 Some(401),
                 "request",
-            )
-        };
-        let run = uuid::Uuid::new_v4();
-        let a = std::env::temp_dir().join(format!("openai-codex-a-{run}"));
-        let b = std::env::temp_dir().join(format!("openai-codex-b-{run}"));
-        let listed = refused()
-            .refused_if_listed(&a, "ChatGPT is refusing requests", async { Ok(Vec::new()) })
-            .await;
-        let asked = std::sync::atomic::AtomicBool::new(false);
-        let unlisted = refused()
-            .refused_if_listed(&b, "ChatGPT is refusing requests", async {
-                asked.store(true, std::sync::atomic::Ordering::SeqCst);
-                Err("This sign-in is gone.".to_string())
-            })
-            .await;
-        assert_eq!(listed.kind, Kind::ProviderRefused);
-        assert!(asked.load(std::sync::atomic::Ordering::SeqCst));
-        assert_eq!(unlisted.kind, Kind::Auth);
+            );
+            kinds.push(
+                refused
+                    .checked_against_sign_in("github-copilot/gpt-5-mini", &keys)
+                    .await
+                    .kind,
+            );
+        }
+        server.abort();
+        assert_eq!(kinds, [Kind::ProviderRefused, Kind::Auth]);
     }
 
     /// A provider with no model list to ask, or a failure that is not a
@@ -1091,6 +1110,7 @@ mod tests {
             &refusal,
             "Claude Code",
             refusal.public_sentence("Ada", "Claude Code"),
+            "acp_start",
         )
         .notice();
         for part in [

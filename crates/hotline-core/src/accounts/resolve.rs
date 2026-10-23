@@ -6,7 +6,7 @@
 //! send an account's sign-in somewhere else.
 
 use super::support::{AccountSupport, account_support};
-use crate::contract::{Credential, Persona};
+use crate::contract::{AgentAccount, Persona};
 use crate::log::{Log, StreamId};
 use crate::vault::Vault;
 use crate::{paths, private_dir, room};
@@ -91,16 +91,10 @@ pub(crate) fn resolve(
     if account_support(&persona.backend_id).is_none() {
         return Ok(None);
     }
-    match room::agent_accounts(log)
-        .into_iter()
-        .find(|row| &row.id == account_id)
-    {
-        Some(row) if row.backend_id == persona.backend_id => {
-            account(root, log, account_id).map(Some)
-        }
-        Some(_) => Ok(None),
-        None if credential(log, account_id).is_some() => Ok(None),
-        None => Err(AccountRefusal::UnknownAccount {
+    match named(log, account_id) {
+        Named::Agent(row) if row.backend_id == persona.backend_id => checked(root, row).map(Some),
+        Named::Agent(_) | Named::Credential(_) => Ok(None),
+        Named::Nothing => Err(AccountRefusal::UnknownAccount {
             account_id: account_id.clone(),
         }),
     }
@@ -116,27 +110,39 @@ pub(crate) fn hotline(
     let Some(account_id) = &persona.account_id else {
         return Ok(None);
     };
-    if let Some(credential) = credential(log, account_id) {
-        return Ok(Some(ChosenAccount {
-            id: credential.id,
-            provider_id: credential.provider_id,
-        }));
+    match named(log, account_id) {
+        Named::Credential(credential) => Ok(Some(credential)),
+        Named::Agent(_) => Ok(None),
+        Named::Nothing => Err(AccountRefusal::UnknownAccount {
+            account_id: account_id.clone(),
+        }),
     }
-    if room::agent_accounts(log)
-        .iter()
-        .any(|row| &row.id == account_id)
-    {
-        return Ok(None);
-    }
-    Err(AccountRefusal::UnknownAccount {
-        account_id: account_id.clone(),
-    })
 }
 
-fn credential(log: &Log, id: &str) -> Option<Credential> {
-    Vault::credentials(&log.load(&StreamId::Room))
+/// What an account id names on this desk.
+enum Named {
+    Agent(AgentAccount),
+    Credential(ChosenAccount),
+    Nothing,
+}
+
+fn named(log: &Log, account_id: &str) -> Named {
+    let events = log.load(&StreamId::Room);
+    if let Some(row) = room::agent_accounts_from(&events)
         .into_iter()
-        .find(|credential| credential.id == id)
+        .find(|row| row.id == account_id)
+    {
+        return Named::Agent(row);
+    }
+    Vault::credentials(&events)
+        .into_iter()
+        .find(|credential| credential.id == account_id)
+        .map_or(Named::Nothing, |credential| {
+            Named::Credential(ChosenAccount {
+                id: credential.id,
+                provider_id: credential.provider_id,
+            })
+        })
 }
 
 /// The account with `account_id`, for a command about the account itself: its
@@ -146,18 +152,25 @@ pub(crate) fn account(
     log: &Log,
     account_id: &str,
 ) -> Result<ResolvedAccount, AccountRefusal> {
-    let unknown = || AccountRefusal::UnknownAccount {
-        account_id: account_id.to_string(),
-    };
     let row = room::agent_accounts(log)
         .into_iter()
         .find(|row| row.id == account_id)
-        .ok_or_else(unknown)?;
+        .ok_or_else(|| AccountRefusal::UnknownAccount {
+            account_id: account_id.to_string(),
+        })?;
+    checked(root, row)
+}
+
+/// `row` as an account a teammate may run under, its folder checked now.
+fn checked(root: &Path, row: AgentAccount) -> Result<ResolvedAccount, AccountRefusal> {
+    let unknown = || AccountRefusal::UnknownAccount {
+        account_id: row.id.clone(),
+    };
     let support = account_support(&row.backend_id).ok_or_else(unknown)?;
     // Defensive: the room admits only the uuid spelling `agent_account_dir`
     // accepts, so no stored id reaches the `None`.
-    let path = paths::agent_account_dir(root, account_id).ok_or_else(unknown)?;
-    let dir = private_dir::checked_account_dir(root, account_id).map_err(|error| {
+    let path = paths::agent_account_dir(root, &row.id).ok_or_else(unknown)?;
+    let dir = private_dir::checked_account_dir(root, &row.id).map_err(|error| {
         AccountRefusal::FolderUnavailable {
             account_id: row.id.clone(),
             name: row.name.clone(),

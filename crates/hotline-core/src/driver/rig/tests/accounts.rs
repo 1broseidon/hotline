@@ -1,15 +1,18 @@
 use super::*;
 use crate::driver::failure::ACCOUNT_SIGNED_OUT;
 use hotline_room::provider_auth::ChosenAccount;
+use std::sync::atomic::AtomicUsize;
 
 /// What the vault would hand a turn: `chosen` when the driver names an
 /// account, `default` when it names none. Every ask is kept, so a call site
 /// that forgot the account shows up as a `None` among the `Some`s.
+#[derive(Default)]
 struct Keys {
     default: HashMap<String, ProviderAuth>,
     chosen: HashMap<String, ProviderAuth>,
     default_account: Option<(String, bool)>,
     asked: Mutex<Vec<Option<ChosenAccount>>>,
+    defaults_asked: AtomicUsize,
 }
 
 impl ProviderKeys for Keys {
@@ -26,6 +29,7 @@ impl ProviderKeys for Keys {
     }
 
     fn default_account(&self, _provider_id: &str) -> Option<(String, bool)> {
+        self.defaults_asked.fetch_add(1, Ordering::SeqCst);
         self.default_account.clone()
     }
 }
@@ -38,8 +42,7 @@ fn keys(default: ProviderAuth, chosen: ProviderAuth) -> Keys {
     Keys {
         default: HashMap::from([("anthropic".to_string(), default)]),
         chosen: HashMap::from([("anthropic".to_string(), chosen)]),
-        default_account: None,
-        asked: Mutex::default(),
+        ..Keys::default()
     }
 }
 
@@ -83,8 +86,8 @@ async fn started(name: &str, keys: Arc<Keys>, account: Option<ChosenAccount>) ->
     }
 }
 
-/// The notice a turn that cannot reach its provider ends with.
-async fn failed_turn(driver: &InProcess) -> String {
+/// One turn to its end: how it stopped, and the notice it gave, if any.
+async fn turn(driver: &InProcess) -> (String, Option<String>) {
     let mut updates = driver
         .prompt(
             "Is the crane free?".to_string(),
@@ -96,13 +99,17 @@ async fn failed_turn(driver: &InProcess) -> String {
     while let Some(update) = updates.recv().await {
         match update {
             Update::Notice { text, .. } => notice = Some(text),
-            Update::Turn { stop_reason, .. } => {
-                assert_eq!(stop_reason, "failed");
-                break;
-            }
+            Update::Turn { stop_reason, .. } => return (stop_reason, notice),
             _ => {}
         }
     }
+    panic!("the turn never ended");
+}
+
+/// The notice a turn that cannot reach its provider ends with.
+async fn failed_turn(driver: &InProcess) -> String {
+    let (stop_reason, notice) = turn(driver).await;
+    assert_eq!(stop_reason, "failed");
     notice.expect("a failed turn says why")
 }
 
@@ -118,8 +125,7 @@ async fn a_chosen_account_signs_only_its_providers_turns() {
                 ("anthropic".to_string(), unavailable("account b")),
                 ("openai".to_string(), unavailable("openai's default")),
             ]),
-            default_account: None,
-            asked: Mutex::default(),
+            ..Keys::default()
         });
         let agent = started("chosen-signs", keys.clone(), account.clone()).await;
         let driver = &agent.driver;
@@ -148,37 +154,41 @@ async fn a_chosen_account_signs_only_its_providers_turns() {
 
 #[tokio::test]
 async fn a_turn_on_a_signed_out_account_fails_as_a_sign_in_and_names_it_by_id() {
-    const LABEL: &str = "Work laptop";
-    let keys = Arc::new(keys(unavailable(LABEL), unavailable(ACCOUNT_SIGNED_OUT)));
+    const DEFAULTS_WORDS: &str = "the default credential";
+    let keys = Arc::new(keys(
+        unavailable(DEFAULTS_WORDS),
+        unavailable(ACCOUNT_SIGNED_OUT),
+    ));
     let agent = started("signed-out", keys, Some(account_b())).await;
     let notice = failed_turn(&agent.driver).await;
     for part in [r#""kind":"auth""#, r#""accountId":"b""#, ACCOUNT_SIGNED_OUT] {
         assert!(notice.contains(part), "{part}: {notice}");
     }
-    assert!(!notice.contains(LABEL), "{notice}");
+    assert!(!notice.contains(DEFAULTS_WORDS), "{notice}");
 }
 
+/// The vault's own store says a locked keychain in its words, and a sign-in
+/// read by Rig says it in Rig's.
 #[tokio::test]
 async fn a_locked_keychain_fails_the_chosen_account_with_its_own_words() {
-    let keys = Arc::new(keys(
-        unavailable("the default credential"),
-        unavailable("token store failed: keychain locked"),
-    ));
-    let agent = started("keychain", keys.clone(), Some(account_b())).await;
-    let notice = failed_turn(&agent.driver).await;
-    for part in [
-        r#""kind":"keychain""#,
-        "keychain locked",
-        r#""accountId":"b""#,
+    const DEFAULTS_WORDS: &str = "the default credential";
+    for locked in [
+        "OS credential storage is locked or inaccessible. Unlock it and retry; Hotline does not fall back to plaintext.",
+        "token store failed: keychain locked",
     ] {
-        assert!(notice.contains(part), "{part}: {notice}");
+        let keys = Arc::new(keys(unavailable(DEFAULTS_WORDS), unavailable(locked)));
+        let agent = started("keychain", keys.clone(), Some(account_b())).await;
+        let notice = failed_turn(&agent.driver).await;
+        for part in [r#""kind":"keychain""#, locked, r#""accountId":"b""#] {
+            assert!(notice.contains(part), "{part}: {notice}");
+        }
+        assert!(!notice.contains(DEFAULTS_WORDS), "{notice}");
+        assert!(
+            lock(&keys.asked)
+                .iter()
+                .all(|asked| *asked == Some(account_b()))
+        );
     }
-    assert!(!notice.contains("the default credential"), "{notice}");
-    assert!(
-        lock(&keys.asked)
-            .iter()
-            .all(|asked| *asked == Some(account_b()))
-    );
 }
 
 #[tokio::test]
@@ -197,4 +207,63 @@ async fn a_failed_turn_names_the_default_account_only_when_its_provider_has_othe
         assert_eq!(notice.contains(r#""accountId":"a""#), named, "{notice}");
         assert_eq!(notice.contains("accountId"), named, "{notice}");
     }
+}
+
+/// A chat-completions server that answers its first request and refuses
+/// every later one.
+async fn answers_once() -> String {
+    use axum::{Router, http::StatusCode, response::IntoResponse, routing::post};
+    const REPLY: &str = concat!(
+        r#"data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"stub","choices":[{"index":0,"delta":{"role":"assistant","content":"Free."},"finish_reason":null}]}"#,
+        "\n\n",
+        r#"data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"stub","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+        "\n\n",
+        "data: [DONE]\n\n",
+    );
+    let answered = Arc::new(AtomicBool::new(false));
+    let app = Router::new().route(
+        "/chat/completions",
+        post(move || async move {
+            if answered.swap(true, Ordering::SeqCst) {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            ([("content-type", "text/event-stream")], REPLY).into_response()
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    url
+}
+
+#[tokio::test]
+async fn only_a_failed_turn_asks_for_the_default_account() {
+    let provider = format!("custom-{}", uuid::Uuid::new_v4());
+    let stub = ProviderAuth::Custom {
+        name: "Stub".to_string(),
+        base_url: answers_once().await,
+        api_key: None,
+        config: crate::contract::CustomProvider {
+            api: crate::contract::OpenAiApi::ChatCompletions,
+            models: vec!["stub".to_string()],
+        },
+    };
+    let keys = Arc::new(Keys {
+        default: HashMap::from([(provider.clone(), stub)]),
+        default_account: Some(("a".to_string(), true)),
+        ..Keys::default()
+    });
+    let agent = started("only-failed", keys.clone(), None).await;
+    agent
+        .driver
+        .set_model(&format!("{provider}/stub"))
+        .await
+        .unwrap();
+
+    let (stop_reason, notice) = turn(&agent.driver).await;
+    assert_ne!(stop_reason, "failed", "{notice:?}");
+    assert_eq!(keys.defaults_asked.load(Ordering::SeqCst), 0);
+    let notice = failed_turn(&agent.driver).await;
+    assert!(notice.contains(r#""accountId":"a""#), "{notice}");
+    assert_eq!(keys.defaults_asked.load(Ordering::SeqCst), 1);
 }

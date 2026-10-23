@@ -58,16 +58,18 @@ fn refused_at_the_desk(log: &Log, persona_id: &str, error: String) -> String {
     let Ok(persona) = living(log, persona_id) else {
         return error;
     };
-    let (refused, agent) = if persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
+    let (refused, agent, phase) = if persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
         (
             crate::accounts::resolve::hotline(log, &persona).err(),
             crate::driver::rig::AGENT_NAME.to_string(),
+            "start",
         )
     } else {
         (
             crate::accounts::resolve::resolve(log.root(), log, &persona).err(),
             crate::driver::acp::registry::name_of(log.root(), &persona.backend_id)
                 .unwrap_or_else(|| persona.backend_id.clone()),
+            "acp_start",
         )
     };
     let Some(refusal) = refused else {
@@ -77,7 +79,7 @@ fn refused_at_the_desk(log: &Log, persona_id: &str, error: String) -> String {
         return error;
     }
     let sentence = refusal.private_sentence(&persona.name, &agent);
-    crate::driver::failure::Failure::account_unavailable(&refusal, &agent, sentence).notice()
+    crate::driver::failure::Failure::account_unavailable(&refusal, &agent, sentence, phase).notice()
 }
 
 /// Runs work that reads or writes files or a database on the blocking pool,

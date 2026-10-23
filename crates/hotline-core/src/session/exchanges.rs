@@ -1122,7 +1122,8 @@ impl Room {
                 // The card or the question is durable before dispatch. Repair
                 // an answer saved just before the desk stopped, without
                 // replaying an old turn. A question's answer still at `Reply`
-                // is its own pair's to deliver.
+                // is its own pair's to deliver; a question stopped instead of
+                // answered hands over its failure, which carries the work on.
                 for gate in request.human_actions.iter().filter(|g| !g.consumed) {
                     if let Some((
                         TranscriptEvent::HumanAction {
@@ -1143,7 +1144,10 @@ impl Room {
                             self.exchange_pairs().into_iter().find_map(|p| {
                                 p.requests
                                     .into_iter()
-                                    .find(|r| r.id == gate.id && r.phase == Phase::Done)
+                                    .find(|r| {
+                                        r.id == gate.id
+                                            && matches!(r.phase, Phase::Done | Phase::Stopped)
+                                    })
                                     .map(|r| (p.id, r))
                             })
                     {

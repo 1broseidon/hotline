@@ -38,7 +38,11 @@ impl Room {
     }
 
     /// A request's answer as its sender hears it: the delivery's id, its
-    /// cause, where it came from and what it says.
+    /// cause, where it came from and what it says. A stopped request's
+    /// failure is not its result: it has an id of its own and names no
+    /// request in its `from`, so a turn's door does not refuse it as a result
+    /// the exchange stopped, and an unheard result of the same request does
+    /// not stand in for it.
     pub(super) fn answer_delivery(
         &self,
         key: &str,
@@ -57,6 +61,14 @@ impl Room {
             },
             about: peers::about(&request.message),
         };
+        if request.phase == Phase::Stopped {
+            return Ok((
+                format!("exchange-stopped:{}", request.id),
+                cause,
+                DeliveryFrom::new(&ThreadId::pair(key), None),
+                request.reply.clone(),
+            ));
+        }
         let from = self.delivery_source(&request.from, &cause);
         Ok((
             format!("exchange-result:{}", request.id),

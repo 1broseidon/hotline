@@ -394,6 +394,40 @@ async fn the_answer_to_a_delegated_threads_question_reopens_it_and_never_lands_i
     );
 }
 
+#[tokio::test]
+async fn a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_failure() {
+    let handed = handed_off("question-stopped-before-its-answer", "end_turn").await;
+    let room = &handed.room;
+    let ask = ask_carol(room, &handed.thread).await;
+    handed.bob_gate.add_permits(2);
+    until("the handoff waits on Carol, who is answering", || {
+        request(room, "ada~bob", &handed.handoff).phase == Phase::Waiting
+            && request(room, "bob~carol", &ask).phase == Phase::Running
+            && idle(room, &handed.thread)
+    })
+    .await;
+    room.stop_exchange("bob", "carol").unwrap();
+    until("the handoff carries on with the failure", || {
+        handed.bob.prompts().len() == 2
+    })
+    .await;
+    let failure = delivered_in(room, &handed.thread, &ask).expect("the failure is in the thread");
+    assert_eq!(failure["cause"]["kind"], "peer");
+    assert_eq!(failure["cause"]["status"], "failed");
+    assert_eq!(failure["text"], "The person stopped this exchange.");
+    assert!(handed.bob.prompts()[1].contains("The person stopped this exchange."));
+    assert_eq!(
+        request(room, "ada~bob", &handed.handoff).phase,
+        Phase::Running
+    );
+    handed.bob_gate.add_permits(2);
+    done(room, &handed.handoff).await;
+    let results = heard_by_ada(room, &handed.handoff);
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0]["cause"]["status"], "done");
+    assert_eq!(results[0]["text"], "Painted it blue.");
+}
+
 /// Review Focus 2: an answer that comes back after the handoff waiting on it
 /// was stopped, or behind a turn of the handoff that failed, is still heard
 /// in the thread, as any delivery is, and returns nothing more to Ada.

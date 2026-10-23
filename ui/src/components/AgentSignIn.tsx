@@ -146,6 +146,9 @@ export function SignInTerminal({ job, onDone, onClose, windowNote, cancelLabel =
 						}).catch(failed);
 					});
 				}
+				// StrictMode mounts twice in development; the first mount's cleanup runs before this.
+				await Promise.resolve();
+				if (disposed) return;
 				const started = await job.start();
 				id = started.id;
 				if (disposed) { cancel(); return; }

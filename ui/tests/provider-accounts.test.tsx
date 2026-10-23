@@ -709,6 +709,25 @@ describe("Settings › Providers › Anthropic: Claude Code accounts", () => {
 		expect(button("Try again", row("Account 3"))).toBeDefined();
 	});
 
+	test("a Windows sign-in started under StrictMode's double mount starts once and is never cancelled by it", async () => {
+		const { StrictMode } = await import("react");
+		await act(async () => {
+			root!.render(
+				<StrictMode>
+					<ProvidersSection enabledModels={{}} roster={roster} />
+				</StrictMode>,
+			);
+		});
+		await settle();
+		await openProvider("Anthropic");
+		await click("Add subscription");
+		await click("Add and sign in");
+		await settle();
+		expect(calls.filter(([cmd]) => cmd === "accounts.login.start")).toEqual([["accounts.login.start", { accountId: "a3" }]]);
+		expect(calls.some(([cmd]) => cmd === "accounts.login.cancel")).toBe(false);
+		expect(text()).toContain("A Claude Code window opened for Account 3. Finish signing in there; Hotline checks when it closes.");
+	});
+
 	test("a name refused as taken reads the accounts again, so the account it names is listed", async () => {
 		await mount();
 		await openProvider("Anthropic");

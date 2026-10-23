@@ -452,11 +452,16 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
 
 #[test]
 fn only_the_desk_and_the_owner_reach_agent_accounts() {
-    let commands: Vec<Command> = super::accounts::account_frames("Desk")
+    let mut commands: Vec<Command> = super::accounts::account_frames("Desk")
         .iter()
         .map(|frame| crate::wire::socket::read_command(frame).unwrap())
         .collect();
-    assert_eq!(commands.len(), 12);
+    commands.push(
+        crate::wire::socket::read_command(&json!({"cmd":"credential.update","params":{
+            "id":"cred-1","label":"Work","secret":"fixture-secret","baseUrl":"http://127.0.0.1:11434"}}))
+        .unwrap(),
+    );
+    assert_eq!(commands.len(), 13);
     for c in &commands {
         assert!(Seat::Desk.permits(c) && Seat::Owner.permits(c), "{c:?}");
         assert!(!Seat::Phone.permits(c) && !Seat::Link.permits(c), "{c:?}");

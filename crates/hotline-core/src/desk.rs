@@ -6,32 +6,30 @@
 //! the one place those two seams are joined to the real things, so the shell
 //! and the headless harness open a desk the same way and get the same room.
 
+mod credentials;
 mod keys;
 
 use crate::contract::{
     AccountStatusView, Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary,
-    ConfigChoice, Credential, CredentialKind, ImageSettings, ImagesStatus, LoginAttemptView,
-    LoginPrompt, LoginState, LoginStatus, SessionInfo, SkillEntry, SkillSource, StreamDelta,
+    ConfigChoice, Credential, ImageSettings, ImagesStatus, LoginAttemptView, LoginPrompt,
+    LoginState, LoginStatus, SessionInfo, SkillEntry, SkillSource, StreamDelta,
 };
 use crate::driver::{HOTLINE_BACKEND_ID, acp};
-use crate::log::{Log, StreamId};
+use crate::log::Log;
 use crate::mcp::{McpOAuth, McpServer};
 use crate::models::Client;
-use crate::providers::rig_login;
 use crate::session::{ProviderAuth, Room};
 use crate::vault::Vault;
-use crate::wire::RoomHandle;
+use crate::wire::{CredentialUpdate, RoomHandle};
 use crate::{room, skills};
 use async_trait::async_trait;
 pub(crate) use hotline_room::tls::install_crypto_provider;
 use keys::DeskCredentials;
-use serde_json::json;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::Duration;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 /// How far an in-flight device-code login has got. Lives only in this
@@ -663,20 +661,7 @@ impl RoomHandle for Desk {
         label: &str,
         secret: &str,
     ) -> Result<Credential, String> {
-        let wiring = crate::models::wiring(provider_id)
-            .ok_or_else(|| format!("Unknown provider {provider_id}."))?;
-        if wiring.client == Client::CustomOpenAi {
-            return Err("Use the custom connection form to choose its URL and API.".into());
-        }
-        if !wiring.credential_kinds.contains(&CredentialKind::ApiKey) {
-            return Err(format!("{provider_id} does not accept an API key."));
-        }
-        if secret.trim().is_empty() {
-            return Err("Enter an API key.".into());
-        }
-        self.vault
-            .create(provider_id, label, secret.trim())
-            .map_err(|error| error.to_string())
+        self.create_key(provider_id, label, secret)
     }
 
     fn credential_revoke(&self, id: &str) -> Result<(), String> {
@@ -689,86 +674,13 @@ impl RoomHandle for Desk {
             .map_err(|error| error.to_string())
     }
 
-    async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
-        if let Some(message) = crate::models::login_refusal(provider_id) {
-            return Err(message);
-        }
-        let wiring = crate::models::wiring(provider_id)
-            .ok_or_else(|| format!("{provider_id} is not a provider Hotline Agent can use."))?;
-        let label = crate::models::catalog()
-            .providers
-            .get(wiring.id)
-            .map_or_else(|| wiring.id.to_string(), |entry| entry.name.clone());
-        let (id, token_dir) = self
-            .vault
-            .begin_login()
-            .map_err(|error| error.to_string())?;
-        let tokens = self.vault.login_tokens(&id);
-        let cancel = CancellationToken::new();
-        self.logins()
-            .insert(id.clone(), LoginOutcome::Pending(cancel.clone()));
-        let (prompt_tx, prompt_rx) = oneshot::channel();
-        let prompt_tx = Arc::new(Mutex::new(Some(prompt_tx)));
-        let login_id = id.clone();
-        let emit = move |user_code: String, verification_uri: String| {
-            let tx = prompt_tx
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take();
-            if let Some(tx) = tx {
-                let _ = tx.send(LoginPrompt {
-                    login_id: login_id.clone(),
-                    user_code,
-                    verification_uri,
-                });
-            }
-        };
-        let vault = self.vault.clone();
-        let logins = self.logins.clone();
-        let task_id = id.clone();
-        let provider_id = provider_id.to_string();
-        let log = self.log.clone();
-        let mut task = tokio::spawn(async move {
-            let authorize = async {
-                match wiring.client {
-                    Client::ChatGpt => rig_login::chatgpt_sign_in(&token_dir, move |prompt| {
-                        emit(prompt.user_code, prompt.verification_uri);
-                    })
-                    .await
-                    .map(drop),
-                    Client::Copilot => rig_login::copilot_sign_in(&token_dir, move |prompt| {
-                        emit(prompt.user_code, prompt.verification_uri);
-                    })
-                    .await
-                    .map(drop),
-                    Client::OpenRouter => crate::providers::openrouter_login(&tokens, emit).await,
-                    Client::XAi => crate::providers::xai::login(&tokens, emit).await,
-                    _ => Err(format!("{provider_id} does not support sign-in.")),
-                }
-            };
-            let result = tokio::select! {
-                biased;
-                () = cancel.cancelled() => Err("Sign-in cancelled.".to_string()),
-                result = tokio::time::timeout(Duration::from_mins(10), authorize) =>
-                    result.unwrap_or_else(|_| Err("Sign-in timed out. Try again.".to_string())),
-            };
-            let recorded = record_login(vault, logins, task_id, provider_id, label, result);
-            if recorded && wiring.client == Client::Copilot {
-                store_copilot_account_models(&token_dir, &log).await;
-            }
-        });
-        tokio::select! {
-            biased;
-            prompt = prompt_rx => if let Ok(prompt) = prompt { Ok(prompt) } else {
-                let _ = (&mut task).await;
-                Err(self.login_error(&id))
-            },
-            _ = &mut task => Err(self.login_error(&id)),
-            () = tokio::time::sleep(Duration::from_secs(30)) => {
-                self.credential_login_cancel(&id)?;
-                Err("Timed out waiting for sign-in instructions.".to_string())
-            }
-        }
+    async fn credential_login(
+        &self,
+        provider_id: &str,
+        label: Option<&str>,
+        into: Option<&str>,
+    ) -> Result<LoginPrompt, String> {
+        self.sign_in(provider_id, label, into).await
     }
 
     fn credential_login_cancel(&self, login_id: &str) -> Result<(), String> {
@@ -783,12 +695,20 @@ impl RoomHandle for Desk {
         Ok(())
     }
 
-    async fn credential_connect_local(&self, base_url: &str) -> Result<Credential, String> {
-        let base_url = crate::providers::ollama_url(base_url)?;
-        let ids = crate::providers::ollama_models(&base_url, "").await?;
-        self.vault
-            .connect_local(&base_url, &ids)
-            .map_err(|error| error.to_string())
+    async fn credential_connect_local(
+        &self,
+        base_url: &str,
+        label: Option<&str>,
+    ) -> Result<Credential, String> {
+        self.connect_server(base_url, label).await
+    }
+
+    async fn credential_update(
+        &self,
+        id: &str,
+        change: CredentialUpdate,
+    ) -> Result<Credential, String> {
+        self.change_credential(id, change).await
     }
 
     fn credential_custom_save(
@@ -882,6 +802,10 @@ impl RoomHandle for Desk {
 
     fn credentials(&self) -> Vec<Credential> {
         self.vault.list()
+    }
+
+    fn default_credentials(&self) -> HashMap<String, String> {
+        self.vault.default_ids()
     }
 
     async fn mcp_auth_start(&self, server_id: &str) -> Result<serde_json::Value, String> {
@@ -1295,75 +1219,6 @@ impl RoomHandle for Desk {
     async fn secrets_passkey_cancel(&self, persona_id: &str) -> Result<(), String> {
         self.room.secrets_passkey_cancel(persona_id).await
     }
-}
-
-fn record_login(
-    vault: Arc<Vault>,
-    logins: Arc<Mutex<HashMap<String, LoginOutcome>>>,
-    id: String,
-    provider_id: String,
-    label: String,
-    result: Result<(), String>,
-) -> bool {
-    let mut logins = logins.lock().unwrap_or_else(PoisonError::into_inner);
-    if !matches!(logins.get(&id), Some(LoginOutcome::Pending(cancel)) if !cancel.is_cancelled()) {
-        let _ = vault.abandon_login(&id);
-        return false;
-    }
-    let outcome = match result {
-        Ok(()) => match vault.finish_login(&id, &provider_id, &label) {
-            Ok(credential) => LoginOutcome::Done(credential),
-            Err(error) => {
-                let _ = vault.abandon_login(&id);
-                LoginOutcome::Failed(error.to_string())
-            }
-        },
-        Err(error) => {
-            let _ = vault.abandon_login(&id);
-            LoginOutcome::Failed(error)
-        }
-    };
-    let recorded = matches!(outcome, LoginOutcome::Done(_));
-    logins.insert(id, outcome);
-    recorded
-}
-
-async fn store_copilot_account_models(token_dir: &Path, log: &Log) {
-    match fetch_copilot_account_models(token_dir).await {
-        Ok(ids) => {
-            if crate::vault::write_account_models(token_dir, &ids).is_err() {
-                notice_unread_account_models(log);
-            } else {
-                crate::room::models_changed(log);
-            }
-        }
-        Err(_) => notice_unread_account_models(log),
-    }
-}
-
-fn notice_unread_account_models(log: &Log) {
-    let _ = log.append(
-        &StreamId::Room,
-        &crate::room::room_event(
-            "notice",
-            json!({
-                "id": uuid::Uuid::new_v4().to_string(),
-                "ts": chrono::Utc::now().timestamp_millis(),
-                "level": "warn",
-                "text": "The GitHub Copilot model list could not be read. Refresh under Settings → Providers retries.",
-            }),
-        ),
-    );
-}
-
-/// The Copilot account's model ids, from Rig. Tests never call this: they
-/// write `models.json` beside a login themselves.
-async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, String> {
-    Ok(crate::providers::discovery::copilot_models(token_dir)
-        .await?
-        .into_iter()
-        .map(|model| model.id)
-        .collect())
 }
 
 #[cfg(test)]

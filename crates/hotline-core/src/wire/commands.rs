@@ -13,7 +13,7 @@ pub(super) mod models;
 pub(super) mod persona;
 mod settings;
 
-use super::{Parts, RoomHandle, threads};
+use super::{CredentialUpdate, Parts, RoomHandle, threads};
 use crate::contract::{Command, ThreadAnswer, ThreadId};
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
@@ -347,16 +347,42 @@ pub(crate) async fn run(
             .credential_create(&provider_id, &label, &secret)
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
-        Command::CredentialDelete { id } => room.credential_delete(&id).await.map(|()| Value::Null),
-        Command::CredentialLogin { provider_id } => room
-            .credential_login(&provider_id)
+        // Under the lock, so `persona.account` cannot set a teammate to it meanwhile.
+        Command::CredentialDelete { id } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            accounts::check_unused(log, room, &id)?;
+            room.credential_delete(&id).await.map(|()| Value::Null)
+        }
+        Command::CredentialLogin {
+            provider_id,
+            label,
+            id,
+        } => room
+            .credential_login(&provider_id, label.as_deref(), id.as_deref())
             .await
             .map(|prompt| json!(prompt)),
         Command::CredentialLoginCancel { login_id } => room
             .credential_login_cancel(&login_id)
             .map(|()| Value::Null),
-        Command::CredentialConnectLocal { base_url } => room
-            .credential_connect_local(&base_url)
+        Command::CredentialConnectLocal { base_url, label } => room
+            .credential_connect_local(&base_url, label.as_deref())
+            .await
+            .map(|credential| json!(credential)),
+        Command::CredentialUpdate {
+            id,
+            label,
+            secret,
+            base_url,
+        } => room
+            .credential_update(
+                &id,
+                CredentialUpdate {
+                    label,
+                    secret,
+                    base_url,
+                },
+            )
             .await
             .map(|credential| json!(credential)),
         Command::CredentialCustomSave { id, draft } => room

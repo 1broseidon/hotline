@@ -8,7 +8,7 @@ import type { FailureDetails } from "../ErrorCard";
 import { AccountSignIn } from "./AccountSignIn";
 import { SYSTEM_DEFAULT } from "./words";
 
-const NONE: AccountsList = { agents: [], accounts: [] };
+const NONE: AccountsList = { agents: [], accounts: [], credentials: [] };
 
 // Read from usedBy rather than kept by the card, so a card mounted again after a Continue still knows where the teammate went.
 function currentAccount(list: AccountsList, backendId: string, personaId: string): string {

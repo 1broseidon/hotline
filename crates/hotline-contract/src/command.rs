@@ -418,14 +418,37 @@ pub enum Command {
     /// which is why this is start-then-poll rather than one blocking call:
     /// a waiting authorize would hold every later command on that socket
     /// until the person signed in.
+    ///
+    /// Without `label` the account takes its provider's next free name. With
+    /// `id` it signs that account in again: the new tokens replace its old
+    /// ones only once the sign-in succeeds, and it keeps its id and name.
     #[serde(rename = "credential.login")]
-    CredentialLogin { provider_id: String },
+    CredentialLogin {
+        provider_id: String,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        id: Option<String>,
+    },
     /// Stops a pending login, including its callback listener or device polling.
     #[serde(rename = "credential.login_cancel")]
     CredentialLoginCancel { login_id: String },
     /// Connects an Ollama server and discovers the models installed there.
     #[serde(rename = "credential.connect_local")]
-    CredentialConnectLocal { base_url: String },
+    CredentialConnectLocal {
+        base_url: String,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// Renames an account, or changes its key or its server's URL, in place:
+    /// its id, its place and so whether it is its provider's default stay.
+    #[serde(rename = "credential.update")]
+    CredentialUpdate {
+        id: String,
+        label: Option<String>,
+        secret: Option<String>,
+        base_url: Option<String>,
+    },
     #[serde(rename = "credential.custom_save")]
     CredentialCustomSave {
         id: Option<String>,

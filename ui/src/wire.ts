@@ -172,6 +172,7 @@ type Results = {
 	"credential.login": LoginPrompt;
 	"credential.login_cancel": null;
 	"credential.connect_local": Credential;
+	"credential.update": Credential;
 	"credential.custom_save": Credential;
 	"credential.custom_models": string[];
 	"credential.login_status": LoginStatus;

@@ -7,6 +7,7 @@
 //! never written to a stream. Absent from a teammate, an account means the
 //! agent's own System default sign-in.
 
+use crate::Credential;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -127,6 +128,23 @@ pub struct AccountAgent {
     pub supports_accounts: bool,
     /// Whether its sign-in takes an email to pre-fill.
     pub takes_email: bool,
+    /// The provider whose page lists this agent's accounts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+}
+
+/// A Hotline Agent credential as the desk lists it. Answered only to the
+/// desk and an owner.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CredentialAccount {
+    pub credential: Credential,
+    pub section: AccountSection,
+    /// The teammates it serves: those set to it, and on its provider's
+    /// default those whose choice does not name another of its accounts.
+    pub used_by: Vec<String>,
+    pub default: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -135,6 +153,7 @@ pub struct AccountAgent {
 pub struct AccountsList {
     pub agents: Vec<AccountAgent>,
     pub accounts: Vec<AccountView>,
+    pub credentials: Vec<CredentialAccount>,
 }
 
 /// What `accounts.create` answers: the new account, and what was copied into

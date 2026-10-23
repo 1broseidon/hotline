@@ -7,6 +7,7 @@ use hotline_contract::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -21,6 +22,13 @@ pub struct AuthStatus {
     pub output: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// What `credential.update` changes. A field left out stays as it is.
+pub struct CredentialUpdate {
+    pub label: Option<String>,
+    pub secret: Option<String>,
+    pub base_url: Option<String>,
 }
 
 /// The live half of the room, which the wire calls but does not own: the
@@ -399,9 +407,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn credential_delete(&self, id: &str) -> Result<(), String>;
     /// Starts provider sign-in. Returns the prompt as soon as the provider
     /// issues a code; the login keeps running until the person signs in.
+    /// `into` signs that account in again instead of adding one.
     async fn credential_login(
         &self,
         provider_id: &str,
+        label: Option<&str>,
+        into: Option<&str>,
     ) -> Result<hotline_contract::LoginPrompt, String>;
     fn credential_login_cancel(&self, _login_id: &str) -> Result<(), String> {
         Err("Login cancellation is unavailable.".into())
@@ -409,8 +420,16 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn credential_connect_local(
         &self,
         _base_url: &str,
+        _label: Option<&str>,
     ) -> Result<hotline_contract::Credential, String> {
         Err("Local providers are unavailable.".into())
+    }
+    async fn credential_update(
+        &self,
+        _id: &str,
+        _change: CredentialUpdate,
+    ) -> Result<hotline_contract::Credential, String> {
+        Err("Accounts cannot be changed in this room.".into())
     }
     fn credential_custom_save(
         &self,
@@ -431,6 +450,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn login_status(&self, login_id: &str) -> Result<hotline_contract::LoginStatus, String>;
     /// What the room knows of every credential, the secrets left in the vault.
     fn credentials(&self) -> Vec<hotline_contract::Credential>;
+    /// Each provider's default credential id, by provider id.
+    fn default_credentials(&self) -> HashMap<String, String> {
+        HashMap::new()
+    }
 
     /// Every harness a teammate could run on here, the built-in one first.
     async fn backends(&self) -> Vec<hotline_contract::BackendChoice>;

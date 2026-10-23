@@ -14,7 +14,7 @@ use crate::contract::{AccountStatusState, AccountStatusView};
 use crate::driver::acp::registry::{self, Launch};
 use crate::driver::acp::{self, StartBounds};
 use crate::private_dir;
-use crate::room::roster;
+use crate::room::{agent_accounts, roster};
 use crate::session::{Room, now_ms};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
@@ -246,10 +246,13 @@ impl AccountStatuses {
     pub(crate) fn refresh_in_use(self: &Arc<Self>, room: &Room) {
         let log = room.log();
         let root = log.root().to_path_buf();
+        let accounts = agent_accounts(log);
+        // A credential is not an agent's sign-in, so the agent has nothing to say of it.
         let in_use: BTreeSet<String> = roster(log)
             .into_iter()
             .filter(|persona| account_support(&persona.backend_id).is_some())
             .filter_map(|persona| persona.account_id)
+            .filter(|account_id| accounts.iter().any(|account| &account.id == account_id))
             .collect();
         for account_id in in_use {
             if let Ok(account) = resolve::account(&root, log, &account_id) {

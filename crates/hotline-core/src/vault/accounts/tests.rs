@@ -217,7 +217,11 @@ fn changing_a_key_or_a_server_keeps_its_id_its_place_and_the_default() {
     assert_eq!(ids(&vault), order);
 
     let local = vault
-        .connect_local("http://127.0.0.1:11434", &["llama-old".into()])
+        .connect_local(
+            "http://127.0.0.1:11434",
+            &["llama-old".into()],
+            "Ollama Local",
+        )
         .unwrap();
     vault
         .cache_discovery(&local.id, &[listed("from-the-old-server")])
@@ -242,7 +246,7 @@ fn a_change_that_does_not_fit_the_account_is_refused() {
     let vault = vault("accounts-update-refused");
     let api_key = vault.create("anthropic", "A", "key-a").unwrap();
     let local = vault
-        .connect_local("http://127.0.0.1:11434", &["llama".into()])
+        .connect_local("http://127.0.0.1:11434", &["llama".into()], "Ollama Local")
         .unwrap();
     let (login, _) = signed_in(&vault, "openai-codex", b"tokens");
     let custom = vault
@@ -445,7 +449,7 @@ fn a_name_is_unique_per_provider_and_section_and_counted_in_characters() {
     );
 
     let local = vault
-        .connect_local("http://127.0.0.1:11434", &["llama".into()])
+        .connect_local("http://127.0.0.1:11434", &["llama".into()], "Ollama Local")
         .unwrap();
     vault.update(&local.id, label("Work")).unwrap();
     assert_eq!(
@@ -503,17 +507,6 @@ fn a_name_is_unique_per_provider_and_section_and_counted_in_characters() {
 
 #[test]
 fn sections_follow_what_the_account_bills() {
-    let credential = |provider_id: &str, credential_kind| Credential {
-        id: "id".into(),
-        provider_id: provider_id.into(),
-        credential_kind,
-        base_url: None,
-        custom: None,
-        label: "label".into(),
-        revoked: false,
-        created_at: 0,
-        updated_at: 0,
-    };
     for (provider_id, kind, section) in [
         ("ollama", CredentialKind::Local, AccountSection::Server),
         ("openrouter", CredentialKind::Oauth, AccountSection::ApiKey),
@@ -526,7 +519,7 @@ fn sections_follow_what_the_account_bills() {
         ("anthropic", CredentialKind::ApiKey, AccountSection::ApiKey),
     ] {
         assert_eq!(
-            Vault::section_of(&credential(provider_id, kind)),
+            Vault::section_of(provider_id, kind),
             section,
             "{provider_id}"
         );

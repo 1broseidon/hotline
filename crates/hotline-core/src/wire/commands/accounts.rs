@@ -1,21 +1,24 @@
 //! The room's agent accounts: the `agentAccounts` setting, and each
-//! account's folder and the setup in it.
+//! account's folder and the setup in it. The list also names every Hotline
+//! Agent credential and who it serves.
 //!
 //! A folder is made and a setup copied before the policy lock is taken, so a
 //! slow disk does not hold up a teammate's edit; the lock is held only to
 //! check the list again and write it.
 
 use super::{now, off_the_reactor};
+use crate::accounts::resolve::{self, Named};
 use crate::accounts::setup::{copy_setup, nothing_to_copy, setup_view, system_default_source};
 use crate::accounts::support::{AccountSupport, account_support};
 use crate::accounts::{NO_ACCOUNTS, NOT_ON_THIS_DESK, login, resolved};
 use crate::contract::{
     AccountAgent, AccountCreated, AccountSetupOrigin, AccountView, AccountsList, AgentAccount,
-    Command, LoginAttemptState, Persona, SetupFrom,
+    Command, CredentialAccount, LoginAttemptState, Persona, SetupFrom,
 };
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::driver::acp::registry;
-use crate::log::Log;
+use crate::log::{Log, StreamId};
+use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use crate::{paths, private_dir, room};
 use serde_json::{Value, json};
@@ -80,6 +83,7 @@ async fn list(log: &Log, room: &Arc<dyn RoomHandle>, seat_is_desk: bool) -> Acco
             AccountAgent {
                 supports_accounts: support.is_some(),
                 takes_email: support.is_some_and(|support| support.email_flag.is_some()),
+                provider_id: support.map(|support| support.provider_id.to_string()),
                 backend_id: backend.id,
                 name: backend.name,
             }
@@ -95,7 +99,97 @@ async fn list(log: &Log, room: &Arc<dyn RoomHandle>, seat_is_desk: bool) -> Acco
         .map(|view| view.account.id.clone())
         .collect();
     room.accounts_refresh_stale(&ids);
-    AccountsList { agents, accounts }
+    let credentials = credential_accounts(log, room, &roster);
+    AccountsList {
+        agents,
+        accounts,
+        credentials,
+    }
+}
+
+fn credential_accounts(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    roster: &[Persona],
+) -> Vec<CredentialAccount> {
+    let events = log.load(&StreamId::Room);
+    let preferred = crate::models::preferred_model(&room::settings_from_events(&events));
+    let defaults = room.default_credentials();
+    room.credentials()
+        .into_iter()
+        .map(|credential| {
+            let default = defaults.get(&credential.provider_id) == Some(&credential.id);
+            let used_by = roster
+                .iter()
+                .filter(|persona| {
+                    persona.account_id.as_deref() == Some(credential.id.as_str())
+                        || (default
+                            && follows_default(
+                                &events,
+                                persona,
+                                &credential.provider_id,
+                                preferred.as_deref(),
+                            ))
+                })
+                .map(|persona| persona.id.clone())
+                .collect();
+            CredentialAccount {
+                section: Vault::section_of(&credential.provider_id, credential.credential_kind),
+                used_by,
+                default,
+                credential,
+            }
+        })
+        .collect()
+}
+
+/// Whether `persona`'s turns run on `provider_id`'s default: a Hotline Agent
+/// teammate whose model is on that provider, the room's preferred model when
+/// it names none, and whose choice is not one of that provider's credentials.
+/// An id that names nothing refuses the start, so it runs on nothing.
+fn follows_default(
+    events: &[Value],
+    persona: &Persona,
+    provider_id: &str,
+    preferred: Option<&str>,
+) -> bool {
+    let on_provider = persona
+        .model_id
+        .as_deref()
+        .or(preferred)
+        .and_then(|model_id| model_id.split_once('/'))
+        .is_some_and(|(model_provider, _)| model_provider == provider_id);
+    if persona.backend_id != HOTLINE_BACKEND_ID || !on_provider {
+        return false;
+    }
+    match persona.account_id.as_deref() {
+        None => true,
+        Some(account_id) => match resolve::named(events, account_id) {
+            Named::Credential(chosen) => chosen.provider_id != provider_id,
+            Named::Agent(_) => true,
+            Named::Nothing => false,
+        },
+    }
+}
+
+/// A credential a teammate is set to stays until none is. Its provider's
+/// default may go: the teammates that follow it move to the next.
+pub(super) fn check_unused(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> Result<(), String> {
+    let Some(credential) = room.credentials().into_iter().find(|row| row.id == id) else {
+        return Ok(());
+    };
+    let roster = room::roster(log);
+    let names: Vec<&str> = users(&roster, id)
+        .map(|persona| persona.name.as_str())
+        .collect();
+    if names.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} can't be removed while {} use it.",
+        credential.label,
+        joined(&names)
+    ))
 }
 
 fn view(

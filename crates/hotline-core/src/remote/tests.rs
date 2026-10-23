@@ -372,8 +372,10 @@ impl RoomHandle for Computered {
     async fn credential_login(
         &self,
         provider_id: &str,
+        label: Option<&str>,
+        into: Option<&str>,
     ) -> Result<crate::contract::LoginPrompt, String> {
-        self.desk.credential_login(provider_id).await
+        self.desk.credential_login(provider_id, label, into).await
     }
     fn login_status(&self, login_id: &str) -> Result<crate::contract::LoginStatus, String> {
         self.desk.login_status(login_id)

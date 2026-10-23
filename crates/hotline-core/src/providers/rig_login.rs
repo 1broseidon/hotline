@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 /// ChatGPT's record: the file Rig 0.42 wrote, whose fields Rig's record
 /// still has, so the plain text it holds moves into the keychain as it
@@ -161,6 +161,16 @@ pub(crate) fn login_lock(dir: &Path) -> Arc<Mutex<()>> {
         .entry(dir.to_path_buf())
         .or_default()
         .clone()
+}
+
+/// Every record lock of the login in `dir`. A refresh holds its record's
+/// from reading the tokens to saving the new ones, so tokens written while
+/// these are held are never overwritten by a refresh of the ones before.
+pub(crate) async fn hold_records(dir: &Path) -> [OwnedMutexGuard<()>; 2] {
+    [
+        record_lock(&dir.join(CHATGPT_RECORD)).lock_owned().await,
+        record_lock(&dir.join(COPILOT_RECORD)).lock_owned().await,
+    ]
 }
 
 /// The lock every store over the record at `path` takes.

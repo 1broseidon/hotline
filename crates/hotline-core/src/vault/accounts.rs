@@ -1,19 +1,15 @@
 //! A credential as an account: which one is its provider's default, the auth
 //! a chosen one gives a turn, its name and section, and the changes that keep
 //! its id, so the default and the teammates set to it never move.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the desk and the wire call these in later changes"
-    )
-)]
 
 use super::*;
 use crate::contract::AccountSection;
 use crate::driver::failure::ACCOUNT_SIGNED_OUT;
 use crate::providers::rig_login::{self, COPILOT_RECORD};
 use hotline_room::provider_auth::ChosenAccount;
+
+pub(crate) const CANNOT_CHANGE: &str = "This account cannot be changed that way.";
+pub(crate) const CANNOT_REPLACE: &str = "This sign-in cannot replace that account's.";
 
 pub(crate) struct CredentialChange {
     pub label: Option<String>,
@@ -94,10 +90,7 @@ impl Vault {
             || (change.secret.is_some() && !fits(CredentialKind::ApiKey))
             || (change.base_url.is_some() && !fits(CredentialKind::Local))
         {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "This account cannot be changed that way.",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, CANNOT_CHANGE));
         }
         if let Some(secret) = change.secret {
             let mut secrets = self.read_secrets()?;
@@ -125,12 +118,7 @@ impl Vault {
     /// a sign-in that is cancelled or fails changes nothing.
     pub(crate) fn adopt_login(&self, from: &str, into: &str) -> io::Result<Credential> {
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        let refused = || {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "This sign-in cannot replace that account's.",
-            )
-        };
+        let refused = || io::Error::new(io::ErrorKind::InvalidInput, CANNOT_REPLACE);
         let mut credential = self
             .find(into)
             .ok()
@@ -223,7 +211,7 @@ impl Vault {
             credential.provider_id == provider_id
                 && !credential.revoked
                 && Some(credential.id.as_str()) != except
-                && Self::section_of(credential) == section
+                && Self::section_of(&credential.provider_id, credential.credential_kind) == section
                 && credential.label.to_lowercase() == wanted
         });
         if taken {
@@ -236,13 +224,11 @@ impl Vault {
         Ok(label.to_string())
     }
 
-    pub(crate) fn section_of(credential: &Credential) -> AccountSection {
-        match credential.credential_kind {
+    pub(crate) fn section_of(provider_id: &str, kind: CredentialKind) -> AccountSection {
+        match kind {
             CredentialKind::Local => AccountSection::Server,
             // An OpenRouter sign-in mints a key that is billed per use.
-            CredentialKind::Oauth if credential.provider_id == "openrouter" => {
-                AccountSection::ApiKey
-            }
+            CredentialKind::Oauth if provider_id == "openrouter" => AccountSection::ApiKey,
             CredentialKind::Oauth => AccountSection::Subscription,
             CredentialKind::ApiKey => AccountSection::ApiKey,
         }

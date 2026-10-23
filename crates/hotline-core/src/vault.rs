@@ -25,6 +25,7 @@ use std::sync::{Mutex, PoisonError};
 use tokio::sync::Mutex as AsyncMutex;
 
 mod accounts;
+pub(crate) use accounts::{CANNOT_CHANGE, CANNOT_REPLACE, CredentialChange};
 mod launch;
 mod models;
 use models::ModelSources;
@@ -615,7 +616,12 @@ impl Vault {
         Ok(())
     }
 
-    pub(crate) fn connect_local(&self, base_url: &str, ids: &[String]) -> io::Result<Credential> {
+    pub(crate) fn connect_local(
+        &self,
+        base_url: &str,
+        ids: &[String],
+        label: &str,
+    ) -> io::Result<Credential> {
         let (id, dir) = self.begin_login()?;
         let now = now_ms();
         let credential = Credential {
@@ -624,7 +630,7 @@ impl Vault {
             credential_kind: CredentialKind::Local,
             base_url: Some(base_url.into()),
             custom: None,
-            label: "Ollama Local".into(),
+            label: label.into(),
             revoked: false,
             created_at: now,
             updated_at: now,

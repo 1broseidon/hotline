@@ -15,6 +15,8 @@ use std::path::Path;
 /// is the one piece of code, because each agent words its answer its own way.
 #[derive(Debug)]
 pub(crate) struct AccountSupport {
+    /// The provider whose page lists the agent's accounts.
+    pub(crate) provider_id: &'static str,
     /// The environment variable that points the agent at its account folder.
     pub(crate) env_var: &'static str,
     /// The arguments, after the launch's own, that sign the agent in.
@@ -78,6 +80,7 @@ pub fn account_setup_items() -> Vec<&'static str> {
 /// A `static` and not a `const`, so that every `&CLAUDE` is the one row, and a
 /// resolved account can be checked against the table by address.
 pub(crate) static CLAUDE: AccountSupport = AccountSupport {
+    provider_id: "anthropic",
     env_var: "CLAUDE_CONFIG_DIR",
     login_args: &["--cli", "auth", "login", "--claudeai"],
     email_flag: Some("--email"),

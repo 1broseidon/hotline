@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AccountFailure, type AccountOffer } from "./accounts/AccountFailure";
+import { HOTLINE_AGENT } from "./accounts/fits";
 import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
 import { clock, daysBetween, shortDate } from "../clock";
@@ -16,8 +17,6 @@ const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", 
 
 /** The limits whose wait is hours, not seconds, so the card says when they lift. */
 const RESETS = new Set(["usage_limit", "quota"]);
-
-const HOTLINE_AGENT = "hotline";
 
 export type FailureDetails = {
     title: string;

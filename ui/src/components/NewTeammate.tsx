@@ -12,7 +12,7 @@ import { wire } from "../wire";
 import { AccountPicker } from "./accounts/AccountPicker";
 import { AccountSignIn, settledAccounts } from "./accounts/AccountSignIn";
 import { AddAccountForm } from "./accounts/AddAccountForm";
-import { accountsFor, inUse, kindsIn, providerOf } from "./accounts/fits";
+import { accountsFor, HOTLINE_AGENT, inUse, kindsIn, providerOf } from "./accounts/fits";
 import { NEVER_SEES_SIGN_IN, SYSTEM_DEFAULT } from "./accounts/words";
 import { BackendPicker } from "./BackendPicker";
 import { ConnectProvider } from "./ConnectProvider";
@@ -21,7 +21,6 @@ import { suggestName } from "../names";
 import { BACKGROUND_ABOUT, COMPUTER_ABOUT, FolderRows, MACHINE_ABOUT, SwitchRow, foldersNote } from "./Teammate";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
-const HOTLINE_AGENT = "hotline";
 
 /**
  * Creating a teammate: the things the person decides, and nothing else.

@@ -5,6 +5,7 @@ import { Chips } from "../../ui/Chips";
 import { Fold, toggled } from "../../ui/Fold";
 import { Picker } from "../../ui/Menu";
 import { setTheme, THEMES, useTheme } from "../../theme";
+import { HOTLINE_AGENT } from "../accounts/fits";
 import { wire } from "../../wire";
 import { BackendPicker } from "../BackendPicker";
 import { HotkeysSection } from "../HotkeysSection";
@@ -137,7 +138,7 @@ export function GeneralSection({
 							<p className="text-sm text-ink-3">Reading which agents this computer can start…</p>
 						)}
 					</Fold>
-					{(defaultBackendId === "hotline" || defaultBackendId === "") && <Fold title="Model" value={modelName} open={open === "model"} onToggle={() => setOpen((was) => toggled(was, "model"))}>
+					{(defaultBackendId === HOTLINE_AGENT || defaultBackendId === "") && <Fold title="Model" value={modelName} open={open === "model"} onToggle={() => setOpen((was) => toggled(was, "model"))}>
 						<Picker
 							field
 							value={defaultModelId ?? ""}

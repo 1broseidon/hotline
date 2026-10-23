@@ -5,6 +5,7 @@ import { useRoomSettings } from "../room";
 import { HotlineMark } from "../ui/HotlineMark";
 import { Refusal } from "../ui/Refusal";
 import { wire, type Connection } from "../wire";
+import { HOTLINE_AGENT } from "./accounts/fits";
 import { ConnectProvider } from "./ConnectProvider";
 import { ServicePicker } from "./ServicePicker";
 import { NewTeammateForm } from "./NewTeammate";
@@ -16,8 +17,6 @@ import { NewTeammateForm } from "./NewTeammate";
  */
 const FIRST_GOAL =
 	"Help me with whatever I bring you. Ask when something is unclear, and say what you did when you are done.";
-
-const HOTLINE_AGENT = "hotline";
 
 /** The pages, in order. `providers` and `harness` are the two forks of one step. */
 type Page = "hello" | "why" | "engine" | "providers" | "harness" | "teammate";

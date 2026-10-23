@@ -5,11 +5,9 @@ import { Refusal } from "../../ui/Refusal";
 import { wire } from "../../wire";
 import { AccountSignIn, settledAccounts } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
-import { accountsFor, detailLine, inUse, kindsIn, providerOf } from "../accounts/fits";
+import { accountsFor, detailLine, HOTLINE_AGENT, inUse, kindsIn, providerOf } from "../accounts/fits";
 import { NEVER_SEES_SIGN_IN, SYSTEM_DEFAULT } from "../accounts/words";
 import { ConnectProvider } from "../ConnectProvider";
-
-const HOTLINE_AGENT = "hotline";
 
 const ADDS: readonly { section: AccountSection; label: string }[] = [
 	{ section: "subscription", label: "Add subscription" },

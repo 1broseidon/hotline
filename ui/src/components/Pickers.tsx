@@ -3,10 +3,9 @@ import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
+import { HOTLINE_AGENT } from "./accounts/fits";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
-const HOTLINE_AGENT = "hotline";
-
 /**
  * The open teammate's model and effort, on the window's top strip. They
  * name what a turn would run on whether or not a session is up, so the

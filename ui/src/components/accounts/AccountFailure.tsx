@@ -7,11 +7,10 @@ import { wire } from "../../wire";
 import type { FailureDetails } from "../ErrorCard";
 import { AccountPicker } from "./AccountPicker";
 import { AccountSignIn } from "./AccountSignIn";
-import { accountsFor, providerAccounts, suggested } from "./fits";
+import { accountsFor, HOTLINE_AGENT, providerAccounts, suggested } from "./fits";
 import { SYSTEM_DEFAULT, THIS_COMPUTER } from "./words";
 
 const NONE: AccountsList = { agents: [], accounts: [], credentials: [] };
-const HOTLINE_AGENT = "hotline";
 
 /** Whether the card offers another account, or the teammate has already moved off the one that failed. */
 export type AccountOffer = "none" | "open" | "moved";

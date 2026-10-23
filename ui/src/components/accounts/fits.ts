@@ -2,7 +2,7 @@ import { shortDate } from "../../clock";
 import type { AccountSection, AccountsList, AccountView, CredentialAccount, CredentialKind, Provider } from "../../generated/contract";
 import { ownSignIn, statusWords, SYSTEM_DEFAULT, THIS_COMPUTER, whoLine } from "./words";
 
-const HOTLINE_AGENT = "hotline";
+export const HOTLINE_AGENT = "hotline";
 
 /**
  * One account a teammate may run on. `signedIn` is false for This computer,

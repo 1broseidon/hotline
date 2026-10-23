@@ -2,11 +2,10 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { BackendChoice } from "../generated/contract";
 import { wire } from "../wire";
 import { ChevronDownIcon, ChevronRightIcon } from "../icons";
+import { HOTLINE_AGENT } from "./accounts/fits";
 
 /** Hotline Agent's stored backend id. The picker puts this row first even if
  *  the caller hands the array in another order. */
-const HOTLINE_AGENT = "hotline";
-
 /**
  * The harnesses shown above the fold, beside Hotline Agent: the ones with a
  * flagship model of their own, so choosing one is choosing a lab. The

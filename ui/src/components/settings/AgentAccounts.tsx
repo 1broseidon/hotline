@@ -10,7 +10,7 @@ import { Scroll } from "../../ui/Scroll";
 import { wire } from "../../wire";
 import { AccountSignIn, settledAccounts } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
-import { namesList, statusWords, whoLine } from "../accounts/words";
+import { namesList, ownSignIn, statusWords, THIS_COMPUTER, whoLine } from "../accounts/words";
 import { AccountSetup } from "./AccountSetup";
 
 type Signing = { accountId: string; email: string | undefined; renewing: boolean };
@@ -263,7 +263,7 @@ function AgentPage({
 	onRefused(): void;
 }) {
 	const [adding, setAdding] = useState(false);
-	// Only this desk's own teammates run on its System default, as only they can be on its accounts.
+	// Only this desk's own teammates run on This computer, as only they can be on its accounts.
 	const onDefault = shared.roster
 		.filter((entry) => entry.persona.node === undefined && entry.persona.backendId === agent.backendId && entry.persona.accountId === undefined)
 		.map((entry) => entry.persona.name);
@@ -301,9 +301,9 @@ function AgentPage({
 							<div className="group-row">
 								<span className="agent-account-dot" aria-hidden="true" />
 								<span className="group-row-text">
-									<span className="group-row-title">System default</span>
+									<span className="group-row-title">{THIS_COMPUTER}</span>
 									<span className="group-row-detail">
-										{agent.name}'s own sign-in on this computer, as before · {usedByWords(onDefault)}
+										{ownSignIn(agent.name)} · {usedByWords(onDefault)}
 									</span>
 								</span>
 								<span className="agent-account-chip">Built in</span>

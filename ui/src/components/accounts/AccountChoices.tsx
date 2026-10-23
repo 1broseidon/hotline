@@ -1,5 +1,5 @@
 import type { AccountView } from "../../generated/contract";
-import { statusWords, SYSTEM_DEFAULT, whoLine } from "./words";
+import { ownSignIn, statusWords, SYSTEM_DEFAULT, THIS_COMPUTER, whoLine } from "./words";
 
 export function AccountChoices({
 	agentName,
@@ -34,7 +34,7 @@ export function AccountChoices({
 	);
 	return (
 		<>
-			{choice(SYSTEM_DEFAULT, "System default", `${agentName}'s own sign-in on this computer, as before`)}
+			{choice(SYSTEM_DEFAULT, THIS_COMPUTER, ownSignIn(agentName))}
 			{accounts.map((view) => {
 				const status = view.status;
 				if (signing === view.account.id) return choice(view.account.id, view.account.name, "Signing in…");

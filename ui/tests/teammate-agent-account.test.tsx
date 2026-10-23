@@ -208,10 +208,10 @@ describe("a teammate's agent account", () => {
 		expect(container.querySelector('[role="radiogroup"]')).toBeNull();
 	});
 
-	test("picking an account sends persona.account; System default sends null", async () => {
+	test("picking an account sends persona.account; This computer sends null", async () => {
 		await mount(ada, onA1);
 		expect([...container.querySelectorAll("h3")].map((node) => node.textContent)).toContain("Claude Code account");
-		expect(row("System default").textContent).toContain("Claude Code's own sign-in on this computer, as before");
+		expect(row("This computer").textContent).toContain("Claude Code's own sign-in, as before");
 		expect(row("Account 1").textContent).toContain("dev@example.com · Max");
 		expect(row("Account 3").textContent).toContain("Not signed in · sign in to use it");
 		expect(row("Account 3").querySelector(".text-warn")).not.toBeNull();
@@ -219,7 +219,7 @@ describe("a teammate's agent account", () => {
 
 		await pick("Account 2");
 		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "a2" }]);
-		await pick("System default");
+		await pick("This computer");
 		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: null }]);
 		expect(named("persona.account")).toHaveLength(2);
 	});
@@ -236,8 +236,8 @@ describe("a teammate's agent account", () => {
 		);
 
 		await remount(onDefault, sessionOf("ready"));
-		expect(row("System default").textContent).toContain("In use");
-		expect(text()).toContain("On System default · Fresh:");
+		expect(row("This computer").textContent).toContain("In use");
+		expect(text()).toContain("On This computer · Fresh:");
 
 		await remount(ada, sessionOf("idle"));
 		expect(text()).not.toContain("In use");
@@ -261,7 +261,7 @@ describe("a teammate's agent account", () => {
 		await remount(ada, sessionOf("thinking", { running: "a1", wanted: "a2" }));
 		expect(text()).toContain("Switches to Account 2 when its work ends.");
 		await remount(onDefault, sessionOf("thinking", { running: "a1" }));
-		expect(text()).toContain("Switches to System default when its work ends.");
+		expect(text()).toContain("Switches to This computer when its work ends.");
 		await remount(ada, sessionOf("thinking", { running: "a1" }));
 		expect(text()).not.toContain("Switches to");
 		expect(row("Account 1").textContent).toContain("In use");

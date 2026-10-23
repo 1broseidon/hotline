@@ -161,7 +161,7 @@ describe("an agent account's setup", () => {
 		expect(text()).toContain("The ticked items replace this account's, including your changes to them. The sign-in is not touched.");
 		await click("Copy 4 items");
 		expect(calls).toContainEqual(["accounts.setup.copy", { accountId: "a1", categories: ["instructions", "skills", "plugins", "mcp"] }]);
-		expect(said()).toContain("Copied 4 items from System default.");
+		expect(said()).toContain("Copied 4 items from This computer.");
 		expect(calls.filter(([cmd]) => cmd === "accounts.setup.list")).toHaveLength(2);
 		expect(text()).toContain("The sign-in, keys and history are never copied.");
 	});

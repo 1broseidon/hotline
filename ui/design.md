@@ -128,7 +128,7 @@ row is the thing's name over one detail line (a key or a login, a command
 or a URL) and opens the thing's own page, with its fields and the way out
 (Remove, Sign out) at the foot. Nothing is edited on the row.
 Agent accounts goes one level deeper: the agents, then an agent's
-accounts with System default first, then an account's page with its
+accounts with This computer first, then an account's page with its
 Setup and, at the foot, Remove. A sign-in stands under the row that asked
 for it; on a Windows desk it happens in the agent's own window, so the row
 says so in one line with Cancel, and never shows a terminal.
@@ -283,7 +283,7 @@ transition and animation, and holds the mark still.
   own, one per teammate; the band carries Screen while it runs.
 - Account cards: a failure about the teammate's agent account names the
   account. A usage limit offers Continue on each other signed-in account
-  and System default before Try again; a missing sign-in offers Sign in
+  and This computer before Try again; a missing sign-in offers Sign in
   {account} and Choose account; an account the desk cannot use offers
   Choose account (and Show folder for its folder). Nothing switches an
   account on its own.

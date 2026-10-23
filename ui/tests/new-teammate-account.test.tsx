@@ -205,17 +205,17 @@ describe("a new teammate's agent account", () => {
 		await agent("claude-acp");
 		expect(container.querySelector("#new-account")?.textContent).toBe("Account");
 		expect(accountList()).not.toBeNull();
-		expect(row("System default").textContent).toContain("Claude Code's own sign-in on this computer, as before");
+		expect(row("This computer").textContent).toContain("Claude Code's own sign-in, as before");
 		expect(row("Account 1").textContent).toContain("dev@example.com · Max");
 		expect(row("Account 2").textContent).toContain("Not signed in · sign in to use it");
-		expect(radio("System default").checked).toBe(true);
+		expect(radio("This computer").checked).toBe(true);
 		expect(text()).toContain("Rename or remove accounts later in Settings › Agent accounts.");
 
 		await agent("codex-acp");
 		expect(container.querySelector("#new-account")).toBeNull();
 	});
 
-	test("the picked account rides in the draft; System default adds nothing", async () => {
+	test("the picked account rides in the draft; This computer adds nothing", async () => {
 		await mount();
 		await agent("claude-acp");
 		await pick("Account 1");

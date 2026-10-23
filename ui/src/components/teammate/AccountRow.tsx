@@ -6,7 +6,7 @@ import { wire } from "../../wire";
 import { AccountChoices } from "../accounts/AccountChoices";
 import { AccountSignIn, settledAccounts } from "../accounts/AccountSignIn";
 import { AddAccountForm } from "../accounts/AddAccountForm";
-import { SYSTEM_DEFAULT } from "../accounts/words";
+import { SYSTEM_DEFAULT, THIS_COMPUTER } from "../accounts/words";
 
 type Signing = { view: AccountView; email: string | undefined };
 
@@ -48,11 +48,11 @@ export function AccountRow({
 	const agent = list?.agents.find((one) => one.backendId === persona.backendId && one.supportsAccounts);
 	if (list === null || agent === undefined) return null;
 	const accounts = list.accounts.filter((one) => one.account.backendId === agent.backendId);
-	const nameOf = (id: string) => (id === SYSTEM_DEFAULT ? "System default" : (accounts.find((one) => one.account.id === id)?.account.name ?? id));
+	const nameOf = (id: string) => (id === SYSTEM_DEFAULT ? THIS_COMPUTER : (accounts.find((one) => one.account.id === id)?.account.name ?? id));
 
 	const chosen = persona.accountId ?? SYSTEM_DEFAULT;
 	const running = session.account?.running ?? SYSTEM_DEFAULT;
-	// A switch to System default has no id to send.
+	// A switch to This computer has no id to send.
 	const wanted = session.account?.wanted ?? chosen;
 	const held = session.account?.held;
 	const up = session.state === "ready" || session.state === "thinking";

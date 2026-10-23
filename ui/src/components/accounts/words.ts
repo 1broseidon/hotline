@@ -3,6 +3,11 @@ import type { AccountStatusState, AccountStatusView } from "../../generated/cont
 /** Nothing here names an agent; the agent's own name comes from the registry and is passed in. */
 
 export const SYSTEM_DEFAULT = "";
+export const THIS_COMPUTER = "This computer";
+
+export function ownSignIn(agentName: string): string {
+	return `${agentName}'s own sign-in, as before`;
+}
 
 const STATUS_WORDS: Record<AccountStatusState, string> = {
 	not_checked: "Not checked",

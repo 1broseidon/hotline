@@ -6,7 +6,7 @@ import { Refusal, refused, type Refused } from "../../ui/Refusal";
 import { wire } from "../../wire";
 import type { FailureDetails } from "../ErrorCard";
 import { AccountSignIn } from "./AccountSignIn";
-import { SYSTEM_DEFAULT } from "./words";
+import { SYSTEM_DEFAULT, THIS_COMPUTER } from "./words";
 
 const NONE: AccountsList = { agents: [], accounts: [], credentials: [] };
 
@@ -80,7 +80,7 @@ export function AccountFailure({
 			return status === undefined ? one : { ...one, status };
 		});
 	const failed = accounts.find((one) => one.account.id === error.accountId);
-	const nameOf = (id: string) => (id === SYSTEM_DEFAULT ? "System default" : (accounts.find((one) => one.account.id === id)?.account.name ?? id));
+	const nameOf = (id: string) => (id === SYSTEM_DEFAULT ? THIS_COMPUTER : (accounts.find((one) => one.account.id === id)?.account.name ?? id));
 
 	const continueOn = async (accountId: string) => {
 		if (busy) return;
@@ -111,7 +111,7 @@ export function AccountFailure({
 	if (kind === "usage_limit") {
 		const current = movedTo ?? currentAccount(known, backendId, personaId);
 		const switched = list !== null && current !== failedOn;
-		if (failedOn === SYSTEM_DEFAULT) title = "System default hit its usage limit";
+		if (failedOn === SYSTEM_DEFAULT) title = `${THIS_COMPUTER} hit its usage limit`;
 		else if (failed !== undefined) title = `${failed.account.name} hit its usage limit`;
 		if (switched) {
 			const session = agent === undefined ? "session" : `${agent.name} session`;

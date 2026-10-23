@@ -4,7 +4,7 @@ import { isDesktop, openAccountSetup } from "../../native";
 import { nameOf, onServer } from "../../serverFiles";
 import { Refusal } from "../../ui/Refusal";
 import { wire } from "../../wire";
-import { SETUP_CATEGORIES } from "../accounts/words";
+import { SETUP_CATEGORIES, THIS_COMPUTER } from "../accounts/words";
 
 const ROW_ORDER = ["instructions", "settings", "skills", "plugins", "mcp"];
 
@@ -18,7 +18,7 @@ function plural(count: number, noun: string): string {
 }
 
 function copiedWords(report: SetupCopyReport): string {
-	let words = `Copied ${plural(report.copied.length, "item")} from System default.`;
+	let words = `Copied ${plural(report.copied.length, "item")} from ${THIS_COMPUTER}.`;
 	if (report.linksSkipped > 0) words += ` ${plural(report.linksSkipped, "link")} skipped.`;
 	if (report.removedKeys.length > 0) words += ` Left out: ${report.removedKeys.join(", ")}.`;
 	return words;
@@ -140,7 +140,7 @@ export function AccountSetup({ accountId, agentName }: { accountId: string; agen
 					{!choosing ? (
 						<div className="group-row">
 							<span className="group-row-text">
-								<span className="group-row-title">Copy again from System default</span>
+								<span className="group-row-title">Copy again from {THIS_COMPUTER}</span>
 								<span className="group-row-detail">Bring over what you changed in your own {agentName} setup since this account was made</span>
 							</span>
 							<button

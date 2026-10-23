@@ -67,7 +67,7 @@ function signInAction(failure: { kind?: unknown; signIn?: unknown }): AgentSignI
     return { harnessName: action.harnessName, methods };
 }
 
-// A sign-in missing on an account never offers the harness's own methods: they would sign in the System default.
+// A sign-in missing on an account never offers the harness's own methods: they would sign in This computer, not the account.
 function aboutAccount(error: FailureDetails): boolean {
     return error.kind === "usage_limit" || error.kind === "account_unavailable" || (error.kind === "agent_auth" && error.accountId !== undefined);
 }

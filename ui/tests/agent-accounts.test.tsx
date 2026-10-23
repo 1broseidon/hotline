@@ -234,10 +234,10 @@ describe("Settings › Agent accounts", () => {
 		expect(band()).toBe("Claude Code");
 	});
 
-	test("the agent page shows System default and each account's line", async () => {
+	test("the agent page shows This computer and each account's line", async () => {
 		await mount();
 		await openAgent();
-		expect(text()).toContain("Claude Code's own sign-in on this computer, as before · Used by Mack");
+		expect(text()).toContain("Claude Code's own sign-in, as before · Used by Mack");
 		expect(text()).toContain("Built in");
 		expect(row("Account 1").textContent).toContain("Signed in · dev@example.com · Used by Ada");
 		expect(row("Account 1").textContent).not.toContain("Max");

@@ -143,7 +143,7 @@ async function click(label: string) {
 }
 
 describe("an account's failure card", () => {
-	test("a usage limit offers Continue on each other signed-in account, System default and Try again", async () => {
+	test("a usage limit offers Continue on each other signed-in account, This computer and Try again", async () => {
 		await mount(limit({ accountId: "a1" }));
 		expect(text()).toContain("Account 1 hit its usage limit");
 		expect(text()).toContain("You've hit your limit · resets 5pm");
@@ -151,11 +151,11 @@ describe("an account's failure card", () => {
 		expect(calls).toContainEqual(["accounts.status", { accountId: "a3" }]);
 		expect(calls).not.toContainEqual(["accounts.status", { accountId: "a1" }]);
 		expect(buttons()).toContain("Continue on Account 2");
-		expect(buttons()).toContain("Continue on System default");
+		expect(buttons()).toContain("Continue on This computer");
 		expect(buttons()).toContain("Try again");
 		expect(buttons()).not.toContain("Continue on Account 3");
 		expect(button("Continue on Account 2").className).toContain("btn-primary");
-		expect(button("Continue on System default").className).not.toContain("btn-primary");
+		expect(button("Continue on This computer").className).not.toContain("btn-primary");
 		expect(text()).toContain("Error details");
 
 		await click("Continue on Account 2");
@@ -167,13 +167,13 @@ describe("an account's failure card", () => {
 		expect(buttons()).not.toContain("Continue on Account 2");
 	});
 
-	test("a usage limit on System default still offers Try again", async () => {
+	test("a usage limit on This computer still offers Try again", async () => {
 		accounts = [a1([]), a2(), a3()];
 		await mount(limit());
-		expect(text()).toContain("System default hit its usage limit");
+		expect(text()).toContain("This computer hit its usage limit");
 		expect(buttons()).toContain("Continue on Account 1");
 		expect(buttons()).toContain("Continue on Account 2");
-		expect(buttons()).not.toContain("Continue on System default");
+		expect(buttons()).not.toContain("Continue on This computer");
 		expect(buttons()).toContain("Try again");
 		await click("Continue on Account 1");
 		expect(calls).toContainEqual(["persona.account", { personaId: "ada", accountId: "a1" }]);
@@ -193,7 +193,7 @@ describe("an account's failure card", () => {
 
 		accounts = [a1([]), a2(), a3()];
 		await remount(limit({ accountId: "a1" }));
-		expect(text()).toContain("Now on System default");
+		expect(text()).toContain("Now on This computer");
 		expect(probes()).toEqual([]);
 
 		accounts = [a1(), a2(), a3()];

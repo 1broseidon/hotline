@@ -3067,6 +3067,38 @@
 		color: var(--ink-2);
 		font-size: var(--text-xs);
 	}
+	/* The account picker's menu hangs from its button (AccountPicker places
+	 * it), at least as wide as the button. Its search and its add rows stay
+	 * put while the accounts scroll between them. */
+	.account-picker-menu {
+		display: flex;
+		width: 320px;
+		min-width: 100%;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	.account-picker-list {
+		min-height: 0;
+		overflow-y: auto;
+	}
+	.account-picker-search {
+		flex-shrink: 0;
+		margin: 2px 2px 4px;
+	}
+	.account-picker-adds {
+		display: flex;
+		flex-shrink: 0;
+	}
+	.account-picker-add {
+		font-weight: 500;
+		color: var(--accent-ink);
+	}
+	.account-picker-add:hover {
+		background: var(--fill-hover);
+	}
+	.menu-item[data-active="true"] .agent-account-dot[data-state="signed_in"] {
+		background: var(--on-accent);
+	}
 	/* An account row opens its page from anywhere on it, and still carries
 	 * its own key: the open button stretches over the row, the key sits on it. */
 	.agent-account-row {

@@ -406,15 +406,23 @@ impl Room {
         });
     }
 
-    /// Stops the turn in flight and drops whatever was waiting behind it.
+    /// Stops the turn in flight and drops whatever was waiting behind it,
+    /// a colleague's question included, which fails to its asker.
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
-        lock(&session.turns).waiting.clear();
+        let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
+        self.fail_dropped_questions(
+            persona_id,
+            dropped
+                .iter()
+                .filter_map(|line| line.request.as_ref())
+                .map(|line| line.request.as_str()),
+        );
         Ok(())
     }
 }

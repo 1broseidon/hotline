@@ -403,3 +403,70 @@ async fn the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_ow
     })
     .await;
 }
+
+/// The person's cancel drops what waited behind Bob's turn, a colleague's
+/// question too: it fails to its asker at once, once, and no restart hands
+/// it over again.
+#[tokio::test]
+async fn the_persons_cancel_fails_a_question_still_waiting_behind_the_turn() {
+    let (room, agents, gate) = gated(
+        "ask-cancelled-while-queued",
+        vec![
+            turn("person", "Done for the person.", "end_turn"),
+            turn("heard", "Noted.", "end_turn"),
+        ],
+    );
+    room.start("bob").await.unwrap();
+    room.prompt("bob", "the person's work", None, None)
+        .await
+        .unwrap();
+    until("the person's turn is running", || {
+        agents.prompts().len() == 1
+    })
+    .await;
+    let id = send(&room, "ask").await;
+    until("the question waits in Bob's conversation", || {
+        room.tape("bob")
+            .iter()
+            .any(|v| v["cause"]["kind"] == "question" && v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+
+    room.cancel("bob").unwrap();
+    done(&room, &id).await;
+    let asked = request(&room, "ada~bob", &id);
+    assert!(asked.failed && !asked.started);
+    let name = room.persona("bob").unwrap().name;
+    let failure = answer_to(&room, &id).expect("Ada is told at once");
+    assert_eq!(failure["cause"]["status"], "failed");
+    assert_eq!(
+        failure["text"],
+        format!(
+            "{name} was stopped before answering this question. Send it again if you still need it."
+        )
+    );
+    gate.add_permits(20);
+    until("Ada has heard it", || {
+        answer_to(&room, &id).is_some_and(|v| v["receipt"] == "read")
+    })
+    .await;
+    assert_eq!(questions_heard(&agents), 0, "no turn took the question up");
+
+    let agents = Fake::new(Scripted::new(turn("again", "Never said.", "end_turn")));
+    let restarted = Room::with_agents(
+        copied(&room, "ask-cancelled-while-queued-restarted"),
+        Arc::new(DeskKeys),
+        agents.clone(),
+    );
+    restarted.recover_exchanges().await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(questions_heard(&agents), 0, "nothing is handed over again");
+    assert_eq!(
+        restarted
+            .tape("ada")
+            .iter()
+            .filter(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == id.as_str())
+            .count(),
+        1
+    );
+}

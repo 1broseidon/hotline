@@ -109,3 +109,41 @@ async fn a_refresh_begun_on_the_old_tokens_saves_before_a_sign_in_again_never_af
         Some(&b"new"[..])
     );
 }
+
+#[tokio::test]
+async fn a_sign_in_again_that_fails_or_is_cancelled_leaves_the_account_and_waits_on_no_refresh() {
+    for cancelled in [false, true] {
+        let (_root, desk) = desk();
+        let (into, into_dir) = desk.vault.begin_login().unwrap();
+        desk.vault.login_tokens(&into).write(b"old").unwrap();
+        let before = desk
+            .vault
+            .finish_login(&into, "openai-codex", "ChatGPT")
+            .unwrap();
+        let (from, from_dir) = desk.vault.begin_login().unwrap();
+        desk.vault.login_tokens(&from).write(b"new").unwrap();
+        let sign_in = signed_in_again(&desk, &from, &into, Client::ChatGpt);
+        let result = if cancelled {
+            desk.credential_login_cancel(&from).unwrap();
+            Err("Sign-in cancelled.".to_string())
+        } else {
+            Err("Sign-in timed out. Try again.".to_string())
+        };
+
+        let store = LoginDirStore::new(&into_dir);
+        let _refreshing = store.lock(chatgpt::PROVIDER_NAME).await.unwrap();
+        let mut landing = Box::pin(sign_in.land(result.clone()));
+        let first = std::future::poll_fn(|cx| Poll::Ready(landing.as_mut().poll(cx))).await;
+        assert!(first.is_ready(), "cancelled: {cancelled}");
+
+        let status = desk.login_status(&from).unwrap();
+        assert_eq!(status.state, LoginState::Failed);
+        assert_eq!(status.error, result.err());
+        assert!(!from_dir.exists());
+        assert_eq!(
+            desk.vault.login_tokens(&into).read().unwrap().as_deref(),
+            Some(&b"old"[..])
+        );
+        assert_eq!(desk.vault.find(&into).unwrap(), before);
+    }
+}

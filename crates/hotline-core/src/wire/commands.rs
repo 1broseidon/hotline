@@ -347,11 +347,16 @@ pub(crate) async fn run(
             .credential_create(&provider_id, &label, &secret)
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
-        // Under the lock, so `persona.account` cannot set a teammate to it meanwhile.
+        // The lock covers the check and the revoke, so no teammate is set to
+        // it meanwhile. A revoked credential cannot be chosen, so the slow
+        // provider sign-out and the deletion run after it.
         Command::CredentialDelete { id } => {
-            let gate = room.policy_update_lock();
-            let _held = gate.lock().await;
-            accounts::check_unused(log, room, &id)?;
+            {
+                let gate = room.policy_update_lock();
+                let _held = gate.lock().await;
+                accounts::check_unused(log, room, &id)?;
+                room.credential_revoke(&id)?;
+            }
             room.credential_delete(&id).await.map(|()| Value::Null)
         }
         Command::CredentialLogin {

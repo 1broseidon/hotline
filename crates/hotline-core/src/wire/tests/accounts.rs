@@ -571,7 +571,12 @@ async fn removing_a_chosen_credential_is_refused_naming_its_teammates_and_the_de
         run(log, &room, "credential.delete", json!({"id":second})).await,
         Err("Work can't be removed while Ada use it.".to_string())
     );
-    assert!(room.credentials().iter().any(|row| row.id == second));
+    assert!(
+        room.credentials()
+            .iter()
+            .any(|row| row.id == second && !row.revoked),
+        "a refused removal revokes nothing"
+    );
 
     run(log, &room, "credential.delete", json!({"id":first}))
         .await
@@ -658,9 +663,31 @@ async fn an_account_is_renamed_and_changed_in_place() {
         desk.test_vault().account_models().get("ollama"),
         Some(&vec!["llama-new".to_string()])
     );
+}
 
+#[tokio::test]
+async fn only_a_live_sign_in_of_the_provider_can_be_signed_in_again() {
+    let (_root, desk, room) = desk();
+    let log = &desk.log;
+    let anthropic = key(log, &room, "anthropic", "Work").await;
+    let grok_key = key(log, &room, "xai", "Grok key").await;
     let login = signed_in(&desk, "openai-codex", "ChatGPT");
-    for (into, provider) in [(&first, "openai-codex"), (&login, "github-copilot")] {
+    let revoked = signed_in(&desk, "openai-codex", "Old ChatGPT");
+    run(log, &room, "credential.revoke", json!({ "id": revoked }))
+        .await
+        .unwrap();
+    let logins = desk.test_vault().login_dir(&login);
+    let logins = logins.parent().unwrap();
+    let folders = || std::fs::read_dir(logins).unwrap().count();
+    let before = folders();
+
+    for (provider, into) in [
+        ("openai-codex", anthropic.as_str()),
+        ("github-copilot", login.as_str()),
+        ("openai-codex", revoked.as_str()),
+        ("xai", grok_key.as_str()),
+        ("openai-codex", "no-such-account"),
+    ] {
         assert_eq!(
             run(
                 log,
@@ -669,9 +696,11 @@ async fn an_account_is_renamed_and_changed_in_place() {
                 json!({"providerId":provider,"id":into}),
             )
             .await,
-            Err("This sign-in cannot replace that account's.".to_string())
+            Err("This sign-in cannot replace that account's.".to_string()),
+            "{provider} {into}"
         );
     }
+    assert_eq!(folders(), before, "no sign-in began");
 }
 
 #[tokio::test]
@@ -759,4 +788,69 @@ async fn persona_create_checks_a_hotline_account_against_its_model() {
     let preferred = create(None, &anthropic).await.unwrap();
     assert_eq!(preferred["accountId"], json!(anthropic));
     assert_eq!(preferred["modelId"], "anthropic/x");
+}
+
+#[tokio::test]
+async fn a_revoked_credential_a_teammate_is_set_to_cannot_be_removed() {
+    let (_root, desk, room) = desk();
+    let log = &desk.log;
+    let old = key(log, &room, "anthropic", "Old").await;
+    teammate(
+        log,
+        &room,
+        json!({"name":"Ada","backendId":"hotline","modelId":"anthropic/x","accountId":old}),
+    )
+    .await;
+    run(log, &room, "credential.revoke", json!({ "id": old }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        run(log, &room, "credential.delete", json!({ "id": old })).await,
+        Err("Old can't be removed while Ada use it.".to_string())
+    );
+    assert!(room.credentials().iter().any(|row| row.id == old));
+}
+
+/// Written as the room keeps a choice after the model or the agent changes;
+/// `persona.account` would refuse each of them.
+fn set_account(log: &Log, persona_id: &str, account_id: &str) {
+    let mut persona = room::roster(log)
+        .into_iter()
+        .find(|persona| persona.id == persona_id)
+        .unwrap();
+    persona.account_id = Some(account_id.to_string());
+    room::append_persona(log, &persona).unwrap();
+}
+
+#[tokio::test]
+async fn a_choice_off_the_provider_follows_its_default_and_an_unknown_one_follows_none() {
+    let (_root, desk, room) = desk();
+    let log = &desk.log;
+    let anthropic = key(log, &room, "anthropic", "Work").await;
+    let openai = key(log, &room, "openai", "Work").await;
+    let made = created(log, &room, "Personal").await;
+    let agent_account = made["account"]["account"]["id"].as_str().unwrap();
+    let on_anthropic = |name: &str| {
+        teammate(
+            log,
+            &room,
+            json!({"name":name,"backendId":"hotline","modelId":"anthropic/x"}),
+        )
+    };
+    let agentic = on_anthropic("Agentic").await;
+    let crossed = on_anthropic("Crossed").await;
+    let lost = on_anthropic("Lost").await;
+    set_account(log, &agentic, agent_account);
+    set_account(log, &crossed, &openai);
+    set_account(log, &lost, "no-such-account");
+
+    assert_eq!(
+        listed_credential(log, &room, &anthropic).await["usedBy"],
+        json!([agentic, crossed])
+    );
+    assert_eq!(
+        listed_credential(log, &room, &openai).await["usedBy"],
+        json!([crossed])
+    );
 }

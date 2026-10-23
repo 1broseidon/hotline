@@ -237,11 +237,11 @@ impl SignIn {
     async fn land(self, result: Result<(), String>) {
         // A refresh in flight on `into`'s old tokens saves before the new
         // ones land. Let go before the models are fetched, which may refresh.
-        let records = match &self.landing {
-            Landing::Again { into } => {
+        let records = match (&self.landing, &result) {
+            (Landing::Again { into }, Ok(())) => {
                 Some(rig_login::hold_records(&self.vault.login_dir(into)).await)
             }
-            Landing::New { .. } => None,
+            _ => None,
         };
         let landed = self.record(result);
         drop(records);

@@ -78,20 +78,26 @@ pub(crate) fn check_choice(
             if credential.revoked {
                 return Err(SIGNED_OUT.into());
             }
-            let model_id = model_id
-                .map(str::to_string)
-                .or_else(|| crate::models::preferred_model(&room::settings_from_events(&events)));
-            let provider_id = model_id
-                .as_deref()
-                .and_then(|model_id| model_id.split_once('/'))
-                .map(|(provider_id, _)| provider_id);
-            if provider_id != Some(credential.provider_id.as_str()) {
+            let preferred = crate::models::preferred_model(&room::settings_from_events(&events));
+            if model_provider(model_id, preferred.as_deref())
+                != Some(credential.provider_id.as_str())
+            {
                 return Err(NOT_FOR_THIS_MODEL.into());
             }
             Ok(())
         }
         _ => Err(NOT_ON_THIS_DESK.into()),
     }
+}
+
+/// The provider a Hotline Agent teammate's turns run on: its model's, or with
+/// no model the room's `preferred` one's.
+pub(crate) fn model_provider<'a>(
+    model_id: Option<&'a str>,
+    preferred: Option<&'a str>,
+) -> Option<&'a str> {
+    let (provider_id, _) = model_id.or(preferred)?.split_once('/')?;
+    Some(provider_id)
 }
 
 /// The account with its folder checked, for the desk and its owner: the

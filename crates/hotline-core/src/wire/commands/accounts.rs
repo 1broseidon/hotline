@@ -10,7 +10,7 @@ use super::{now, off_the_reactor};
 use crate::accounts::resolve::{self, Named};
 use crate::accounts::setup::{copy_setup, nothing_to_copy, setup_view, system_default_source};
 use crate::accounts::support::{AccountSupport, account_support};
-use crate::accounts::{NO_ACCOUNTS, NOT_ON_THIS_DESK, login, resolved};
+use crate::accounts::{NO_ACCOUNTS, NOT_ON_THIS_DESK, login, model_provider, resolved};
 use crate::contract::{
     AccountAgent, AccountCreated, AccountSetupOrigin, AccountView, AccountsList, AgentAccount,
     Command, CredentialAccount, LoginAttemptState, Persona, SetupFrom,
@@ -153,12 +153,7 @@ fn follows_default(
     provider_id: &str,
     preferred: Option<&str>,
 ) -> bool {
-    let on_provider = persona
-        .model_id
-        .as_deref()
-        .or(preferred)
-        .and_then(|model_id| model_id.split_once('/'))
-        .is_some_and(|(model_provider, _)| model_provider == provider_id);
+    let on_provider = model_provider(persona.model_id.as_deref(), preferred) == Some(provider_id);
     if persona.backend_id != HOTLINE_BACKEND_ID || !on_provider {
         return false;
     }

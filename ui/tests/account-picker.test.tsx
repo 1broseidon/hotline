@@ -96,6 +96,13 @@ describe("the account picker", () => {
 		expect(picked).toEqual([]);
 	});
 
+	test("a selection that is none of its accounts reads Choose an account", async () => {
+		await mount([key("a", "Key A"), key("b", "Key B")], "");
+		expect(button().textContent).toBe("Choose an account");
+		await toggle();
+		expect(options().map((one) => one.getAttribute("aria-selected"))).toEqual(["false", "false"]);
+	});
+
 	test("a click outside closes it", async () => {
 		await mount([choice("w", "Work"), choice("p", "Personal")], "w");
 		await toggle();

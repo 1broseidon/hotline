@@ -204,7 +204,6 @@ export function NewTeammateForm({
 	const accountNames = accountChoices.filter((one) => one.id !== SYSTEM_DEFAULT).map((one) => one.name);
 	const selectedAccount = inUse(accountChoices, accountId);
 	const pickedAccount = accountChoices.find((one) => one.id === selectedAccount);
-	// Staying on the default or on This computer sends nothing.
 	const draftAccount = pickedAccount !== undefined && pickedAccount.id !== SYSTEM_DEFAULT && !pickedAccount.isDefault ? pickedAccount : undefined;
 	const signingId = signingAccount?.view.account.id;
 	const shownChoices = accountChoices.map((one) => (one.id === signingId ? { ...one, detail: "Signing in…" } : one));
@@ -301,7 +300,7 @@ export function NewTeammateForm({
 			<p className="label" id="new-account">
 				Account
 			</p>
-			<AccountPicker choices={shownChoices} selected={selectedAccount} label="Account" onSelect={setAccountId} adds={accountAdds} />
+			<AccountPicker choices={shownChoices} selected={selectedAccount} label="Account" disabled={busy} onSelect={setAccountId} adds={accountAdds} />
 			{agent !== undefined && (signingAccount !== null || accountFromDesk !== null || addingAccount !== null) && (
 				<div className="grouped mt-2">
 					{signingAccount !== null && (

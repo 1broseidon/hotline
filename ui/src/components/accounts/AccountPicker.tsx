@@ -22,12 +22,14 @@ export function AccountPicker({
 	label,
 	onSelect,
 	adds,
+	disabled = false,
 }: {
 	choices: AccountChoice[];
 	selected: string;
 	label: string;
 	onSelect(id: string): void;
 	adds?: Adds;
+	disabled?: boolean;
 }) {
 	const button = useRef<HTMLButtonElement>(null);
 	const [open, setOpen] = useState(false);
@@ -41,12 +43,17 @@ export function AccountPicker({
 				aria-label={label}
 				aria-haspopup="listbox"
 				aria-expanded={open}
+				disabled={disabled}
 				onClick={() => setOpen((was) => !was)}
 			>
-				<span className="picker-label">
-					{current?.name ?? selected}
-					{current !== undefined && <span className="text-ink-3"> · {detailLine(current)}</span>}
-				</span>
+				{current === undefined ? (
+					<span className="picker-label text-ink-3">Choose an account</span>
+				) : (
+					<span className="picker-label">
+						{current.name}
+						<span className="text-ink-3"> · {detailLine(current)}</span>
+					</span>
+				)}
 				<ChevronDownIcon className="picker-chevron" />
 			</button>
 			{open && button.current && (

@@ -62,7 +62,6 @@ export function AccountRow({
 		};
 	}, [settling]);
 
-	// The provider's name titles the section, and its ways in are the add rows.
 	useEffect(() => {
 		if (!hotline) return;
 		let cancelled = false;
@@ -81,14 +80,18 @@ export function AccountRow({
 
 	if (list === null || (hotline && providers === null)) return null;
 	const choices = accountsFor(list, { backendId: persona.backendId, modelId });
-	const onThisDesk = (id: string) =>
-		list.accounts.some((one) => one.account.id === id) || list.credentials.some((one) => one.credential.id === id && !one.credential.revoked);
-	// Set to an account this desk does not have, it cannot start until it is given another, even the only one that fits.
-	const stranded = persona.accountId !== undefined && !onThisDesk(persona.accountId);
+	const providerId = providerOf(modelId);
+	// The core refuses to run on an account this desk does not have, and on Hotline Agent on a signed-out key of
+	// the model's provider; any other account it ignores. A teammate refused so is offered even the only one that fits.
+	const strandedOn = (id: string) => {
+		const credential = list.credentials.find((one) => one.credential.id === id)?.credential;
+		if (credential !== undefined) return hotline && credential.revoked && credential.providerId === providerId;
+		return !list.accounts.some((one) => one.account.id === id);
+	};
+	const stranded = persona.accountId !== undefined && strandedOn(persona.accountId);
 	const offered = choices.length >= 2 || (stranded && choices.length === 1);
 	if (!offered) return null;
 	const agent = hotline ? undefined : list.agents.find((one) => one.backendId === persona.backendId && one.supportsAccounts);
-	const providerId = providerOf(modelId);
 	const provider = providers?.find((one) => one.id === providerId);
 	const title = `${agent?.name ?? provider?.name ?? providerId} account`;
 	// No account is the provider's default on Hotline Agent and This computer on a CLI agent, as is one that does not fit.
@@ -117,8 +120,11 @@ export function AccountRow({
 	};
 	const assign = (accountId: string) =>
 		send(() => wire.command("persona.account", { personaId: persona.id, accountId: accountId === SYSTEM_DEFAULT ? null : accountId }));
+	// On Hotline Agent the default's row means following the default, so picking it never pins the default.
 	const pick = (accountId: string) => {
-		if (accountId !== chosen) void assign(accountId);
+		if (accountId === chosen) return;
+		const followsDefault = hotline && choices.some((one) => one.id === accountId && one.isDefault);
+		void assign(followsDefault ? SYSTEM_DEFAULT : accountId);
 	};
 	const stopAndSwitch = () =>
 		void send(async () => {
@@ -258,7 +264,7 @@ export function AccountRow({
 				</div>
 			)}
 			{up && <p className="group-hint">{note}</p>}
-			{!hotline && onSetup !== undefined && list.accounts.some((one) => one.account.id === chosen) && (
+			{!hotline && onSetup !== undefined && choices.some((one) => one.id === chosen && one.id !== SYSTEM_DEFAULT) && (
 				<p className="group-hint">
 					<button type="button" className="text-accent-ink hover:underline" onClick={() => onSetup(chosen)}>
 						{nameOf(chosen)}'s setup

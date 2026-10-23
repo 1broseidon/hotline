@@ -60,6 +60,7 @@ let accounts: AccountView[];
 let credentials: CredentialAccount[];
 let created: string[];
 let createRefusal: string | null;
+let createGate: Promise<void>;
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
@@ -75,7 +76,7 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 	if (cmd === "backends.list") return backends;
 	if (cmd === "providers.list") return providers;
 	if (cmd === "accounts.list") return { agents, accounts, credentials };
-	if (cmd === "persona.create") return { id: "p1", ...(params["draft"] as PersonaDraft) };
+	if (cmd === "persona.create") return createGate.then(() => ({ id: "p1", ...(params["draft"] as PersonaDraft) }));
 	if (cmd === "session.start") return null;
 	if (cmd === "credential.create") {
 		const made: Credential = {
@@ -125,6 +126,7 @@ beforeEach(async () => {
 	credentials = [key("A", "Key A", "anthropic", true), key("B", "Key B"), key("O", "OpenAI key", "openai", true)];
 	created = [];
 	createRefusal = null;
+	createGate = Promise.resolve();
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
 		calls.push([cmd, params]);
 		return respond(cmd, params);
@@ -316,6 +318,36 @@ describe("a new Claude Code teammate's account", () => {
 		expect(thinksWith().textContent).not.toContain("·");
 	});
 
+	test("an account picked for Claude Code does not ride along to Hotline Agent", async () => {
+		await mount();
+		await agent("claude-acp");
+		await choose("Account 1");
+		await agent("hotline");
+		await model("Claude X");
+		expect(picker()!.textContent).toBe("Key A · API key · pay per use");
+		await submit("Ada");
+		expect(draft().backendId).toBe("hotline");
+		expect("accountId" in draft()).toBe(false);
+	});
+
+	test("the Account field cannot change while the teammate is being made", async () => {
+		let release = () => {};
+		createGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		await mount();
+		await agent("claude-acp");
+		expect(picker()!.disabled).toBe(false);
+		await submit("Ada");
+		expect(button("Setting up…").disabled).toBe(true);
+		expect(picker()!.disabled).toBe(true);
+		await act(async () => {
+			release();
+		});
+		await settle();
+		expect(created).toEqual(["p1"]);
+	});
+
 	test("Add subscription starts with your setup, says Hotline never sees the sign-in, and Change or customize opens Start with", async () => {
 		await mount();
 		await agent("claude-acp");
@@ -450,6 +482,32 @@ describe("a new Hotline Agent teammate's account", () => {
 
 		await click("Add teammate");
 		expect(draft().accountId).toBe("C");
+	});
+
+	test("cancelling a new key selects nothing", async () => {
+		await mount();
+		await model("Claude X");
+		await add("Add API key");
+		await click("Cancel");
+		expect(container.querySelector("#key-secret")).toBeNull();
+		expect(named("credential.create")).toHaveLength(0);
+		expect(picker()!.textContent).toBe("Key A · API key · pay per use");
+		await submit("Ada");
+		expect("accountId" in draft()).toBe(false);
+	});
+
+	test("Enter in the new key's Name saves the key once, not the teammate", async () => {
+		await mount();
+		await model("Claude X");
+		await type(container.querySelector<HTMLInputElement>("#new-name")!, "Ada");
+		await add("Add API key");
+		await type(container.querySelector<HTMLInputElement>("#key-secret")!, "sk-three");
+		const name = container.querySelector<HTMLInputElement>('input[placeholder="Anthropic"]')!;
+		await type(name, "Spare");
+		expect(await enter(name)).toBe(true);
+		expect(named("credential.create")).toEqual([["credential.create", { providerId: "anthropic", label: "Spare", secret: "sk-three" }]]);
+		expect(named("persona.create")).toHaveLength(0);
+		expect(picker()!.textContent).toBe("Spare · API key · pay per use");
 	});
 
 	test("Enter in the new key saves the key, not the teammate", async () => {

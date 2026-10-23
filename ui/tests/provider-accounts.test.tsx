@@ -130,6 +130,11 @@ function respond(cmd: string, params: Record<string, unknown>): unknown {
 		credentials = credentials.map((one) => (one.credential.id === id ? { ...one, credential: { ...one.credential, ...edit } } : one));
 		return credentials.find((one) => one.credential.id === id)?.credential;
 	}
+	if (cmd === "credential.connect_local") {
+		const connected = server(`o${credentials.length + 1}`, String(params["label"]), String(params["baseUrl"]));
+		credentials = [...credentials, connected];
+		return connected.credential;
+	}
 	if (cmd === "credential.delete") {
 		if (deleteRefusal !== null) throw new Error(deleteRefusal);
 		credentials = credentials.filter((one) => one.credential.id !== params["id"]);
@@ -457,6 +462,24 @@ describe("Settings › Providers", () => {
 		await click("Disconnect", row("Ollama Local"));
 		expect(text()).toContain("Disconnect Ollama Local?");
 		expect(named("credential.delete")).toHaveLength(0);
+	});
+
+	test("Enter in a new server's Name or its Server URL connects it, once", async () => {
+		agents = [codex];
+		accounts = [];
+		credentials = [server("o1", "Ollama Local", "http://192.168.1.5:11434")];
+		await mount();
+		await openProvider("Ollama Local");
+		await click("Add server");
+		await type(field("Name"), "Lab");
+		await key(field("Name"), "Enter");
+		expect(named("credential.connect_local")).toEqual([["credential.connect_local", { baseUrl: "http://localhost:11434", label: "Lab" }]]);
+		expect(rows("Lab")).toHaveLength(1);
+
+		await click("Add server");
+		await key(field("Server URL"), "Enter");
+		expect(named("credential.connect_local")).toHaveLength(2);
+		expect(named("credential.connect_local")[1]).toEqual(["credential.connect_local", { baseUrl: "http://localhost:11434", label: "Ollama Local 2" }]);
 	});
 
 	test("a refused rename keeps the old name and says why on the row", async () => {

@@ -81,6 +81,11 @@ pub(crate) const TRUNCATED: &str = "The model stream ended without a complete re
 pub(crate) const NO_PROVIDER: &str =
     "Hotline Agent unavailable: connect a provider in Settings › Providers.";
 
+/// What a turn reads as when the account its teammate is set to cannot sign
+/// it. No other credential of the provider is ever used in its place.
+pub(crate) const ACCOUNT_SIGNED_OUT: &str =
+    "The account this teammate is set to is signed out or gone. Choose another account.";
+
 /// The whole structured diagnosis of a failed turn. It is large, and the rig
 /// driver returns it by value anyway: a turn returns it at most once, so
 /// boxing it buys nothing, and each `result_large_err` there says so.

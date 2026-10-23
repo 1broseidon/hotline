@@ -184,6 +184,16 @@ pub struct SetupCopyReport {
     pub links_skipped: u32,
 }
 
+/// Where an account is listed on its provider's page: by what it bills.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum AccountSection {
+    Subscription,
+    ApiKey,
+    Server,
+}
+
 /// Why a chosen account is not yet the one running.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]

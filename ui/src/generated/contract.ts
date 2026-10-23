@@ -29,6 +29,11 @@ export type AccountCreated = { account: AccountView, copy?: SetupCopyReport, };
 export type AccountHold = "not_signed_in" | "signing_in";
 
 /**
+ * Where an account is listed on its provider's page: by what it bills.
+ */
+export type AccountSection = "subscription" | "api_key" | "server";
+
+/**
  * Where an account folder's setup came from, written on creation and again
  * on each "Copy again".
  */

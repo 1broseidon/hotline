@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::sync::{Mutex, PoisonError};
 use tokio::sync::Mutex as AsyncMutex;
 
+mod accounts;
 mod launch;
 mod models;
 use models::ModelSources;
@@ -1181,7 +1182,7 @@ pub(crate) fn write_beside_login(token_dir: &Path, name: &str, body: &[u8]) -> i
 mod tests {
     use super::*;
 
-    fn listed(id: &str) -> ListedModel {
+    pub(super) fn listed(id: &str) -> ListedModel {
         ListedModel {
             id: id.into(),
             name: None,
@@ -1198,12 +1199,12 @@ mod tests {
         root
     }
 
-    fn vault(name: &str) -> Vault {
+    pub(super) fn vault(name: &str) -> Vault {
         let root = scratch(name);
         Vault::open(&root, Log::open(&root)).unwrap()
     }
 
-    fn ids(vault: &Vault) -> Vec<String> {
+    pub(super) fn ids(vault: &Vault) -> Vec<String> {
         vault
             .list()
             .into_iter()

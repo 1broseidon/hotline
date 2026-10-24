@@ -2500,11 +2500,6 @@
 	.rail {
 		padding-top: 40px;
 	}
-	/* Settings' sections head their rail with their own band, room made in
-	 * it for the rail's key. */
-	.settings-rail {
-		padding-top: 0;
-	}
 	/* The rail's slot: as wide as the rail while it is open, nothing while it
 	 * is closed, sliding between the two; a drag of its edge moves it at once. */
 	.rail-slot {

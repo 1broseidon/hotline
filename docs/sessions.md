@@ -487,7 +487,9 @@ handler verifies that token and the capability lease, then puts the vault's
 credential on each request — a current OAuth token, or the pasted one; the
 child never receives either. Signing in authorizes the
 gateway connection and does not change any teammate's none, selected or all
-policy.
+policy. A completed sign-in rebuilds each running main session so it
+connects with it, and ends nothing a teammate holds or was given
+([Reattaching](#reattaching)); a sign-out revokes, as a grant change does.
 
 A grant authorizes the server's own capabilities, including any access it has
 outside the teammate's workspace. Hotline does not put granted servers inside the
@@ -1493,7 +1495,8 @@ end of the link to the other desk. Its two leases are each teammate's lasting au
 `CapabilityEpoch::lasting`), taken as it is sent and scoped to it, so ending
 it ends them alone. A chapter's swap only replaces the session
 (`replace_session`, through `stop_with_capability`, reopening the previous
-chapter included), and the thread the request was sent from parking, or the
+chapter included), as does a rebuild for a computer or an MCP sign-in
+(`Room::rebuild`), and the thread the request was sent from parking, or the
 job firing that sent it letting go of its agent, revokes only that thread's
 or firing's own lease; none of them ends the request, so its result, its
 reports and its questions back keep flowing to where they are routed. A
@@ -1910,7 +1913,15 @@ handles stay revoked. Retrying the settings change restores execution;
 Hotline does not silently restore a grant the operator tried to remove.
 
 The room cancels the old driver, clears its queued turns, and rebuilds a
-live session behind the same start gate. Cloned tool handles retain a
+live session behind the same start gate. What changes the session and not
+what the teammate may do is no policy change: its computer joining once
+downloaded or made again between turns, and a sign-in to an MCP server
+completing (`Room::signed_in_to_mcp`), rebuild a running main session the
+way a chapter's swap does (`Room::rebuild`, through `stop_with_capability`),
+so the teammate's threads, its requests and its authority stand. A thread
+keeps the computer and the servers it was built with until it is brought
+up again. A sign-out, a server removed or a policy change narrows reach
+and goes through the revocation above. Cloned tool handles retain a
 revocable lease, so removing a session alone is never the permission check.
 An idle teammate stays idle and uses the new policy on its next start. A gateway change applies this boundary to the whole room,
 including teammates whose main session is stopped.

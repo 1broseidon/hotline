@@ -212,13 +212,7 @@ impl Desk {
             let Some(room) = room_for_oauth.upgrade() else {
                 return;
             };
-            tokio::spawn(async move {
-                let gate = room.policy_update_lock();
-                let _held = gate.lock().await;
-                if room.invalidate_all().is_ok() {
-                    let _ = room.reattach_all().await;
-                }
-            });
+            tokio::spawn(async move { room.signed_in_to_mcp().await });
         }));
         let voice = crate::voice::Calls::with_models(
             log.clone(),

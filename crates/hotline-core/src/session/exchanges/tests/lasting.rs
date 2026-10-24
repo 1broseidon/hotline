@@ -7,7 +7,7 @@
 use super::ask_back::{ask_back, in_workspace, open_card, question_in};
 use super::gates::{idle, request, turn};
 use super::progress::{
-    handed_over_and_done, heard_with, is_released, planted_job, room_with, says_ended,
+    Builds, handed_over_and_done, heard_with, is_released, planted_job, room_with, says_ended,
     talks_without_a_report,
 };
 use super::questions::requested;
@@ -194,8 +194,9 @@ async fn a_request_taken_up_after_a_restart_outlives_a_chapter_turning_over() {
 }
 
 /// What a chapter's turnover leaves standing, every explicit end still
-/// ends: the delegation is released, its link says so, and the person's
-/// next turn in the thread reports to nobody.
+/// ends, the room-wide one a sign-out or a server removed makes included:
+/// the delegation is released, its link says so, and the person's next turn
+/// in the thread reports to nobody.
 #[tokio::test]
 async fn each_explicit_end_still_ends_a_delegation_a_chapter_left_standing() {
     for end in [
@@ -204,6 +205,7 @@ async fn each_explicit_end_still_ends_a_delegation_a_chapter_left_standing() {
         "colleague-reattached",
         "delegator-stopped",
         "colleague-stopped",
+        "room-invalidated",
     ] {
         let (room, agents, handoff, thread) =
             handed_over_and_done(&format!("lasting-ends-{end}")).await;
@@ -213,7 +215,12 @@ async fn each_explicit_end_still_ends_a_delegation_a_chapter_left_standing() {
             "delegator-reattached" => room.reattach("ada").await.unwrap(),
             "colleague-reattached" => room.reattach("bob").await.unwrap(),
             "delegator-stopped" => room.stop("ada").unwrap(),
-            _ => room.stop("bob").unwrap(),
+            "colleague-stopped" => room.stop("bob").unwrap(),
+            // As an MCP sign-out or a server removed does.
+            _ => {
+                room.invalidate_all().unwrap();
+                room.reattach_all().await.unwrap();
+            }
         }
         is_released(&room, &handoff);
         talks_without_a_report(&room, &handoff, &thread).await;
@@ -292,4 +299,80 @@ async fn a_question_waiting_behind_a_turn_outlives_the_next_line_starting_a_chap
         .await
         .unwrap();
     answered_in_the_next_chapter(&room, &gate, &id).await;
+}
+
+/// What changes Bob's main conversation and not what he may do rebuilds it
+/// the way a chapter's swap does: his computer joining once it has
+/// downloaded, a computer made again between turns, or a sign-in to an MCP
+/// server. The handoff his thread is working on goes on to its result.
+#[tokio::test]
+async fn a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in() {
+    use crate::contract::PersonaComputer;
+    use crate::session::computer::ComputerSetup;
+    for rebuilt_by in ["computer-joins", "computer-made-again", "mcp-sign-in"] {
+        let log = scratch(&format!("lasting-rebuilt-{rebuilt_by}"));
+        enrol(&log, &persona("ada"));
+        let mut bob = persona("bob");
+        bob.computer = Some(PersonaComputer {
+            cpus: None,
+            enabled: true,
+            image: None,
+            memory: None,
+            pids: None,
+            mounts: None,
+            secrets: None,
+        });
+        enrol(&log, &bob);
+        let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+        let gate = Arc::new(Semaphore::new(0));
+        let bob =
+            Fake::new(Scripted::new(turn("built", "Built it.", "end_turn")).gated(gate.clone()));
+        // Bob's main conversation, before and after it is rebuilt, has agents
+        // of its own: one shared with his thread would carry the old
+        // session's stop into the thread's turn.
+        let main = || Fake::new(Scripted::new(turn("main", "Main.", "end_turn")));
+        // No runtime to be found: each start goes on without the computer.
+        let nowhere = tempfile::tempdir().unwrap();
+        let room = Room::with_agents_and_computers(
+            log,
+            Arc::new(DeskKeys),
+            Arc::new(Builds {
+                ada: ada.clone(),
+                bob: vec![main(), bob.clone(), main()],
+                built: Mutex::new(0),
+            }),
+            crate::computer::Computer::with_path(nowhere.path()),
+        );
+        room.allow_sender("bob", "ada").unwrap();
+        room.start("bob").await.unwrap();
+        let handoff = send(&room, "handoff").await;
+        until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+        let old = room.session("bob").unwrap();
+
+        match rebuilt_by {
+            "computer-joins" => {
+                lock(&room.computer_setups).insert(
+                    "bob".into(),
+                    tokio::sync::watch::channel(ComputerSetup::Ready).0,
+                );
+                room.attach_computer_when_idle("bob");
+            }
+            "computer-made-again" => room.computer_restart("bob").await.unwrap(),
+            _ => room.signed_in_to_mcp().await,
+        }
+        until("bob's main conversation is rebuilt", || {
+            room.session("bob")
+                .is_ok_and(|now| !Arc::ptr_eq(&now, &old))
+                && room.info("bob").state == crate::contract::SessionState::Ready
+        })
+        .await;
+        gate.add_permits(2);
+        done(&room, &handoff).await;
+        let result = request(&room, "ada~bob", &handoff);
+        assert_eq!(
+            (result.failed, result.reply.as_str(), result.released),
+            (false, "Built it.", false),
+            "{rebuilt_by}"
+        );
+    }
 }

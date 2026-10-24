@@ -326,6 +326,11 @@ impl Room {
     /// stopping the old session, so a later stop also cancels a replacement
     /// that has not reached its first await yet.
     pub(super) fn stop_with_capability(&self, persona_id: &str) -> CapabilityLease {
+        self.swap_out(persona_id).0
+    }
+
+    /// [`Self::stop_with_capability`], and whether a session was running.
+    fn swap_out(&self, persona_id: &str) -> (CapabilityLease, bool) {
         let (session, capability) = {
             let _lifecycle = lock(&self.lifecycle);
             // A quarantined epoch stays closed, so a concurrent policy update
@@ -339,7 +344,7 @@ impl Room {
             self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);
             self.computers.mark_idle(persona_id, now_ms());
-            return capability;
+            return (capability, false);
         };
         lock(&session.turns).waiting.clear();
         session.driver.invalidate();
@@ -352,7 +357,7 @@ impl Room {
         if !lock(&self.sessions).contains_key(persona_id) {
             let _ = self.info_changes.send(info);
         }
-        capability
+        (capability, true)
     }
 
     /// Rebuilds a live session from the teammate's current record, so a change
@@ -385,9 +390,39 @@ impl Room {
         let Some(capability) = capability else {
             return Ok(());
         };
-        // A restart that fails to start (a key gone, a harness missing) leaves
-        // the teammate stopped, and the band has to say
-        // why, because nobody pressed Start to be handed the error.
+        self.start_again(persona_id, capability).await
+    }
+
+    /// Rebuilds a running main session from the teammate's current record
+    /// the way a chapter's swap does: the old session's handles end, and the
+    /// teammate's threads, its requests and its authority stand. For what
+    /// changes the session and not what the teammate may do: its computer
+    /// joining or made again, or a sign-in to a server its policy grants.
+    /// What narrows reach goes through [`Self::reattach`].
+    pub(super) async fn rebuild(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let _working = self.working()?;
+        let gate = self.start_gate(persona_id);
+        let _held = gate.lock().await;
+        self.rebuild_held(persona_id).await
+    }
+
+    /// [`Self::rebuild`] for a caller already holding the start gate.
+    pub(super) async fn rebuild_held(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let (capability, was_running) = self.swap_out(persona_id);
+        if !was_running {
+            return Ok(());
+        }
+        self.start_again(persona_id, capability).await
+    }
+
+    /// Starts the main session again on `capability`. A start that fails (a
+    /// key gone, a harness missing) leaves the teammate stopped, and the band
+    /// has to say why, because nobody pressed Start to be handed the error.
+    async fn start_again(
+        self: &Arc<Self>,
+        persona_id: &str,
+        capability: CapabilityLease,
+    ) -> Result<(), String> {
         if let Err(error) = self.start_now(persona_id, capability).await {
             let mut info = idle_info(persona_id);
             info.state = SessionState::Stopped;
@@ -396,6 +431,21 @@ impl Room {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// A sign-in to an MCP server has completed. It adds reach the policies
+    /// already grant and narrows none, so each running session is rebuilt to
+    /// connect with it, and nothing a teammate holds or was given ends; a
+    /// sign-out, a server removed or a policy change ends all of it, through
+    /// [`Self::invalidate_all`].
+    pub(crate) async fn signed_in_to_mcp(self: &Arc<Self>) {
+        let gate = self.policy_update_lock();
+        let _held = gate.lock().await;
+        let running: Vec<String> = lock(&self.sessions).keys().cloned().collect();
+        for persona_id in running {
+            // A rebuild that fails says why on the teammate's band itself.
+            let _ = self.rebuild(&persona_id).await;
+        }
     }
 
     /// Every live session, because a policy of "all" includes every server

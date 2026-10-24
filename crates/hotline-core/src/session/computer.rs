@@ -176,8 +176,8 @@ impl Room {
         let room = self.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
-            // A restart that fails says why on the teammate's band itself.
-            let _ = room.reattach(&persona_id).await;
+            // A rebuild that fails says why on the teammate's band itself.
+            let _ = room.rebuild(&persona_id).await;
         });
     }
 
@@ -544,9 +544,9 @@ impl Room {
             }
             let _ = room.computer_remove(&persona_id).await;
             if wanted.is_some() && session.is_some() {
-                // A restart that fails says why on the teammate's band itself.
+                // A rebuild that fails says why on the teammate's band itself.
                 let _working = room.working();
-                let _ = room.reattach_held(&persona_id).await;
+                let _ = room.rebuild_held(&persona_id).await;
             }
             drop(held);
             room.forget_release(swap.old).await;

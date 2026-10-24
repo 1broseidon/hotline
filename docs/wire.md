@@ -677,7 +677,9 @@ and no answer repeats the address, which carries the code. `mcp.auth_status` rep
 `failed`; its result never includes an access token, refresh token or client
 secret. `mcp.auth_sign_out` revokes the live gateway capability before it
 deletes the registration and tokens from the protected vault. Signing in
-does not change a teammate's MCP policy.
+does not change a teammate's MCP policy: once it completes, each running
+main session is rebuilt to connect with it, and nothing a teammate holds or
+was given ends ([sessions.md](sessions.md#reattaching)).
 
 `mcp.secret_set` is the other credential: the token a server in `bearer` or
 `header` auth mode sends on every request. The window saves it before it

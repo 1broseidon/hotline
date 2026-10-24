@@ -1124,6 +1124,15 @@ restart, so its result, reports and questions back keep flowing (decided
 the session, thread or firing that sent it, and any of those ending stopped
 it within a run though a restart brought it back). Its leases are each
 teammate's lasting authority, which only a stop or a policy update ends.
+What changes a teammate's session and not what it may do rebuilds its main
+session as a chapter's swap does (`Room::rebuild`) and ends nothing it holds
+or was given: its computer joining once downloaded or made again between
+turns, and a sign-in to an MCP server completing, which adds reach its
+policy already granted (decided 2026-10-24 by the coordinating session;
+before, each went through the policy change's revocation and archived the
+teammate's threads, or every teammate's, with every request and delegation
+in them). A sign-out, a server removed and a policy change narrow reach and
+still revoke.
 While it stands it is the grant for its thread's questions back
 to the delegator, which reach the delegating conversation without a card.
 Once a stop or a revocation has ended it, the thread's link says so

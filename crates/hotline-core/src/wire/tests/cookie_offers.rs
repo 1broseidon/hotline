@@ -260,7 +260,7 @@ async fn use_lends_only_the_site_and_subdomains_and_remove_takes_it_back_and_tel
 }
 
 #[tokio::test]
-async fn not_now_asks_again_next_session_but_never_waits_until_settings_undo() {
+async fn not_now_quiets_a_site_for_a_day_but_never_waits_until_settings_undo() {
     let (fixture, _profiles) = cookie_offer_room("offer-choices", true).await;
     let room = &fixture.room;
     room.poll_secret_uses("ada").await;
@@ -268,6 +268,18 @@ async fn not_now_asks_again_next_session_but_never_waits_until_settings_undo() {
     assert_eq!(answer(room, &id, "not_now").await["ok"], true);
     room.poll_secret_uses("ada").await;
     assert_eq!(room.computer_cookie_offers("ada").len(), 1);
+    // A new session, a stop or a desk restart keeps the site quiet.
+    room.stop("ada").unwrap();
+    room.start("ada").await.unwrap();
+    room.poll_secret_uses("ada").await;
+    assert_eq!(room.computer_cookie_offers("ada").len(), 1);
+    // A day on, the site is offered again.
+    let mut aged = serde_json::to_value(&room.computer_cookie_offers("ada")[0]).unwrap();
+    aged["kind"] = json!("cookie_offer");
+    aged["ts"] = json!(crate::session::now_ms() - crate::session::NOT_NOW_QUIET_MS - 60_000);
+    room.log()
+        .append(&StreamId::Tape("ada".into()), &aged)
+        .unwrap();
     room.stop("ada").unwrap();
     room.start("ada").await.unwrap();
     room.poll_secret_uses("ada").await;
@@ -321,10 +333,11 @@ async fn a_restart_the_person_did_not_ask_for_keeps_the_card_and_its_answer() {
     room.reattach("ada").await.unwrap();
     room.poll_secret_uses("ada").await;
     assert_eq!(room.computer_cookie_offers("ada").len(), 1);
+    // A stop the person asks for does not undo Not now either.
     room.stop("ada").unwrap();
     room.start("ada").await.unwrap();
     room.poll_secret_uses("ada").await;
-    assert_eq!(room.computer_cookie_offers("ada").len(), 2);
+    assert_eq!(room.computer_cookie_offers("ada").len(), 1);
 }
 
 #[tokio::test]

@@ -9,8 +9,9 @@
 //! handed: each `CALL <tool> <json>` is one call to one of Hotline's tools,
 //! made in order, and the turn's reply is `RESULTS` with what each came back
 //! with, or what follows `SAY`. The first line with `STALL` holds its first
-//! answer back for [`STALL`]. Bob is on ACP, the fixture child playing the same
-//! `CALL` lines over the desk's MCP server.
+//! answer back for [`STALL`], and every line with `HOLD` holds its own. Bob is
+//! on ACP, the fixture child playing the same `CALL` lines over the desk's MCP
+//! server.
 
 use crate::common::{self, Client, acp_fixture, until};
 use hotline_core::log::{Log, StreamId};
@@ -85,7 +86,7 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
             let mut heard = heard.lock().unwrap();
             let first = !heard.iter().any(|line| line.contains("STALL"));
             heard.push(asked.clone());
-            first && asked.contains("STALL")
+            (first && asked.contains("STALL")) || asked.contains("HOLD")
         };
         if stalls {
             tokio::time::sleep(STALL).await;
@@ -895,4 +896,65 @@ async fn a_delegated_thread_reports_back_takes_the_persons_words_and_answers_que
     once.sort();
     once.dedup();
     assert_eq!(once.len(), results.len(), "{results:?}");
+}
+
+/// The main conversation's Interrupt, by either command the window sends it
+/// as, reaches the room as the person redirecting the turn: the colleague
+/// whose question that turn was answering hears that the person interrupted
+/// the answer and may ask again, never that the person stopped it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_main_conversations_interrupt_over_the_wire_ends_a_colleagues_answer_as_interrupted() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let cy = desk.teammate("Cy", false).await;
+    let interrupted = "The person interrupted the answer to this question.";
+    let told = |desk: &Desk| -> Vec<String> {
+        desk.log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .filter(|event| event["kind"] == "notice")
+            .filter_map(|event| event["text"].as_str().map(str::to_string))
+            .filter(|text| text.contains("answering"))
+            .collect()
+    };
+    for (n, (cmd, params)) in [
+        (
+            "session.cancel",
+            json!({"personaId": cy, "interrupt": true}),
+        ),
+        (
+            "thread.cancel",
+            json!({"thread": {"kind": "dm", "key": cy}, "interrupt": true}),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // Escaped, so only Cy's turn answering it is held, not Ada's asking.
+        let question = format!(r"Which port, {n}? \u0048OLD");
+        let ask = format!(r#"{{"to":"Cy","intent":"ask","message":"{question}"}}"#);
+        desk.ok(
+            "session.prompt",
+            json!({"personaId": ada, "text": format!("CALL message_teammate {ask}")}),
+        )
+        .await;
+        let held = format!("Which port, {n}? HOLD");
+        until("Cy's main conversation is answering", || {
+            !desk.heard(&held).is_empty()
+        })
+        .await;
+        desk.ok(cmd, params).await;
+        until(&format!("{cmd}: Ada is told"), || {
+            told(&desk).len() == n + 1
+        })
+        .await;
+        let said = &told(&desk)[n];
+        assert!(said.contains(interrupted), "{cmd}: {said}");
+    }
+    let tape = desk.log.load(&StreamId::Tape(ada.clone()));
+    assert!(
+        tape.iter()
+            .all(|event| !event.to_string().contains("Do not ask it again")),
+        "never as the person's stop"
+    );
 }

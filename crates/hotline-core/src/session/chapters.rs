@@ -633,10 +633,12 @@ impl Room {
     /// from three weeks ago brings back sludge. The current chapter closes as
     /// "Back to: …" without asking a model for a note — it is a turning point,
     /// not a stretch of work — and a new marker opens carrying that earlier
-    /// chapter's note under `resumedFrom`. The session is stopped and started
-    /// again: Hotline Agent is seeded from the previous chapter's tape slice,
-    /// an ACP child from the checkpoint the marker still names. The user
-    /// lines said in the meantime arrive as a [`Room::nudge`], Hotline's words,
+    /// chapter's note under `resumedFrom`. The session is replaced as a
+    /// chapter's swap replaces it, which leaves the requests the teammate sent
+    /// or was given standing. Hotline Agent is seeded from the previous
+    /// chapter's tape slice, an ACP child from the checkpoint the marker still
+    /// names. The user lines said in the meantime arrive as a
+    /// [`Room::nudge`], Hotline's words,
     /// never a line of the tape. If the restore itself fails, the new session
     /// still starts and reads the note the wake block already carries.
     pub async fn resume_chapter(
@@ -679,7 +681,7 @@ impl Room {
             .filter(|title| !title.is_empty())
             .unwrap_or("the previous chapter");
 
-        self.stop_session(persona_id);
+        self.stop_with_capability(persona_id);
         if let Some(open) = open {
             self.close_marker(
                 persona_id,

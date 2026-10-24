@@ -150,7 +150,7 @@ pub(super) fn heard_with(agents: &Fake, line: &str) -> Option<String> {
 
 /// A handoff from Ada to Bob that has returned its result, with Ada's turn
 /// on that result over and Bob's thread closed by it.
-async fn handed_over_and_done(name: &str) -> (Arc<Room>, Arc<Fake>, String, String) {
+pub(super) async fn handed_over_and_done(name: &str) -> (Arc<Room>, Arc<Fake>, String, String) {
     let (room, agents) = setup(name);
     room.allow_sender("bob", "ada").unwrap();
     let handoff = send(&room, "handoff").await;
@@ -1230,7 +1230,7 @@ fn reports_shown(room: &Room, thread: &str) -> usize {
 }
 
 /// The person talks in the thread, and that turn reports to nobody.
-async fn talks_without_a_report(room: &Arc<Room>, handoff: &str, thread: &str) {
+pub(super) async fn talks_without_a_report(room: &Arc<Room>, handoff: &str, thread: &str) {
     let (shown, said) = (reports_shown(room, thread), said_in(room, thread).len());
     room.continue_side(thread).await.unwrap();
     room.prompt_side(thread, "and the date?", None)
@@ -1250,7 +1250,7 @@ async fn talks_without_a_report(room: &Arc<Room>, handoff: &str, thread: &str) {
 
 /// Every request of the pair has nothing for its sender to hear, and the
 /// handoff no longer reports.
-fn is_released(room: &Room, handoff: &str) {
+pub(super) fn is_released(room: &Room, handoff: &str) {
     for saved in room.exchange_pair("ada~bob").unwrap().requests {
         assert!(
             saved.progress.is_empty() && saved.progress_left_out == 0 && !saved.progress_wakes,
@@ -1380,8 +1380,8 @@ async fn a_stopped_or_removed_delegator_gets_no_report_and_nothing_breaks() {
     talks_without_a_report(&room, &handoff, &thread).await;
 }
 
-/// A lease that lapses under a waiting handoff stops it where the worker
-/// finds it, and what its sender had not heard goes with it.
+/// A policy update under a waiting handoff ends its leases, which stops it
+/// where the worker finds it, and what its sender had not heard goes with it.
 #[tokio::test]
 async fn a_handoff_stopped_for_a_lapsed_lease_drops_its_unheard_reports() {
     let (room, handoff, _action) = suspended_handoff("progress-lapsed-lease").await;

@@ -1,5 +1,6 @@
 mod ask_back;
 mod gates;
+mod lasting;
 mod pause;
 mod progress;
 mod questions;

@@ -1324,7 +1324,7 @@ this order:
    came from, by the handoff's reply route (the job it was sent from while
    that lives, else the work thread while that is open, else the delegator's
    main conversation), without a card while the delegation stands. A
-   delegation that has lapsed by the time it is handed over fails the ask
+   delegation that has ended by the time it is handed over fails the ask
    rather than let it through without the grant.
 3. **The recipient's main conversation**, for any other ask, under the
    ordinary collaboration grant.
@@ -1461,9 +1461,22 @@ conversation's Interrupt is its `session.cancel`, which stays a stop.
 
 **The delegation** is the handoff the thread serves: the latest one into it,
 in any phase, so a thread the person continues after its result still
-reports. It stands while the request has not been stopped or released and,
-within a run, while its leases hold: they are kept only in memory, so after a
-restart a delegation whose leases had lapsed stands again. Stop exchange on
+reports. It stands while the request has not been stopped or released.
+
+A request, an ask or a handoff, ends only by an explicit end: Stop exchange,
+a revocation (a policy change, either teammate stopped or removed), or the
+end of the link to the other desk. Its two leases are each teammate's lasting authority (`Room::request_lease`,
+`CapabilityEpoch::lasting`), taken as it is sent and scoped to it, so ending
+it ends them alone. A chapter's swap only replaces the session
+(`replace_session`, through `stop_with_capability`, reopening the previous
+chapter included), and the thread the request was sent from parking, or the
+job firing that sent it letting go of its agent, revokes only that thread's
+or firing's own lease; none of them ends the request, so its result, its
+reports and its questions back keep flowing to where they are routed. Only a
+stop (`stop_session`, whose `CapabilityEpoch::stop` ends lasting leases
+too) and a policy update end them. The leases live only in memory: a
+request from before a restart holds none until it is handed over again, and
+stands, since every explicit end is written on its record. Stop exchange on
 the pair, a revocation that touches it, or the link to the delegator's desk
 ending releases every handoff of the pair: the thread reports no more, the
 reports not yet heard are dropped, and a question back needs the ordinary
@@ -1476,8 +1489,7 @@ does while the latest handoff into the thread is released or was stopped by
 the person (`Room::handoff_ended`); a new handoff into it stands, and its link
 says so no more. The window reads only that: the thread's bar says what is
 said there no longer reaches the delegator, and the receiver's conversation
-leaves it out of the handoffs it is working on. A delegation whose leases
-lapsed within a run is not written there, since a restart brings it back.
+leaves it out of the handoffs it is working on.
 
 Stop exchange and revocation stop a question as they stop any request, but
 only an ask answered in a thread has its turn cancelled there, and only when

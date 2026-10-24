@@ -13,7 +13,7 @@ use tokio::sync::Semaphore;
 
 /// Bob asks Ada, the teammate that handed him the thread `thread`, from
 /// inside it.
-async fn ask_back(room: &Arc<Room>, thread: &str) -> String {
+pub(super) async fn ask_back(room: &Arc<Room>, thread: &str) -> String {
     let sent = TeammateTools::new(room, "bob")
         .for_work(thread.to_string())
         .call(
@@ -27,7 +27,7 @@ async fn ask_back(room: &Arc<Room>, thread: &str) -> String {
 
 /// Puts a teammate in the ordinary workspace reach, where asking a colleague
 /// needs the person's grant.
-fn in_workspace(room: &Room, id: &str) {
+pub(super) fn in_workspace(room: &Room, id: &str) {
     let mut persona = room.persona(id).unwrap();
     persona.reach = Some(crate::contract::Reach::Workspace);
     crate::room::append_persona(&room.log, &persona).unwrap();
@@ -40,7 +40,7 @@ fn carded(room: &Room) -> bool {
         .any(|whose| room.tape(whose).iter().any(|v| v["kind"] == "permission"))
 }
 
-fn question_in(events: &[serde_json::Value], id: &str) -> Option<usize> {
+pub(super) fn question_in(events: &[serde_json::Value], id: &str) -> Option<usize> {
     events
         .iter()
         .position(|v| v["cause"]["kind"] == "question" && v["cause"]["requestId"] == id)
@@ -1069,8 +1069,8 @@ async fn a_question_not_asked_back_meets_the_ordinary_grant() {
     }
 }
 
-/// A delegation whose leases ended, though the person never stopped it,
-/// grants nothing: the question back meets the ordinary grant.
+/// A delegation whose leases ended, as a revocation's do before its record
+/// says so, grants nothing: the question back meets the ordinary grant.
 #[tokio::test]
 async fn a_question_back_whose_delegation_lapsed_by_lease_meets_the_ordinary_grant() {
     let (room, agents) = setup("ask-back-lease-lapsed");

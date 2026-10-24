@@ -14,14 +14,21 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// races the update can never capture the old policy in a usable lease. A
 /// stop advances the generation while leaving the epoch open: a later,
 /// explicit start may use the current policy, while handles from the stopped
-/// session remain permanently dead.
+/// session remain permanently dead. A session's replacement, as a chapter
+/// turns over, ends that session's handles the same way, but not the
+/// teammate's authority: a [lasting](Self::lasting) lease outlives it.
 #[derive(Clone)]
 pub struct CapabilityEpoch {
     state: Arc<Mutex<CapabilityState>>,
 }
 
 struct CapabilityState {
+    /// Advanced by every stop, session replacement and policy update: what an
+    /// ordinary lease follows.
     generation: u64,
+    /// Advanced by a stop and a policy update only: what a lasting lease
+    /// follows.
+    authority: u64,
     active: bool,
 }
 
@@ -30,6 +37,7 @@ impl Default for CapabilityEpoch {
         Self {
             state: Arc::new(Mutex::new(CapabilityState {
                 generation: 0,
+                authority: 0,
                 active: true,
             })),
         }
@@ -42,6 +50,10 @@ impl Default for CapabilityEpoch {
 pub struct CapabilityLease {
     epoch: CapabilityEpoch,
     generation: u64,
+    authority: u64,
+    /// Follows the teammate's authority alone, not the session it was
+    /// captured beside.
+    lasting: bool,
     active_at_capture: bool,
     revoked: Arc<AtomicBool>,
     dependencies: Vec<Arc<CapabilityLease>>,
@@ -49,10 +61,24 @@ pub struct CapabilityLease {
 
 impl CapabilityEpoch {
     pub fn lease(&self) -> CapabilityLease {
+        self.capture(false)
+    }
+
+    /// The teammate's authority as a request between two teammates holds it:
+    /// it outlives the session it was captured beside, a replacement of that
+    /// session included, and ends as every lease does with a stop or a policy
+    /// update.
+    pub fn lasting(&self) -> CapabilityLease {
+        self.capture(true)
+    }
+
+    fn capture(&self, lasting: bool) -> CapabilityLease {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         CapabilityLease {
             epoch: self.clone(),
             generation: state.generation,
+            authority: state.authority,
+            lasting,
             active_at_capture: state.active,
             revoked: Arc::new(AtomicBool::new(false)),
             dependencies: Vec::new(),
@@ -64,6 +90,7 @@ impl CapabilityEpoch {
     pub fn invalidate(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.generation = state.generation.wrapping_add(1);
+        state.authority = state.authority.wrapping_add(1);
         state.active = false;
     }
 
@@ -71,9 +98,17 @@ impl CapabilityEpoch {
     /// later explicit start under the still-current policy.
     pub fn stop(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let active = state.active;
         state.generation = state.generation.wrapping_add(1);
-        state.active = active;
+        state.authority = state.authority.wrapping_add(1);
+    }
+
+    /// Invalidates the handles of a session being replaced by the next one,
+    /// as a chapter turns over, and leaves the teammate's authority, and so
+    /// every lasting lease, as it was. Like a stop, it never reopens a
+    /// quarantined epoch.
+    pub fn replace_session(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.generation = state.generation.wrapping_add(1);
     }
 
     pub fn activate(&self) {
@@ -95,7 +130,8 @@ impl CapabilityLease {
             .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let epoch_still_active = state.active && state.generation == self.generation;
+        let same_session = self.lasting || state.generation == self.generation;
+        let epoch_still_active = state.active && state.authority == self.authority && same_session;
         self.active_at_capture && epoch_still_active
     }
 
@@ -125,6 +161,8 @@ impl CapabilityLease {
         Self {
             epoch: self.epoch.clone(),
             generation: self.generation,
+            authority: self.authority,
+            lasting: self.lasting,
             active_at_capture: self.active_at_capture,
             revoked: Arc::new(AtomicBool::new(false)),
             dependencies: vec![Arc::new(self.clone())],
@@ -181,6 +219,48 @@ mod tests {
         assert!(!epoch.lease().is_current());
         epoch.activate();
         assert!(epoch.lease().is_current());
+    }
+
+    #[test]
+    fn a_lasting_lease_outlives_a_session_replacement_but_not_a_stop_or_a_policy_update() {
+        let epoch = CapabilityEpoch::default();
+        let session = epoch.lease();
+        let lasting = epoch.lasting();
+        let scoped = lasting.scoped();
+
+        epoch.replace_session();
+        assert!(!session.is_current());
+        assert!(lasting.is_current());
+        assert!(scoped.is_current());
+        assert!(epoch.lease().is_current());
+
+        epoch.stop();
+        assert!(!lasting.is_current());
+        assert!(!scoped.is_current());
+
+        let lasting = epoch.lasting();
+        epoch.invalidate();
+        let during = epoch.lasting();
+        epoch.activate();
+        assert!(!lasting.is_current());
+        assert!(
+            !during.is_current(),
+            "a capture in quarantine never revives"
+        );
+        assert!(epoch.lasting().is_current());
+    }
+
+    #[test]
+    fn replacing_a_session_during_quarantine_does_not_reopen_it() {
+        let epoch = CapabilityEpoch::default();
+        epoch.invalidate();
+
+        epoch.replace_session();
+
+        assert!(!epoch.lease().is_current());
+        assert!(!epoch.lasting().is_current());
+        epoch.activate();
+        assert!(epoch.lasting().is_current());
     }
 
     #[test]

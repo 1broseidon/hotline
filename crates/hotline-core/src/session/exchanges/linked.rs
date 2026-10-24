@@ -154,10 +154,7 @@ impl Room {
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
                 id.to_string(),
-                (
-                    self.capability_lease(from).scoped(),
-                    self.capability_lease(to).scoped(),
-                ),
+                (self.request_lease(from), self.request_lease(to)),
             );
         }
         self.wake_exchange(&key);

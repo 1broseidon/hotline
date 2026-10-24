@@ -599,7 +599,7 @@ async fn a_chapter_changing_in_the_main_conversation_leaves_a_side_thread_alone(
     let agents = Fake::new(Scripted::new(vec![turn()]));
     let room = room("side-chapter", agents);
     let summary = room.start_side("ada", "Task").await.unwrap();
-    room.stop_session("ada");
+    room.stop_with_capability("ada");
     assert_eq!(room.sides("ada").len(), 1);
     room.prompt_side(&summary.side_id, "still here?", None)
         .await

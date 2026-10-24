@@ -616,9 +616,10 @@ question the change must answer in its PR description.
 2. **Name whose authority a request uses.** The caller's? The recipient's?
    The person's (only through the authenticated desk wire)? A handoff's
    work thread runs under the recipient's current authority and depends on
-   the request's leases, scoped from both sides, so revoking the caller
-   stops work done on its behalf. A colleague's question is answered by a
-   turn of the answering conversation, under its owner's authority, with the
+   the request's leases, one of each teammate's lasting authority, so
+   revoking the caller stops work done on its behalf. A colleague's
+   question is answered by a turn of the answering conversation, under its
+   owner's authority, with the
    colleague's words fenced as data. Revoking the caller cancels the turn
    answering a question in a work thread it named; one answered by a
    conversation of the recipient's own (its main one, or the one that handed
@@ -635,8 +636,11 @@ question the change must answer in its PR description.
    handler; a check that exists only on one driver's path is a hole on the
    other.
 5. **Make revocation reach it.** A new handle is cloned from the session's
-   lease or scoped from it; it is never a fresh lease of its own. Confirm
-   the change is covered by the lifecycle below, including queued work and
+   lease or scoped from it; it is never a fresh lease of its own. A request
+   between two teammates is the one thing that outlives the session that
+   sent it: it holds each teammate's lasting lease, captured from the same
+   epoch, which a stop or a policy change ends as it ends the session's.
+   Confirm the change is covered by the lifecycle below, including queued work and
    a colleague's question waiting in a conversation's queue.
 6. **Tell the truth in three places.** The ledger row, the Reach or Tools
    card, and the preamble say what the code enforces, and distinguish what
@@ -674,11 +678,16 @@ capture, scope, tie and revoke a lease but never forge or revive one.
 - **Stop.** Advances the generation and leaves the epoch open: old handles
   are permanently dead, a later explicit start uses the current policy. A
   stop also invalidates a replacement session captured before its startup
-  began.
-- **Delegation.** Each request between two teammates holds two leases, one
-  `scoped()` from the caller's (the session or thread it was sent from) and
-  one from the recipient's, checked before it is taken up and at its turn's
-  door. A stop, a policy change or a revocation on either side stops the
+  began. A chapter's swap (`replace_session`, through
+  `stop_with_capability`) ends the old session's handles the same way, but
+  not the teammate's authority: a lasting lease (`CapabilityEpoch::lasting`)
+  follows only stops and policy changes.
+- **Delegation.** Each request between two teammates holds two leases, each
+  teammate's lasting authority `scoped()` to the request
+  (`Room::request_lease`), checked before it is taken up and at its turn's
+  door. A chapter turning over or reopened, the thread it was sent from
+  parking and the job firing that sent it ending leave them current. A stop,
+  a policy change or a revocation on either side stops the
   request: a handoff at work has its turn cancelled and its thread closed,
   and one waiting on an answer leaves its thread open and idle; an ask
   answered in a work thread has only the turn answering it cancelled; an ask
@@ -807,7 +816,7 @@ extend; when a change adds a boundary, it adds a row.
 | A passkey is made only under an arming for one teammate and one site, and only once the person approves the site's request: a bad site or name is refused before the computer is touched, arming starts the computer, the site's request raises a `passkey_ask` card on the tape with the site, origin and account, nothing is stored while the card waits, an answer must name the request, one answer per request, an approval lets the browser mint and the look that finds it made stores it, ticks it for the teammate, hands the computer the set and ends the arming; a denial ends the arming with nothing stored and the card says so; a request that left with its page expires its card and the next request is a new card; a cancel stores nothing and expires a waiting card; the room's own watch does all of this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a release from before passkeys is named | `session/tests/computer.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room`, `a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires` | Unix |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
-| A delegated thread's turn reaches its opener only as the teammate's own report, never the person's words, shown at once and heard once per thread; it wakes an idle opener only for a handoff's own waiting turn, once for threads that end together, and counts toward the twelve; a turn waiting on a question the person must first allow reports the card that is up and where it is, Keep going while the question's pair is paused, else the collaboration card; the person's Stop on a handoff's turn, or on a thread its line still waits in, ends the handoff with one report that wakes nobody, never a failure to retry, and it is never handed over again; their Stop on a turn answering a question, in a main conversation or a thread, ends the answer the same way, and a handoff waiting on that question goes on with the stop, not asked to retry; the composer's Interrupt in a thread only cuts its turn, drops nothing waiting, and the handoff or question it was answering, with its delegation and reports, goes on in the next turn, the thread parking first included, which brings it back for that turn, and a second Interrupt keeps the first, while the person's Stop ends every request an Interrupt left the thread carrying; Stop exchange and revocation end the delegation, drop what was unheard and stop a question back with a line in its thread that starts no turn; a question back to the opener needs no card only while the delegation stands, one not sent back from the delegated thread meets the ordinary grant, and one whose delegation lapsed before it was handed over fails; any other ask reaches the colleague's main conversation only through the collaboration grant, and stopping it stops only the answer, while an ask answered in a thread has only its own turn stopped; an ask names only a thread its sender's handoff opened on that recipient; the person talks in a delegated thread and continues it but cannot archive it; a linked desk's request id is only a lookup key, an older desk that refuses a report still gets the result, and the person's stop of a linked colleague's request reaches that colleague's desk as their stop, which wakes nobody there and is taken only for a request that desk sent | `session/exchanges/tests/progress.rs` `the_persons_turn_in_a_delegated_thread_reaches_the_delegator_as_one_report_without_their_words`, `a_persons_stopped_or_failed_turn_waits_for_the_delegators_next_line`, `a_handoff_turn_waiting_on_a_question_the_person_must_allow_reports_the_card`, `a_handoff_turn_waiting_on_a_question_its_paused_pair_holds_reports_the_pause`, `the_persons_stop_on_a_handoffs_turn_ends_it_and_waits_for_the_senders_next_line`, `a_report_waits_while_another_handed_over_thread_works_and_wakes_once_with_both`, `wakes_count_toward_the_pairs_twelve_and_then_reports_only_wait`, `stop_exchange_and_revocation_end_the_reports_and_drop_the_unheard_ones`; `session/exchanges/tests/questions.rs` `an_ask_is_answered_by_the_colleagues_main_conversation`, `stop_exchange_leaves_the_main_conversations_turn_alone_and_fails_the_ask`, `an_ask_naming_a_thread_not_its_own_is_refused`, `stop_exchange_stops_the_turn_answering_an_ask_in_a_thread`, `a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone`; `session/exchanges/tests/ask_back.rs` `a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card`, `a_question_back_after_the_delegation_was_stopped_needs_the_ordinary_grant`, `a_question_not_asked_back_meets_the_ordinary_grant`, `a_question_back_whose_delegation_lapsed_by_lease_meets_the_ordinary_grant`, `a_question_whose_delegation_lapses_before_it_is_handed_over_fails`, `stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question`; `session/sides/tests.rs` `a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them`; `session/links/tests.rs` `a_turn_report_crosses_the_link_without_the_persons_words`, `an_older_desk_refusing_a_report_still_gets_the_handoffs_result`, `the_persons_stop_on_a_linked_handoff_reaches_its_sender_without_waking_it`, `a_linked_desk_reports_and_asks_back_only_by_this_desks_own_requests`, `a_report_from_a_desk_the_handoff_was_not_sent_to_is_refused`, `a_question_back_about_another_teammates_handoff_meets_the_card`; `session/exchanges/tests/stops.rs` `the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_runs`, `the_persons_stop_on_their_own_turn_ends_a_handoff_waiting_behind_it`, `the_persons_stop_on_a_main_conversations_answer_ends_it_for_the_asker`, `the_persons_stop_on_a_threads_answer_ends_it_and_leaves_the_handoff`, `a_handoff_waiting_on_a_question_whose_answer_the_person_stopped_goes_on`, `the_persons_interrupt_on_a_handoffs_turn_lets_their_line_carry_it_on`, `a_handoff_interrupted_with_nothing_said_waits_for_the_next_line`, `an_interrupted_handoff_waits_past_a_question_answered_in_its_thread`, `a_second_interrupt_keeps_the_first_and_each_next_line_carries_one_on`, `the_persons_stop_ends_what_an_interrupt_left_its_thread_carrying`; `ui/tests/dock-turns.test.tsx`; `tests/threads/together.rs` `a_delegated_thread_reports_back_takes_the_persons_words_and_answers_questions_where_the_work_is` | — |
+| A delegated thread's turn reaches its opener only as the teammate's own report, never the person's words, shown at once and heard once per thread; it wakes an idle opener only for a handoff's own waiting turn, once for threads that end together, and counts toward the twelve; a turn waiting on a question the person must first allow reports the card that is up and where it is, Keep going while the question's pair is paused, else the collaboration card; the person's Stop on a handoff's turn, or on a thread its line still waits in, ends the handoff with one report that wakes nobody, never a failure to retry, and it is never handed over again; their Stop on a turn answering a question, in a main conversation or a thread, ends the answer the same way, and a handoff waiting on that question goes on with the stop, not asked to retry; the composer's Interrupt in a thread only cuts its turn, drops nothing waiting, and the handoff or question it was answering, with its delegation and reports, goes on in the next turn, the thread parking first included, which brings it back for that turn, and a second Interrupt keeps the first, while the person's Stop ends every request an Interrupt left the thread carrying; Stop exchange and revocation end the delegation, drop what was unheard and stop a question back with a line in its thread that starts no turn; a request and its delegation outlive either teammate's chapter turning over or reopened, the thread or job firing that sent it ending, and a restart, so its result, reports and questions back still flow, and every explicit end still ends one a chapter left standing; a question back to the opener needs no card only while the delegation stands, one not sent back from the delegated thread meets the ordinary grant, and one whose delegation ended before it was handed over fails; any other ask reaches the colleague's main conversation only through the collaboration grant, and stopping it stops only the answer, while an ask answered in a thread has only its own turn stopped; an ask names only a thread its sender's handoff opened on that recipient; the person talks in a delegated thread and continues it but cannot archive it; a linked desk's request id is only a lookup key, an older desk that refuses a report still gets the result, and the person's stop of a linked colleague's request reaches that colleague's desk as their stop, which wakes nobody there and is taken only for a request that desk sent | `session/exchanges/tests/progress.rs` `the_persons_turn_in_a_delegated_thread_reaches_the_delegator_as_one_report_without_their_words`, `a_persons_stopped_or_failed_turn_waits_for_the_delegators_next_line`, `a_handoff_turn_waiting_on_a_question_the_person_must_allow_reports_the_card`, `a_handoff_turn_waiting_on_a_question_its_paused_pair_holds_reports_the_pause`, `the_persons_stop_on_a_handoffs_turn_ends_it_and_waits_for_the_senders_next_line`, `a_report_waits_while_another_handed_over_thread_works_and_wakes_once_with_both`, `wakes_count_toward_the_pairs_twelve_and_then_reports_only_wait`, `stop_exchange_and_revocation_end_the_reports_and_drop_the_unheard_ones`; `session/exchanges/tests/questions.rs` `an_ask_is_answered_by_the_colleagues_main_conversation`, `stop_exchange_leaves_the_main_conversations_turn_alone_and_fails_the_ask`, `an_ask_naming_a_thread_not_its_own_is_refused`, `stop_exchange_stops_the_turn_answering_an_ask_in_a_thread`, `a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone`; `session/exchanges/tests/ask_back.rs` `a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card`, `a_question_back_after_the_delegation_was_stopped_needs_the_ordinary_grant`, `a_question_not_asked_back_meets_the_ordinary_grant`, `a_question_back_whose_delegation_lapsed_by_lease_meets_the_ordinary_grant`, `a_question_whose_delegation_lapses_before_it_is_handed_over_fails`, `stop_exchange_leaves_the_delegators_turn_alone_and_fails_the_question`; `session/sides/tests.rs` `a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them`; `session/links/tests.rs` `a_turn_report_crosses_the_link_without_the_persons_words`, `an_older_desk_refusing_a_report_still_gets_the_handoffs_result`, `the_persons_stop_on_a_linked_handoff_reaches_its_sender_without_waking_it`, `a_linked_desk_reports_and_asks_back_only_by_this_desks_own_requests`, `a_report_from_a_desk_the_handoff_was_not_sent_to_is_refused`, `a_question_back_about_another_teammates_handoff_meets_the_card`; `session/exchanges/tests/lasting.rs` `a_delegation_outlives_either_teammates_chapter_turning_over_or_reopening`, `a_request_outlives_the_work_thread_it_was_sent_from_parking`, `a_request_outlives_the_job_firing_it_was_sent_from`, `a_request_taken_up_after_a_restart_outlives_a_chapter_turning_over`, `each_explicit_end_still_ends_a_delegation_a_chapter_left_standing`; `hotline-tools/src/capability.rs` `a_lasting_lease_outlives_a_session_replacement_but_not_a_stop_or_a_policy_update`, `replacing_a_session_during_quarantine_does_not_reopen_it`; `session/exchanges/tests/stops.rs` `the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_runs`, `the_persons_stop_on_their_own_turn_ends_a_handoff_waiting_behind_it`, `the_persons_stop_on_a_main_conversations_answer_ends_it_for_the_asker`, `the_persons_stop_on_a_threads_answer_ends_it_and_leaves_the_handoff`, `a_handoff_waiting_on_a_question_whose_answer_the_person_stopped_goes_on`, `the_persons_interrupt_on_a_handoffs_turn_lets_their_line_carry_it_on`, `a_handoff_interrupted_with_nothing_said_waits_for_the_next_line`, `an_interrupted_handoff_waits_past_a_question_answered_in_its_thread`, `a_second_interrupt_keeps_the_first_and_each_next_line_carries_one_on`, `the_persons_stop_ends_what_an_interrupt_left_its_thread_carrying`; `ui/tests/dock-turns.test.tsx`; `tests/threads/together.rs` `a_delegated_thread_reports_back_takes_the_persons_words_and_answers_questions_where_the_work_is` | — |
 
 Where real macOS execution is required: every `hotline-tools/src/shell/macos.rs` row.
 `make check` in macOS CI on both architectures runs the isolation and
@@ -854,11 +863,12 @@ made it so.
   uses the recipient's existing main session's context and its permissions in
   a work thread of its own; Ask is a line in the recipient's main
   conversation (`exchanges/questions.rs` `ask_in_main`), answered by a turn
-  of that session under its own lease, which the ask is bound to when it is
-  handed over, so a recipient whose chapter turned over meanwhile answers in
-  the session the ask reaches. The person's lines are not steered into that
-  turn. `invalidate`, stop and grant revocation settle queued work; turn
-  dispatch rejects stopped handoffs, asks and results. A cap counts requests
+  of that session under its own lease; the ask's own leases are both
+  teammates' lasting authority, so a recipient whose chapter turned over
+  meanwhile answers in the session the ask reaches. The person's lines are
+  not steered into that turn. `invalidate`, stop and grant revocation
+  settle queued work; turn dispatch rejects stopped handoffs, asks and
+  results. A cap counts requests
   and automatic replies together, never receipts, and survives restart.
 - **Tests:** `session/exchanges/tests.rs` covers main context Handoff and
   automatic request correlation, cross-intent counting, a held
@@ -880,9 +890,9 @@ made it so.
   its asker, does not stop the main conversation's turn answering it, nor
   what that turn started (a handoff to a third teammate, say): only the
   answer is dropped. An ask to a teammate quiet past the room's idle window
-  opens its next chapter, and the chapter's turnover ends what was in flight
-  under the old session's leases: a handoff that teammate sent from it
-  included, even the one a question back is about (see [reports and
+  opens its next chapter, and the turnover leaves every request that
+  teammate sent or was given standing, the handoff a question back is about
+  included (see [reports and
   questions](#reports-and-questions-between-a-delegated-thread-and-its-opener)).
 
 ### Continuing a handoff's work thread
@@ -953,8 +963,9 @@ and its questions back reach the conversation that handed it over.
 - **Grant source:**
   - The handoff the delegator sent is the grant for its thread's reports and
     for its questions back, without a card, while the delegation stands: the
-    latest request the thread serves is not stopped or released, and, while
-    the process that accepted it runs, its leases are current.
+    latest request the thread serves is not stopped or released, and its
+    leases, each teammate's lasting authority, are current (a request from
+    before a restart holds none until it is handed over again).
   - Outside that, the recipient → delegator direction needs the ordinary
     collaboration grant, card and all.
   - The person owns the desk and already talks to the teammate: speaking in a
@@ -967,7 +978,7 @@ and its questions back reach the conversation that handed it over.
     for an ask from a delegated thread to its own opener
     (`exchanges/questions.rs` `asked_back_about`). `ask_back` checks the
     delegation again when it hands the question over, and fails a question
-    whose delegation lapsed rather than let it through without a card.
+    whose delegation ended rather than let it through without a card.
   - `exchanges/progress.rs` `report_progress` and `hear_progress`, which keep
     and show a report only while `delegation_live` holds in this desk's
     record, and route it by the handoff's own reply route.
@@ -1005,8 +1016,9 @@ and its questions back reach the conversation that handed it over.
   handoff waiting on its questions and the person's words answering its card,
   `session/exchanges/tests/progress.rs` for the rest of the reports and wakes,
   `session/exchanges/tests/ask_back.rs` for questions back to the
-  delegator's DM, work thread or job, and `session/links/tests.rs` for
-  reports and questions across a link.
+  delegator's DM, work thread or job, `session/exchanges/tests/lasting.rs`
+  for what ends a request and what leaves it standing, and
+  `session/links/tests.rs` for reports and questions across a link.
 - **Residual risk:**
   - The delegator's conversation answers a question back with what it knows,
     and that goes to the colleague; that is the point, and the delegator could
@@ -1025,14 +1037,34 @@ and its questions back reach the conversation that handed it over.
     cross on their own.
   - A delegation stands until it is stopped or revoked, days after its result
     too: a thread continued much later still asks back without a card.
-  - A delegation's leases live only in the running process
-    (`exchange_lease_current` reads the in-memory `exchange_leases`, and a
-    request it holds nothing for passes). Within a run, a lapse ends the
-    delegation; after a restart only Stop exchange, a revocation or an unlink
-    does. So a delegation whose leases lapsed without a release, at an idle
-    chapter turnover or when the work thread it was sent from was parked, is
-    live again after a restart: its thread reports again and asks the
-    delegator back without a card.
+  - A request keeps the authority it was sent under past the conversation
+    that sent it, and so does the delegation a handoff carries: its leases
+    are each teammate's lasting authority (`Room::request_lease`). Either
+    teammate's chapter turning over or reopened, the work thread it was sent
+    from parking (after three idle hours, to make room for another, or at
+    the person's word) and the job firing that sent it ending all leave it
+    standing. Its result, reports and questions back still reach the
+    conversation they are routed to (the job while it lives, the thread
+    while it is open, else the sender's main conversation), and may bring
+    that thread's or job's agent back up, under the teammate's authority as
+    it is then. Only explicit ends end it, and each is written on its
+    record, so a restart gives the same answer: Stop exchange, a revocation
+    of either teammate (a policy change, a stop or a removal, which end the
+    lasting authority through the epoch and `revoke_exchanges`), or the end
+    of the link (`stop_linked_exchanges`). The leases live only in memory: a
+    request from before a restart holds none until it is handed over again,
+    which grants nothing an explicit end took away.
+  - A handoff or a question the person's Interrupt left with nothing said
+    stays at work, parked or not, until a turn in its thread takes it up:
+    its sender waits on it until the person speaks there or stops it, and a
+    restart meanwhile ends it as work that may have started. What a thread
+    carries is read from the request records, so no interrupted request is
+    held by nothing: the next such turn, the person's Stop, a close or a
+    restart settles each.
+  - A request still waiting on the person's first-contact card ends when
+    either teammate's session or chapter is replaced or stopped, as before:
+    the card offers a grant for that session, so it expires with it
+    (`settle_collaboration`) and the request is refused.
   - A compromised linked desk can mark every report as waking; each wake
     counts toward the pair's twelve, which stops it. It can also send many
     reports for a live handoff, each a notice on the delegator's tape, within
@@ -1050,42 +1082,11 @@ and its questions back reach the conversation that handed it over.
   - A crash between saving that a question's answer was taken up and saving
     that the handoff no longer waits on it leaves the handoff waiting until
     the person stops the exchange.
-  - A handoff or a question the person's Interrupt left with nothing said
-    stays at work, parked or not, until a turn in its thread takes it up:
-    its sender waits on it until the person speaks there or stops it, and a
-    restart meanwhile ends it as work that may have started. What a thread
-    carries is read from the request records, so no interrupted request is
-    held by nothing: the next such turn, the person's Stop, a close or a
-    restart settles each.
   - A question back to a delegator on a linked desk that the person stops
     there comes back as a failed answer, which the thread hears in a turn.
     That turn is not asked to send the question again, but may, through the
     ordinary grant; only a stop made on the asking desk is shown without a
     turn.
-  - A request ends when a lease it was sent or accepted under ends, not
-    only on a change of authority: the sweep (`stop_revoked_exchanges`)
-    stops any request whose leases `exchange_lease_current` finds lapsed.
-    Three ordinary turns of a thread's or a session's life end such leases:
-    - Parking a work thread, after three idle hours or to make room for
-      another, revokes the thread's lease (`end_side`). The asks and
-      handoffs sent from the thread hold leases scoped from it, so parking
-      stops them as a revocation does.
-    - A job lets go of its agent after each firing (`job_thread.rs`
-      `let_go`), revoking that firing's lease, so the handoffs and questions
-      a firing sent stop when it ends. A question back or a report routed to
-      a job from a handoff one of its firings sent does not outlive that
-      firing.
-    - A question back delivered into a delegator's main conversation quiet
-      past the room's idle window opens its next chapter first
-      (`in_this_chapter`, which stops the old session through
-      `stop_with_capability`). The handoff the question is about, when it
-      was sent from that conversation, holds a lease scoped from the old
-      session's, so the question can stop the very handoff it asks about.
-
-    Whether a request's leases should end only on an explicit change of
-    authority (`revoke_exchanges`, `stop_linked_exchanges`) is a decision
-    still pending.
-
 
 ### Human-gated handoff continuation (BRO-128)
 

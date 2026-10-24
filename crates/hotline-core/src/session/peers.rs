@@ -101,9 +101,10 @@ pub(super) struct CollaborationScope {
     target_generation: u64,
 }
 
-/// A temporary grant is attached to the two capability leases that were live
-/// when the operator allowed this exchange. Ending either session invalidates
-/// its lease, so a grant cannot survive a restart.
+/// A temporary grant is attached to the two leases of the request the
+/// operator allowed, which a stop or a policy change on either side ends, and
+/// is dropped when either teammate's session or chapter is replaced
+/// (`expire_grants`), so a grant cannot survive a restart.
 struct SessionGrant {
     caller: CapabilityLease,
     target: CapabilityLease,

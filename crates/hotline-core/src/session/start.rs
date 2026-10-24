@@ -42,6 +42,14 @@ impl Room {
         self.capability_epoch(persona_id).lease()
     }
 
+    /// What a request between two teammates holds of one of them: its
+    /// lasting authority, which a chapter's swap, a parked thread and a job's
+    /// firing ending leave alone and a stop or a policy change ends, scoped
+    /// so that ending the request ends it alone.
+    pub(super) fn request_lease(&self, persona_id: &str) -> CapabilityLease {
+        self.capability_epoch(persona_id).lasting().scoped()
+    }
+
     /// Read-only tools bound to the call under the teammate's authority.
     /// The lease is the teammate's own, so changing its grants on the card
     /// refuses the front's next call.
@@ -299,24 +307,30 @@ impl Room {
         Ok(())
     }
 
-    /// The main session's stop alone, for a chapter swap: a side thread has a
-    /// conversation of its own and goes on through one.
+    /// The person's stop of the main session alone. It ends what the
+    /// teammate's requests hold of it as well, which a chapter's swap leaves
+    /// standing.
     pub(super) fn stop_session(&self, persona_id: &str) {
         self.stop_with_capability(persona_id);
+        self.capability_epoch(persona_id).stop();
         self.revoke_exchanges(persona_id);
     }
 
-    /// A chapter restart captures its replacement authority in the same
-    /// critical section as stopping the old session, so a later stop also
-    /// cancels a replacement that has not reached its first await yet.
+    /// Replaces the main session, for a chapter swap: its handles end, and
+    /// the requests the teammate sent or was given, which hold its lasting
+    /// authority, go on. A side thread has a conversation of its own and
+    /// goes on through one.
+    ///
+    /// The replacement authority is captured in the same critical section as
+    /// stopping the old session, so a later stop also cancels a replacement
+    /// that has not reached its first await yet.
     pub(super) fn stop_with_capability(&self, persona_id: &str) -> CapabilityLease {
         let (session, capability) = {
             let _lifecycle = lock(&self.lifecycle);
-            // A stop invalidates this session's handles. Preserve an already
-            // quarantined epoch so a concurrent policy update is not reopened
-            // by the routine stop path.
+            // A quarantined epoch stays closed, so a concurrent policy update
+            // is not reopened by the swap.
             let epoch = self.capability_epoch(persona_id);
-            epoch.stop();
+            epoch.replace_session();
             (lock(&self.sessions).remove(persona_id), epoch.lease())
         };
         self.peers.expire_grants(persona_id);

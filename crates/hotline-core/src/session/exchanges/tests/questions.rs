@@ -720,8 +720,9 @@ async fn a_failed_turn_answering_an_ask_in_a_thread_says_it_was_the_questions() 
     );
 }
 
-/// The ask's sender ends before the handoff's does: the ask is stopped, and
-/// the handoff's turn, which the ask was waiting behind, goes on to its result.
+/// The ask's leases end before the handoff's do, as a revocation's do before
+/// its record says so: the ask is stopped, and the handoff's turn, which the
+/// ask was waiting behind, goes on to its result.
 #[tokio::test]
 async fn a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone() {
     let (room, agents, gate) = gated(
@@ -742,9 +743,7 @@ async fn a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone
     })
     .await;
     let thread = work_thread(&room, &handoff);
-    let sender = room.capability_lease("ada").scoped();
     let sent = TeammateTools::new(&room, "ada")
-        .with_capability(sender.clone())
         .call(
             "message_teammate",
             &json!({"to":"bob","message":"Which branch is it on?","intent":"ask","thread":handoff}),
@@ -759,7 +758,11 @@ async fn a_stopped_ask_in_a_thread_leaves_the_handoffs_turn_and_the_thread_alone
     })
     .await;
 
-    sender.revoke();
+    lock(&room.exchange_leases)
+        .get(&id)
+        .expect("the ask's leases")
+        .0
+        .revoke();
     until("the ask is stopped", || {
         request(&room, "ada~bob", &id).phase == Phase::Stopped
     })

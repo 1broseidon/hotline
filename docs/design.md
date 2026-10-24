@@ -1114,10 +1114,17 @@ waiting only on the delegator reports nothing, since the question reaches the de
 
 The delegation stands, after the result too, until the person stops the
 exchange or collaboration is revoked: that releases it, its thread reports no
-more, and what the delegator had not heard is dropped. The leases it was sent
-under are kept only by the running process: within a run, one that lapses
-ends the delegation too, but after a restart only a stop, a revocation or an
-unlink does. While it stands it is the grant for its thread's questions back
+more, and what the delegator had not heard is dropped. A request, an ask as
+much as a handoff, and the delegation it carries end only by an explicit end:
+Stop exchange, a revocation (a policy change, either teammate stopped or
+removed), or the end of the link to the other desk. A chapter turning over or reopened, the thread it was sent from parking and the
+job firing that sent it ending leave it standing, within a run and after a
+restart, so its result, reports and questions back keep flowing (decided
+2026-10-23 by the operator; before, such a request held leases scoped from
+the session, thread or firing that sent it, and any of those ending stopped
+it within a run though a restart brought it back). Its leases are each
+teammate's lasting authority, which only a stop or a policy update ends.
+While it stands it is the grant for its thread's questions back
 to the delegator, which reach the delegating conversation without a card.
 Once a stop or a revocation has ended it, the thread's link says so
 (`handoffEnded`), and the window shows only that: whether what is said in the

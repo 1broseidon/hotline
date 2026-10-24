@@ -5,7 +5,7 @@
 use super::ask_back::open_card;
 use super::gates::{ask_carol, ask_from, handed_off, idle, request, turn};
 use super::*;
-use crate::contract::{ScheduleKind, ScheduledJob, SideEnd};
+use crate::contract::{End, ScheduleKind, ScheduledJob, SideEnd};
 use crate::session::exchanges::linked::take_sent;
 use crate::session::exchanges::progress::{REPORT_CHARS, TurnEnd, WAKE_LINE, release, turn_report};
 use crate::session::runner::Driven;
@@ -292,6 +292,80 @@ async fn a_handoff_turn_waiting_on_a_question_the_person_must_allow_reports_the_
         open_card(&room, "bob").is_some()
     })
     .await;
+}
+
+/// The person's Stop on a handoff's own turn ends the handoff. Its sender
+/// hears that once, as the person's decision, with whatever it hears next:
+/// nothing wakes it, and nothing asks it to inspect and send the work again.
+/// The thread closes as stopped, and can be continued.
+#[tokio::test]
+async fn the_persons_stop_on_a_handoffs_turn_ends_it_and_waits_for_the_senders_next_line() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::new(turn("started", "Running the long command.", "end_turn"))
+            .on_cancel(vec![Update::Turn {
+                stop_reason: "cancelled".into(),
+                usage: None,
+            }])
+            .gated(gate.clone()),
+    );
+    let room = room_with("progress-person-stops-handoff", &ada, vec![bob.clone()]);
+    // Ada is up and idle, so a report that woke her would start a turn.
+    room.start("ada").await.unwrap();
+    let handoff = send(&room, "handoff").await;
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let thread = work_thread(&room, &handoff);
+    gate.add_permits(1);
+    until("bob has said what he is doing", || {
+        said_in(&room, &thread).len() == 1
+    })
+    .await;
+    assert!(!claimed(&room), "ada is idle");
+    room.cancel_side(&thread).unwrap();
+    until("the thread has closed", || !room.work_is_open(&thread)).await;
+
+    let stopped = request(&room, "ada~bob", &handoff);
+    assert_eq!((stopped.phase, stopped.failed), (Phase::Stopped, true));
+    let line = "The person stopped this handoff. Do not send it again unless they ask.";
+    assert_eq!(
+        notices(&room, "ada"),
+        [format!(
+            "Ada, in your handoff thread “work handoff”: Running the long command.\n\n{line}"
+        )]
+    );
+    assert!(!stopped.progress_wakes);
+    assert_eq!(
+        room.link_of(&ThreadId::side(&thread)).unwrap().state,
+        crate::thread::ThreadState::Closed(End::Stopped)
+    );
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|v| v["kind"] != "delivery" || v["cause"]["requestId"] != handoff.as_str()),
+        "no result is delivered for it"
+    );
+    assert!(ada.prompts().is_empty(), "nothing woke ada");
+    assert!(!claimed(&room), "nor is a turn of hers under way");
+
+    room.prompt("ada", "what happened?", None, None)
+        .await
+        .unwrap();
+    until("ada hears her line", || {
+        heard_with(&ada, "what happened?").is_some()
+    })
+    .await;
+    let heard = heard_with(&ada, "what happened?").unwrap();
+    assert_eq!(heard.matches(line).count(), 1, "{heard}");
+    assert!(!heard.contains("inspect before retrying"), "{heard}");
+    room.prompt("ada", "and now?", None, None).await.unwrap();
+    until("ada hears her second line", || {
+        heard_with(&ada, "and now?").is_some()
+    })
+    .await;
+    assert!(!heard_with(&ada, "and now?").unwrap().contains(line));
+    room.continue_side(&thread).await.unwrap();
 }
 
 /// The question reaches the teammate that handed the thread over by itself,

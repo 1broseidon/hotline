@@ -26,6 +26,7 @@ pub(in crate::session) enum TurnEnd<'a> {
     Waiting { card: Option<&'a str> },
     Said,
     Stopped,
+    HandoffStopped,
     Failed,
 }
 
@@ -41,6 +42,7 @@ pub(in crate::session) fn turn_report(driven: &Driven, end: TurnEnd<'_>) -> Opti
         TurnEnd::Waiting { card: None } => Some("Waiting on a colleague's answer.".to_string()),
         TurnEnd::Said => None,
         TurnEnd::Stopped => Some("This turn was stopped.".to_string()),
+        TurnEnd::HandoffStopped => Some(peers::HANDOFF_STOPPED_BY_THE_PERSON.to_string()),
         TurnEnd::Failed => Some("This turn failed.".to_string()),
     };
     match state {
@@ -174,6 +176,59 @@ impl Room {
         if let Some(report) = report {
             self.report_progress(side_id, report, wakes);
         }
+    }
+
+    /// The person's Stop on a handoff's own turn ends the handoff, and its
+    /// sender is told once, as their decision, in a report that wakes
+    /// nobody: a turn woken by it would send the work again and undo the
+    /// stop. A sender on a linked desk is told by the pair's worker. Says
+    /// whether the stop cut short the turn of `id`, a handoff still at work;
+    /// a turn that ended on its own is left to end as it did.
+    pub(in crate::session) fn end_stopped_handoff(
+        self: &Arc<Self>,
+        id: &str,
+        driven: &Driven,
+    ) -> bool {
+        if !matches!(
+            driven.stop_reason.as_deref(),
+            Some("cancelled" | "canceled" | "aborted")
+        ) {
+            return false;
+        }
+        let Some((key, handoff)) = self.exchange_pairs().into_iter().find_map(|pair| {
+            let handoff = pair
+                .requests
+                .into_iter()
+                .find(|r| r.id == id && r.intent == Intent::Handoff && r.phase == Phase::Running)?;
+            Some((pair.id, handoff))
+        }) else {
+            return false;
+        };
+        if !crate::linked::is_linked(&handoff.from)
+            && let Some(report) = turn_report(driven, TurnEnd::HandoffStopped)
+            && let Err(error) = self.hear_progress(&key, id, &report, false)
+        {
+            eprintln!("report a stopped handoff: {error}");
+        }
+        let _guard = lock(&self.exchange_lock);
+        let Some(mut pair) = self.exchange_pair(&key) else {
+            return false;
+        };
+        let Some(stopped) = pair
+            .requests
+            .iter_mut()
+            .find(|r| r.id == id && r.phase == Phase::Running)
+        else {
+            return false;
+        };
+        stopped.phase = Phase::Stopped;
+        stopped.failed = true;
+        stopped.reply = peers::HANDOFF_STOPPED_BY_THE_PERSON.into();
+        if let Err(error) = self.save_pair(&pair) {
+            eprintln!("save a stopped handoff: {error}");
+        }
+        self.wake_owed(&pair);
+        true
     }
 
     /// Nothing when the turn waits only on questions to the handoff's

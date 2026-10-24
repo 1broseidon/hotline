@@ -1397,6 +1397,16 @@ stopped one or a failed one never wakes. A wake that finds its reports
 already heard is skipped. A room closing for a restart wakes nobody, and
 reports survive the restart.
 
+The person's Stop on a handoff's own turn ends the handoff
+(`end_stopped_handoff`): the request is stopped and its thread closes as
+stopped, to be continued like any other. Its sender is not handed a failed
+result to inspect and retry, which would start a turn that sends the work
+again; it gets a report that never wakes, the teammate's last words and
+"The person stopped this handoff. Do not send it again unless they ask." A
+sender on a linked desk is sent that sentence as the stopped request's
+failure. A handoff turn cancelled any other way, or failed, returns its
+failure as before.
+
 **The delegation** is the handoff the thread serves: the latest one into it,
 in any phase, so a thread the person continues after its result still
 reports. It stands while the request has not been stopped or released and,

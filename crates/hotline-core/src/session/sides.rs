@@ -122,6 +122,8 @@ pub(super) struct LiveSide {
     dispatched: Mutex<std::collections::HashSet<String>>,
     /// Set once the thread is archived; nothing more is written after it.
     closed: AtomicBool,
+    /// The person pressed Stop on the turn in flight.
+    stopped_by_person: AtomicBool,
     /// What `archive_thread` said, held until the turn it was said in ends.
     archive_note: Mutex<Option<String>>,
     /// The agent's own id for this conversation, as the driver reports it.
@@ -267,6 +269,7 @@ impl Occupant for LiveSide {
         } else if line.wake {
             return Begin::Skip;
         }
+        self.stopped_by_person.store(false, Ordering::SeqCst);
         Begin::Go(WorkTurn { line: Some(line) })
     }
 
@@ -343,7 +346,13 @@ impl Occupant for LiveSide {
             } else {
                 driven.replies.join("\n\n")
             };
-            let finished = room.finish_request(&request, reply, failed);
+            let stopped = side.stopped_by_person.swap(false, Ordering::SeqCst)
+                && room.end_stopped_handoff(&request, &driven);
+            let finished = if stopped {
+                Finished::Gone
+            } else {
+                room.finish_request(&request, reply, failed)
+            };
             let answered = Some((request.as_str(), finished));
             room.report_turn(&side.id, side.opener.as_ref(), answered, &driven);
             // Answering an ask never closes the thread: only a handoff's
@@ -351,7 +360,12 @@ impl Occupant for LiveSide {
             if matches!(finished, Finished::Result | Finished::Gone)
                 && lock(&side.turns).waiting.is_empty()
             {
-                room.finish_side(side, if failed { End::Failed } else { End::Agent }, None);
+                let by = match (stopped, failed) {
+                    (true, _) => End::Stopped,
+                    (false, true) => End::Failed,
+                    (false, false) => End::Agent,
+                };
+                room.finish_side(side, by, None);
                 return Then::Stop;
             }
         } else {
@@ -725,6 +739,7 @@ impl Room {
             last_used: Mutex::new(now_ms()),
             dispatched: Mutex::new(HashSet::default()),
             closed: AtomicBool::new(false),
+            stopped_by_person: AtomicBool::new(false),
             archive_note: Mutex::new(None),
             reported: Mutex::new(None),
             saved: Mutex::new(kept),

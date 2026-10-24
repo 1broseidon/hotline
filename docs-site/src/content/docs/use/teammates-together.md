@@ -55,8 +55,10 @@ Press **Open** on either line to read the work thread in the
 along, not chatted in. The brief shows in full, and in place of the message
 box a bar says who handed what to whom, with a link to the sender's
 conversation. To steer the work, talk to the sender there. You can stop the
-thread's turn while it runs. If the colleague needs something from you, the
-bar becomes a box for your answer.
+thread's turn while it runs. That ends the handoff: the teammate that handed
+it over hears that you stopped it with the next thing it hears, and is told
+not to send it again unless you ask. If the colleague needs something from
+you, the bar becomes a box for your answer.
 
 A teammate works on up to three threads at a time. A handoff to a teammate
 that is fully busy waits its turn. Threads take turns on the teammate's

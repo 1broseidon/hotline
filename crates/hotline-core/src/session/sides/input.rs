@@ -146,9 +146,11 @@ impl Room {
 
     /// Stops the turn in flight in a side thread and drops what waited behind
     /// it, a colleague's question included, which fails to its asker. The
-    /// thread stays live.
+    /// thread stays live, unless the turn was a handoff's: the person's stop
+    /// ends the handoff.
     pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
         let side = self.live_side(side_id)?;
+        side.stopped_by_person.store(true, Ordering::SeqCst);
         let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
         if let Some(driver) = side.driver() {
             driver.cancel();

@@ -198,7 +198,8 @@ async fn a_handoff_runs_in_its_own_thread_and_returns_the_matching_request_to_th
 
 #[tokio::test]
 async fn aborted_or_revoked_handoff_turns_return_failure_not_success() {
-    for reason in ["aborted", "revoked"] {
+    // A cancel the person did not ask for is a failure like the others.
+    for reason in ["aborted", "revoked", "cancelled", "failed"] {
         let log = scratch(&format!("handoff-{reason}"));
         enrol(&log, &persona("ada"));
         enrol(&log, &persona("bob"));

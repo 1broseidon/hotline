@@ -7,6 +7,10 @@ use crate::contract::{
     CookieOfferSites, CookieOfferSource, CookieOfferStatus,
 };
 
+/// How long Not now keeps a site quiet for a teammate, counted from the
+/// offer: the record is on the tape, so a desk restart keeps it too.
+pub(crate) const NOT_NOW_QUIET_MS: i64 = 24 * 60 * 60 * 1000;
+
 #[derive(Default)]
 pub(super) struct CookieWatch {
     ready: Option<Ready>,
@@ -83,17 +87,21 @@ impl Room {
             return;
         }
         let blocked = self.blocked_cookie_sites(persona);
-        let lent = self.computer_cookie_offers(persona);
+        let answered = self.computer_cookie_offers(persona);
+        let now = now_ms();
         let mut sites: Vec<_> = sites
             .into_iter()
             .filter(|site| {
                 !blocked.contains(site)
-                    && !lent.iter().any(|c| {
+                    && !answered.iter().any(|c| {
                         c.site == *site
-                            && matches!(
-                                c.status,
-                                CookieOfferStatus::Lent | CookieOfferStatus::Unconfirmed
-                            )
+                            && match c.status {
+                                CookieOfferStatus::Lent | CookieOfferStatus::Unconfirmed => true,
+                                // Not now quiets the site for a day, through
+                                // restarts, switches and stops alike.
+                                CookieOfferStatus::Declined => now - c.ts < NOT_NOW_QUIET_MS,
+                                _ => false,
+                            }
                     })
             })
             .collect();

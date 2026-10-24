@@ -439,9 +439,13 @@ impl Room {
     /// sign-out, a server removed or a policy change ends all of it, through
     /// [`Self::invalidate_all`].
     pub(crate) async fn signed_in_to_mcp(self: &Arc<Self>) {
-        let gate = self.policy_update_lock();
-        let _held = gate.lock().await;
-        let running: Vec<String> = lock(&self.sessions).keys().cloned().collect();
+        let running: Vec<String> = {
+            let gate = self.policy_update_lock();
+            let _held = gate.lock().await;
+            lock(&self.sessions).keys().cloned().collect()
+        };
+        // Never under the policy lock: a rebuild takes the start gate, and a
+        // message holds that gate while closing a chapter takes the lock.
         for persona_id in running {
             // A rebuild that fails says why on the teammate's band itself.
             let _ = self.rebuild(&persona_id).await;

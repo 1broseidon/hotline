@@ -1927,7 +1927,10 @@ what the teammate may do is no policy change: its computer joining once
 downloaded or made again between turns, and a sign-in to an MCP server
 completing (`Room::signed_in_to_mcp`), rebuild a running main session the
 way a chapter's swap does (`Room::rebuild`, through `stop_with_capability`),
-so the teammate's threads, its requests and its authority stand. A thread
+so the teammate's threads, its requests and its authority stand. The sign-in
+reads which sessions run under the policy lock and rebuilds them after
+letting it go: a rebuild takes the teammate's start gate, and a message
+holds that gate while closing a quiet chapter takes the lock. A thread
 keeps the computer and the servers it was built with until it is brought
 up again. A sign-out, a server removed or a policy change narrows reach
 and goes through the revocation above. Cloned tool handles retain a

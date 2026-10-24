@@ -528,9 +528,11 @@ export function App() {
 					)}
 				</div>
 			) : (
-			<div className="flex min-h-0 flex-1 pl-2">
-			{/* The rail's slot slides to nothing when the rail closes, and back. */}
-			<div className="rail-slot" style={{ width: railSize.open ? railWidth + 8 : 0 }} inert={!railSize.open}>
+			<div className="flex min-h-0 flex-1">
+			{/* The rail's slot slides to nothing when the rail closes, and back:
+			 * its 8px from the window's edge goes with it, so a closed rail
+			 * leaves the pane flush with the window. */}
+			<div className="rail-slot" style={{ width: railSize.open ? railWidth + 16 : 0 }} inert={!railSize.open}>
 			{pane === "settings" ? (
 				<Suspense fallback={null}>
 					<SettingsRail

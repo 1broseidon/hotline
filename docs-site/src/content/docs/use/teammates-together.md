@@ -54,8 +54,9 @@ Press **Open** on either line to read the work thread in the
 [Threads pane](/docs/use/side-threads/#the-threads-pane). The brief shows in
 full, and above the message box a bar says who handed what to whom, with a
 link to the sender's conversation. You can talk in the thread. What the
-colleague says in each turn there reaches the sender as a report; your own
-words are not passed on, though the colleague may mention what you asked.
+colleague says in each turn there reaches the sender as a report, never as
+the handoff's result; your own words are not passed on, though the colleague
+may mention what you asked.
 From the thread the colleague can also ask the sender a question without a
 new approval. If the colleague needs something from you, the bar and the
 message box give way to a box for your answer.
@@ -66,7 +67,8 @@ over hears that you stopped it with the next thing it hears, and is told not
 to send it again unless you ask. **Interrupt** in the message box, or
 <kbd>Esc</kbd>, only cuts the turn so you can say something: the handoff
 goes on, and the turn your message starts carries it to its result, even if
-the thread was parked before you wrote.
+the thread was parked before you wrote. That is the only time what the
+colleague answers you becomes the handoff's result.
 
 A handoff also ends when you press **Stop exchange**, revoke their
 collaboration, change anything either teammate's session is built from (its

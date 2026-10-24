@@ -1653,7 +1653,12 @@ it, and Continue brings back a closed one. While the handoff waits on a card
 in it, the person's words are that card's answer (Done, with the words as its
 note, and no attachments) and carry the handoff on. Otherwise the line carries
 no request: its turn's reply is not the handoff's result, and it reaches the
-opener only as the teammate's report ([Peer threads](#peer-threads)). The
+opener only as the teammate's report ([Peer threads](#peer-threads)). The one
+exception is the person's Interrupt: a line after it carries the request the
+interrupted turn was answering, and its turn's reply is that handoff's result
+or that question's answer (the composer's Interrupt in [Peer
+threads](#peer-threads)); without an Interrupt the person's line never
+carries one. The
 person cannot archive it (`refuse_archiving_handed_over`): it ends with its
 result, which the opener and the teammate decide, and an Archive in the middle
 of a handoff would leave the request with none. A thread where the person's

@@ -1138,7 +1138,15 @@ is that card's answer and carries the handoff on. Otherwise it is a line
 behind the turn in flight that carries no request, and its turn reaches the
 delegator only as the teammate's report. So the person works on delegated
 work where the delegator hears of it, not in a main conversation that nothing
-ties to the delegation.
+ties to the delegation. Stop and Interrupt differ (decided 2026-10-23 by the
+coordinating session after testing on a desk): the person's Stop of a
+handoff's turn ends the handoff as theirs, told once without a wake, while
+the composer's Interrupt only cuts the turn, so the person's line after it is
+the one exception and carries the interrupted handoff, or question, to its
+result. In a main conversation, which has no thread to carry an answer on and
+whose next line must never become a colleague's answer, an Interrupt ends the
+answer it cut with neutral words, to be asked again if still needed, never as
+the person's stop.
 
 The pair record's new fields (`progress`, `progress_left_out`,
 `progress_wakes`, `released`, `about`, `owed_to_thread`, `stopped_by_person`)

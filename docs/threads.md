@@ -124,7 +124,10 @@ sender as its opener. Its result returns to the opener as a delivery. A later
 handoff from the same opener that names the thread (`message_teammate`'s
 `thread`) continues it rather than opening another, and an ask that names it is
 answered there. Each of its turns that is not the result reports to the opener,
-and the person talks in it.
+and the person talks in it. The person's line there carries no request and its
+turn's reply is never the handoff's result, except after the person's
+Interrupt: then the next line carries the handoff, or the question, the
+interrupted turn was answering, and its reply is that result or that answer.
 
 A pair is the record of what two teammates said to each other and has no agent
 of its own. A question is answered by the conversation that has the work: the
@@ -638,7 +641,8 @@ has one hook and one view.
   composer and Stop while it is open and Continue once it has closed, but no
   Archive: it ends with its result. Stop in its header ends the handoff; the
   composer's Interrupt, and Esc, send `thread.cancel` with `interrupt`, which
-  only cuts the turn, and the handoff goes on in the next one. It is drawn
+  only cuts the turn, and the handoff goes on in the next one, the only turn
+  of the person's whose reply is the handoff's result. It is drawn
   with the brief said whole in the opener's voice and the person's own lines
   as theirs, and a bar names the
   two of them, says that what the teammate says there reaches the opener, and

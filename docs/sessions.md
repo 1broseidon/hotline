@@ -1441,7 +1441,9 @@ of what the turn had said and that sentence: shown at once where the answer
 would have come as "Mack, answering “…”: …", and heard there with the next
 line, as "Mack, answering “…”:" among the reports. A thread the answer was
 given in goes on. A handoff waiting on that question is carried on by the
-stop instead, as by an answer, told without "Send it again"; an asker on a
+stop instead, as by an answer, told without "Send it again", which is never
+said after the stop's or the interrupt's sentence, whatever the cut turn
+had said before it; an asker on a
 linked desk is told by its own desk, as a sender of a handoff is. Only the
 person's own cut is their stop: a restart whose drain runs out cuts a main
 conversation's turn without it (`Room::cut_turn`), and the answer that turn

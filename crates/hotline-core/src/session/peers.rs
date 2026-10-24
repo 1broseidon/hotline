@@ -516,13 +516,16 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
             about,
             ..
         } => {
+            // The person's stop or interrupt is the last word of what is
+            // said, after what the turn it cut had said, if anything.
             let again = if [
                 STOPPED_BY_THE_PERSON,
                 HANDOFF_STOPPED_BY_THE_PERSON,
                 QUESTION_STOPPED_BY_THE_PERSON,
                 QUESTION_INTERRUPTED_BY_THE_PERSON,
             ]
-            .contains(&text)
+            .iter()
+            .any(|sentence| text.ends_with(sentence))
             {
                 ""
             } else {

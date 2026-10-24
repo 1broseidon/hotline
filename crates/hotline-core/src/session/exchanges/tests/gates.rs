@@ -419,6 +419,77 @@ async fn a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_fa
     );
 }
 
+/// A linked colleague's answer to Bob's question, cut by the person on its
+/// desk after it had said something, carries Bob's waiting handoff on with
+/// what it said and the stop or the interrupt, and never asks him to send
+/// the question again.
+#[tokio::test]
+async fn a_linked_answer_the_person_cut_after_words_carries_the_handoff_on_without_asking_again() {
+    use crate::session::peers::{
+        QUESTION_INTERRUPTED_BY_THE_PERSON, QUESTION_STOPPED_BY_THE_PERSON,
+    };
+    for (cut, sentence) in [
+        ("stopped", QUESTION_STOPPED_BY_THE_PERSON),
+        ("interrupted", QUESTION_INTERRUPTED_BY_THE_PERSON),
+    ] {
+        let (room, _) = setup(&format!("gates-linked-answer-{cut}"));
+        let mut handoff = saved_request("h", Intent::Handoff, Phase::Waiting);
+        handoff.human_actions = vec![HumanGate {
+            id: "q".into(),
+            consumed: false,
+        }];
+        handoff.thread = Some("t".into());
+        handoff.started = true;
+        room.save_pair(&Pair {
+            id: "ada~bob".into(),
+            a: "ada".into(),
+            b: "bob".into(),
+            exchanges: 0,
+            paused: false,
+            requests: vec![handoff],
+        })
+        .unwrap();
+        let lou = "grizzly-desk/lou";
+        let key = thread_key("bob", lou).unwrap();
+        let mut ask = saved_request("q", Intent::Ask, Phase::Running);
+        ask.from = "bob".into();
+        ask.to = lou.into();
+        ask.started = true;
+        let (a, b) = if key.starts_with("bob") {
+            ("bob", lou)
+        } else {
+            (lou, "bob")
+        };
+        room.save_pair(&Pair {
+            id: key.clone(),
+            a: a.into(),
+            b: b.into(),
+            exchanges: 0,
+            paused: false,
+            requests: vec![ask],
+        })
+        .unwrap();
+
+        room.stop_linked_request(
+            "grizzly-desk",
+            "q",
+            format!(
+                "Looking at the colours.
+
+{sentence}"
+            ),
+        )
+        .unwrap();
+        let (_, cause, _, text) = room
+            .answer_delivery(&key, &request(&room, &key, "q"))
+            .unwrap();
+        let heard = peers::delivery_wire(&cause, &text);
+        assert!(heard.contains("Looking at the colours."), "{heard}");
+        assert!(heard.ends_with(sentence), "{heard}");
+        assert!(!heard.contains("Send it again"), "{heard}");
+    }
+}
+
 /// The question's failure reaches the thread under the name `name`, the
 /// handoff's next turn runs on it, and Ada hears the handoff's result once.
 async fn carries_on_with_the_failure(handed: &HandedOff, ask: &str, name: &str, text: &str) {

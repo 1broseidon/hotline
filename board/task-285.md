@@ -1,7 +1,7 @@
 ---
 id: task-285
 title: "Model picker: accounts, then models, then efforts, with an effort slider in the head"
-column: todo
+column: review
 position: 6
 priority: high
 tags:
@@ -10,6 +10,7 @@ tags:
   - ui
 parentId: epic-25
 createdAt: "2026-10-24T06:23:17.213Z"
+updatedAt: "2026-10-24T07:04:42.543Z"
 ---
 
 ## Description

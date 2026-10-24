@@ -247,13 +247,14 @@ impl Room {
     /// it, and its sender is told once in `report`, else in the sentence that
     /// says so, which wakes nobody: a turn woken by it would send the work
     /// again and undo the stop. The request keeps the sentence as its reply,
-    /// or, for one that crosses a link, what crosses it. A handoff whose turn had not `begun` is ended only
-    /// if none ever began, so it is never handed over again; one waiting on
-    /// the person or a colleague is ended whatever `begun` says, since only
-    /// the answer the stop dropped would have carried it on. A sender on a
-    /// linked desk is sent the report by the pair's worker, for its desk to
-    /// tell it the same way, and a handoff waiting on a stopped question is
-    /// carried on by its failure, as by an answer. Says whether it ended it.
+    /// or, for one that crosses a link, what crosses it. A handoff whose turn
+    /// had not `begun` is ended only if none ever began, so it is never
+    /// handed over again; one waiting on the person or a colleague is ended
+    /// whatever `begun` says, since only the answer the stop dropped would
+    /// have carried it on. A sender on a linked desk is sent the report by
+    /// the pair's worker, for its desk to tell it the same way, and a handoff
+    /// waiting on a stopped question is carried on by its failure, as by an
+    /// answer. Says whether it ended it.
     pub(super) fn end_for_the_person(
         self: &Arc<Self>,
         id: &str,

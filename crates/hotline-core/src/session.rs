@@ -690,6 +690,10 @@ pub struct Room {
     /// A host permission failure is said once per browser for this desk run,
     /// across teammates and session restarts.
     cookie_access_notices: Mutex<HashSet<String>>,
+    /// How many times the person has stopped each teammate. A cookie card and
+    /// its answer last until the next stop, not through a restart the desk
+    /// makes on its own (an agent switch, a policy reload).
+    stops: Mutex<HashMap<String, u64>>,
     secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
     captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
@@ -820,6 +824,7 @@ impl Room {
             computers,
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
+            stops: Mutex::default(),
             secret_uses: Mutex::default(),
             #[cfg(test)]
             cookie_candidates: Mutex::default(),

@@ -306,6 +306,28 @@ async fn not_now_asks_again_next_session_but_never_waits_until_settings_undo() {
 }
 
 #[tokio::test]
+async fn a_restart_the_person_did_not_ask_for_keeps_the_card_and_its_answer() {
+    let (fixture, _profiles) = cookie_offer_room("offer-switch", true).await;
+    let room = &fixture.room;
+    room.poll_secret_uses("ada").await;
+    let id = room.computer_cookie_offers("ada")[0].id.clone();
+    // An agent switch restarts the session the way a reattach does.
+    room.reattach("ada").await.unwrap();
+    room.poll_secret_uses("ada").await;
+    let cards = room.computer_cookie_offers("ada");
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].status, CookieOfferStatus::Pending);
+    assert_eq!(answer(room, &id, "not_now").await["ok"], true);
+    room.reattach("ada").await.unwrap();
+    room.poll_secret_uses("ada").await;
+    assert_eq!(room.computer_cookie_offers("ada").len(), 1);
+    room.stop("ada").unwrap();
+    room.start("ada").await.unwrap();
+    room.poll_secret_uses("ada").await;
+    assert_eq!(room.computer_cookie_offers("ada").len(), 2);
+}
+
+#[tokio::test]
 async fn cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values() {
     let (fixture, _profiles) = cookie_offer_room("offer-authority", true).await;
     let room = &fixture.room;

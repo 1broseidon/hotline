@@ -226,6 +226,44 @@ async fn session_consent_is_directional_and_expires_when_a_side_stops() {
     assert_eq!(permission_cards(&room, "ada"), 2);
 }
 
+/// The person's Interrupt of either teammate's main-conversation turn
+/// redirects that turn and decides nothing about the colleague: a
+/// first-contact card up meanwhile stays up, and the person's answer to it
+/// still lets the request through.
+#[tokio::test]
+async fn an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up() {
+    for whose in ["ada", "bob"] {
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let room = workspace_room(
+            &format!("interrupt-leaves-the-card-{whose}"),
+            Fake::new(Scripted::new(answers("a1", "done")).gated(gate.clone())),
+        );
+        room.start(whose).await.unwrap();
+        room.prompt(whose, "busy", None, None).await.unwrap();
+        until("the person's turn is running", || room.mid_turn(whose)).await;
+        let id = ask(&room, "ada", "bob", "one").await.unwrap();
+        let card = collaboration_card(&room, "ada").await;
+        room.interrupt(whose).unwrap();
+        until("the cut turn is over", || !room.mid_turn(whose)).await;
+
+        let still = room
+            .tape("ada")
+            .into_iter()
+            .find(|event| event["requestId"] == card["requestId"])
+            .unwrap();
+        assert!(still.get("decision").is_none(), "{whose}: {still}");
+        gate.add_permits(100);
+        room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+            .await
+            .unwrap();
+        assert_eq!(
+            answer(&room, "ada", &id).await["cause"]["status"],
+            "done",
+            "{whose}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn permanent_consent_survives_peer_restart_and_uses_stable_sender_id() {
     let room = workspace_room(

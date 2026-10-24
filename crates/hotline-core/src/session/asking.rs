@@ -461,10 +461,25 @@ impl Room {
     /// for a permission: the agent is no longer waiting, so the button has
     /// nothing behind it and the transcript should not draw one.
     pub(super) fn settle_permissions(&self, persona_id: &str) {
+        self.expire_open_cards(persona_id, |_| true);
+    }
+
+    /// As [`Self::settle_permissions`], but a first-contact card stays up: its
+    /// wait is a colleague's request, not the turn's, and the person's
+    /// Interrupt of a turn redirects it and answers no colleague.
+    pub(super) fn settle_permissions_of_a_redirect(&self, persona_id: &str) {
+        self.expire_open_cards(persona_id, |event| {
+            !event["requestId"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(peers::COLLAB_REQUEST_PREFIX))
+        });
+    }
+
+    fn expire_open_cards(&self, persona_id: &str, expiring: impl Fn(&Value) -> bool) {
         let home_cards: Vec<_> = self
             .tape(persona_id)
             .into_iter()
-            .filter(|event| event["from"]["kind"] != "call")
+            .filter(|event| event["from"]["kind"] != "call" && expiring(event))
             .collect();
         for expired in crate::log::expire_orphaned_permissions(&home_cards, now_ms()) {
             self.write_value(persona_id, &expired);

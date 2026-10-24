@@ -413,7 +413,7 @@ impl Room {
         session
             .stopped_by_person
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        self.cut_turn(&session);
+        self.cut_turn(&session, false);
         Ok(())
     }
 
@@ -427,22 +427,28 @@ impl Room {
         session
             .interrupted_by_person
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        self.cut_turn(&session);
+        self.cut_turn(&session, true);
         Ok(())
     }
 
     /// Stops the turn in flight and drops whatever was waiting behind it,
     /// a colleague's question included, which fails to its asker. A question
     /// the turn was answering ends as one whose turn ended without a result,
-    /// unless the person asked for the cut.
-    pub(super) fn cut_turn(&self, session: &Session) {
+    /// unless the person asked for the cut. A first-contact card involving
+    /// the teammate expires with the cut, unless it is a `redirect`, the
+    /// person's Interrupt, which decides nothing about a colleague.
+    pub(super) fn cut_turn(&self, session: &Session, redirect: bool) {
         let persona_id = session.persona_id.as_str();
         let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();
-        self.settle_collaboration(persona_id);
-        self.settle_permissions(persona_id);
+        if redirect {
+            self.settle_permissions_of_a_redirect(persona_id);
+        } else {
+            self.settle_collaboration(persona_id);
+            self.settle_permissions(persona_id);
+        }
         self.fail_dropped_questions(
             persona_id,
             dropped

@@ -1254,7 +1254,11 @@ person's answer to a card it waited on is heard there as a plain answer that
 carries nothing back; neither touches either teammate's main conversation.
 Pending approvals expire after ten minutes or when the requesting call is
 cancelled. They also settle when a participant stops, a policy changes, or the
-room closes. One pending first-contact decision is held per direction.
+room closes, and a first-contact card when either participant's chapter
+turns over or its main session is rebuilt, or when the person stops either
+main conversation's turn; their Interrupt of that turn redirects it and
+leaves the card up. One pending first-contact decision is held per
+direction.
 
 ## Peer threads
 

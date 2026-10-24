@@ -76,7 +76,12 @@ folders, reach, tools, background work, goal or driver), stop or remove
 either teammate, or unlink the desk one of them is on. Nothing else ends it:
 not the thread being parked, not either
 teammate starting a new chapter or reopening the previous one, and not the
-job that sent it finishing its run. Its result and reports still reach the
+job that sent it finishing its run. The one exception is a handoff still
+waiting on its first approval card: it fails if either teammate starts a new
+chapter or reopens the previous one, restarts its main conversation to bring
+in its computer or a server you signed in to, or if you stop either
+teammate's turn in its main conversation. Interrupting that turn leaves the
+card up. Its result and reports still reach the
 sender, after a restart too; only a turn Hotline quit in the middle of comes
 back to the sender as work that may have started, to check before sending it
 again. Once the handoff has ended, the bar says that what the colleague

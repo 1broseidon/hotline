@@ -768,12 +768,14 @@ impl RoomHandle for Quiet {
                 name: "Claude".to_string(),
                 description: None,
                 group: None,
+                account: None,
             },
             ConfigChoice {
                 id: "openai/gpt".to_string(),
                 name: "GPT".to_string(),
                 description: None,
                 group: None,
+                account: None,
             },
         ]
     }

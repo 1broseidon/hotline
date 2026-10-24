@@ -1,14 +1,15 @@
 use super::{Room, files::Source};
-use crate::contract::ImageSettings;
 use crate::contract::Reach;
 use crate::contract::SpendingSettings;
 use crate::contract::ThreadId;
+use crate::contract::{ImageSettings, Persona};
 use crate::driver::CapabilityLease;
 use crate::imagegen::{self, Aspect, ImageError, ImageRequest, ImageSet, Reference};
 use crate::sent;
 use crate::tools::Workspace;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -115,7 +116,9 @@ impl Room {
             image,
             spent_usd,
             subscription,
-        } = self.draw(&request, capability.as_ref()).await?;
+        } = self
+            .draw_for(&request, capability.as_ref(), Some(&persona))
+            .await?;
         if let Some(capability) = &capability {
             capability.check()?;
         }
@@ -177,7 +180,18 @@ impl Room {
         request: &ImageRequest,
         capability: Option<&CapabilityLease>,
     ) -> Result<Drawn, String> {
-        let generators = self.image_generators()?;
+        self.draw_for(request, capability, None).await
+    }
+
+    /// [`Self::draw`] for a teammate, on the account its model runs on when
+    /// that account's provider draws.
+    pub(crate) async fn draw_for(
+        &self,
+        request: &ImageRequest,
+        capability: Option<&CapabilityLease>,
+        persona: Option<&Persona>,
+    ) -> Result<Drawn, String> {
+        let generators = self.image_generators_for(persona)?;
         let mut spent_usd = 0.0;
         let mut failure = None;
         let mut on_plan = false;
@@ -263,16 +277,25 @@ impl Room {
 
     /// The providers the room's image settings name, the owner's pick first.
     pub(crate) fn image_generators(&self) -> Result<ImageSet, String> {
+        self.image_generators_for(None)
+    }
+
+    /// The same, on the teammate's own account for its model's provider.
+    fn image_generators_for(&self, persona: Option<&Persona>) -> Result<ImageSet, String> {
         let settings = crate::room::try_settings(self.log())?;
         let images: ImageSettings = serde_json::from_value(crate::room::normalize_setting(
             "images",
             settings.get("images").unwrap_or(&json!({})),
         )?)
         .map_err(|_| "The room's image settings could not be read.".to_string())?;
-        self.resolve_images(&images)
+        self.resolve_images(&images, &persona.map(accounts_of).unwrap_or_default())
     }
 
-    fn resolve_images(&self, settings: &ImageSettings) -> Result<ImageSet, String> {
+    fn resolve_images(
+        &self,
+        settings: &ImageSettings,
+        accounts: &HashMap<String, String>,
+    ) -> Result<ImageSet, String> {
         if settings.is_off() {
             return Err(format!("{}.", imagegen::IMAGES_OFF));
         }
@@ -287,13 +310,28 @@ impl Room {
             .vault
             .as_ref()
             .ok_or_else(|| imagegen::NOTHING_DRAWS.to_string())?;
-        imagegen::resolve(vault, settings)
+        imagegen::resolve_on(vault, settings, accounts)
     }
 
     #[cfg(test)]
     pub(crate) fn set_image_generators(&self, generators: ImageSet) {
         *super::lock(&self.image_generators) = Some(generators);
     }
+}
+
+/// The account a teammate's model names, by provider: what its pictures and
+/// voice draw on. Empty for a teammate on a provider's default account.
+pub(crate) fn accounts_of(persona: &Persona) -> HashMap<String, String> {
+    persona
+        .model_id
+        .as_deref()
+        .and_then(|model| {
+            let (base, account) = crate::models::split_account(model);
+            let provider = base.split('/').next()?.to_string();
+            Some((provider, account?.to_string()))
+        })
+        .into_iter()
+        .collect()
 }
 
 fn image_name(name: Option<&str>, prompt: &str) -> Result<String, String> {

@@ -70,6 +70,14 @@ impl ProviderKeys for DeskCredentials {
     fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
         Some(self.budget.clone())
     }
+
+    fn account_auth(&self, account: &str) -> Option<(String, crate::session::ProviderAuth)> {
+        self.vault.account_auth(account)
+    }
+
+    fn model_choices(&self) -> Option<Vec<crate::contract::ConfigChoice>> {
+        Some(self.vault.model_choices())
+    }
 }
 
 /// How far an in-flight device-code login has got. Lives only in this

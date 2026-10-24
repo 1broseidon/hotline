@@ -72,7 +72,14 @@ pub(super) async fn set_model(
 ) -> Result<SessionInfo, String> {
     let persona = living(log, persona_id)?;
     if persona.backend_id == HOTLINE_BACKEND_ID {
-        if !room.models().iter().any(|choice| choice.id == model_id) {
+        // An id naming an account must be one the desk lists; a plain id is
+        // the provider's default account, which a desk with several accounts
+        // of that provider lists only by name.
+        if !room
+            .models()
+            .iter()
+            .any(|choice| choice.id == model_id || crate::models::base_id(&choice.id) == model_id)
+        {
             return Err(format!("{model_id} is not a model this desk can reach."));
         }
     } else if model_id.is_empty() {

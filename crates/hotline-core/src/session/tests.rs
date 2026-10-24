@@ -22,6 +22,7 @@ use std::time::Duration;
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
 #[cfg(unix)]
+mod accounts;
 mod capture;
 mod cards;
 mod chapters;
@@ -165,6 +166,7 @@ impl Scripted {
                 name: "Claude".to_string(),
                 description: None,
                 group: None,
+                account: None,
             }],
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),

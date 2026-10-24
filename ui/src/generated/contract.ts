@@ -250,6 +250,17 @@ export type ChapterStatus = "in-progress" | "done";
 export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, title?: string, note?: string, status?: ChapterStatus, closedBy?: ChapterClose, messages: number, };
 
 /**
+ * Which of the person's accounts serves a model choice: a credential, by
+ * its id and the name the person gave it. Never anything secret.
+ */
+export type ChoiceAccount = { id: string, label: string, kind: CredentialKind, 
+/**
+ * Another account of the same provider is connected too, so the picker
+ * names this one ("Anthropic · Work") rather than the provider alone.
+ */
+shared: boolean, };
+
+/**
  * How far one message in a teammate-to-teammate thread has got.
  *
  * `sent` is written when the message enters the thread — it has been accepted
@@ -387,12 +398,16 @@ limitsChanged?: boolean, };
 
 export type ConfigChoice = { id: string, name: string, description?: string, 
 /**
- * Picker section header — the provider serving this choice, with its
- * billing flavor ("Anthropic — subscription", "OpenRouter — API key").
- * The same model name can be served two ways at very different prices;
- * the section is what tells them apart before the choice is made.
+ * Picker section header: the name of the provider serving this choice.
  */
-group?: string, };
+group?: string, 
+/**
+ * The account serving this choice, for a Hotline Agent model. A
+ * provider with two or more accounts offers its models once per
+ * account, each id naming its account (`provider#account/model`); with
+ * one, the id is the plain `provider/model` it always was.
+ */
+account?: ChoiceAccount, };
 
 /**
  * One browser profile's cookies brought over to a teammate's computer, as

@@ -12,7 +12,7 @@ use crate::contract::{CapabilityModel, CapabilityProvider};
 use crate::credentials::CredentialFile;
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -241,7 +241,21 @@ impl Connection {
 
 /// The connected providers in the order the owner connected them, one each.
 fn connections(vault: &Vault) -> Vec<Connection> {
-    let auth = vault.provider_auth();
+    connections_on(vault, &HashMap::new())
+}
+
+/// The same, a provider named in `accounts` drawing on that account (a
+/// credential id) rather than its default one, while the account is there:
+/// a teammate's pictures are paid for by the account it runs on.
+fn connections_on(vault: &Vault, accounts: &HashMap<String, String>) -> Vec<Connection> {
+    let mut auth = vault.provider_auth();
+    for (provider, account) in accounts {
+        if let Some((owner, held)) = vault.account_auth(account)
+            && &owner == provider
+        {
+            auth.insert(owner, held);
+        }
+    }
     let mut seen = HashSet::new();
     vault
         .list()
@@ -368,6 +382,16 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
 /// subscription falls back only to a subscription, never to a paid API.
 pub fn resolve(vault: &Vault, settings: &ImageSettings) -> Result<ImageSet, String> {
     resolve_from(&connections(vault), settings)
+}
+
+/// [`resolve`] for a teammate: each provider in `accounts` (provider id to
+/// credential id) draws on that account.
+pub fn resolve_on(
+    vault: &Vault,
+    settings: &ImageSettings,
+    accounts: &HashMap<String, String>,
+) -> Result<ImageSet, String> {
+    resolve_from(&connections_on(vault, accounts), settings)
 }
 
 /// Which provider and model would draw, for a status line: `None` when

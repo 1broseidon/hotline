@@ -2225,3 +2225,43 @@ narrator leaves the written result available without a new spoken pointer.
 | Off makes no discovery calls and expires pending cards; selected sites alone are eligible; absent lists allow every site and empty lists none | `wire/tests/cookie_offers.rs` `cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_explanation`, `cookie_offers_selected_sites_only_offer_matches_and_expire_deselected_cards`, `cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_offers_none` | Unix |
 | Desk and owner write; phone only reads the preference; host-name discovery is explicit, and invalid domains/settings cannot widen offers | `wire/tests/cookie_offers.rs` `cookie_offer_settings_are_owner_written_phone_read_and_site_discovery_is_explicit`, `cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changing_the_setting` | Unix |
 | The preference survives real desk restarts; clearing restores enabled/all sites | `tests/desk/cookie_offers.rs` `cookie_offer_settings_survive_real_desk_restarts_and_clearing_restores_all_sites` | — |
+
+## Accounts: more than one of any provider (epic-25)
+
+An account is a provider credential: a pasted key, a provider sign-in, or a
+keyless server URL, each with its own id, its own name and its own secret in
+the vault (`vault/secrets.json` for keys, `vault/logins/<id>/` for sign-ins,
+the base URL for a local server). Any provider can have several. Nothing
+about an account's secret changes: what a second account adds is a second
+secret in the same places, never a copy of the first.
+
+- **Choosing.** A model id names its account when its provider has two or
+  more: `provider#<credential id>/model`. With one, it is the plain
+  `provider/model` it always was, which runs on the provider's default
+  account (the first created that still works), so a room from before
+  accounts behaves exactly as it did. `models.list` gives every choice its
+  account's id, name, kind and whether the provider has others; never a
+  secret. The phone sees the same list through the seat it already had.
+- **Running.** Every turn, retry, chapter note, call on the teammate's model
+  and picture the teammate asks for resolves the account its model names, and
+  only that account (`session::account_keys`, `Vault::account_auth`). The
+  account's auth stands in for its provider's for that turn, so everything
+  the turn asks of that provider goes to that account.
+- **No fallback.** A teammate whose named account is revoked, deleted, or
+  has lost its secret does not run: its turn fails with a notice saying the
+  account is no longer connected and that it will not move on its own. It is
+  never run on the provider's other account unless the person picks it. An
+  account id belonging to a different provider is refused the same way.
+- **Switching.** A switch made while a turn runs lands on the next turn: the
+  running turn resolved its account when it started. A move to another
+  account is a new history origin, so one account's opaque reasoning is not
+  handed to another's.
+- **Room-level work.** Voice and pictures with no teammate behind them use
+  each provider's default account, as before.
+
+| Boundary | Proof |
+| --- | --- |
+| One account keeps plain ids; two list each model once per account, ids naming their account, in creation order; revoking one returns to plain ids | `vault.rs` `two_accounts_of_a_provider_list_its_models_once_each_by_account` |
+| An account answers only by its own id; revoked, deleted and unknown ids are nothing | `vault.rs` `each_account_answers_by_its_own_id_and_never_for_another` |
+| A plain id runs on the default account; a named one on that account for the whole turn; a gone or foreign account is refused | `session/tests/accounts.rs` |
+| Over the wire: two accounts list apart with no secret in a choice; a teammate on a revoked account does not run and is not moved | `tests/desk/accounts.rs` `two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_does_not_run` |

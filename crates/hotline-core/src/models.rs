@@ -530,6 +530,7 @@ pub fn choices(
                 name: model.name,
                 description: Some(wiring.id.to_string()),
                 group: Some(entry.name.clone()),
+                account: None,
             })
             .collect::<Vec<_>>()
         })
@@ -553,6 +554,7 @@ pub fn choices(
                     name: id.clone(),
                     description: Some(name.clone()),
                     group: Some(name.clone()),
+                    account: None,
                 }),
         );
     }
@@ -615,8 +617,52 @@ pub fn catalog_models(
     models
 }
 
+/// A model id names its account when its provider has more than one:
+/// `provider#account/model`, the account being the credential's id. With
+/// one account, or none named, it is the plain `provider/model`, which runs
+/// on the provider's default account (the first created that still works).
+/// This splits the two: the plain id every catalogue, price and limit is
+/// keyed by, and the account when there is one.
+pub fn split_account(model_id: &str) -> (Cow<'_, str>, Option<&str>) {
+    let Some((provider, model)) = model_id.split_once('/') else {
+        return (Cow::Borrowed(model_id), None);
+    };
+    match provider.split_once('#') {
+        Some((provider, account)) if !provider.is_empty() && !account.is_empty() => {
+            (Cow::Owned(format!("{provider}/{model}")), Some(account))
+        }
+        _ => (Cow::Borrowed(model_id), None),
+    }
+}
+
+/// What a teammate on an account that is no longer there is told: it does
+/// not run on another of the provider's accounts unless the person moves it.
+pub fn account_gone(provider_id: &str) -> String {
+    let name = catalog()
+        .providers
+        .get(provider_id)
+        .map_or(provider_id, |entry| entry.name.as_str());
+    format!(
+        "This teammate's {name} account is no longer connected. Pick another account in its model menu; it won't move to one on its own."
+    )
+}
+
+/// The plain `provider/model` of a model id, whichever account it names.
+pub fn base_id(model_id: &str) -> Cow<'_, str> {
+    split_account(model_id).0
+}
+
+/// A plain `provider/model` on one named account.
+pub fn on_account(model_id: &str, account: &str) -> String {
+    match model_id.split_once('/') {
+        Some((provider, model)) => format!("{provider}#{account}/{model}"),
+        None => model_id.to_string(),
+    }
+}
+
 /// The picker's name for a `provider/model` id, when the catalogue has it.
 pub fn label_of(model_id: &str) -> Option<String> {
+    let model_id = &*base_id(model_id);
     let (provider, model) = model_id.split_once('/')?;
     model_of(provider, model).map(|model| model.name.clone())
 }
@@ -624,6 +670,7 @@ pub fn label_of(model_id: &str) -> Option<String> {
 /// The effort levels a `provider/model` offers, empty when the id is unknown
 /// or the model has no `effort` option.
 pub fn efforts(model_id: &str) -> Vec<String> {
+    let model_id = &*base_id(model_id);
     let Some((provider, model)) = model_id.split_once('/') else {
         return Vec::new();
     };
@@ -680,6 +727,7 @@ pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
             id,
             description: None,
             group: None,
+            account: None,
         })
         .collect()
 }
@@ -687,6 +735,7 @@ pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
 /// The most tokens one answer from a `provider/model` may hold, when the
 /// catalogue has it.
 pub fn output_limit(model_id: &str) -> Option<u64> {
+    let model_id = &*base_id(model_id);
     let (provider, model) = model_id.split_once('/')?;
     model_of(provider, model).map(|model| model.limit.output)
 }
@@ -694,6 +743,37 @@ pub fn output_limit(model_id: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_id_names_its_account_only_when_it_has_one() {
+        assert_eq!(
+            split_account("anthropic/claude-x"),
+            (Cow::Borrowed("anthropic/claude-x"), None)
+        );
+        let (base, account) = split_account("anthropic#c-2/claude-x");
+        assert_eq!(
+            (base.as_ref(), account),
+            ("anthropic/claude-x", Some("c-2"))
+        );
+        // An OpenRouter model keeps its own slash; the account is on the provider.
+        let (base, account) = split_account("openrouter#k/google/gemini-4");
+        assert_eq!(
+            (base.as_ref(), account),
+            ("openrouter/google/gemini-4", Some("k"))
+        );
+        assert_eq!(
+            on_account("openrouter/google/gemini-4", "k"),
+            "openrouter#k/google/gemini-4"
+        );
+        // A stray '#' is not an account.
+        assert_eq!(split_account("anthropic#/x").1, None);
+        assert_eq!(split_account("#a/x").1, None);
+        assert_eq!(base_id("ollama/llama3:8b"), "ollama/llama3:8b");
+        assert_eq!(
+            efforts("anthropic#c-2/claude-x"),
+            efforts("anthropic/claude-x")
+        );
+    }
 
     #[test]
     fn the_provider_list_says_what_each_one_does() {

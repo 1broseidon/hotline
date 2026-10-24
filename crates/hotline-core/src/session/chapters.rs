@@ -975,15 +975,19 @@ impl Room {
         }
     }
 
-    /// The teammate's own model when the desk holds its key, and otherwise the
-    /// first model the desk can reach — so a chapter written by a teammate on
-    /// a provider nobody has a key for still gets a note.
+    /// The teammate's own model, on its own account, when the desk holds it;
+    /// otherwise the first model the desk can reach, so a chapter written by
+    /// a teammate on a provider nobody has a key for still gets a note.
     fn note_model(&self, persona: &Persona) -> Option<String> {
         let keys = self.keys.provider_auth();
         persona
             .model_id
             .clone()
-            .filter(|id| keys.contains_key(id.split('/').next().unwrap_or_default()))
+            .filter(|id| {
+                crate::session::account_keys(&*self.keys, id).is_ok_and(|(held, base)| {
+                    held.contains_key(base.split('/').next().unwrap_or_default())
+                })
+            })
             .or_else(|| {
                 crate::models::choices(
                     &keys,

@@ -24,6 +24,9 @@ type AccountRow = {
 /** Another agent a teammate can run on: a harness, with its models when it is the one in use. */
 export type AgentChoice = { id: string; name: string; unavailable?: string; choices: ConfigChoice[] };
 
+/** The row that gathers the registry's other ready agents, each a choice. */
+const MORE_AGENTS = "__more__";
+
 /** The model a harness picks for itself, until it has listed its own. */
 const OWN_MODEL: ConfigChoice = { id: "", name: "Its own model" };
 
@@ -114,8 +117,14 @@ export function ModelPicker({
 	const [open, setOpen] = useState(false);
 	const onHotline = backendId === "hotline";
 	const accounts = accountRows(choices);
-	const agentRows: AccountRow[] = (onAgent === undefined ? [] : agents)
-		.filter((agent) => agent.id !== "hotline")
+	// The agents people know by name stand on their own, ready or not; the
+	// registry's many others that are ready share one row, and those not ready
+	// are left out. The agent in use always stands on its own.
+	const harnesses = (onAgent === undefined ? [] : agents).filter((agent) => agent.id !== "hotline");
+	const known = (agent: AgentChoice) => agent.id === backendId || harnessMark(agent.id) !== null;
+	const others = harnesses.filter((agent) => !known(agent) && agent.unavailable === undefined);
+	const agentRows: AccountRow[] = harnesses
+		.filter(known)
 		.map((agent) => ({
 			key: `agent:${agent.id}`,
 			name: agent.name,
@@ -125,17 +134,33 @@ export function ModelPicker({
 			agent: agent.id,
 			...(agent.unavailable !== undefined ? { unavailable: agent.unavailable } : {}),
 		}));
+	if (others.length > 0) {
+		agentRows.push({
+			key: "agent:more",
+			name: "Other agents",
+			detail: String(others.length),
+			mark: null,
+			choices: others.map((agent) => ({ id: agent.id, name: agent.name })),
+			agent: MORE_AGENTS,
+		});
+	}
 	const rows = [...accounts, ...agentRows];
 	const currentRow = onHotline ? rowOf(accounts, modelId) : agentRows.find((row) => row.agent === backendId);
 	const current = currentRow?.choices.find((choice) => choice.id === modelId || plainModel(choice.id) === modelId);
-	const modelName = current?.name ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
+	// A model on an account that is gone still has its name from another account serving it.
+	const sameModel = choices.find((choice) => plainModel(choice.id) === plainModel(modelId));
+	const modelName = current?.name ?? sameModel?.name ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
 	const effortName = effort?.choices.find((choice) => choice.id === effort.value)?.name ?? null;
-	const accountLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` ${currentRow.detail}`}`;
+	const accountLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` · ${currentRow.detail}`}`;
 	const mark = onHotline ? modelMark(modelId, modelName) : (modelMark(modelId, modelName) ?? harnessMark(backendId));
 	const close = useCallback(() => setOpen(false), []);
 	// A model under the agent in use is a model change; under another agent,
 	// a move to that agent (Hotline Agent's accounts included).
 	const pick = async (row: AccountRow, id: string) => {
+		if (row.agent === MORE_AGENTS) {
+			await onAgent?.(id, undefined);
+			return;
+		}
 		const agent = row.agent ?? "hotline";
 		if (agent === backendId) await onModel(id);
 		else await onAgent?.(agent, id === "" ? undefined : id);
@@ -145,7 +170,7 @@ export function ModelPicker({
 			<button
 				ref={button}
 				type="button"
-				className="control picker"
+				className="control picker model-picker"
 				aria-label={`${label}: ${modelName}${effortName === null ? "" : ` · ${effortName}`}`}
 				aria-haspopup="menu"
 				aria-expanded={open}
@@ -235,7 +260,9 @@ function Panels({
 	const [efforts, setEfforts] = useState<Record<string, Efforts>>({});
 	// Keyboard: which level has focus and which row in it.
 	const [level, setLevel] = useState<0 | 1 | 2>(0);
-	const [active, setActive] = useState(() => Math.max(0, rows.findIndex((row) => row.key === currentRow)));
+	// Nothing is lit until the keyboard moves; the dot marks the row in use.
+	const [active, setActive] = useState(-1);
+	const inUse = Math.max(0, rows.findIndex((row) => row.key === currentRow));
 	const [subActive, setSubActive] = useState(0);
 	const [flyActive, setFlyActive] = useState(0);
 
@@ -318,7 +345,7 @@ function Panels({
 		if (key === "ArrowDown" || key === "ArrowUp") {
 			event.preventDefault();
 			const by = key === "ArrowDown" ? 1 : -1;
-			if (level === 0) setActive((was) => step(was, by));
+			if (level === 0) setActive((was) => (was < 0 ? inUse : step(was, by)));
 			else if (level === 1) setSubActive((was) => step(was, by));
 			else setFlyActive((was) => step(was, by));
 			return;
@@ -368,7 +395,7 @@ function Panels({
 	return createPortal(
 		// biome-ignore lint/a11y/noStaticElementInteractions: the panels share one keyboard handler; each panel is a menu
 		<div onKeyDown={onKey}>
-			<div ref={main} role="menu" tabIndex={-1} aria-label="Model" className="menu model-menu" style={mainStyle}>
+			<div ref={main} role="menu" tabIndex={-1} aria-label="Model" className="menu model-menu model-menu-main" style={mainStyle}>
 				<div className="model-head">
 					<div className="model-head-now">
 						<Mark id={mark} />

@@ -850,8 +850,17 @@
 	/* The model picker (ModelPicker.tsx): a head naming what the teammate runs
 	 * on with its effort slider, then one row per account, each opening its
 	 * models, each model its efforts. */
+	/* The button carries the maker's mark and the effort besides the model. */
+	.picker.model-picker {
+		max-width: 300px;
+		gap: 6px;
+	}
 	.model-menu {
-		max-width: 340px;
+		max-width: 360px;
+	}
+	/* The main menu is wide enough for an account's whole name beside its kind. */
+	.model-menu-main {
+		min-width: 300px;
 	}
 	.model-head {
 		padding: 8px 8px 6px;

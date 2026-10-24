@@ -1,7 +1,7 @@
 ---
 id: task-283
 title: Switching a teammate's account waits for idle; a revoked or deleted account never falls back
-column: todo
+column: review
 position: 4
 priority: high
 tags:
@@ -10,6 +10,7 @@ tags:
   - session
 parentId: epic-25
 createdAt: "2026-10-24T06:23:16.091Z"
+updatedAt: "2026-10-24T07:04:40.250Z"
 ---
 
 ## Description

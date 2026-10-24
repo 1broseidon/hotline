@@ -30,7 +30,7 @@ use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::StreamId;
 use crate::room;
 use crate::store::chapters as chapter_view;
-use crate::store::chapters::{is_message, open_chapter, previous_chapter};
+use crate::store::chapters::{is_message, open_chapter, previous_chapter, slice_of};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -390,9 +390,14 @@ pub(super) fn wake_block(events: &[Value], now: i64) -> Option<String> {
     // lines back at it would only say them twice.
     let previous = previous_chapter(events)?;
     let note = Some(previous).filter(|chapter| !string(chapter, "note").is_empty());
+    // The tail is the previous chapter's own. A context that restarts inside
+    // the open chapter (an agent switch) is handed the open chapter's lines
+    // as its seed or checkpoint; quoting the end of the tape would say them
+    // twice, and call them the old chapter's.
+    let closed = slice_of(events, previous);
     let quoted = match note {
-        Some(_) => quoted_tail(events, WAKE_MESSAGES, WAKE_CHARS),
-        None => quoted_tail(events, NO_NOTE_MESSAGES, NO_NOTE_CHARS),
+        Some(_) => quoted_tail(closed, WAKE_MESSAGES, WAKE_CHARS),
+        None => quoted_tail(closed, NO_NOTE_MESSAGES, NO_NOTE_CHARS),
     };
     if note.is_none() && quoted.is_none() {
         return None;
@@ -1282,6 +1287,28 @@ mod tests {
             block.ends_with("only the current user message that comes next."),
             "{block}"
         );
+    }
+
+    /// A context that restarts inside the open chapter (an agent switch) is
+    /// seeded with that chapter's lines; the wake quotes only the closed
+    /// chapter's, so nothing is said twice or put in the wrong chapter.
+    #[test]
+    fn a_restart_inside_the_open_chapter_quotes_only_the_closed_chapters_tail() {
+        let events = [
+            json!({
+                "kind": "chapter", "id": "c1", "ts": NOW - 9_000_000, "backendId": "hotline",
+                "endedAt": NOW - 7_200_000, "title": "Firewall upgrade", "note": "Upgraded."
+            }),
+            user("u1", NOW - 7_300_000, "is it upgraded?"),
+            agent("a1", NOW - 7_200_000, "It is."),
+            json!({"kind": "chapter", "id": "c2", "ts": NOW - 600_000, "backendId": "claude-acp"}),
+            user("u2", NOW - 500_000, "sign in to google"),
+            agent("a2", NOW - 400_000, "Signed in."),
+        ];
+        let block = wake_block(&events, NOW).expect("the closed chapter is worth waking on");
+        assert!(block.contains("is it upgraded?"), "{block}");
+        assert!(!block.contains("sign in to google"), "{block}");
+        assert!(!block.contains("Signed in."), "{block}");
     }
 
     /// A tape nobody has divided yet has nothing to wake on: the agent is

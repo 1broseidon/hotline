@@ -17,7 +17,7 @@ type Row = { key: string; personaId: string; eventId?: string };
  * The team's search: a key that opens a panel holding the field and what it
  * finds. In the rail's dock the panel rises above the dock (`above`), in the
  * faces-only rail it opens beside the rail (`beside`), and with the rail
- * closed the key is in the title bar and it opens under the bar (`under`).
+ * closed the key stands beside the rail's key and it opens below (`below`).
  * What it finds fills the panel as you type:
  * teammates whose name matches, to jump to, then matches from every
  * conversation, grouped by teammate, each opening its conversation at the
@@ -36,7 +36,7 @@ export function TeamSearch({
 	roster: RosterEntry[];
 	/** The conversation on screen, whose chapters an empty query lists. */
 	selectedId: string | null;
-	placement: "above" | "beside" | "under";
+	placement: "above" | "beside" | "below";
 	ask: number;
 	onPick(personaId: string, eventId?: string): void;
 }) {
@@ -258,10 +258,10 @@ export function TeamSearch({
 	);
 
 	return (
-		<div ref={box} className={placement === "under" ? "team-search team-search-under" : "team-search"}>
+		<div ref={box} className={placement === "below" ? "team-search team-search-below" : "team-search"}>
 			<button
 				type="button"
-				className={placement === "under" ? "control btn-icon" : "rail-search"}
+				className={placement === "below" ? "control btn-icon" : "rail-search"}
 				title={`Search${keys === "" ? "" : ` (${keys})`}`}
 				aria-label="Search"
 				aria-expanded={open}

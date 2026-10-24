@@ -2513,16 +2513,11 @@
 		display: flex;
 		height: 40px;
 	}
-	/* With the rail closed the lead's keys stand over the pane's band. */
-	html[data-rail-closed] main .band-row {
-		padding-left: 140px;
-	}
-	html[data-platform="macos"][data-rail-closed]:not([data-fullscreen]) main .band-row {
-		padding-left: 200px;
-	}
-	html[data-platform="linux"] main .band-row,
-	html[data-platform="windows"] main .band-row {
-		padding-right: 140px;
+	/* A band under the lead's keys or the window's controls makes room for
+	 * them (FlushChrome measures how much). */
+	.band-row {
+		padding-left: calc(8px + var(--lead-room, 0px));
+		padding-right: calc(8px + var(--controls-room, 0px));
 	}
 	/* A new teammate: the list's last row, a dashed face where the new one will stand. */
 	.rail-add {
@@ -3268,7 +3263,7 @@
 		flex: 1;
 	}
 	.rail-dock-compact .team-search,
-	.team-search-under {
+	.team-search-below {
 		flex: none;
 	}
 	.team-results-list {
@@ -3316,9 +3311,13 @@
 		bottom: 10px;
 		left: 72px;
 	}
-	.team-float-under {
-		top: 38px;
-		right: 12px;
+	/* Under the lead's search key, from the lead's start. */
+	.team-float-below {
+		top: 44px;
+		left: 16px;
+	}
+	html[data-platform="macos"]:not([data-fullscreen]) .team-float-below {
+		left: 76px;
 	}
 	.team-float-results {
 		min-height: 0;
@@ -4469,9 +4468,6 @@
 	}
 	.desk-call-key:disabled {
 		opacity: 0.35;
-	}
-	.titlebar-desk-call[data-on] {
-		color: var(--accent);
 	}
 }
 

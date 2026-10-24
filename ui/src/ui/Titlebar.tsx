@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { CloseIcon, MaximizeIcon, MinimizeIcon, PersonPlusIcon, RestoreIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
@@ -113,27 +113,26 @@ export function Titlebar({
 /**
  * The room's chrome once the panes run to the window's top: no strip of its
  * own. The rail's key stands over the rail's head, past the traffic lights
- * on macOS, with Settings, the search and the desk's call key beside it
- * while the rail is closed, over the pane's band. Where the shell draws no
- * frame (Linux, Windows) the window's controls stand at the top-right
- * corner, over the last pane's band.
+ * on macOS, with the search beside it while the rail is closed. Where the
+ * shell draws no frame (Linux, Windows) the window's controls stand at the
+ * top-right corner. Whatever pane's band runs under either is measured and
+ * makes room for it (`--lead-room`, `--controls-room`), so the faces-only
+ * rail, a closed rail and any pane at the right all keep their titles clear.
  */
 export function FlushChrome({
 	rail,
 	width,
-	settings,
 	search,
-	deskKey,
 }: {
 	rail: { open: boolean; onToggle(): void };
 	/** The rail's width while it is open: its head is the lead's drag area. */
 	width: number;
-	settings: ReactNode;
 	search: ReactNode;
-	deskKey: ReactNode;
 }) {
 	const frame = drawsFrame();
 	const [maximized, setMaximized] = useState(false);
+	const lead = useRef<HTMLDivElement>(null);
+	const controls = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (!frame) return;
 		return watchWindowShape(({ maximized: value }) => {
@@ -142,12 +141,39 @@ export function FlushChrome({
 		});
 	}, [frame]);
 	useEffect(() => {
-		document.documentElement.toggleAttribute("data-rail-closed", !rail.open);
-		return () => document.documentElement.removeAttribute("data-rail-closed");
-	}, [rail.open]);
+		let pending = 0;
+		const fit = () => {
+			window.clearTimeout(pending);
+			pending = window.setTimeout(() => {
+				const keys = [...(lead.current?.children ?? [])].filter((child) => !child.classList.contains("chrome-lead-drag"));
+				const leadRight = Math.max(0, ...keys.map((key) => key.getBoundingClientRect().right));
+				const controlsLeft = controls.current?.getBoundingClientRect().left ?? Number.POSITIVE_INFINITY;
+				for (const band of document.querySelectorAll<HTMLElement>("main .band")) {
+					const box = band.getBoundingClientRect();
+					const top = box.top < 40;
+					band.style.setProperty("--lead-room", top && box.left < leadRight ? `${Math.ceil(leadRight - box.left)}px` : "0px");
+					band.style.setProperty("--controls-room", top && box.right > controlsLeft ? `${Math.ceil(box.right - controlsLeft)}px` : "0px");
+				}
+			}, 0);
+		};
+		fit();
+		const root = document.getElementById("root") ?? document.body;
+		const added = new window.MutationObserver(fit);
+		added.observe(root, { childList: true, subtree: true });
+		const sized = new window.ResizeObserver(fit);
+		sized.observe(root);
+		if (lead.current !== null) sized.observe(lead.current);
+		window.addEventListener("resize", fit);
+		return () => {
+			window.clearTimeout(pending);
+			added.disconnect();
+			sized.disconnect();
+			window.removeEventListener("resize", fit);
+		};
+	}, []);
 	return (
 		<>
-			<div className="chrome-lead" style={rail.open ? { width } : undefined}>
+			<div ref={lead} className="chrome-lead" style={rail.open ? { width } : undefined}>
 				{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
 				<button
 					type="button"
@@ -158,16 +184,10 @@ export function FlushChrome({
 				>
 					<SidebarIcon />
 				</button>
-				{!rail.open && (
-					<>
-						{settings}
-						{search}
-						{deskKey}
-					</>
-				)}
+				{!rail.open && search}
 			</div>
 			{frame && (
-				<div className="chrome-controls">
+				<div ref={controls} className="chrome-controls">
 					<button type="button" className="window-control" aria-label="Minimize" onClick={() => void minimizeWindow()}>
 						<MinimizeIcon />
 					</button>

@@ -462,7 +462,7 @@ export function App() {
 	// a pane with no conversation. A call to the desk grows out of the rail's
 	// dock, whose key places it; with the rail closed or showing Settings it
 	// is the strip too, and the key is the title bar's.
-	const teamSearch = (placement: "above" | "beside" | "under") => (
+	const teamSearch = (placement: "above" | "beside" | "below") => (
 		<TeamSearch
 			roster={roster}
 			selectedId={pane === null ? selectedId : null}
@@ -512,9 +512,7 @@ export function App() {
 				<FlushChrome
 					rail={{ open: railSize.open, onToggle: toggleRail }}
 					width={pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width}
-					settings={settingsKey("control btn-icon")}
-					search={teamSearch("under")}
-					deskKey={deskCallKey("control btn-icon titlebar-desk-call")}
+					search={teamSearch("below")}
 				/>
 			)}
 			{platform() === "linux" && <WindowEdges />}

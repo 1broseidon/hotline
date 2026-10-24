@@ -1,7 +1,7 @@
 ---
 id: task-282
 title: "Core: an account is a credential; model choices and teammates name their account, and every turn runs on it"
-column: todo
+column: review
 position: 3
 priority: high
 tags:
@@ -10,6 +10,7 @@ tags:
   - core
 parentId: epic-25
 createdAt: "2026-10-24T06:23:15.523Z"
+updatedAt: "2026-10-24T07:04:39.127Z"
 ---
 
 ## Description

@@ -32,8 +32,10 @@ class NoResize {
 
 type Handlers = { snapshot(items: unknown[]): void; event(item: unknown): void };
 
-/** The handed-over thread as the desk holds it: Exec's, opened by Lead, its handoff ended or standing. */
-let desk: { key: string; state: LinkState; working: boolean; ended?: boolean };
+/** The handed-over thread as the desk holds it: Exec's, opened by Lead, its handoff ended or standing, and when the list last heard from it. */
+let desk: { key: string; state: LinkState; working: boolean; ended?: boolean; updatedAt?: number };
+/** What the receiver's conversation already holds when the pane subscribes to it. */
+let dmFirst: TranscriptEvent[];
 let threadHandlers: Handlers | undefined;
 let dmHandlers: Handlers | undefined;
 /** The cancels the pane sent the desk, in order. */
@@ -54,7 +56,7 @@ function listed(): ThreadSummary[] {
 		opener: { personaId: sender.id, name: sender.name },
 		...(desk.ended === true ? { handoffEnded: true } : {}),
 		startedAt: 1,
-		updatedAt: 1,
+		updatedAt: desk.updatedAt ?? 1,
 		working: desk.working,
 		waiting: false,
 	}];
@@ -70,6 +72,7 @@ beforeEach(async () => {
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	threadHandlers = undefined;
 	dmHandlers = undefined;
+	dmFirst = [];
 	sender = lead;
 	receiver = exec;
 	const connection = wireFor("local");
@@ -83,7 +86,9 @@ beforeEach(async () => {
 		if (target.threadId?.kind === "dm") dmHandlers = handlers;
 		const first: TranscriptEvent[] = target.threadId?.key === desk.key
 			? [{ kind: "agent", id: "a1", ts: 2, text: "Three tests pass." }, { kind: "turn", id: "t1", ts: 3, stopReason: "end_turn" }]
-			: [];
+			: target.threadId?.kind === "dm"
+				? dmFirst
+				: [];
 		queueMicrotask(() => handlers.snapshot(first));
 		return () => {};
 	}) as Wire["subscribe"]);
@@ -241,7 +246,10 @@ describe("the bar of a handed-over thread", () => {
 	test("says what the receiver says reaches the sender while the handoff stands, and that it no longer does once the desk ended it", async () => {
 		sender = persona("poe", "Poe");
 		receiver = persona("toad", "Toad");
-		desk = { key: "work-bar", state: "live", working: false };
+		// The thread's link was on Toad's tape before the pane opened, and the list has heard from the thread since,
+		// so the rewritten link alone is older than the row: only the list, read again for the link, can say it ended.
+		desk = { key: "work-bar", state: "live", working: false, updatedAt: 5 };
+		dmFirst = [linkOf(false)];
 		await show(receiver, false);
 		expect(dmHandlers).toBeDefined();
 		expect(container.textContent).toContain("Poe handed this to Toad. What Toad says here reaches Poe.");

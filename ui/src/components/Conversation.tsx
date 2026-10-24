@@ -6,7 +6,7 @@ import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
 import { type Call as CallSession, useCall, useCallSnapshot } from "../voice/call";
-import { carry, onServer, showPath } from "../serverFiles";
+import { carry } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
 import { usePeople } from "../avatars";
@@ -202,7 +202,6 @@ export function Conversation({
 		[personaId, session.state],
 	);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
-	const resumeBlocked = resumeRefusal(events, persona.backendId);
 	/* The first conversation, before a word: what the starter card reads.
 	 * A line on its way (`saying`) already ends it. */
 	const fresh = loaded && saying === null && untouched(events, olderOnDesk);
@@ -244,7 +243,7 @@ export function Conversation({
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
-				pulling, openScreen, resumeBlocked, setRefused }} />
+				pulling, openScreen, setRefused }} />
 
 			{notice !== null && (
 				<p
@@ -322,13 +321,12 @@ export function Conversation({
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
-	pulling, openScreen, resumeBlocked, setRefused,
+	pulling, openScreen, setRefused,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
 	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
 	| "threadOpen" | "paneOpen" | "callBar"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
-	resumeBlocked: string | null;
 	setRefused(message: string | null): void;
 }) {
 	const { persona, session } = entry;
@@ -338,17 +336,6 @@ const ConversationBand = memo(function ConversationBand({
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const [chapterBusy, setChapterBusy] = useState(false);
 
-	/* A side thread opens empty and at once, beside this one; nothing about
-	 * it touches the main conversation's line or session. Its first line,
-	 * said in it, names it. */
-	const startSide = useCallback(() => {
-		setRefused(null);
-		void wire.command("thread.open", { personaId, text: "" }).then(
-			(summary) => onOpenThread({ thread: summary.thread, ...(summary.title !== undefined ? { title: summary.title } : {}) }),
-			(error: unknown) => setRefused(error instanceof Error ? error.message : String(error)),
-		);
-	}, [personaId, onOpenThread, setRefused]);
-	const stop = useCallback(() => void wire.command("session.stop", { personaId }), [personaId]);
 	/* Success is the tape: the marker is superseded in place and the title
 	 * lands on its line. Only a refusal needs a sentence here. */
 	const startChapter = useCallback(() => {
@@ -359,15 +346,6 @@ const ConversationBand = memo(function ConversationBand({
 			.catch((error: Error) => setRefused(error.message))
 			.finally(() => setChapterBusy(false));
 	}, [personaId, setRefused]);
-	const resumeChapter = useCallback(() => {
-		setRefused(null);
-		setChapterBusy(true);
-		void wire
-			.command("chapter.resume", { personaId })
-			.catch((error: Error) => setRefused(error.message))
-			.finally(() => setChapterBusy(false));
-	}, [personaId, setRefused]);
-	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
 	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
 		null,
@@ -388,31 +366,15 @@ const ConversationBand = memo(function ConversationBand({
 		});
 	}
 
+	// Four words, as the board's label rule asks (decision ui.tooltip-length):
+	// the rest lives where it is used, not in this menu.
 	const more: MenuEntry[] = [
 		...folded,
-		{ kind: "item", id: "chapter", text: "Start a new chapter", detail: "Closes this one with a handoff note", disabled: chapterBusy, onSelect: startChapter },
-		{
-			kind: "item",
-			id: "resume",
-			text: "Reopen previous chapter",
-			detail: resumeBlocked ?? "The chapter immediately before this one",
-			disabled: chapterBusy || resumeBlocked !== null,
-			onSelect: resumeChapter,
-		},
-		{
-			kind: "item",
-			id: "side",
-			text: "Start a side thread",
-			detail: `Another topic with ${persona.name}, in parallel`,
-			onSelect: startSide,
-		},
-		{ kind: "item", id: "side-list", text: "Threads", detail: "Work threads, conversations between teammates, runs and calls", onSelect: onOpenThreadList },
-		{ kind: "item", id: "reveal", text: onServer() ? "Show working directory on the server" : "Reveal working directory", onSelect: () => showPath(persona.cwd) },
+		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: startChapter },
+		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
+		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		{ kind: "rule" },
-		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
-		...(running ? [{ kind: "item", id: "stop", text: "Stop the session", onSelect: stop } as MenuEntry] : []),
-		{ kind: "rule" },
-		{ kind: "item", id: "delete", text: "Remove teammate…", danger: true, onSelect: onDelete },
+		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];
 
 	// The call on the line, when it is to this teammate: its face then leads the call card.
@@ -635,29 +597,6 @@ export function ProcessChips({
 }
 
 /** The model Hotline Agent starts on: see `model_for` in the core. */
-/**
- * What `chapter.resume` would say without asking. The room refuses a
- * second hop and a missing predecessor; the window greys the item so
- * the click is not the first they hear of it.
- */
-function resumeRefusal(events: TranscriptEvent[], backendId: string): string | null {
-	const chapters = events.filter((event): event is Extract<TranscriptEvent, { kind: "chapter" }> => event.kind === "chapter");
-	let openAt = -1;
-	for (let index = chapters.length - 1; index >= 0; index--) {
-		if (chapters[index]!.endedAt === undefined) {
-			openAt = index;
-			break;
-		}
-	}
-	if (openAt <= 0) return "There is no previous chapter to reopen.";
-	const previous = chapters[openAt - 1]!;
-	if (previous.closedBy === "resume") return "There is no previous chapter to reopen.";
-	if (previous.backendId !== backendId) {
-		return "The previous chapter ran on a different agent; its context cannot be reopened here.";
-	}
-	return null;
-}
-
 /**
  * On a call to this teammate its face fills the call card's height beside
  * the name and the call's row, ringed green while the line is live and

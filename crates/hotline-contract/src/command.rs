@@ -937,8 +937,17 @@ pub enum Command {
     },
     /// Stops the turn in flight and drops what waited behind it; the thread
     /// stays as it was. On a pair it stops the automatic exchange.
+    /// `interrupt` is the composer's Interrupt rather than Stop: in a work
+    /// thread it only cuts the turn, what waited behind it is heard next,
+    /// and the work the turn was doing goes on in the next one. Elsewhere it
+    /// changes nothing.
     #[serde(rename = "thread.cancel")]
-    ThreadCancel { thread: ThreadId },
+    ThreadCancel {
+        thread: ThreadId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        interrupt: bool,
+    },
     /// Lets go of a work thread's agent and keeps the thread open: saying
     /// something in it brings one back.
     #[serde(rename = "thread.park")]

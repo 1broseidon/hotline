@@ -636,8 +636,11 @@ has one hook and one view.
   and Continue, a job's thread and a live call take the person's words, and a
   pair and a run are read-only. A work thread a teammate handed over has the
   composer and Stop while it is open and Continue once it has closed, but no
-  Archive: it ends with its result. It is drawn with the brief said whole in
-  the opener's voice and the person's own lines as theirs, and a bar names the
+  Archive: it ends with its result. Stop in its header ends the handoff; the
+  composer's Interrupt, and Esc, send `thread.cancel` with `interrupt`, which
+  only cuts the turn, and the handoff goes on in the next one. It is drawn
+  with the brief said whole in the opener's voice and the person's own lines
+  as theirs, and a bar names the
   two of them, says that what the teammate says there reaches the opener, and
   leads to the opener's conversation. While a card waits in it, the bar and the
   composer give way to the one field the person answers it in. The desk refuses

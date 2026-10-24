@@ -230,6 +230,10 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
     assert_eq!(back["result"]["state"], "live");
     let cancelled = now.call("thread.cancel", json!({"thread":thread})).await;
     assert_eq!(cancelled["ok"], true, "{cancelled}");
+    let interrupted = now
+        .call("thread.cancel", json!({"thread":thread,"interrupt":true}))
+        .await;
+    assert_eq!(interrupted["ok"], true, "{interrupted}");
 
     // The main conversation is a thread too: the same verbs, the same words.
     assert_eq!(

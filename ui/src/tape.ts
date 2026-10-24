@@ -324,8 +324,10 @@ export type ThreadHandle = ThreadState & {
 	earlier(through?: string): Promise<void>;
 	/** Says something in it: a work thread, or the main conversation. */
 	prompt(text: string, attachments?: Attachment[]): Promise<null>;
-	/** Stops the turn in flight; the thread stays as it was. */
+	/** Stops the turn in flight, and in a work thread the work it was doing; the thread stays as it was. */
 	cancel(): Promise<null>;
+	/** Cuts the turn in flight for the person to say something instead: in a work thread the work goes on. */
+	interrupt(): Promise<null>;
 	/** Ends a work thread, its transcript kept. */
 	close(): Promise<null>;
 	/** A parked or closed work thread, live again. */
@@ -364,6 +366,7 @@ export function useThread(id: ThreadId | null): ThreadHandle {
 			prompt: (text, attachments) =>
 				there((wire, thread) => wire.command("thread.prompt", { thread, text, ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}) })),
 			cancel: () => there((wire, thread) => wire.command("thread.cancel", { thread })),
+			interrupt: () => there((wire, thread) => wire.command("thread.cancel", { thread, interrupt: true })),
 			close: () => there((wire, thread) => wire.command("thread.close", { thread })),
 			resume: () => there((wire, thread) => wire.command("thread.continue", { thread })),
 		}),

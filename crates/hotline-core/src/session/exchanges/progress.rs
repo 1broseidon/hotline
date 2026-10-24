@@ -212,18 +212,23 @@ impl Room {
             .then_some(finished)
     }
 
-    /// Ends each handoff among `dropped`, lines the person's Stop took off
-    /// the queue of `side_id` before their turns began, as one whose turn
-    /// the stop cut short ends; the thread goes on, and its link says so.
-    pub(in crate::session) fn end_dropped_handoffs(
+    /// Ends what the person's Stop on `side_id` reaches besides the turn it
+    /// cuts, as one whose turn the stop cut short ends: each handoff among
+    /// `dropped`, lines it took off the thread's queue before their turns
+    /// began, and each request in `carried`, whose turn an interrupt cut. The
+    /// thread goes on, and its link says so.
+    pub(in crate::session) fn end_for_the_persons_stop(
         self: &Arc<Self>,
         side_id: &str,
         dropped: &[&str],
+        carried: &[String],
     ) {
-        let report = peers::HANDOFF_STOPPED_BY_THE_PERSON;
         let mut ended = false;
         for id in dropped {
-            ended |= self.end_for_the_person(id, false, Some(report.to_string()));
+            ended |= self.end_for_the_person(id, false, None);
+        }
+        for id in carried {
+            ended |= self.end_for_the_person(id, true, None);
         }
         if ended {
             self.mark_handoffs(&[side_id.to_string()]);
@@ -231,13 +236,13 @@ impl Room {
     }
 
     /// Ends `id`, a request still at work, as the person's decision, and
-    /// its sender is told once in `report`, which wakes nobody: a turn woken
-    /// by it would send the work again and undo the stop. A handoff whose
-    /// turn had not `begun` is ended only if none ever began, so it is never
-    /// handed over again. A sender on a linked desk is sent the report by
-    /// the pair's worker, for its desk to tell it the same way, and a
-    /// handoff waiting on a stopped question is carried on by its failure,
-    /// as by an answer. Says whether it ended it.
+    /// its sender is told once in `report`, else in the sentence that says
+    /// so, which wakes nobody: a turn woken by it would send the work again
+    /// and undo the stop. A handoff whose turn had not `begun` is ended only
+    /// if none ever began, so it is never handed over again. A sender on a
+    /// linked desk is sent the report by the pair's worker, for its desk to
+    /// tell it the same way, and a handoff waiting on a stopped question is
+    /// carried on by its failure, as by an answer. Says whether it ended it.
     pub(super) fn end_for_the_person(
         self: &Arc<Self>,
         id: &str,
@@ -258,14 +263,12 @@ impl Room {
             Intent::Handoff => peers::HANDOFF_STOPPED_BY_THE_PERSON,
             Intent::Ask => peers::QUESTION_STOPPED_BY_THE_PERSON,
         };
+        let report = report.unwrap_or_else(|| reason.to_string());
         let linked_sender = crate::linked::is_linked(&request.from);
         let told_by_its_failure =
             linked_sender || (request.intent == Intent::Ask && self.carried_on(&request).is_some());
-        let crossing = linked_sender.then(|| report.clone()).flatten();
-        if !told_by_its_failure
-            && let Some(report) = report
-            && let Err(error) = self.hear_progress(&key, id, &report, false)
-        {
+        let crossing = linked_sender.then(|| report.clone());
+        if !told_by_its_failure && let Err(error) = self.hear_progress(&key, id, &report, false) {
             eprintln!("report a stop: {error}");
         }
         let _guard = lock(&self.exchange_lock);

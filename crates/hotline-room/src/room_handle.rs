@@ -273,6 +273,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
+    /// Cuts the turn in flight for the person to say something instead: the
+    /// work the turn was doing goes on.
+    fn side_interrupt(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
     fn side_archive(&self, _side_id: &str) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
     }

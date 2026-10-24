@@ -124,6 +124,8 @@ pub(super) struct LiveSide {
     closed: AtomicBool,
     /// The person pressed Stop on the turn in flight.
     stopped_by_person: AtomicBool,
+    /// The person interrupted the turn in flight to say something instead.
+    interrupted_by_person: AtomicBool,
     /// What `archive_thread` said, held until the turn it was said in ends.
     archive_note: Mutex<Option<String>>,
     /// The agent's own id for this conversation, as the driver reports it.
@@ -279,7 +281,16 @@ impl Occupant for LiveSide {
         } else if line.wake {
             return Begin::Skip;
         }
+        if line.request.is_none()
+            && let Some(carried) = room
+                .carried_into(&self.id, None)
+                .into_iter()
+                .find(|carried| room.begin_request(carried).is_ok())
+        {
+            *lock(&self.request) = Some(carried);
+        }
         self.stopped_by_person.store(false, Ordering::SeqCst);
+        self.interrupted_by_person.store(false, Ordering::SeqCst);
         Begin::Go(WorkTurn { line: Some(line) })
     }
 
@@ -314,12 +325,21 @@ impl Occupant for LiveSide {
             }
             return Then::Stop;
         }
+        let interrupted = side.interrupted_by_person.swap(false, Ordering::SeqCst)
+            && matches!(
+                driven.stop_reason.as_deref(),
+                Some("cancelled" | "canceled" | "aborted")
+            );
         if let Some(driver) = side.driver() {
             let unconsumed = driver.take_unconsumed();
             let cancelled = driven.stop_reason.as_deref().is_some_and(|reason| {
                 matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
             });
-            for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
+            for (text, attachments) in unconsumed
+                .into_iter()
+                .rev()
+                .filter(|_| !cancelled || interrupted)
+            {
                 lock(&side.turns).waiting.push_front(Line {
                     voice: room.attached_voice(&side.thread),
                     text,
@@ -361,13 +381,21 @@ impl Occupant for LiveSide {
             } else {
                 None
             };
+            if stopped.is_none() && interrupted {
+                // Cut for the person to say something: what the turn was
+                // doing stays running on its record, held by no turn, and
+                // goes on in the turn their line starts.
+                room.report_turn(&side.id, side.opener.as_ref(), None, &driven);
+                return Then::Next;
+            }
             let finished = stopped.unwrap_or_else(|| room.finish_request(&request, reply, failed));
             let answered = Some((request.as_str(), finished));
             room.report_turn(&side.id, side.opener.as_ref(), answered, &driven);
             // Answering an ask never closes the thread: only a handoff's
-            // result does.
+            // result does, and not while something else waits in it.
             if matches!(finished, Finished::Result | Finished::Gone)
                 && lock(&side.turns).waiting.is_empty()
+                && room.carried_into(&side.id, None).is_empty()
             {
                 let by = match (stopped.is_some(), failed) {
                     (true, _) => End::Stopped,
@@ -749,6 +777,7 @@ impl Room {
             dispatched: Mutex::new(HashSet::default()),
             closed: AtomicBool::new(false),
             stopped_by_person: AtomicBool::new(false),
+            interrupted_by_person: AtomicBool::new(false),
             archive_note: Mutex::new(None),
             reported: Mutex::new(None),
             saved: Mutex::new(kept),

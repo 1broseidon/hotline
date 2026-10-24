@@ -585,6 +585,10 @@ impl RoomHandle for Desk {
         self.room.cancel_side(side_id)
     }
 
+    fn side_interrupt(&self, side_id: &str) -> Result<(), String> {
+        self.room.interrupt_side(side_id)
+    }
+
     async fn job_prompt(
         &self,
         job_id: &str,

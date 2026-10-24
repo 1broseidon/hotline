@@ -36,6 +36,8 @@ type Handlers = { snapshot(items: unknown[]): void; event(item: unknown): void }
 let desk: { key: string; state: LinkState; working: boolean; ended?: boolean };
 let threadHandlers: Handlers | undefined;
 let dmHandlers: Handlers | undefined;
+/** The cancels the pane sent the desk, in order. */
+let sent: { cmd: string; params: unknown }[];
 let act: typeof import("react").act;
 let root: Root;
 let container: HTMLDivElement;
@@ -86,8 +88,13 @@ beforeEach(async () => {
 		return () => {};
 	}) as Wire["subscribe"]);
 	restores.push(() => subscription.mockRestore());
-	const command = spyOn(connection, "command").mockImplementation((async (cmd: string) => {
+	sent = [];
+	const command = spyOn(connection, "command").mockImplementation((async (cmd: string, params: unknown) => {
 		if (cmd === "thread.list") return listed();
+		if (cmd === "thread.cancel") {
+			sent.push({ cmd, params });
+			return null;
+		}
 		if (cmd === "thread.continue") {
 			// The desk answers as soon as the thread is live again, while its agent is still starting.
 			desk = { ...desk, state: "live", working: true };
@@ -189,6 +196,30 @@ describe("a handed-over thread continued in the pane", () => {
 			expect(working()).toEqual(idle);
 		});
 	}
+});
+
+describe("a handed-over thread's turn", () => {
+	test("is stopped, with the work it does, by Stop in the header, and only cut by the composer's Interrupt or Esc", async () => {
+		desk = { key: "work-cut", state: "live", working: true };
+		await show(exec, true);
+		const thread = { kind: "side", key: desk.key };
+		await press("Stop this turn");
+		expect(sent).toEqual([{ cmd: "thread.cancel", params: { thread } }]);
+
+		sent = [];
+		const interrupt = container.querySelector<HTMLButtonElement>('[aria-label="Interrupt"]');
+		if (interrupt === null) throw new Error(`No Interrupt in: ${container.innerHTML}`);
+		await act(async () => interrupt.click());
+		const field = container.querySelector("textarea");
+		if (field === null) throw new Error(`No composer in: ${container.innerHTML}`);
+		await act(async () => {
+			field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+		expect(sent).toEqual([
+			{ cmd: "thread.cancel", params: { thread, interrupt: true } },
+			{ cmd: "thread.cancel", params: { thread, interrupt: true } },
+		]);
+	});
 });
 
 /** The thread's link on the receiver's tape, as the desk rewrites it. */

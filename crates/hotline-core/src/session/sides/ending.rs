@@ -41,6 +41,22 @@ impl Room {
         }
     }
 
+    /// The requests an interrupt left for the person's next line, in a
+    /// thread closed before that line came, have no turn to answer them:
+    /// each ends as one whose turn ended without a result. On a task of its
+    /// own, since a stop ends a thread under the exchange lock this takes.
+    fn end_unanswered(&self, requests: Vec<String>) {
+        let Some(room) = lock(&self.me).upgrade() else {
+            return;
+        };
+        tokio::spawn(async move {
+            for request in requests {
+                let reply = room.ended_without_result(&request).to_string();
+                room.finish_request(&request, reply, true);
+            }
+        });
+    }
+
     /// Lets go of a thread's agent and leaves the thread open.
     pub(super) fn park_side(&self, side: &Arc<LiveSide>) {
         self.end_side(side, Ending::Park);
@@ -53,6 +69,15 @@ impl Room {
         self.sides.remove(&side.id);
         let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
         self.fail_dropped_lines(&side.persona_id, dropped);
+        // A parked thread leaves what it carries to the agent that brings it
+        // back (`Room::carried_into`): a park ends no request.
+        if matches!(ending, Ending::Close(..)) {
+            let in_flight = side.request();
+            let carried = self.carried_into(&side.id, in_flight.as_deref());
+            if !carried.is_empty() {
+                self.end_unanswered(carried);
+            }
+        }
         side.capability.revoke();
         // A thread ended while its agent is still starting has none to stop
         // here: the start sees that it is closed and stops it itself.

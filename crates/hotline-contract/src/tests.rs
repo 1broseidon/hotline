@@ -167,3 +167,24 @@ fn a_result_says_the_person_stopped_it_only_when_they_did() {
     assert_eq!(serde_json::to_value(&result).unwrap(), stopped);
     assert!(LinkedDelivery::decl(&ts_rs::Config::default()).contains("stoppedByPerson?: boolean"));
 }
+
+/// An older window's cancel, which says nothing more, is the Stop it always
+/// was; the composer's Interrupt says so.
+#[test]
+fn a_thread_cancel_is_a_stop_unless_it_says_it_interrupts() {
+    let side = json!({"kind":"side","key":"s1"});
+    let stop = json!({"cmd":"thread.cancel","params":{"thread":side}});
+    let interrupt = json!({"cmd":"thread.cancel","params":{"thread":side,"interrupt":true}});
+    for (value, interrupts) in [(&stop, false), (&interrupt, true)] {
+        let command = serde_json::from_value::<Command>(value.clone()).unwrap();
+        assert!(
+            matches!(command, Command::ThreadCancel { interrupt, .. } if interrupt == interrupts),
+            "{value}"
+        );
+        assert_eq!(&serde_json::to_value(&command).unwrap(), value);
+    }
+    assert!(
+        Command::decl(&ts_rs::Config::default())
+            .contains(r#""cmd": "thread.cancel", "params": { thread: ThreadId, "#)
+    );
+}

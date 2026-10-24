@@ -235,7 +235,7 @@ fn phone_thread_command(command: &Command) -> bool {
         Command::ThreadAnswer { thread, .. } => thread.kind != ThreadKind::Pair,
         // Closing a job cancels it, which `schedule.cancel` never let a
         // companion do, and stopping its firing is the same owner's call.
-        Command::ThreadClose { thread } | Command::ThreadCancel { thread } => {
+        Command::ThreadClose { thread } | Command::ThreadCancel { thread, .. } => {
             thread.kind != ThreadKind::Job
         }
         Command::ThreadPage { thread, .. } => phone_may_read(thread),

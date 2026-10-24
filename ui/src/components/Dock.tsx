@@ -421,7 +421,7 @@ function ThreadView({
 	onOpenTeammate(personaId: string): void;
 }) {
 	const id = open.thread;
-	const { events, streaming, more, earlier, prompt, cancel, close, resume } = useThread(id);
+	const { events, streaming, more, earlier, prompt, cancel, interrupt, close, resume } = useThread(id);
 	// A job ends on the schedules view before the list is read again.
 	const state = job?.endedAt !== undefined ? "closed" : (row?.state ?? "live");
 	// A teammate's handoff is the two teammates' work: the person speaks in it, and only its result ends it.
@@ -557,7 +557,7 @@ function ThreadView({
 						state={turning ? "thinking" : "ready"}
 						replyQuote={null}
 						onSend={send}
-						onCancel={() => void cancel().catch(() => undefined)}
+						onCancel={() => void interrupt().catch(() => undefined)}
 						onClearReply={() => undefined}
 					/>
 				</>

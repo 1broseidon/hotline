@@ -412,7 +412,9 @@ pub(crate) async fn run(
             )
             .await
         }
-        Command::SessionCancel { persona_id } => threads::cancel(room, &ThreadId::dm(persona_id)),
+        Command::SessionCancel { persona_id } => {
+            threads::cancel(room, &ThreadId::dm(persona_id), false)
+        }
         Command::ProcessStop { persona_id, id } => {
             room.process_stop(&persona_id, &id).map(|()| Value::Null)
         }
@@ -625,7 +627,7 @@ pub(crate) async fn run(
             )
             .await
         }
-        Command::SideCancel { side_id } => threads::cancel(room, &ThreadId::side(side_id)),
+        Command::SideCancel { side_id } => threads::cancel(room, &ThreadId::side(side_id), false),
         Command::SideArchive { side_id } => threads::close(room, &ThreadId::side(side_id)),
         Command::SideContinue { side_id } => room
             .side_continue(&side_id)
@@ -669,7 +671,7 @@ pub(crate) async fn run(
             reply_to,
             attachments,
         } => threads::prompt(log, room, &thread, &text, reply_to, attachments).await,
-        Command::ThreadCancel { thread } => threads::cancel(room, &thread),
+        Command::ThreadCancel { thread, interrupt } => threads::cancel(room, &thread, interrupt),
         Command::ThreadPark { thread } => threads::park(room, &thread),
         Command::ThreadClose { thread } => threads::close(room, &thread),
         Command::ThreadContinue { thread } => threads::resume(log, room, &thread).await,

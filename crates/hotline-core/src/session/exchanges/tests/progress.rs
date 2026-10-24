@@ -119,7 +119,7 @@ fn paused_cards(room: &Room, whose: &str) -> Vec<serde_json::Value> {
 }
 
 /// What the teammate said in a thread, in order.
-fn said_in(room: &Room, thread: &str) -> Vec<String> {
+pub(super) fn said_in(room: &Room, thread: &str) -> Vec<String> {
     room.log
         .load(&StreamId::Side(thread.to_string()))
         .into_iter()

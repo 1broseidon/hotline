@@ -328,6 +328,7 @@ function Panels({
 	}, [anchor, onClose]);
 
 	const opens = (row: AccountRow) => row.unavailable === undefined && row.choices.length > 0;
+	const pinned = rows[0]?.pinned === true ? rows[0] : undefined;
 	const openRow = rows.find((row) => row.key === account?.key);
 	const openModel = openRow?.choices.find((choice) => choice.id === model?.id);
 
@@ -429,19 +430,53 @@ function Panels({
 		<div onKeyDown={onKey}>
 			<div ref={main} role="menu" tabIndex={-1} aria-label="Model" className="menu model-menu model-menu-main" style={mainStyle}>
 				<div className="model-head">
-					<div className="model-head-now">
-						<Mark id={mark} />
-						<span className="truncate">{modelName}</span>
-					</div>
-					{accountLine !== null && <div className="model-head-account">{accountLine}</div>}
+					{/* What the teammate runs on is the head itself: one large key that
+					 * opens its models, so it is never looked for further down. */}
+					{pinned !== undefined && opens(pinned) ? (
+						<button
+							type="button"
+							role="menuitem"
+							aria-haspopup="menu"
+							aria-expanded={account?.key === pinned.key}
+							aria-label={`${modelName}, ${accountLine ?? pinned.name}, in use`}
+							data-row={0}
+							data-active={(level === 0 && active === 0) || account?.key === pinned.key ? "true" : undefined}
+							tabIndex={-1}
+							className="model-head-key"
+							onMouseEnter={(event) => {
+								setActive(0);
+								setLevel(0);
+								showAccount(pinned, event.currentTarget);
+							}}
+							onClick={(event) => showAccount(pinned, event.currentTarget)}
+						>
+							<span className="min-w-0 flex-1">
+								<span className="model-head-now">
+									<Mark id={mark} />
+									<span className="truncate">{modelName}</span>
+								</span>
+								{accountLine !== null && <span className="model-head-account">{accountLine}</span>}
+							</span>
+							<ChevronRightIcon className="model-row-more" />
+						</button>
+					) : (
+						<div className="model-head-plain">
+							<div className="model-head-now">
+								<Mark id={mark} />
+								<span className="truncate">{modelName}</span>
+							</div>
+							{accountLine !== null && <div className="model-head-account">{accountLine}</div>}
+						</div>
+					)}
 					{effort !== null && effort.choices.length > 1 && <EffortSlider effort={effort} onEffort={onEffort} />}
 				</div>
 				<hr className="menu-rule" />
-				{rows.map((row, at) => (
+				{/* The pinned row is the head's key, never a row again below. */}
+				{rows.map((row, at) => row.pinned === true ? null : (
 					<Fragment key={row.key}>
-					{at > 0 && sectionOf(row) !== sectionOf(rows[at - 1]!) && (
+					{(at === 0 || sectionOf(row) !== sectionOf(rows[at - 1]!)) && (
 						<>
-							<hr className="menu-rule" />
+							{at > 0 && rows[at - 1]!.pinned !== true && <hr className="menu-rule" />}
 							<div className="menu-heading">{sectionOf(row) === "api" ? "API" : "Agents"}</div>
 						</>
 					)}

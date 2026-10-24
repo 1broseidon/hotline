@@ -27,9 +27,11 @@ export type MenuEntry =
 			checked?: boolean;
 			disabled?: boolean;
 			danger?: boolean;
+			/** A mark before the text: who made or serves what the item names. */
+			icon?: ReactNode;
 			onSelect(): void;
 	  }
-	| { kind: "heading"; text: string }
+	| { kind: "heading"; text: string; icon?: ReactNode }
 	| { kind: "rule" };
 
 function Menu({
@@ -179,6 +181,7 @@ function Menu({
 				if (entry.kind === "heading") {
 					return (
 						<div key={`heading-${at}`} className="menu-heading" role="presentation">
+							{entry.icon}
 							{entry.text}
 						</div>
 					);
@@ -200,6 +203,7 @@ function Menu({
 						onClick={() => choose(here)}
 					>
 						<span className="menu-item-check">{entry.checked && <CheckIcon />}</span>
+						{entry.icon}
 						<span className="menu-item-text">
 							{entry.text}
 							{entry.detail !== undefined && <span className="menu-item-detail">{entry.detail}</span>}
@@ -289,7 +293,15 @@ export function Picker({
 }
 
 /** One section of a `SectionsPicker`: a choice of its own, under its own heading. */
-export type PickerSection = { label: string; value: string; choices: Choice[]; onChange(id: string): void };
+export type PickerSection = {
+	label: string;
+	value: string;
+	choices: Choice[];
+	onChange(id: string): void;
+	/** Each choice's mark, and each group's: who made it, and who serves it. */
+	markOf?: (choice: Choice) => ReactNode;
+	groupMarkOf?: (group: string) => ReactNode;
+};
 
 /**
  * Several choices that go together in one pull-down, the way a model and the
@@ -309,11 +321,14 @@ export function SectionsPicker({ sections, label }: { sections: PickerSection[];
 		let group: string | undefined;
 		for (const choice of section.choices) {
 			if (choice.group !== undefined && choice.group !== group) {
-				entries.push({ kind: "heading", text: choice.group });
+				const icon = section.groupMarkOf?.(choice.group);
+				entries.push({ kind: "heading", text: choice.group, ...(icon !== undefined ? { icon } : {}) });
 				group = choice.group;
 			}
+			const icon = section.markOf?.(choice);
 			entries.push({
 				kind: "item",
+				...(icon !== undefined ? { icon } : {}),
 				id: `${section.label}/${choice.id}`,
 				text: choice.name,
 				...(choice.detail !== undefined ? { detail: choice.detail } : {}),
@@ -323,6 +338,8 @@ export function SectionsPicker({ sections, label }: { sections: PickerSection[];
 		}
 	}
 	const summary = names.filter((name) => name !== "").join(" · ");
+	const lead = sections[0];
+	const leadChoice = lead?.choices.find((one) => one.id === lead.value);
 	return (
 		<>
 			<button
@@ -335,6 +352,7 @@ export function SectionsPicker({ sections, label }: { sections: PickerSection[];
 				title={open ? undefined : summary}
 				onClick={() => setOpen((was) => !was)}
 			>
+				{lead?.markOf !== undefined && leadChoice !== undefined && lead.markOf(leadChoice)}
 				<span className="picker-label">
 					{names[0]}
 					{names.slice(1).map((name) => (

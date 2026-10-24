@@ -849,6 +849,21 @@
 		color: inherit;
 		opacity: 0.8;
 	}
+	/* A maker's mark (ui/Mark.tsx): its own picture, or a one-colour shape in the ink. */
+	.mark {
+		display: inline-block;
+		flex-shrink: 0;
+	}
+	.mark-mono {
+		background: currentColor;
+		mask-size: contain;
+		mask-repeat: no-repeat;
+		mask-position: center;
+	}
+	.menu-heading .mark {
+		margin-right: 6px;
+		vertical-align: -2px;
+	}
 	.menu-heading {
 		padding: 6px 8px 2px;
 		font-size: var(--text-xs);

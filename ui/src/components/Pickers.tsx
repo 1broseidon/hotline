@@ -1,6 +1,7 @@
 import type { ConfigChoice, SessionConfig } from "../generated/contract";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
+import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import { Picker, SectionsPicker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
 
@@ -80,7 +81,14 @@ export function SessionPickers({
 			<SectionsPicker
 				label={session.modelLabel ?? "Model"}
 				sections={[
-					{ label: session.modelLabel ?? "Model", value: currentModel, choices: modelChoices, onChange: setModel },
+					{
+						label: session.modelLabel ?? "Model",
+						value: currentModel,
+						choices: modelChoices,
+						onChange: setModel,
+						markOf: (choice) => <Mark id={modelMark(choice.id, choice.name) ?? harnessMark(persona.backendId)} />,
+						groupMarkOf: (group) => <Mark id={providerMark(group)} size={12} />,
+					},
 					...visibleConfigs.map((config) => ({
 						label: config.name,
 						value: config.currentId ?? "",

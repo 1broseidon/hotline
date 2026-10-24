@@ -65,6 +65,12 @@ struct Request {
     /// and on a handoff saved before handoffs had threads of their own.
     #[serde(default)]
     thread: Option<String>,
+    /// The work thread whose turn took the request up, when one did. A
+    /// question back is taken up in the thread its delegator handed the work
+    /// over from, which `thread` does not name, since that routes a stop of
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    taken_up_in: Option<String>,
     /// The work thread the request was sent from, when it was sent from one:
     /// the answer comes back there instead of to the sender's DM.
     #[serde(default)]
@@ -366,6 +372,7 @@ impl Room {
                 result_consumed: false,
                 human_actions: vec![],
                 thread: None,
+                taken_up_in: None,
                 reply_thread: matches!(sent_from.kind, ThreadKind::Side | ThreadKind::Call)
                     .then(|| sent_from.key.clone()),
                 reply_job: (sent_from.kind == ThreadKind::Job).then(|| sent_from.key.clone()),
@@ -606,7 +613,9 @@ impl Room {
             }
         }
     }
-    pub(super) fn begin_request(&self, id: &str) -> Result<(), String> {
+    /// Marks `id` begun by a turn, of the work thread `in_thread` when it is
+    /// one's.
+    pub(super) fn begin_request(&self, id: &str, in_thread: Option<&str>) -> Result<(), String> {
         let _guard = lock(&self.exchange_lock);
         if !self.exchange_lease_current(id) {
             return Err("This handoff’s originating capability expired.".into());
@@ -618,18 +627,19 @@ impl Room {
                 .find(|r| r.id == id && r.phase == Phase::Running)
             {
                 r.started = true;
+                r.taken_up_in = in_thread.map(str::to_string);
                 return self.save_pair(&pair);
             }
         }
         Err("This handoff was stopped before its turn.".into())
     }
-    /// The requests an interrupt left a thread carrying, oldest first: begun
-    /// and still running in it, and not `answering`, the one its turn in
-    /// flight holds. Within a run only an interrupt leaves a request so,
-    /// since every other end of its turn finishes or stops it, and a restart
-    /// settles it first; so the record alone says what a thread carries, a
-    /// parked one's included. Its next turns without a request of their own
-    /// answer them, one each.
+    /// The requests an interrupt left a thread carrying, each pair's in the
+    /// order they were sent: begun by a turn of it and still running, and not
+    /// `answering`, the one its turn in flight holds. Within a run only an
+    /// interrupt leaves a request so, since every other end of its turn
+    /// finishes or stops it, and a restart settles it first; so the record
+    /// alone says what a thread carries, a parked one's included. Its next
+    /// turns without a request of their own answer them, one each.
     pub(super) fn carried_into(&self, side_id: &str, answering: Option<&str>) -> Vec<String> {
         self.exchange_pairs()
             .into_iter()
@@ -637,7 +647,7 @@ impl Room {
             .filter(|r| {
                 r.phase == Phase::Running
                     && r.started
-                    && r.thread.as_deref() == Some(side_id)
+                    && r.taken_up_in.as_deref() == Some(side_id)
                     && answering != Some(r.id.as_str())
             })
             .map(|r| r.id)

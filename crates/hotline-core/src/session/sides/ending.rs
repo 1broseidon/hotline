@@ -103,12 +103,18 @@ impl Room {
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
-    /// Archives a thread that has no agent: the person ended a parked one.
+    /// Archives a thread that has no agent: the person ended a parked one,
+    /// and with it what an interrupt left it carrying, as a live thread's
+    /// close does.
     pub(super) fn archive_parked(&self, link: Link, by: End, result: Option<String>) {
         let thread = link.thread.clone();
         let Some(persona_id) = link.persona_id.clone() else {
             return;
         };
+        let carried = self.carried_into(&thread.key, None);
+        if !carried.is_empty() {
+            self.end_unanswered(carried);
+        }
         let said_so = result.is_some();
         let result = result.or_else(|| {
             last_words(

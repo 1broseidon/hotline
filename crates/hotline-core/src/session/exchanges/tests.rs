@@ -102,6 +102,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         result_consumed: false,
         human_actions: vec![],
         thread: None,
+        taken_up_in: None,
         reply_thread: None,
         reply_job: None,
         returned: false,
@@ -844,7 +845,7 @@ async fn turn_admission_refuses_expired_dependency_before_the_worker_observes_it
         (delegated, room.capability_lease("bob")),
     );
     origin.revoke();
-    assert!(room.begin_request("expired-at-admission").is_err());
+    assert!(room.begin_request("expired-at-admission", None).is_err());
     assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].started);
 }
 

@@ -1451,21 +1451,25 @@ it is the person redirecting the turn, and it sends `thread.cancel` with
 `interrupt` (`interrupt_side`). Only the turn in flight is cut; nothing
 waiting behind it is dropped, so the person's line is heard next. A
 handoff or a question the cut turn was answering stays at work, running and
-begun on its record with no turn on it, which is all that says the thread
-carries it (`Room::carried_into`): the next turn that answers no request of
-its own, normally the one the person's line starts, takes it up, and its
-answer is its result or its answer; the delegation and its reports go on,
-and the cut turn reports "This turn was stopped." without a wake, as a
-cancelled turn does. A second Interrupt, of a turn answering another
-request there, keeps the first: the thread carries both, and each such turn
-takes the oldest, so a handoff's result does not close the thread while it
-still carries another. A thread parked before such a turn comes ends
-nothing: the record still says what it carries, so the person's line said
-there, or the next turn there that answers no request of its own, carries
-it to its result. The person's Stop ends every request the thread carries
-as their stop of it, with the sentence alone as its report
-(`end_for_the_persons_stop`), as it ends the turn it cuts; a thread closed
-first ends each as a turn that ended without a result.
+begun on its record with no turn on it, and the record names the thread
+whose turn took it up (`taken_up_in`), a question back answered in the
+thread its delegator handed the work over from included, which is all that
+says the thread carries it (`Room::carried_into`): the next turn that
+answers no request of its own, normally the one the person's line starts,
+takes it up, and its answer is its result or its answer; the delegation and
+its reports go on, and the cut turn reports "This turn was stopped."
+without a wake, as a cancelled turn does. A second Interrupt, of a turn
+answering another request there, keeps the first: the thread carries both,
+and each such turn takes the first of them, a pair's in the order they were
+sent and pairs in the order they were first saved, so a handoff's result
+does not close the thread while it still carries another. A thread parked
+before such a turn comes ends nothing: the record still says what it
+carries, so the person's line said there, or the next turn there that
+answers no request of its own, carries it to its result. The person's Stop
+ends every request the thread carries as their stop of it, with the
+sentence alone as its report (`end_for_the_persons_stop`), as it ends the
+turn it cuts; a thread closed first, live or parked, ends each as a turn
+that ended without a result.
 
 The main conversation's Interrupt, and Esc there, sends `session.cancel`
 with `interrupt` (`Room::interrupt`). It cuts the turn and drops what waited

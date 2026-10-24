@@ -374,7 +374,7 @@ impl Occupant for LiveJob {
         // open: one stopped while it waited here is never taken up.
         let request = line.line.request.as_ref().map(|line| line.request.clone());
         if let Some(request) = &request
-            && let Err(error) = room.begin_request(request)
+            && let Err(error) = room.begin_request(request, None)
         {
             eprintln!("question not taken up: {error}");
             return Begin::Skip;

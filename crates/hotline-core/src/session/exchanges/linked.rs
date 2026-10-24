@@ -142,6 +142,7 @@ impl Room {
                 result_consumed: false,
                 human_actions: vec![],
                 thread: None,
+                taken_up_in: None,
                 reply_thread: None,
                 reply_job: None,
                 returned: false,

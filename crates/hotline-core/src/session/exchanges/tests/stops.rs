@@ -868,3 +868,149 @@ async fn the_persons_interrupt_on_a_main_conversations_answer_ends_it_to_be_aske
     let heard = heard_with(&ada, "what happened?").unwrap();
     assert!(!heard.contains("Do not ask it again"), "{heard}");
 }
+
+/// Bob's delegated thread asks Ada back, and the question is answered in
+/// Ada's own work thread the handoff was sent from, whose turn answering it
+/// the person interrupts.
+struct AskedBack {
+    room: Arc<Room>,
+    ada: Arc<Fake>,
+    ada_gate: Arc<Semaphore>,
+    work: String,
+    handoff: String,
+    ask: String,
+}
+
+async fn interrupted_question_back(name: &str) -> AskedBack {
+    use super::ask_back::question_in;
+    use super::gates::ask_from;
+    use super::questions::{in_thread, requested};
+    let (ada_gate, bob_gate) = (Arc::new(Semaphore::new(0)), Arc::new(Semaphore::new(0)));
+    let ada = Fake::new(
+        Scripted::turns(vec![
+            turn("planned", "Planned it.", "end_turn"),
+            turn("looking", "Looking at the ports.", "end_turn"),
+            turn("port", "Port 8080.", "end_turn"),
+        ])
+        .on_cancel(cancelled())
+        .gated(ada_gate.clone()),
+    );
+    let bob = Fake::new(
+        Scripted::turns(vec![
+            turn("asked", "I asked Ada which port.", "end_turn"),
+            turn("built", "Built it.", "end_turn"),
+        ])
+        .gated(bob_gate.clone()),
+    );
+    let room = apart(name, &bob, &ada);
+    let work = room
+        .start_side("ada", "plan the release")
+        .await
+        .unwrap()
+        .side_id;
+    ada_gate.add_permits(2);
+    until("ada's work thread has had its turn", || {
+        ada.prompts().len() == 1 && idle(&room, &work)
+    })
+    .await;
+    let sent = TeammateTools::new(&room, "ada")
+        .for_work(work.clone())
+        .call(
+            "message_teammate",
+            &json!({"to":"bob","message":"Fix the build.","intent":"handoff"}),
+        )
+        .await
+        .unwrap();
+    let handoff = requested(&serde_json::from_str(&sent).unwrap());
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let ask = ask_from(&room, &work_thread(&room, &handoff), "ada").await;
+    bob_gate.add_permits(20);
+    until("a turn in ada's work thread is answering it", || {
+        question_in(&in_thread(&room, &work), &ask).is_some()
+            && request(&room, "ada~bob", &ask).started
+            && ada.prompts().len() == 2
+    })
+    .await;
+    room.interrupt_side(&work).unwrap();
+    until("the cut turn is over", || idle(&room, &work)).await;
+    AskedBack {
+        room,
+        ada,
+        ada_gate,
+        work,
+        handoff,
+        ask,
+    }
+}
+
+/// The question back an Interrupt cut in the work thread is carried by the
+/// person's next line there, whose answer is the question's answer.
+#[tokio::test]
+async fn an_interrupted_question_back_in_a_work_thread_is_answered_by_the_next_line() {
+    let asked = interrupted_question_back("interrupts-a-question-back").await;
+    let room = &asked.room;
+    assert_eq!(request(room, "ada~bob", &asked.ask).phase, Phase::Running);
+
+    room.prompt_side(&asked.work, "use 8080", None)
+        .await
+        .unwrap();
+    asked.ada_gate.add_permits(2);
+    done(room, &asked.ask).await;
+    let answer = request(room, "ada~bob", &asked.ask);
+    assert_eq!(
+        (answer.failed, answer.reply.as_str()),
+        (false, "Port 8080.")
+    );
+    done(room, &asked.handoff).await;
+    assert_eq!(request(room, "ada~bob", &asked.handoff).reply, "Built it.");
+}
+
+/// The person's Stop in the work thread ends the question back an Interrupt
+/// left there as their stop of it, and their next line there is their own.
+#[tokio::test]
+async fn the_persons_stop_ends_a_question_back_an_interrupt_left_in_a_work_thread() {
+    let asked = interrupted_question_back("stops-a-question-back").await;
+    let room = &asked.room;
+    room.cancel_side(&asked.work).unwrap();
+    stopped_for_the_person(room, &asked.ask, ANSWER_STOPPED);
+
+    room.prompt_side(&asked.work, "use 8080", None)
+        .await
+        .unwrap();
+    asked.ada_gate.add_permits(2);
+    until("the person's line has had its turn", || {
+        asked.ada.prompts().len() == 3 && idle(room, &asked.work)
+    })
+    .await;
+    stopped_for_the_person(room, &asked.ask, ANSWER_STOPPED);
+}
+
+/// Closing the work thread, live or parked, before the person's next line
+/// ends the question back an Interrupt left there as one whose turn ended
+/// without a result, and the handoff waiting on it carries on.
+#[tokio::test]
+async fn closing_a_work_thread_ends_the_question_back_an_interrupt_left_there() {
+    for parked in [false, true] {
+        let asked = interrupted_question_back(&format!("closes-on-a-question-back-{parked}")).await;
+        let room = &asked.room;
+        if parked {
+            room.park_side_thread(&asked.work).unwrap();
+        }
+        room.archive_side(&asked.work, crate::contract::SideEnd::Person, None)
+            .unwrap();
+        until("the question is settled", || {
+            request(room, "ada~bob", &asked.ask).phase != Phase::Running
+        })
+        .await;
+        let ended = request(room, "ada~bob", &asked.ask);
+        assert_eq!(
+            (ended.failed, ended.reply.as_str()),
+            (
+                true,
+                "The turn answering this question ended without a result; inspect before retrying."
+            ),
+            "parked: {parked}"
+        );
+        done(room, &asked.handoff).await;
+    }
+}

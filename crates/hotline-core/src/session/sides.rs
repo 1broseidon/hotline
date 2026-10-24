@@ -271,7 +271,7 @@ impl Occupant for LiveSide {
             line.request = None;
         }
         if let Some(request_line) = &line.request {
-            if let Err(error) = room.begin_request(&request_line.request) {
+            if let Err(error) = room.begin_request(&request_line.request, Some(&self.id)) {
                 eprintln!("handoff not started: {error}");
                 return Begin::Skip;
             }
@@ -289,7 +289,7 @@ impl Occupant for LiveSide {
             && let Some(carried) = room
                 .carried_into(&self.id, None)
                 .into_iter()
-                .find(|carried| room.begin_request(carried).is_ok())
+                .find(|carried| room.begin_request(carried, Some(&self.id)).is_ok())
         {
             *lock(&self.request) = Some(carried);
         }

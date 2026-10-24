@@ -1149,10 +1149,11 @@ answer it cut with neutral words, to be asked again if still needed, never as
 the person's stop.
 
 The pair record's new fields (`progress`, `progress_left_out`,
-`progress_wakes`, `released`, `about`, `owed_to_thread`, `stopped_by_person`)
-are optional and left out when empty, so a record without them has no report
-waiting, no delegation released, no question back and no stop of the
-person's. So is the link's `handoffEnded`: a link without
+`progress_wakes`, `released`, `about`, `owed_to_thread`, `stopped_by_person`,
+`taken_up_in`) are optional and left out when empty, so a record without them
+has no report waiting, no delegation released, no question back, no stop of
+the person's and no thread carrying it after an Interrupt, which a restart
+settles anyway. So is the link's `handoffEnded`: a link without
 it, the reference tree's included, is a delegation that stands, and the
 segment layout and the importer are unchanged. A report crosses a desk link as its own
 `LinkedDelivery`, which a desk from before reports refuses; the handoff's

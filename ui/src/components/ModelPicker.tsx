@@ -19,6 +19,8 @@ type AccountRow = {
 	agent?: string;
 	/** Why an agent cannot be picked: it is not installed or not signed in. */
 	unavailable?: string;
+	/** What the teammate runs on, pinned above the API and Agents sections. */
+	pinned?: boolean;
 };
 
 /** Another agent a teammate can run on: a harness, with its models when it is the one in use. */
@@ -26,6 +28,9 @@ export type AgentChoice = { id: string; name: string; unavailable?: string; choi
 
 /** The row that gathers the registry's other ready agents, each a choice. */
 const MORE_AGENTS = "__more__";
+
+/** The agents people know by name: each stands on its own row, ready or not. */
+const MAJOR_AGENTS = ["antigravity-acp", "claude-acp", "codex-acp", "cursor", "grok-build"];
 
 /** The model a harness picks for itself, until it has listed its own. */
 
@@ -62,6 +67,12 @@ export function accountRows(choices: ConfigChoice[]): AccountRow[] {
 		row.choices.push(choice);
 	}
 	return rows;
+}
+
+/** The part of the menu a row stands in: pinned at the top, API, or Agents. */
+function sectionOf(row: AccountRow): "pinned" | "api" | "agents" {
+	if (row.pinned === true) return "pinned";
+	return row.agent === undefined ? "api" : "agents";
 }
 
 /** Which row a model id is under: the one listing it, else the first serving its plain id. */
@@ -119,14 +130,16 @@ export function ModelPicker({
 	const [open, setOpen] = useState(false);
 	const onHotline = backendId === "hotline";
 	const accounts = accountRows(choices);
-	// The agents people know by name stand on their own, ready or not; the
-	// registry's many others that are ready share one row, and those not ready
-	// are left out. The agent in use always stands on its own.
+	// The agents people know by name stand on their own, ready or not, in
+	// alphabetical order; the registry's many others that are ready share one
+	// row, and those not ready are left out. The agent in use always stands
+	// on its own.
 	const harnesses = (onAgent === undefined ? [] : agents).filter((agent) => agent.id !== "hotline");
-	const known = (agent: AgentChoice) => agent.id === backendId || harnessMark(agent.id) !== null;
+	const known = (agent: AgentChoice) => agent.id === backendId || MAJOR_AGENTS.includes(agent.id);
 	const others = harnesses.filter((agent) => !known(agent) && agent.unavailable === undefined);
 	const agentRows: AccountRow[] = harnesses
 		.filter(known)
+		.sort((a, b) => a.name.localeCompare(b.name))
 		.map((agent) => ({
 			key: `agent:${agent.id}`,
 			name: agent.name,
@@ -146,8 +159,14 @@ export function ModelPicker({
 			agent: MORE_AGENTS,
 		});
 	}
-	const rows = [...accounts, ...agentRows];
 	const currentRow = onHotline ? rowOf(accounts, modelId) : agentRows.find((row) => row.agent === backendId);
+	// What the teammate runs on is pinned at the top, and not listed again
+	// under API (Hotline Agent's accounts, straight to a provider) or Agents.
+	const rows = [
+		...(currentRow === undefined ? [] : [{ ...currentRow, pinned: true }]),
+		...accounts.filter((row) => row !== currentRow),
+		...agentRows.filter((row) => row !== currentRow),
+	];
 	const current = currentRow?.choices.find((choice) => choice.id === modelId || plainModel(choice.id) === modelId);
 	// A model on an account that is gone still has its name from another account serving it.
 	const sameModel = choices.find((choice) => plainModel(choice.id) === plainModel(modelId));
@@ -420,10 +439,10 @@ function Panels({
 				<hr className="menu-rule" />
 				{rows.map((row, at) => (
 					<Fragment key={row.key}>
-					{row.agent !== undefined && rows[at - 1]?.agent === undefined && (
+					{at > 0 && sectionOf(row) !== sectionOf(rows[at - 1]!) && (
 						<>
 							<hr className="menu-rule" />
-							<div className="menu-heading">Agents</div>
+							<div className="menu-heading">{sectionOf(row) === "api" ? "API" : "Agents"}</div>
 						</>
 					)}
 					<button

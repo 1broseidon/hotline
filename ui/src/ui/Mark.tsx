@@ -76,7 +76,7 @@ export function harnessMark(backendId: string): string | null {
 	const said = backendId.toLowerCase();
 	if (said.startsWith("claude")) return "anthropic";
 	if (said.startsWith("codex")) return "openai";
-	if (said.startsWith("gemini")) return "google";
+	if (said.startsWith("gemini") || said.startsWith("antigravity")) return "google";
 	if (said.startsWith("cursor")) return "cursor";
 	if (said.startsWith("grok")) return "xai";
 	return null;

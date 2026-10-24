@@ -3185,10 +3185,10 @@
 	}
 
 	/* ------------------------------------------------------------- search
-	 * The team's search (Search.tsx TeamSearch): a real field in the rail's
-	 * dock, what it finds rising above it on the menus' surface; in the
-	 * faces-only rail a panel beside the rail, and with the rail closed a
-	 * panel under the title bar's key. Click-away and Escape both close. */
+	 * The team's search (Search.tsx TeamSearch): a key that opens a panel
+	 * on the menus' surface holding the field and what it finds; above the
+	 * rail's dock, beside the faces-only rail, and with the rail closed
+	 * under the title bar's key. Click-away and Escape both close. */
 	.team-search {
 		position: relative;
 		display: flex;
@@ -3198,37 +3198,6 @@
 	.rail-dock-compact .team-search,
 	.team-search-under {
 		flex: none;
-	}
-	.rail-search input {
-		min-width: 0;
-		flex: 1;
-		border: 0;
-		background: none;
-		color: var(--ink);
-		font-size: var(--text-sm);
-	}
-	.rail-search input::placeholder {
-		color: var(--ink-3);
-	}
-	.rail-search input:focus {
-		outline: none;
-	}
-	.rail-search:focus-within {
-		color: var(--ink);
-	}
-	.team-results {
-		position: absolute;
-		bottom: calc(100% + 13px);
-		left: -5px;
-		width: 360px;
-		z-index: 30;
-		display: flex;
-		max-height: min(480px, 60vh);
-		flex-direction: column;
-		border-radius: var(--radius-pane);
-		background: var(--pop);
-		box-shadow: var(--shadow-float);
-		animation: pop-in var(--dur-open) var(--ease-out) both;
 	}
 	.team-results-list {
 		min-height: 0;
@@ -3263,6 +3232,13 @@
 		background: var(--pop);
 		box-shadow: var(--shadow-float);
 		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	/* Over the dock, flush with its left edge: the window's 8px gutter and
+	 * the dock's 8px margin in, 8px above its top (16px off the rail's
+	 * foot, 40 tall, the gutter under the rail). */
+	.team-float-above {
+		bottom: 72px;
+		left: 16px;
 	}
 	.team-float-beside {
 		bottom: 10px;
@@ -4269,12 +4245,12 @@
 	}
 
 	/* The rail's dock (Rail.tsx): Settings, the team's search and the desk's
-	 * call key in one bar in the window's bottom-left corner, the composer's twin
+	 * call key as three keys in one bar along the rail's foot, the composer's twin
 	 * across the window: its height (6px, a 28px key, 6px), its material and
 	 * corners, on its line (16px off the foot, the composer's own margin), so
-	 * one line of two matching pills runs under the window. A hairline parts
-	 * the key from the field, as the composer parts its keys; the key's half
-	 * fills in the accent while the desk's call is on. In the faces-only rail
+	 * one line of two matching pills runs under the window. Hairlines part
+	 * the keys, as the composer parts its keys; the call key fills in the
+	 * accent while the desk's call is on. In the faces-only rail
 	 * the bar stands on end, the keys over each other. */
 	.rail-dock {
 		display: flex;
@@ -4304,41 +4280,34 @@
 		height: auto;
 		margin: 4px auto 16px;
 	}
+	/* The three keys share the bar in equal thirds, Settings at the start,
+	 * search in the middle between two hairlines, the desk's line at the end. */
+	.rail-dock:not(.rail-dock-compact) > .rail-settings-key,
+	.rail-dock:not(.rail-dock-compact) > .team-search,
+	.rail-dock:not(.rail-dock-compact) > .desk-call-key {
+		flex: 1 1 0;
+		width: auto;
+	}
 	.rail-search {
-		display: flex;
-		min-width: 0;
-		flex: 1;
-		align-items: center;
-		gap: 8px;
-		padding: 0 7px;
-		border-radius: 15px;
+		display: grid;
+		width: 100%;
+		place-items: center;
+		border-radius: 4px;
 		color: var(--ink-3);
-		font-size: var(--text-read);
 		transition:
 			background var(--dur-press) var(--ease-out),
 			color var(--dur-press) var(--ease-out);
 	}
-	/* As a key, in the faces-only rail: the composer's key, a circle that fills when pointed at. */
+	/* In the faces-only rail: the composer's key, a circle that fills when pointed at. */
 	.rail-dock-compact .rail-search {
 		width: 30px;
 		height: 30px;
-		flex: none;
-		justify-content: center;
-		padding: 0;
 		border-radius: 50%;
 	}
-	button.rail-search:hover:not(:disabled),
-	.rail-search[aria-pressed="true"] {
+	.rail-search:hover,
+	.rail-search[aria-expanded="true"] {
 		color: var(--ink);
 		background: var(--fill-hover);
-	}
-	.rail-search:disabled {
-		opacity: 0.5;
-	}
-	.rail-search-keys {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-4);
 	}
 	/* Settings: the bar's first key, in the window's bottom-left corner,
 	 * filling the pill's start, with a hairline after it. */
@@ -4362,10 +4331,6 @@
 		bottom: 5px;
 		width: var(--hairline);
 		background: var(--line);
-	}
-	.rail-dock:not(.rail-dock-compact) .rail-settings-key + .rail-search {
-		border-top-left-radius: 4px;
-		border-bottom-left-radius: 4px;
 	}
 	.rail-dock-compact .rail-settings-key {
 		width: 30px;

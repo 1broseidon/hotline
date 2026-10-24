@@ -462,7 +462,7 @@ export function App() {
 	// a pane with no conversation. A call to the desk grows out of the rail's
 	// dock, whose key places it; with the rail closed or showing Settings it
 	// is the strip too, and the key is the title bar's.
-	const teamSearch = (placement: "dock" | "beside" | "under") => (
+	const teamSearch = (placement: "above" | "beside" | "under") => (
 		<TeamSearch
 			roster={roster}
 			selectedId={pane === null ? selectedId : null}
@@ -559,7 +559,7 @@ export function App() {
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
 				settings={settingsKey("rail-settings-key")}
-				search={teamSearch(faces ? "beside" : "dock")}
+				search={teamSearch(faces ? "beside" : "above")}
 				deskKey={deskCallKey()}
 				deskCard={deskInRail && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
 			/>

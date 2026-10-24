@@ -153,7 +153,9 @@ export function ModelPicker({
 	const sameModel = choices.find((choice) => plainModel(choice.id) === plainModel(modelId));
 	const modelName = current?.name ?? sameModel?.name ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
 	const effortName = effort?.choices.find((choice) => choice.id === effort.value)?.name ?? null;
-	const accountLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` · ${currentRow.detail}`}`;
+	const rowLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` · ${currentRow.detail}`}`;
+	// An agent that has not named its model yet is already the head's name.
+	const accountLine = rowLine === modelName ? null : rowLine;
 	const mark = onHotline ? modelMark(modelId, modelName) : (modelMark(modelId, modelName) ?? harnessMark(backendId));
 	const close = useCallback(() => setOpen(false), []);
 	// A model under the agent in use is a model change; under another agent,
@@ -493,7 +495,8 @@ function Panels({
 							onClick={() => onModel(openRow, choice.id)}
 						>
 							<span className="menu-item-check">{choice.id === modelId && <CheckIcon />}</span>
-							<Mark id={modelMark(choice.id, choice.name)} />
+							{/* A harness's own names ("Opus 5.5", "Default") carry the harness's mark. */}
+							<Mark id={modelMark(choice.id, choice.name) ?? (openRow.agent === undefined ? null : harnessMark(openRow.agent === MORE_AGENTS ? choice.id : openRow.agent))} />
 							<span className="menu-item-text">{choice.name}</span>
 							{/* Only Hotline Agent's models open their efforts. */}
 							{openRow.agent === undefined && <ChevronRightIcon className="model-row-more" />}

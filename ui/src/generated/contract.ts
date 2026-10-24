@@ -90,8 +90,10 @@ export type AvatarBy = "self" | "person";
  * One agent harness as the new-teammate sheet offers it: Hotline Agent, or an
  * ACP harness the registry knows. `unavailable` is absent when this machine
  * can start it and a sentence naming what is missing when it cannot.
+ * `models` is the list it last reported on this desk, from a teammate's
+ * session or the daily look; absent until it has reported one.
  */
-export type BackendChoice = { id: string, name: string, description: string, unavailable?: string, };
+export type BackendChoice = { id: string, name: string, description: string, unavailable?: string, models?: Array<ConfigChoice>, };
 
 /**
  * One profile within a host browser. Only profiles that have a cookie store

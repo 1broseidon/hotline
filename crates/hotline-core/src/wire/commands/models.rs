@@ -343,6 +343,7 @@ mod welcome_tests {
             name: id.to_string(),
             description: String::new(),
             unavailable: unavailable.map(str::to_string),
+            models: None,
         }
     }
 

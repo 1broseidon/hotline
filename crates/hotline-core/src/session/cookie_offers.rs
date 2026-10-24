@@ -11,6 +11,7 @@ use crate::contract::{
 pub(super) struct CookieWatch {
     ready: Option<Ready>,
     capability: Option<CapabilityLease>,
+    stops: u64,
     seen: HashSet<String>,
     cards: HashMap<String, (CookieOffer, lending::Source)>,
 }
@@ -36,7 +37,22 @@ impl Room {
         }
         let ready = self.computers.running(persona).await;
         let live = lock(&self.sessions).contains_key(persona);
+        let stops = lock(&self.stops).get(persona).copied().unwrap_or_default();
+        // A stop or another computer ends what was offered. A restart the
+        // person did not ask for (an agent switch, a policy reload) keeps the
+        // cards and their answers, bound to the new session once it is up.
+        let restarted = watch.capability.as_ref().is_some_and(|c| !c.is_current());
+        if live && restarted && watch.ready == ready && watch.stops == stops {
+            watch.capability = Some(self.capability_lease(persona));
+        } else if !live
+            && watch.capability.is_some()
+            && watch.ready == ready
+            && watch.stops == stops
+        {
+            return;
+        }
         if watch.ready != ready
+            || watch.stops != stops
             || watch.capability.as_ref().is_none_or(|c| !c.is_current())
             || !live
         {
@@ -49,6 +65,7 @@ impl Room {
             watch.cards.clear();
             watch.seen.clear();
             watch.ready.clone_from(&ready);
+            watch.stops = stops;
             watch.capability = live.then(|| self.capability_lease(persona));
         }
         let Some(capability) = watch.capability.clone().filter(CapabilityLease::is_current) else {

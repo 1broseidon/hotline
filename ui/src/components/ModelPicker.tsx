@@ -28,7 +28,6 @@ export type AgentChoice = { id: string; name: string; unavailable?: string; choi
 const MORE_AGENTS = "__more__";
 
 /** The model a harness picks for itself, until it has listed its own. */
-const OWN_MODEL: ConfigChoice = { id: "", name: "Its own model" };
 
 /** A model's efforts, as `models.efforts` answers for a model not yet in use. */
 type Efforts = { choices: ConfigChoice[]; defaultId: string | null };
@@ -130,7 +129,7 @@ export function ModelPicker({
 			name: agent.name,
 			detail: agent.unavailable !== undefined ? "Not ready" : "",
 			mark: harnessMark(agent.id),
-			choices: agent.id === backendId && agent.choices.length > 0 ? agent.choices : [OWN_MODEL],
+			choices: agent.choices,
 			agent: agent.id,
 			...(agent.unavailable !== undefined ? { unavailable: agent.unavailable } : {}),
 		}));
@@ -162,6 +161,8 @@ export function ModelPicker({
 			return;
 		}
 		const agent = row.agent ?? "hotline";
+		// An agent with no list yet is picked by its row, and runs its own model.
+		if (agent === backendId && id === "") return;
 		if (agent === backendId) await onModel(id);
 		else await onAgent?.(agent, id === "" ? undefined : id);
 	};
@@ -299,12 +300,14 @@ function Panels({
 		};
 	}, [anchor, onClose]);
 
+	const opens = (row: AccountRow) => row.unavailable === undefined && row.choices.length > 0;
 	const openRow = rows.find((row) => row.key === account?.key);
 	const openModel = openRow?.choices.find((choice) => choice.id === model?.id);
 
 	const showAccount = (row: AccountRow, element: HTMLElement) => {
-		// An agent that is not ready does not open: its row says why.
-		if (row.unavailable !== undefined) {
+		// An agent that is not ready does not open: its row says why. One
+		// with no list yet has nothing to open; its row is the pick.
+		if (row.unavailable !== undefined || row.choices.length === 0) {
 			setAccount(null);
 			setModel(null);
 			return;
@@ -314,8 +317,8 @@ function Panels({
 	};
 	const showModel = (choice: ConfigChoice, element: HTMLElement) => {
 		setModel({ id: choice.id, top: element.getBoundingClientRect().top });
-		// Efforts are Hotline Agent's to list; a harness's own model has none here.
-		if (choice.id !== "" && efforts[choice.id] === undefined) {
+		// Efforts are Hotline Agent's to list; a harness's models have none here.
+		if (openRow?.agent === undefined && choice.id !== "" && efforts[choice.id] === undefined) {
 			void wire.command("models.efforts", { modelId: choice.id }).then(
 				(answer) => setEfforts((was) => ({ ...was, [choice.id]: { choices: answer.choices, defaultId: answer.defaultId ?? null } })),
 				() => setEfforts((was) => ({ ...was, [choice.id]: { choices: [], defaultId: null } })),
@@ -355,7 +358,9 @@ function Panels({
 			if (level === 0) {
 				const row = rows[active];
 				const element = main.current?.querySelector<HTMLElement>(`[data-row="${active}"]`);
-				if (row && element) {
+				if (row && row.unavailable === undefined && row.choices.length === 0) {
+					if (key !== "ArrowRight") onModel(row, "");
+				} else if (row && element) {
 					showAccount(row, element);
 					setLevel(1);
 					setSubActive(Math.max(0, row.choices.findIndex((choice) => choice.id === modelId)));
@@ -416,10 +421,10 @@ function Panels({
 					<button
 						type="button"
 						role="menuitem"
-						aria-haspopup="menu"
+						aria-haspopup={opens(row) ? "menu" : undefined}
 						aria-disabled={row.unavailable !== undefined ? "true" : undefined}
 						title={row.unavailable}
-						aria-expanded={account?.key === row.key}
+						aria-expanded={opens(row) ? account?.key === row.key : undefined}
 						data-row={at}
 						data-active={(level === 0 && active === at) || account?.key === row.key ? "true" : undefined}
 						tabIndex={-1}
@@ -429,7 +434,10 @@ function Panels({
 							setLevel(0);
 							showAccount(row, event.currentTarget);
 						}}
-						onClick={(event) => showAccount(row, event.currentTarget)}
+						onClick={(event) => {
+							if (row.unavailable === undefined && row.choices.length === 0) onModel(row, "");
+							else showAccount(row, event.currentTarget);
+						}}
 					>
 						<span className="menu-item-check">
 							{row.key === currentRow && (
@@ -442,7 +450,7 @@ function Panels({
 						<Mark id={row.mark} />
 						<span className="menu-item-text">{row.name}</span>
 						{row.detail !== "" && <span className="model-row-detail">{row.detail}</span>}
-						{row.unavailable === undefined && <ChevronRightIcon className="model-row-more" />}
+						{opens(row) && <ChevronRightIcon className="model-row-more" />}
 					</button>
 					</Fragment>
 				))}

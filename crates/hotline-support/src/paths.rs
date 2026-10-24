@@ -135,6 +135,18 @@ pub fn acp_started_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-started.json")
 }
 
+/// The models each ACP agent last reported on this machine, and when, so the
+/// picker can list them before a teammate runs on the agent. A cache.
+pub fn acp_models_path(root: &Path) -> PathBuf {
+    root.join("cache").join("acp-models.json")
+}
+
+/// The empty folders the daily look at an agent's models opens its session
+/// in, one per agent. Nothing is asked of the agent there.
+pub fn acp_look_dir(root: &Path, backend_id: &str) -> PathBuf {
+    root.join("cache").join("acp-look").join(backend_id)
+}
+
 /// Where the desktop app writes what it would otherwise print: `[startup]`
 /// lines, a failed agent's reason, a panic. `hotline.log` and the one before
 /// it, `hotline.log.1`.

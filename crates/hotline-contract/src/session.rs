@@ -255,6 +255,8 @@ pub struct SlashCommand {
 /// One agent harness as the new-teammate sheet offers it: Hotline Agent, or an
 /// ACP harness the registry knows. `unavailable` is absent when this machine
 /// can start it and a sentence naming what is missing when it cannot.
+/// `models` is the list it last reported on this desk, from a teammate's
+/// session or the daily look; absent until it has reported one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct BackendChoice {
@@ -263,6 +265,8 @@ pub struct BackendChoice {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<ConfigChoice>>,
 }
 
 /// Where a fresh room stands on its way to a first turn, as the welcome

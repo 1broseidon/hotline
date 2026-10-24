@@ -2292,3 +2292,20 @@ already hides the reason from it).
 | An idle teammate moves at once; the agent's old session is withdrawn; nothing is cut short | `wire/tests/models.rs` `session_set_backend_moves_an_idle_teammate_and_withdraws_the_agents_old_session` |
 | A busy teammate restarts on the new agent only once idle | `wire/tests/models.rs` `session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn` |
 | An agent not ready, or not there, is refused and nothing changes | `wire/tests/models.rs` `session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there` |
+
+The picker lists each agent's models before a teammate runs on it. The
+list is the one the agent last reported here (`cache/acp-models.json`): a
+teammate's session records it as it opens, and an agent that has answered on
+this machine before, with no list from the last day, gets one quiet look
+(`driver/acp/models.rs`). The look starts the agent's own launch in an empty
+folder of its own (`cache/acp-look/<id>`, a plain id only), offers no file,
+terminal or auth capability, opens a session naming no MCP servers, reads the
+model picker and kills the process group. It never sends a prompt, so it
+spends nothing and runs no tool; one look at a time, bounded at a minute, and
+a failed look waits a day like a good one. The agent still reads its own
+configuration and sign-in as any start does.
+
+| Boundary | Proof |
+| --- | --- |
+| A look offers nothing, names no servers, never prompts, and reads only the model picker | `driver/acp/models.rs` `a_look_offers_nothing_and_reads_the_model_picker_without_a_prompt` |
+| Only a plain id names a look folder; an empty report keeps the last list | `driver/acp/models.rs` `only_a_plain_id_names_a_look_folder`, `an_agents_reported_models_are_kept_and_an_empty_report_keeps_them` |

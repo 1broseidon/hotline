@@ -490,6 +490,7 @@ impl ChildAgent {
         lock(&self.live.tools).clear();
         self.live.forget_subagents();
         let disposition = Disposition::of(modes.as_ref(), configs.as_deref());
+        super::models::remember(&self.root, &self.backend_id, &disposition.models);
         let mut session = lock(&self.live.session);
         session.id = Some(id.clone());
         session.model_config = disposition.model_config;
@@ -812,6 +813,11 @@ pub(super) struct Disposition {
 }
 
 impl Disposition {
+    /// The agent's model picker, empty when it offers none.
+    pub(super) fn models(self) -> Vec<crate::contract::ConfigChoice> {
+        self.models
+    }
+
     pub(super) fn of(
         modes: Option<&acp::SessionModeState>,
         configs: Option<&[acp::SessionConfigOption]>,

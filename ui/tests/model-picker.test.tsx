@@ -131,10 +131,12 @@ test("a plain id runs on the account listing it plainly, and a model with one ef
 const agents = [
 	{ id: "hotline", name: "Hotline Agent", choices: [] },
 	{ id: "claude-acp", name: "Claude Code", choices: [] as ConfigChoice[] },
+	// What Codex last reported on this desk, before any teammate runs on it.
+	{ id: "codex-acp", name: "Codex", choices: [{ id: "gpt-6", name: "GPT-6" }] as ConfigChoice[] },
 	{ id: "cursor", name: "Cursor", unavailable: "Not signed in.", choices: [] },
 ];
 
-test("the other agents follow the accounts; one not ready says so and does not open, and picking one moves the teammate", async () => {
+test("the other agents follow the accounts with the models they last reported; one with none is picked by its row, and one not ready does not open", async () => {
 	const { ModelPicker } = await import("../src/components/ModelPicker");
 	const moves: string[] = [];
 	await act(async () => {
@@ -157,17 +159,28 @@ test("the other agents follow the accounts; one not ready says so and does not o
 	const menu = document.querySelector('[role="menu"][aria-label="Model"]')!;
 	expect([...menu.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["Agents"]);
 	const rows = [...menu.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Cursor"]);
-	const cursor = rows[4]!;
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor"]);
+	const cursor = rows[5]!;
 	expect(cursor.getAttribute("aria-disabled")).toBe("true");
 	expect(cursor.title).toBe("Not signed in.");
 	await act(async () => cursor.click());
 	expect(document.querySelector('[role="menu"][aria-label="Cursor"]')).toBeNull();
-	await act(async () => rows[3]!.click());
-	const own = document.querySelector('[role="menu"][aria-label="Claude Code"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
-	expect(own.textContent).toBe("Its own model");
-	await act(async () => own.click());
-	expect(moves).toEqual(["claude-acp:own"]);
+	// Codex opens the list it last reported; a model there moves the teammate onto it.
+	expect(rows[4]!.getAttribute("aria-haspopup")).toBe("menu");
+	await act(async () => rows[4]!.click());
+	const gpt = document.querySelector('[role="menu"][aria-label="Codex"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
+	expect(gpt.textContent).toBe("GPT-6");
+	await act(async () => gpt.click());
+	expect(moves).toEqual(["codex-acp:gpt-6"]);
+	// Claude Code has reported nothing yet: no submenu, the row itself is the pick.
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
+	const claude = [...document.querySelectorAll<HTMLElement>(".model-row")].find((row) => row.textContent?.includes("Claude Code"))!;
+	expect(claude.getAttribute("aria-haspopup")).toBeNull();
+	expect(claude.querySelector(".model-row-more")).toBeNull();
+	await act(async () => claude.click());
+	expect(document.querySelector('[role="menu"][aria-label="Claude Code"]')).toBeNull();
+	expect(moves).toEqual(["codex-acp:gpt-6", "claude-acp:own"]);
+	expect(document.body.textContent).not.toContain("Its own model");
 });
 
 test("on a harness, its models are a model change and Hotline Agent's are a move back", async () => {
@@ -199,7 +212,7 @@ test("on a harness, its models are a model change and Hotline Agent's are a move
 	expect(button.textContent).toBe("Opus");
 	await act(async () => button.click());
 	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".model-dot") !== null)).toEqual([false, false, false, true, false]);
+	expect(rows.map((row) => row.querySelector(".model-dot") !== null)).toEqual([false, false, false, true, false, false]);
 	await act(async () => rows[3]!.click());
 	const sonnet = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Claude Code"] [role="menuitemradio"]')].find((item) => item.textContent === "Sonnet")!;
 	await act(async () => sonnet.click());
@@ -238,8 +251,8 @@ test("the registry's other ready agents share one row, and those not ready are l
 	});
 	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
 	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Cursor", "Other agents"]);
-	await act(async () => rows[5]!.click());
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor", "Other agents"]);
+	await act(async () => rows[6]!.click());
 	const more = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Other agents"] [role="menuitemradio"]')];
 	expect(more.map((item) => item.textContent)).toEqual(["Amp", "Cline"]);
 	await act(async () => more[1]!.click());

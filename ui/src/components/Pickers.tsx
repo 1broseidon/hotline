@@ -87,7 +87,8 @@ export function SessionPickers({
 		id: backend.id,
 		name: backend.name,
 		...(backend.unavailable !== undefined && backend.unavailable !== null ? { unavailable: backend.unavailable } : {}),
-		choices: backend.id === persona.backendId ? session.models : [],
+		// The live session's list, else the one the agent last reported here.
+		choices: backend.id === persona.backendId && session.models.length > 0 ? session.models : (backend.models ?? []),
 	}));
 
 	// Model, account, effort and agent in one pull-down: Hotline Agent's

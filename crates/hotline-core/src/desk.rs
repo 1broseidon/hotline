@@ -871,7 +871,8 @@ impl RoomHandle for Desk {
         Ok(entries)
     }
 
-    /// Hotline Agent first, then whatever the ACP catalogue and the PATH say.
+    /// Hotline Agent first, then whatever the ACP catalogue and the PATH say,
+    /// each with the models it last reported here.
     async fn backends(&self) -> Vec<BackendChoice> {
         let mut choices = vec![BackendChoice {
             id: HOTLINE_BACKEND_ID.to_string(),
@@ -879,9 +880,14 @@ impl RoomHandle for Desk {
             description: "Hotline's own agent. Runs any model from the providers you connect."
                 .to_string(),
             unavailable: None,
+            models: None,
         }];
-        for backend in acp::registry::backends(self.log.root()).await {
+        let root = self.log.root();
+        acp::models::refresh_in_background(root);
+        let mut models = acp::models::cached(root);
+        for backend in acp::registry::backends(root).await {
             choices.push(BackendChoice {
+                models: models.remove(&backend.id),
                 id: backend.id,
                 name: backend.name,
                 description: backend.description,

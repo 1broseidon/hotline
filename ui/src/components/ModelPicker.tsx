@@ -1,13 +1,31 @@
-import { type CSSProperties, type KeyboardEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type KeyboardEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind } from "../generated/contract";
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon } from "../icons";
-import { Mark, modelMark, providerMark } from "../ui/Mark";
+import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import { wire } from "../wire";
 import { accountName, plainModel } from "../accounts";
 
-/** One row of the top level: an account, and the models it serves. */
-type AccountRow = { key: string; name: string; detail: string; mark: string | null; choices: ConfigChoice[] };
+/**
+ * One row of the top level: an account of Hotline Agent and the models it
+ * serves, or another agent (`agent`, its backend id) and its models.
+ */
+type AccountRow = {
+	key: string;
+	name: string;
+	detail: string;
+	mark: string | null;
+	choices: ConfigChoice[];
+	agent?: string;
+	/** Why an agent cannot be picked: it is not installed or not signed in. */
+	unavailable?: string;
+};
+
+/** Another agent a teammate can run on: a harness, with its models when it is the one in use. */
+export type AgentChoice = { id: string; name: string; unavailable?: string; choices: ConfigChoice[] };
+
+/** The model a harness picks for itself, until it has listed its own. */
+const OWN_MODEL: ConfigChoice = { id: "", name: "Its own model" };
 
 /** A model's efforts, as `models.efforts` answers for a model not yet in use. */
 type Efforts = { choices: ConfigChoice[]; defaultId: string | null };
@@ -63,14 +81,27 @@ function rowOf(rows: AccountRow[], modelId: string): AccountRow | undefined {
 export function ModelPicker({
 	choices,
 	modelId,
+	backendId = "hotline",
+	agents = [],
 	effort,
 	label,
 	onModel,
+	onAgent,
 	onEffort,
 	onAddAccount,
+	fallbackName,
 }: {
+	/** What the button says before a harness has named its model: the harness. */
+	fallbackName?: string | undefined;
+	/** Hotline Agent's models, each with its account. */
 	choices: ConfigChoice[];
 	modelId: string;
+	/** The agent the teammate runs on now: Hotline Agent, or a harness's id. */
+	backendId?: string;
+	/** The other agents it could run on (task-287), the one in use with its models. */
+	agents?: AgentChoice[];
+	/** Moves the teammate to another agent, with a model when one is named. */
+	onAgent?: ((backendId: string, modelId: string | undefined) => Promise<void> | void) | undefined;
 	/** The current model's efforts and the one in use; none when it has no levels. */
 	effort: { value: string; choices: ConfigChoice[] } | null;
 	label: string;
@@ -81,14 +112,34 @@ export function ModelPicker({
 }) {
 	const button = useRef<HTMLButtonElement>(null);
 	const [open, setOpen] = useState(false);
-	const rows = accountRows(choices);
-	const currentRow = rowOf(rows, modelId);
+	const onHotline = backendId === "hotline";
+	const accounts = accountRows(choices);
+	const agentRows: AccountRow[] = (onAgent === undefined ? [] : agents)
+		.filter((agent) => agent.id !== "hotline")
+		.map((agent) => ({
+			key: `agent:${agent.id}`,
+			name: agent.name,
+			detail: agent.unavailable !== undefined ? "Not ready" : "",
+			mark: harnessMark(agent.id),
+			choices: agent.id === backendId && agent.choices.length > 0 ? agent.choices : [OWN_MODEL],
+			agent: agent.id,
+			...(agent.unavailable !== undefined ? { unavailable: agent.unavailable } : {}),
+		}));
+	const rows = [...accounts, ...agentRows];
+	const currentRow = onHotline ? rowOf(accounts, modelId) : agentRows.find((row) => row.agent === backendId);
 	const current = currentRow?.choices.find((choice) => choice.id === modelId || plainModel(choice.id) === modelId);
-	const modelName = current?.name ?? (modelId.split("/").slice(1).join("/") || "Model");
+	const modelName = current?.name ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
 	const effortName = effort?.choices.find((choice) => choice.id === effort.value)?.name ?? null;
 	const accountLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` ${currentRow.detail}`}`;
-	const mark = modelMark(modelId, modelName);
+	const mark = onHotline ? modelMark(modelId, modelName) : (modelMark(modelId, modelName) ?? harnessMark(backendId));
 	const close = useCallback(() => setOpen(false), []);
+	// A model under the agent in use is a model change; under another agent,
+	// a move to that agent (Hotline Agent's accounts included).
+	const pick = async (row: AccountRow, id: string) => {
+		const agent = row.agent ?? "hotline";
+		if (agent === backendId) await onModel(id);
+		else await onAgent?.(agent, id === "" ? undefined : id);
+	};
 	return (
 		<>
 			<button
@@ -118,14 +169,14 @@ export function ModelPicker({
 					accountLine={accountLine}
 					currentRow={currentRow?.key ?? null}
 					effort={effort}
-					onModel={(id) => {
+					onModel={(row, id) => {
 						close();
-						void onModel(id);
+						void pick(row, id);
 					}}
-					onModelEffort={(id, value) => {
+					onModelEffort={(row, id, value) => {
 						close();
 						void (async () => {
-							await onModel(id);
+							await pick(row, id);
 							await onEffort(value);
 						})();
 					}}
@@ -168,8 +219,8 @@ function Panels({
 	accountLine: string | null;
 	currentRow: string | null;
 	effort: { value: string; choices: ConfigChoice[] } | null;
-	onModel(id: string): void;
-	onModelEffort(id: string, value: string): void;
+	onModel(row: AccountRow, id: string): void;
+	onModelEffort(row: AccountRow, id: string, value: string): void;
 	onEffort(value: string): void;
 	onAddAccount?: () => void;
 	onClose(): void;
@@ -225,12 +276,19 @@ function Panels({
 	const openModel = openRow?.choices.find((choice) => choice.id === model?.id);
 
 	const showAccount = (row: AccountRow, element: HTMLElement) => {
+		// An agent that is not ready does not open: its row says why.
+		if (row.unavailable !== undefined) {
+			setAccount(null);
+			setModel(null);
+			return;
+		}
 		setAccount({ key: row.key, top: element.getBoundingClientRect().top });
 		setModel(null);
 	};
 	const showModel = (choice: ConfigChoice, element: HTMLElement) => {
 		setModel({ id: choice.id, top: element.getBoundingClientRect().top });
-		if (efforts[choice.id] === undefined) {
+		// Efforts are Hotline Agent's to list; a harness's own model has none here.
+		if (choice.id !== "" && efforts[choice.id] === undefined) {
 			void wire.command("models.efforts", { modelId: choice.id }).then(
 				(answer) => setEfforts((was) => ({ ...was, [choice.id]: { choices: answer.choices, defaultId: answer.defaultId ?? null } })),
 				() => setEfforts((was) => ({ ...was, [choice.id]: { choices: [], defaultId: null } })),
@@ -283,10 +341,10 @@ function Panels({
 					showModel(choice, element);
 					setLevel(2);
 					setFlyActive(0);
-				} else if (key !== "ArrowRight") onModel(choice.id);
+				} else if (key !== "ArrowRight" && openRow) onModel(openRow, choice.id);
 			} else {
 				const value = efforts[model?.id ?? ""]?.choices[flyActive];
-				if (value && model) onModelEffort(model.id, value.id);
+				if (value && model && openRow) onModelEffort(openRow, model.id, value.id);
 			}
 			return;
 		}
@@ -321,11 +379,19 @@ function Panels({
 				</div>
 				<hr className="menu-rule" />
 				{rows.map((row, at) => (
+					<Fragment key={row.key}>
+					{row.agent !== undefined && rows[at - 1]?.agent === undefined && (
+						<>
+							<hr className="menu-rule" />
+							<div className="menu-heading">Agents</div>
+						</>
+					)}
 					<button
-						key={row.key}
 						type="button"
 						role="menuitem"
 						aria-haspopup="menu"
+						aria-disabled={row.unavailable !== undefined ? "true" : undefined}
+						title={row.unavailable}
 						aria-expanded={account?.key === row.key}
 						data-row={at}
 						data-active={(level === 0 && active === at) || account?.key === row.key ? "true" : undefined}
@@ -349,8 +415,9 @@ function Panels({
 						<Mark id={row.mark} />
 						<span className="menu-item-text">{row.name}</span>
 						{row.detail !== "" && <span className="model-row-detail">{row.detail}</span>}
-						<ChevronRightIcon className="model-row-more" />
+						{row.unavailable === undefined && <ChevronRightIcon className="model-row-more" />}
 					</button>
+					</Fragment>
 				))}
 				{onAddAccount !== undefined && (
 					<>
@@ -382,7 +449,7 @@ function Panels({
 								setLevel(1);
 								showModel(choice, event.currentTarget);
 							}}
-							onClick={() => onModel(choice.id)}
+							onClick={() => onModel(openRow, choice.id)}
 						>
 							<span className="menu-item-check">{choice.id === modelId && <CheckIcon />}</span>
 							<Mark id={modelMark(choice.id, choice.name)} />
@@ -392,7 +459,7 @@ function Panels({
 					))}
 				</div>
 			)}
-			{openModel !== undefined && model !== null && (efforts[model.id]?.choices.length ?? 0) > 0 && (
+			{openRow !== undefined && openModel !== undefined && model !== null && (efforts[model.id]?.choices.length ?? 0) > 0 && (
 				<div ref={fly} role="menu" tabIndex={-1} aria-label={`${openModel.name} effort`} className="menu model-menu" style={beside(sub.current, model.top, 160)}>
 					<div className="menu-heading">{openModel.name}</div>
 					{efforts[model.id]!.choices.map((level2, at) => {
@@ -410,7 +477,7 @@ function Panels({
 									setFlyActive(at);
 									setLevel(2);
 								}}
-								onClick={() => onModelEffort(model.id, level2.id)}
+								onClick={() => onModelEffort(openRow, model.id, level2.id)}
 							>
 								<span className="menu-item-check">{level2.id === kept && <CheckIcon />}</span>
 								<span className="menu-item-text">{level2.name}</span>

@@ -47,7 +47,8 @@ export function SessionPickers({
 	const currentModel =
 		session.currentModelId ??
 		(hotline ? hotlineModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
-	const backends = useRoomRead("backends.list", "", !hotline && currentModel === "");
+	// Every agent the teammate could run on, for the picker's Agents (task-287).
+	const backends = useRoomRead("backends.list", "", true);
 	const harnessName = backends?.find((one) => one.id === persona.backendId)?.name ?? null;
 	const restingModel = currentModel !== "" ? currentModel : harnessName;
 	const idleEfforts = useRoomRead("models.efforts", currentModel, hotline && currentModel !== "");
@@ -76,15 +77,33 @@ export function SessionPickers({
 		await wire.command("session.set_config", { personaId, configId, value }).catch((error: Error) => onSaid(error.message));
 	};
 
-	// Hotline Agent: model, account and effort in one pull-down.
-	if (hotline && modelChoices.length > 0) {
+	const setBackend = async (backendId: string, modelId: string | undefined) => {
+		onSaid(null);
+		await wire
+			.command("session.set_backend", { personaId, backendId, ...(modelId !== undefined ? { modelId } : {}) })
+			.catch((error: Error) => onSaid(error.message));
+	};
+	const agents = (backends ?? []).map((backend) => ({
+		id: backend.id,
+		name: backend.name,
+		...(backend.unavailable !== undefined && backend.unavailable !== null ? { unavailable: backend.unavailable } : {}),
+		choices: backend.id === persona.backendId ? session.models : [],
+	}));
+
+	// Model, account, effort and agent in one pull-down: Hotline Agent's
+	// accounts, then the other agents.
+	if ((hotline && modelChoices.length > 0) || (!hotline && backends !== undefined)) {
 		const effort = configs.find((config) => config.category === "effort");
 		const others = configs.filter((config) => config.category !== "effort");
 		return (
 			<>
 				<ModelPicker
-					choices={modelChoices}
+					choices={hotline ? modelChoices : models}
 					modelId={currentModel}
+					backendId={persona.backendId}
+					agents={agents}
+					onAgent={setBackend}
+					{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
 					effort={effort === undefined ? null : { value: effort.currentId ?? "", choices: effort.options }}
 					label={session.modelLabel ?? "Model"}
 					onModel={setModel}

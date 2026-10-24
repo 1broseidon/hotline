@@ -71,6 +71,17 @@ export function providerMark(name: string): string | null {
 	return null;
 }
 
+/** The agent a teammate runs on, by its backend's id. */
+export function harnessMark(backendId: string): string | null {
+	const said = backendId.toLowerCase();
+	if (said.startsWith("claude")) return "anthropic";
+	if (said.startsWith("codex")) return "openai";
+	if (said.startsWith("gemini")) return "google";
+	if (said.startsWith("cursor")) return "cursor";
+	if (said.startsWith("grok")) return "xai";
+	return null;
+}
+
 export function Mark({ id, size = 14 }: { id: string | null; size?: number }) {
 	const mark = id === null ? undefined : MARKS[id];
 	if (mark === undefined) return <span aria-hidden="true" className="mark mark-none" style={{ width: size, height: size }} />;

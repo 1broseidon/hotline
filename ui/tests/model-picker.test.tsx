@@ -127,3 +127,86 @@ test("a plain id runs on the account listing it plainly, and a model with one ef
 	expect(menu.querySelector(".model-head-account")?.textContent).toBe("OpenAI API key");
 	expect(menu.querySelector('[role="slider"]')).toBeNull();
 });
+
+const agents = [
+	{ id: "hotline", name: "Hotline Agent", choices: [] },
+	{ id: "claude-acp", name: "Claude Code", choices: [] as ConfigChoice[] },
+	{ id: "cursor", name: "Cursor", unavailable: "Not signed in.", choices: [] },
+];
+
+test("the other agents follow the accounts; one not ready says so and does not open, and picking one moves the teammate", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const moves: string[] = [];
+	await act(async () => {
+		root.render(
+			<ModelPicker
+				choices={choices}
+				modelId="anthropic#work/claude-haiku"
+				agents={agents}
+				effort={null}
+				label="Model"
+				onModel={() => {}}
+				onAgent={(backend, model) => {
+					moves.push(`${backend}:${model ?? "own"}`);
+				}}
+				onEffort={() => {}}
+			/>,
+		);
+	});
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
+	const menu = document.querySelector('[role="menu"][aria-label="Model"]')!;
+	expect([...menu.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["Agents"]);
+	const rows = [...menu.querySelectorAll<HTMLElement>(".model-row")];
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Cursor"]);
+	const cursor = rows[4]!;
+	expect(cursor.getAttribute("aria-disabled")).toBe("true");
+	expect(cursor.title).toBe("Not signed in.");
+	await act(async () => cursor.click());
+	expect(document.querySelector('[role="menu"][aria-label="Cursor"]')).toBeNull();
+	await act(async () => rows[3]!.click());
+	const own = document.querySelector('[role="menu"][aria-label="Claude Code"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
+	expect(own.textContent).toBe("Its own model");
+	await act(async () => own.click());
+	expect(moves).toEqual(["claude-acp:own"]);
+});
+
+test("on a harness, its models are a model change and Hotline Agent's are a move back", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const calls: string[] = [];
+	const onClaude = agents.map((agent) => (agent.id === "claude-acp" ? { ...agent, choices: [{ id: "opus", name: "Opus" }, { id: "sonnet", name: "Sonnet" }] } : agent));
+	const render = async () =>
+		act(async () => {
+			root.render(
+				<ModelPicker
+					choices={choices}
+					modelId="opus"
+					backendId="claude-acp"
+					agents={onClaude}
+					effort={null}
+					label="Model"
+					onModel={(id) => {
+						calls.push(`model:${id}`);
+					}}
+					onAgent={(backend, model) => {
+						calls.push(`move:${backend}:${model ?? "own"}`);
+					}}
+					onEffort={() => {}}
+				/>,
+			);
+		});
+	await render();
+	const button = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+	expect(button.textContent).toBe("Opus");
+	await act(async () => button.click());
+	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
+	expect(rows.map((row) => row.querySelector(".model-dot") !== null)).toEqual([false, false, false, true, false]);
+	await act(async () => rows[3]!.click());
+	const sonnet = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Claude Code"] [role="menuitemradio"]')].find((item) => item.textContent === "Sonnet")!;
+	await act(async () => sonnet.click());
+	await act(async () => button.click());
+	const work = [...document.querySelectorAll<HTMLElement>(".model-row")][0]!;
+	await act(async () => work.click());
+	const haiku = document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
+	await act(async () => haiku.click());
+	expect(calls).toEqual(["model:sonnet", "move:hotline:anthropic#work/claude-haiku"]);
+});

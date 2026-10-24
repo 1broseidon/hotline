@@ -2518,6 +2518,11 @@
 	.rail-slot > .rail {
 		margin-right: 8px;
 	}
+	/* The 8px from the window's edge is the slot's, not the row's: closed,
+	 * the slot is nothing and the pane meets the window's edge. */
+	.rail-slot > * {
+		margin-left: 8px;
+	}
 	html[data-resizing] .rail-slot {
 		transition: none;
 	}

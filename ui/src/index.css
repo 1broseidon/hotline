@@ -2476,11 +2476,12 @@
 	.rail {
 		padding-top: 40px;
 	}
-	.pane,
-	.inspector,
-	.dock {
-		border-top-left-radius: 0;
-		border-top-right-radius: 0;
+	/* The panes stand flush with the window's top, right and bottom: only the
+	 * gutter beside the rail parts them from the well, so no corner rounds. */
+	main .pane,
+	main .inspector,
+	main .dock {
+		border-radius: 0;
 	}
 	.chrome-lead {
 		position: fixed;

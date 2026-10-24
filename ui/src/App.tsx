@@ -527,7 +527,7 @@ export function App() {
 					)}
 				</div>
 			) : (
-			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
+			<div className="flex min-h-0 flex-1 gap-2 pl-2">
 			{!railSize.open ? null : pane === "settings" ? (
 				<Suspense fallback={null}>
 					<SettingsRail

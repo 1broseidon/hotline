@@ -5,12 +5,12 @@
 //! job's firing ending leave it standing, and so does a restart: the result,
 //! the reports and the questions back keep flowing.
 use super::ask_back::{ask_back, in_workspace, open_card, question_in};
-use super::gates::{idle, request, turn};
+use super::gates::{ask_from, idle, request, turn};
 use super::progress::{
     Builds, handed_over_and_done, heard_with, is_released, planted_job, room_with, says_ended,
     talks_without_a_report,
 };
-use super::questions::requested;
+use super::questions::{in_thread, requested};
 use super::*;
 use crate::contract::ChapterClose;
 use crate::thread::ThreadState;
@@ -299,6 +299,133 @@ async fn a_question_waiting_behind_a_turn_outlives_the_next_line_starting_a_chap
         .await
         .unwrap();
     answered_in_the_next_chapter(&room, &gate, &id).await;
+}
+
+/// Ada's own work thread, or her job, hands work to Bob while her main
+/// conversation is up, and Bob's thread asks her back while the person's turn
+/// there runs, so the question waits behind it. The person's stop of Bob's
+/// handoff turn ends the handoff and not the question, which was never the
+/// main conversation's: it is answered where it waits.
+#[tokio::test]
+async fn a_question_back_waiting_where_its_handoff_was_sent_from_outlives_the_handoffs_stop() {
+    for from in ["work", "job"] {
+        let cancelled = || {
+            vec![Update::Turn {
+                stop_reason: "cancelled".into(),
+                usage: None,
+            }]
+        };
+        let ada_gate = Arc::new(Semaphore::new(0));
+        let ada = Fake::new(
+            Scripted::turns(vec![
+                turn("planned", "Planned it.", "end_turn"),
+                turn("busy", "Busy with the person.", "end_turn"),
+                turn("port", "Port 8080.", "end_turn"),
+            ])
+            .gated(ada_gate.clone()),
+        );
+        let bob_gate = Arc::new(Semaphore::new(0));
+        let bob = Fake::new(
+            Scripted::turns(vec![
+                turn("asked", "I asked Ada.", "end_turn"),
+                turn("heard", "Heard it.", "end_turn"),
+            ])
+            .on_cancel(cancelled())
+            .gated(bob_gate.clone()),
+        );
+        let room = room_with(
+            &format!("lasting-asked-back-in-{from}"),
+            &ada,
+            vec![bob.clone()],
+        );
+        room.start("ada").await.unwrap();
+        ada_gate.add_permits(2);
+        let place = if from == "work" {
+            room.start_side("ada", "plan the release")
+                .await
+                .unwrap()
+                .side_id
+        } else {
+            let job = planted_job(&room, "job-build").id;
+            room.prompt_job(&job, "watch it", None).await.unwrap();
+            job
+        };
+        let quiet = |room: &Room| {
+            if from == "work" {
+                idle(room, &place)
+            } else {
+                room.job_idle(&place)
+            }
+        };
+        until("that conversation has had its turn", || {
+            ada.prompts().len() == 1 && quiet(&room)
+        })
+        .await;
+        let tools = TeammateTools::new(&room, "ada").with_capability(room.capability_lease("ada"));
+        let tools = if from == "work" {
+            tools.for_work(place.clone())
+        } else {
+            tools.for_job(place.clone())
+        };
+        let sent = tools
+            .call(
+                "message_teammate",
+                &json!({"to":"bob","message":"Fix the build.","intent":"handoff"}),
+            )
+            .await
+            .unwrap();
+        let handoff = requested(&serde_json::from_str(&sent).unwrap());
+        until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+        if from == "work" {
+            room.prompt_side(&place, "keep going", None).await.unwrap();
+        } else {
+            room.prompt_job(&place, "keep going", None).await.unwrap();
+        }
+        until("the person's turn there is running", || {
+            ada.prompts().len() == 2
+        })
+        .await;
+        let thread = work_thread(&room, &handoff);
+        let ask = ask_from(&room, &thread, "ada").await;
+        let waiting_in = || {
+            if from == "work" {
+                in_thread(&room, &place)
+            } else {
+                room.log.load(&StreamId::Job(place.clone()))
+            }
+        };
+        until("the question waits behind that turn", || {
+            question_in(&waiting_in(), &ask).is_some()
+        })
+        .await;
+
+        room.cancel_side(&thread).unwrap();
+        until("the handoff is stopped", || {
+            request(&room, "ada~bob", &handoff).phase == Phase::Stopped
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let waiting = request(&room, "ada~bob", &ask);
+        assert_eq!(
+            (waiting.phase, waiting.failed),
+            (Phase::Running, false),
+            "{from}: {}",
+            waiting.reply
+        );
+        ada_gate.add_permits(20);
+        bob_gate.add_permits(20);
+        done(&room, &ask).await;
+        let answer = request(&room, "ada~bob", &ask);
+        assert_eq!(
+            (answer.failed, answer.reply.as_str()),
+            (false, "Port 8080."),
+            "{from}"
+        );
+        assert!(
+            question_in(&room.tape("ada"), &ask).is_none(),
+            "{from}: Ada's main conversation never heard it"
+        );
+    }
 }
 
 /// What changes Bob's main conversation and not what he may do rebuilds it

@@ -184,6 +184,12 @@ impl Log {
         .expect("a tolerant load skips unreadable files")
     }
 
+    /// Whether an event with this id is on the stream, without copying it.
+    pub fn contains(&self, stream: &StreamId, id: &str) -> bool {
+        self.with_fold(stream, false, |fold| fold.contains(id))
+            .expect("a tolerant load skips unreadable files")
+    }
+
     /// Drain whole-history copy counts for an isolated handler measurement.
     #[cfg(feature = "test-support")]
     pub fn take_load_counts(&self) -> HashMap<StreamId, usize> {

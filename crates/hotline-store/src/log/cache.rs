@@ -38,6 +38,10 @@ impl Fold {
         fold
     }
 
+    pub fn contains(&self, id: &str) -> bool {
+        self.positions.contains_key(id)
+    }
+
     pub fn chapter_activity(&self) -> (Option<Value>, Option<i64>) {
         let Some(index) = self.chapter else {
             return (None, None);

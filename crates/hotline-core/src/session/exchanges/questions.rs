@@ -92,11 +92,14 @@ impl Room {
         }
     }
 
-    /// Whether `request` is a question for its recipient's main conversation
-    /// whose turn has not begun, which the session up there was never handed:
-    /// a chapter's swap drops the questions waiting behind the turn it cuts,
-    /// and every other end of that session ends or fails them. A session not
-    /// up yet is waited for, so the swap's own start comes first.
+    /// Whether `request` is a question its recipient's main conversation was
+    /// handed, its line on that teammate's tape, whose turn has not begun and
+    /// which the session up there was never handed: a chapter's swap drops
+    /// the questions waiting behind the turn it cuts, and every other end of
+    /// that session ends or fails them. A question back handed to a work
+    /// thread or a job is that conversation's to answer, whatever became of
+    /// its handoff since. A session not up yet is waited for, so the swap's
+    /// own start comes first.
     pub(super) fn dropped_by_a_swap(&self, request: &Request) -> bool {
         if request.intent != Intent::Ask
             || request.started
@@ -105,14 +108,12 @@ impl Room {
         {
             return false;
         }
-        let in_main = self
-            .about_live(request)
-            .is_none_or(|handoff| matches!(self.route_of(&handoff), Route::Dm(_)));
         let line = format!("question:{}", request.id);
-        in_main
+        self.session(&request.to)
+            .is_ok_and(|session| !lock(&session.dispatched_deliveries).contains(&line))
             && self
-                .session(&request.to)
-                .is_ok_and(|session| !lock(&session.dispatched_deliveries).contains(&line))
+                .log
+                .contains(&StreamId::Tape(request.to.clone()), &line)
     }
 
     /// The thread a colleague handed over that an ask was sent from: the

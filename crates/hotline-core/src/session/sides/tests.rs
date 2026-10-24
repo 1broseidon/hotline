@@ -174,8 +174,8 @@ async fn a_side_thread_opened_empty_waits_and_is_named_by_the_first_line() {
     let summary = room.start_side("ada", "  ").await.unwrap();
     assert_eq!(summary.title, "");
     assert_eq!(summary.status, SideStatus::Live);
-    // Its agent is still being brought up, which is a thread at work.
-    assert!(summary.working);
+    // Its agent is still being brought up with nothing to say: no turn runs.
+    assert!(!summary.working);
     assert_eq!(kinds(&side_stream(&room, &summary.side_id)), ["side"]);
     settled(&room, &summary.side_id).await;
     assert!(!room.sides("ada")[0].working);
@@ -200,6 +200,33 @@ async fn a_side_thread_opened_empty_waits_and_is_named_by_the_first_line() {
         .unwrap();
     assert_eq!(said["text"], "Also the README");
     assert_eq!(said["replyTo"], "m1");
+}
+
+/// A thread brought back with nothing to say holds its queue while its agent
+/// starts, and runs no turn: the roster and the lists say it is not working
+/// until a line is said in it.
+#[tokio::test]
+async fn a_thread_brought_back_runs_no_turn_until_a_line_is_said() {
+    let starts = Arc::new(Semaphore::new(1));
+    let agents =
+        Fake::new(Scripted::new(vec![say("m1", "Done."), turn()]).slow_to_start(starts.clone()));
+    let room = room("side-continued-starting", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    settled(&room, &id).await;
+    room.archive_side(&id, SideEnd::Person, None).unwrap();
+
+    let back = room.continue_side(&id).await.unwrap();
+    assert!(!back.working, "its agent is only starting");
+    assert!(!room.sides("ada")[0].working);
+    assert!(room.side_threads("ada").iter().all(|side| !side.working));
+    assert!(room.sides.get(&id).unwrap().working(), "it holds its queue");
+
+    room.prompt_side(&id, "One more thing", None).await.unwrap();
+    assert!(room.sides("ada")[0].working, "a line waits for the start");
+    starts.add_permits(1);
+    until("the line is answered", || agents.prompts().len() == 2).await;
+    settled(&room, &id).await;
+    assert!(!room.sides("ada")[0].working);
 }
 
 #[tokio::test]

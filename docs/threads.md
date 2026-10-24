@@ -297,7 +297,9 @@ Where this differs from the design above:
   the start. `Room::launch` builds the agent on its own task, and when it is up
   the first turn runs (`Room::run_queue`), so the first line is delivered the
   moment the agent is ready. Until then the thread is `working` on the roster and
-  in its summary, which is how the window and the phone show it starting. Lines
+  in its summary only while a line waits for the agent, which is how the window
+  and the phone show it starting; one brought back, or opened, with nothing to
+  say runs no turn and is not `working`, though it holds its queue. Lines
   written meanwhile are left out of the history the agent is seeded with
   (`Opening::heard_from`), so it hears each once. A start that fails writes an
   error notice in the thread and puts it away: a thread that had never run is

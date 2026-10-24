@@ -179,7 +179,7 @@ impl Room {
             status: SideStatus::Live,
             started_at: side.started,
             last_at: last_at(&events).max(side.started),
-            working: side.working(),
+            working: side.turn_running(),
             waiting: waiting_on(&events),
             preview: preview_line(&events),
             result: None,

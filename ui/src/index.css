@@ -4551,4 +4551,54 @@
 	.desk-call-key:disabled {
 		opacity: 0.35;
 	}
+	/* Settings' dock: the team's dock in the same place and material, its
+	 * three keys in equal thirds: back at the start, the version in the
+	 * middle between two hairlines, the shortcuts at the end. */
+	.settings-dock > button {
+		position: relative;
+		display: flex;
+		flex: 1 1 0;
+		min-width: 0;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		color: var(--ink-3);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	.settings-dock-back {
+		border-radius: 15px 4px 4px 15px;
+	}
+	.settings-dock-back::after {
+		content: "";
+		position: absolute;
+		top: 5px;
+		right: -1.5px;
+		bottom: 5px;
+		width: var(--hairline);
+		background: var(--line);
+	}
+	.settings-dock-version {
+		border-radius: 4px;
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+	}
+	.settings-dock-shortcuts {
+		border-radius: 4px 15px 15px 4px;
+	}
+	.settings-dock-shortcuts::before {
+		content: "";
+		position: absolute;
+		top: 5px;
+		bottom: 5px;
+		left: -1.5px;
+		width: var(--hairline);
+		background: var(--line);
+	}
+	.settings-dock > button:hover,
+	.settings-dock > button[aria-current="true"] {
+		color: var(--ink);
+		background: var(--fill-hover);
+	}
 }

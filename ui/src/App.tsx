@@ -430,6 +430,9 @@ export function App() {
 	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
 	/* What the rail's slot holds while open: Settings' sections, the faces, or the rail as dragged. */
 	const railWidth = pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width;
+	/* Settings' sections are the only way round settings, so they stay out
+	 * whatever the team's rail was left at, and have no key to hide them. */
+	const railShown = railSize.open || pane === "settings";
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
 	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
@@ -512,7 +515,7 @@ export function App() {
 				<Titlebar bare />
 			) : (
 				<FlushChrome
-					rail={{ open: railSize.open, onToggle: toggleRail }}
+					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" }}
 					width={railWidth}
 					faces={faces && pane !== "settings"}
 					search={teamSearch("below")}
@@ -532,7 +535,7 @@ export function App() {
 			{/* The rail's slot slides to nothing when the rail closes, and back:
 			 * its 8px from the window's edge goes with it, so a closed rail
 			 * leaves the pane flush with the window. */}
-			<div className="rail-slot" style={{ width: railSize.open ? railWidth + 16 : 0 }} inert={!railSize.open}>
+			<div className="rail-slot" style={{ width: railShown ? railWidth + 16 : 0 }} inert={!railShown}>
 			{pane === "settings" ? (
 				<Suspense fallback={null}>
 					<SettingsRail

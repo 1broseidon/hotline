@@ -1,7 +1,7 @@
 ---
 id: task-284
 title: "Settings › Providers: add another account of a provider, name and rename accounts"
-column: todo
+column: review
 position: 5
 priority: high
 tags:
@@ -10,6 +10,7 @@ tags:
   - ui
 parentId: epic-25
 createdAt: "2026-10-24T06:23:16.654Z"
+updatedAt: "2026-10-24T07:04:41.389Z"
 ---
 
 ## Description

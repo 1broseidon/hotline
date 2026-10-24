@@ -9,9 +9,11 @@ first, and you can read everything they said.
 
 ## Asking and handing off
 
-- **A question** is answered on the side. The colleague answers from a
-  conversation of its own with the asker, using its own folder and tools,
-  and its conversation with you is left alone. The asker carries on with
+- **A question** is answered in the colleague's main conversation, the one
+  you talk to it in, from everything said there and with its own folder and
+  tools. A question about a handoff the asker already sent it is answered in
+  that handoff's work thread instead, and a question back from a work thread
+  in the conversation that handed the work over. The asker carries on with
   its work, and the answer arrives later as a line in its conversation, with
   the colleague's picture and the start of what it said.
 - **A handoff** gives the colleague a piece of work to do. It opens a

@@ -428,6 +428,8 @@ export function App() {
 	/* Settings' sections have no faces to fall back to: they stand at the
 	 * names' width, and at the narrowest of it in a narrow window. */
 	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
+	/* What the rail's slot holds while open: Settings' sections, the faces, or the rail as dragged. */
+	const railWidth = pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width;
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
 	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
@@ -511,7 +513,8 @@ export function App() {
 			) : (
 				<FlushChrome
 					rail={{ open: railSize.open, onToggle: toggleRail }}
-					width={pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width}
+					width={railWidth}
+					faces={faces && pane !== "settings"}
 					search={teamSearch("below")}
 				/>
 			)}
@@ -525,8 +528,10 @@ export function App() {
 					)}
 				</div>
 			) : (
-			<div className="flex min-h-0 flex-1 gap-2 pl-2">
-			{!railSize.open ? null : pane === "settings" ? (
+			<div className="flex min-h-0 flex-1 pl-2">
+			{/* The rail's slot slides to nothing when the rail closes, and back. */}
+			<div className="rail-slot" style={{ width: railSize.open ? railWidth + 8 : 0 }} inert={!railSize.open}>
+			{pane === "settings" ? (
 				<Suspense fallback={null}>
 					<SettingsRail
 						section={settingsSection}
@@ -558,6 +563,7 @@ export function App() {
 				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
 				onAddDesk={() => togglePane("add-desk")}
 				onNew={newTeammate}
+				onToggle={platform() === "macos" ? toggleRail : undefined}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
 				settings={settingsKey("rail-settings-key")}
@@ -566,6 +572,7 @@ export function App() {
 				deskCard={deskInRail && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
 			/>
 			)}
+			</div>
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
@@ -575,7 +582,7 @@ export function App() {
 				)}
 				{/* A pane with no conversation has no band of its own to hang the call from. */}
 				{!conversationShown && callBar}
-				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
+				<div className="relative flex min-h-0 min-w-0 flex-1">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
 						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />

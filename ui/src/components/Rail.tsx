@@ -1,8 +1,8 @@
 import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
-import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
-import { popupTeammateMenu } from "../native";
+import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon, SidebarIcon } from "../icons";
+import { platform, popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
@@ -43,6 +43,7 @@ export function Rail({
 	onLead,
 	onAddDesk,
 	onNew,
+	onToggle,
 	width,
 	compact = false,
 	settings,
@@ -71,6 +72,8 @@ export function Rail({
 	onAddDesk(): void;
 	/** A new teammate: the list's last row, where the new one will stand. */
 	onNew(): void;
+	/** Faces only, where the window's traffic lights fill the rail's head: the rail's key heads the column instead. */
+	onToggle?: (() => void) | undefined;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
@@ -119,6 +122,13 @@ export function Rail({
 			className={`rail flex flex-col ${compact ? "rail-compact" : ""}`}
 			style={width !== undefined ? { width } : undefined}
 		>
+			{compact && onToggle !== undefined && (
+				<div className="flex shrink-0 justify-center pb-1">
+					<button type="button" className="control btn-icon" title={`Hide the team (${chordKeys("sidebar")})`} aria-label="Hide the team" onClick={onToggle}>
+						<SidebarIcon />
+					</button>
+				</div>
+			)}
 			<DeskFilter compact={compact} onAdd={onAddDesk} />
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{pinned.length + rest.length === 0 ? (
@@ -563,7 +573,8 @@ const RAIL_WIDTH = 240;
 export const RAIL_MIN = 180;
 const RAIL_MAX = 420;
 /** Faces only: a 28px face in the row's padding, in the rail's gutter. */
-export const RAIL_FACES = 52;
+/* On macOS the faces column is as wide as the traffic lights over its head. */
+export const RAIL_FACES = platform() === "macos" ? 72 : 52;
 /** Dragged narrower than this, the names give way to faces rather than squeezing. */
 const RAIL_TO_FACES = 120;
 /** And narrower than this, the faces go too. */

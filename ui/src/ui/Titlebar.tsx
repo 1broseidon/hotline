@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { CloseIcon, MaximizeIcon, MinimizeIcon, PersonPlusIcon, RestoreIcon, SidebarIcon } from "../icons";
-import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
+import { closeWindow, drawsFrame, minimizeWindow, platform, toggleMaximize, watchWindowShape } from "../native";
 import { HotlineMark } from "./HotlineMark";
 
 /**
@@ -110,6 +110,9 @@ export function Titlebar({
 	);
 }
 
+/** Where macOS's traffic lights end, with a gap after them (lights.rs seats them 12 in). */
+const LIGHTS_RIGHT = 76;
+
 /**
  * The room's chrome once the panes run to the window's top: no strip of its
  * own. The rail's key stands over the rail's head, past the traffic lights
@@ -122,11 +125,14 @@ export function Titlebar({
 export function FlushChrome({
 	rail,
 	width,
+	faces,
 	search,
 }: {
 	rail: { open: boolean; onToggle(): void };
 	/** The rail's width while it is open: its head is the lead's drag area. */
 	width: number;
+	/** The faces-only rail: on macOS its column carries the rail's key, the traffic lights filling its head. */
+	faces: boolean;
 	search: ReactNode;
 }) {
 	const frame = drawsFrame();
@@ -141,20 +147,27 @@ export function FlushChrome({
 		});
 	}, [frame]);
 	useEffect(() => {
+		// At most one fit a frame, and never put off: while the rail slides the
+		// bands move every frame, and a fit that waited for them to stop would
+		// leave a title under the lead until the slide ended.
 		let pending = 0;
 		const fit = () => {
-			window.clearTimeout(pending);
+			if (pending !== 0) return;
 			pending = window.setTimeout(() => {
+				pending = 0;
 				const keys = [...(lead.current?.children ?? [])].filter((child) => !child.classList.contains("chrome-lead-drag"));
-				const leadRight = Math.max(0, ...keys.map((key) => key.getBoundingClientRect().right));
+				// macOS's traffic lights are the lead's too, though they are the window's to draw.
+				const lights = platform() === "macos" && !document.documentElement.hasAttribute("data-fullscreen") ? LIGHTS_RIGHT : 0;
+				const leadRight = Math.max(lights, ...keys.map((key) => key.getBoundingClientRect().right));
 				const controlsLeft = controls.current?.getBoundingClientRect().left ?? Number.POSITIVE_INFINITY;
-				for (const band of document.querySelectorAll<HTMLElement>("main .band")) {
+				for (const band of document.querySelectorAll<HTMLElement>("#root .band")) {
+					sized.observe(band);
 					const box = band.getBoundingClientRect();
 					const top = box.top < 40;
 					band.style.setProperty("--lead-room", top && box.left < leadRight ? `${Math.ceil(leadRight - box.left)}px` : "0px");
 					band.style.setProperty("--controls-room", top && box.right > controlsLeft ? `${Math.ceil(box.right - controlsLeft)}px` : "0px");
 				}
-			}, 0);
+			}, 16);
 		};
 		fit();
 		const root = document.getElementById("root") ?? document.body;
@@ -175,7 +188,7 @@ export function FlushChrome({
 		<>
 			<div ref={lead} className="chrome-lead" style={rail.open ? { width } : undefined}>
 				{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
-				<button
+				{!(rail.open && faces && platform() === "macos") && <button
 					type="button"
 					className="control btn-icon"
 					title={`${rail.open ? "Hide" : "Show"} the team (${chordKeys("sidebar")})`}
@@ -183,7 +196,7 @@ export function FlushChrome({
 					onClick={rail.onToggle}
 				>
 					<SidebarIcon />
-				</button>
+				</button>}
 				{!rail.open && search}
 			</div>
 			{frame && (

@@ -82,7 +82,7 @@ export function SettingsRail({
 	const desks = useDesks();
 	const here = useActiveDesk();
 	return (
-		<nav aria-label="Settings" className="rail flex flex-col" style={width !== undefined ? { width } : undefined}>
+		<nav aria-label="Settings" className="rail settings-rail flex flex-col" style={width !== undefined ? { width } : undefined}>
 			<Band>
 				<button
 					type="button"

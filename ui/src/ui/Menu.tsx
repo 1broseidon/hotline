@@ -27,9 +27,11 @@ export type MenuEntry =
 			checked?: boolean;
 			disabled?: boolean;
 			danger?: boolean;
+			/** A mark before the text: who made or serves what the item names. */
+			icon?: ReactNode;
 			onSelect(): void;
 	  }
-	| { kind: "heading"; text: string }
+	| { kind: "heading"; text: string; icon?: ReactNode }
 	| { kind: "rule" };
 
 function Menu({
@@ -179,6 +181,7 @@ function Menu({
 				if (entry.kind === "heading") {
 					return (
 						<div key={`heading-${at}`} className="menu-heading" role="presentation">
+							{entry.icon}
 							{entry.text}
 						</div>
 					);
@@ -200,6 +203,7 @@ function Menu({
 						onClick={() => choose(here)}
 					>
 						<span className="menu-item-check">{entry.checked && <CheckIcon />}</span>
+						{entry.icon}
 						<span className="menu-item-text">
 							{entry.text}
 							{entry.detail !== undefined && <span className="menu-item-detail">{entry.detail}</span>}

@@ -240,7 +240,8 @@
 		position: relative;
 		display: grid;
 		grid-template-columns: 1fr auto 1fr;
-		height: 32px;
+		/* The pane band's and the dock's height, so the chrome is one measure. */
+		height: 40px;
 		flex-shrink: 0;
 		align-items: center;
 		gap: 8px;
@@ -250,6 +251,12 @@
 	}
 	html[data-platform="macos"]:not([data-fullscreen]) .titlebar {
 		padding-left: 80px;
+	}
+	/* 16: the last key on the right over the pane band's last key (the
+	 * window's 8px gutter and the band's 8px). Where the page draws the
+	 * window controls they stand there instead. */
+	html[data-platform="macos"] .titlebar {
+		padding-right: 16px;
 	}
 	.titlebar-drag {
 		position: absolute;
@@ -348,6 +355,15 @@
 		align-items: center;
 		gap: 4px;
 		padding: 0 8px;
+		/* The row lets the press through to the drag region under it, save
+		 * where a control stands: its gaps, spacers and title text drag the
+		 * window, and nothing in the band selects as text. */
+		pointer-events: none;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+	.band-row > :not(span:empty, h1, h2) {
+		pointer-events: auto;
 	}
 	/* ------------------------------------------------------------- refusal
 	 * A refusal is a row on the danger fill: the glyph, one sentence of ours,
@@ -997,6 +1013,10 @@
 	}
 	.effort-tick:hover {
 		color: var(--ink);
+	}
+	.menu-heading .mark {
+		margin-right: 6px;
+		vertical-align: -2px;
 	}
 	.menu-heading {
 		padding: 6px 8px 2px;
@@ -2627,6 +2647,126 @@
 		width: 240px;
 		flex-shrink: 0;
 	}
+	/* The panes run to the window's top (ui/Titlebar.tsx FlushChrome): no
+	 * strip of its own. The rail keeps a 40px head for the rail's key, and
+	 * the traffic lights on macOS; the panes' top corners meet the window's
+	 * edge square. */
+	.rail {
+		padding-top: 40px;
+	}
+	/* Settings' sections head their rail with their own band, room made in
+	 * it for the rail's key. */
+	.settings-rail {
+		padding-top: 0;
+	}
+	/* The rail's slot: as wide as the rail while it is open, nothing while it
+	 * is closed, sliding between the two; a drag of its edge moves it at once. */
+	.rail-slot {
+		display: flex;
+		flex-shrink: 0;
+		overflow: hidden;
+		transition: width var(--dur-open) var(--ease-out);
+	}
+	/* The rail keeps the gutter it had before the hairline: its rows and its
+	 * dock stand 8px clear of the pane. */
+	.rail-slot > .rail {
+		margin-right: 8px;
+	}
+	html[data-resizing] .rail-slot {
+		transition: none;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.rail-slot {
+			transition: none;
+		}
+	}
+	/* The panes stand flush with the window's top, right and bottom and with
+	 * each other: one hairline down each one's left side parts it from the
+	 * rail or the pane before it, and no corner rounds. */
+	main .pane,
+	main .inspector,
+	main .dock {
+		border-radius: 0;
+		border-left: var(--hairline) solid var(--line);
+		box-shadow: none;
+	}
+	/* The edges straddle those hairlines now there is no gutter to sit in. */
+	.rail-edge {
+		margin: 0 -4px;
+	}
+	.dock-edge {
+		inset: 0 auto 0 -4px;
+	}
+	.rail-edge::after,
+	.dock-edge::after {
+		inset: 0 auto 0 3px;
+	}
+	.chrome-lead {
+		position: fixed;
+		top: 0;
+		left: 0;
+		z-index: 30;
+		display: flex;
+		height: 40px;
+		align-items: center;
+		gap: 4px;
+		/* 21: the rail key's 26px centred on 34, the faces column's centre. */
+		padding-left: 21px;
+	}
+	html[data-platform="macos"]:not([data-fullscreen]) .chrome-lead {
+		padding-left: 80px;
+	}
+	.chrome-lead-drag {
+		position: absolute;
+		inset: 0;
+	}
+	/* A key that joins the lead (the rail closing) shows once the rail has
+	 * slid away, so it never lands on a title still on its way. */
+	.chrome-lead > :not(.chrome-lead-drag) {
+		position: relative;
+		animation: lead-in var(--dur-open) var(--ease-out) var(--dur-open) both;
+	}
+	@keyframes lead-in {
+		from {
+			opacity: 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.chrome-lead > :not(.chrome-lead-drag) {
+			animation: none;
+		}
+	}
+	.chrome-controls {
+		position: fixed;
+		top: 0;
+		right: 0;
+		z-index: 30;
+		display: flex;
+		height: 40px;
+	}
+	/* A band under the lead's keys or the window's controls makes room for
+	 * them (FlushChrome measures how much). */
+	.band-row {
+		padding-left: calc(8px + var(--lead-room, 0px));
+		padding-right: calc(8px + var(--controls-room, 0px));
+	}
+	/* A new teammate: the list's last row, a dashed face where the new one will stand. */
+	.rail-add {
+		color: var(--ink-3);
+	}
+	.rail-add-face {
+		display: grid;
+		width: 28px;
+		height: 28px;
+		flex: none;
+		place-items: center;
+		border-radius: 50%;
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+	}
+	.rail-add:hover {
+		color: var(--ink);
+	}
+
 	/* The rail's edge is the gutter beside it, taken back out of the row's
 	 * gap by its margins so it adds no width: a hit area the gutter's width,
 	 * with a hairline that shows on hover or while dragging. With the rail
@@ -3343,10 +3483,10 @@
 	}
 
 	/* ------------------------------------------------------------- search
-	 * The team's search (Search.tsx TeamSearch): a real field in the rail's
-	 * dock, what it finds rising above it on the menus' surface; in the
-	 * faces-only rail a panel beside the rail, and with the rail closed a
-	 * panel under the title bar's key. Click-away and Escape both close. */
+	 * The team's search (Search.tsx TeamSearch): a key that opens a panel
+	 * on the menus' surface holding the field and what it finds; above the
+	 * rail's dock, beside the faces-only rail, and with the rail closed
+	 * under the title bar's key. Click-away and Escape both close. */
 	.team-search {
 		position: relative;
 		display: flex;
@@ -3354,39 +3494,8 @@
 		flex: 1;
 	}
 	.rail-dock-compact .team-search,
-	.team-search-under {
+	.team-search-below {
 		flex: none;
-	}
-	.rail-search input {
-		min-width: 0;
-		flex: 1;
-		border: 0;
-		background: none;
-		color: var(--ink);
-		font-size: var(--text-sm);
-	}
-	.rail-search input::placeholder {
-		color: var(--ink-3);
-	}
-	.rail-search input:focus {
-		outline: none;
-	}
-	.rail-search:focus-within {
-		color: var(--ink);
-	}
-	.team-results {
-		position: absolute;
-		bottom: calc(100% + 13px);
-		left: -5px;
-		width: 360px;
-		z-index: 30;
-		display: flex;
-		max-height: min(480px, 60vh);
-		flex-direction: column;
-		border-radius: var(--radius-pane);
-		background: var(--pop);
-		box-shadow: var(--shadow-float);
-		animation: pop-in var(--dur-open) var(--ease-out) both;
 	}
 	.team-results-list {
 		min-height: 0;
@@ -3422,13 +3531,24 @@
 		box-shadow: var(--shadow-float);
 		animation: pop-in var(--dur-open) var(--ease-out) both;
 	}
+	/* Over the dock, flush with its left edge: the window's 8px gutter and
+	 * the dock's 8px margin in, 8px above its top (16px off the rail's
+	 * foot, 40 tall, the gutter under the rail). */
+	.team-float-above {
+		bottom: 72px;
+		left: 16px;
+	}
 	.team-float-beside {
 		bottom: 10px;
 		left: 72px;
 	}
-	.team-float-under {
-		top: 38px;
-		right: 12px;
+	/* Under the lead's search key, from the lead's start. */
+	.team-float-below {
+		top: 44px;
+		left: 16px;
+	}
+	html[data-platform="macos"]:not([data-fullscreen]) .team-float-below {
+		left: 76px;
 	}
 	.team-float-results {
 		min-height: 0;
@@ -4426,13 +4546,13 @@
 		}
 	}
 
-	/* The rail's dock (Rail.tsx): the team's search and the desk's call key
-	 * in one bar where Settings and New teammate were, the composer's twin
+	/* The rail's dock (Rail.tsx): Settings, the team's search and the desk's
+	 * call key as three keys in one bar along the rail's foot, the composer's twin
 	 * across the window: its height (6px, a 28px key, 6px), its material and
 	 * corners, on its line (16px off the foot, the composer's own margin), so
-	 * one line of two matching pills runs under the window. A hairline parts
-	 * the key from the field, as the composer parts its keys; the key's half
-	 * fills in the accent while the desk's call is on. In the faces-only rail
+	 * one line of two matching pills runs under the window. Hairlines part
+	 * the keys, as the composer parts its keys; the call key fills in the
+	 * accent while the desk's call is on. In the faces-only rail
 	 * the bar stands on end, the keys over each other. */
 	.rail-dock {
 		display: flex;
@@ -4462,41 +4582,75 @@
 		height: auto;
 		margin: 4px auto 16px;
 	}
+	/* The three keys share the bar in equal thirds, Settings at the start,
+	 * search in the middle between two hairlines, the desk's line at the end. */
+	.rail-dock:not(.rail-dock-compact) > .rail-settings-key,
+	.rail-dock:not(.rail-dock-compact) > .team-search,
+	.rail-dock:not(.rail-dock-compact) > .desk-call-key {
+		flex: 1 1 0;
+		width: auto;
+	}
 	.rail-search {
-		display: flex;
-		min-width: 0;
-		flex: 1;
-		align-items: center;
-		gap: 8px;
-		padding: 0 7px;
-		border-radius: 15px;
+		display: grid;
+		width: 100%;
+		place-items: center;
+		border-radius: 4px;
 		color: var(--ink-3);
-		font-size: var(--text-read);
 		transition:
 			background var(--dur-press) var(--ease-out),
 			color var(--dur-press) var(--ease-out);
 	}
-	/* As a key, in the faces-only rail: the composer's key, a circle that fills when pointed at. */
+	/* In the faces-only rail: the composer's key, a circle that fills when pointed at. */
 	.rail-dock-compact .rail-search {
 		width: 30px;
 		height: 30px;
-		flex: none;
-		justify-content: center;
-		padding: 0;
 		border-radius: 50%;
 	}
-	button.rail-search:hover:not(:disabled),
-	.rail-search[aria-pressed="true"] {
+	.rail-search:hover,
+	.rail-search[aria-expanded="true"] {
 		color: var(--ink);
 		background: var(--fill-hover);
 	}
-	.rail-search:disabled {
-		opacity: 0.5;
+	/* Settings: the bar's first key, in the window's bottom-left corner,
+	 * filling the pill's start, with a hairline after it. */
+	.rail-settings-key {
+		position: relative;
+		display: grid;
+		width: 36px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 15px 4px 4px 15px;
+		color: var(--ink-3);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
 	}
-	.rail-search-keys {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-4);
+	.rail-settings-key::after {
+		content: "";
+		position: absolute;
+		top: 5px;
+		right: -1.5px;
+		bottom: 5px;
+		width: var(--hairline);
+		background: var(--line);
+	}
+	.rail-dock-compact .rail-settings-key {
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+	}
+	.rail-dock-compact .rail-settings-key::after {
+		top: auto;
+		right: 5px;
+		bottom: -1.5px;
+		left: 5px;
+		width: auto;
+		height: var(--hairline);
+	}
+	.rail-settings-key:hover,
+	.rail-settings-key[aria-pressed="true"] {
+		color: var(--ink);
+		background: var(--fill-hover);
 	}
 	/* The desk's call key: the bar's other half, with the hairline before
 	 * it, filling the pill's end; lit in the accent while the desk's call is on. */
@@ -4546,8 +4700,4 @@
 	.desk-call-key:disabled {
 		opacity: 0.35;
 	}
-	.titlebar-desk-call[data-on] {
-		color: var(--accent);
-	}
 }
-

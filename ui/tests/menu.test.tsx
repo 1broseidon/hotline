@@ -55,3 +55,4 @@ describe("a dropdown's tooltip", () => {
 		expect(trigger.hasAttribute("title")).toBe(false);
 	});
 });
+

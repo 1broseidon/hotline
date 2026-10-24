@@ -14,10 +14,11 @@ type Hit = ThreadSearchHit | GlobalSearchHit;
 type Row = { key: string; personaId: string; eventId?: string };
 
 /**
- * The team's search, a real field in the rail's dock (`dock`); in the
- * faces-only rail a key that opens the same search in a panel beside the rail
- * (`beside`), and with the rail closed a key in the title bar that opens it
- * under the bar (`under`). What it finds rises above the field as you type:
+ * The team's search: a key that opens a panel holding the field and what it
+ * finds. In the rail's dock the panel rises above the dock (`above`), in the
+ * faces-only rail it opens beside the rail (`beside`), and with the rail
+ * closed the key stands beside the rail's key and it opens below (`below`).
+ * What it finds fills the panel as you type:
  * teammates whose name matches, to jump to, then matches from every
  * conversation, grouped by teammate, each opening its conversation at the
  * line. With nothing typed it lists the open conversation's chapters, which
@@ -35,7 +36,7 @@ export function TeamSearch({
 	roster: RosterEntry[];
 	/** The conversation on screen, whose chapters an empty query lists. */
 	selectedId: string | null;
-	placement: "dock" | "beside" | "under";
+	placement: "above" | "beside" | "below";
 	ask: number;
 	onPick(personaId: string, eventId?: string): void;
 }) {
@@ -51,7 +52,6 @@ export function TeamSearch({
 	const input = useRef<HTMLInputElement>(null);
 	const box = useRef<HTMLDivElement>(null);
 	const needle = query.trim();
-	const floating = placement !== "dock";
 
 	const close = useCallback(() => {
 		setOpen(false);
@@ -175,7 +175,7 @@ export function TeamSearch({
 
 	const keys = chordKeys("search");
 	const field = (
-		<label className={floating ? "search-field" : "rail-search"}>
+		<label className="search-field">
 			<SearchIcon className="shrink-0" />
 			<input
 				ref={input}
@@ -191,7 +191,6 @@ export function TeamSearch({
 				}}
 				onKeyDown={onFieldKey}
 			/>
-			{!floating && keys !== "" && query === "" && <kbd className="rail-search-keys">{keys}</kbd>}
 		</label>
 	);
 	let index = 0;
@@ -258,23 +257,11 @@ export function TeamSearch({
 		</div>
 	);
 
-	if (!floating) {
-		return (
-			<div ref={box} className="team-search">
-				{open && (needle !== "" || selectedId !== null) && (
-					<div className="team-results" role="listbox" aria-label="Search results">
-						{results}
-					</div>
-				)}
-				{field}
-			</div>
-		);
-	}
 	return (
-		<div ref={box} className={placement === "under" ? "team-search team-search-under" : "team-search"}>
+		<div ref={box} className={placement === "below" ? "team-search team-search-below" : "team-search"}>
 			<button
 				type="button"
-				className={placement === "under" ? "control btn-icon" : "rail-search"}
+				className={placement === "below" ? "control btn-icon" : "rail-search"}
 				title={`Search${keys === "" ? "" : ` (${keys})`}`}
 				aria-label="Search"
 				aria-expanded={open}
@@ -289,7 +276,7 @@ export function TeamSearch({
 				<SearchIcon />
 			</button>
 			{open && (
-				<div className={placement === "under" ? "team-float team-float-under" : "team-float team-float-beside"} role="dialog" aria-label="Search">
+				<div className={`team-float team-float-${placement}`} role="dialog" aria-label="Search">
 					<div className="p-2">{field}</div>
 					<div className="team-float-results">{results}</div>
 				</div>

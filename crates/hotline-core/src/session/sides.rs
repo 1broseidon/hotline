@@ -122,6 +122,10 @@ pub(super) struct LiveSide {
     dispatched: Mutex<std::collections::HashSet<String>>,
     /// Set once the thread is archived; nothing more is written after it.
     closed: AtomicBool,
+    /// Held while the thread's link is written. A live mark reads `closed`
+    /// under it and the link that ends the thread is written under it, so a
+    /// mark decided on before the end lands before that link, never after.
+    marking: Mutex<()>,
     /// The person pressed Stop on the turn in flight.
     stopped_by_person: AtomicBool,
     /// The person interrupted the turn in flight to say something instead.
@@ -776,6 +780,7 @@ impl Room {
             last_used: Mutex::new(now_ms()),
             dispatched: Mutex::new(HashSet::default()),
             closed: AtomicBool::new(false),
+            marking: Mutex::default(),
             stopped_by_person: AtomicBool::new(false),
             interrupted_by_person: AtomicBool::new(false),
             archive_note: Mutex::new(None),

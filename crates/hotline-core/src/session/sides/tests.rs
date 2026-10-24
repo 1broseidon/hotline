@@ -606,6 +606,33 @@ async fn a_chapter_changing_in_the_main_conversation_leaves_a_side_thread_alone(
         .unwrap();
 }
 
+/// A live mark decided on before a thread ended (a turn's end, the thread's
+/// name, a delegation that ended) lands before the end or not at all, so a
+/// thread that was parked or archived is never written back as live.
+#[tokio::test]
+async fn a_live_mark_that_comes_after_a_thread_ended_leaves_it_ended() {
+    let agents = Fake::new(Scripted::new(vec![turn()]));
+    let room = room("side-mark-after-end", agents);
+    for ending in [Ending::Park, Ending::Close(End::Agent, None)] {
+        let summary = room.start_side("ada", "Task").await.unwrap();
+        settled(&room, &summary.side_id).await;
+        let side = room.sides.get(&summary.side_id).unwrap();
+        room.end_side(&side, ending);
+        let ended = room
+            .link_of(&ThreadId::side(&summary.side_id))
+            .unwrap()
+            .state;
+
+        room.mark_side(&side, ThreadState::Live, None);
+        assert_eq!(
+            room.link_of(&ThreadId::side(&summary.side_id))
+                .unwrap()
+                .state,
+            ended
+        );
+    }
+}
+
 #[tokio::test]
 async fn an_idle_side_thread_is_parked_after_a_few_hours_but_not_a_working_one() {
     let agents = Fake::new(Scripted::new(vec![say("m1", "Done for now."), turn()]));

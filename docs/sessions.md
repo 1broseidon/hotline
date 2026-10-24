@@ -1468,7 +1468,10 @@ the pair, a revocation that touches it, or the link to the delegator's desk
 ending releases every handoff of the pair: the thread reports no more, the
 reports not yet heard are dropped, and a question back needs the ordinary
 grant. The thread's link then says so (`handoffEnded`, written by
-`Room::mark_handoffs` once the pair is saved), as every later rewrite of it
+`Room::mark_handoffs` once the pair is saved; a live thread's link is
+rewritten under the thread's own lock, which the link that parks or closes
+it is written under too, so the mark never brings an ended thread back as
+live), as every later rewrite of it
 does while the latest handoff into the thread is released or was stopped by
 the person (`Room::handoff_ended`); a new handoff into it stands, and its link
 says so no more. The window reads only that: the thread's bar says what is

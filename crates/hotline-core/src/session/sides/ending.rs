@@ -171,7 +171,13 @@ impl Room {
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
+    /// A live mark on a thread that has ended writes nothing: the end's own
+    /// link stands.
     pub(super) fn mark_side(&self, side: &LiveSide, state: ThreadState, outcome: Option<String>) {
+        let _marking = lock(&side.marking);
+        if state == ThreadState::Live && side.closed.load(Ordering::SeqCst) {
+            return;
+        }
         let thread = side.thread.clone();
         let saved = lock(&side.saved).clone();
         self.write_link(&Link {
@@ -207,7 +213,6 @@ impl Room {
                 continue;
             }
             match self.sides.get(side_id) {
-                Some(side) if side.closed.load(Ordering::SeqCst) => {}
                 Some(side) => self.mark_side(&side, ThreadState::Live, None),
                 None => self.write_link(&Link {
                     handoff_ended: ended,

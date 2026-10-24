@@ -51,20 +51,35 @@ does not fill up with handoffs. One line says what it is working on and for
 whom ("Working on a handoff from…"), and opens its threads.
 
 Press **Open** on either line to read the work thread in the
-[Threads pane](/docs/use/side-threads/#the-threads-pane). A handoff is read
-along, not chatted in. The brief shows in full, and in place of the message
-box a bar says who handed what to whom, with a link to the sender's
-conversation. Once the handoff has ended, because you stopped it or pressed
-**Stop exchange**, revoked their collaboration, or removed or unlinked one of
-them, the bar says that what the colleague says there no longer reaches the
-sender, and "Working on a handoff from…" no longer counts it. To steer the
-work, talk to the sender there. **Stop**, at the top of the thread, ends the
-handoff, while its turn runs or while the handoff still waits in the thread:
-the teammate that handed it over hears that you stopped it with the next
-thing it hears, and is told not to send it again unless you ask.
-**Interrupt** in the message box, or <kbd>Esc</kbd>, only cuts the turn so you can say something: the handoff goes on, and the
-turn your message starts carries it to its result. If the colleague needs
-something from you, the bar becomes a box for your answer.
+[Threads pane](/docs/use/side-threads/#the-threads-pane). The brief shows in
+full, and above the message box a bar says who handed what to whom, with a
+link to the sender's conversation. You can talk in the thread. What the
+colleague says in each turn there reaches the sender as a report; your own
+words are not passed on, though the colleague may mention what you asked.
+From the thread the colleague can also ask the sender a question without a
+new approval. If the colleague needs something from you, the bar and the
+message box give way to a box for your answer.
+
+**Stop**, at the top of the thread, ends the handoff, while its turn runs or
+while the handoff still waits in the thread: the teammate that handed it
+over hears that you stopped it with the next thing it hears, and is told not
+to send it again unless you ask. **Interrupt** in the message box, or
+<kbd>Esc</kbd>, only cuts the turn so you can say something: the handoff
+goes on, and the turn your message starts carries it to its result, even if
+the thread was parked before you wrote.
+
+A handoff also ends when you press **Stop exchange**, revoke their
+collaboration, change anything either teammate's session is built from (its
+folders, reach, tools, background work, goal or driver), stop or remove
+either teammate, or unlink the desk one of them is on. Nothing else ends it:
+not the thread being parked, not either
+teammate starting a new chapter or reopening the previous one, and not the
+job that sent it finishing its run. Its result and reports still reach the
+sender, after a restart too; only a turn Hotline quit in the middle of comes
+back to the sender as work that may have started, to check before sending it
+again. Once the handoff has ended, the bar says that what the colleague
+says there no longer reaches the sender, and "Working on a handoff from…" no
+longer counts it. To steer the work, talk to the sender.
 
 A teammate works on up to three threads at a time. A handoff to a teammate
 that is fully busy waits its turn. Threads take turns on the teammate's

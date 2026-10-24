@@ -107,6 +107,10 @@ struct Request {
     /// is owed its failure until it is delivered there.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     owed_to_thread: bool,
+    /// The person stopped it, here or on the desk that worked it: a sender
+    /// on a linked desk is told so as their decision, never as a failure.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    stopped_by_person: bool,
 }
 /// What a teammate sends a colleague, as `message_teammate` takes it.
 pub(crate) struct Outgoing<'a> {
@@ -364,6 +368,7 @@ impl Room {
                 released: false,
                 about,
                 owed_to_thread: false,
+                stopped_by_person: false,
             });
             self.save_pair(&pair)?;
             if intent == Intent::Ask {
@@ -973,7 +978,13 @@ impl Room {
                 return self.tell_thread_stopped(key, &owed).await;
             }
             if self
-                .return_linked(&owed.id, &owed.from, &owed.reply, true)
+                .return_linked(
+                    &owed.id,
+                    &owed.from,
+                    &owed.reply,
+                    true,
+                    owed.stopped_by_person,
+                )
                 .await
             {
                 self.mark_returned(key, &owed.id)?;
@@ -1219,7 +1230,13 @@ impl Room {
                     // Answering a linked teammate: the answer goes back over
                     // the link, and waits saved while the link is down.
                     if !self
-                        .return_linked(&request.id, &request.from, &request.reply, request.failed)
+                        .return_linked(
+                            &request.id,
+                            &request.from,
+                            &request.reply,
+                            request.failed,
+                            false,
+                        )
                         .await
                     {
                         return Ok(());

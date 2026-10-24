@@ -146,3 +146,24 @@ fn a_linked_delivery_grows_by_a_report_and_by_the_handoff_an_ask_is_about() {
     );
     assert_eq!(serde_json::to_value(&delivery).unwrap(), report);
 }
+
+#[test]
+fn a_result_says_the_person_stopped_it_only_when_they_did() {
+    let plain = json!({"kind":"result","requestId":"r","reply":"done","failed":false});
+    let result: LinkedDelivery = serde_json::from_value(plain.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&result).unwrap(), plain);
+    let mut stopped = json!({"kind":"result","requestId":"r","reply":"stopped","failed":true});
+    stopped["stoppedByPerson"] = json!(true);
+    let result: LinkedDelivery = serde_json::from_value(stopped.clone()).unwrap();
+    assert_eq!(
+        result,
+        LinkedDelivery::Result {
+            request_id: "r".into(),
+            reply: "stopped".into(),
+            failed: true,
+            stopped_by_person: true,
+        }
+    );
+    assert_eq!(serde_json::to_value(&result).unwrap(), stopped);
+    assert!(LinkedDelivery::decl(&ts_rs::Config::default()).contains("stoppedByPerson?: boolean"));
+}

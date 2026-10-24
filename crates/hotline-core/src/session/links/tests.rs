@@ -42,6 +42,17 @@ fn answers() -> Scripted {
 
 /// A desk with one teammate, linked with the other desk by record.
 fn desk(name: &str, teammate: (&str, &str), other: (&str, &str), dials: bool) -> Arc<Room> {
+    desk_on(name, teammate, other, dials, Fake::new(answers()))
+}
+
+/// The same, its agents built from `agents`.
+fn desk_on(
+    name: &str,
+    teammate: (&str, &str),
+    other: (&str, &str),
+    dials: bool,
+    agents: Arc<Fake>,
+) -> Arc<Room> {
     let log = scratch(name);
     let mut one = persona(teammate.0);
     one.name = teammate.1.to_string();
@@ -57,7 +68,7 @@ fn desk(name: &str, teammate: (&str, &str), other: (&str, &str), dials: bool) ->
         },
     )
     .unwrap();
-    Room::with_agents(log, Arc::new(DeskKeys), Fake::new(answers()))
+    Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
 
 /// The laptop with Clementine and grizzly with Lou, linked both ways.
@@ -729,7 +740,7 @@ async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at
 fn an_answer_is_cut_to_fit_one_of_the_links_frames_however_it_escapes() {
     let fits = |reply: &str| {
         let frame = json!({"id": 1, "cmd": "federation.deliver", "params": {"delivery":
-            LinkedDelivery::Result { request_id: "r".into(), reply: crossing(reply), failed: false }}});
+            LinkedDelivery::Result { request_id: "r".into(), reply: crossing(reply), failed: false, stopped_by_person: true }}});
         frame.to_string().len() < 1024 * 1024
     };
     assert_eq!(crossing("runner 3 is green"), "runner 3 is green");
@@ -881,6 +892,94 @@ async fn a_turn_report_crosses_the_link_without_the_persons_words() {
     );
     assert!(!heard.contains("(side:"), "{heard}");
     assert!(!heard.contains("swordfish"), "{heard}");
+}
+
+/// The person on grizzly stops Lou's turn on Clementine's handoff: the stop
+/// crosses as theirs, with what Lou had said, and Clementine hears it once,
+/// neither woken nor handed a failure to retry.
+#[tokio::test]
+async fn the_persons_stop_on_a_linked_handoff_reaches_its_sender_without_waking_it() {
+    let clementine = Fake::new(answers());
+    let laptop = desk_on(
+        "linked-stop-laptop",
+        ("clementine", "Clementine"),
+        (GRIZZLY, "grizzly"),
+        true,
+        clementine.clone(),
+    );
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let lou = Fake::new(
+        Scripted::new(vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "long".into(),
+                text: "Running the long command.".into(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            },
+        ])
+        .on_cancel(vec![Update::Turn {
+            stop_reason: "cancelled".into(),
+            usage: None,
+        }])
+        .gated(gate.clone()),
+    );
+    let grizzly = desk_on(
+        "linked-stop-grizzly",
+        ("lou", "Lou"),
+        (LAPTOP, "laptop"),
+        false,
+        lou.clone(),
+    );
+    let carried = Carried::default();
+    let _channel = watched(&laptop, &grizzly, &carried, false);
+    laptop.start("clementine").await.unwrap();
+    grizzly
+        .allow_sender("lou", &format!("{LAPTOP}/clementine"))
+        .unwrap();
+    let handoff = message(&laptop, "clementine", "Lou", "handoff")
+        .await
+        .unwrap();
+    until("Lou's handoff turn is running", || lou.prompts().len() == 1).await;
+    let thread = thread_on_grizzly(&grizzly, &handoff);
+    gate.add_permits(1);
+    until("Lou has said what he is doing", || {
+        said_in(&grizzly, &thread).len() == 1
+    })
+    .await;
+    grizzly.cancel_side(&thread).unwrap();
+    until("the laptop has settled the handoff", || {
+        request(&laptop, &handoff).is_some_and(|r| r["phase"] != "running")
+    })
+    .await;
+
+    let line = "The person stopped this handoff. Do not send it again unless they ask.";
+    let said = format!("Running the long command.\n\n{line}");
+    assert_eq!(request(&laptop, &handoff).unwrap()["phase"], "stopped");
+    let crossed: Vec<Value> = lock(&carried)
+        .iter()
+        .filter(|delivery| delivery["kind"] == "result")
+        .cloned()
+        .collect();
+    assert_eq!(crossed.len(), 1, "{crossed:?}");
+    assert_eq!(crossed[0]["stoppedByPerson"], true);
+    assert_eq!(crossed[0]["reply"], said.as_str());
+    assert_eq!(
+        reports_shown(&laptop),
+        [format!("Lou on grizzly, in your handoff thread: {said}")]
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        delivered(&laptop, "clementine", &handoff).is_none(),
+        "no failure is handed back"
+    );
+    assert!(clementine.prompts().is_empty(), "nothing woke Clementine");
+    let heard = laptop
+        .take_heard(&crate::contract::ThreadId::dm("clementine"))
+        .expect("Clementine has the stop to hear");
+    assert_eq!(heard.matches(line).count(), 1, "{heard}");
 }
 
 #[tokio::test]

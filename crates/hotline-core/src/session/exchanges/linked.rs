@@ -149,6 +149,7 @@ impl Room {
                 released: false,
                 about,
                 owed_to_thread: false,
+                stopped_by_person: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
@@ -198,6 +199,29 @@ impl Room {
             pair.id
         };
         self.wake_exchange(&key);
+        Ok(())
+    }
+
+    /// Ends a request forwarded to a linked desk that the person there
+    /// stopped, as one the person stopped here ends: its sender is told
+    /// once in `report`, without a wake, never handed a failure to retry.
+    pub(in crate::session) fn stop_linked_request(
+        self: &Arc<Self>,
+        desk_id: &str,
+        id: &str,
+        report: String,
+    ) -> Result<(), String> {
+        let sent_there = self
+            .exchange_pairs()
+            .iter()
+            .flat_map(|pair| &pair.requests)
+            .any(|r| {
+                r.id == id && crate::linked::split(&r.to).is_some_and(|(desk, _)| desk == desk_id)
+            });
+        if !sent_there {
+            return Err("This desk sent no such request.".into());
+        }
+        self.end_for_the_person(id, true, Some(report));
         Ok(())
     }
 

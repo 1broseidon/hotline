@@ -1409,9 +1409,12 @@ stopped, to be continued like any other. Its sender is not handed a failed
 result to inspect and retry, which would start a turn that sends the work
 again; it gets a report that never wakes, the teammate's last words and
 "The person stopped this handoff. Do not send it again unless they ask." A
-sender on a linked desk is sent that sentence as the stopped request's
-failure. A handoff turn cancelled any other way, or failed, returns its
-failure as before. Their Stop also drops what waited behind the turn, and a
+sender on a linked desk is sent that report as the stopped request's result
+with `stoppedByPerson`, and its desk ends the request there the same way,
+shown and heard once, never woken nor handed a failure; a desk older than
+that hands it back as a failure. A handoff turn cancelled any other way, or
+failed, returns its failure as before. Their Stop also drops what waited
+behind the turn, and a
 handoff whose line was among it (one that waited for the thread's agent to
 start, or behind the person's own turn) ends the same way, with the sentence
 alone as its report (`end_dropped_handoffs`): it is never handed over again
@@ -1429,7 +1432,7 @@ would have come as "Mack, answering “…”: …", and heard there with the ne
 line, as "Mack, answering “…”:" among the reports. A thread the answer was
 given in goes on. A handoff waiting on that question is carried on by the
 stop instead, as by an answer, told without "Send it again"; an asker on a
-linked desk is sent the sentence as the stopped request's failure.
+linked desk is told by its own desk, as a sender of a handoff is.
 
 **The delegation** is the handoff the thread serves: the latest one into it,
 in any phase, so a thread the person continues after its result still

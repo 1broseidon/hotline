@@ -1134,13 +1134,18 @@ work where the delegator hears of it, not in a main conversation that nothing
 ties to the delegation.
 
 The pair record's new fields (`progress`, `progress_left_out`,
-`progress_wakes`, `released`, `about`, `owed_to_thread`) are optional and left
-out when empty, so a record without them has no report waiting, no delegation
-released and no question back. So is the link's `handoffEnded`: a link without
+`progress_wakes`, `released`, `about`, `owed_to_thread`, `stopped_by_person`)
+are optional and left out when empty, so a record without them has no report
+waiting, no delegation released, no question back and no stop of the
+person's. So is the link's `handoffEnded`: a link without
 it, the reference tree's included, is a delegation that stands, and the
 segment layout and the importer are unchanged. A report crosses a desk link as its own
 `LinkedDelivery`, which a desk from before reports refuses; the handoff's
-result is a separate frame and arrives as before.
+result is a separate frame and arrives as before. The person's stop of a
+request a linked desk sent crosses as that result with `stoppedByPerson`,
+its reply the report the sender is to hear, so the sender's desk tells it
+as this desk would, without a wake; an older desk ignores the field and
+hands the reply back as a failure, as it always did.
 
 One directional collaboration approval explains and covers both intents. Old
 standing approvals remain valid for Ask, but the first Handoff requires informed

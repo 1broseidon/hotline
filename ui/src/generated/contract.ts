@@ -712,7 +712,14 @@ continues?: string,
  * desk's teammate opened: that handoff's request id, which the
  * receiving desk looks up in its own record.
  */
-about?: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, } | { "kind": "progress", requestId: string, text: string, wakes: boolean, };
+about?: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, 
+/**
+ * The person on the desk that worked it stopped it, and `reply` is
+ * what its sender is told of that: heard as their decision, without
+ * a wake, never handed back as a failure to retry. An older desk
+ * ignores it and delivers the failure.
+ */
+stoppedByPerson?: boolean, } | { "kind": "progress", requestId: string, text: string, wakes: boolean, };
 
 /**
  * What a linked desk publishes about one of its teammates: exactly what

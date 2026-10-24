@@ -234,10 +234,16 @@ impl Room {
     /// its sender is told once in `report`, which wakes nobody: a turn woken
     /// by it would send the work again and undo the stop. A handoff whose
     /// turn had not `begun` is ended only if none ever began, so it is never
-    /// handed over again. A sender on a linked desk is told by the pair's
-    /// worker, and a handoff waiting on a stopped question is carried on by
-    /// its failure, as by an answer. Says whether it ended it.
-    fn end_for_the_person(self: &Arc<Self>, id: &str, begun: bool, report: Option<String>) -> bool {
+    /// handed over again. A sender on a linked desk is sent the report by
+    /// the pair's worker, for its desk to tell it the same way, and a
+    /// handoff waiting on a stopped question is carried on by its failure,
+    /// as by an answer. Says whether it ended it.
+    pub(super) fn end_for_the_person(
+        self: &Arc<Self>,
+        id: &str,
+        begun: bool,
+        report: Option<String>,
+    ) -> bool {
         let Some((key, request)) = self.exchange_pairs().into_iter().find_map(|pair| {
             let request = pair.requests.into_iter().find(|r| {
                 r.id == id
@@ -252,8 +258,10 @@ impl Room {
             Intent::Handoff => peers::HANDOFF_STOPPED_BY_THE_PERSON,
             Intent::Ask => peers::QUESTION_STOPPED_BY_THE_PERSON,
         };
-        let told_by_its_failure = crate::linked::is_linked(&request.from)
-            || (request.intent == Intent::Ask && self.carried_on(&request).is_some());
+        let linked_sender = crate::linked::is_linked(&request.from);
+        let told_by_its_failure =
+            linked_sender || (request.intent == Intent::Ask && self.carried_on(&request).is_some());
+        let crossing = linked_sender.then(|| report.clone()).flatten();
         if !told_by_its_failure
             && let Some(report) = report
             && let Err(error) = self.hear_progress(&key, id, &report, false)
@@ -273,7 +281,8 @@ impl Room {
         };
         stopped.phase = Phase::Stopped;
         stopped.failed = true;
-        stopped.reply = reason.into();
+        stopped.reply = crossing.unwrap_or_else(|| reason.to_string());
+        stopped.stopped_by_person = true;
         if let Err(error) = self.save_pair(&pair) {
             eprintln!("save a stop: {error}");
         }

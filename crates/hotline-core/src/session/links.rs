@@ -286,7 +286,8 @@ impl Room {
                 request_id,
                 reply,
                 failed,
-            } => self.receive_linked_result(desk_id, &request_id, reply, failed),
+                stopped_by_person,
+            } => self.receive_linked_result(desk_id, &request_id, reply, failed, stopped_by_person),
             LinkedDelivery::Progress {
                 request_id,
                 text,
@@ -375,8 +376,13 @@ impl Room {
         request_id: &str,
         reply: String,
         failed: bool,
+        stopped_by_person: bool,
     ) -> Result<Value, String> {
-        self.settle_linked_request(desk_id, request_id, crossing(&reply), failed)?;
+        if stopped_by_person {
+            self.stop_linked_request(desk_id, request_id, crossing(&reply))?;
+        } else {
+            self.settle_linked_request(desk_id, request_id, crossing(&reply), failed)?;
+        }
         Ok(Value::Null)
     }
 
@@ -430,6 +436,7 @@ impl Room {
         from: &str,
         reply: &str,
         failed: bool,
+        stopped_by_person: bool,
     ) -> bool {
         let Some((desk_id, _)) = linked::split(from) else {
             return true;
@@ -442,6 +449,7 @@ impl Room {
             request_id: request_id.to_string(),
             reply: crossing(reply),
             failed,
+            stopped_by_person,
         };
         match self
             .links

@@ -888,6 +888,9 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// a computer and choosing resource limits. `computer.capacity` is read-only
 /// and available to every phone seat. `turnRetry`: `session.retry`, trying
 /// a failed turn again, so a phone shows Try again only where it works.
+/// `agentSwitch`: `session.set_backend`, moving a teammate to another agent,
+/// and `backends.list` naming each agent's last reported models; a phone
+/// offers the agents in its picker only where the desk says this.
 pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "personaCreate",
     "personaEdit",
@@ -899,6 +902,7 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "lean",
     "thumbnails",
     "turnRetry",
+    "agentSwitch",
 ];
 
 /// The capability a client names in `client.hello` to be sent `link` events

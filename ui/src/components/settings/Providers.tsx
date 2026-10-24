@@ -9,6 +9,7 @@ import { Fold } from "../../ui/Fold";
 import { Refusal } from "../../ui/Refusal";
 import { Scroll } from "../../ui/Scroll";
 import { wire } from "../../wire";
+import { accountName, nextAccountLabel } from "../../accounts";
 import { ConnectProvider, ProviderRow } from "../ConnectProvider";
 import { UseFor } from "../UseFor";
 import { Budgets } from "../Budgets";
@@ -23,8 +24,10 @@ function byName(a: { name: string }, b: { name: string }) {
  * connected provider, however it was connected — a pasted key or a login
  * is a detail of the row, not a heading — and pressing it opens that
  * provider's own page. The add row at the head of the list is the one way
- * in: it names the providers not yet connected, and choosing one asks for
- * a key or starts a sign-in in place. The form exists only while you are
+ * in: it names every provider, connected or not, since a provider can hold
+ * several accounts, and choosing one asks for a key or starts a sign-in in
+ * place. With two or more accounts of a provider each row and the model
+ * picker name the account ("Anthropic · Work"); its page renames it. The form exists only while you are
  * adding. Tools is drawn the same way, on purpose: a list the room has,
  * an add row over it, a page behind each row with the way out at its foot.
  *
@@ -91,7 +94,15 @@ export function ProvidersSection({
 		.map((credential) => ({ credential, provider: providers.find((one) => one.id === credential.providerId) }))
 		.sort((a, b) => Number(a.credential.revoked) - Number(b.credential.revoked) || nameOf(a).localeCompare(nameOf(b)));
 	const live = new Set(connected.filter((one) => !one.credential.revoked).map((one) => one.credential.providerId));
-	const addable = providers.filter((one) => !live.has(one.id)).slice().sort(byName);
+	// How many accounts each provider has: two or more and each is named.
+	const accounts = new Map<string, number>();
+	for (const one of connected) {
+		if (!one.credential.revoked) accounts.set(one.credential.providerId, (accounts.get(one.credential.providerId) ?? 0) + 1);
+	}
+	const titleOf = (one: { credential: Credential; provider: Provider | undefined }) =>
+		accountName(nameOf(one), one.credential.label, (accounts.get(one.credential.providerId) ?? 0) > 1);
+	// Every provider can be added again: a second account of it is another row.
+	const addable = providers.slice().sort(byName);
 
 	const begin = (provider: Provider, replacing: Credential | undefined = undefined) => {
 		setRefusal(null);
@@ -118,7 +129,8 @@ export function ProvidersSection({
 		return (
 			<ProviderPage
 				credential={opened.credential}
-				name={nameOf(opened)}
+				name={titleOf(opened)}
+				onRenamed={(renamed) => setHeld((known) => (known ?? []).map((one) => (one.id === renamed.id ? renamed : one)))}
 				discover={opened.provider?.modelDiscovery ?? false}
 				enabledModels={enabledModels}
 				onBack={() => setOpen(null)}
@@ -153,11 +165,9 @@ export function ProvidersSection({
 							</div>
 							{/* Settings lists every service by name; the welcome's cards are for someone choosing their first. */}
 							<div className="grouped">
-								{addable.length === 0 ? (
-									<p className="group-row text-sm text-ink-3">Every provider Hotline knows is already here.</p>
-								) : (
-									addable.map((provider) => <ProviderRow key={provider.id} provider={provider} onPick={() => begin(provider)} />)
-								)}
+								{addable.map((provider) => (
+									<ProviderRow key={provider.id} provider={provider} onPick={() => begin(provider)} />
+								))}
 							</div>
 						</section>
 					)}
@@ -166,6 +176,7 @@ export function ProvidersSection({
 							key={adding.provider.id}
 							provider={adding.provider}
 							replacing={adding.replacing}
+							label={adding.replacing === undefined ? nextAccountLabel(adding.provider.name, accounts.get(adding.provider.id) ?? 0) : undefined}
 							onConnected={(made) => void accept(made)}
 							onCancel={() => {
 								setAdding(null);
@@ -195,7 +206,7 @@ export function ProvidersSection({
 										onClick={() => setOpen(one.credential.id)}
 									>
 										<span className="group-row-text">
-											<span className="group-row-title">{nameOf(one)}</span>
+											<span className="group-row-title">{titleOf(one)}</span>
 											<span className="group-row-detail">
 												{one.credential.revoked
 													? "Disconnected"
@@ -218,6 +229,53 @@ export function ProvidersSection({
 				</div>
 			</Scroll>
 		</div>
+	);
+}
+
+/**
+ * The account's own name, which the model picker shows once its provider has
+ * another account. Saved when the field is left or Enter is pressed.
+ */
+function AccountName({
+	credential,
+	onRenamed,
+	onRefused,
+}: {
+	credential: Credential;
+	onRenamed(credential: Credential): void;
+	onRefused(message: string | null): void;
+}) {
+	const [draft, setDraft] = useState(credential.label);
+	useEffect(() => setDraft(credential.label), [credential.label]);
+	const save = () => {
+		const label = draft.trim();
+		if (label === credential.label) return;
+		if (label === "") {
+			setDraft(credential.label);
+			return;
+		}
+		onRefused(null);
+		void wire.command("credential.rename", { id: credential.id, label }).then(onRenamed, (error: Error) => {
+			onRefused(error.message);
+			setDraft(credential.label);
+		});
+	};
+	return (
+		<label className="flex items-center gap-3 text-sm">
+			<span className="w-24 shrink-0 text-ink-2">Name</span>
+			<input
+				className="field min-w-0 flex-1"
+				value={draft}
+				maxLength={80}
+				aria-label="Account name"
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={save}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") event.currentTarget.blur();
+					if (event.key === "Escape") setDraft(credential.label);
+				}}
+			/>
+		</label>
 	);
 }
 
@@ -244,9 +302,11 @@ function ProviderPage({
 	onBack,
 	onSignIn,
 	onRemoved,
+	onRenamed,
 }: {
 	credential: Credential;
 	name: string;
+	onRenamed(credential: Credential): void;
 	discover: boolean;
 	enabledModels: Record<string, string[]>;
 	onBack(): void;
@@ -412,6 +472,7 @@ function ProviderPage({
 								</span>
 							</span>
 						</div>
+						<AccountName credential={credential} onRenamed={onRenamed} onRefused={setRefusal} />
 						{oauth && providerId === "github-copilot" && (
 							<p className="text-sm text-ink-2">
 								Sign out removes this login from Hotline. To revoke GitHub access too, use{" "}

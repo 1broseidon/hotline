@@ -347,6 +347,14 @@ pub trait RoomHandle: Send + Sync + 'static {
         secret: &str,
     ) -> Result<hotline_contract::Credential, String>;
     fn credential_revoke(&self, id: &str) -> Result<(), String>;
+    /// Renames an account. A room with no vault cannot.
+    fn credential_rename(
+        &self,
+        _id: &str,
+        _label: &str,
+    ) -> Result<hotline_contract::Credential, String> {
+        Err("Accounts can only be renamed on a desk with a vault.".to_string())
+    }
     async fn credential_delete(&self, id: &str) -> Result<(), String>;
     /// Starts provider sign-in. Returns the prompt as soon as the provider
     /// issues a code; the login keeps running until the person signs in.

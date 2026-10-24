@@ -688,6 +688,12 @@ impl RoomHandle for Desk {
         self.vault.revoke(id).map_err(|error| error.to_string())
     }
 
+    fn credential_rename(&self, id: &str, label: &str) -> Result<Credential, String> {
+        self.vault
+            .rename(id, label)
+            .map_err(|error| error.to_string())
+    }
+
     async fn credential_delete(&self, id: &str) -> Result<(), String> {
         crate::providers::rig_login::revoke::delete(&self.vault, id)
             .await

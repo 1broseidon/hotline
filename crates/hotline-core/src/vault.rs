@@ -276,6 +276,24 @@ impl Vault {
         Ok(())
     }
 
+    /// Renames an account. Only its name changes: its id, secret, login,
+    /// models and the teammates on it stay as they are.
+    pub fn rename(&self, id: &str, label: &str) -> io::Result<Credential> {
+        let label = label.trim();
+        if label.is_empty() || label.chars().count() > 80 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "An account's name is 1 to 80 characters.",
+            ));
+        }
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut credential = self.find(id)?;
+        credential.label = label.to_string();
+        credential.updated_at = now_ms();
+        self.log.append(&StreamId::Room, &event(&credential))?;
+        Ok(credential)
+    }
+
     /// Takes both halves away: the secret or login directory off the disk,
     /// then the tombstone on the stream. Files first, so a crash between them
     /// cannot leave a usable credential behind a row that says it is gone.

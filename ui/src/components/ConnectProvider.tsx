@@ -21,12 +21,15 @@ const SIGN_IN_FAILED = "Sign-in failed";
 export function ConnectProvider({
 	provider,
 	replacing,
+	label,
 	onConnected,
 	onCancel,
 }: {
 	provider: Provider;
 	/** The connection being replaced, for a custom edit or a sign-in again. */
 	replacing?: Credential | undefined;
+	/** The name a new account starts with: the provider's, numbered when it already has one. */
+	label?: string | undefined;
 	onConnected(made: Credential): void;
 	onCancel(): void;
 }) {
@@ -41,9 +44,14 @@ export function ConnectProvider({
 	/* The credential exists. Its models are read now, so the first picker
 	 * that opens has them; a provider whose list needs an account, or a
 	 * local server, is read when its page opens instead. */
-	const finish = async (made: Credential) => {
+	const finish = async (created: Credential) => {
 		if (finished.current) return;
 		finished.current = true;
+		// Another account of a provider already connected starts on its own name.
+		const made =
+			label !== undefined && label !== created.label
+				? await wire.command("credential.rename", { id: created.id, label }).catch(() => created)
+				: created;
 		if (provider.modelDiscovery && made.providerId !== "ollama" && made.providerId !== "github-copilot") {
 			await wire.command("credential.refresh_models", { providerId: made.providerId }).catch(() => {});
 		}

@@ -64,6 +64,36 @@ async fn two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_do
         );
     }
 
+    // Renaming changes the name the picker shows and nothing else.
+    let renamed = client
+        .call(
+            "credential.rename",
+            json!({"id": personal, "label": "  Side projects "}),
+        )
+        .await;
+    assert_eq!(renamed["ok"], true, "{renamed}");
+    assert_eq!(renamed["result"]["label"], "Side projects");
+    let relisted = models(&mut client).await;
+    assert_eq!(relisted.len(), two.len());
+    assert!(
+        relisted
+            .iter()
+            .filter(|choice| choice["account"]["id"] == personal.as_str())
+            .all(|choice| choice["account"]["label"] == "Side projects")
+    );
+    assert_eq!(
+        relisted
+            .iter()
+            .map(|choice| &choice["id"])
+            .collect::<Vec<_>>(),
+        two.iter().map(|choice| &choice["id"]).collect::<Vec<_>>(),
+        "a rename moves no teammate: every id is the same"
+    );
+    let blank = client
+        .call("credential.rename", json!({"id": personal, "label": "   "}))
+        .await;
+    assert_eq!(blank["ok"], false, "{blank}");
+
     let workspace = root.join("workspace");
     std::fs::create_dir(&workspace).unwrap();
     let made = client

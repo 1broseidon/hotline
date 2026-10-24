@@ -447,6 +447,10 @@ pub enum Command {
     CredentialRefreshModels { provider_id: String },
     #[serde(rename = "credential.revoke")]
     CredentialRevoke { id: String },
+    /// Renames an account: what the person calls it in Settings and the
+    /// model picker. The secret and everything the account holds stay.
+    #[serde(rename = "credential.rename")]
+    CredentialRename { id: String, label: String },
     #[serde(rename = "credential.delete")]
     CredentialDelete { id: String },
     /// Every agent harness this machine can start, and the ones it knows of

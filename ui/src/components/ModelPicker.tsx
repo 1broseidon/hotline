@@ -4,6 +4,7 @@ import type { ChoiceAccount, ConfigChoice, CredentialKind } from "../generated/c
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon } from "../icons";
 import { Mark, modelMark, providerMark } from "../ui/Mark";
 import { wire } from "../wire";
+import { accountName } from "../accounts";
 
 /** One row of the top level: an account, and the models it serves. */
 type AccountRow = { key: string; name: string; detail: string; mark: string | null; choices: ConfigChoice[] };
@@ -30,7 +31,7 @@ export function accountRows(choices: ConfigChoice[]): AccountRow[] {
 			const provider = choice.group ?? "Models";
 			row = {
 				key,
-				name: account?.shared ? `${provider} · ${account.label}` : provider,
+				name: account === undefined ? provider : accountName(provider, account.label, account.shared),
 				detail: account === undefined ? "" : KIND[account.kind],
 				mark: providerMark(provider) ?? modelMark(choice.id, choice.name),
 				choices: [],

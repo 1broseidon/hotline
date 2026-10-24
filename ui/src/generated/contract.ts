@@ -1872,7 +1872,12 @@ end?: ThreadEnd,
 /**
  * The teammate that opened it, when one did: "from Mack" on the row.
  */
-opener?: SideOpener, startedAt: number, 
+opener?: SideOpener, 
+/**
+ * The handoff it serves has ended, as its link records: what is said in
+ * it no longer reaches `opener`. Absent while it stands.
+ */
+handoffEnded?: boolean, startedAt: number, 
 /**
  * The newest thing in the thread: what the window counts unread against.
  */
@@ -2200,7 +2205,13 @@ elapsedMs?: number,
 /**
  * The teammate that opened the thread, when one did.
  */
-openerId?: string, openerName?: string, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+openerId?: string, openerName?: string, 
+/**
+ * The latest handoff into the thread no longer stands, as the core
+ * recorded when it ended: what is said in it no longer reaches its
+ * opener. Absent while it stands.
+ */
+handoffEnded?: boolean, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

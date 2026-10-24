@@ -395,10 +395,11 @@ impl Room {
         let mut pair = self
             .exchange_pair(&key)
             .ok_or("There is no exchange for this pair")?;
+        let mut ended = Vec::new();
         if stop {
             let mut stopped = Vec::new();
             for request in &mut pair.requests {
-                progress::release(request);
+                progress::release(request, &mut ended);
                 if Self::exchange_pending(request) {
                     request.owed_to_thread = self.owes_thread(request, None);
                     self.cancel_handoff(request);
@@ -414,6 +415,7 @@ impl Room {
         pair.exchanges = 0;
         pair.paused = false;
         self.save_pair(&pair)?;
+        self.mark_handoffs(&ended);
         self.exchange_card(
             &pair,
             if stop {
@@ -526,13 +528,13 @@ impl Room {
     }
     fn stop_revoked_exchanges(&self, persona: Option<&str>) {
         let _guard = lock(&self.exchange_lock);
-        let mut stopped = Vec::new();
+        let (mut stopped, mut ended) = (Vec::new(), Vec::new());
         for mut pair in self.exchange_pairs() {
             let ours = persona.is_some_and(|id| pair.a == id || pair.b == id);
             let mut changed = false;
             for request in &mut pair.requests {
                 if ours {
-                    changed |= progress::release(request);
+                    changed |= progress::release(request, &mut ended);
                 }
                 if !Self::exchange_pending(request)
                     || (!ours && self.exchange_lease_current(&request.id))
@@ -542,7 +544,7 @@ impl Room {
                 request.owed_to_thread = self.owes_thread(request, persona);
                 self.cancel_handoff(request);
                 request.phase = Phase::Stopped;
-                progress::release(request);
+                progress::release(request, &mut ended);
                 request.failed = true;
                 request.reply = "Collaboration was revoked or a participant stopped. Send again if still needed.".into();
                 stopped.push(request.clone());
@@ -553,6 +555,7 @@ impl Room {
             }
             self.wake_owed(&pair);
         }
+        self.mark_handoffs(&ended);
         self.exchange_notices(&stopped);
     }
     fn exchange_lease_current(&self, id: &str) -> bool {
@@ -1341,6 +1344,8 @@ impl Room {
         };
         let side_id = thread.unwrap_or_else(new_id);
         self.set_handoff_thread(key, &request.id, &side_id)?;
+        // The delegation stands again in a thread whose earlier one ended.
+        self.mark_handoffs(std::slice::from_ref(&side_id));
         // A thread that has run before comes back with what was said in it.
         // One the last process left live was parked when this room was
         // built (`Room::settle`), before any request is taken up.

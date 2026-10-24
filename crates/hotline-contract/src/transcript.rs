@@ -448,6 +448,12 @@ pub enum TranscriptEvent {
         opener_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         opener_name: Option<String>,
+        /// The latest handoff into the thread no longer stands, as the core
+        /// recorded when it ended: what is said in it no longer reaches its
+        /// opener. Absent while it stands.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        handoff_ended: bool,
     },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded

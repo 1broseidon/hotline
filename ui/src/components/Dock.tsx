@@ -184,9 +184,9 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 	const [revision, setRevision] = useState(0);
 	const { events } = useThread(personaId === undefined ? null : dmOf(personaId));
 	const links = useMemo(() => events.filter((event): event is LinkEvent => event.kind === "link"), [events]);
-	// A thread that started, parked or ended is a link rewritten; a turn starting or a card landing is the roster's word.
+	// A thread that started, parked or ended, or whose handoff ended, is a link rewritten; a turn starting or a card landing is the roster's word.
 	const signature =
-		links.map((link) => `${link.thread}:${link.state}`).join(",") +
+		links.map((link) => `${link.thread}:${link.state}${link.handoffEnded === true ? ":ended" : ""}`).join(",") +
 		"|" +
 		(entry?.sides ?? []).map((side) => `${side.sideId}:${side.working ? 1 : 0}`).join(",") +
 		"|" +
@@ -538,7 +538,9 @@ function ThreadView({
 				/>
 			</div>
 			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
-			{opener !== undefined && asked === undefined && <HandoffBar opener={opener} teammate={self} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />}
+			{opener !== undefined && asked === undefined && (
+				<HandoffBar opener={opener} teammate={self} ended={row?.handoffEnded === true} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
+			)}
 			{opener !== undefined && asked !== undefined ? (
 				<AnswerField thread={id} name={self.name} actionId={asked.actionId} onRefused={refuse} />
 			) : powers.say ? (
@@ -668,17 +670,21 @@ export function JobActions({ job, running, onSaid }: { job: ScheduleEntry; runni
 }
 
 /**
- * Above the composer in a thread a teammate handed over: whose work it is, and
- * the way to the conversation of the one who handed it over.
+ * Above the composer in a thread a teammate handed over: whose work it is,
+ * whether what is said here still reaches the one who handed it over, as the
+ * desk records it, and the way to that one's conversation.
  */
 function HandoffBar({
 	opener,
 	teammate,
+	ended,
 	people,
 	onTalk,
 }: {
 	opener: { personaId: string; name: string };
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
+	/** The handoff no longer stands: stopped, revoked, or ended by a switch, a deletion or an unlink. */
+	ended: boolean;
 	people: ReadonlyMap<string, Person>;
 	onTalk(): void;
 }) {
@@ -689,7 +695,9 @@ function HandoffBar({
 				<Avatar id={teammate.id} name={teammate.name} size={24} hash={teammate.avatarHash} />
 			</span>
 			<p className="min-w-0 flex-1 text-sm text-ink-3">
-				{opener.name} handed this to {teammate.name}. What {teammate.name} says here reaches {opener.name}.{" "}
+				{ended
+					? `${opener.name} handed this to ${teammate.name}. The handoff has ended: what ${teammate.name} says here no longer reaches ${opener.name}.`
+					: `${opener.name} handed this to ${teammate.name}. What ${teammate.name} says here reaches ${opener.name}.`}{" "}
 				<button type="button" className="link-quiet" onClick={onTalk}>
 					Talk to {opener.name} about it ›
 				</button>

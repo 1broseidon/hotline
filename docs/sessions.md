@@ -1415,7 +1415,14 @@ restart a delegation whose leases had lapsed stands again. Stop exchange on
 the pair, a revocation that touches it, or the link to the delegator's desk
 ending releases every handoff of the pair: the thread reports no more, the
 reports not yet heard are dropped, and a question back needs the ordinary
-grant.
+grant. The thread's link then says so (`handoffEnded`, written by
+`Room::mark_handoffs` once the pair is saved), as every later rewrite of it
+does while the latest handoff into the thread is released or was stopped by
+the person (`Room::handoff_ended`); a new handoff into it stands, and its link
+says so no more. The window reads only that: the thread's bar says what is
+said there no longer reaches the delegator, and the receiver's conversation
+leaves it out of the handoffs it is working on. A delegation whose leases
+lapsed within a run is not written there, since a restart brings it back.
 
 Stop exchange and revocation stop a question as they stop any request, but
 only an ask answered in a thread has its turn cancelled there, and only when

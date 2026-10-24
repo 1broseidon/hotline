@@ -208,6 +208,17 @@ describe("a link as a row", () => {
 		expect(closed[0]).toMatchObject({ state: "closed", end: "done" });
 	});
 
+	test("says a handoff has ended as its link records it, and stands again when a newer link says so", () => {
+		const opened = { openerId: "mack", openerName: "Mack" };
+		expect(rowOfLink(link("a", { ...opened, handoffEnded: true }), "p").handoffEnded).toBe(true);
+		expect(rowOfLink(link("a", opened), "p")).not.toHaveProperty("handoffEnded");
+		const listed = thread("a", "side", { state: "closed", end: "agent", updatedAt: 10 });
+		const ended = withLinks([listed], [link("a", { ...opened, state: "closed", end: "agent", at: 20, handoffEnded: true })], "p");
+		expect(ended[0]).toMatchObject({ handoffEnded: true });
+		const again = withLinks(ended, [link("a", { ...opened, state: "closed", end: "agent", at: 30 })], "p");
+		expect(again[0]).not.toHaveProperty("handoffEnded");
+	});
+
 	test("leaves a row alone when the link agrees, and ignores the conversation's own", () => {
 		const listed = [thread("a", "side", { working: true })];
 		expect(withLinks(listed, [link("a")], "p")).toEqual(listed);

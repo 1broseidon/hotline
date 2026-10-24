@@ -896,16 +896,20 @@ needs a newer core.
 
 A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
 state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
-backendId?, elapsedMs?, openerId?, openerName?}`; `end` is how a closed thread
+backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?}`; `end` is how a closed thread
 ended (`person`, `agent`, `idle`, `stopped`, `done`, `failed`, `cancelled`).
+`handoffEnded` is `true` on a thread a teammate handed over once the handoff it
+serves has ended (see [sessions.md](sessions.md), the delegation), and absent
+while it stands.
 It is rewritten under the same id as the thread goes. A `thread_delta` is
 `{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never
 written down. The room broadcasts only that; the older four are what the door
 turns it into for a socket that did not declare.
 
 **`ThreadSummary`**, one shape for every kind: `{thread, personaId,
-withPersonaId?, withName?, title?, state, end?, opener?, startedAt, updatedAt,
-working, waiting, preview?, outcome?}`. `personaId` is the teammate whose thread it is
+withPersonaId?, withName?, title?, state, end?, opener?, handoffEnded?,
+startedAt, updatedAt, working, waiting, preview?, outcome?}`; `handoffEnded` is
+what the thread's link records. `personaId` is the teammate whose thread it is
 (a pair is listed with the first of its two, and `withPersonaId` is the other;
 `withName` is what to call the other when it is on a linked desk, in no roster
 here, [Linked desks](#linked-desks));

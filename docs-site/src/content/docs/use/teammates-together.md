@@ -54,7 +54,10 @@ Press **Open** on either line to read the work thread in the
 [Threads pane](/docs/use/side-threads/#the-threads-pane). A handoff is read
 along, not chatted in. The brief shows in full, and in place of the message
 box a bar says who handed what to whom, with a link to the sender's
-conversation. To steer the work, talk to the sender there. You can stop the
+conversation. Once the handoff has ended, because you pressed **Stop
+exchange**, revoked their collaboration, or removed or unlinked one of them,
+the bar says that what the colleague says there no longer reaches the sender,
+and "Working on a handoff from…" no longer counts it. To steer the work, talk to the sender there. You can stop the
 thread's turn while it runs. That ends the handoff: the teammate that handed
 it over hears that you stopped it with the next thing it hears, and is told
 not to send it again unless you ask. If the colleague needs something from

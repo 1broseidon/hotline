@@ -87,7 +87,9 @@ pub(super) fn is_zero(count: &u32) -> bool {
 }
 
 /// Ends a handoff's delegation, and says whether that changed the request.
-pub(super) fn release(request: &mut Request) -> bool {
+/// Its thread goes in `ended`, whose links say so once the pair is saved
+/// ([`Room::mark_handoffs`]).
+pub(super) fn release(request: &mut Request, ended: &mut Vec<String>) -> bool {
     if request.intent != Intent::Handoff || request.released {
         return false;
     }
@@ -95,6 +97,7 @@ pub(super) fn release(request: &mut Request) -> bool {
     request.progress.clear();
     request.progress_left_out = 0;
     request.progress_wakes = false;
+    ended.extend(request.thread.clone());
     true
 }
 
@@ -297,6 +300,14 @@ impl Room {
                 })?;
             Some((pair.id, request))
         })
+    }
+
+    /// Whether the delegation a thread serves has ended, as the pair's record
+    /// keeps it: the latest handoff into it was released or stopped. What a
+    /// thread's link says, and so what the window shows.
+    pub(in crate::session) fn handoff_ended(&self, side_id: &str) -> bool {
+        self.serving(side_id)
+            .is_some_and(|(_, request)| request.released || request.phase == Phase::Stopped)
     }
 
     pub(super) fn delegation_live(&self, request: &Request) -> bool {

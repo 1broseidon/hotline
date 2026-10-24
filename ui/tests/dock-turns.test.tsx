@@ -16,6 +16,9 @@ const persona = (id: string, name: string): Persona => ({
 });
 const lead = persona("lead", "Lead");
 const exec = persona("exec", "Exec");
+/** Who the thread is between: a pane keeps a teammate's conversation open across tests, so a test that writes to it has teammates of its own. */
+let sender = lead;
+let receiver = exec;
 const session = (personaId: string): SessionInfo => ({
 	personaId, state: "idle", contextRestored: false, models: [], modes: [], configs: [], slashCommands: [],
 	capabilities: { activeInput: false, loadSession: false, resume: false, fork: false, mcpHttp: false, image: false, additionalDirectories: false },
@@ -29,9 +32,10 @@ class NoResize {
 
 type Handlers = { snapshot(items: unknown[]): void; event(item: unknown): void };
 
-/** The handed-over thread as the desk holds it: Exec's, opened by Lead. */
-let desk: { key: string; state: LinkState; working: boolean };
+/** The handed-over thread as the desk holds it: Exec's, opened by Lead, its handoff ended or standing. */
+let desk: { key: string; state: LinkState; working: boolean; ended?: boolean };
 let threadHandlers: Handlers | undefined;
+let dmHandlers: Handlers | undefined;
 let act: typeof import("react").act;
 let root: Root;
 let container: HTMLDivElement;
@@ -41,11 +45,12 @@ let teardown: () => Promise<void>;
 function listed(): ThreadSummary[] {
 	return [{
 		thread: { kind: "side", key: desk.key },
-		personaId: exec.id,
+		personaId: receiver.id,
 		title: "Add mul to calc.py",
 		state: desk.state,
 		...(desk.state === "closed" ? { end: "agent" as const, outcome: "Three tests pass." } : {}),
-		opener: { personaId: lead.id, name: lead.name },
+		opener: { personaId: sender.id, name: sender.name },
+		...(desk.ended === true ? { handoffEnded: true } : {}),
 		startedAt: 1,
 		updatedAt: 1,
 		working: desk.working,
@@ -62,6 +67,9 @@ beforeEach(async () => {
 	restores.push(() => Reflect.deleteProperty(globalThis, "HTMLElement"));
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	threadHandlers = undefined;
+	dmHandlers = undefined;
+	sender = lead;
+	receiver = exec;
 	const connection = wireFor("local");
 	const open = spyOn(connection, "onConnection").mockImplementation((watcher) => {
 		watcher("open");
@@ -70,6 +78,7 @@ beforeEach(async () => {
 	restores.push(() => open.mockRestore());
 	const subscription = spyOn(connection, "subscribe").mockImplementation(((target: { threadId?: { kind: string; key: string } }, handlers: Handlers) => {
 		if (target.threadId?.key === desk.key) threadHandlers = handlers;
+		if (target.threadId?.kind === "dm") dmHandlers = handlers;
 		const first: TranscriptEvent[] = target.threadId?.key === desk.key
 			? [{ kind: "agent", id: "a1", ts: 2, text: "Three tests pass." }, { kind: "turn", id: "t1", ts: 3, stopReason: "end_turn" }]
 			: [];
@@ -105,7 +114,7 @@ afterEach(async () => {
 function roster(working: boolean | null): RosterEntry[] {
 	const entry = (one: Persona): RosterEntry => ({ persona: one, waiting: false, drawing: false, session: session(one.id) });
 	const sides = working === null ? {} : { sides: [{ sideId: desk.key, title: "Add mul to calc.py", startedAt: 1, working }] };
-	return [entry(lead), { ...entry(exec), ...sides }];
+	return [entry(sender), { ...entry(receiver), ...sides }];
 }
 
 async function show(pane: Persona, working: boolean | null) {
@@ -180,4 +189,38 @@ describe("a handed-over thread continued in the pane", () => {
 			expect(working()).toEqual(idle);
 		});
 	}
+});
+
+/** The thread's link on the receiver's tape, as the desk rewrites it. */
+const linkOf = (ended: boolean): TranscriptEvent => ({
+	kind: "link",
+	id: `link:side:${desk.key}`,
+	ts: 1,
+	thread: desk.key,
+	threadKind: "side",
+	personaId: receiver.id,
+	title: "Add mul to calc.py",
+	state: desk.state,
+	openerId: sender.id,
+	openerName: sender.name,
+	...(ended ? { handoffEnded: true } : {}),
+});
+
+describe("the bar of a handed-over thread", () => {
+	test("says what the receiver says reaches the sender while the handoff stands, and that it no longer does once the desk ended it", async () => {
+		sender = persona("poe", "Poe");
+		receiver = persona("toad", "Toad");
+		desk = { key: "work-bar", state: "live", working: false };
+		await show(receiver, false);
+		expect(dmHandlers).toBeDefined();
+		expect(container.textContent).toContain("Poe handed this to Toad. What Toad says here reaches Poe.");
+
+		// The desk records the end on the thread's link, and the list read again says so.
+		desk = { ...desk, ended: true };
+		await act(async () => dmHandlers?.event(linkOf(true)));
+		await show(receiver, false);
+		expect(container.textContent).toContain("Poe handed this to Toad. The handoff has ended: what Toad says here no longer reaches Poe.");
+		expect(container.textContent).not.toContain("What Toad says here reaches Poe.");
+		expect(container.textContent).toContain("Talk to Poe about it");
+	});
 });

@@ -604,6 +604,7 @@ impl Running {
             binding: None,
             elapsed_ms,
             opener: None,
+            handoff_ended: false,
         });
         room.list_subagent(
             &self.persona_id,

@@ -1119,6 +1119,10 @@ under are kept only by the running process: within a run, one that lapses
 ends the delegation too, but after a restart only a stop, a revocation or an
 unlink does. While it stands it is the grant for its thread's questions back
 to the delegator, which reach the delegating conversation without a card.
+Once a stop or a revocation has ended it, the thread's link says so
+(`handoffEnded`), and the window shows only that: whether what is said in the
+thread reaches the delegator is the core's to decide, never the window's to
+infer.
 
 The person talks in a delegated thread and continues it once it has closed,
 but does not archive it: it ends with its result, which is the delegator's and
@@ -1132,7 +1136,9 @@ ties to the delegation.
 The pair record's new fields (`progress`, `progress_left_out`,
 `progress_wakes`, `released`, `about`, `owed_to_thread`) are optional and left
 out when empty, so a record without them has no report waiting, no delegation
-released and no question back. A report crosses a desk link as its own
+released and no question back. So is the link's `handoffEnded`: a link without
+it, the reference tree's included, is a delegation that stands, and the
+segment layout and the importer are unchanged. A report crosses a desk link as its own
 `LinkedDelivery`, which a desk from before reports refuses; the handoff's
 result is a separate frame and arrives as before.
 

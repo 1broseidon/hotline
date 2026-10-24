@@ -103,6 +103,13 @@ describe("work colleagues handed a teammate", () => {
 		expect(handoffsUnderway([handed("a", "closed")], "toad")).toEqual({ count: 0, from: [] });
 	});
 
+	test("leaves out a handoff the desk recorded as ended, whether its thread is open or parked", () => {
+		const ended = (id: string, state: LinkEvent["state"]) => ({ ...handed(id, state), handoffEnded: true });
+		const events = [handed("a", "live"), handed("b", "parked", "Clementine", "clem"), ended("a", "live"), ended("b", "parked")];
+		expect(handoffsUnderway(events, "toad")).toEqual({ count: 0, from: [] });
+		expect(handoffsUnderway([ended("a", "live"), handed("a", "live")], "toad")).toEqual({ count: 1, from: ["Poe"] });
+	});
+
 	test("names its senders the way a person lists them", () => {
 		expect(namesSaid(["Poe"])).toBe("Poe");
 		expect(namesSaid(["Poe", "Mack"])).toBe("Poe and Mack");

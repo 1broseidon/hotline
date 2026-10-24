@@ -291,14 +291,14 @@ impl Room {
     pub(in crate::session) fn stop_linked_exchanges(&self, desk_id: &str, desk_name: &str) {
         let theirs = |id: &str| crate::linked::split(id).is_some_and(|(desk, _)| desk == desk_id);
         let _guard = lock(&self.exchange_lock);
-        let mut stopped = Vec::new();
+        let (mut stopped, mut ended) = (Vec::new(), Vec::new());
         for mut pair in self.exchange_pairs() {
             if !theirs(&pair.a) && !theirs(&pair.b) {
                 continue;
             }
             let mut changed = false;
             for request in &mut pair.requests {
-                changed |= progress::release(request);
+                changed |= progress::release(request, &mut ended);
                 if !Self::exchange_pending(request) {
                     continue;
                 }
@@ -325,6 +325,7 @@ impl Room {
             }
             self.wake_owed(&pair);
         }
+        self.mark_handoffs(&ended);
         self.exchange_notices(&stopped);
     }
 

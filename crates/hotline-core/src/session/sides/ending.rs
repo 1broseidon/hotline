@@ -165,7 +165,31 @@ impl Room {
             }),
             elapsed_ms: None,
             opener: side.opener.clone(),
+            handoff_ended: side.opener.is_some() && self.handoff_ended(&side.id),
         });
+    }
+
+    /// Writes on each thread's link whether the delegation it serves still
+    /// stands, where that has changed ([`Room::handoff_ended`]): a live
+    /// thread's from its agent's record, one with no agent from its link.
+    pub(in crate::session) fn mark_handoffs(&self, threads: &[String]) {
+        for side_id in threads {
+            let Some(link) = self.link_of(&self.work_thread(side_id)) else {
+                continue;
+            };
+            let ended = link.opener.is_some() && self.handoff_ended(side_id);
+            if link.handoff_ended == ended {
+                continue;
+            }
+            match self.sides.get(side_id) {
+                Some(side) if side.closed.load(Ordering::SeqCst) => {}
+                Some(side) => self.mark_side(&side, ThreadState::Live, None),
+                None => self.write_link(&Link {
+                    handoff_ended: ended,
+                    ..link
+                }),
+            }
+        }
     }
 
     pub(super) fn side_summary(&self, side: &LiveSide) -> SideThreadSummary {

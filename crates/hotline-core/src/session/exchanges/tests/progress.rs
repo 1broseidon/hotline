@@ -339,6 +339,7 @@ async fn the_persons_stop_on_a_handoffs_turn_ends_it_and_waits_for_the_senders_n
         room.link_of(&ThreadId::side(&thread)).unwrap().state,
         crate::thread::ThreadState::Closed(End::Stopped)
     );
+    assert_eq!(says_ended(&room, &thread), [true; 3]);
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(
         room.tape("ada")
@@ -1195,7 +1196,85 @@ fn is_released(room: &Room, handoff: &str) {
             saved.progress
         );
     }
-    assert!(request(room, "ada~bob", handoff).released);
+    let released = request(room, "ada~bob", handoff);
+    assert!(released.released);
+    if let Some(thread) = &released.thread {
+        assert_eq!(says_ended(room, thread), [true; 3], "{thread}");
+    }
+}
+
+/// Whether a handed-over thread's link says its delegation has ended: on the
+/// thread itself, on Bob's tape, where his conversation counts the handoffs
+/// he is working on, and on Ada's copy.
+fn says_ended(room: &Room, thread: &str) -> [bool; 3] {
+    let id = format!("link:side:{thread}");
+    let on = |tape: Vec<serde_json::Value>, id: &str| {
+        tape.iter()
+            .rev()
+            .find(|v| v["id"] == id)
+            .is_some_and(|v| v["handoffEnded"] == true)
+    };
+    [
+        room.link_of(&ThreadId::side(thread))
+            .is_some_and(|link| link.handoff_ended),
+        on(room.tape("bob"), &id),
+        on(room.tape("ada"), &format!("{id}@ada")),
+    ]
+}
+
+/// A handed-over thread's link says its delegation ended when, and only
+/// when, it ends: not while it stands, a finished handoff the person goes
+/// on with included, and no more once a new handoff into it stands.
+#[tokio::test]
+async fn a_threads_link_says_its_delegation_ended_when_and_only_when_it_does() {
+    let (room, _agents, handoff, thread) = handed_over_and_done("progress-link-ended").await;
+    assert_eq!(says_ended(&room, &thread), [false; 3], "done, it stands");
+    room.continue_side(&thread).await.unwrap();
+    room.prompt_side(&thread, "and the date?", None)
+        .await
+        .unwrap();
+    until("the person's turn is over", || {
+        said_in(&room, &thread).len() == 2 && idle(&room, &thread)
+    })
+    .await;
+    assert_eq!(
+        says_ended(&room, &thread),
+        [false; 3],
+        "continued, it stands"
+    );
+
+    room.stop_exchange("ada", "bob").unwrap();
+    assert_eq!(
+        says_ended(&room, &thread),
+        [true; 3],
+        "said in the live thread"
+    );
+    room.park_side_thread(&thread).unwrap();
+    assert_eq!(
+        says_ended(&room, &thread),
+        [true; 3],
+        "and kept as it parks"
+    );
+
+    room.resume_exchange("ada", "bob").unwrap();
+    let again = TeammateTools::new(&room, "ada")
+        .call(
+            "message_teammate",
+            &json!({"to":"bob","message":"work again","intent":"handoff","thread":handoff}),
+        )
+        .await
+        .unwrap();
+    let again = serde_json::from_str::<serde_json::Value>(&again).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    done(&room, &again).await;
+    assert_eq!(work_thread(&room, &again), thread);
+    assert_eq!(
+        says_ended(&room, &thread),
+        [false; 3],
+        "a new handoff stands"
+    );
 }
 
 #[tokio::test]
@@ -1300,11 +1379,15 @@ fn only_a_handoff_is_released_and_a_request_not_released_saves_without_it() {
     handoff.progress = vec!["Swatch 45 is ready.".into()];
     handoff.progress_left_out = 1;
     handoff.progress_wakes = true;
+    handoff.thread = Some("t1".into());
     let mut ask = saved_request("ask", Intent::Ask, Phase::Done);
-    assert!(release(&mut handoff));
-    assert!(!release(&mut handoff), "it is released once");
-    assert!(!release(&mut ask));
+    ask.thread = Some("t2".into());
+    let mut ended = Vec::new();
+    assert!(release(&mut handoff, &mut ended));
+    assert!(!release(&mut handoff, &mut ended), "it is released once");
+    assert!(!release(&mut ask, &mut ended));
     assert!(handoff.released && !ask.released);
+    assert_eq!(ended, ["t1"], "its thread's link is to say so");
     assert!(
         handoff.progress.is_empty() && handoff.progress_left_out == 0 && !handoff.progress_wakes
     );

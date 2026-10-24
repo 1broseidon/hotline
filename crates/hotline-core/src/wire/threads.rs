@@ -398,6 +398,7 @@ fn summarize(
             .as_ref()
             .and_then(|link| link.opener.clone())
             .map(SideOpener::from),
+        handoff_ended: link.as_ref().is_some_and(|link| link.handoff_ended),
         started_at,
         updated_at,
         working,

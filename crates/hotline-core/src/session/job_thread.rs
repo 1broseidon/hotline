@@ -1279,6 +1279,7 @@ impl Room {
             binding,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
         });
     }
 

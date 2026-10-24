@@ -181,10 +181,7 @@ impl Room {
         }
     }
 
-    /// The person's Stop on a handoff's own turn ends the handoff, and its
-    /// sender is told once, as their decision, in a report that wakes
-    /// nobody: a turn woken by it would send the work again and undo the
-    /// stop. A sender on a linked desk is told by the pair's worker. Says
+    /// The person's Stop on a handoff's own turn ends the handoff. Says
     /// whether the stop cut short the turn of `id`, a handoff still at work;
     /// a turn that ended on its own is left to end as it did.
     pub(in crate::session) fn end_stopped_handoff(
@@ -192,23 +189,50 @@ impl Room {
         id: &str,
         driven: &Driven,
     ) -> bool {
-        if !matches!(
+        matches!(
             driven.stop_reason.as_deref(),
             Some("cancelled" | "canceled" | "aborted")
-        ) {
-            return false;
+        ) && self.end_for_the_person(id, true, turn_report(driven, TurnEnd::HandoffStopped))
+    }
+
+    /// Ends each handoff among `dropped`, lines the person's Stop took off
+    /// the queue of `side_id` before their turns began, as one whose turn
+    /// the stop cut short ends; the thread goes on, and its link says so.
+    pub(in crate::session) fn end_dropped_handoffs(
+        self: &Arc<Self>,
+        side_id: &str,
+        dropped: &[&str],
+    ) {
+        let report = peers::HANDOFF_STOPPED_BY_THE_PERSON;
+        let mut ended = false;
+        for id in dropped {
+            ended |= self.end_for_the_person(id, false, Some(report.to_string()));
         }
+        if ended {
+            self.mark_handoffs(&[side_id.to_string()]);
+        }
+    }
+
+    /// Ends `id`, a handoff still at work, as the person's decision, and its
+    /// sender is told once in `report`, which wakes nobody: a turn woken by
+    /// it would send the work again and undo the stop. One whose turn had
+    /// not `begun` is ended only if none ever began, so it is never handed
+    /// over again. A sender on a linked desk is told by the pair's worker.
+    /// Says whether it ended it.
+    fn end_for_the_person(self: &Arc<Self>, id: &str, begun: bool, report: Option<String>) -> bool {
         let Some((key, handoff)) = self.exchange_pairs().into_iter().find_map(|pair| {
-            let handoff = pair
-                .requests
-                .into_iter()
-                .find(|r| r.id == id && r.intent == Intent::Handoff && r.phase == Phase::Running)?;
+            let handoff = pair.requests.into_iter().find(|r| {
+                r.id == id
+                    && r.intent == Intent::Handoff
+                    && r.phase == Phase::Running
+                    && (begun || !r.started)
+            })?;
             Some((pair.id, handoff))
         }) else {
             return false;
         };
         if !crate::linked::is_linked(&handoff.from)
-            && let Some(report) = turn_report(driven, TurnEnd::HandoffStopped)
+            && let Some(report) = report
             && let Err(error) = self.hear_progress(&key, id, &report, false)
         {
             eprintln!("report a stopped handoff: {error}");

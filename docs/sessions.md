@@ -1410,7 +1410,12 @@ again; it gets a report that never wakes, the teammate's last words and
 "The person stopped this handoff. Do not send it again unless they ask." A
 sender on a linked desk is sent that sentence as the stopped request's
 failure. A handoff turn cancelled any other way, or failed, returns its
-failure as before.
+failure as before. Their Stop also drops what waited behind the turn, and a
+handoff whose line was among it (one that waited for the thread's agent to
+start, or behind the person's own turn) ends the same way, with the sentence
+alone as its report (`end_dropped_handoffs`): it is never handed over again
+when the thread later parks or closes, and the thread, which goes on, says
+on its link that the delegation has ended.
 
 **The delegation** is the handoff the thread serves: the latest one into it,
 in any phase, so a thread the person continues after its result still

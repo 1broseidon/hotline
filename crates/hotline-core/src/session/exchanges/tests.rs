@@ -3,6 +3,7 @@ mod gates;
 mod pause;
 mod progress;
 mod questions;
+mod stops;
 
 use super::*;
 use crate::driver::{MessageKind, Update};

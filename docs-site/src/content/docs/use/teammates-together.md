@@ -58,9 +58,10 @@ conversation. Once the handoff has ended, because you pressed **Stop
 exchange**, revoked their collaboration, or removed or unlinked one of them,
 the bar says that what the colleague says there no longer reaches the sender,
 and "Working on a handoff from…" no longer counts it. To steer the work, talk to the sender there. You can stop the
-thread's turn while it runs. That ends the handoff: the teammate that handed
-it over hears that you stopped it with the next thing it hears, and is told
-not to send it again unless you ask. If the colleague needs something from
+thread's turn while it runs, or the thread while the handoff still waits in
+it. That ends the handoff: the teammate that handed it over hears that you
+stopped it with the next thing it hears, and is told not to send it again
+unless you ask. If the colleague needs something from
 you, the bar becomes a box for your answer.
 
 A teammate works on up to three threads at a time. A handoff to a teammate

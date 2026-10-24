@@ -42,7 +42,7 @@ impl Agents for Builds {
     }
 }
 
-fn room_with(name: &str, ada: &Arc<Fake>, bob: Vec<Arc<Fake>>) -> Arc<Room> {
+pub(super) fn room_with(name: &str, ada: &Arc<Fake>, bob: Vec<Arc<Fake>>) -> Arc<Room> {
     let log = scratch(name);
     for id in ["ada", "bob"] {
         enrol(&log, &persona(id));
@@ -93,7 +93,7 @@ async fn asking(
 }
 
 /// Whether a turn holds Ada's DM, or has just been handed it.
-fn claimed(room: &Room) -> bool {
+pub(super) fn claimed(room: &Room) -> bool {
     room.session("ada")
         .is_ok_and(|session| lock(&session.turns).running)
 }
@@ -144,7 +144,7 @@ fn shown_in(room: &Room, thread: &str) -> Vec<String> {
 }
 
 /// The first line a driver heard that ends with `line`.
-fn heard_with(agents: &Fake, line: &str) -> Option<String> {
+pub(super) fn heard_with(agents: &Fake, line: &str) -> Option<String> {
     agents.prompts().into_iter().find(|p| p.ends_with(line))
 }
 
@@ -1269,7 +1269,7 @@ fn is_released(room: &Room, handoff: &str) {
 /// Whether a handed-over thread's link says its delegation has ended: on the
 /// thread itself, on Bob's tape, where his conversation counts the handoffs
 /// he is working on, and on Ada's copy.
-fn says_ended(room: &Room, thread: &str) -> [bool; 3] {
+pub(super) fn says_ended(room: &Room, thread: &str) -> [bool; 3] {
     let id = format!("link:side:{thread}");
     let on = |tape: Vec<serde_json::Value>, id: &str| {
         tape.iter()

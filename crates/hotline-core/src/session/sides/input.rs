@@ -145,23 +145,23 @@ impl Room {
     }
 
     /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it, a colleague's question included, which fails to its asker. The
-    /// thread stays live, unless the turn was a handoff's: the person's stop
-    /// ends the handoff.
-    pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
+    /// it: a colleague's question fails to its asker, and a colleague's
+    /// handoff ends as the person's stop of it. The thread stays live, unless
+    /// the turn was a handoff's: the person's stop ends the handoff.
+    pub fn cancel_side(self: &Arc<Self>, side_id: &str) -> Result<(), String> {
         let side = self.live_side(side_id)?;
         side.stopped_by_person.store(true, Ordering::SeqCst);
         let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
-        self.fail_dropped_questions(
-            &side.persona_id,
-            dropped
-                .iter()
-                .filter_map(|line| line.request.as_ref())
-                .map(|line| line.request.as_str()),
-        );
+        let requests: Vec<&str> = dropped
+            .iter()
+            .filter_map(|line| line.request.as_ref())
+            .map(|line| line.request.as_str())
+            .collect();
+        self.end_dropped_handoffs(side_id, &requests);
+        self.fail_dropped_questions(&side.persona_id, requests);
         Ok(())
     }
 }

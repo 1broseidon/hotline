@@ -1404,22 +1404,25 @@ already heard is skipped. A room closing for a restart wakes nobody, and
 reports survive the restart.
 
 The person's Stop on a handoff's own turn ends the handoff
-(`end_stopped_handoff`): the request is stopped and its thread closes as
-stopped, to be continued like any other. Its sender is not handed a failed
-result to inspect and retry, which would start a turn that sends the work
-again; it gets a report that never wakes, the teammate's last words and
-"The person stopped this handoff. Do not send it again unless they ask." A
-sender on a linked desk is sent that report as the stopped request's result
-with `stoppedByPerson`, and its desk ends the request there the same way,
-shown and heard once, never woken nor handed a failure; a desk older than
-that hands it back as a failure. A handoff turn cancelled any other way, or
-failed, returns its failure as before. Their Stop also drops what waited
-behind the turn, and a
-handoff whose line was among it (one that waited for the thread's agent to
-start, or behind the person's own turn) ends the same way, with the sentence
-alone as its report (`end_for_the_persons_stop`): it is never handed over again
-when the thread later parks or closes, and the thread, which goes on, says
-on its link that the delegation has ended.
+(`end_stopped_by_person`): the request is stopped and its thread closes as
+stopped. The person may continue it, but then it is theirs alone: a
+delegation stands only while the newest handoff into its thread is not
+stopped, so the thread no longer reports to the sender, and a question back
+needs the ordinary grant, until the sender hands work into it again. Its
+sender is not handed a failed result to inspect and retry, which would start
+a turn that sends the work again; it gets a report that never wakes, the
+teammate's last words and "The person stopped this handoff. Do not send it
+again unless they ask." A sender on a linked desk is sent that report as the
+stopped request's result with `stoppedByPerson`, and its desk ends the
+request there the same way, shown and heard once, never woken nor handed a
+failure; a desk older than that hands it back as a failure. A handoff turn
+cancelled any other way, or failed, returns its failure as before. Their
+Stop also drops what waited behind the turn, and a handoff whose line was
+among it (one that waited for the thread's agent to start, or behind the
+person's own turn) ends the same way, with the sentence alone as its report
+(`end_for_the_persons_stop`): it is never handed over again when the thread
+later parks or closes, and the thread, which goes on, says on its link that
+the delegation has ended.
 
 The person's Stop on a turn answering a colleague's question ends the
 answer the same way (`end_stopped_by_person`), wherever it was answered: in

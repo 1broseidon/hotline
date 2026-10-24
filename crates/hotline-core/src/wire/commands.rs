@@ -15,7 +15,7 @@ use crate::contract::{Command, ThreadAnswer, ThreadId};
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
 use crate::{paths, room};
-use models::{remember_model, set_config, set_model, welcome};
+use models::{remember_model, set_backend, set_config, set_model, welcome};
 use persona::{
     MobileDraft, apply_persona_update, create_persona, delete_persona, lead_persona, living,
     mobile_persona_access, mobile_persona_computer, mobile_persona_create, mobile_persona_patch,
@@ -426,6 +426,13 @@ pub(crate) async fn run(
             persona_id,
             model_id,
         } => set_model(log, room, &persona_id, &model_id)
+            .await
+            .map(|info| json!(info)),
+        Command::SessionSetBackend {
+            persona_id,
+            backend_id,
+            model_id,
+        } => set_backend(log, room, &persona_id, &backend_id, model_id.as_deref())
             .await
             .map(|info| json!(info)),
 

@@ -747,6 +747,12 @@ impl RoomHandle for Quiet {
                 description: "An external harness.".to_string(),
                 unavailable: Some("Not signed in.".to_string()),
             },
+            crate::contract::BackendChoice {
+                id: "codex".to_string(),
+                name: "Codex".to_string(),
+                description: "An external harness, ready.".to_string(),
+                unavailable: None,
+            },
         ]
     }
 

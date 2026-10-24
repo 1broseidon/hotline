@@ -581,6 +581,17 @@ pub enum Command {
         persona_id: String,
         model_id: String,
     },
+    /// Moves a teammate to another agent (backend), with a model when one
+    /// is named. The record changes now; a turn in progress finishes on the
+    /// agent it started on, and the teammate restarts on the new one once
+    /// it is idle, fresh, with no stale session of that agent reopened.
+    #[serde(rename = "session.set_backend")]
+    SessionSetBackend {
+        persona_id: String,
+        backend_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_id: Option<String>,
+    },
     /// Switches the agent's mode. Only an agent that offers modes has one; the
     /// pickers a session reports are what says whether it does.
     #[serde(rename = "session.set_mode")]

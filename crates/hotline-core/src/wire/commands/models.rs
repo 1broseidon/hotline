@@ -103,6 +103,100 @@ pub(super) async fn set_model(
     Ok(room.info(persona_id))
 }
 
+/// How long a switch of agent waits for a busy teammate to finish its turn
+/// before it gives up and leaves the record to take effect on the next start.
+const SWITCH_PATIENCE: std::time::Duration = std::time::Duration::from_hours(6);
+
+/// Moves a teammate to another agent, with a model when one is named.
+///
+/// The record is written at once, so a desk that restarts starts the
+/// teammate on the new agent. The new agent's saved session is withdrawn
+/// first: the teammate starts it fresh, seeded from the chapter like any
+/// new session, and never reopens one it left earlier (A→B→A). A turn in
+/// progress is not cut short: the live session restarts on the new agent
+/// once the teammate is idle, and the switch lands on its next turn.
+pub(super) async fn set_backend(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona_id: &str,
+    backend_id: &str,
+    model_id: Option<&str>,
+) -> Result<SessionInfo, String> {
+    let persona = living(log, persona_id)?;
+    match room
+        .backends()
+        .await
+        .into_iter()
+        .find(|backend| backend.id == backend_id)
+    {
+        None => return Err(format!("There is no agent {backend_id} on this desk.")),
+        Some(backend) if backend.unavailable.is_some() => {
+            return Err(format!(
+                "{} is not ready: {}",
+                backend.name,
+                backend.unavailable.unwrap_or_default()
+            ));
+        }
+        Some(_) => {}
+    }
+    let model_id = model_id.filter(|model| !model.is_empty());
+    if backend_id == HOTLINE_BACKEND_ID
+        && let Some(model) = model_id
+        && !room
+            .models()
+            .iter()
+            .any(|choice| choice.id == model || crate::models::base_id(&choice.id) == model)
+    {
+        return Err(format!("{model} is not a model this desk can reach."));
+    }
+    if persona.backend_id == backend_id {
+        return match model_id {
+            Some(model) => set_model(log, room, persona_id, model).await,
+            None => Ok(room.info(persona_id)),
+        };
+    }
+    {
+        let gate = room.policy_update_lock();
+        let _held = gate.lock().await;
+        let mut moved = living(log, persona_id)?;
+        moved.backend_id = backend_id.to_string();
+        // A model is the new agent's when named; otherwise the agent's own.
+        moved.model_id = model_id.map(str::to_string);
+        if backend_id != HOTLINE_BACKEND_ID {
+            moved.effort_id = None;
+        }
+        moved.updated_at = chrono::Utc::now().timestamp_millis();
+        room::append_persona(log, &moved)?;
+        room::clear_checkpoint(log, persona_id, backend_id)?;
+    }
+    if backend_id == HOTLINE_BACKEND_ID
+        && let Some(model) = model_id
+    {
+        write_last_model(log, model)?;
+    }
+    if busy(room.info(persona_id).state) {
+        let room = room.clone();
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            let started = std::time::Instant::now();
+            while busy(room.info(&persona_id).state) && started.elapsed() < SWITCH_PATIENCE {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            if let Err(error) = room.reattach(&persona_id).await {
+                eprintln!("{persona_id} did not restart on its new agent: {error}");
+            }
+        });
+    } else {
+        room.reattach(persona_id).await?;
+    }
+    Ok(room.info(persona_id))
+}
+
+/// A teammate in the middle of a turn, or of starting one.
+fn busy(state: SessionState) -> bool {
+    matches!(state, SessionState::Thinking | SessionState::Starting)
+}
+
 /// Write a Hotline Agent teammate's effort first, then switch a live session
 /// if there is one. An ACP teammate has no stored effort: the harness owns
 /// its config ids, and a live session is required.

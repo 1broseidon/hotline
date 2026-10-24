@@ -1427,7 +1427,10 @@ revocation that touches either teammate, or the end of the link to the other
 desk releases it (`released` on the request, written by `Request::release`),
 whether or not its result is back; one stopped before its result has ended
 too. The thread's link then says so (`handoffEnded`, written by
-`Room::mark_handoffs` once the pair is saved), as every later rewrite of it
+`Room::mark_handoffs` once the pair is saved; a live thread's link is
+rewritten under the thread's own lock, which the link that parks or closes
+it is written under too, so the mark never brings an ended thread back as
+live), as every later rewrite of it
 does while the latest handoff into the thread is released or stopped
 (`Room::handoff_ended`); a new handoff into it stands, and its link says so no
 more. `list_teammates` offers a sender only the threads whose handoff stands.

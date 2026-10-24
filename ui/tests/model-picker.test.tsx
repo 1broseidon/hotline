@@ -161,7 +161,8 @@ test("the other agents follow the accounts with the models they last reported; o
 	});
 	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
 	const menu = document.querySelector('[role="menu"][aria-label="Model"]')!;
-	expect([...menu.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["Agents"]);
+	// The account in use is pinned on top; the rest are API (straight to a provider), then Agents.
+	expect([...menu.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["API", "Agents"]);
 	const rows = [...menu.querySelectorAll<HTMLElement>(".model-row")];
 	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor"]);
 	const cursor = rows[5]!;
@@ -218,12 +219,14 @@ test("on a harness, its models are a model change and Hotline Agent's are a move
 	expect(button.textContent).toBe("Opus");
 	await act(async () => button.click());
 	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".model-dot") !== null)).toEqual([false, false, false, true, false, false]);
-	await act(async () => rows[3]!.click());
+	// Claude Code, in use, is pinned on top and not listed again below.
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Claude Code", "Anthropic · Work", "Anthropic · Personal", "OpenAI", "Codex", "Cursor"]);
+	expect(rows.map((row) => row.querySelector(".model-dot") !== null)).toEqual([true, false, false, false, false, false]);
+	await act(async () => rows[0]!.click());
 	const sonnet = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Claude Code"] [role="menuitemradio"]')].find((item) => item.textContent === "Sonnet")!;
 	await act(async () => sonnet.click());
 	await act(async () => button.click());
-	const work = [...document.querySelectorAll<HTMLElement>(".model-row")][0]!;
+	const work = [...document.querySelectorAll<HTMLElement>(".model-row")][1]!;
 	await act(async () => work.click());
 	const haiku = document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
 	await act(async () => haiku.click());
@@ -269,4 +272,25 @@ test("a model on an account that is gone keeps its name on the button", async ()
 	await picker({ modelId: "anthropic#gone/claude-opus" });
 	const button = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
 	expect(button.textContent).toBe("Claude Opus · Medium");
+});
+
+test("the named agents are Antigravity, Claude Code, Codex, Cursor and Grok Build, alphabetical; Gemini CLI is one of the others", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const named = [
+		{ id: "hotline", name: "Hotline Agent", choices: [] },
+		{ id: "grok-build", name: "Grok Build", choices: [] },
+		{ id: "gemini", name: "Gemini CLI", choices: [] },
+		{ id: "cursor", name: "Cursor", choices: [] },
+		{ id: "antigravity-acp", name: "Google Antigravity", choices: [] },
+		{ id: "codex-acp", name: "Codex", choices: [] },
+		{ id: "claude-acp", name: "Claude Code", choices: [] },
+	];
+	await act(async () => {
+		root.render(
+			<ModelPicker choices={choices} modelId="anthropic#work/claude-haiku" agents={named} effort={null} label="Model" onModel={() => {}} onAgent={() => {}} onEffort={() => {}} />,
+		);
+	});
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
+	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")].map((row) => row.querySelector(".menu-item-text")?.textContent);
+	expect(rows.slice(3)).toEqual(["Claude Code", "Codex", "Cursor", "Google Antigravity", "Grok Build", "Other agents"]);
 });

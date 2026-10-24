@@ -1,7 +1,7 @@
 ---
 id: task-286
 title: Voice, image generation and chapter notes follow the teammate's account
-column: todo
+column: review
 position: 7
 priority: medium
 tags:
@@ -11,6 +11,7 @@ tags:
   - chapters
 parentId: epic-25
 createdAt: "2026-10-24T06:23:17.773Z"
+updatedAt: "2026-10-24T07:04:43.675Z"
 ---
 
 ## Description

@@ -59,6 +59,7 @@ pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
 pub(crate) mod capture;
 mod cookie_offers;
+#[cfg(test)]
 pub(crate) use cookie_offers::NOT_NOW_QUIET_MS;
 mod prompt;
 pub(crate) mod runner;

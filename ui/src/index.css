@@ -2469,6 +2469,77 @@
 		width: 240px;
 		flex-shrink: 0;
 	}
+	/* The panes run to the window's top (ui/Titlebar.tsx FlushChrome): no
+	 * strip of its own. The rail keeps a 40px head for the rail's key, and
+	 * the traffic lights on macOS; the panes' top corners meet the window's
+	 * edge square. */
+	.rail {
+		padding-top: 40px;
+	}
+	.pane,
+	.inspector,
+	.dock {
+		border-top-left-radius: 0;
+		border-top-right-radius: 0;
+	}
+	.chrome-lead {
+		position: fixed;
+		top: 0;
+		left: 0;
+		z-index: 30;
+		display: flex;
+		height: 40px;
+		align-items: center;
+		gap: 4px;
+		/* 21: the rail key's 26px centred on 34, the faces column's centre. */
+		padding-left: 21px;
+	}
+	html[data-platform="macos"]:not([data-fullscreen]) .chrome-lead {
+		padding-left: 80px;
+	}
+	.chrome-lead-drag {
+		position: absolute;
+		inset: 0;
+	}
+	.chrome-lead > :not(.chrome-lead-drag) {
+		position: relative;
+	}
+	.chrome-controls {
+		position: fixed;
+		top: 0;
+		right: 0;
+		z-index: 30;
+		display: flex;
+		height: 40px;
+	}
+	/* With the rail closed the lead's keys stand over the pane's band. */
+	html[data-rail-closed] main .band-row {
+		padding-left: 140px;
+	}
+	html[data-platform="macos"][data-rail-closed]:not([data-fullscreen]) main .band-row {
+		padding-left: 200px;
+	}
+	html[data-platform="linux"] main .band-row,
+	html[data-platform="windows"] main .band-row {
+		padding-right: 140px;
+	}
+	/* A new teammate: the list's last row, a dashed face where the new one will stand. */
+	.rail-add {
+		color: var(--ink-3);
+	}
+	.rail-add-face {
+		display: grid;
+		width: 28px;
+		height: 28px;
+		flex: none;
+		place-items: center;
+		border-radius: 50%;
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+	}
+	.rail-add:hover {
+		color: var(--ink);
+	}
+
 	/* The rail's edge is the gutter beside it, taken back out of the row's
 	 * gap by its margins so it adds no width: a hit area the gutter's width,
 	 * with a hairline that shows on hover or while dragging. With the rail

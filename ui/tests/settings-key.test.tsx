@@ -41,6 +41,7 @@ test("Settings leads the rail's dock, in the window's bottom-left corner", async
 				onPin={() => {}}
 				onLead={() => {}}
 				onAddDesk={() => {}}
+				onNew={() => {}}
 				settings={key}
 				search={<input aria-label="Search" />}
 				deskKey={null}

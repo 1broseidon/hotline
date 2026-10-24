@@ -109,3 +109,81 @@ export function Titlebar({
 		</header>
 	);
 }
+
+/**
+ * The room's chrome once the panes run to the window's top: no strip of its
+ * own. The rail's key stands over the rail's head, past the traffic lights
+ * on macOS, with Settings, the search and the desk's call key beside it
+ * while the rail is closed, over the pane's band. Where the shell draws no
+ * frame (Linux, Windows) the window's controls stand at the top-right
+ * corner, over the last pane's band.
+ */
+export function FlushChrome({
+	rail,
+	width,
+	settings,
+	search,
+	deskKey,
+}: {
+	rail: { open: boolean; onToggle(): void };
+	/** The rail's width while it is open: its head is the lead's drag area. */
+	width: number;
+	settings: ReactNode;
+	search: ReactNode;
+	deskKey: ReactNode;
+}) {
+	const frame = drawsFrame();
+	const [maximized, setMaximized] = useState(false);
+	useEffect(() => {
+		if (!frame) return;
+		return watchWindowShape(({ maximized: value }) => {
+			setMaximized(value);
+			document.documentElement.toggleAttribute("data-maximized", value);
+		});
+	}, [frame]);
+	useEffect(() => {
+		document.documentElement.toggleAttribute("data-rail-closed", !rail.open);
+		return () => document.documentElement.removeAttribute("data-rail-closed");
+	}, [rail.open]);
+	return (
+		<>
+			<div className="chrome-lead" style={rail.open ? { width } : undefined}>
+				{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
+				<button
+					type="button"
+					className="control btn-icon"
+					title={`${rail.open ? "Hide" : "Show"} the team (${chordKeys("sidebar")})`}
+					aria-label={rail.open ? "Hide the team" : "Show the team"}
+					onClick={rail.onToggle}
+				>
+					<SidebarIcon />
+				</button>
+				{!rail.open && (
+					<>
+						{settings}
+						{search}
+						{deskKey}
+					</>
+				)}
+			</div>
+			{frame && (
+				<div className="chrome-controls">
+					<button type="button" className="window-control" aria-label="Minimize" onClick={() => void minimizeWindow()}>
+						<MinimizeIcon />
+					</button>
+					<button
+						type="button"
+						className="window-control"
+						aria-label={maximized ? "Restore" : "Maximize"}
+						onClick={() => void toggleMaximize()}
+					>
+						{maximized ? <RestoreIcon /> : <MaximizeIcon />}
+					</button>
+					<button type="button" className="window-control window-control-close" aria-label="Close" onClick={() => void closeWindow()}>
+						<CloseIcon />
+					</button>
+				</div>
+			)}
+		</>
+	);
+}

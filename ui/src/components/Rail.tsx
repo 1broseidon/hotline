@@ -1,7 +1,7 @@
 import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
-import { ChevronDownIcon, ComputerIcon, LeadIcon } from "../icons";
+import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
@@ -42,6 +42,7 @@ export function Rail({
 	onPin,
 	onLead,
 	onAddDesk,
+	onNew,
 	width,
 	compact = false,
 	settings,
@@ -68,6 +69,8 @@ export function Rail({
 	/** Make the teammate its desk's lead, or with false, leave the desk with none. */
 	onLead(personaId: string, lead: boolean, deskId?: string): void;
 	onAddDesk(): void;
+	/** A new teammate: the list's last row, where the new one will stand. */
+	onNew(): void;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
@@ -197,10 +200,24 @@ export function Rail({
 						})}
 					</>
 				)}
+				{loaded && (
+					<button
+						type="button"
+						className="rail-row rail-add"
+						title={`New teammate (${chordKeys("new-teammate")})`}
+						aria-label="New teammate"
+						onClick={onNew}
+					>
+						<span className="rail-add-face" aria-hidden="true">
+							<PersonPlusIcon />
+						</span>
+						{!compact && <span className="min-w-0 flex-1 truncate text-ink-3">Add teammate</span>}
+					</button>
+				)}
 			</div>
 
 			{deskCard}
-			{/* The dock: Settings in the window's corner, search, and the desk's line. A new teammate is the title bar's. */}
+			{/* The dock: Settings in the window's corner, search, and the desk's line. */}
 			<footer className={compact ? "rail-dock rail-dock-compact" : "rail-dock"}>
 				{settings}
 				{search}

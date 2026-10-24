@@ -9,7 +9,7 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
-import { Titlebar } from "./ui/Titlebar";
+import { FlushChrome, Titlebar } from "./ui/Titlebar";
 import { CallBar, DeskCallCard, DeskCallKey } from "./components/Call";
 import { TeamSearch } from "./components/Search";
 import { UpdateFloat } from "./components/UpdateFloat";
@@ -506,14 +506,17 @@ export function App() {
 	);
 	return (
 		<div className="flex h-full flex-col">
-			<Titlebar
-				bare={welcome && pane === null}
-				rail={{ open: railSize.open, onToggle: toggleRail }}
-				search={teamSearch("under")}
-				deskKey={deskCallKey("control btn-icon titlebar-desk-call")}
-				onNew={newTeammate}
-				settings={settingsKey("control btn-icon")}
-			/>
+			{welcome && pane === null ? (
+				<Titlebar bare />
+			) : (
+				<FlushChrome
+					rail={{ open: railSize.open, onToggle: toggleRail }}
+					width={pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width}
+					settings={settingsKey("control btn-icon")}
+					search={teamSearch("under")}
+					deskKey={deskCallKey("control btn-icon titlebar-desk-call")}
+				/>
+			)}
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
 			{welcome && pane === null ? (
@@ -556,6 +559,7 @@ export function App() {
 				onPin={(id, slot, deskId) => void pinTeammate(id, slot, deskId)}
 				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
 				onAddDesk={() => togglePane("add-desk")}
+				onNew={newTeammate}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
 				settings={settingsKey("rail-settings-key")}

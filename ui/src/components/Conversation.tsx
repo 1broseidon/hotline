@@ -444,7 +444,9 @@ const ConversationBand = memo(function ConversationBand({
 	
 					<span className="min-w-0 flex-1" />
 	
-					<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
+					<div className="band-capsule band-capsule-pickers">
+						<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
+					</div>
 	
 					{/* Side threads still live: a chip each. They are conversations of
 					 * their own rather than this turn's work, so they stay in the band
@@ -495,6 +497,7 @@ const ConversationBand = memo(function ConversationBand({
 						</button>
 					)}
 	
+					<div className="band-capsule band-capsule-tools">
 					{/* A computer on its way fills in where its button will be; the
 					 * conversation carries on around it. */}
 					{pulling !== null ? (
@@ -523,6 +526,7 @@ const ConversationBand = memo(function ConversationBand({
 					<MenuButton className="control btn-icon" label="More" entries={more}>
 						<MoreIcon />
 					</MenuButton>
+					</div>
 				</Band>
 				{callBar}
 			</div>

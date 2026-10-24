@@ -7,7 +7,9 @@
 //! thread it handed over is at work, once however many end together, and
 //! each wake counts toward the pair's brake. Stopping the exchange or
 //! revoking collaboration releases the handoff: its thread reports no more,
-//! and what its sender had not heard is dropped.
+//! and what its sender had not heard is dropped. The person's Stop of a
+//! handoff, or of the answer to a question, reaches its sender the same way,
+//! as a report that never wakes it.
 
 use super::*;
 use crate::contract::NoticeLevel;

@@ -98,6 +98,12 @@ export const SettingsIcon = ({ className }: IconProps) => (
 		<circle cx="6" cy="11" r="1.5" />
 	</Icon>
 );
+export const KeyboardIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<rect x="1.5" y="4" width="13" height="8.5" rx="1.75" />
+		<path d="M4 6.75h.01M6.67 6.75h.01M9.33 6.75h.01M12 6.75h.01M5 10h6" />
+	</Icon>
+);
 export const MoreIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<circle cx="3.5" cy="8" r="1" fill="currentColor" stroke="none" />

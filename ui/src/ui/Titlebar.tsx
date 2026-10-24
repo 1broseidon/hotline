@@ -128,7 +128,8 @@ export function FlushChrome({
 	faces,
 	search,
 }: {
-	rail: { open: boolean; onToggle(): void };
+	/** `key: false` shows no key to hide or show it (Settings' sections stay out). */
+	rail: { open: boolean; onToggle(): void; key?: boolean };
 	/** The rail's width while it is open: its head is the lead's drag area. */
 	width: number;
 	/** The faces-only rail: on macOS its column carries the rail's key, the traffic lights filling its head. */
@@ -188,7 +189,7 @@ export function FlushChrome({
 		<>
 			<div ref={lead} className="chrome-lead" style={rail.open ? { width } : undefined}>
 				{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
-				{!(rail.open && faces && platform() === "macos") && <button
+				{rail.key !== false && !(rail.open && faces && platform() === "macos") && <button
 					type="button"
 					className="control btn-icon"
 					title={`${rail.open ? "Hide" : "Show"} the team (${chordKeys("sidebar")})`}

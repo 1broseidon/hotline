@@ -26,3 +26,6 @@ Done when:
 - A harness that is not installed shows in the picker as unavailable with what is missing, and cannot be picked. (UI test)
 - The teammate pane's 'Thinks with' shows the same choice and stays in step. (UI test)
 - The phone can do the same switch (hotline-mobile task-52 grows to cover it).
+
+## Log
+- 2026-10-24T07:04:44.256Z: [claude] Overnight 2026-10-24, feat/accounts cb6b7ca9 + 8cdfce6b + b4cb3c4a. Done: session.set_backend (owner desk + owner phone seat) writes backend+model at once, withdraws the target agent's checkpoint so A→B→A starts fresh (never Restored), restarts only when idle (busy waits, up to 6h); refuses an agent not ready or missing. Picker: Agents section after the accounts (known agents with marks, ready or not; the registry's other ready agents in one 'Other agents' row; not-ready unknown ones hidden); picking under another agent moves the teammate. Tests: wire/tests/models.rs session_set_backend_* (3), tests/model-picker.test.tsx agents cases; docs/security.md section. NOT done: phone picker (hotline-mobile task-52).

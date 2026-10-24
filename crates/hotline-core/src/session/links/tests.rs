@@ -982,6 +982,129 @@ async fn the_persons_stop_on_a_linked_handoff_reaches_its_sender_without_waking_
     assert_eq!(heard.matches(line).count(), 1, "{heard}");
 }
 
+/// The laptop's forward of `handoff` reached grizzly but its reply was
+/// lost: the laptop holds it as queued again, its pair `paused` or not.
+fn lose_the_forwards_reply(laptop: &Room, handoff: &str, paused: bool) {
+    let _guard = lock(&laptop.exchange_lock);
+    let mut pair = laptop
+        .log
+        .load(&StreamId::Room)
+        .into_iter()
+        .filter(|event| event["kind"] == "exchange_pair")
+        .find(|pair| {
+            pair["requests"]
+                .as_array()
+                .is_some_and(|requests| requests.iter().any(|r| r["id"] == handoff))
+        })
+        .unwrap();
+    pair["paused"] = json!(paused);
+    for request in pair["requests"].as_array_mut().unwrap() {
+        if request["id"] == handoff {
+            request["phase"] = json!("queued");
+            request["started"] = json!(false);
+        }
+    }
+    laptop.log.append(&StreamId::Room, &pair).unwrap();
+}
+
+/// The laptop still holds Clementine's handoff as queued, the reply to its
+/// forward lost though grizzly took it, when the person on grizzly stops it
+/// with the link down. Once the link is up, whichever crosses first, the
+/// stop or the laptop's forward sent again, the handoff ends on the laptop
+/// as the person's stop, told once: Clementine is neither woken nor handed
+/// a failure to send it again.
+#[tokio::test]
+async fn the_persons_stop_reaches_a_sender_still_holding_its_request_as_queued() {
+    for forward_first in [false, true] {
+        let clementine = Fake::new(answers());
+        let laptop = desk_on(
+            &format!("linked-stop-queued-laptop-{forward_first}"),
+            ("clementine", "Clementine"),
+            (GRIZZLY, "grizzly"),
+            true,
+            clementine.clone(),
+        );
+        let lou = Fake::new(
+            Scripted::new(vec![Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            }])
+            .on_cancel(vec![Update::Turn {
+                stop_reason: "cancelled".into(),
+                usage: None,
+            }])
+            .gated(Arc::new(tokio::sync::Semaphore::new(0))),
+        );
+        let grizzly = desk_on(
+            &format!("linked-stop-queued-grizzly-{forward_first}"),
+            ("lou", "Lou"),
+            (LAPTOP, "laptop"),
+            false,
+            lou.clone(),
+        );
+        let channel = Channel::open(&laptop, &grizzly);
+        laptop.start("clementine").await.unwrap();
+        grizzly
+            .allow_sender("lou", &format!("{LAPTOP}/clementine"))
+            .unwrap();
+        let handoff = message(&laptop, "clementine", "Lou", "handoff")
+            .await
+            .unwrap();
+        until("Lou's handoff turn is running", || lou.prompts().len() == 1).await;
+        let thread = thread_on_grizzly(&grizzly, &handoff);
+        channel.close();
+        lose_the_forwards_reply(&laptop, &handoff, !forward_first);
+        grizzly.cancel_side(&thread).unwrap();
+        until("the stop waits on grizzly for the link", || {
+            request(&grizzly, &handoff).is_some_and(|r| r["phase"] == "stopped")
+        })
+        .await;
+
+        if forward_first {
+            // Only the laptop's calls cross, so its forward goes first.
+            let (generation, task) = pump(&laptop, &grizzly, LAPTOP, GRIZZLY, through());
+            until("the laptop's forward has been answered", || {
+                request(&laptop, &handoff).is_some_and(|r| r["phase"] != "queued")
+            })
+            .await;
+            assert_eq!(
+                request(&laptop, &handoff).unwrap()["phase"],
+                "running",
+                "its stop is still to come"
+            );
+            task.abort();
+            laptop.links.closed(GRIZZLY, Some(generation), None);
+        }
+        let _channel = Channel::open(&laptop, &grizzly);
+        until("the laptop has settled the handoff", || {
+            request(&laptop, &handoff)
+                .is_some_and(|r| !matches!(r["phase"].as_str(), Some("queued" | "running")))
+        })
+        .await;
+
+        let line = "The person stopped this handoff. Do not send it again unless they ask.";
+        assert_eq!(
+            request(&laptop, &handoff).unwrap()["phase"],
+            "stopped",
+            "{forward_first}"
+        );
+        assert_eq!(
+            reports_shown(&laptop),
+            [format!("Lou on grizzly, in your handoff thread: {line}")],
+            "{forward_first}"
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            delivered(&laptop, "clementine", &handoff).is_none(),
+            "{forward_first}: no failure is handed back"
+        );
+        assert!(
+            clementine.prompts().is_empty(),
+            "{forward_first}: nothing woke Clementine"
+        );
+    }
+}
+
 #[tokio::test]
 async fn reports_wait_summed_while_the_link_is_down() {
     let (laptop, grizzly) = pair("reports-offline");

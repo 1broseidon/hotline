@@ -1151,8 +1151,11 @@ segment layout and the importer are unchanged. A report crosses a desk link as i
 result is a separate frame and arrives as before. The person's stop of a
 request a linked desk sent crosses as that result with `stoppedByPerson`,
 its reply the report the sender is to hear, so the sender's desk tells it
-as this desk would, without a wake; an older desk ignores the field and
-hands the reply back as a failure, as it always did.
+as this desk would, without a wake, even for a request it still holds as
+queued because the reply to its forward was lost; that request sent again
+before the stop has crossed is taken as still queued, so the stop is what
+the sender's desk hears. An older desk ignores the field and hands the
+reply back as a failure, as it always did.
 
 One directional collaboration approval explains and covers both intents. Old
 standing approvals remain valid for Ask, but the first Handoff requires informed

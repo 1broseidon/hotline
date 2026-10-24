@@ -90,8 +90,12 @@ impl Room {
                 if pair.id != key {
                     return Err("That request id belongs to another exchange.".into());
                 }
-                // Sent again after it was settled here: it is over, and says so.
+                // Sent again after it was settled here: it is over, and says so,
+                // unless the person here stopped it and that stop has still to
+                // cross. It is what the other desk is to hear, as their stop,
+                // so the request is taken as still queued meanwhile.
                 return match pair.requests.iter().find(|r| r.id == id) {
+                    Some(r) if r.stopped_by_person && !r.returned => Ok(()),
                     Some(r) if matches!(r.phase, Phase::Done | Phase::Stopped) => {
                         Err(if r.reply.is_empty() {
                             "That message was already answered.".to_string()

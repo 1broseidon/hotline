@@ -1415,7 +1415,9 @@ teammate's last words and "The person stopped this handoff. Do not send it
 again unless they ask." A sender on a linked desk is sent that report as the
 stopped request's result with `stoppedByPerson`, and its desk ends the
 request there the same way, shown and heard once, never woken nor handed a
-failure; a desk older than that hands it back as a failure. A handoff turn
+failure, even while it holds the request as queued because the reply to its
+forward was lost; a forward it sends again before the stop has crossed is
+taken as still queued, so the stop is what it hears; a desk older than that hands it back as a failure. A handoff turn
 cancelled any other way, or failed, returns its failure as before. Their
 Stop also drops what waited behind the turn, and a handoff whose line was
 among it (one that waited for the thread's agent to start, or behind the

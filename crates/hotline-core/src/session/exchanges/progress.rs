@@ -259,6 +259,9 @@ impl Room {
                 && match r.phase {
                     Phase::Running => begun || (r.intent == Intent::Handoff && !r.started),
                     Phase::Waiting => true,
+                    // Forwarded to a linked desk that has it, though the reply
+                    // to the forward was lost.
+                    Phase::Queued => crate::linked::is_linked(&r.to),
                     _ => false,
                 }
         };

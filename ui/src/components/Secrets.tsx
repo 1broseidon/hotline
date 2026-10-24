@@ -6,7 +6,6 @@ import { Chips } from "../ui/Chips";
 import { Fold } from "../ui/Fold";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
-import { CookieOfferSettings } from "./settings/CookieOfferSettings";
 import { wire } from "../wire";
 
 const NESTED = "group-row pl-7";
@@ -144,7 +143,6 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
-					<CookieOfferSettings />
 					{adding !== null && (
 						<section>
 							<h3 className="group-title">Add a secret</h3>

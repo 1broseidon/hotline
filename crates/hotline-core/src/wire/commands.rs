@@ -791,6 +791,10 @@ pub(crate) async fn run(
             Ok(json!(room.computer_cookie_offers(&persona_id).await))
         }
         Command::ComputerCookieBlocked {} => Ok(json!(room.computer_cookie_blocked().await)),
+        Command::ComputerCookieSettings {} => Ok(json!(crate::room::cookie_offer_settings(log)?)),
+        Command::ComputerCookieSites {} => {
+            room.computer_cookie_sites().await.map(|sites| json!(sites))
+        }
         Command::ComputerCookieReset { persona_id, site } => room
             .computer_cookie_reset(&persona_id, &site)
             .await

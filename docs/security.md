@@ -1571,7 +1571,9 @@ it lets a colleague use another's tools.
   wire's cleanup path for subscriptions and pending commands. The socket
   reader observes silence and cancellation while global commands wait;
   only a seat that exceeds the write deadline selects zero TCP linger, so
-  its queued bytes are discarded on close. Ordinary WebSocket and HTTP
+  its queued bytes are discarded on close before admission is released.
+  The writer belongs to the seat future, including when that future is dropped;
+  abortive close consumes the transport without yielding. Ordinary WebSocket and HTTP
   closes retain normal drain behavior.
   No forwarding
   header can manufacture a separate budget or device identity.
@@ -1586,6 +1588,10 @@ it lets a colleague use another's tools.
   command and desktop work surviving disconnect;
   `remote/tests/phone.rs` `a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound`
   proves the stalled connection ends in a TCP reset;
+  `a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission` bounds
+  that reset to one second after admission reaches zero.
+  `wire/tests/phone_pressure.rs` `dropping_a_seat_drops_its_blocked_writer_before_returning`
+  proves cancellation leaves no detached writer sending after its seat ends;
   `a_revoked_seat_drains_tcp_instead_of_resetting_it` in the same file proves
   ordinary revocation drains without a reset.
 - **Testing limits:** the proxy harness uses one upstream TLS connection per
@@ -2450,8 +2456,10 @@ narrator leaves the written result available without a new spoken pointer.
 ## Host-cookie offers
 
 - **Default:** no automatic lending, including old records. An enabled, running
-  computer and live teammate session permit host-column discovery only. An old
-  computer without `GET /pages` produces no offers.
+  computer and live teammate session permit host-column discovery only. The
+  room's `cookieOffers` defaults to enabled for all registrable sites; an
+  explicit list restricts it and an empty list offers none. Off skips even
+  host-name discovery. An old computer without `GET /pages` produces no offers.
 - **Grant source:** Use on a core-created `cookie_offer`, through the desk,
   owner or phone seat. The source, site and recipient are held in core memory;
   callers supply only the card id and choice. No tool or voice answer grants it.
@@ -2462,11 +2470,20 @@ narrator leaves the written result available without a new spoken pointer.
   checked before and after the read. PSL registrable-domain equality, including
   private suffixes, limits values to the approved site and its subdomains. Error
   bodies from the browser and computer are replaced by fixed messages.
+  Settings writes and automatic discovery share the policy gate with answers.
+  Desk and owner may write the setting, list host sites on explicit page open,
+  and undo Never. The phone may read only the preference through
+  `computer.cookies.settings`; it cannot discover sites or change settings.
 - **Revocation:** a stopped or changed session expires pending cards. Each lend
   is separately named and its metadata survives restart; Remove sends exactly
   `domains: [site]` to the authenticated computer's `DELETE /logins/{name}`.
   Both the browser and saved login there lose the cookies. The agent hears the
-  outcome without any values. Never is per teammate and Settings can undo it.
+  outcome without any values. Never is per teammate and Settings → Computer →
+  Sites can undo it. Turning offers off or excluding a site expires its pending
+  cards before acknowledging the settings write, with a notice. An already
+  started discovery finishes before Off is saved; subsequent automatic polls
+  cannot read browser data. Explicit Sites page discovery remains available
+  while off, without lending values.
 - **Residual risk:** approval gives the teammate the person's signed-in powers
   on this site. The computer is already a granted sandbox and can read its own
   saved login. Removing the container copy does not invalidate an exfiltrated
@@ -2484,3 +2501,6 @@ narrator leaves the written result available without a new spoken pointer.
 | One offer reaches desk and phone only for a matching site; racing answers lend once, and Remove names the saved login and site and tells the agent | `wire/tests/cookie_offers.rs` `cookie_offer_is_one_card_on_desk_and_phone_only_for_sites_in_chromium_or_firefox`, `use_lends_only_the_site_and_subdomains_and_remove_takes_it_back_and_tells_the_agent` | Unix |
 | Session decline, persistent per-teammate Never and Settings undo; unknown, wrong and revoked ids cannot read values | `wire/tests/cookie_offers.rs` `not_now_asks_again_next_session_but_never_waits_until_settings_undo`, `cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values` | Unix |
 | Values stay out of public sinks; a real desk restart expires pending offers and retains removal and preference records | `wire/tests/cookie_offers.rs` `cookie_values_never_reach_tape_room_agent_or_wire_sinks`, `failed_delivery_keeps_a_removal_handle_and_never_echoes_a_cookie_in_errors`; `tests/desk/cookie_offers.rs` `cookie_offers_expire_on_real_desk_restart_while_lends_and_per_teammate_never_survive` | Unix for the sink |
+| Off makes no discovery calls and expires pending cards; selected sites alone are eligible; absent lists allow every site and empty lists none | `wire/tests/cookie_offers.rs` `cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_explanation`, `cookie_offers_selected_sites_only_offer_matches_and_expire_deselected_cards`, `cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_offers_none` | Unix |
+| Desk and owner write; phone only reads the preference; host-name discovery is explicit, and invalid domains/settings cannot widen offers | `wire/tests/cookie_offers.rs` `cookie_offer_settings_are_owner_written_phone_read_and_site_discovery_is_explicit`, `cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changing_the_setting` | Unix |
+| The preference survives real desk restarts; clearing restores enabled/all sites | `tests/desk/cookie_offers.rs` `cookie_offer_settings_survive_real_desk_restarts_and_clearing_restores_all_sites` | — |

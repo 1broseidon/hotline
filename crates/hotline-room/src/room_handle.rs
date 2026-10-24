@@ -610,6 +610,13 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_cookie_blocked(&self) -> Vec<hotline_contract::CookieOfferBlock> {
         Vec::new()
     }
+    async fn computer_cookie_sites(&self) -> Result<hotline_contract::CookieOfferSites, String> {
+        Err("Cookie discovery unavailable.".into())
+    }
+    /// Called under the policy gate after saving the offer preference.
+    async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
+        Ok(())
+    }
     async fn computer_cookie_reset(&self, _persona: &str, _site: &str) -> Result<(), String> {
         Err("Cookie offers unavailable.".into())
     }

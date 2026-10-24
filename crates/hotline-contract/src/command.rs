@@ -836,6 +836,12 @@ pub enum Command {
     /// Changes only a login or passkey's use policy; desk/owner only.
     #[serde(rename = "computer.cookies.offers")]
     ComputerCookieOffers { persona_id: String },
+    /// The room's offer preference, readable by the phone too.
+    #[serde(rename = "computer.cookies.settings")]
+    ComputerCookieSettings {},
+    /// On-demand host-name discovery; desk and owner only, even while offers are off.
+    #[serde(rename = "computer.cookies.sites")]
+    ComputerCookieSites {},
     #[serde(rename = "computer.cookies.answer")]
     ComputerCookieAnswer {
         persona_id: String,

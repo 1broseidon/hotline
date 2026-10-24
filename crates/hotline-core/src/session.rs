@@ -647,6 +647,8 @@ pub struct Room {
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
     #[cfg(test)]
     pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
+    #[cfg(test)]
+    pub(crate) cookie_discovery_calls: Arc<std::sync::atomic::AtomicUsize>,
     /// A host permission failure is said once per browser for this desk run,
     /// across teammates and session restarts.
     cookie_access_notices: Mutex<HashSet<String>>,
@@ -782,6 +784,8 @@ impl Room {
             secret_uses: Mutex::default(),
             #[cfg(test)]
             cookie_candidates: Mutex::default(),
+            #[cfg(test)]
+            cookie_discovery_calls: Arc::default(),
             cookie_access_notices: Mutex::default(),
             captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),

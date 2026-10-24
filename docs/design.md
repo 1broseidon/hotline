@@ -227,7 +227,10 @@ write waits for its reply first. Negotiation stays on the reader, and neither
 command work nor ordering waits suspend cancellation or the silence timer.
 Remote work is cancelled with its seat; accepted desktop writes finish.
 A seat whose frame waits past the write deadline resets its TCP transport,
-discarding queued bytes. Only that timeout selects zero linger: ordinary
+discarding queued bytes before releasing admission. The seat owns its writer
+future, so cancelling the seat cannot detach a writer that keeps the socket
+alive; abortive close consumes the reunited transport synchronously.
+Only that timeout selects zero linger: ordinary
 WebSocket closes must drain final pairing and authentication replies, including
 on Windows.
 
@@ -1440,7 +1443,27 @@ existing browser reader. The PSL, including private suffixes, bounds the
 selection to the registrable domain and subdomains; expired cookies stay on
 the host. Values pass only to the authenticated computer login door. Not now
 lasts for this session; Never for this site is a per-teammate room record,
-undone with Ask again in Settings → Secrets. Voice cannot answer the card.
+undone with Undo in Settings → Computer → Sites. Voice cannot answer the card.
+
+The room's `cookieOffers` setting defaults to `{enabled: true}` on old and
+new desks. An absent `sites` list means all registrable sites; a list means
+only those sites, and an empty list means none. Settings → Computer owns the
+switch and the Sites page. Selecting every listed site saves no list, so new
+sites are eligible too. The page groups host-column discovery by registrable
+domain and names each browser and profile, with search, Save, Back and the
+per-teammate Never blocks' Undo. It explains that google.com, apple.com and
+microsoft.com lend the whole account.
+
+Off returns before the computer's pages or any host browser discovery is
+read. Settings writes, automatic discovery and offer answers share the
+policy gate; an update waits for a discovery already in flight, expires
+pending cards before its reply and writes a notice saying offers are off.
+Narrowing the list also expires pending cards outside it. A poll skips a busy
+policy gate rather than waiting while holding its computer watch. Accepted
+lends stay removable. Only opening Sites explicitly reads host names while
+offers are off; opening Computer or reading the preference does not.
+Desk and owner seats may change the setting and discover sites; the phone
+has a narrow preference read, without access to host discovery or room writes.
 
 A metadata-only Unconfirmed record precedes delivery, so a crash midway still
 leaves Remove available; only confirmed delivery says Signed in as you.

@@ -406,14 +406,23 @@ impl Room {
         });
     }
 
-    /// Stops the turn in flight and drops whatever was waiting behind it,
-    /// a colleague's question included, which fails to its asker. A question
-    /// the turn was answering ends as the person's stop of it.
+    /// The person's Stop of the turn in flight: as [`Room::cut_turn`], and a
+    /// question the turn was answering ends as their stop of it.
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
         session
             .stopped_by_person
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.cut_turn(&session);
+        Ok(())
+    }
+
+    /// Stops the turn in flight and drops whatever was waiting behind it,
+    /// a colleague's question included, which fails to its asker. A question
+    /// the turn was answering ends as one whose turn ended without a result,
+    /// unless the person asked for the cut.
+    pub(super) fn cut_turn(&self, session: &Session) {
+        let persona_id = session.persona_id.as_str();
         let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
@@ -427,7 +436,6 @@ impl Room {
                 .filter_map(|line| line.request.as_ref())
                 .map(|line| line.request.as_str()),
         );
-        Ok(())
     }
 }
 

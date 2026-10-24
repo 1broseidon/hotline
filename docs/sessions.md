@@ -1437,7 +1437,11 @@ would have come as "Mack, answering “…”: …", and heard there with the ne
 line, as "Mack, answering “…”:" among the reports. A thread the answer was
 given in goes on. A handoff waiting on that question is carried on by the
 stop instead, as by an answer, told without "Send it again"; an asker on a
-linked desk is told by its own desk, as a sender of a handoff is.
+linked desk is told by its own desk, as a sender of a handoff is. Only the
+person's own cut is their stop: a restart whose drain runs out cuts a main
+conversation's turn without it (`Room::cut_turn`), and the answer that turn
+was giving ends as one that ended without a result, to inspect before
+asking again, as the conversation's tape says the turn was not run again.
 
 The composer's Interrupt in a work thread, and Esc there, is not that Stop:
 it is the person redirecting the turn, and it sends `thread.cancel` with

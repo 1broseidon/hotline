@@ -783,3 +783,37 @@ async fn the_persons_stop_while_a_cards_answer_waits_for_the_agent_ends_its_hand
     assert_eq!(bob.prompts().len(), 1, "the stopped work never runs");
     stopped_for_the_person(&room, &handoff, HANDOFF_STOPPED);
 }
+
+/// A restart whose drain runs out cuts the turn of Bob's main conversation
+/// answering Ada's question: that is not the person's stop, so the answer
+/// ends as one whose turn ended without a result, for Ada to look at before
+/// asking again.
+#[tokio::test]
+async fn a_restart_cutting_a_main_conversations_answer_is_not_the_persons_stop() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::new(turn("colour", "Looking at the colours.", "end_turn"))
+            .on_cancel(cancelled())
+            .gated(gate),
+    );
+    let room = apart("restart-cuts-an-answer", &bob, &ada);
+    let ask = send(&room, "ask").await;
+    until("bob's main conversation is answering", || {
+        bob.prompts().len() == 1
+    })
+    .await;
+    room.stop_for_restart(Duration::from_millis(100)).await;
+
+    let cut = request(&room, "ada~bob", &ask);
+    assert_eq!(
+        (cut.failed, cut.stopped_by_person, cut.reply.as_str()),
+        (
+            true,
+            false,
+            "The turn answering this question ended without a result; inspect before retrying."
+        )
+    );
+    assert_ne!(cut.phase, Phase::Stopped);
+    assert!(notices(&room, "ada").is_empty(), "no stop is reported");
+}

@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { ConfigChoice } from "../generated/contract";
+import { accountName, plainModel } from "../accounts";
+import { wire } from "../wire";
 import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
@@ -12,7 +15,7 @@ import { Refusal, refused, type Refused } from "../ui/Refusal";
  */
 const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "keychain", "unknown"]);
 
-export function errorDetails(text: string): { title: string; summary: string; details: string; context?: string; signIn?: AgentSignInAction; kind?: string } {
+export function errorDetails(text: string): { title: string; summary: string; details: string; context?: string; signIn?: AgentSignInAction; kind?: string; model?: string } {
     const start = text.indexOf('{"hotlineFailure":');
     if (start !== -1) {
         try {
@@ -31,6 +34,7 @@ export function errorDetails(text: string): { title: string; summary: string; de
                     context,
                     ...(signIn ? { signIn } : {}),
                     ...(typeof failure.kind === "string" ? { kind: failure.kind } : {}),
+                    ...(typeof failure.model === "string" ? { model: failure.model } : {}),
                 };
             }
         } catch { /* Older notices are plain text. */ }
@@ -85,6 +89,9 @@ export function ErrorCard({
                     </button>
                 </div>
             )}
+            {error.kind === "account_gone" && error.model !== undefined && personaId && (
+                <OtherAccounts personaId={personaId} model={error.model} {...(onRunAgain ? { onRunAgain } : {})} />
+            )}
             {error.signIn && personaId && <AgentSignIn personaId={personaId} action={error.signIn} {...(onRetry ? { onRetry } : {})} />}
             {offerAgain && (
                 <div className="mt-2 flex items-center gap-3">
@@ -110,5 +117,50 @@ export function ErrorCard({
                 <pre className="selectable mt-2 max-h-80 max-w-full overflow-auto whitespace-pre-wrap break-words text-xs text-ink-2" style={{ overflowWrap: "anywhere" }}>{error.details}</pre>
             </details>
         </section>
+    );
+}
+
+/**
+ * A teammate whose account is gone: the other accounts that serve the same
+ * model, one button each. Picking one moves the teammate there and runs the
+ * failed turn again; nothing moves it without a press.
+ */
+function OtherAccounts({ personaId, model, onRunAgain }: { personaId: string; model: string; onRunAgain?: () => Promise<unknown> }) {
+    const [others, setOthers] = useState<ConfigChoice[] | null>(null);
+    const [state, setState] = useState<"idle" | "moving" | Refused>("idle");
+    useEffect(() => {
+        let live = true;
+        void wire.command("models.list", {}).then(
+            (choices) => live && setOthers(choices.filter((choice) => plainModel(choice.id) === model)),
+            () => live && setOthers([]),
+        );
+        return () => {
+            live = false;
+        };
+    }, [model]);
+    if (others === null) return null;
+    if (others.length === 0) return <p className="mt-2 text-sm text-ink-3">No other account serves this model. Add one in Settings › Providers.</p>;
+    return (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+            {others.map((choice) => (
+                <button
+                    key={choice.id}
+                    type="button"
+                    className="control btn btn-sm"
+                    disabled={state === "moving"}
+                    onClick={() => {
+                        setState("moving");
+                        void wire
+                            .command("session.set_model", { personaId, modelId: choice.id })
+                            .then(() => onRunAgain?.())
+                            .then(() => setState("idle"))
+                            .catch((reason: unknown) => setState(refused("Couldn't move it", reason)));
+                    }}
+                >
+                    Use {choice.account ? accountName(choice.group ?? "", choice.account.label, choice.account.shared) : (choice.group ?? choice.name)}
+                </button>
+            ))}
+            {typeof state === "object" && <Refusal {...state} />}
+        </div>
     );
 }

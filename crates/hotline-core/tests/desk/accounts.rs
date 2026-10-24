@@ -147,6 +147,11 @@ async fn two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_do
         .await;
     let text = notice["event"]["text"].as_str().unwrap();
     assert!(text.contains("no longer connected"), "{text}");
+    assert!(text.contains(r#""kind":"account_gone""#), "{text}");
+    assert!(
+        text.contains(&format!(r#""model":"{plain}""#)),
+        "the card names the plain model: {text}"
+    );
     // Work is still connected, and the teammate did not move to it.
     let after = client.call("persona.get", json!({"id": persona})).await;
     if after["ok"] == true {

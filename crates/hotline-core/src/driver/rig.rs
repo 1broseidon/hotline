@@ -621,7 +621,7 @@ impl InProcess {
             Err(error) => {
                 let _ = sender.try_send(Update::Notice {
                     level: NoticeLevel::Error,
-                    text: error,
+                    text: Failure::account_gone(error, &identity).notice(),
                 });
                 let _ = sender.try_send(Update::Turn {
                     stop_reason: "failed".to_string(),

@@ -4,7 +4,7 @@ import type { ChoiceAccount, ConfigChoice, CredentialKind } from "../generated/c
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon } from "../icons";
 import { Mark, modelMark, providerMark } from "../ui/Mark";
 import { wire } from "../wire";
-import { accountName } from "../accounts";
+import { accountName, plainModel } from "../accounts";
 
 /** One row of the top level: an account, and the models it serves. */
 type AccountRow = { key: string; name: string; detail: string; mark: string | null; choices: ConfigChoice[] };
@@ -46,16 +46,7 @@ export function accountRows(choices: ConfigChoice[]): AccountRow[] {
 
 /** Which row a model id is under: the one listing it, else the first serving its plain id. */
 function rowOf(rows: AccountRow[], modelId: string): AccountRow | undefined {
-	return rows.find((row) => row.choices.some((choice) => choice.id === modelId)) ?? rows.find((row) => row.choices.some((choice) => plain(choice.id) === modelId));
-}
-
-/** `provider#account/model` without its account. */
-function plain(id: string): string {
-	const slash = id.indexOf("/");
-	if (slash < 0) return id;
-	const provider = id.slice(0, slash);
-	const hash = provider.indexOf("#");
-	return hash < 0 ? id : `${provider.slice(0, hash)}${id.slice(slash)}`;
+	return rows.find((row) => row.choices.some((choice) => choice.id === modelId)) ?? rows.find((row) => row.choices.some((choice) => plainModel(choice.id) === modelId));
 }
 
 /**
@@ -92,7 +83,7 @@ export function ModelPicker({
 	const [open, setOpen] = useState(false);
 	const rows = accountRows(choices);
 	const currentRow = rowOf(rows, modelId);
-	const current = currentRow?.choices.find((choice) => choice.id === modelId || plain(choice.id) === modelId);
+	const current = currentRow?.choices.find((choice) => choice.id === modelId || plainModel(choice.id) === modelId);
 	const modelName = current?.name ?? (modelId.split("/").slice(1).join("/") || "Model");
 	const effortName = effort?.choices.find((choice) => choice.id === effort.value)?.name ?? null;
 	const accountLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` ${currentRow.detail}`}`;

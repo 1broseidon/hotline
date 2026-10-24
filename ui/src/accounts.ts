@@ -13,3 +13,12 @@ export function accountName(provider: string, label: string, shared: boolean): s
 export function nextAccountLabel(provider: string, held: number): string {
 	return held === 0 ? provider : `${provider} ${held + 1}`;
 }
+
+/** `provider#account/model` without its account: the model every account of the provider serves. */
+export function plainModel(id: string): string {
+	const slash = id.indexOf("/");
+	if (slash < 0) return id;
+	const provider = id.slice(0, slash);
+	const hash = provider.indexOf("#");
+	return hash < 0 ? id : `${provider.slice(0, hash)}${id.slice(slash)}`;
+}

@@ -437,6 +437,10 @@ pub(super) const STOPPED_BY_THE_PERSON: &str = "The person stopped this exchange
 pub(super) const HANDOFF_STOPPED_BY_THE_PERSON: &str =
     "The person stopped this handoff. Do not send it again unless they ask.";
 
+/// Why a question whose answering turn the person stopped ended.
+pub(super) const QUESTION_STOPPED_BY_THE_PERSON: &str =
+    "The person stopped the answer to this question. Do not ask it again unless they ask.";
+
 /// What the agent hears when a delivery reaches it: who answered what, and the
 /// answer quoted, exactly as a colleague's message is quoted to the one it
 /// was sent to. Built from the tape's record alone, so a delivery sent again
@@ -506,7 +510,13 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
             about,
             ..
         } => {
-            let again = if text == STOPPED_BY_THE_PERSON || text == HANDOFF_STOPPED_BY_THE_PERSON {
+            let again = if [
+                STOPPED_BY_THE_PERSON,
+                HANDOFF_STOPPED_BY_THE_PERSON,
+                QUESTION_STOPPED_BY_THE_PERSON,
+            ]
+            .contains(&text)
+            {
                 ""
             } else {
                 "\nSend it again if you still need it."

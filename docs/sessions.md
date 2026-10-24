@@ -101,7 +101,8 @@ the queue and claiming an idle driver are one decision under one lock, so a
 line cannot be filed behind a turn that has already stopped coming back for
 it. `session.cancel` stops the turn in flight and drops whatever was waiting;
 a colleague's question among what it drops fails at once to its asker, who is
-told to send it again if still needed.
+told to send it again if still needed. A question the stopped turn was
+answering ends as the person's stop of its answer (below).
 Deltas go out on the tape
 subscription as `ephemeral` and are never written; the durable line is the
 message that lands when it is whole.
@@ -1416,6 +1417,19 @@ start, or behind the person's own turn) ends the same way, with the sentence
 alone as its report (`end_dropped_handoffs`): it is never handed over again
 when the thread later parks or closes, and the thread, which goes on, says
 on its link that the delegation has ended.
+
+The person's Stop on a turn answering a colleague's question ends the
+answer the same way (`end_stopped_by_person`), wherever it was answered: in
+the recipient's main conversation, whose `session.cancel` is the one stop of
+a turn there, in a work thread, or in a job. The ask is stopped with "The
+person stopped the answer to this question. Do not ask it again unless they
+ask." as its reply, and its asker is told once, without a wake, in a report
+of what the turn had said and that sentence: shown at once where the answer
+would have come as "Mack, answering “…”: …", and heard there with the next
+line, as "Mack, answering “…”:" among the reports. A thread the answer was
+given in goes on. A handoff waiting on that question is carried on by the
+stop instead, as by an answer, told without "Send it again"; an asker on a
+linked desk is sent the sentence as the stopped request's failure.
 
 **The delegation** is the handoff the thread serves: the latest one into it,
 in any phase, so a thread the person continues after its result still

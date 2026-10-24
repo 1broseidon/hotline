@@ -427,7 +427,7 @@ impl Occupant for LiveJob {
         *lock(&self.last_used) = now_ms();
         lock(&self.firing_since).take();
         if let Some(request) = &held.request {
-            room.answer_question(request, &driven);
+            room.answer_question(request, &driven, self.halted.load(Ordering::SeqCst));
         }
         if self.stopped.load(Ordering::SeqCst) {
             self.drop_waiting(room);

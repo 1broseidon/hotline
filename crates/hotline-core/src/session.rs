@@ -390,6 +390,8 @@ struct Session {
     info: Mutex<SessionInfo>,
     /// Queued lines and the claim on the active driver share one lock.
     turns: Mutex<Turns>,
+    /// The person pressed Stop on the turn in flight.
+    stopped_by_person: std::sync::atomic::AtomicBool,
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,

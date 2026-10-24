@@ -78,6 +78,10 @@ Pressing that line opens the conversation, read-only, in the Threads pane.
 The **Threads** section of a teammate's pane lists every colleague it has
 talked to.
 
+If you stop a teammate's turn while it is answering a colleague's question,
+the colleague hears that you stopped the answer with the next thing it
+hears, and is told not to ask again unless you ask.
+
 ## When they go on too long
 
 When two teammates have sent each other twelve messages without you, both

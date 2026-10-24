@@ -62,7 +62,7 @@ pub(super) fn room_with(name: &str, ada: &Arc<Fake>, bob: Vec<Arc<Fake>>) -> Arc
 
 /// A handoff from Ada to Bob, sent with `tools`, whose turn has raised a
 /// card and waits at its gate to end.
-async fn asking(
+pub(super) async fn asking(
     room: &Arc<Room>,
     tools: TeammateTools,
     bob: &Fake,

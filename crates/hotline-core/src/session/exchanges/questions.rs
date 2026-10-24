@@ -224,9 +224,18 @@ impl Room {
             .filter(|handoff| self.delegation_live(handoff))
     }
 
-    /// Saves what the turn answering a question came to. One that failed or
-    /// was stopped says so, for its asker to look before trying again.
-    pub(in crate::session) fn answer_question(&self, request: &str, driven: &Driven) {
+    /// Saves what the turn answering a question came to. One the person's
+    /// Stop cut short ends as their decision; one that failed or was
+    /// stopped otherwise says so, for its asker to look before trying again.
+    pub(in crate::session) fn answer_question(
+        self: &Arc<Self>,
+        request: &str,
+        driven: &Driven,
+        stopped_by_person: bool,
+    ) {
+        if stopped_by_person && self.end_stopped_by_person(request, driven).is_some() {
+            return;
+        }
         let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
             matches!(
                 reason,

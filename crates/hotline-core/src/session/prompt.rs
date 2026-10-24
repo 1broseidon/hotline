@@ -407,9 +407,13 @@ impl Room {
     }
 
     /// Stops the turn in flight and drops whatever was waiting behind it,
-    /// a colleague's question included, which fails to its asker.
+    /// a colleague's question included, which fails to its asker. A question
+    /// the turn was answering ends as the person's stop of it.
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
+        session
+            .stopped_by_person
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();

@@ -310,7 +310,7 @@ impl Occupant for LiveSide {
         if side.closed.load(Ordering::SeqCst) {
             // A thread ended under a turn still settles the ask it answered.
             if let Some(request) = lock(&side.request).take() {
-                room.answer_question(&request, &driven);
+                room.answer_question(&request, &driven, false);
             }
             return Then::Stop;
         }
@@ -356,13 +356,12 @@ impl Occupant for LiveSide {
             } else {
                 driven.replies.join("\n\n")
             };
-            let stopped = side.stopped_by_person.swap(false, Ordering::SeqCst)
-                && room.end_stopped_handoff(&request, &driven);
-            let finished = if stopped {
-                Finished::Gone
+            let stopped = if side.stopped_by_person.swap(false, Ordering::SeqCst) {
+                room.end_stopped_by_person(&request, &driven)
             } else {
-                room.finish_request(&request, reply, failed)
+                None
             };
+            let finished = stopped.unwrap_or_else(|| room.finish_request(&request, reply, failed));
             let answered = Some((request.as_str(), finished));
             room.report_turn(&side.id, side.opener.as_ref(), answered, &driven);
             // Answering an ask never closes the thread: only a handoff's
@@ -370,7 +369,7 @@ impl Occupant for LiveSide {
             if matches!(finished, Finished::Result | Finished::Gone)
                 && lock(&side.turns).waiting.is_empty()
             {
-                let by = match (stopped, failed) {
+                let by = match (stopped.is_some(), failed) {
                     (true, _) => End::Stopped,
                     (false, true) => End::Failed,
                     (false, false) => End::Agent,

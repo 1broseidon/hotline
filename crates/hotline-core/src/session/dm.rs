@@ -41,6 +41,7 @@ use crate::driver::{MessageKind, Update};
 use crate::room;
 use crate::voice::spoken::versions;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 /// What the DM keeps from the door of a turn to its end.
@@ -146,6 +147,7 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         };
+        session.stopped_by_person.store(false, Ordering::SeqCst);
         Begin::Go(Hold {
             source: Some(source),
             reach,
@@ -206,7 +208,8 @@ impl Occupant for Session {
             lock(&session.turns).waiting.push_front(wire);
         }
         if let Some(request) = &held.request {
-            room.answer_question(request, &driven);
+            let stopped = session.stopped_by_person.swap(false, Ordering::SeqCst);
+            room.answer_question(request, &driven, stopped);
         }
         Then::Next
     }

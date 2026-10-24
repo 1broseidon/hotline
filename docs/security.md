@@ -2265,3 +2265,27 @@ secret in the same places, never a copy of the first.
 | An account answers only by its own id; revoked, deleted and unknown ids are nothing | `vault.rs` `each_account_answers_by_its_own_id_and_never_for_another` |
 | A plain id runs on the default account; a named one on that account for the whole turn; a gone or foreign account is refused | `session/tests/accounts.rs` |
 | Over the wire: two accounts list apart with no secret in a choice; a teammate on a revoked account does not run and is not moved | `tests/desk/accounts.rs` `two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_does_not_run` |
+
+### Switching a teammate's agent (task-287)
+
+`session.set_backend` moves a teammate to another agent (Hotline Agent or an
+installed harness), with a model when one is named. It is an owner action on
+the desk and on the owner phone, the same reach as `session.set_model`; a
+harness that is not installed or not signed in is refused with what is
+missing, and the phone sees only that it is not ready (`backends.list`
+already hides the reason from it).
+
+- The record changes at once; a turn in progress is not cut short. The live
+  session restarts on the new agent only when the teammate is idle (waiting
+  at most six hours, after which the record takes effect on the next start).
+- The new agent's saved session is withdrawn before it starts, so a teammate
+  that goes A→B→A starts fresh on A, seeded from the chapter like any new
+  session, and never reopens a stale session of A or reports it Restored.
+- A Hotline Agent model named in the switch must be one the desk lists, and
+  runs on the account it names, as in Accounts above.
+
+| Boundary | Proof |
+| --- | --- |
+| An idle teammate moves at once; the agent's old session is withdrawn; nothing is cut short | `wire/tests/models.rs` `session_set_backend_moves_an_idle_teammate_and_withdraws_the_agents_old_session` |
+| A busy teammate restarts on the new agent only once idle | `wire/tests/models.rs` `session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn` |
+| An agent not ready, or not there, is refused and nothing changes | `wire/tests/models.rs` `session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there` |

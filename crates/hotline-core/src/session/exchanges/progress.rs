@@ -237,10 +237,10 @@ impl Room {
     /// Nothing when the turn waits only on questions to the handoff's
     /// sender, which reach the sender themselves.
     fn waiting_report(&self, handoff: &str, sender: &str, driven: &Driven) -> Option<String> {
-        let requests: Vec<Request> = self
-            .exchange_pairs()
-            .into_iter()
-            .flat_map(|pair| pair.requests)
+        let pairs = self.exchange_pairs();
+        let requests: Vec<Request> = pairs
+            .iter()
+            .flat_map(|pair| pair.requests.iter().cloned())
             .collect();
         let request = requests.iter().find(|r| r.id == handoff)?;
         let open: Vec<&HumanGate> = request
@@ -258,7 +258,7 @@ impl Room {
             .iter()
             .find_map(|gate| match self.human_card(&request.to, &gate.id) {
                 Some((TranscriptEvent::HumanAction { reason, .. }, _)) => Some(reason),
-                _ => self.collaboration_card(&requests, &gate.id),
+                _ => self.card_before_asking(&pairs, &gate.id),
             });
         turn_report(
             driven,
@@ -268,24 +268,37 @@ impl Room {
         )
     }
 
-    /// The card a question waits behind before it can be asked at all: the
-    /// person allowing its asker to ask that colleague, on the asker's main
-    /// conversation. A question to another desk is allowed there.
-    fn collaboration_card(&self, requests: &[Request], ask: &str) -> Option<String> {
-        let ask = requests
-            .iter()
-            .find(|r| r.id == ask && r.intent == Intent::Ask && r.phase == Phase::Queued)?;
+    /// The card a question waits behind before it can be asked at all, in
+    /// its asker's main conversation: Keep going while the two have paused
+    /// at the cap, which holds it whatever the asker may do, and only then
+    /// the person allowing its asker to ask that colleague. A question to
+    /// another desk is allowed there.
+    fn card_before_asking(&self, pairs: &[Pair], ask: &str) -> Option<String> {
+        let (pair, ask) = pairs.iter().find_map(|pair| {
+            pair.requests
+                .iter()
+                .find(|r| r.id == ask && r.intent == Intent::Ask && r.phase == Phase::Queued)
+                .map(|ask| (pair, ask))
+        })?;
+        let asker = self.participant(&ask.from).ok()?;
+        let asker_name = crate::session::links::shown(&asker);
+        if pair.paused {
+            let colleague = self
+                .participant(&ask.to)
+                .map_or_else(|_| ask.to.clone(), |p| crate::session::links::shown(&p));
+            return Some(format!(
+                "Let {asker_name} and {colleague} keep going? They paused at {EXCHANGE_CAP} messages. The card is in {asker_name}'s main conversation."
+            ));
+        }
         if crate::linked::is_linked(&ask.to) || self.about_live(ask).is_some() {
             return None;
         }
-        let asker = self.participant(&ask.from).ok()?;
         let colleague = self.persona(&ask.to).ok()?;
         if self.collaboration_granted(&asker, &colleague, false) {
             return None;
         }
-        let asker = crate::session::links::shown(&asker);
         Some(format!(
-            "Allow {asker} to ask {} to work? The card is in {asker}'s main conversation.",
+            "Allow {asker_name} to ask {} to work? The card is in {asker_name}'s main conversation.",
             colleague.name
         ))
     }

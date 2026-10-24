@@ -1378,7 +1378,12 @@ turn was stopped." or "This turn failed." after them as the turn ended. A
 question to a colleague that the person must first allow is a wait on the
 person: its reason is the collaboration card's own question, "Allow Mack to
 ask Clementine to work?", and that the card is in the asker's main
-conversation, since grants are per teammate and that is where it is raised. What
+conversation, since grants are per teammate and that is where it is raised.
+A question whose pair has paused at twelve waits on that pause first,
+whatever the asker may do, and the collaboration card is raised only once
+they go on, so the report names the card that is up: "Let Mack and
+Clementine keep going? They paused at 12 messages.", in the same
+conversation. What
 the person said in the thread is never in it; a turn of the person's that
 ended well with the teammate saying nothing reports nothing, and so does a
 handoff turn waiting only on questions to its opener. The report goes where the result would (the

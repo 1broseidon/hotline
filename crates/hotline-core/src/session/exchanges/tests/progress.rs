@@ -294,6 +294,69 @@ async fn a_handoff_turn_waiting_on_a_question_the_person_must_allow_reports_the_
     .await;
 }
 
+/// Bob and Carol have paused at twelve: Bob's question waits on Keep going,
+/// whatever his grant, and the report names the card that is up, not one
+/// for allowing him to ask that only comes once they go on.
+#[tokio::test]
+async fn a_handoff_turn_waiting_on_a_question_its_paused_pair_holds_reports_the_pause() {
+    for granted in [false, true] {
+        let log = scratch(&format!("progress-paused-question-{granted}"));
+        enrol(&log, &persona("ada"));
+        for (id, name) in [("bob", "Bob"), ("carol", "Carol")] {
+            enrol(
+                &log,
+                &Persona {
+                    name: name.into(),
+                    reach: Some(crate::contract::Reach::Workspace),
+                    ..persona(id)
+                },
+            );
+        }
+        let gate = Arc::new(Semaphore::new(0));
+        let bob = Fake::new(
+            Scripted::new(turn("asked", "I asked Carol which colour.", "end_turn"))
+                .gated(gate.clone()),
+        );
+        let room = Room::with_agents(
+            log,
+            Arc::new(DeskKeys),
+            Arc::new(super::gates::Apart {
+                bob: bob.clone(),
+                others: Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn"))),
+            }),
+        );
+        room.allow_sender("bob", "ada").unwrap();
+        if granted {
+            room.allow_sender("carol", "bob").unwrap();
+        }
+        let paused = Pair {
+            id: thread_key("bob", "carol").unwrap(),
+            a: "bob".into(),
+            b: "carol".into(),
+            exchanges: EXCHANGE_CAP,
+            paused: true,
+            requests: vec![],
+        };
+        room.save_pair(&paused).unwrap();
+        room.exchange_card(&paused, ExchangePauseStatus::Pending);
+        let handoff = send(&room, "handoff").await;
+        until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+        let thread = work_thread(&room, &handoff);
+        ask_carol(&room, &thread).await;
+        gate.add_permits(2);
+        until("ada is told", || !notices(&room, "ada").is_empty()).await;
+        assert_eq!(
+            notices(&room, "ada"),
+            [
+                "Bob, in your handoff thread “work handoff”: I asked Carol which colour.\n\nWaiting on the person: Let Bob and Carol keep going? They paused at 12 messages. The card is in Bob's main conversation."
+            ],
+            "{granted}"
+        );
+        assert!(open_card(&room, "bob").is_none(), "{granted}");
+        assert_eq!(paused_cards(&room, "bob")[0]["status"], "pending");
+    }
+}
+
 /// The person's Stop on a handoff's own turn ends the handoff. Its sender
 /// hears that once, as the person's decision, with whatever it hears next:
 /// nothing wakes it, and nothing asks it to inspect and send the work again.

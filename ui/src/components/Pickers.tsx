@@ -1,5 +1,5 @@
 import type { ConfigChoice, SessionConfig } from "../generated/contract";
-import { useRoomRead } from "../roomReads";
+import { refreshRoomRead, useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { ModelPicker } from "./ModelPicker";
@@ -104,6 +104,7 @@ export function SessionPickers({
 					backendId={persona.backendId}
 					agents={agents}
 					onAgent={setBackend}
+					onOpen={() => refreshRoomRead("backends.list")}
 					{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
 					effort={effort === undefined ? null : { value: effort.currentId ?? "", choices: effort.options }}
 					label={session.modelLabel ?? "Model"}

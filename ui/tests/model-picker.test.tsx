@@ -139,12 +139,16 @@ const agents = [
 test("the other agents follow the accounts with the models they last reported; one with none is picked by its row, and one not ready does not open", async () => {
 	const { ModelPicker } = await import("../src/components/ModelPicker");
 	const moves: string[] = [];
+	let opened = 0;
 	await act(async () => {
 		root.render(
 			<ModelPicker
 				choices={choices}
 				modelId="anthropic#work/claude-haiku"
 				agents={agents}
+				onOpen={() => {
+					opened += 1;
+				}}
 				effort={null}
 				label="Model"
 				onModel={() => {}}
@@ -181,6 +185,8 @@ test("the other agents follow the accounts with the models they last reported; o
 	expect(document.querySelector('[role="menu"][aria-label="Claude Code"]')).toBeNull();
 	expect(moves).toEqual(["codex-acp:gpt-6", "claude-acp:own"]);
 	expect(document.body.textContent).not.toContain("Its own model");
+	// Each opening reads the agents' lists again: the desk fills them in behind the first read.
+	expect(opened).toBe(2);
 });
 
 test("on a harness, its models are a model change and Hotline Agent's are a move back", async () => {

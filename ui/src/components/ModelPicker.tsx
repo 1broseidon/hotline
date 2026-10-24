@@ -92,7 +92,10 @@ export function ModelPicker({
 	onEffort,
 	onAddAccount,
 	fallbackName,
+	onOpen,
 }: {
+	/** Each time the menu opens, so lists the desk fills in later can be read again. */
+	onOpen?: (() => void) | undefined;
 	/** What the button says before a harness has named its model: the harness. */
 	fallbackName?: string | undefined;
 	/** Hotline Agent's models, each with its account. */
@@ -176,7 +179,10 @@ export function ModelPicker({
 				aria-haspopup="menu"
 				aria-expanded={open}
 				title={open ? undefined : [modelName, accountLine, effortName].filter((one) => one !== null).join(" · ")}
-				onClick={() => setOpen((was) => !was)}
+				onClick={() => {
+					if (!open) onOpen?.();
+					setOpen((was) => !was);
+				}}
 			>
 				<Mark id={mark} />
 				<span className="picker-label">
@@ -474,7 +480,7 @@ function Panels({
 							type="button"
 							role="menuitemradio"
 							aria-checked={choice.id === modelId}
-							aria-haspopup="menu"
+							aria-haspopup={openRow.agent === undefined ? "menu" : undefined}
 							data-row={at}
 							data-active={(level === 1 && subActive === at) || model?.id === choice.id ? "true" : undefined}
 							tabIndex={-1}
@@ -489,7 +495,8 @@ function Panels({
 							<span className="menu-item-check">{choice.id === modelId && <CheckIcon />}</span>
 							<Mark id={modelMark(choice.id, choice.name)} />
 							<span className="menu-item-text">{choice.name}</span>
-							<ChevronRightIcon className="model-row-more" />
+							{/* Only Hotline Agent's models open their efforts. */}
+							{openRow.agent === undefined && <ChevronRightIcon className="model-row-more" />}
 						</button>
 					))}
 				</div>

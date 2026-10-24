@@ -92,6 +92,29 @@ impl Room {
         }
     }
 
+    /// Whether `request` is a question for its recipient's main conversation
+    /// whose turn has not begun, which the session up there was never handed:
+    /// a chapter's swap drops the questions waiting behind the turn it cuts,
+    /// and every other end of that session ends or fails them. A session not
+    /// up yet is waited for, so the swap's own start comes first.
+    pub(super) fn dropped_by_a_swap(&self, request: &Request) -> bool {
+        if request.intent != Intent::Ask
+            || request.started
+            || request.thread.is_some()
+            || crate::linked::is_linked(&request.to)
+        {
+            return false;
+        }
+        let in_main = self
+            .about_live(request)
+            .is_none_or(|handoff| matches!(self.route_of(&handoff), Route::Dm(_)));
+        let line = format!("question:{}", request.id);
+        in_main
+            && self
+                .session(&request.to)
+                .is_ok_and(|session| !lock(&session.dispatched_deliveries).contains(&line))
+    }
+
     /// The thread a colleague handed over that an ask was sent from: the
     /// ask's answer or failure is heard there, and its stop is shown there.
     pub(super) fn delegated_origin(&self, request: &Request) -> Option<String> {

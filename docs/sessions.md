@@ -1496,7 +1496,11 @@ it ends them alone. A chapter's swap only replaces the session
 chapter included), and the thread the request was sent from parking, or the
 job firing that sent it letting go of its agent, revokes only that thread's
 or firing's own lease; none of them ends the request, so its result, its
-reports and its questions back keep flowing to where they are routed. Only a
+reports and its questions back keep flowing to where they are routed. A
+question a chapter's swap took off the main conversation's queue, its turn
+not begun, is handed by its pair's worker to the session that replaced the
+old one once that is up (`Room::dropped_by_a_swap`), so the new chapter
+answers it. Only a
 stop (`stop_session`, whose `CapabilityEpoch::stop` ends lasting leases
 too) and a policy update end them. The leases live only in memory: a
 request from before a restart holds none until it is handed over again, and

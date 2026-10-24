@@ -219,3 +219,77 @@ async fn each_explicit_end_still_ends_a_delegation_a_chapter_left_standing() {
         talks_without_a_report(&room, &handoff, &thread).await;
     }
 }
+
+/// Bob's main conversation mid-turn, on a tape whose previous chapter can be
+/// reopened, with Ada's question waiting behind that turn.
+async fn asked_behind_bobs_turn(name: &str) -> (Arc<Room>, Arc<Semaphore>, String) {
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let t = now_ms() - 60_000;
+    for event in [
+        json!({"kind":"chapter","id":"c-old","ts":t,"backendId":"hotline","endedAt":t+3000,"title":"Old work","closedBy":"user"}),
+        json!({"kind":"user","id":"u-old","ts":t+1000,"text":"old line"}),
+        json!({"kind":"agent","id":"a-old","ts":t+2000,"text":"Old answer."}),
+    ] {
+        log.append(&StreamId::Tape("bob".into()), &event).unwrap();
+    }
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            turn("person", "Done for the person.", "end_turn"),
+            turn("blue", "Blue.", "end_turn"),
+        ])
+        .gated(gate.clone()),
+    );
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    room.start("bob").await.unwrap();
+    room.prompt("bob", "the person's work", None, None)
+        .await
+        .unwrap();
+    until("the person's turn is running", || {
+        agents.prompts().len() == 1 && room.mid_turn("bob")
+    })
+    .await;
+    let id = send(&room, "ask").await;
+    until("the question waits behind that turn", || {
+        room.tape("bob")
+            .iter()
+            .any(|v| v["cause"]["kind"] == "question" && v["cause"]["requestId"] == id.as_str())
+    })
+    .await;
+    (room, gate, id)
+}
+
+/// The question is answered in the chapter its recipient's turn moved to.
+async fn answered_in_the_next_chapter(room: &Arc<Room>, gate: &Semaphore, id: &str) {
+    gate.add_permits(50);
+    done(room, id).await;
+    let answer = request(room, "ada~bob", id);
+    assert_eq!((answer.failed, answer.reply.as_str()), (false, "Blue."));
+}
+
+/// Bob's agent reopens his previous chapter mid-turn, as its
+/// `resume_chapter` tool may: the question that waited behind the turn is
+/// answered by the session the reopened chapter starts.
+#[tokio::test]
+async fn a_question_waiting_behind_a_turn_outlives_its_chapter_being_reopened() {
+    let (room, gate, id) = asked_behind_bobs_turn("lasting-reopened-behind-a-turn").await;
+    room.resume_chapter("bob").await.unwrap();
+    answered_in_the_next_chapter(&room, &gate, &id).await;
+}
+
+/// Bob's agent closes his chapter mid-turn, as its `new_chapter` tool does,
+/// and the person's next line starts the next one: the question that waited
+/// behind the turn is answered there.
+#[tokio::test]
+async fn a_question_waiting_behind_a_turn_outlives_the_next_line_starting_a_chapter() {
+    let (room, gate, id) = asked_behind_bobs_turn("lasting-new-chapter-behind-a-turn").await;
+    room.start_fresh_chapter("bob", ChapterClose::Agent)
+        .await
+        .unwrap();
+    room.prompt("bob", "the next chapter", None, None)
+        .await
+        .unwrap();
+    answered_in_the_next_chapter(&room, &gate, &id).await;
+}

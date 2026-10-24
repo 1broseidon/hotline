@@ -12,6 +12,8 @@ const HANDOFF_STOPPED: &str =
     "The person stopped this handoff. Do not send it again unless they ask.";
 const ANSWER_STOPPED: &str =
     "The person stopped the answer to this question. Do not ask it again unless they ask.";
+const ANSWER_INTERRUPTED: &str =
+    "The person interrupted the answer to this question. Ask it again if you still need it.";
 
 /// How a scripted turn the person stops ends.
 fn cancelled() -> Vec<Update> {
@@ -816,4 +818,53 @@ async fn a_restart_cutting_a_main_conversations_answer_is_not_the_persons_stop()
     );
     assert_ne!(cut.phase, Phase::Stopped);
     assert!(notices(&room, "ada").is_empty(), "no stop is reported");
+}
+
+/// The person's Interrupt of the turn of Bob's main conversation answering
+/// Ada's question is not their Stop: there is no thread to carry the answer
+/// on, so the answer ends, and Ada hears once, without a wake, that the
+/// person interrupted it and to ask again if she still needs to, never not
+/// to ask again.
+#[tokio::test]
+async fn the_persons_interrupt_on_a_main_conversations_answer_ends_it_to_be_asked_again() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::new(turn("colour", "Looking at the colours.", "end_turn"))
+            .on_cancel(cancelled())
+            .gated(gate.clone()),
+    );
+    let room = apart("interrupts-an-answer-in-main", &bob, &ada);
+    room.start("ada").await.unwrap();
+    let ask = send(&room, "ask").await;
+    until("bob's main conversation is answering", || {
+        bob.prompts().len() == 1
+    })
+    .await;
+    gate.add_permits(1);
+    until("bob has said what he is doing", || {
+        room.tape("bob").iter().any(|v| v["kind"] == "agent")
+    })
+    .await;
+    room.interrupt("bob").unwrap();
+    until("the answer's turn has ended", || {
+        request(&room, "ada~bob", &ask).phase != Phase::Running
+    })
+    .await;
+
+    stopped_for_the_person(&room, &ask, ANSWER_INTERRUPTED);
+    assert_eq!(
+        notices(&room, "ada"),
+        [format!(
+            "Ada, answering “work ask”: Looking at the colours.
+
+{ANSWER_INTERRUPTED}"
+        )]
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(nothing_delivered(&room, &ask), "no failure is handed back");
+    assert!(ada.prompts().is_empty(), "nothing woke ada");
+    ada_hears_once(&room, &ada, ANSWER_INTERRUPTED).await;
+    let heard = heard_with(&ada, "what happened?").unwrap();
+    assert!(!heard.contains("Do not ask it again"), "{heard}");
 }

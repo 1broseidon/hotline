@@ -152,6 +152,7 @@ impl Room {
             info: Mutex::new(info.clone()),
             turns: Mutex::new(Turns::default()),
             stopped_by_person: std::sync::atomic::AtomicBool::new(false),
+            interrupted_by_person: std::sync::atomic::AtomicBool::new(false),
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_posts: Mutex::new(Vec::new()),

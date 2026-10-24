@@ -59,7 +59,7 @@
 //! folder is shared, and it is told that too.
 
 use super::agent::{Opening, lease_of};
-use super::exchanges::Finished;
+use super::exchanges::{Cut, Finished};
 use super::runner::Driven;
 use super::turns::{Begin, Line, Occupant, RequestLine, Seat, Then, Turns};
 use super::{Room, lock, new_id, now_ms, timed_from};
@@ -325,7 +325,7 @@ impl Occupant for LiveSide {
         if side.closed.load(Ordering::SeqCst) {
             // A thread ended under a turn still settles the ask it answered.
             if let Some(request) = lock(&side.request).take() {
-                room.answer_question(&request, &driven, false);
+                room.answer_question(&request, &driven, None);
             }
             return Then::Stop;
         }
@@ -381,7 +381,7 @@ impl Occupant for LiveSide {
                 driven.replies.join("\n\n")
             };
             let stopped = if side.stopped_by_person.swap(false, Ordering::SeqCst) {
-                room.end_stopped_by_person(&request, &driven)
+                room.end_cut_by_person(&request, &driven, Cut::Stop)
             } else {
                 None
             };

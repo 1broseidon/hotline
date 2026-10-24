@@ -31,6 +31,7 @@
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
+use super::exchanges::Cut;
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
@@ -148,6 +149,7 @@ impl Occupant for Session {
             }
         };
         session.stopped_by_person.store(false, Ordering::SeqCst);
+        session.interrupted_by_person.store(false, Ordering::SeqCst);
         Begin::Go(Hold {
             source: Some(source),
             reach,
@@ -209,7 +211,13 @@ impl Occupant for Session {
         }
         if let Some(request) = &held.request {
             let stopped = session.stopped_by_person.swap(false, Ordering::SeqCst);
-            room.answer_question(request, &driven, stopped);
+            let interrupted = session.interrupted_by_person.swap(false, Ordering::SeqCst);
+            let cut = if stopped {
+                Some(Cut::Stop)
+            } else {
+                interrupted.then_some(Cut::Interrupt)
+            };
+            room.answer_question(request, &driven, cut);
         }
         Then::Next
     }

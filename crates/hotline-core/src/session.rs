@@ -392,6 +392,8 @@ struct Session {
     turns: Mutex<Turns>,
     /// The person pressed Stop on the turn in flight.
     stopped_by_person: std::sync::atomic::AtomicBool,
+    /// The person interrupted the turn in flight to say something instead.
+    interrupted_by_person: std::sync::atomic::AtomicBool,
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,

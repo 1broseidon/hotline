@@ -442,6 +442,11 @@ pub(super) const HANDOFF_STOPPED_BY_THE_PERSON: &str =
 pub(super) const QUESTION_STOPPED_BY_THE_PERSON: &str =
     "The person stopped the answer to this question. Do not ask it again unless they ask.";
 
+/// Why a question whose answering turn in a main conversation the person
+/// interrupted ended: a redirect, not a decision about the question.
+pub(super) const QUESTION_INTERRUPTED_BY_THE_PERSON: &str =
+    "The person interrupted the answer to this question. Ask it again if you still need it.";
+
 /// What the agent hears when a delivery reaches it: who answered what, and the
 /// answer quoted, exactly as a colleague's message is quoted to the one it
 /// was sent to. Built from the tape's record alone, so a delivery sent again
@@ -515,6 +520,7 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
                 STOPPED_BY_THE_PERSON,
                 HANDOFF_STOPPED_BY_THE_PERSON,
                 QUESTION_STOPPED_BY_THE_PERSON,
+                QUESTION_INTERRUPTED_BY_THE_PERSON,
             ]
             .contains(&text)
             {

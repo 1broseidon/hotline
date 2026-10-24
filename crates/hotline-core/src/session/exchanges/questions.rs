@@ -225,15 +225,17 @@ impl Room {
     }
 
     /// Saves what the turn answering a question came to. One the person's
-    /// Stop cut short ends as their decision; one that failed or was
-    /// stopped otherwise says so, for its asker to look before trying again.
+    /// `cut` cut short ends as they decided; one that failed or was stopped
+    /// otherwise says so, for its asker to look before trying again.
     pub(in crate::session) fn answer_question(
         self: &Arc<Self>,
         request: &str,
         driven: &Driven,
-        stopped_by_person: bool,
+        cut: Option<Cut>,
     ) {
-        if stopped_by_person && self.end_stopped_by_person(request, driven).is_some() {
+        if let Some(cut) = cut
+            && self.end_cut_by_person(request, driven, cut).is_some()
+        {
             return;
         }
         let failed = driven.stop_reason.as_deref().is_none_or(|reason| {

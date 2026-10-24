@@ -30,6 +30,7 @@ pub(in crate::session) enum TurnEnd<'a> {
     Stopped,
     HandoffStopped,
     AnswerStopped,
+    AnswerInterrupted,
     Failed,
 }
 
@@ -47,6 +48,7 @@ pub(in crate::session) fn turn_report(driven: &Driven, end: TurnEnd<'_>) -> Opti
         TurnEnd::Stopped => Some("This turn was stopped.".to_string()),
         TurnEnd::HandoffStopped => Some(peers::HANDOFF_STOPPED_BY_THE_PERSON.to_string()),
         TurnEnd::AnswerStopped => Some(peers::QUESTION_STOPPED_BY_THE_PERSON.to_string()),
+        TurnEnd::AnswerInterrupted => Some(peers::QUESTION_INTERRUPTED_BY_THE_PERSON.to_string()),
         TurnEnd::Failed => Some("This turn failed.".to_string()),
     };
     match state {
@@ -188,14 +190,16 @@ impl Room {
         }
     }
 
-    /// The person's Stop on the turn answering `id`, a request still at
-    /// work, ends it: a handoff, or the answer to a question. Says what came
-    /// of the turn when the stop cut it short; a turn that ended on its own
-    /// is left to end as it did.
-    pub(in crate::session) fn end_stopped_by_person(
+    /// The person's `cut` of the turn answering `id`, a request still at
+    /// work, ends it: their Stop a handoff or the answer to a question, their
+    /// Interrupt of a main conversation's turn only an answer. Says what came
+    /// of the turn when the cut cut it short; a turn that ended on its own is
+    /// left to end as it did.
+    pub(in crate::session) fn end_cut_by_person(
         self: &Arc<Self>,
         id: &str,
         driven: &Driven,
+        cut: Cut,
     ) -> Option<Finished> {
         let cut_short = driven.cancelled
             || matches!(
@@ -205,12 +209,13 @@ impl Room {
         if !cut_short {
             return None;
         }
-        let (end, finished) = if self.is_ask(id) {
-            (TurnEnd::AnswerStopped, Finished::Answer)
-        } else {
-            (TurnEnd::HandoffStopped, Finished::Gone)
+        let (end, finished) = match (self.is_ask(id), cut) {
+            (true, Cut::Stop) => (TurnEnd::AnswerStopped, Finished::Answer),
+            (true, Cut::Interrupt) => (TurnEnd::AnswerInterrupted, Finished::Answer),
+            (false, Cut::Stop) => (TurnEnd::HandoffStopped, Finished::Gone),
+            (false, Cut::Interrupt) => return None,
         };
-        self.end_for_the_person(id, true, turn_report(driven, end))
+        self.end_for_the_person(id, true, cut, turn_report(driven, end))
             .then_some(finished)
     }
 
@@ -228,20 +233,21 @@ impl Room {
     ) {
         let mut ended = false;
         for id in dropped {
-            ended |= self.end_for_the_person(id, false, None);
+            ended |= self.end_for_the_person(id, false, Cut::Stop, None);
         }
         for id in carried {
-            ended |= self.end_for_the_person(id, true, None);
+            ended |= self.end_for_the_person(id, true, Cut::Stop, None);
         }
         if ended {
             self.mark_handoffs(&[side_id.to_string()]);
         }
     }
 
-    /// Ends `id`, a request still at work, as the person's decision, and
-    /// its sender is told once in `report`, else in the sentence that says
-    /// so, which wakes nobody: a turn woken by it would send the work again
-    /// and undo the stop. A handoff whose turn had not `begun` is ended only
+    /// Ends `id`, a request still at work, as the person's decision to `cut`
+    /// it, and its sender is told once in `report`, else in the sentence that
+    /// says so, which wakes nobody: a turn woken by it would send the work
+    /// again and undo the stop. The request keeps the sentence as its reply,
+    /// or, for one that crosses a link, what crosses it. A handoff whose turn had not `begun` is ended only
     /// if none ever began, so it is never handed over again; one waiting on
     /// the person or a colleague is ended whatever `begun` says, since only
     /// the answer the stop dropped would have carried it on. A sender on a
@@ -252,6 +258,7 @@ impl Room {
         self: &Arc<Self>,
         id: &str,
         begun: bool,
+        cut: Cut,
         report: Option<String>,
     ) -> bool {
         let stoppable = |r: &Request| {
@@ -271,15 +278,17 @@ impl Room {
         }) else {
             return false;
         };
-        let reason = match request.intent {
-            Intent::Handoff => peers::HANDOFF_STOPPED_BY_THE_PERSON,
-            Intent::Ask => peers::QUESTION_STOPPED_BY_THE_PERSON,
+        let reason = match (request.intent, cut) {
+            (Intent::Handoff, _) => peers::HANDOFF_STOPPED_BY_THE_PERSON,
+            (Intent::Ask, Cut::Stop) => peers::QUESTION_STOPPED_BY_THE_PERSON,
+            (Intent::Ask, Cut::Interrupt) => peers::QUESTION_INTERRUPTED_BY_THE_PERSON,
         };
         let report = report.unwrap_or_else(|| reason.to_string());
         let linked_sender = crate::linked::is_linked(&request.from);
         let told_by_its_failure =
             linked_sender || (request.intent == Intent::Ask && self.carried_on(&request).is_some());
-        let crossing = linked_sender.then(|| report.clone());
+        let crossing =
+            (linked_sender || crate::linked::is_linked(&request.to)).then(|| report.clone());
         if !told_by_its_failure && let Err(error) = self.hear_progress(&key, id, &report, false) {
             eprintln!("report a stop: {error}");
         }

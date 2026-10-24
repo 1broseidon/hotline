@@ -201,7 +201,7 @@ export function Conversation({
 		},
 		[personaId, session.state],
 	);
-	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
+	const cancel = useCallback(() => void wire.command("session.cancel", { personaId, interrupt: true }), [personaId]);
 	const resumeBlocked = resumeRefusal(events, persona.backendId);
 	/* The first conversation, before a word: what the starter card reads.
 	 * A line on its way (`saying`) already ends it. */

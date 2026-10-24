@@ -107,8 +107,9 @@ struct Request {
     /// is owed its failure until it is delivered there.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     owed_to_thread: bool,
-    /// The person stopped it, here or on the desk that worked it: a sender
-    /// on a linked desk is told so as their decision, never as a failure.
+    /// The person stopped it, or interrupted its answer, here or on the desk
+    /// that worked it: a sender on a linked desk is told so once, as their
+    /// decision, never as a failure.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     stopped_by_person: bool,
 }
@@ -138,6 +139,16 @@ pub(super) enum Finished {
     Result,
     Answer,
     Gone,
+}
+/// How the person cut short the turn answering a request.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Cut {
+    /// Their Stop: the work ends as their decision, not to be sent again.
+    Stop,
+    /// Their Interrupt of a main conversation's turn, which has no thread
+    /// to carry an answer on: the answer ends, to be asked again if still
+    /// needed.
+    Interrupt,
 }
 pub(super) enum Route {
     Job(String),

@@ -263,6 +263,19 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
         })
         .await;
     assert_eq!(delta["ephemeral"]["personaId"], persona.as_str());
+    for (cmd, params) in [
+        (
+            "session.cancel",
+            json!({"personaId":persona,"interrupt":true}),
+        ),
+        (
+            "thread.cancel",
+            json!({"thread":{"kind":"dm","key":persona},"interrupt":true}),
+        ),
+    ] {
+        let interrupted = now.call(cmd, params).await;
+        assert_eq!(interrupted["ok"], true, "{cmd}: {interrupted}");
+    }
 
     now.call("session.stop", json!({"personaId":persona})).await;
     drop(now);

@@ -273,10 +273,10 @@ pub enum LinkedDelivery {
         request_id: String,
         reply: String,
         failed: bool,
-        /// The person on the desk that worked it stopped it, and `reply` is
-        /// what its sender is told of that: heard as their decision, without
-        /// a wake, never handed back as a failure to retry. An older desk
-        /// ignores it and delivers the failure.
+        /// The person on the desk that worked it stopped it, or interrupted
+        /// its answer, and `reply` is what its sender is told of that: heard
+        /// as their decision, without a wake, never handed back as a failure
+        /// to retry. An older desk ignores it and delivers the failure.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(as = "Option<bool>", optional)]
         stopped_by_person: bool,

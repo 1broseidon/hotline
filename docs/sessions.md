@@ -1404,7 +1404,7 @@ already heard is skipped. A room closing for a restart wakes nobody, and
 reports survive the restart.
 
 The person's Stop on a handoff's own turn ends the handoff
-(`end_stopped_by_person`): the request is stopped and its thread closes as
+(`end_cut_by_person`): the request is stopped and its thread closes as
 stopped. The person may continue it, but then it is theirs alone: a
 delegation stands only while the newest handoff into its thread is not
 stopped, so the thread no longer reports to the sender, and a question back
@@ -1429,9 +1429,10 @@ again when the thread later parks or closes, and the thread, which goes on,
 says on its link that the delegation has ended.
 
 The person's Stop on a turn answering a colleague's question ends the
-answer the same way (`end_stopped_by_person`), wherever it was answered: in
-the recipient's main conversation, whose `session.cancel` is the one stop of
-a turn there, in a work thread, or in a job. The ask is stopped with "The
+answer the same way (`end_cut_by_person`), wherever it was answered: in the
+recipient's main conversation, where it is `session.cancel` without
+`interrupt`, as the phone and an older window send it, in a work thread, or
+in a job. The ask is stopped with "The
 person stopped the answer to this question. Do not ask it again unless they
 ask." as its reply, and its asker is told once, without a wake, in a report
 of what the turn had said and that sentence: shown at once where the answer
@@ -1464,8 +1465,19 @@ there, or the next turn there that answers no request of its own, carries
 it to its result. The person's Stop ends every request the thread carries
 as their stop of it, with the sentence alone as its report
 (`end_for_the_persons_stop`), as it ends the turn it cuts; a thread closed
-first ends each as a turn that ended without a result. The main
-conversation's Interrupt is its `session.cancel`, which stays a stop.
+first ends each as a turn that ended without a result.
+
+The main conversation's Interrupt, and Esc there, sends `session.cancel`
+with `interrupt` (`Room::interrupt`). It cuts the turn and drops what waited
+behind it, as the Stop does, but it is not the person's decision about a
+colleague's question: the main conversation has no thread to carry an
+answer on, and the person's next line must never become the answer to a
+colleague. So an answer the cut turn was giving ends with "The person
+interrupted the answer to this question. Ask it again if you still need
+it." as its reply, told to its asker once without a wake, in the same report
+the Stop's sentence goes in, and never with "Do not ask it again"; a linked
+asker is sent it with `stoppedByPerson`, which its desk tells the same way.
+A desk older than this flag on `session.cancel` takes it as the Stop.
 
 **The delegation** is the handoff the thread serves: the latest one into it,
 in any phase, so a thread the person continues after its result still

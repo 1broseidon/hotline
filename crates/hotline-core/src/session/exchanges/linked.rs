@@ -222,7 +222,7 @@ impl Room {
         if !sent_there {
             return Err("This desk sent no such request.".into());
         }
-        self.end_for_the_person(id, true, Some(report));
+        self.end_for_the_person(id, true, Cut::Stop, Some(report));
         Ok(())
     }
 

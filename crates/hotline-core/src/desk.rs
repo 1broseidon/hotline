@@ -475,6 +475,10 @@ impl RoomHandle for Desk {
         self.room.cancel(persona_id)
     }
 
+    fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        self.room.interrupt(persona_id)
+    }
+
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
         self.room.set_model(persona_id, model_id).await
     }

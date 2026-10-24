@@ -417,6 +417,20 @@ impl Room {
         Ok(())
     }
 
+    /// The person's Interrupt of the turn in flight, to say something
+    /// instead: as [`Room::cut_turn`], and a question the turn was answering
+    /// ends with that said, for its asker to ask again if it still needs to,
+    /// never as their stop of it. The main conversation has no thread to
+    /// carry the answer on, and the person's next line must never become it.
+    pub fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        let session = self.session(persona_id)?;
+        session
+            .interrupted_by_person
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.cut_turn(&session);
+        Ok(())
+    }
+
     /// Stops the turn in flight and drops whatever was waiting behind it,
     /// a colleague's question included, which fails to its asker. A question
     /// the turn was answering ends as one whose turn ended without a result,

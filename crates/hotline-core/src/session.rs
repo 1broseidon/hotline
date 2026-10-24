@@ -394,6 +394,9 @@ struct Session {
     stopped_by_person: std::sync::atomic::AtomicBool,
     /// The person interrupted the turn in flight to say something instead.
     interrupted_by_person: std::sync::atomic::AtomicBool,
+    /// An MCP sign-in completed while this session ran, and it is rebuilt to
+    /// connect with it once its turn is over.
+    rebuild_for_sign_in: std::sync::atomic::AtomicBool,
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,

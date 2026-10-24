@@ -683,10 +683,10 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   not the teammate's authority: a lasting lease (`CapabilityEpoch::lasting`)
   follows only stops and policy changes. So does a rebuild for what changes
   the session and not what the teammate may do (`Room::rebuild`): its
-  computer joining once downloaded or made again between turns, and a
-  sign-in to an MCP server completing, which adds reach the policies already
-  granted. A sign-out, a server removed and a policy change narrow reach and
-  revoke as above.
+  computer joining once downloaded or made again, and a sign-in to an MCP
+  server completing, which adds reach the policies already granted, each
+  between turns. A sign-out, a server removed and a policy change narrow
+  reach and revoke as above.
 - **Delegation.** Each request between two teammates holds two leases, each
   teammate's lasting authority `scoped()` to the request
   (`Room::request_lease`), checked before it is taken up and at its turn's
@@ -789,7 +789,7 @@ extend; when a change adds a boundary, it adds a row.
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
-| A computer joining once downloaded, a computer made again between turns and an MCP sign-in completing rebuild the running main session the way a chapter's swap does (`Room::rebuild`), ending none of the teammate's threads, requests or delegations, so a handoff at work goes on to its result; a room-wide invalidation, as an MCP sign-out or a server removed makes, still ends them | `session/exchanges/tests/lasting.rs` `a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in`, `each_explicit_end_still_ends_a_delegation_a_chapter_left_standing` | the computer's own runtime path: Unix (`session/tests/computer.rs`) |
+| A computer joining once downloaded, a computer made again between turns and an MCP sign-in completing rebuild the running main session the way a chapter's swap does (`Room::rebuild`), ending none of the teammate's threads, requests or delegations, so a handoff at work goes on to its result; the sign-in's rebuild waits for the turn in flight, so a colleague's question being answered is answered; a room-wide invalidation, as an MCP sign-out or a server removed makes, still ends them | `session/exchanges/tests/lasting.rs` `a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in`, `an_mcp_sign_in_rebuilds_a_main_conversation_only_once_its_turn_is_over`, `each_explicit_end_still_ends_a_delegation_a_chapter_left_standing` | the computer's own runtime path: Unix (`session/tests/computer.rs`) |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes the work it left running; a dropped wait cannot be answered later; the person's Interrupt of either main conversation's turn leaves a first-contact card up and answerable | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up` | — |
 | The collaboration card is answered over the real wire before the recipient is handed the ask; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests/door.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`; `wire/tests/seats.rs` `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests/linked.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `hotline-room/src/linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
@@ -1062,7 +1062,8 @@ and its questions back reach the conversation that handed it over.
     lasting authority through the epoch and `revoke_exchanges`), or the end
     of the link (`stop_linked_exchanges`). A computer joining or made again
     and an MCP sign-in completing only rebuild the main session
-    (`Room::rebuild`), as a chapter's swap does, and leave it standing too.
+    (`Room::rebuild`) between turns, as a chapter's swap does, and leave it
+    standing too.
     The leases live only in memory: a request from before a restart holds
     none until it is handed over again, which grants nothing an explicit end
     took away.
@@ -1083,7 +1084,9 @@ and its questions back reach the conversation that handed it over.
     container that is gone, which fails. A rebuild that lands while a
     policy update holds the teammate's authority closed fails to start and
     leaves its main conversation stopped with that error, for the person to
-    start again.
+    start again; a sign-in's rebuild leaves a session already revoked to
+    that update's own restart, so only one whose start the update overtakes
+    is left stopped.
   - A request still waiting on the person's first-contact card fails when
     either teammate's chapter turns over or is reopened, its main session is
     rebuilt for its computer or an MCP sign-in, the person stops either main

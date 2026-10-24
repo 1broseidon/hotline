@@ -487,9 +487,10 @@ handler verifies that token and the capability lease, then puts the vault's
 credential on each request — a current OAuth token, or the pasted one; the
 child never receives either. Signing in authorizes the
 gateway connection and does not change any teammate's none, selected or all
-policy. A completed sign-in rebuilds each running main session so it
-connects with it, and ends nothing a teammate holds or was given
-([Reattaching](#reattaching)); a sign-out revokes, as a grant change does.
+policy. A completed sign-in rebuilds each running main session, once its
+turn is over, so it connects with it, and ends nothing a teammate holds or
+was given ([Reattaching](#reattaching)); a sign-out revokes, as a grant
+change does.
 
 A grant authorizes the server's own capabilities, including any access it has
 outside the teammate's workspace. Hotline does not put granted servers inside the
@@ -1930,9 +1931,14 @@ way a chapter's swap does (`Room::rebuild`, through `stop_with_capability`),
 so the teammate's threads, its requests and its authority stand. The sign-in
 reads which sessions run under the policy lock and rebuilds them after
 letting it go: a rebuild takes the teammate's start gate, and a message
-holds that gate while closing a quiet chapter takes the lock. A thread
-keeps the computer and the servers it was built with until it is brought
-up again. A sign-out, a server removed or a policy change narrows reach
+holds that gate while closing a quiet chapter takes the lock. Like the
+computer's, its rebuild waits for the turn in flight and what waits behind
+it (`Room::rebuild_for_sign_in_when_idle`, called again as the turn loop
+rests) and looks once more behind the start gate, so it cuts no turn, a
+colleague's question being answered included. A session stopped, revoked
+or replaced meanwhile is not rebuilt: what starts the teammate again
+connects with the sign-in. A thread keeps the computer and the servers it
+was built with until it is brought up again. A sign-out, a server removed or a policy change narrows reach
 and goes through the revocation above. Cloned tool handles retain a
 revocable lease, so removing a session alone is never the permission check.
 An idle teammate stays idle and uses the new policy on its next start. A gateway change applies this boundary to the whole room,

@@ -16,6 +16,14 @@ use crate::contract::ChapterClose;
 use crate::thread::ThreadState;
 use tokio::sync::Semaphore;
 
+/// What a turn the room cut short says as it ends.
+fn cancelled() -> Vec<Update> {
+    vec![Update::Turn {
+        stop_reason: "cancelled".into(),
+        usage: None,
+    }]
+}
+
 /// Turns `whose` main conversation over to its next chapter the way the
 /// person's line after a closed chapter does: the old session stops, and a
 /// new one hears the line.
@@ -309,12 +317,6 @@ async fn a_question_waiting_behind_a_turn_outlives_the_next_line_starting_a_chap
 #[tokio::test]
 async fn a_question_back_waiting_where_its_handoff_was_sent_from_outlives_the_handoffs_stop() {
     for from in ["work", "job"] {
-        let cancelled = || {
-            vec![Update::Turn {
-                stop_reason: "cancelled".into(),
-                usage: None,
-            }]
-        };
         let ada_gate = Arc::new(Semaphore::new(0));
         let ada = Fake::new(
             Scripted::turns(vec![
@@ -426,6 +428,46 @@ async fn a_question_back_waiting_where_its_handoff_was_sent_from_outlives_the_ha
             "{from}: Ada's main conversation never heard it"
         );
     }
+}
+
+/// An MCP sign-in while Bob's main conversation answers Ada's question
+/// rebuilds that session only once its turn is over: the answer is given,
+/// and the session after it is a new one.
+#[tokio::test]
+async fn an_mcp_sign_in_rebuilds_a_main_conversation_only_once_its_turn_is_over() {
+    let gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::new(turn("blue", "Blue.", "end_turn"))
+            .on_cancel(cancelled())
+            .gated(gate.clone()),
+    );
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let room = room_with("lasting-sign-in-mid-turn", &ada, vec![bob.clone()]);
+    room.start("bob").await.unwrap();
+    let id = send(&room, "ask").await;
+    until("bob's main turn is answering it", || {
+        request(&room, "ada~bob", &id).started && room.mid_turn("bob")
+    })
+    .await;
+    let old = room.session("bob").unwrap();
+
+    room.signed_in_to_mcp().await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        Arc::ptr_eq(&old, &room.session("bob").unwrap()),
+        "the session answering is kept"
+    );
+    assert_eq!(bob.cancel_count(), 0, "its turn is not cut");
+    gate.add_permits(10);
+    done(&room, &id).await;
+    let answer = request(&room, "ada~bob", &id);
+    assert_eq!((answer.failed, answer.reply.as_str()), (false, "Blue."));
+    until("bob's main conversation is rebuilt after the turn", || {
+        room.session("bob")
+            .is_ok_and(|now| !Arc::ptr_eq(&now, &old))
+            && room.info("bob").state == crate::contract::SessionState::Ready
+    })
+    .await;
 }
 
 /// What changes Bob's main conversation and not what he may do rebuilds it

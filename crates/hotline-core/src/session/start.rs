@@ -153,6 +153,7 @@ impl Room {
             turns: Mutex::new(Turns::default()),
             stopped_by_person: std::sync::atomic::AtomicBool::new(false),
             interrupted_by_person: std::sync::atomic::AtomicBool::new(false),
+            rebuild_for_sign_in: std::sync::atomic::AtomicBool::new(false),
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_posts: Mutex::new(Vec::new()),
@@ -434,22 +435,55 @@ impl Room {
     }
 
     /// A sign-in to an MCP server has completed. It adds reach the policies
-    /// already grant and narrows none, so each running session is rebuilt to
-    /// connect with it, and nothing a teammate holds or was given ends; a
-    /// sign-out, a server removed or a policy change ends all of it, through
-    /// [`Self::invalidate_all`].
+    /// already grant and narrows none, so each running main session is
+    /// rebuilt to connect with it once its turn is over, and nothing a
+    /// teammate holds or was given ends; a sign-out, a server removed or a
+    /// policy change ends all of it, through [`Self::invalidate_all`].
     pub(crate) async fn signed_in_to_mcp(self: &Arc<Self>) {
-        let running: Vec<String> = {
+        let running: Vec<Arc<Session>> = {
             let gate = self.policy_update_lock();
             let _held = gate.lock().await;
-            lock(&self.sessions).keys().cloned().collect()
+            lock(&self.sessions).values().cloned().collect()
         };
         // Never under the policy lock: a rebuild takes the start gate, and a
         // message holds that gate while closing a chapter takes the lock.
-        for persona_id in running {
-            // A rebuild that fails says why on the teammate's band itself.
-            let _ = self.rebuild(&persona_id).await;
+        for session in running {
+            session
+                .rebuild_for_sign_in
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            self.rebuild_for_sign_in_when_idle(&session);
         }
+    }
+
+    /// Rebuilds a main session a sign-in completed under, between turns: a
+    /// turn in flight is never cut for it, and its end calls this again (see
+    /// [`Room::run_queue`]). Behind the start gate a message has claimed its
+    /// turn already, or waits and lands on the session this brings up. A
+    /// session stopped, revoked or replaced meanwhile is left alone: what
+    /// starts its teammate again connects with the sign-in.
+    pub(super) fn rebuild_for_sign_in_when_idle(self: &Arc<Self>, session: &Arc<Session>) {
+        use std::sync::atomic::Ordering::SeqCst;
+        if !session.rebuild_for_sign_in.load(SeqCst) || lock(&session.turns).running {
+            return;
+        }
+        let room = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            let gate = room.start_gate(&session.persona_id);
+            let _held = gate.lock().await;
+            if lock(&session.turns).running
+                || !session.capability.is_current()
+                || !room.current_session(&session)
+                || !session.rebuild_for_sign_in.swap(false, SeqCst)
+            {
+                return;
+            }
+            let Ok(_working) = room.working() else {
+                return;
+            };
+            // A rebuild that fails says why on the teammate's band itself.
+            let _ = room.rebuild_held(&session.persona_id).await;
+        });
     }
 
     /// Every live session, because a policy of "all" includes every server

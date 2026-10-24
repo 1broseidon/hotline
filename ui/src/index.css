@@ -369,6 +369,23 @@
 	.band-capsule .control {
 		border-radius: 13px;
 	}
+	/* Hairlines part the keys, as they do in the dock. */
+	.band-capsule > * + * {
+		position: relative;
+	}
+	.band-capsule > * + *::before {
+		content: "";
+		position: absolute;
+		top: 7px;
+		bottom: 7px;
+		left: -2px;
+		width: var(--hairline);
+		background: var(--line);
+		pointer-events: none;
+	}
+	.band-capsule {
+		gap: 3px;
+	}
 	.band-row {
 		position: relative;
 		display: flex;
@@ -377,6 +394,15 @@
 		align-items: center;
 		gap: 4px;
 		padding: 0 8px;
+		/* The row lets the press through to the drag region under it, save
+		 * where a control stands: its gaps, spacers and title text drag the
+		 * window, and nothing in the band selects as text. */
+		pointer-events: none;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+	.band-row > :not(span:empty, h1, h2) {
+		pointer-events: auto;
 	}
 	/* ------------------------------------------------------------- refusal
 	 * A refusal is a row on the danger fill: the glyph, one sentence of ours,

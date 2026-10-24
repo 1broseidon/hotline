@@ -55,3 +55,30 @@ describe("a dropdown's tooltip", () => {
 		expect(trigger.hasAttribute("title")).toBe(false);
 	});
 });
+
+describe("a pull-down of several choices", () => {
+	test("names the model and the effort in one button, lists the short section first, and each item changes only its own", async () => {
+		const { SectionsPicker } = await import("../src/ui/Menu");
+		const picked: string[] = [];
+		await act(async () => {
+			root.render(
+				<SectionsPicker
+					label="Model"
+					sections={[
+						{ label: "Model", value: "haiku", choices: [{ id: "haiku", name: "Claude Haiku 5.5" }, { id: "opus", name: "Claude Opus 5.5" }, { id: "fable", name: "Claude Fable 5.1" }], onChange: (id) => picked.push(`model:${id}`) },
+						{ label: "Effort", value: "medium", choices: [{ id: "low", name: "Low" }, { id: "medium", name: "Medium" }], onChange: (id) => picked.push(`effort:${id}`) },
+					]}
+				/>,
+			);
+		});
+		const trigger = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+		expect(trigger.textContent).toBe("Claude Haiku 5.5 · Medium");
+		expect(trigger.getAttribute("aria-label")).toBe("Model: Claude Haiku 5.5 · Medium");
+		await act(async () => trigger.click());
+		const menu = document.querySelector('[role="menu"]')!;
+		expect(menu.textContent?.indexOf("Effort")).toBeLessThan(menu.textContent?.indexOf("Claude Opus 5.5") ?? -1);
+		const item = (text: string) => [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find((one) => one.textContent?.includes(text))!;
+		await act(async () => item("Claude Opus 5.5").click());
+		expect(picked).toEqual(["model:opus"]);
+	});
+});

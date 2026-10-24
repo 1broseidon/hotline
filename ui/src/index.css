@@ -347,45 +347,6 @@
 		position: absolute;
 		inset: 0;
 	}
-	/* The conversation band's controls stand in capsules on the menus'
-	 * surface, as the dock and the composer do: the pickers in one, the
-	 * teammate's actions in the other. */
-	.band-capsule {
-		display: flex;
-		height: 32px;
-		flex-shrink: 0;
-		align-items: center;
-		gap: 2px;
-		padding: 0 3px;
-		border-radius: 16px;
-		background: var(--pop);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
-	}
-	.band-capsule:empty {
-		display: none;
-	}
-	.band-capsule .control {
-		border-radius: 13px;
-	}
-	/* Hairlines part the keys, as they do in the dock. */
-	.band-capsule > * + * {
-		position: relative;
-	}
-	.band-capsule > * + *::before {
-		content: "";
-		position: absolute;
-		top: 7px;
-		bottom: 7px;
-		left: -2px;
-		width: var(--hairline);
-		background: var(--line);
-		pointer-events: none;
-	}
-	.band-capsule {
-		gap: 3px;
-	}
 	.band-row {
 		position: relative;
 		display: flex;
@@ -2619,9 +2580,6 @@
 	.band-row {
 		padding-left: calc(8px + var(--lead-room, 0px));
 		padding-right: calc(8px + var(--controls-room, 0px));
-	}
-	.conversation .band-row {
-		padding-right: calc(12px + var(--controls-room, 0px));
 	}
 	/* A new teammate: the list's last row, a dashed face where the new one will stand. */
 	.rail-add {

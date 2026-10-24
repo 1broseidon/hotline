@@ -288,6 +288,71 @@ export function Picker({
 	);
 }
 
+/** One section of a `SectionsPicker`: a choice of its own, under its own heading. */
+export type PickerSection = { label: string; value: string; choices: Choice[]; onChange(id: string): void };
+
+/**
+ * Several choices that go together in one pull-down, the way a model and the
+ * effort it thinks at do: the button names each section's choice, the first
+ * plainly and the rest quieter after a dot, and the menu lists every section
+ * under its heading, the short ones first so they never scroll away.
+ */
+export function SectionsPicker({ sections, label }: { sections: PickerSection[]; label: string }) {
+	const button = useRef<HTMLButtonElement>(null);
+	const [open, setOpen] = useState(false);
+	const names = sections.map((section) => section.choices.find((one) => one.id === section.value)?.name ?? section.value);
+	const ordered = [...sections].sort((left, right) => left.choices.length - right.choices.length);
+	const entries: MenuEntry[] = [];
+	for (const section of ordered) {
+		if (entries.length > 0) entries.push({ kind: "rule" });
+		entries.push({ kind: "heading", text: section.label });
+		let group: string | undefined;
+		for (const choice of section.choices) {
+			if (choice.group !== undefined && choice.group !== group) {
+				entries.push({ kind: "heading", text: choice.group });
+				group = choice.group;
+			}
+			entries.push({
+				kind: "item",
+				id: `${section.label}/${choice.id}`,
+				text: choice.name,
+				...(choice.detail !== undefined ? { detail: choice.detail } : {}),
+				checked: choice.id === section.value,
+				onSelect: () => section.onChange(choice.id),
+			});
+		}
+	}
+	const summary = names.filter((name) => name !== "").join(" · ");
+	return (
+		<>
+			<button
+				ref={button}
+				type="button"
+				className="control picker"
+				aria-label={`${label}: ${summary}`}
+				aria-haspopup="menu"
+				aria-expanded={open}
+				title={open ? undefined : summary}
+				onClick={() => setOpen((was) => !was)}
+			>
+				<span className="picker-label">
+					{names[0]}
+					{names.slice(1).map((name) => (
+						<span key={name} className="text-ink-3">
+							{" · "}
+							{name}
+						</span>
+					))}
+				</span>
+				<ChevronDownIcon className="picker-chevron" />
+			</button>
+			{open && button.current && (
+				<Menu anchor={button.current} entries={entries} highlightChecked onClose={() => setOpen(false)} />
+			)}
+		</>
+	);
+}
+
 /** A button that opens a menu of actions. */
 export function MenuButton({
 	entries,

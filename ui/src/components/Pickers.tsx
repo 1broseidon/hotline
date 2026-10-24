@@ -1,14 +1,15 @@
 import type { ConfigChoice, SessionConfig } from "../generated/contract";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
-import { Picker } from "../ui/Menu";
+import { Picker, SectionsPicker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
 const HOTLINE_AGENT = "hotline";
 
 /**
- * The open teammate's model and effort, on the window's top strip. They
+ * The open teammate's model and effort, on the window's top strip: one
+ * pull-down naming both when there is a model to choose. They
  * name what a turn would run on whether or not a session is up, so the
  * strip is never blank over a resting teammate. Mode is not here: it is
  * the teammate's own and lives in the inspector.
@@ -64,6 +65,33 @@ export function SessionPickers({
 				: [];
 	const visibleConfigs = hotline ? configs : configs.filter((config) => config.category === "effort");
 
+	const setModel = (modelId: string) => {
+		onSaid(null);
+		void wire.command("session.set_model", { personaId, modelId }).catch((error: Error) => onSaid(error.message));
+	};
+	const setConfig = (configId: string, value: string) => {
+		onSaid(null);
+		void wire.command("session.set_config", { personaId, configId, value }).catch((error: Error) => onSaid(error.message));
+	};
+
+	// A model to choose and how hard it thinks: one pull-down naming both.
+	if (modelChoices.length > 0 && visibleConfigs.length > 0) {
+		return (
+			<SectionsPicker
+				label={session.modelLabel ?? "Model"}
+				sections={[
+					{ label: session.modelLabel ?? "Model", value: currentModel, choices: modelChoices, onChange: setModel },
+					...visibleConfigs.map((config) => ({
+						label: config.name,
+						value: config.currentId ?? "",
+						choices: config.options,
+						onChange: (value: string) => setConfig(config.id, value),
+					})),
+				]}
+			/>
+		);
+	}
+
 	return (
 		<>
 			{modelChoices.length > 0 ? (
@@ -72,12 +100,7 @@ export function SessionPickers({
 					choices={modelChoices}
 					placeholder="Model"
 					label={session.modelLabel ?? "Model"}
-					onChange={(modelId) => {
-						onSaid(null);
-						void wire
-							.command("session.set_model", { personaId, modelId })
-							.catch((error: Error) => onSaid(error.message));
-					}}
+					onChange={setModel}
 				/>
 			) : (
 				restingModel !== null && (
@@ -96,12 +119,7 @@ export function SessionPickers({
 					choices={config.options}
 					placeholder={config.name}
 					label={config.name}
-					onChange={(value) => {
-						onSaid(null);
-						void wire
-							.command("session.set_config", { personaId, configId: config.id, value })
-							.catch((error: Error) => onSaid(error.message));
-					}}
+					onChange={(value) => setConfig(config.id, value)}
 				/>
 			))}
 		</>

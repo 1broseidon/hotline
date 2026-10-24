@@ -244,7 +244,7 @@ export function Conversation({
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
-				pulling, openScreen, resumeBlocked, setRefused }} />
+				pulling, openScreen, resumeBlocked, setRefused, onProviders }} />
 
 			{notice !== null && (
 				<p
@@ -322,10 +322,10 @@ export function Conversation({
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
-	pulling, openScreen, resumeBlocked, setRefused,
+	pulling, openScreen, resumeBlocked, setRefused, onProviders,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
 	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
-	| "threadOpen" | "paneOpen" | "callBar"> & {
+	| "threadOpen" | "paneOpen" | "callBar" | "onProviders"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
 	resumeBlocked: string | null;
@@ -444,7 +444,7 @@ const ConversationBand = memo(function ConversationBand({
 	
 					<span className="min-w-0 flex-1" />
 	
-					<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
+					<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} onAddAccount={onProviders} />
 	
 					{/* Side threads still live: a chip each. They are conversations of
 					 * their own rather than this turn's work, so they stay in the band

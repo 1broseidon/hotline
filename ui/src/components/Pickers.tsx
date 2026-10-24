@@ -2,6 +2,7 @@ import type { ConfigChoice, SessionConfig } from "../generated/contract";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
+import { ModelPicker } from "./ModelPicker";
 import { wire, type RosterEntry } from "../wire";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
@@ -22,10 +23,13 @@ export function SessionPickers({
 	entry,
 	models,
 	onSaid,
+	onAddAccount,
 }: {
 	entry: RosterEntry;
 	models: ConfigChoice[];
 	onSaid(said: string | null): void;
+	/** Settings › Providers, where accounts are added. */
+	onAddAccount?: (() => void) | undefined;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -63,6 +67,43 @@ export function SessionPickers({
 					]
 				: [];
 	const visibleConfigs = hotline ? configs : configs.filter((config) => config.category === "effort");
+	const setModel = async (modelId: string) => {
+		onSaid(null);
+		await wire.command("session.set_model", { personaId, modelId }).catch((error: Error) => onSaid(error.message));
+	};
+	const setConfig = async (configId: string, value: string) => {
+		onSaid(null);
+		await wire.command("session.set_config", { personaId, configId, value }).catch((error: Error) => onSaid(error.message));
+	};
+
+	// Hotline Agent: model, account and effort in one pull-down.
+	if (hotline && modelChoices.length > 0) {
+		const effort = configs.find((config) => config.category === "effort");
+		const others = configs.filter((config) => config.category !== "effort");
+		return (
+			<>
+				<ModelPicker
+					choices={modelChoices}
+					modelId={currentModel}
+					effort={effort === undefined ? null : { value: effort.currentId ?? "", choices: effort.options }}
+					label={session.modelLabel ?? "Model"}
+					onModel={setModel}
+					onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
+					onAddAccount={onAddAccount}
+				/>
+				{others.map((config) => (
+					<Picker
+						key={config.id}
+						value={config.currentId ?? ""}
+						choices={config.options}
+						placeholder={config.name}
+						label={config.name}
+						onChange={(value) => void setConfig(config.id, value)}
+					/>
+				))}
+			</>
+		);
+	}
 
 	return (
 		<>

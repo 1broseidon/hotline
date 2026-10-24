@@ -92,9 +92,15 @@ test("the head names the account and the slider changes the effort alone; the ac
 	expect(ticks.map((tick) => tick.textContent)).toEqual(["Low", "Medium", "High", "Max"]);
 	await act(async () => ticks[2]!.click());
 	expect(calls).toEqual(["effort:high"]);
+	// The account in use is the head's key, not a row again below.
+	const head = menu.querySelector<HTMLButtonElement>(".model-head-key")!;
+	expect(head.getAttribute("aria-haspopup")).toBe("menu");
+	expect(head.getAttribute("aria-label")).toContain("in use");
 	const rows = [...menu.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI"]);
-	expect(rows.map((row) => row.querySelector(".model-dot") !== null)).toEqual([true, false, false]);
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Personal", "OpenAI"]);
+	// Pointing at the head opens the account's models beside it.
+	await act(async () => head.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
+	expect(document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')).not.toBeNull();
 });
 
 test("an account opens its models, and picking one sets that account's model", async () => {
@@ -164,15 +170,15 @@ test("the other agents follow the accounts with the models they last reported; o
 	// The account in use is pinned on top; the rest are API (straight to a provider), then Agents.
 	expect([...menu.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["API", "Agents"]);
 	const rows = [...menu.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor"]);
-	const cursor = rows[5]!;
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor"]);
+	const cursor = rows[4]!;
 	expect(cursor.getAttribute("aria-disabled")).toBe("true");
 	expect(cursor.title).toBe("Not signed in.");
 	await act(async () => cursor.click());
 	expect(document.querySelector('[role="menu"][aria-label="Cursor"]')).toBeNull();
 	// Codex opens the list it last reported; a model there moves the teammate onto it.
-	expect(rows[4]!.getAttribute("aria-haspopup")).toBe("menu");
-	await act(async () => rows[4]!.click());
+	expect(rows[3]!.getAttribute("aria-haspopup")).toBe("menu");
+	await act(async () => rows[3]!.click());
 	const gpt = document.querySelector('[role="menu"][aria-label="Codex"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
 	expect(gpt.textContent).toBe("GPT-6");
 	await act(async () => gpt.click());
@@ -219,14 +225,13 @@ test("on a harness, its models are a model change and Hotline Agent's are a move
 	expect(button.textContent).toBe("Opus");
 	await act(async () => button.click());
 	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
-	// Claude Code, in use, is pinned on top and not listed again below.
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Claude Code", "Anthropic · Work", "Anthropic · Personal", "OpenAI", "Codex", "Cursor"]);
-	expect(rows.map((row) => row.querySelector(".model-dot") !== null)).toEqual([true, false, false, false, false, false]);
-	await act(async () => rows[0]!.click());
+	// Claude Code, in use, is the head's key and not listed again below.
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Codex", "Cursor"]);
+	await act(async () => document.querySelector<HTMLButtonElement>(".model-head-key")!.click());
 	const sonnet = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Claude Code"] [role="menuitemradio"]')].find((item) => item.textContent === "Sonnet")!;
 	await act(async () => sonnet.click());
 	await act(async () => button.click());
-	const work = [...document.querySelectorAll<HTMLElement>(".model-row")][1]!;
+	const work = [...document.querySelectorAll<HTMLElement>(".model-row")][0]!;
 	await act(async () => work.click());
 	const haiku = document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
 	await act(async () => haiku.click());
@@ -260,8 +265,8 @@ test("the registry's other ready agents share one row, and those not ready are l
 	});
 	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
 	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor", "Other agents"]);
-	await act(async () => rows[6]!.click());
+	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor", "Other agents"]);
+	await act(async () => rows[5]!.click());
 	const more = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Other agents"] [role="menuitemradio"]')];
 	expect(more.map((item) => item.textContent)).toEqual(["Amp", "Cline"]);
 	await act(async () => more[1]!.click());
@@ -292,5 +297,5 @@ test("the named agents are Antigravity, Claude Code, Codex, Cursor and Grok Buil
 	});
 	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
 	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")].map((row) => row.querySelector(".menu-item-text")?.textContent);
-	expect(rows.slice(3)).toEqual(["Claude Code", "Codex", "Cursor", "Google Antigravity", "Grok Build", "Other agents"]);
+	expect(rows.slice(2)).toEqual(["Claude Code", "Codex", "Cursor", "Google Antigravity", "Grok Build", "Other agents"]);
 });

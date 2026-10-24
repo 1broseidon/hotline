@@ -863,7 +863,30 @@
 		min-width: 300px;
 	}
 	.model-head {
-		padding: 8px 8px 6px;
+		padding: 4px 4px 6px;
+	}
+	.model-head-plain {
+		padding: 4px 4px 0;
+	}
+	/* The head as a key: the model in use and its account, one large target
+	 * opening their models beside it, lit like a row when pointed at. */
+	.model-head-key {
+		display: flex;
+		width: 100%;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 8px 7px 4px;
+		border-radius: 6px;
+		text-align: left;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.model-head-key:hover,
+	.model-head-key[data-active="true"] {
+		background: var(--fill-hover);
+	}
+	.model-head-key .model-head-now,
+	.model-head-key .model-head-account {
+		display: flex;
 	}
 	.model-head-now {
 		display: flex;

@@ -216,9 +216,10 @@ impl Room {
 
     /// Ends what the person's Stop on `side_id` reaches besides the turn it
     /// cuts, as one whose turn the stop cut short ends: each handoff among
-    /// `dropped`, lines it took off the thread's queue before their turns
-    /// began, and each request in `carried`, whose turn an interrupt cut. The
-    /// thread goes on, and its link says so.
+    /// `dropped`, lines it took off the thread's queue, whose turns had not
+    /// begun or which would have carried a waiting handoff on, and each
+    /// request in `carried`, whose turn an interrupt cut. The thread goes on,
+    /// and its link says so.
     pub(in crate::session) fn end_for_the_persons_stop(
         self: &Arc<Self>,
         side_id: &str,
@@ -241,7 +242,9 @@ impl Room {
     /// its sender is told once in `report`, else in the sentence that says
     /// so, which wakes nobody: a turn woken by it would send the work again
     /// and undo the stop. A handoff whose turn had not `begun` is ended only
-    /// if none ever began, so it is never handed over again. A sender on a
+    /// if none ever began, so it is never handed over again; one waiting on
+    /// the person or a colleague is ended whatever `begun` says, since only
+    /// the answer the stop dropped would have carried it on. A sender on a
     /// linked desk is sent the report by the pair's worker, for its desk to
     /// tell it the same way, and a handoff waiting on a stopped question is
     /// carried on by its failure, as by an answer. Says whether it ended it.
@@ -251,12 +254,16 @@ impl Room {
         begun: bool,
         report: Option<String>,
     ) -> bool {
+        let stoppable = |r: &Request| {
+            r.id == id
+                && match r.phase {
+                    Phase::Running => begun || (r.intent == Intent::Handoff && !r.started),
+                    Phase::Waiting => true,
+                    _ => false,
+                }
+        };
         let Some((key, request)) = self.exchange_pairs().into_iter().find_map(|pair| {
-            let request = pair.requests.into_iter().find(|r| {
-                r.id == id
-                    && r.phase == Phase::Running
-                    && (begun || (r.intent == Intent::Handoff && !r.started))
-            })?;
+            let request = pair.requests.into_iter().find(|r| stoppable(r))?;
             Some((pair.id, request))
         }) else {
             return false;
@@ -277,11 +284,7 @@ impl Room {
         let Some(mut pair) = self.exchange_pair(&key) else {
             return false;
         };
-        let Some(stopped) = pair
-            .requests
-            .iter_mut()
-            .find(|r| r.id == id && r.phase == Phase::Running)
-        else {
+        let Some(stopped) = pair.requests.iter_mut().find(|r| stoppable(r)) else {
             return false;
         };
         stopped.phase = Phase::Stopped;

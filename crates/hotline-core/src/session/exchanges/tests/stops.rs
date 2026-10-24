@@ -3,7 +3,7 @@
 //! began, and the answer to a question whose turn it cuts short. Each sender
 //! is told once, without a wake, and the work never runs again. Their
 //! Interrupt only cuts the turn: the work goes on in the next one.
-use super::gates::{Apart, ask_carol, idle, request, turn};
+use super::gates::{Apart, ask_carol, handed_off, idle, request, turn};
 use super::progress::{asking, claimed, heard_with, room_with, said_in, says_ended};
 use super::*;
 use tokio::sync::Semaphore;
@@ -669,4 +669,117 @@ async fn the_persons_stop_ends_what_an_interrupt_left_its_thread_carrying() {
     assert_eq!(bob.prompts().len(), 2, "the stopped work never runs");
     assert!(ada.prompts().is_empty(), "nothing woke ada");
     assert!(nothing_delivered(&room, &handoff) && nothing_delivered(&room, &ask));
+}
+
+/// Carol's answer, which would carry Bob's waiting handoff on, waits behind
+/// the person's turn in the thread: their Stop on that turn drops it and
+/// ends the handoff as theirs, and the thread parking afterwards never hands
+/// the answer over again.
+#[tokio::test]
+async fn the_persons_stop_ends_a_waiting_handoff_whose_answer_it_drops() {
+    let handed = handed_off("stops-a-waiting-handoffs-answer", "end_turn").await;
+    let room = &handed.room;
+    ask_carol(room, &handed.thread).await;
+    handed.bob_gate.add_permits(2);
+    until("the handoff waits on Carol", || {
+        request(room, "ada~bob", &handed.handoff).phase == Phase::Waiting
+            && idle(room, &handed.thread)
+    })
+    .await;
+    room.prompt_side(&handed.thread, "and the colour?", None)
+        .await
+        .unwrap();
+    until("the person's turn is running", || {
+        handed.bob.prompts().len() == 2
+    })
+    .await;
+    handed.carol_gate.add_permits(2);
+    until("Carol's answer waits behind the person's turn", || {
+        room.log
+            .load(&StreamId::Side(handed.thread.clone()))
+            .iter()
+            .any(|v| v["kind"] == "delivery" && v["cause"]["kind"] == "peer")
+    })
+    .await;
+    room.cancel_side(&handed.thread).unwrap();
+
+    stopped_for_the_person(room, &handed.handoff, HANDOFF_STOPPED);
+    assert_eq!(
+        notices(room, "ada")[1..],
+        [format!(
+            "Ada, in your handoff thread “work handoff”: {HANDOFF_STOPPED}"
+        )],
+        "after the report of the wait"
+    );
+    until("the person's turn has ended", || idle(room, &handed.thread)).await;
+    assert_eq!(says_ended(room, &handed.thread), [true; 3]);
+    room.park_side_thread(&handed.thread).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    handed.bob_gate.add_permits(4);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(handed.bob.prompts().len(), 2, "the stopped work never runs");
+    stopped_for_the_person(room, &handed.handoff, HANDOFF_STOPPED);
+}
+
+/// The person answers the card Bob's handoff waits on in its parked thread,
+/// and presses Stop while the thread's agent starts: the answer is dropped,
+/// the handoff ends as theirs, and it never runs again.
+#[tokio::test]
+async fn the_persons_stop_while_a_cards_answer_waits_for_the_agent_ends_its_handoff() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let starts = Arc::new(Semaphore::new(1));
+    let bob = Fake::new(
+        Scripted::new(turn("waiting", "Waiting for the person.", "end_turn"))
+            .gated(gate.clone())
+            .slow_to_start(starts.clone()),
+    );
+    let room = apart("stops-a-cards-answer", &bob, &ada);
+    let handoff = send(&room, "handoff").await;
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let thread = work_thread(&room, &handoff);
+    TeammateTools::new(&room, "bob")
+        .for_work(thread.clone())
+        .call("request_human", &json!({"reason":"Approve the colour"}))
+        .await
+        .unwrap();
+    gate.add_permits(2);
+    until("the handoff waits on the person", || {
+        request(&room, "ada~bob", &handoff).phase == Phase::Waiting && idle(&room, &thread)
+    })
+    .await;
+    room.park_side_thread(&thread).unwrap();
+    let action = room
+        .log
+        .load(&StreamId::Side(thread.clone()))
+        .iter()
+        .find(|v| v["kind"] == "human_action")
+        .unwrap()["actionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    room.answer_human(
+        "bob",
+        &action,
+        crate::contract::HumanAnswer::Done,
+        Some("blue".into()),
+    )
+    .unwrap();
+    until("the answer waits for the thread's agent to start", || {
+        room.sides
+            .get(&thread)
+            .is_some_and(|side| side.turn_running())
+    })
+    .await;
+    room.cancel_side(&thread).unwrap();
+
+    stopped_for_the_person(&room, &handoff, HANDOFF_STOPPED);
+    starts.add_permits(1);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    room.park_side_thread(&thread).unwrap();
+    starts.add_permits(4);
+    gate.add_permits(4);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(bob.prompts().len(), 1, "the stopped work never runs");
+    stopped_for_the_person(&room, &handoff, HANDOFF_STOPPED);
 }

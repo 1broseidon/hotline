@@ -1420,9 +1420,11 @@ cancelled any other way, or failed, returns its failure as before. Their
 Stop also drops what waited behind the turn, and a handoff whose line was
 among it (one that waited for the thread's agent to start, or behind the
 person's own turn) ends the same way, with the sentence alone as its report
-(`end_for_the_persons_stop`): it is never handed over again when the thread
-later parks or closes, and the thread, which goes on, says on its link that
-the delegation has ended.
+(`end_for_the_persons_stop`), and so does a handoff waiting on the person or
+a colleague whose answer was among it, the person's to its card or the
+colleague's, since nothing else would carry it on: neither is handed over
+again when the thread later parks or closes, and the thread, which goes on,
+says on its link that the delegation has ended.
 
 The person's Stop on a turn answering a colleague's question ends the
 answer the same way (`end_stopped_by_person`), wherever it was answered: in

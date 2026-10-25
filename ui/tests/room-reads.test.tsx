@@ -189,3 +189,15 @@ test("a reconnect snapshot discards cached reads and a refused read retries on r
 	expect(reconnected.count("models.efforts")).toBe(1);
 	expect(text()).toContain("Local effort");
 });
+
+test("a Hotline Agent teammate with no account left keeps the picker, so it can still move to an installed agent", async () => {
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="no-accounts" entry={entry("no-accounts")} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const button = container.querySelector<HTMLButtonElement>("button.model-picker");
+	expect(button).not.toBeNull();
+	await act(async () => button!.click());
+	expect(document.body.textContent).toContain("Agents");
+});

@@ -2268,6 +2268,7 @@ secret in the same places, never a copy of the first.
 | --- | --- |
 | One account keeps plain ids; two list each model once per account, ids naming their account, in creation order; revoking one returns to plain ids | `vault.rs` `two_accounts_of_a_provider_list_its_models_once_each_by_account` |
 | An account answers only by its own id; revoked, deleted and unknown ids are nothing | `vault.rs` `each_account_answers_by_its_own_id_and_never_for_another` |
+| A teammate's pictures draw on its own account, and on none of the provider's once that account is gone | `imagegen/providers.rs` `a_teammates_gone_account_takes_its_provider_out_rather_than_falling_back` |
 | A plain id runs on the default account; a named one on that account for the whole turn; a gone or foreign account is refused | `session/tests/accounts.rs` |
 | Over the wire: two accounts list apart with no secret in a choice; a teammate on a revoked account does not run and is not moved | `tests/desk/accounts.rs` `two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_does_not_run` |
 
@@ -2314,6 +2315,7 @@ configuration and sign-in as any start does.
 
 | Boundary | Proof |
 | --- | --- |
+| A look that runs out of time ends the agent's whole process group | `driver/acp/models.rs` `a_look_that_runs_out_of_time_ends_the_agents_whole_process_group` |
 | A look offers nothing, names no servers, never prompts, and reads only the model picker | `driver/acp/models.rs` `a_look_offers_nothing_and_reads_the_model_picker_without_a_prompt` |
 | A look that meets "sign in first" records it, and a session opening clears it; the list stays | `driver/acp/models.rs` `a_look_that_meets_sign_in_marks_it_until_a_session_opens` |
 | Only a plain id names a look folder; an empty report keeps the last list | `driver/acp/models.rs` `only_a_plain_id_names_a_look_folder`, `an_agents_reported_models_are_kept_and_an_empty_report_keeps_them` |

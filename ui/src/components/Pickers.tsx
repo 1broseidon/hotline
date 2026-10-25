@@ -93,8 +93,10 @@ export function SessionPickers({
 	}));
 
 	// Model, account, effort and agent in one pull-down: Hotline Agent's
-	// accounts, then the other agents.
-	if ((hotline && modelChoices.length > 0) || (!hotline && backends !== undefined)) {
+	// accounts, then the other agents. A Hotline Agent teammate with no
+	// account left still has it, so it can move to an installed agent or add
+	// an account; only before the agents have been read is there nothing.
+	if (backends !== undefined || (hotline && modelChoices.length > 0)) {
 		const effort = configs.find((config) => config.category === "effort");
 		const others = configs.filter((config) => config.category !== "effort");
 		return (

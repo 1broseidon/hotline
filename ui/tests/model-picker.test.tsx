@@ -300,6 +300,43 @@ test("the named agents are Antigravity, Claude Code, Codex, Cursor and Grok Buil
 	expect(rows.slice(2)).toEqual(["Claude Code", "Codex", "Cursor", "Google Antigravity", "Grok Build", "Other agents"]);
 });
 
+test("an agent's own accounts stand after it, each named for its account, and picking one moves the teammate there", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const moves: string[] = [];
+	const side = { id: "side", label: "Side projects", kind: "agent" as const, shared: true };
+	const agents = [
+		{ id: "hotline", name: "Hotline Agent", choices: [] },
+		{ id: "codex-acp", name: "Codex", choices: [] },
+		{ id: "claude-acp", name: "Claude Code", choices: [{ id: "opus", name: "Opus" }] },
+		{ id: "claude-acp#side", name: "Claude Code", account: side, choices: [{ id: "opus", name: "Opus" }] },
+	];
+	await act(async () => {
+		root.render(
+			<ModelPicker
+				choices={choices}
+				modelId="anthropic#work/claude-haiku"
+				agents={agents}
+				effort={null}
+				label="Model"
+				onModel={() => {}}
+				onAgent={(backend, model) => {
+					moves.push(`${backend}:${model ?? "own"}`);
+				}}
+				onEffort={() => {}}
+			/>,
+		);
+	});
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
+	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
+	expect(rows.slice(2).map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Claude Code", "Claude Code · Side projects", "Codex"]);
+	const account = rows.find((row) => row.textContent?.includes("Side projects"))!;
+	await act(async () => account.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
+	await act(async () => account.click());
+	const opus = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((row) => row.textContent?.includes("Opus"))!;
+	await act(async () => opus.click());
+	expect(moves).toEqual(["claude-acp#side:opus"]);
+});
+
 test("an agent that wants its sign-in says Sign in on its row, opens no stale list, and its row moves the teammate there", async () => {
 	const { ModelPicker } = await import("../src/components/ModelPicker");
 	const moves: string[] = [];

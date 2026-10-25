@@ -345,8 +345,9 @@ impl Agents for DeskAgents {
             return Ok(Arc::new(driver));
         }
         // The registry answers whether this machine can start that harness at
-        // all, and says what is missing when it cannot.
-        acp::registry::launch(&self.root, &persona.backend_id)?;
+        // all, and says what is missing when it cannot. An account that is gone
+        // is the agent's to say as it starts, on a card that offers the others.
+        acp::registry::launch(&self.root, acp::accounts::split(&persona.backend_id).0)?;
         let driver = ChildAgent::new(
             self.root.clone(),
             persona.backend_id.clone(),

@@ -742,6 +742,8 @@ impl RoomHandle for Quiet {
                 unavailable: None,
                 models: None,
                 sign_in: None,
+                account: None,
+                accounts: None,
             },
             crate::contract::BackendChoice {
                 id: "cursor".to_string(),
@@ -750,6 +752,8 @@ impl RoomHandle for Quiet {
                 unavailable: Some("Not signed in.".to_string()),
                 models: None,
                 sign_in: None,
+                account: None,
+                accounts: None,
             },
             crate::contract::BackendChoice {
                 id: "codex".to_string(),
@@ -758,6 +762,8 @@ impl RoomHandle for Quiet {
                 unavailable: None,
                 models: None,
                 sign_in: None,
+                account: None,
+                accounts: None,
             },
         ]
     }

@@ -42,6 +42,9 @@ Set `HOTLINE_DATA_DIR` to put it somewhere else. Inside it:
 - `workspaces/`: the folders of teammates you did not give a folder to;
 - `skills/`: skills added under **From other folders**;
 - `acp-agents/`: agents downloaded from the registry;
+- `agent-accounts/`: one folder per Claude Code or Codex account you added in
+  **Settings › Providers**, holding that account's sign-in, settings and
+  sessions; deleting one signs that account out;
 - `index.sqlite`: the search index, which can be rebuilt;
 - `cache/`: the day's copy of the agent registry, and the desk's speech
   models;

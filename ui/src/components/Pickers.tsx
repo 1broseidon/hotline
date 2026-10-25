@@ -4,6 +4,7 @@ import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { ModelPicker } from "./ModelPicker";
 import { wire, type RosterEntry } from "../wire";
+import { backendName } from "../accounts";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
 const HOTLINE_AGENT = "hotline";
@@ -49,7 +50,8 @@ export function SessionPickers({
 		(hotline ? hotlineModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
 	// Every agent the teammate could run on, for the picker's Agents (task-287).
 	const backends = useRoomRead("backends.list", "", true);
-	const harnessName = backends?.find((one) => one.id === persona.backendId)?.name ?? null;
+	const harness = backends?.find((one) => one.id === persona.backendId);
+	const harnessName = harness === undefined ? null : backendName(harness);
 	const restingModel = currentModel !== "" ? currentModel : harnessName;
 	const idleEfforts = useRoomRead("models.efforts", currentModel, hotline && currentModel !== "");
 	const configs: SessionConfig[] =
@@ -88,6 +90,7 @@ export function SessionPickers({
 		name: backend.name,
 		...(backend.unavailable !== undefined && backend.unavailable !== null ? { unavailable: backend.unavailable } : {}),
 		...(backend.signIn === true ? { signIn: true } : {}),
+		...(backend.account !== undefined ? { account: backend.account } : {}),
 		// The live session's list, else the one the agent last reported here.
 		choices: backend.id === persona.backendId && session.models.length > 0 ? session.models : (backend.models ?? []),
 	}));

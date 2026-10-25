@@ -20,6 +20,7 @@ import { McpRows, SkillRows } from "./teammate/GrantRows";
 import { BACKGROUND_ABOUT, FoldRow, InfoKey, MACHINE_ABOUT, NESTED, RowText, SwitchRow } from "./teammate/rows";
 import { Threads } from "./teammate/Threads";
 import { ToolLedger } from "./teammate/ToolLedger";
+import { backendName } from "../accounts";
 
 // The pane's rows live in ./teammate by concern; what other components take from here is re-exported.
 export { BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT, SwitchRow } from "./teammate/rows";
@@ -96,7 +97,8 @@ export function Teammate({
 	}, [goal]);
 
 	const backends = useRoomRead("backends.list", "", !hotline && !session.agentName);
-	const harnessName = session.agentName || backends?.find((one) => one.id === persona.backendId)?.name || null;
+	const harness = backends?.find((one) => one.id === persona.backendId);
+	const harnessName = session.agentName || (harness === undefined ? null : backendName(harness));
 
 	const save = (patch: Partial<Persona>) => {
 		if (busy) return;

@@ -70,6 +70,9 @@ pub enum ProviderJob {
 
 /// How this connection was established: a pasted key, a provider sign-in,
 /// or a keyless server URL. OAuth does not imply subscription billing.
+/// `agent` is an account of an agent that keeps its own sign-in — Claude
+/// Code, Codex — in a folder of its own: its provider id is the agent's
+/// backend id, and Hotline holds no secret for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
@@ -77,6 +80,7 @@ pub enum CredentialKind {
     ApiKey,
     Oauth,
     Local,
+    Agent,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

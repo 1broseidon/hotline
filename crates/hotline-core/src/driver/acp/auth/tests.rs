@@ -205,11 +205,12 @@ fn auth_prompt_failures_only_expose_safe_initialized_descriptors() {
     *lock(&live.auth_methods) = vec![acp::AuthMethod::Terminal(
         acp::AuthMethodTerminal::new("login", "Sign in").args(vec!["do-not-persist".into()]),
     )];
-    let notice = auth::failure(&live, "authentication required", "acp_prompt").notice();
+    let notice =
+        auth::failure(&live, "claude-acp", "authentication required", "acp_prompt").notice();
     assert_eq!(notice.contains("signIn"), cfg!(unix));
     assert!(!notice.contains("do-not-persist"));
     assert!(
-        !auth::failure(&live, "ordinary failure", "acp_prompt")
+        !auth::failure(&live, "claude-acp", "ordinary failure", "acp_prompt")
             .notice()
             .contains("signIn")
     );
@@ -227,6 +228,7 @@ fn a_harness_too_old_for_its_model_is_named_on_its_card() {
     }
     let notice = auth::failure(
         &live,
+        "codex-acp",
         "Internal error: The 'gpt-5.5-codex' model requires a newer version of Codex.",
         "acp_prompt",
     )
@@ -236,6 +238,35 @@ fn a_harness_too_old_for_its_model_is_named_on_its_card() {
         "{notice}"
     );
     assert!(notice.contains(r#""kind":"harness_outdated""#), "{notice}");
+}
+
+/// A harness out of usage says whose limit it is, and names its agent,
+/// account and all, and the model it ran, so the card can offer the agent's
+/// other accounts. Any other failure, and an agent with no accounts, names
+/// neither.
+#[test]
+fn a_harness_out_of_usage_names_its_agent_and_model_on_its_card() {
+    let live = Live::default();
+    {
+        let mut session = lock(&live.session);
+        session.info.agent_name = "Claude Code".into();
+        session.info.current_model_id = "opus".into();
+    }
+    let limited = auth::failure(
+        &live,
+        "codex-acp#work",
+        "Internal error: You've hit your limit \u{b7} resets 3pm (UTC)",
+        "acp_prompt",
+    );
+    assert_eq!(limited.title, "Claude Code usage limit reached");
+    assert_eq!(limited.backend.as_deref(), Some("codex-acp#work"));
+    assert_eq!(limited.model.as_deref(), Some("opus"));
+    let other = auth::failure(&live, "codex-acp#work", "tool crashed", "acp_prompt");
+    assert_eq!((other.backend, other.model), (None, None));
+    // An agent with no accounts has none to offer, so its card names none.
+    let cursor = auth::failure(&live, "cursor", "You've hit your limit", "acp_prompt");
+    assert_eq!(cursor.kind, crate::driver::failure::Kind::UsageLimit);
+    assert_eq!((cursor.backend, cursor.model), (None, None));
 }
 
 #[test]

@@ -906,6 +906,48 @@ A harness that answers that the chosen model needs a newer version of it
 at `initialize` ("Codex 1.12.0 is too old for this model") and says to update
 it or switch model.
 
+A harness out of usage says so in its own sentence ("You've hit your limit ·
+resets 3pm"), which the turn's card repeats under the kind `usage_limit`,
+titled for the harness ("Claude Code usage limit reached"); it is read before
+the "rate_limit" or ACP's -32000 the sentence arrives with, and is never retried
+or taken for an expired sign-in. A ChatGPT sign-in at its limit (a 429 whose
+`error.type` is `usage_limit_reached`) is the same kind, with the time it resets
+from the body's `resets_at` whatever a `retry-after` header says. Either card,
+and a quota's, offers the teammate's other accounts (see design.md).
+
+### An agent's own accounts
+
+Claude Code and Codex keep their sign-in, settings and sessions in a folder
+(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), so a desk can run either signed in as
+several of the person's accounts. An account is a credential of kind `agent`
+whose provider is the agent's id, added in Settings › Providers with no secret,
+and its folder is `agent-accounts/<credential id>` in the data directory,
+private like the vault. It starts with the person's instructions, skills,
+settings and MCP servers, copied without following a link and without any way
+to sign in (`apiKeyHelper` and the like, a key in the settings' `env`, the
+sign-in's own state); of Codex's `config.toml`, which also says how Codex signs
+in, only `[mcp_servers]` comes. Claude Code signs in only in a terminal, which
+Hotline runs on Unix alone, so it takes accounts there; Codex everywhere. Removing or revoking the account stops the teammates
+running on it, which would otherwise keep its sign-in and write the folder
+back, and takes the folder, and its sign-in, with it.
+
+A teammate runs on it by its backend id, `claude-acp#<credential id>`, the way
+a Hotline Agent model names its account; the plain `claude-acp` is the agent as
+the person signed in to it on this computer. The launch is the agent's, with
+every inherited way to sign in taken out of the child's environment
+(`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
+`CODEX_API_KEY` and the rest in `driver/acp/accounts.rs`) and the folder set
+last. Everything kept per agent is kept by that id, so each account has its own
+models, its own "sign in first" and its own sessions to reopen. A new account
+signs in from the first teammate that runs on it: the agent asks, and its
+sign-in card runs the agent's own login in that folder. A teammate on an
+account that is gone comes up failed with the `account_gone` card, starts
+nothing, and never runs on the agent's own sign-in instead. Whether an account
+exists is the room's to say, not its folder's: an agent still running on a
+removed one could write the folder back. The New teammate form and the room's
+default list each agent as it is on this computer; a teammate moves onto an
+account from its model menu, and a phone is shown no account at all.
+
 A slow or stalled start holds up only that teammate. Starts are behind each
 teammate's own gate, and on the wire every command that names a teammate is
 answered on that teammate's own lane of the socket

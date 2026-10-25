@@ -147,6 +147,13 @@ pub fn acp_look_dir(root: &Path, backend_id: &str) -> PathBuf {
     root.join("cache").join("acp-look").join(backend_id)
 }
 
+/// The folders an agent signed in as one of the person's accounts keeps its
+/// sign-in, settings and sessions in, one per account, named by the
+/// credential's id. Not a cache: deleting one signs that account out.
+pub fn agent_accounts_dir(root: &Path) -> PathBuf {
+    root.join("agent-accounts")
+}
+
 /// Where the desktop app writes what it would otherwise print: `[startup]`
 /// lines, a failed agent's reason, a panic. `hotline.log` and the one before
 /// it, `hotline.log.1`.

@@ -99,6 +99,45 @@ pub struct Desk {
 }
 
 impl Desk {
+    /// The person's accounts of agents that keep their own sign-in, in the
+    /// order they were added. A revoked one runs nothing.
+    pub(crate) fn agent_accounts(&self) -> Vec<Credential> {
+        self.vault
+            .list()
+            .into_iter()
+            .filter(|account| account.credential_kind == CredentialKind::Agent && !account.revoked)
+            .collect()
+    }
+
+    /// Looks at each agent's models and sign-in, and each of these accounts',
+    /// quietly and in the background, so the picker never waits on them.
+    pub(crate) fn look_at_agents(&self, accounts: &[Credential]) {
+        acp::models::refresh_in_background(
+            self.log.root(),
+            accounts.iter().map(acp::accounts::backend_id).collect(),
+        );
+    }
+
+    /// An agent's account is signed out with its folder, before the room
+    /// records it revoked or gone. A teammate still running on it would keep
+    /// its sign-in and write the folder back, so it stops first; its next
+    /// start says the account is gone. Any other credential is the vault's.
+    fn forget_agent_account(&self, id: &str) -> Result<(), String> {
+        let Some(account) = self.vault.list().into_iter().find(|credential| {
+            credential.id == id && credential.credential_kind == CredentialKind::Agent
+        }) else {
+            return Ok(());
+        };
+        let backend_id = acp::accounts::backend_id(&account);
+        for persona in room::roster(&self.log) {
+            if persona.backend_id == backend_id {
+                self.room.stop(&persona.id)?;
+            }
+        }
+        acp::accounts::forget(self.log.root(), &account)
+            .map_err(|error| format!("The account's folder could not be removed: {error}"))
+    }
+
     /// What the vault holds for a web search provider, for a test to check
     /// that the key went to the vault and nowhere else.
     #[cfg(test)]
@@ -668,6 +707,11 @@ impl RoomHandle for Desk {
         label: &str,
         secret: &str,
     ) -> Result<Credential, String> {
+        // An agent that keeps its own sign-in takes no secret: its account is
+        // a folder of its own, which the agent signs in to itself.
+        if acp::accounts::supported(provider_id) {
+            return acp::accounts::create(self.log.root(), &self.vault, provider_id, label);
+        }
         let wiring = crate::models::wiring(provider_id)
             .ok_or_else(|| format!("Unknown provider {provider_id}."))?;
         if wiring.client == Client::CustomOpenAi {
@@ -685,6 +729,7 @@ impl RoomHandle for Desk {
     }
 
     fn credential_revoke(&self, id: &str) -> Result<(), String> {
+        self.forget_agent_account(id)?;
         self.vault.revoke(id).map_err(|error| error.to_string())
     }
 
@@ -695,6 +740,7 @@ impl RoomHandle for Desk {
     }
 
     async fn credential_delete(&self, id: &str) -> Result<(), String> {
+        self.forget_agent_account(id)?;
         crate::providers::rig_login::revoke::delete(&self.vault, id)
             .await
             .map_err(|error| error.to_string())
@@ -872,7 +918,8 @@ impl RoomHandle for Desk {
     }
 
     /// Hotline Agent first, then whatever the ACP catalogue and the PATH say,
-    /// each with the models it last reported here.
+    /// each with the models it last reported here, and after an agent each
+    /// account of the person's it can run signed in as.
     async fn backends(&self) -> Vec<BackendChoice> {
         let mut choices = vec![BackendChoice {
             id: HOTLINE_BACKEND_ID.to_string(),
@@ -882,20 +929,50 @@ impl RoomHandle for Desk {
             unavailable: None,
             models: None,
             sign_in: None,
+            account: None,
+            accounts: None,
         }];
         let root = self.log.root();
-        acp::models::refresh_in_background(root);
+        let accounts = self.agent_accounts();
+        self.look_at_agents(&accounts);
         let mut models = acp::models::cached(root);
         let sign_in = acp::models::needing_sign_in(root);
         for backend in acp::registry::backends(root).await {
+            let signed_in_as: Vec<BackendChoice> = accounts
+                .iter()
+                .filter(|account| account.provider_id == backend.id)
+                .map(|account| {
+                    let id = acp::accounts::backend_id(account);
+                    BackendChoice {
+                        models: models.remove(&id),
+                        sign_in: sign_in.contains(&id).then_some(true),
+                        name: backend.name.clone(),
+                        description: backend.description.clone(),
+                        unavailable: backend.unavailable.clone(),
+                        // Always one of several: the agent as it is signed
+                        // in on this computer is the other.
+                        account: Some(crate::contract::ChoiceAccount {
+                            id: account.id.clone(),
+                            label: account.label.clone(),
+                            kind: CredentialKind::Agent,
+                            shared: true,
+                        }),
+                        accounts: None,
+                        id,
+                    }
+                })
+                .collect();
             choices.push(BackendChoice {
                 models: models.remove(&backend.id),
                 sign_in: sign_in.contains(&backend.id).then_some(true),
+                account: None,
+                accounts: acp::accounts::supported(&backend.id).then_some(true),
                 id: backend.id,
                 name: backend.name,
                 description: backend.description,
                 unavailable: backend.unavailable,
             });
+            choices.extend(signed_in_as);
         }
         choices
     }

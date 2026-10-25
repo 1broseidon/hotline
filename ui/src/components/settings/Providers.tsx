@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { openLink } from "../../native";
-import type { CapabilityOptions, CatalogModel, Credential, Provider } from "../../generated/contract";
+import type { BackendChoice, CapabilityOptions, CatalogModel, Credential, Provider } from "../../generated/contract";
 import { ChevronRightIcon, PlusIcon } from "../../icons";
 import { useModelsRevision, useRawSetting } from "../../room";
 import { BackKey, Band } from "../../ui/Band";
@@ -28,7 +28,10 @@ function byName(a: { name: string }, b: { name: string }) {
  * several accounts, and choosing one asks for a key or starts a sign-in in
  * place. With two or more accounts of a provider each row and the model
  * picker name the account ("Anthropic · Work"); its page renames it. The form exists only while you are
- * adding. Tools is drawn the same way, on purpose: a list the room has,
+ * adding. An agent that keeps its own sign-in — Claude Code, Codex — is added
+ * here too, as an account of its own beside the one on this computer: no key
+ * or form, only a folder the agent signs in to the first time a teammate
+ * runs on it. Tools is drawn the same way, on purpose: a list the room has,
  * an add row over it, a page behind each row with the way out at its foot.
  *
  * The pane is this section's own rather than Settings', because it has
@@ -44,6 +47,8 @@ export function ProvidersSection({
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [held, setHeld] = useState<Credential[] | null>(null);
 	const [providers, setProviders] = useState<Provider[]>([]);
+	/* The agents, for the ones that take accounts and how each account stands. */
+	const [agents, setAgents] = useState<BackendChoice[]>([]);
 	/* Adding: the provider chosen from the plus, and the connection it
 	 * replaces when it was opened from a page's "Sign in again". */
 	const [choosing, setChoosing] = useState(false);
@@ -78,10 +83,16 @@ export function ProvidersSection({
 				setHeld([]);
 				setRefusal(error.message);
 			});
+	const reloadAgents = () =>
+		wire
+			.command("backends.list", {})
+			.then(setAgents)
+			.catch(() => setAgents([]));
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: read once, on open; reload reads only setters.
 	useEffect(() => {
 		void reload();
+		void reloadAgents();
 		wire
 			.command("providers.list", {})
 			.then(setProviders)
@@ -91,18 +102,42 @@ export function ProvidersSection({
 	/* Connected: one row per credential, live ones first. A revoked login
 	 * stays listed so it can be signed in again or removed. */
 	const connected = (held ?? [])
-		.map((credential) => ({ credential, provider: providers.find((one) => one.id === credential.providerId) }))
+		.map((credential) => ({
+			credential,
+			provider: providers.find((one) => one.id === credential.providerId),
+			agent: agents.find((one) => one.id === credential.providerId),
+		}))
 		.sort((a, b) => Number(a.credential.revoked) - Number(b.credential.revoked) || nameOf(a).localeCompare(nameOf(b)));
-	const live = new Set(connected.filter((one) => !one.credential.revoked).map((one) => one.credential.providerId));
+	// What Hotline Agent can run on; an agent's own account is not that.
+	const live = new Set(
+		connected.filter((one) => !one.credential.revoked && one.credential.credentialKind !== "agent").map((one) => one.credential.providerId),
+	);
 	// How many accounts each provider has: two or more and each is named.
 	const accounts = new Map<string, number>();
 	for (const one of connected) {
 		if (!one.credential.revoked) accounts.set(one.credential.providerId, (accounts.get(one.credential.providerId) ?? 0) + 1);
 	}
-	const titleOf = (one: { credential: Credential; provider: Provider | undefined }) =>
-		accountName(nameOf(one), one.credential.label, (accounts.get(one.credential.providerId) ?? 0) > 1);
+	// An agent's account is always one of several: the agent on this computer is the other.
+	const titleOf = (one: Connected) =>
+		accountName(nameOf(one), one.credential.label, one.credential.credentialKind === "agent" || (accounts.get(one.credential.providerId) ?? 0) > 1);
 	// Every provider can be added again: a second account of it is another row.
 	const addable = providers.slice().sort(byName);
+	const agentsWithAccounts = agents.filter((one) => one.accounts === true).sort(byName);
+
+	const addAgentAccount = async (agent: BackendChoice) => {
+		setRefusal(null);
+		setChoosing(false);
+		try {
+			// The agent signed in on this computer is its first account.
+			const label = nextAccountLabel(agent.name, (accounts.get(agent.id) ?? 0) + 1);
+			const made = await wire.command("credential.create", { providerId: agent.id, label, secret: "" });
+			setHeld((known) => [...(known ?? []), made]);
+			setOpen(made.id);
+			await reloadAgents();
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		}
+	};
 
 	const begin = (provider: Provider, replacing: Credential | undefined = undefined) => {
 		setRefusal(null);
@@ -125,6 +160,23 @@ export function ProvidersSection({
 	};
 
 	const opened = connected.find((one) => one.credential.id === open);
+	if (opened !== undefined && opened.credential.credentialKind === "agent") {
+		return (
+			<AgentAccountPage
+				credential={opened.credential}
+				name={titleOf(opened)}
+				agent={opened.agent?.name ?? opened.credential.providerId}
+				status={agentAccountStatus(agents, opened.credential)}
+				onRenamed={(renamed) => setHeld((known) => (known ?? []).map((one) => (one.id === renamed.id ? renamed : one)))}
+				onBack={() => setOpen(null)}
+				onRemoved={() => {
+					setHeld((known) => (known ?? []).filter((one) => one.id !== opened.credential.id));
+					setOpen(null);
+					void reloadAgents();
+				}}
+			/>
+		);
+	}
 	if (opened !== undefined) {
 		return (
 			<ProviderPage
@@ -168,6 +220,22 @@ export function ProvidersSection({
 								{addable.map((provider) => (
 									<ProviderRow key={provider.id} provider={provider} onPick={() => begin(provider)} />
 								))}
+								{agentsWithAccounts.map((agent) => (
+									<button
+										key={agent.id}
+										type="button"
+										className="group-row group-row-choice w-full text-left"
+										disabled={agent.unavailable !== undefined}
+										title={agent.unavailable}
+										onClick={() => void addAgentAccount(agent)}
+									>
+										<span className="group-row-text">
+											<span className="group-row-title">{agent.name}</span>
+										</span>
+										<span className="text-sm text-ink-3">Another account</span>
+										<ChevronRightIcon className="shrink-0 text-ink-3" />
+									</button>
+								))}
 							</div>
 						</section>
 					)}
@@ -210,6 +278,8 @@ export function ProvidersSection({
 											<span className="group-row-detail">
 												{one.credential.revoked
 													? "Disconnected"
+												: one.credential.credentialKind === "agent"
+													? agentAccountStatus(agents, one.credential)
 												: `${one.credential.custom ? (one.credential.custom.api === "responses" ? "Responses" : "Chat Completions") : one.credential.credentialKind === "oauth" ? "Signed in" : one.credential.credentialKind === "local" ? one.credential.baseUrl : "API key"} · ${modelsShownText(enabledModels[one.credential.providerId])}`}
 											</span>
 										</span>
@@ -279,8 +349,87 @@ function AccountName({
 	);
 }
 
-function nameOf(one: { credential: Credential; provider: Provider | undefined }): string {
-	return one.provider?.name ?? one.credential.label;
+/** A credential, with the provider or the agent it is an account of. */
+type Connected = { credential: Credential; provider: Provider | undefined; agent: BackendChoice | undefined };
+
+function nameOf(one: Connected): string {
+	return one.provider?.name ?? one.agent?.name ?? one.credential.label;
+}
+
+/**
+ * How an agent's account stands, as the agent last said: it signs in the
+ * first time a teammate runs on it, and again when its sign-in expires.
+ */
+function agentAccountStatus(agents: BackendChoice[], account: Credential): string {
+	const signedIn = agents.find((one) => one.account?.id === account.id);
+	return signedIn?.models !== undefined && signedIn.signIn !== true ? "Signed in" : "Not signed in yet";
+}
+
+/**
+ * An agent's own account: its name, how it stands, and the way out. There
+ * is nothing to sign in to here; the agent asks for its sign-in in the
+ * conversation of the first teammate that runs on it.
+ */
+function AgentAccountPage({
+	credential,
+	name,
+	agent,
+	status,
+	onRenamed,
+	onBack,
+	onRemoved,
+}: {
+	credential: Credential;
+	name: string;
+	agent: string;
+	status: string;
+	onRenamed(credential: Credential): void;
+	onBack(): void;
+	onRemoved(): void;
+}) {
+	const [refusal, setRefusal] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const remove = () => {
+		setBusy(true);
+		setRefusal(null);
+		void wire
+			.command("credential.delete", { id: credential.id })
+			.then(onRemoved, (error: Error) => setRefusal(error.message))
+			.finally(() => setBusy(false));
+	};
+	return (
+		<div className="pane">
+			<Band>
+				<BackKey onBack={onBack} />
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{name}</h2>
+			</Band>
+			<Scroll>
+				<div className="pane-column flex flex-col gap-6">
+					<section className="nt-card">
+						<div className="flex items-center gap-3">
+							<span className="nt-avatar" aria-hidden="true">
+								{name.charAt(0).toUpperCase()}
+							</span>
+							<span className="flex min-w-0 flex-1 flex-col">
+								<span className="welcome-card-title">{name}</span>
+								<span className="truncate text-sm text-ink-2">{status}</span>
+							</span>
+						</div>
+						<AccountName credential={credential} onRenamed={onRenamed} onRefused={setRefusal} />
+						<p className="text-sm text-ink-2">
+							Pick it in a teammate's model menu. {agent} asks for its sign-in in that conversation the first time, and keeps it, its settings and its sessions apart from the {agent} on this computer. Removing it stops the teammates running on it.
+						</p>
+						<div className="flex flex-wrap items-center justify-end gap-2">
+							<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={remove}>
+								Sign out and remove
+							</button>
+						</div>
+					</section>
+					{refusal !== null && <Refusal message={refusal} />}
+				</div>
+			</Scroll>
+		</div>
+	);
 }
 
 /** The row's own word for the filter: the count when there is one, else all. */

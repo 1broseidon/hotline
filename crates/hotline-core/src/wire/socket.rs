@@ -784,13 +784,21 @@ async fn command(
                         })
                 }
                 // Why a harness is unavailable can name the machine's
-                // accounts and folders. That is the owner's to read; a
-                // companion sees that it is unavailable, not why.
+                // accounts and folders, and the person's own accounts of an
+                // agent are theirs. That is the owner's to read; a companion
+                // sees that a harness is unavailable, not why, and sees each
+                // agent as it is on this computer.
                 (Command::BackendsList {}, _) if seat == Seat::Phone => {
                     commands::run(command, log, room, parts)
                         .await
                         .map(|mut list| {
+                            if let Some(backends) = list.as_array_mut() {
+                                backends.retain(|backend| backend.get("account").is_none());
+                            }
                             for backend in list.as_array_mut().into_iter().flatten() {
+                                if let Some(fields) = backend.as_object_mut() {
+                                    fields.remove("accounts");
+                                }
                                 if let Some(reason) = backend.get_mut("unavailable")
                                     && !PLAIN_REASONS.contains(&reason.as_str().unwrap_or_default())
                                 {

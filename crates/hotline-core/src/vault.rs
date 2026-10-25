@@ -330,11 +330,23 @@ impl Vault {
     /// Records a finished login on the room stream. The files are already on
     /// disk from [`Self::begin_login`]; this is the fact of them.
     pub fn finish_login(&self, id: &str, provider_id: &str, label: &str) -> io::Result<Credential> {
+        self.record_account(id, provider_id, CredentialKind::Oauth, label)
+    }
+
+    /// Records an account whose files are already on disk, as a login's are
+    /// once it finishes and an agent's folder is once it is made.
+    pub fn record_account(
+        &self,
+        id: &str,
+        provider_id: &str,
+        kind: CredentialKind,
+        label: &str,
+    ) -> io::Result<Credential> {
         let now = now_ms();
         let credential = Credential {
             id: id.to_string(),
             provider_id: provider_id.to_string(),
-            credential_kind: CredentialKind::Oauth,
+            credential_kind: kind,
             base_url: None,
             custom: None,
             label: label.to_string(),
@@ -373,7 +385,7 @@ impl Vault {
         Self::credentials(&self.log.load(&StreamId::Room))
     }
 
-    fn credentials(events: &[Value]) -> Vec<Credential> {
+    pub(crate) fn credentials(events: &[Value]) -> Vec<Credential> {
         events
             .iter()
             .filter(|event| event.get("kind").and_then(Value::as_str) == Some("credential"))
@@ -502,6 +514,8 @@ impl Vault {
                 .base_url
                 .clone()
                 .map(|base_url| ProviderAuth::Local { base_url }),
+            // An agent's account is the agent's to sign in, never Hotline Agent's.
+            CredentialKind::Agent => None,
         })
     }
 
@@ -1225,7 +1239,7 @@ fn now_ms() -> i64 {
 /// directory that was already there — a boundary is only a boundary if it is
 /// re-established every time.
 #[cfg(unix)]
-fn make_private_directory(path: &Path) -> io::Result<()> {
+pub(crate) fn make_private_directory(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     // `mkdir` masks the mode it is given by the process umask, which can only
     // take permissions away, so the directory is never wider than 0700 — not
@@ -1251,7 +1265,7 @@ fn open_directory(path: &Path) -> io::Result<fs::File> {
 
 /// Windows files inherit the private DACL established at directory creation.
 #[cfg(windows)]
-fn make_private_directory(path: &Path) -> io::Result<()> {
+pub(crate) fn make_private_directory(path: &Path) -> io::Result<()> {
     crate::credentials::windows::private_directory(path)
 }
 

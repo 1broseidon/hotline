@@ -218,6 +218,10 @@ async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
     let grant = h.pair_companion().await;
     let mut phone = h.socket(&grant.private).await.unwrap();
     read(&mut phone).await;
+    // An account of the person's own is the owner's: the phone never sees it.
+    h.desk
+        .credential_create("codex-acp", "Work", "")
+        .expect("an agent's account is added with no secret");
 
     send(&mut phone, json!({"id": 1, "cmd": "backends.list"})).await;
     let backends = read(&mut phone).await;
@@ -227,6 +231,12 @@ async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
         choices
             .iter()
             .any(|choice| choice["id"] == "hotline" && choice["unavailable"].is_null()),
+        "{choices:?}"
+    );
+    assert!(
+        choices
+            .iter()
+            .all(|choice| !choice["id"].as_str().unwrap().contains('#')),
         "{choices:?}"
     );
     for choice in choices {

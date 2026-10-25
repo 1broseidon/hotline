@@ -139,6 +139,9 @@ fn terminal_blocking(
     let mut command = CommandBuilder::new(&launch.command);
     command.args(&launch.args);
     command.args(&method.args);
+    for name in &launch.unset {
+        command.env_remove(name);
+    }
     for (name, value) in &launch.env {
         command.env(name, value);
     }
@@ -307,6 +310,7 @@ mod tests {
                 command: "/bin/sh".into(),
                 args: vec!["-c".into()],
                 env: Vec::new(),
+                unset: Vec::new(),
             };
             let method = AuthMethodTerminal::new("terminal", "Fixture")
                 .args(vec![code.into()])
@@ -400,6 +404,7 @@ mod tests {
                     command: "/bin/sh".into(),
                     args: vec!["-c".into()],
                     env: Vec::new(),
+                    unset: Vec::new(),
                 };
                 let method = AuthMethodTerminal::new("terminal", "Fixture")
                     .args(vec![code.into()])

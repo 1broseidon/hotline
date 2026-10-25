@@ -163,3 +163,80 @@ async fn two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_do
     }
     let _ = work;
 }
+
+/// An account of Codex, over the wire the window uses: added from
+/// Settings › Providers with no secret, listed after its agent as one of
+/// several, renamed like any account, never a model of Hotline Agent's, and
+/// signed out with its folder when it is removed.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_own_account_is_a_backend_of_its_own_until_it_is_removed() {
+    let (root, port) = open("agent-account").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let made = client
+        .call(
+            "credential.create",
+            json!({"providerId": "codex-acp", "label": "Work", "secret": ""}),
+        )
+        .await;
+    assert_eq!(made["ok"], true, "{made}");
+    assert_eq!(made["result"]["credentialKind"], "agent", "{made}");
+    let id = made["result"]["id"].as_str().unwrap().to_string();
+    let folder = root.join("agent-accounts").join(&id);
+    assert!(folder.is_dir());
+    let backend = format!("codex-acp#{id}");
+
+    let listed = |backends: &Value| -> Vec<String> {
+        backends["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|one| one["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let backends = client.call("backends.list", json!({})).await;
+    let ids = listed(&backends);
+    let agent = ids.iter().position(|one| one == "codex-acp").unwrap();
+    assert_eq!(ids[agent + 1], backend, "an account follows its agent");
+    let account = &backends["result"][agent + 1];
+    assert_eq!(account["account"]["label"], "Work", "{account}");
+    assert_eq!(account["account"]["shared"], true, "{account}");
+    assert_eq!(backends["result"][agent]["accounts"], true);
+    assert!(
+        models(&mut client).await.is_empty(),
+        "no model of Hotline Agent's"
+    );
+
+    let renamed = client
+        .call(
+            "credential.rename",
+            json!({"id": id, "label": "Side projects"}),
+        )
+        .await;
+    assert_eq!(renamed["ok"], true, "{renamed}");
+    let backends = client.call("backends.list", json!({})).await;
+    assert!(
+        backends["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|one| one["id"] == backend.as_str() && one["account"]["label"] == "Side projects"),
+        "{backends}"
+    );
+
+    let refused = client
+        .call(
+            "credential.create",
+            json!({"providerId": "cursor", "label": "Work", "secret": ""}),
+        )
+        .await;
+    assert_eq!(
+        refused["ok"], false,
+        "only an agent with accounts takes one: {refused}"
+    );
+
+    let removed = client.call("credential.delete", json!({"id": id})).await;
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert!(!folder.exists(), "removing the account signs it out");
+    let backends = client.call("backends.list", json!({})).await;
+    assert!(!listed(&backends).contains(&backend));
+}

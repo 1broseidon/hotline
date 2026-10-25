@@ -486,6 +486,15 @@ quota, context or request failure fails the same way again, so its card does
 not offer it. The driver's own backoff (three tries for transient errors)
 has already run by the time the card appears.
 
+An account that is gone, out of quota or at its usage limit fails the same way
+on that account, and may not on another. Its card names the model, and for a
+harness the agent it ran (account and all), and offers every other account
+that can take the turn, one button each: for Hotline Agent the accounts serving
+the same model (`session.set_model`), for a harness that agent's other accounts
+(`session.set_backend`), the one signed in on this computer included. A press
+moves the teammate and runs the failed turn again; nothing moves it without
+one. A ChatGPT sign-in's limit says when it resets, as a time of day.
+
 This recovery is desktop-only. Claude's `NO_BROWSER` method starts its interactive
 CLI, not a structured URL/device-code protocol. Hotline does not scrape that TUI
 into a phone login form or relay Claude session tokens. Unsupported methods and

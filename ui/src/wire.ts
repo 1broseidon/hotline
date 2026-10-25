@@ -8,6 +8,10 @@ import type {
 	ComputerStatus,
 	ConfigChoice,
 	CookieImport,
+	CookieOffer,
+	CookieOfferBlock,
+	CookieOfferSettings,
+	CookieOfferSites,
 	CookieSite,
 	Credential,
 	DeskLink,
@@ -155,6 +159,8 @@ type Results = {
 	ping: null;
 	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;
+	"credential.rename": Credential;
+	"session.set_backend": SessionInfo;
 	"credential.login": LoginPrompt;
 	"credential.login_cancel": null;
 	"credential.connect_local": Credential;
@@ -274,9 +280,19 @@ type Results = {
 	"computer.cookies.import": CookieSite[];
 	"computer.cookies.push": CookieSite[];
 	"computer.cookies.list": CookieImport[];
+	"computer.cookies.offers": CookieOffer[];
+	"computer.cookies.blocked": CookieOfferBlock[];
+	"computer.cookies.settings": CookieOfferSettings;
+	"computer.cookies.sites": CookieOfferSites;
+	"computer.cookies.reset": null;
+	"computer.cookies.answer": null;
+	"computer.cookies.remove": null;
 	"computer.cookies.forget": CookieImport[];
 	/** Names, kinds and what each is for; never a value. */
+	"secrets.capture.answer": null;
 	"secrets.list": SharedSecret[];
+	"secrets.use.set": SharedSecret;
+	"secrets.use.answer": null;
 	"secrets.set": SharedSecret;
 	"secrets.login.set": SharedSecret;
 	"secrets.delete": null;

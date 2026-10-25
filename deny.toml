@@ -24,11 +24,14 @@
 unmaintained = "all"
 yanked = "deny"
 ignore = [
-    # Run time: webpki-roots 0.26.11 under tokio-tungstenite 0.30 is a semver
-    # stub that re-exports webpki-roots 1, which Cargo.lock holds at 1.0.10,
-    # the release that drops the distrusted emSign root. Remove when
-    # tokio-tungstenite takes webpki-roots 1 directly.
-    { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.26.11 is a stub over webpki-roots 1.0.10 (fixed) via tokio-tungstenite 0.30; remove when it depends on webpki-roots 1" },
+    # Run time, voice calls only: crypto-bigint 0.5.5 (RUSTSEC-2026-0387,
+    # timing variability in constant-time operations) under elliptic-curve
+    # 0.13 / p256 0.13, which webrtc's rtc-dtls 0.20 uses for the DTLS
+    # handshake of a call's media. Only a call's key exchange runs through
+    # it, and timing it needs an attacker measuring that handshake on the
+    # path. No webrtc release takes crypto-bigint >= 0.7.6 yet. Remove when
+    # rtc-dtls moves to the RustCrypto 0.14 crates.
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 via p256 0.13 in webrtc's rtc-dtls 0.20 (call DTLS only); remove when rtc-dtls takes crypto-bigint >= 0.7.6" },
 
     # Build time only: a proc macro under gtk-rs 0.18's glib-macros, which
     # Tauri's Linux tray and dialogs use. Look again when Tauri moves off GTK 3.

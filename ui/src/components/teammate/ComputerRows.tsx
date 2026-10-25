@@ -4,6 +4,7 @@ import type { ComputerMount, ComputerStatus, PersonaComputer } from "../../gener
 import { CloseIcon, PlusIcon } from "../../icons";
 import { COMPUTER_STATUS_EVERY_MS } from "../../computer";
 import { wire } from "../../wire";
+import { CookieLends } from "../CookieLends";
 import { CookieImport, CookieImports } from "../CookieImport";
 import { PasskeyArm } from "../PasskeyArm";
 import { ComputerSecrets } from "../Secrets";
@@ -416,6 +417,7 @@ export function ComputerRows({
 									Bring over browser cookies
 								</button>
 							)}
+							<CookieLends personaId={personaId} disabled={disabled} />
 							<CookieImports personaId={personaId} disabled={disabled} refresh={importsVersion} />
 							<PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />
 						</>

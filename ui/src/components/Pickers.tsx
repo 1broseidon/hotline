@@ -1,7 +1,8 @@
 import type { ConfigChoice, SessionConfig } from "../generated/contract";
-import { useRoomRead } from "../roomReads";
+import { refreshRoomRead, useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
+import { ModelPicker } from "./ModelPicker";
 import { wire, type RosterEntry } from "../wire";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
@@ -22,10 +23,13 @@ export function SessionPickers({
 	entry,
 	models,
 	onSaid,
+	onAddAccount,
 }: {
 	entry: RosterEntry;
 	models: ConfigChoice[];
 	onSaid(said: string | null): void;
+	/** Settings › Providers, where accounts are added. */
+	onAddAccount?: (() => void) | undefined;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -43,7 +47,8 @@ export function SessionPickers({
 	const currentModel =
 		session.currentModelId ??
 		(hotline ? hotlineModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
-	const backends = useRoomRead("backends.list", "", !hotline && currentModel === "");
+	// Every agent the teammate could run on, for the picker's Agents (task-287).
+	const backends = useRoomRead("backends.list", "", true);
 	const harnessName = backends?.find((one) => one.id === persona.backendId)?.name ?? null;
 	const restingModel = currentModel !== "" ? currentModel : harnessName;
 	const idleEfforts = useRoomRead("models.efforts", currentModel, hotline && currentModel !== "");
@@ -63,6 +68,66 @@ export function SessionPickers({
 					]
 				: [];
 	const visibleConfigs = hotline ? configs : configs.filter((config) => config.category === "effort");
+	const setModel = async (modelId: string) => {
+		onSaid(null);
+		await wire.command("session.set_model", { personaId, modelId }).catch((error: Error) => onSaid(error.message));
+	};
+	const setConfig = async (configId: string, value: string) => {
+		onSaid(null);
+		await wire.command("session.set_config", { personaId, configId, value }).catch((error: Error) => onSaid(error.message));
+	};
+
+	const setBackend = async (backendId: string, modelId: string | undefined) => {
+		onSaid(null);
+		await wire
+			.command("session.set_backend", { personaId, backendId, ...(modelId !== undefined ? { modelId } : {}) })
+			.catch((error: Error) => onSaid(error.message));
+	};
+	const agents = (backends ?? []).map((backend) => ({
+		id: backend.id,
+		name: backend.name,
+		...(backend.unavailable !== undefined && backend.unavailable !== null ? { unavailable: backend.unavailable } : {}),
+		...(backend.signIn === true ? { signIn: true } : {}),
+		// The live session's list, else the one the agent last reported here.
+		choices: backend.id === persona.backendId && session.models.length > 0 ? session.models : (backend.models ?? []),
+	}));
+
+	// Model, account, effort and agent in one pull-down: Hotline Agent's
+	// accounts, then the other agents. A Hotline Agent teammate with no
+	// account left still has it, so it can move to an installed agent or add
+	// an account; only before the agents have been read is there nothing.
+	if (backends !== undefined || (hotline && modelChoices.length > 0)) {
+		const effort = configs.find((config) => config.category === "effort");
+		const others = configs.filter((config) => config.category !== "effort");
+		return (
+			<>
+				<ModelPicker
+					choices={hotline ? modelChoices : models}
+					modelId={currentModel}
+					backendId={persona.backendId}
+					agents={agents}
+					onAgent={setBackend}
+					onOpen={() => refreshRoomRead("backends.list")}
+					{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
+					effort={effort === undefined ? null : { value: effort.currentId ?? "", choices: effort.options }}
+					label={session.modelLabel ?? "Model"}
+					onModel={setModel}
+					onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
+					onAddAccount={onAddAccount}
+				/>
+				{others.map((config) => (
+					<Picker
+						key={config.id}
+						value={config.currentId ?? ""}
+						choices={config.options}
+						placeholder={config.name}
+						label={config.name}
+						onChange={(value) => void setConfig(config.id, value)}
+					/>
+				))}
+			</>
+		);
+	}
 
 	return (
 		<>

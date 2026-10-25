@@ -77,6 +77,19 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
         assert_eq!(pending(&desk, &persona)["id"], event["id"]);
         room.withdraw_human(&persona, &card.request).unwrap();
     }
+    for yes in [true, false] {
+        let card = Card {
+            persona: persona.clone(),
+            kind: "secret_use_ask".into(),
+            request: "held-use".into(),
+        };
+        assert!(
+            room.answer_call_card(&card, &call, yes)
+                .await
+                .unwrap_err()
+                .contains("voice cannot answer")
+        );
+    }
     for kind in ["permission", "passkey_ask"] {
         let pending = if kind == "permission" {
             json!({"kind":kind,"id":"perm:opaque","ts":1,"requestId":"opaque","title":"Approve deletion","options":[]})
@@ -243,4 +256,89 @@ async fn a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_i
     let card = reference(&persona, &pending(&desk, &persona));
     room.answer_call_card(&card, &call, true).await.unwrap();
     assert_eq!(crate::room::settings(&desk.log)["personName"], "George");
+}
+
+#[tokio::test]
+async fn credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_answers() {
+    let (_root, desk, calls, call, persona, mut events, fake) = direct_call().await;
+    let room = desk.test_room();
+    calls.hold(&call, true).unwrap();
+    let thread = crate::contract::ThreadId {
+        kind: crate::contract::ThreadKind::Call,
+        key: call.clone(),
+    };
+    let credential = crate::contract::TranscriptEvent::CredentialAsk {
+        from: None,
+        id: "credential:voice".into(),
+        ts: crate::session::now_ms(),
+        action_id: "credential:voice".into(),
+        site: "https://github.com".into(),
+        reason: "A reason the voice must not repeat".into(),
+        credential_kind: crate::contract::CaptureKind::Login,
+        name: "GITHUB_LOGIN".into(),
+        status: crate::contract::CredentialStatus::Pending,
+        stored_as: None,
+        expires_at: crate::session::now_ms() + 1_800_000,
+        existing: vec![],
+        armed: false,
+    };
+    room.write_home(&persona, &thread, &credential);
+    let event_value = serde_json::to_value(&credential).unwrap();
+    calls.card(&persona, &event_value);
+    calls.card(&persona, &event_value);
+    calls.hold(&call, false).unwrap();
+    event(&mut events, |e| {
+        matches!(e, VoiceEvent::Clip { r#final: true, .. })
+    })
+    .await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(2)).await;
+    tokio::task::yield_now().await;
+    let spoken = lock(&fake.spoken).clone();
+    assert_eq!(
+        spoken
+            .iter()
+            .filter(|s| s.contains("credential card waits on the desk and phone"))
+            .count(),
+        1,
+        "{spoken:?}"
+    );
+    assert!(
+        spoken
+            .iter()
+            .all(|s| !s.contains("A reason") && !s.contains("GITHUB_LOGIN"))
+    );
+    for words in ["yes", "done"] {
+        let _ = calls.test_answer_card_words(&call, words).await;
+        let pending = desk
+            .log
+            .load(&StreamId::Tape(persona.clone()))
+            .into_iter()
+            .find(|e| e["id"] == "credential:voice")
+            .unwrap();
+        assert_eq!(pending["status"], "pending");
+        assert_eq!(pending["from"]["thread"], call);
+    }
+    calls.hold(&call, true).unwrap();
+    let mut stored = event_value;
+    stored["status"] = json!("stored");
+    stored["storedAs"] = json!("GITHUB_LOGIN");
+    room.call_said(&thread, &persona, &stored);
+    calls.card(&persona, &stored);
+    calls.card(&persona, &stored);
+    calls.hold(&call, false).unwrap();
+    event(&mut events, |e| {
+        matches!(e, VoiceEvent::Clip { r#final: true, .. })
+    })
+    .await;
+    let spoken = lock(&fake.spoken).clone();
+    assert_eq!(spoken.last().unwrap(), "Stored as GITHUB_LOGIN.");
+    assert_eq!(
+        spoken
+            .iter()
+            .filter(|text| text.contains("GITHUB_LOGIN"))
+            .count(),
+        1
+    );
+    calls.end(&call).unwrap();
 }

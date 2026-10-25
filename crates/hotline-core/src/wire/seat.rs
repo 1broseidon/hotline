@@ -48,11 +48,11 @@ impl Seat {
             Seat::Desk | Seat::Owner => !federation_command(command),
             Seat::Link => matches!(command, Command::Ping {}) || federation_command(command),
             // A phone answers for the person: a permission card, a
-            // `request_human` card and a passkey card are each a teammate
-            // waiting on someone, and waiting until they are back at a desk
-            // is the whole problem. The passkey answer is one answer to one
-            // request the person armed for at the desk; the arming itself
-            // stays there.
+            // human, credential or passkey card is a teammate waiting on
+            // someone. Capture is the one value-bearing answer: its live
+            // card binds the origin and recipient before it can store and
+            // grant a login or arm a passkey. Arbitrary secret management
+            // and passkey arming remain at the desk.
             // Which model and how hard it thinks are settings the person
             // owns anywhere.
             //
@@ -102,8 +102,15 @@ impl Seat {
                     | Command::SessionRetry { .. }
                     | Command::HumanAnswer { .. }
                     | Command::SecretsPasskeyAnswer { .. }
+                    | Command::SecretsUseAnswer { .. }
+                    | Command::ComputerCookieOffers { .. }
+                    | Command::ComputerCookieSettings {}
+                    | Command::ComputerCookieAnswer { .. }
+                    | Command::ComputerCookieRemove { .. }
+                    | Command::SecretsCaptureAnswer(..)
                     | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }
+                    | Command::SessionSetBackend { .. }
                     | Command::SessionSetConfig { .. }
                     | Command::ModelsList { .. }
                     | Command::ModelsEfforts { .. }
@@ -223,6 +230,10 @@ fn federation_command(command: &Command) -> bool {
 fn phone_thread_command(command: &Command) -> bool {
     match command {
         Command::ThreadPrompt { thread, .. } => thread.kind == ThreadKind::Side,
+        Command::ThreadAnswer {
+            answer: crate::contract::ThreadAnswer::Credential(_),
+            ..
+        } => false,
         Command::ThreadAnswer { thread, .. } => thread.kind != ThreadKind::Pair,
         // Closing a job cancels it, which `schedule.cancel` never let a
         // companion do, and stopping its firing is the same owner's call.

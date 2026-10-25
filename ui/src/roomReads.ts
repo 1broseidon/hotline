@@ -49,3 +49,21 @@ export function useRoomRead<N extends Read>(name: N, modelId = "", enabled = tru
 	}, [connection, enabled, entry, epoch, modelId, name]);
 	return enabled && epoch.ready ? value as Commands[N]["result"] | undefined : undefined;
 }
+
+/**
+ * Reads `name` again, keeping what is on screen until the new answer lands.
+ * For a list the desk fills in behind the first read: the agents' models.
+ */
+export function refreshRoomRead(name: Read, modelId = ""): void {
+	const connection = wireFor(activeDeskId() ?? "");
+	const entry = caches.get(connection)?.entries.get(JSON.stringify([name, modelId]));
+	if (entry === undefined || entry.value === undefined) return;
+	const request = name === "models.efforts" ? connection.command(name, { modelId }) : connection.command(name, {});
+	void request.then(
+		(value) => {
+			entry.value = value;
+			for (const listener of entry.listeners) listener();
+		},
+		() => {},
+	);
+}

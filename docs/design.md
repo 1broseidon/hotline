@@ -227,9 +227,22 @@ write waits for its reply first. Negotiation stays on the reader, and neither
 command work nor ordering waits suspend cancellation or the silence timer.
 Remote work is cancelled with its seat; accepted desktop writes finish.
 A seat whose frame waits past the write deadline resets its TCP transport,
-discarding queued bytes. Only that timeout selects zero linger: ordinary
+discarding queued bytes before releasing admission. The seat owns its writer
+future, so cancelling the seat cannot detach a writer that keeps the socket
+alive; abortive close consumes the reunited transport synchronously.
+Only that timeout selects zero linger: ordinary
 WebSocket closes must drain final pairing and authentication replies, including
 on Windows.
+
+A remote socket's 256-frame queue sheds tool updates and live deltas before
+disconnecting. Pending roster rows coalesce per subscription and teammate,
+carrying forward any omitted catalogs; required frames are ordering barriers.
+Chat, cards, snapshots and replies can evict tool chatter, but an outbox full
+of required frames still disconnects. The log keeps every tool event. After
+stream lag, a phone receives its full 200-line window within the existing byte
+budget, even if it opened with a smaller background window. The fold and a
+new broadcast receiver are captured under the log's writer lock, so older
+queued revisions cannot undo that snapshot.
 
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a paired owner has the same command and subscription set. A
@@ -355,7 +368,10 @@ notices, chapters' gate, receipts, the ledger — and a
   and its loop. A shared loop makes ordinary Rig model requests and admits
   operator steering between them, independently of the selected provider.
   Owned shell jobs outlive individual model requests; waits yield to operator
-  input, and cancellation observes exit before reporting completion. A
+  input, and cancellation observes exit before reporting completion. On Unix,
+  cancellation, deadlines and dropped tasks stop the owned process group
+  before killing it: a group signal visits members individually, so killing
+  a waited child first must not let its shell run the next statement. A
   command still running when the model replies without calling `wait_jobs`
   is handed to the DM session as a running process and the turn ends: there
   is no flag and no timer, because the model's choice not to wait is the
@@ -989,6 +1005,13 @@ and a preamble that tells the teammate to ask it directly. It is never in the
 gateway, because the right guide is the one the running release ships, not
 one the operator keeps.
 
+Computer status prefers the release learned from that guide. A container also
+records its image tag in the `hotline.release` label at creation, so status
+can recover the release after a desk restart or a failed guide fetch. Older
+containers fall back to the image reference reported by their runtime. The
+current image setting only determines the offered update, never the release
+of an existing container.
+
 Not yet: gateway sources from git or a registry, promoting a workspace skill
 to the gateway from the pane, and honouring `allowed-tools` — a skill runs
 with the teammate's reach and grants, no more.
@@ -1190,3 +1213,146 @@ text or binary preview; PDFs retain the native viewer. Indexed storage keeps equ
 separate and addresses readback by message and attachment position, never by a
 caller-supplied source path. A later correction can deliver the updated file; a later call owns its own results. Work that survives
 hang-up still delivers while its lease is valid; revocation prevents delivery.
+
+### Credentials are entered in a card, never in a conversation
+
+`request_credential {site, reason, kind, name?}` proposes a login or passkey
+for one full origin. The core binds the card to its requesting teammate,
+thread and a child of that session's capability lease. It grants nothing.
+The tool returns immediately; a later delivery names the stored key, its
+site and how to fill it, or says why the request stopped. A thread can ask
+for an origin once per turn. A pending card expires after thirty minutes;
+withdrawal or a revoked session also ends its authority. A saved card cannot
+recreate a lease after restart.
+
+The desk form sends `secrets.capture.answer` once. It carries the action id,
+chosen name, optional login values and Ask me choice. No name means decline;
+a name without values grants a matching existing key or arms a passkey.
+Neither a different origin nor a different teammate can be sent. The phone
+seat may send this command, but no other secret write, including the generic
+thread-answer equivalent. A request lock settles racing seats once. An accepted answer finishes even
+if the phone disconnects during delivery. The
+form clears typed fields on submit, dismiss and settlement, and expires
+locally even when its connection has gone away. The transcript's additive
+`credential_ask` event holds only metadata and outcome; tape segments and
+the importer are unchanged.
+
+A login is stored with `sites: [requested_origin]`, granted to the requester
+and delivered through the existing whole-set computer door before the agent
+hears the outcome. Existing keys keep their values and policy. Use defaults
+to `auto` on old and new records; capture maps its Ask me choice to `ask`
+and saves it with a login or minted passkey.
+The computer currently allows same-scheme/port subdomains of a configured
+login host; capture does not tighten that computer-side rule. Strict
+origin-only filling remains a counterpart acceptance gap for task-266.
+
+A passkey has no value fields. Make a passkey arms the existing computer
+flow, then the site's separate approval card still needs the person. A
+captured passkey requires that operator approval and the card's exact origin;
+a computer's report of approval cannot grant it. Minted storage uses the
+capture's lock and live lease too, so withdrawal cannot later become a grant.
+The card settles when the passkey is stored, declines when its approval is
+denied, or expires with an unused arming.
+
+On a call, the card lives in home chat and the call mirrors its status. Voice
+announces once that the desk and phone are waiting, without reading the
+request's free-form reason. Spoken yes or done has no authority here. A
+stored outcome delivered to the call says only `Stored as NAME`; its card
+queues that fixed spoken notice once, independently of the agent’s reply.
+
+
+### Each login and passkey chooses when to ask
+
+The vault sidecar owns `use: auto | ask`; absent means automatic. Settings →
+Secrets changes this metadata without reading or rewriting the keychain value.
+The capture card sets it for a new login or captured passkey; granting an
+existing key keeps that key's policy. There is no built-in list of sensitive
+sites. The whole set sent to a running computer carries `use` on logins and
+passkeys only, so changing the choice takes effect without restarting it.
+
+Every two seconds the desk polls the authenticated `/secrets/uses` door of
+each running computer granted an Ask me key. The computer owns the hold,
+its deadline, and the ten-minute allowance for one key on one site on that
+teammate's computer. The desk writes one additive `secret_use_ask` card per
+held id, with the key, kind, site, path and teammate, to the home tape. Desk
+and phone subscribe to that same card. Approve, Allow 10 min and Deny travel
+through `secrets.use.answer` to `/secrets/uses/answer`; they never travel
+through voice. The card contains no credential values. Existing event shapes,
+tape segments and the importer are unchanged.
+
+One per-computer lock serializes set delivery, polling and card answers;
+without it, racing seats could settle a card twice or an old set could arrive
+after a policy change. Answers also check the bound capability lease,
+current computer and current grant under the policy lock. A missing held id,
+expired deadline, revoked lease or stopped computer expires the card. The
+teammate receives the outcome in a delivery, including a plain decline or
+lapse and a reminder to retry a waiting login fill after approval. A desk
+restart expires saved cards; the saved event alone has no answer authority.
+A computer returning 404 on the use door gets automatic policy for all keys,
+with one stderr explanation per running endpoint; the vault keeps the person's
+choice for a newer computer.
+
+### A host browser session is lent only after Use
+
+The same two-second computer watch polls `GET /pages`, taking only HTTP(S)
+origins. On the first appearance of a registrable site during a live teammate
+session, the core copies each host browser's SQLite cookie store and reads
+only `host_key` (Chromium) or `host` (Firefox). Discovery neither launches a
+browser nor asks its keychain to decrypt. A missing `/pages` door offers
+nothing. If several profiles have the site, the first browser by id and its
+first profile supplies one offer; the card names that browser and profile.
+
+An installed browser whose data folder the host refuses is not an empty
+cookie inventory. For an otherwise eligible site, the first affected
+teammate's chat says why once per browser per desk run, with the Full Disk
+Access remedy on macOS. Settings' blocked import picker uses the same
+explanation, naming Hotline's app bundle or the actual development binary.
+Refused discovery leaves sites eligible for the next poll, so the same open
+page can get an offer after access becomes available; a readable browser
+can still supply its one card while another is refused.
+
+The additive `cookie_offer` event is one shared desk/phone card. Use always
+asks: it says the teammate will be signed in as the person. Only an explicit
+`computer.cookies.answer` with `use`, bound to the source, teammate, site,
+running computer and live capability lease, opens cookie values through the
+existing browser reader. The PSL, including private suffixes, bounds the
+selection to the registrable domain and subdomains; expired cookies stay on
+the host. Values pass only to the authenticated computer login door. Not now
+lasts for this session; Never for this site is a per-teammate room record,
+undone with Undo in Settings → Computer → Sites. Voice cannot answer the card.
+
+The room's `cookieOffers` setting defaults to `{enabled: true}` on old and
+new desks. An absent `sites` list means all registrable sites; a list means
+only those sites, and an empty list means none. Settings → Computer owns the
+switch and the Sites page. Selecting every listed site saves no list, so new
+sites are eligible too. The page groups host-column discovery by registrable
+domain and names each browser and profile, with search, Save, Back and the
+per-teammate Never blocks' Undo. It explains that google.com, apple.com and
+microsoft.com lend the whole account.
+
+Off returns before the computer's pages or any host browser discovery is
+read. Settings writes, automatic discovery and offer answers share the
+policy gate; an update waits for a discovery already in flight, expires
+pending cards before its reply and writes a notice saying offers are off.
+Narrowing the list also expires pending cards outside it. A poll skips a busy
+policy gate rather than waiting while holding its computer watch. Accepted
+lends stay removable. Only opening Sites explicitly reads host names while
+offers are off; opening Computer or reading the preference does not.
+Desk and owner seats may change the setting and discover sites; the phone
+has a narrow preference read, without access to host discovery or room writes.
+
+A metadata-only Unconfirmed record precedes delivery, so a crash midway still
+leaves Remove available; only confirmed delivery says Signed in as you.
+Each lend has a unique `lent-<browser>-<profile>-<id>` login, so another site
+cannot overwrite its removal record. The settled card and computer pane say
+Signed in as you and offer Remove. It calls `DELETE /logins/{name}` with
+`domains: [site]` and tells the agent that the session was taken back; Use
+tells it it may reload. These records survive restart, while saved pending
+cards expire and have no authority. Removal clears the container's browser
+and saved login, not the person's host cookies or the site's session token.
+Existing event shapes, segments and the importer are unchanged.
+
+The native phone renders this additive card in its own repository; this tree
+proves its subscription and answer protocol through both authenticated seats.
+Task-274 supplies the computer's pages door. A real Brave/Porkbun sign-in and
+removal on George's Mac remains a device acceptance check.

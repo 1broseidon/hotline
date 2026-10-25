@@ -12,7 +12,7 @@ use crate::contract::{CapabilityModel, CapabilityProvider};
 use crate::credentials::CredentialFile;
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -241,7 +241,26 @@ impl Connection {
 
 /// The connected providers in the order the owner connected them, one each.
 fn connections(vault: &Vault) -> Vec<Connection> {
-    let auth = vault.provider_auth();
+    connections_on(vault, &HashMap::new())
+}
+
+/// The same, a provider named in `accounts` drawing on that account (a
+/// credential id) rather than its default one: a teammate's pictures are paid
+/// for by the account it runs on. An account that is gone takes its provider
+/// out of the list rather than falling back to another of its accounts, as a
+/// turn does.
+fn connections_on(vault: &Vault, accounts: &HashMap<String, String>) -> Vec<Connection> {
+    let mut auth = vault.provider_auth();
+    for (provider, account) in accounts {
+        match vault.account_auth(account) {
+            Some((owner, held)) if &owner == provider => {
+                auth.insert(owner, held);
+            }
+            _ => {
+                auth.remove(provider);
+            }
+        }
+    }
     let mut seen = HashSet::new();
     vault
         .list()
@@ -370,6 +389,16 @@ pub fn resolve(vault: &Vault, settings: &ImageSettings) -> Result<ImageSet, Stri
     resolve_from(&connections(vault), settings)
 }
 
+/// [`resolve`] for a teammate: each provider in `accounts` (provider id to
+/// credential id) draws on that account.
+pub fn resolve_on(
+    vault: &Vault,
+    settings: &ImageSettings,
+    accounts: &HashMap<String, String>,
+) -> Result<ImageSet, String> {
+    resolve_from(&connections_on(vault, accounts), settings)
+}
+
 /// Which provider and model would draw, for a status line: `None` when
 /// nothing can, with the reason.
 pub fn describe(vault: &Vault, settings: &ImageSettings) -> Result<super::ImageId, String> {
@@ -473,6 +502,27 @@ mod tests {
             crate::credentials::CredentialFiles::new(dir.into(), crate::vault::default_store())
                 .file(dir.join("auth.json"));
         connection(xai::PROVIDER_ID, &ProviderAuth::StoredLogin { tokens }).unwrap()
+    }
+
+    /// A teammate's picture is drawn on its own account, and never on the
+    /// provider's other account once its own is gone.
+    #[test]
+    fn a_teammates_gone_account_takes_its_provider_out_rather_than_falling_back() {
+        let root = std::env::temp_dir().join(format!("imagegen-accounts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let vault = Vault::open(&root, crate::log::Log::open(&root)).unwrap();
+        let _work = vault.create("openai", "Work", "sk-work").unwrap();
+        let personal = vault.create("openai", "Personal", "sk-personal").unwrap();
+        let on_personal = HashMap::from([("openai".to_string(), personal.id.clone())]);
+        let drawn = connections_on(&vault, &on_personal);
+        assert_eq!(drawn.len(), 1);
+        assert!(matches!(&drawn[0].auth, ConnectionAuth::Key(Some(key)) if key == "sk-personal"));
+        vault.revoke(&personal.id).unwrap();
+        // Work is still connected, but Personal was this teammate's: no OpenAI at all.
+        assert!(connections_on(&vault, &on_personal).is_empty());
+        // Room-level pictures still draw on the default account.
+        assert_eq!(connections(&vault).len(), 1);
     }
 
     #[test]

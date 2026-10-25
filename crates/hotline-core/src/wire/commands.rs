@@ -15,7 +15,7 @@ use crate::contract::{Command, ThreadAnswer, ThreadId};
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
 use crate::{paths, room};
-use models::{remember_model, set_config, set_model, welcome};
+use models::{remember_model, set_backend, set_config, set_model, welcome};
 use persona::{
     MobileDraft, apply_persona_update, create_persona, delete_persona, lead_persona, living,
     mobile_persona_access, mobile_persona_computer, mobile_persona_create, mobile_persona_patch,
@@ -285,6 +285,9 @@ pub(crate) async fn run(
             .credential_create(&provider_id, &label, &secret)
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
+        Command::CredentialRename { id, label } => room
+            .credential_rename(&id, &label)
+            .map(|credential| json!(credential)),
         Command::CredentialDelete { id } => room.credential_delete(&id).await.map(|()| Value::Null),
         Command::CredentialLogin { provider_id } => room
             .credential_login(&provider_id)
@@ -423,6 +426,13 @@ pub(crate) async fn run(
             persona_id,
             model_id,
         } => set_model(log, room, &persona_id, &model_id)
+            .await
+            .map(|info| json!(info)),
+        Command::SessionSetBackend {
+            persona_id,
+            backend_id,
+            model_id,
+        } => set_backend(log, room, &persona_id, &backend_id, model_id.as_deref())
             .await
             .map(|info| json!(info)),
 
@@ -791,6 +801,47 @@ pub(crate) async fn run(
                 .await
                 .map(|imports| json!(imports))
         }
+        Command::SecretsCaptureAnswer(answer) => room
+            .secrets_capture_answer(answer)
+            .await
+            .map(|()| Value::Null),
+        Command::SecretsUseSet { name, r#use } => room
+            .secrets_use_set(&name, r#use)
+            .await
+            .map(|secret| json!(secret)),
+        Command::ComputerCookieOffers { persona_id } => {
+            living(log, &persona_id)?;
+            Ok(json!(room.computer_cookie_offers(&persona_id).await))
+        }
+        Command::ComputerCookieBlocked {} => Ok(json!(room.computer_cookie_blocked().await)),
+        Command::ComputerCookieSettings {} => Ok(json!(crate::room::cookie_offer_settings(log)?)),
+        Command::ComputerCookieSites {} => {
+            room.computer_cookie_sites().await.map(|sites| json!(sites))
+        }
+        Command::ComputerCookieReset { persona_id, site } => room
+            .computer_cookie_reset(&persona_id, &site)
+            .await
+            .map(|()| Value::Null),
+        Command::ComputerCookieAnswer {
+            persona_id,
+            id,
+            answer,
+        } => room
+            .computer_cookie_answer(&persona_id, &id, answer)
+            .await
+            .map(|()| Value::Null),
+        Command::ComputerCookieRemove { persona_id, id } => room
+            .computer_cookie_remove(&persona_id, &id)
+            .await
+            .map(|()| Value::Null),
+        Command::SecretsUseAnswer {
+            persona_id,
+            use_id,
+            answer,
+        } => room
+            .secrets_use_answer(&persona_id, &use_id, answer)
+            .await
+            .map(|()| Value::Null),
         Command::SecretsList {} => room.secrets_list().map(|secrets| json!(secrets)),
         Command::SecretsSet { name, value } => room
             .secrets_set(&name, &value)
@@ -798,13 +849,14 @@ pub(crate) async fn run(
             .map(|secret| json!(secret)),
         Command::SecretsDelete { name } => room.secrets_delete(&name).await.map(|()| Value::Null),
         Command::SecretsLoginSet {
+            r#use,
             name,
             sites,
             username,
             password,
             totp,
         } => room
-            .secrets_login_set(&name, &sites, &username, &password, totp.as_deref())
+            .secrets_login_set(&name, &sites, &username, &password, totp.as_deref(), r#use)
             .await
             .map(|secret| json!(secret)),
         Command::SecretsPasskeyRegister {

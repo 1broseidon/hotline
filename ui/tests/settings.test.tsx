@@ -17,7 +17,7 @@ let dom: Window;
 let root: Root;
 let container: HTMLDivElement;
 let teardown: () => Promise<void>;
-let opened: SettingsSection[];
+let opened: (SettingsSection | "back")[];
 
 beforeEach(() => {
 	({ dom, teardown } = installDom());
@@ -34,28 +34,33 @@ afterEach(async () => {
 
 async function mount(section: SettingsSection) {
 	await act(async () => {
-		root.render(<SettingsRail section={section} onSection={(one) => opened.push(one)} onBack={() => {}} />);
+		root.render(<SettingsRail section={section} onSection={(one) => opened.push(one)} onBack={() => opened.push("back")} />);
 	});
 }
 function buttons() { return [...container.querySelectorAll("button")]; }
 
 describe("settings rail", () => {
-	test("the list has no About or Shortcuts, and the footer opens both", async () => {
+	test("the list has no About or Shortcuts; the dock goes back, opens About by the version, and the shortcuts", async () => {
 		await mount("general");
 		const names = buttons().map((node) => node.textContent);
 		expect(names).not.toContain("Keyboard shortcuts");
 		expect(names).not.toContain("About Hotline");
-		const about = container.querySelector('button[aria-label="About Hotline, version 0.39.0"]') as HTMLButtonElement;
-		const shortcuts = container.querySelector('button[aria-label="Keyboard shortcuts"]') as HTMLButtonElement;
-		expect(about.textContent).toBe("Hotline 0.39.0");
-		expect(shortcuts.textContent).toBe("Shortcuts");
-		// Tab order: the list, then the version, then Shortcuts.
+		const dock = container.querySelector("footer.settings-dock")!;
+		const [back, about, shortcuts] = [...dock.querySelectorAll("button")] as HTMLButtonElement[];
+		// One pill, three keys: back, the version, the shortcuts' key.
+		expect(back!.getAttribute("aria-label")).toBe("Back to the team");
+		expect(about!.getAttribute("aria-label")).toBe("About Hotline, version 0.39.0");
+		expect(about!.textContent).toBe("0.39.0");
+		expect(shortcuts!.getAttribute("aria-label")).toBe("Keyboard shortcuts");
+		// The head no longer carries the way back: the dock is the only one.
+		expect(container.querySelectorAll('button[aria-label="Back to the team"]').length).toBe(1);
+		// Tab order: the list, then the dock.
 		const order = buttons();
-		expect(order.indexOf(about)).toBeGreaterThan(order.findIndex((node) => node.textContent === "Import"));
-		expect(order.indexOf(shortcuts)).toBe(order.indexOf(about) + 1);
-		await act(async () => { about.click(); });
-		await act(async () => { shortcuts.click(); });
-		expect(opened).toEqual(["about", "shortcuts"]);
+		expect(order.indexOf(back!)).toBeGreaterThan(order.findIndex((node) => node.textContent === "Import"));
+		await act(async () => { back!.click(); });
+		await act(async () => { about!.click(); });
+		await act(async () => { shortcuts!.click(); });
+		expect(opened).toEqual(["back", "about", "shortcuts"]);
 	});
 
 	test("the open footer item carries aria-current", async () => {

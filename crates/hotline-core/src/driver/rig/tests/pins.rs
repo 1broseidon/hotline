@@ -129,6 +129,7 @@ fn turn_on(
 ) -> Turn {
     Turn {
         keys,
+        identity: model.into(),
         model: model.into(),
         meter: None,
         output_limit: None,

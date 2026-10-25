@@ -209,7 +209,7 @@ pub(super) async fn view(
                     let Some(watch) = watched.get(&persona_id) else { continue; };
                     let row = shaped(&sender, roster_entry(watch, &handle, persona.clone(), &pins, lead.as_deref()));
                     let row = catalogs(&sender, watch, row, false);
-                    if !send(&sender, json!({ "sub": id, "event": row })) {
+                    if sender.send_roster(id, row).is_err() {
                         return;
                     }
                 }
@@ -457,6 +457,18 @@ pub(crate) fn waiting_on(tail: &[Value]) -> bool {
             }
             TranscriptEvent::HumanAction { id, status, .. } => {
                 open.insert(id, status == HumanActionStatus::Pending);
+            }
+            TranscriptEvent::CredentialAsk { id, status, .. } => {
+                open.insert(id, status == crate::contract::CredentialStatus::Pending);
+            }
+            TranscriptEvent::CookieOffer { offer } => {
+                open.insert(
+                    offer.id,
+                    offer.status == crate::contract::CookieOfferStatus::Pending,
+                );
+            }
+            TranscriptEvent::SecretUseAsk { id, status, .. } => {
+                open.insert(id, status == crate::contract::SecretUseStatus::Pending);
             }
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 open.insert(id, status == PasskeyAskStatus::Pending);

@@ -75,15 +75,13 @@ async fn answered(response: reqwest::Response) -> Result<Value, Refusal> {
     }
     let body = response.text().await.unwrap_or_default();
     if !status.is_success() {
-        let reason = serde_json::from_str::<Value>(&body)
-            .ok()
-            .and_then(|value| value["error"].as_str().map(str::to_owned))
-            .unwrap_or_else(|| body.trim().to_owned());
-        return Err(Refusal::Failed(if reason.is_empty() {
-            format!("The computer refused ({status}).")
-        } else {
-            format!("The computer refused ({status}): {reason}")
-        }));
+        return Err(Refusal::Failed(
+            if status == reqwest::StatusCode::CONFLICT {
+                "The passkey request is not waiting any more (409).".into()
+            } else {
+                format!("The computer refused ({status}).")
+            },
+        ));
     }
     if body.trim().is_empty() {
         return Ok(Value::Null);
@@ -96,10 +94,8 @@ fn registration(answer: &Value) -> Result<Registration, Refusal> {
     let rp_id = || answer["rpId"].as_str().unwrap_or_default().to_owned();
     let expires_at = || answer["expiresAt"].as_i64().unwrap_or_default();
     let ask = || {
-        serde_json::from_value::<PasskeyAsk>(answer["ask"].clone()).map_err(|error| {
-            Refusal::Failed(format!(
-                "The computer answered a passkey request the desk cannot read: {error}"
-            ))
+        serde_json::from_value::<PasskeyAsk>(answer["ask"].clone()).map_err(|_| {
+            Refusal::Failed("The computer answered a passkey request the desk cannot read.".into())
         })
     };
     match answer["state"].as_str() {
@@ -122,10 +118,8 @@ fn registration(answer: &Value) -> Result<Registration, Refusal> {
         }),
         Some("registered") => {
             let credential = serde_json::from_value::<StoredSecret>(answer["credential"].clone())
-                .map_err(|error| {
-                Refusal::Failed(format!(
-                    "The computer answered a passkey the desk cannot store: {error}"
-                ))
+                .map_err(|_| {
+                Refusal::Failed("The computer answered a passkey the desk cannot store.".into())
             })?;
             if !matches!(credential, StoredSecret::Passkey { .. }) {
                 return Err(Refusal::Failed(
@@ -138,9 +132,9 @@ fn registration(answer: &Value) -> Result<Registration, Refusal> {
                 ask: answer.get("ask").map(|_| ask()).transpose()?,
             })
         }
-        other => Err(Refusal::Failed(format!(
-            "The computer answered an unknown registration state: {other:?}."
-        ))),
+        _ => Err(Refusal::Failed(
+            "The computer answered an unknown registration state.".into(),
+        )),
     }
 }
 
@@ -156,9 +150,7 @@ pub async fn arm(ready: &Ready, rp_id: &str) -> Result<i64, Refusal> {
         .map_err(|error| Refusal::Failed(format!("Could not reach the computer: {error}")))?;
     match registration(&answered(response).await?)? {
         Registration::Armed { expires_at, .. } => Ok(expires_at),
-        other => Err(Refusal::Failed(format!(
-            "The computer did not arm: {other:?}."
-        ))),
+        _ => Err(Refusal::Failed("The computer did not arm.".into())),
     }
 }
 
@@ -185,16 +177,6 @@ pub async fn answer(ready: &Ready, ask_id: &str, approved: bool) -> Result<Regis
         .send()
         .await
         .map_err(|error| Refusal::Failed(format!("Could not reach the computer: {error}")))?;
-    if response.status() == reqwest::StatusCode::CONFLICT {
-        let body = response.text().await.unwrap_or_default();
-        let reason = serde_json::from_str::<Value>(&body)
-            .ok()
-            .and_then(|value| value["error"].as_str().map(str::to_owned))
-            .unwrap_or_else(|| body.trim().to_owned());
-        return Err(Refusal::Failed(format!(
-            "That passkey request is not waiting any more: {reason}"
-        )));
-    }
     registration(&answered(response).await?)
 }
 

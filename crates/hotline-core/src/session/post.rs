@@ -37,6 +37,7 @@ pub(super) const AGAIN: &str =
 
 /// What a turn of a thread's agent may post, and whether it has.
 pub(super) struct Posting {
+    pub(super) credential_sites: std::collections::HashSet<String>,
     /// The job whose thread the turn is on: its posts carry the job's stamp.
     job: Option<ScheduledRun>,
     posted: bool,
@@ -59,7 +60,7 @@ pub(super) enum Turn {
 }
 
 /// A thread's turn, open for `post_to_chat` until it is dropped.
-pub(super) struct PostingTurn<'a> {
+pub(crate) struct PostingTurn<'a> {
     room: &'a Room,
     thread: ThreadId,
 }
@@ -97,7 +98,7 @@ impl Room {
     /// Opens `thread`'s turn for `post_to_chat`, for as long as the answer is
     /// held. `job` is the job when the thread is a job's. A thread takes one
     /// turn at a time, so the turn opened here is the thread's only one.
-    pub(super) fn open_posting(
+    pub(crate) fn open_posting(
         &self,
         thread: &ThreadId,
         job: Option<ScheduledRun>,
@@ -105,6 +106,7 @@ impl Room {
         lock(&self.posting).insert(
             thread.clone(),
             Posting {
+                credential_sites: std::collections::HashSet::new(),
                 job,
                 posted: false,
                 detached: false,

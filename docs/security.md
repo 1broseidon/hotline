@@ -423,7 +423,8 @@ browser's cookies into a teammate's computer. They use the person's own
 authority through the authenticated desk wire, are gated to owner or local desk authority, and
 add nothing to what the agent may reach on its own. They are not a call-time
 approval prompt, which the standing-consent rule forbids, because the person
-initiates them; there is no card the agent can raise.
+initiates them. Host-cookie offers below are a separate, always-asked path;
+the agent has no tool that selects or accepts their source.
 
 Cookie import (`computer.browsers.list`, `computer.cookies.preview`,
 `computer.cookies.import`, `computer.cookies.list`, `computer.cookies.forget`)
@@ -482,14 +483,15 @@ Secret Service, the same opaque-reference records as provider keys; no
 plaintext fallback), beside a private sidecar that says only what the
 record is for — kind, sites, username, whether there is a seed; site and
 user name for a passkey — so `secrets.list` answers that without opening
-the keychain. Nothing on the wire, in the room stream, or in a subscription
-ever carries a value, a password, a seed or a private key: the store is
-write-only from the window. All seven commands require owner or local desk authority.
+the keychain. No reply, room event or subscription carries a password, seed or private
+key: the store is write-only from the window. These management commands
+require owner or local desk authority. The bounded
+`secrets.capture.answer` flow below also allows the phone seat.
 
 A teammate gets a secret only by the operator ticking its name on that
 teammate's computer, `computer.secrets`, a standing choice like a mount,
-nothing pre-ticked, set only through `persona.update`, which the phone may
-not send. At every grant — session start, reattach, and whenever a stored
+nothing pre-ticked. `persona.update` changes that set from the desk;
+answering a credential card also ticks its one key for its bound requester. At every grant — session start, reattach, and whenever a stored
 value is replaced or deleted — the desk reads the granted values from the
 vault and hands the computer the whole set through `PUT /secrets` on its
 authenticated loopback port, bearer in a header. A stopped computer is
@@ -679,7 +681,12 @@ capture, scope, tie and revoke a lease but never forge or revive one.
 - **Active and queued work.** Revocation cancels the activity's shell jobs
   and settles their results, clears queued turns, and releases collaboration
   and human waits so a late answer cannot establish a grant. Stale turns
-  cannot publish state or checkpoints.
+  cannot publish state or checkpoints. Unix shell cancellation, deadlines and
+  task drops send `SIGSTOP` to the owned process group before `SIGKILL`, so
+  killing a waited child cannot wake its shell into the next statement while
+  the kernel is still delivering the group kill. Cancellation still observes
+  exit before reporting success. Already performed effects remain, and a
+  process that deliberately leaves the owned group is outside this guarantee.
 - **Running processes.** A shell command still running when a Hotline Agent
   turn replies without waiting is handed to the teammate's DM session
   (`session/jobs.rs` `Processes`), so it outlives the turn. Default: nothing
@@ -744,11 +751,11 @@ extend; when a change adds a boundary, it adds a row.
 | Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `hotline-tools/src/workspace/tests.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `hotline-tools/src/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `hotline-tools/src/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp/tests/session_new.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/tests.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests/preamble.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `hotline-tools/src/workspace/tests.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
 | A revoked workspace handle refuses reads and writes | `hotline-tools/src/workspace/tests.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |
-| Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `hotline-tools/src/shell.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
+| Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `hotline-tools/src/shell/tests.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
 | Linux runtime exceptions expose executables, not neighbours, credentials or a redirected project | `hotline-tools/src/shell/linux.rs` `arbitrary_path_directories_do_not_grant_read_access`, `a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory`, `home_toolchains_are_read_only_and_do_not_expose_credentials`, `redirected_installations_do_not_expose_other_projects` | Linux |
 | macOS: availability requires real enforcement; aliases, symlinks and children cannot reach host data; no host environment or signals; hostile setup symlinks; helper services and control sockets denied; runtime exceptions exclude credentials and neighbours | `hotline-tools/src/shell/macos.rs` `availability_requires_real_enforcement`, `aliases_symlinks_and_children_cannot_access_host_data`, `host_process_environment_and_signals_are_not_available`, `private_scratch_and_hostile_setup_symlinks`, `host_helper_services_and_unix_control_sockets_are_denied`, `home_runtime_exceptions_do_not_include_credentials_or_neighbors`, `redirected_installations_never_grant_the_target` | a real Mac; these fail, not skip, without Seatbelt |
 | macOS network stays available and package downloads land in private caches | `hotline-tools/src/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
-| Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree | `hotline-tools/src/shell.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started` | Linux with bubblewrap |
+| Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree; cancelling during sleep cannot run the next statement (50 repetitions) | `hotline-tools/src/shell/tests.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started`, `cancellation_during_sleep_never_runs_the_next_statement`; `tests/steering.rs` `an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finishes` | macOS and Linux; sandbox test on Linux needs bubblewrap |
 | A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `hotline-mcp/src/lib.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
@@ -772,7 +779,7 @@ extend; when a change adds a boundary, it adds a row.
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
 | What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests/computer.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `hotline-room/src/room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests/seats.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
-| Stored secrets are operator-only: a companion can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests/seats.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
+| Secret management is operator-only: a companion cannot list, set, delete or arm arbitrary keys, nor grant one through `persona.update`; bounded capture answers are described below | `wire/tests/seats.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A companion reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room stream (a thread between two teammates and a subagent's run are read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests/seats.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`; `wire/tests/schedules.rs` `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests/phone.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
 | A companion adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests/seats.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`; `wire/tests/personas.rs` `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests/phone.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
 | A companion renames a teammate or changes its goal only through `mobile.persona_update`, never `persona.update`: the patch core builds holds `name` and `goal` and nothing else, whatever the phone's JSON names for reach, path, computer or background work; a blank name, an edit naming neither field and an unknown teammate are refused; the phone may `persona.delete` | `wire/tests/seats.rs` `the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one`, `mobile_persona_update_changes_only_the_name_and_goal`; `remote/tests/phone.rs` `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update` | — |
@@ -782,8 +789,8 @@ extend; when a change adds a boundary, it adds a row.
 | End to end with real processes: a relay-only server opens no room and starts no process; a desktop pairs from `hotline pair --link` as a relay and stands in, and a phone paired with the desktop reaches it only through the relay; a phone-shaped claim makes no grant; served again with agents, the same grant stands in without re-pairing and its key, knocking with a hand-written handshake, is answered `role_not_permitted` at `/v2`, `/v2/computer/…` and `/v2/link` | `tests/relay.rs` `a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there` | — |
 | A teammate sends the person only what its own read reach opens and what its own computer holds, under the session's lease; nothing is sent past the caps or by a subagent run, a job's file takes the turn's one post, and a refusal leaves no message and no kept copy; `file.read` names a message and never a path, serves only that message's one kept file for teammate messages, and refuses a path-like id, an unknown teammate and an offset outside the file; the phone may read it; the shell opens only a kept copy, and only a PDF or a picture whose name and first bytes agree, so a script that starts like a PDF is never run | `session/tests/sent_files.rs` `a_picture_reaches_the_person_as_a_jpeg_with_its_caption`, `what_cannot_be_sent_is_refused_and_leaves_nothing_behind`, `a_jobs_file_is_its_one_post`, `a_file_and_the_screen_come_off_the_computer`; `sent.rs` `a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message`; `wire/tests/files.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time`, `the_phone_seat_reads_a_sent_file_by_its_message`; `sent.rs` `anything_else_is_kept_as_it_is_and_told_by_its_bytes_before_its_name`; `hotline-app` `files.rs` `only_a_kept_copy_is_touched`, `only_a_pdf_or_a_picture_opens_and_only_when_name_and_bytes_agree` | Unix for the computer row |
 | User image readback uses a send-time copy at the original attachment index; default zero, mixed attachments, chunk continuation, real MIME and no transcoding; source replacement/deletion cannot change it, missing/legacy copies never reopen paths; non-image, invalid index/offset, wrong teammate/message, planted file link and over-cap copy are refused; a paired phone can refetch its image but not a user text file | `tests/desk/teammates.rs` `user_images_read_back_by_original_index_without_reopening_the_source`; `sent.rs` `user_image_copies_keep_their_bytes_and_cannot_be_replaced`; `remote/tests/phone.rs` `a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk`; `wire/tests/files.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time` | Unix for planted link |
-| A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
-| A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
+| A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared/tests.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
+| A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared/tests.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
 | A computer is handed only what its teammate is granted and what is stored; the tape names what is not; the preamble names what the computer has, by kind; no tape, room event or preamble carries a value; a replaced or deleted value reaches every running computer and no stopped one; a release from before secrets is told apart, and the conversation says nothing; a login travels as one record beside a variable's bare value | `session/tests/computer.rs` `a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen`, `a_changed_secret_is_handed_again_to_every_running_computer`, `a_computer_from_before_secrets_leaves_the_conversation_alone`, `a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites` | Unix |
 | A passkey is made only under an arming for one teammate and one site, and only once the person approves the site's request: a bad site or name is refused before the computer is touched, arming starts the computer, the site's request raises a `passkey_ask` card on the tape with the site, origin and account, nothing is stored while the card waits, an answer must name the request, one answer per request, an approval lets the browser mint and the look that finds it made stores it, ticks it for the teammate, hands the computer the set and ends the arming; a denial ends the arming with nothing stored and the card says so; a request that left with its page expires its card and the next request is a new card; a cancel stores nothing and expires a waiting card; the room's own watch does all of this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a release from before passkeys is named | `session/tests/computer.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room`, `a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires` | Unix |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
@@ -1290,7 +1297,9 @@ it lets a colleague use another's tools.
   wire's cleanup path for subscriptions and pending commands. The socket
   reader observes silence and cancellation while global commands wait;
   only a seat that exceeds the write deadline selects zero TCP linger, so
-  its queued bytes are discarded on close. Ordinary WebSocket and HTTP
+  its queued bytes are discarded on close before admission is released.
+  The writer belongs to the seat future, including when that future is dropped;
+  abortive close consumes the transport without yielding. Ordinary WebSocket and HTTP
   closes retain normal drain behavior.
   No forwarding
   header can manufacture a separate budget or device identity.
@@ -1305,6 +1314,10 @@ it lets a colleague use another's tools.
   command and desktop work surviving disconnect;
   `remote/tests/phone.rs` `a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound`
   proves the stalled connection ends in a TCP reset;
+  `a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission` bounds
+  that reset to one second after admission reaches zero.
+  `wire/tests/phone_pressure.rs` `dropping_a_seat_drops_its_blocked_writer_before_returning`
+  proves cancellation leaves no detached writer sending after its seat ends;
   `a_revoked_seat_drains_tcp_instead_of_resetting_it` in the same file proves
   ordinary revocation drains without a reset.
 - **Testing limits:** the proxy harness uses one upstream TLS connection per
@@ -2083,3 +2096,226 @@ narrator leaves the written result available without a new spoken pointer.
   that proposal, but two separately approved proposals can overwrite each
   other in settlement order. The saved name is prompt data, not instructions;
   no name proposal can write another setting or create a standing grant.
+
+## Credential capture in the chat (task-266)
+
+- **Default and grant source:** `request_credential` proposes a card under
+  the requesting session's lease and enabled computer grant. It cannot read,
+  store or grant a value. Only the authenticated owner/desk or phone can
+  answer `secrets.capture.answer`. Missing name declines; supplied values
+  create a new login; a matching existing name grants that key without
+  replacing it. New and old keys default to `use: auto`. Capture persists
+  and delivers the Ask me setting; use-time approval is described below.
+- **Enforcement:** both agent drivers reach the same MCP handler. The card
+  binds origin, teammate and lease before publication; the command accepts
+  none of those replacements. A scoped lease, thirty-minute deadline and
+  per-request mutex cover submission, withdrawal, expiry and minted passkey
+  storage. The policy lock serializes the grant with policy and secret changes. An
+  accepted answer survives loss of its phone socket and finishes settlement. A
+  captured passkey also requires an operator answer and its exact origin;
+  a poll reporting approval alone is insufficient. Restarted cards cannot
+  acquire a fresh lease. The phone is refused other secret writes and the
+  generic value-bearing thread-answer variant. Voice cannot answer it.
+- **Data:** values enter only the capture command and vault/computer path.
+  `CredentialValues` and vault records redact Debug; parse errors on capture carry no supplied
+  content. Computer secret-delivery errors omit upstream bodies, which may
+  echo a submitted value. Card events, pushes and deliveries carry only
+  metadata. The form clears its fields before submitting, on dismissal,
+  on settlement from either seat and at its local expiry deadline.
+- **Residual limits:** a captured login contains only the requested origin,
+  but Hotline Computer currently permits subdomains of that host with the
+  same scheme and port. Strict origin-only filling needs a computer change;
+  this branch cannot prove that acceptance line. Computer-side redaction is
+  still protection against incidental disclosure, not a determined program
+  that encodes an accessible value. The authenticated operator can still
+  change a granted key afterward. A stopped computer receives its set at its
+  next start, and a failed delivery uses the existing failure reporting.
+
+
+| Must hold | Proof | Needs |
+| --- | --- | --- |
+| Capture stores the requested origin, grants and delivers once, survives phone disconnect, and no typed value reaches tape, agent output, Debug or delivery errors | `session/tests/capture.rs` `capture_stores_grants_and_delivers_without_values_in_any_sink`, `capture_an_accepted_answer_finishes_when_its_phone_disconnects`; `computer/secrets.rs` `capture_delivery_failure_cannot_echo_values_into_the_desk_log` | Unix for the session tests |
+| Decline, expiry, withdrawal and lease revocation store and grant nothing; repeated same-turn requests are refused; existing keys cannot be overwritten or granted for another origin; narrowed jobs, runs and voice fronts gain no computer access | `session/tests/capture.rs` `capture_decline_expiry_withdrawal_and_revocation_store_nothing`, `capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_replaced`, `capture_cannot_widen_a_job_without_a_computer_or_a_voice_front_or_run` | Unix |
+| A captured passkey requires the specific operator-approved request and origin, preserves the chosen name and Ask me setting, declines with a denied approval, and expires with unused arming | `session/tests/capture.rs` `capture_passkey_keeps_approval_origin_name_and_ask_setting`, `capture_passkey_unused_arming_expires_and_call_card_stays_on_the_desk`, `capture_passkey_refuses_another_origin_and_minting_without_operator_approval`, `capture_passkey_denial_is_declined_and_tells_the_agent_why_it_stopped` | Unix |
+| The phone can answer only the bound capture command; both seats see one settlement; malformed input never echoes values; a saved request cannot revive its lease after restart | `wire/tests/capture.rs` `capture_phone_answer_settles_both_seats_once_and_other_value_commands_are_refused`, `capture_malformed_values_and_debug_never_echo_typed_values`; `tests/desk/capture.rs` `capture_restart_refuses_saved_cards_and_never_stores_submitted_values` | — |
+| A call announces the card once, accepts neither yes nor done, and announces storage only by the key's name | `voice/room/tests/cards.rs` `credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_answers` | — |
+| Save sends one command and clears secure fields; decline, dismissal, remote settlement and local expiry clear without sending values; passkeys have no value fields | `ui/tests/asks-credential.test.tsx` | — |
+
+
+## Approval for a stored key's use (task-267)
+
+- **Default and grant source:** a login or passkey is Automatic unless the
+  person selects Ask me in Settings or the capture card. Old records are
+  Automatic. Variables have no use policy on the computer wire. The existing
+  per-teammate secret grant remains necessary. The phone may answer a held
+  use but cannot change a key's standing policy.
+- **Enforcement:** the computer holds uses and owns the ten-minute allowance
+  for one key/site on its per-teammate door. The core polls only granted Ask me
+  keys, binds each card to the running computer and capability lease, and
+  serializes polling, deliveries and answers. The real answer handler checks
+  the current grant, deadline, lease and computer under the policy lock.
+  Unknown, wrong-teammate, already-settled and revoked requests cannot approve.
+  A 409 or disappearance expires the shared card. Voice has no answering
+  authority. Saved cards expire at desk startup and cannot reconstruct a watch.
+- **Residual risk:** a trusted computer supplies site/path metadata and enforces
+  actual browser use; the desk does not independently inspect the page. An
+  older computer returning 404 explicitly receives Automatic policy and logs
+  that compatibility limitation once. Network errors leave a card pending only
+  until its deadline and do not become approvals. Actual browser holds and
+  allow-window enforcement are tested by task-268 in the computer repository;
+  this tree tests the agreed door with a fake computer.
+
+| Must hold | Proof | Needs |
+| --- | --- | --- |
+| One shared card and one answer across desk and phone; a page disappearing expires both seats; decline and lapse reach the agent | `wire/tests/secret_uses.rs` `ask_me_use_has_one_card_on_desk_and_phone_and_one_answer_reaches_the_computer`, `denying_a_secret_use_tells_the_agent_the_person_declined`, `a_page_that_stops_waiting_expires_both_seats_and_tells_the_agent_it_lapsed` | Unix |
+| Allow is key/site/computer specific and lapses; Automatic raises no card; a policy change reaches a running computer | `wire/tests/secret_uses.rs` `allow_ten_minutes_is_one_key_one_site_one_teammate_and_lapses`, `automatic_keys_are_not_held_and_policy_changes_reach_the_next_use_without_restart` | Unix |
+| Wrong, revoked, unknown and expired requests cannot approve; old computers receive Automatic without changing the vault | `wire/tests/secret_uses.rs` `use_answers_refuse_unknown_wrong_teammate_revoked_and_page_expired_requests`, `an_older_computer_gets_automatic_keys_without_changing_the_vault_choice` | Unix |
+| Policy persists without rewriting values; old records are Automatic; saved cards cannot answer after restart | `vault/shared/tests.rs` `secret_use_changes_survive_restart_without_rewriting_values`, `keys_stored_before_use_policy_are_automatic`; `tests/desk/secret_uses.rs` `secret_use_policy_survives_a_real_desk_restart_and_saved_cards_cannot_answer` | — |
+| Voice cannot answer a secret-use card | `voice/room/tests/cards.rs` `the_card_handler_refuses_actions_forged_questions_and_stale_authority` | — |
+| Settings saves each choice; card buttons send the three exact answers once and disappear on settlement or expiry | `ui/tests/secret-use.test.tsx` | — |
+
+## Host-cookie offers
+
+- **Default:** no automatic lending, including old records. An enabled, running
+  computer and live teammate session permit host-column discovery only. The
+  room's `cookieOffers` defaults to enabled for all registrable sites; an
+  explicit list restricts it and an empty list offers none. Off skips even
+  host-name discovery. An old computer without `GET /pages` produces no offers.
+- **Grant source:** Use on a core-created `cookie_offer`, through the desk,
+  owner or phone seat. The source, site and recipient are held in core memory;
+  callers supply only the card id and choice. No tool or voice answer grants it.
+- **Enforcement:** `computer/cookies/lending.rs` copies SQLite stores and selects
+  only hosts before consent. Its value reader runs only in
+  `session/cookie_offers.rs::answer_cookie_offer`, under the computer watch and
+  policy locks, with a live capability lease and matching running endpoint
+  checked before and after the read. PSL registrable-domain equality, including
+  private suffixes, limits values to the approved site and its subdomains. Error
+  bodies from the browser and computer are replaced by fixed messages.
+  Settings writes and automatic discovery share the policy gate with answers.
+  Desk and owner may write the setting, list host sites on explicit page open,
+  and undo Never. The phone may read only the preference through
+  `computer.cookies.settings`; it cannot discover sites or change settings.
+- **Revocation:** a stop, another computer or a desk restart expires pending
+  cards. A restart the person did not ask for (an agent switch, a policy
+  reload) keeps them and their answers, bound to the new session's lease once
+  it is up; Use still checks that lease and the running endpoint. Not now is
+  kept on the tape and quiets that site for that teammate for a day (only
+  fewer offers, never a grant). Each lend
+  is separately named and its metadata survives restart; Remove sends exactly
+  `domains: [site]` to the authenticated computer's `DELETE /logins/{name}`.
+  Both the browser and saved login there lose the cookies. The agent hears the
+  outcome without any values. Never is per teammate and Settings → Computer →
+  Sites can undo it. Turning offers off or excluding a site expires its pending
+  cards before acknowledging the settings write, with a notice. An already
+  started discovery finishes before Off is saved; subsequent automatic polls
+  cannot read browser data. Explicit Sites page discovery remains available
+  while off, without lending values.
+- **Residual risk:** approval gives the teammate the person's signed-in powers
+  on this site. The computer is already a granted sandbox and can read its own
+  saved login. Removing the container copy does not invalidate an exfiltrated
+  cookie or revoke the site's token, and cannot undo actions already taken.
+  The removal record is saved before delivery, with an Unconfirmed state until
+  success. A failed rollback after an interrupted delivery may require Remove;
+  container/network failure cannot prove remote deletion. The host browser may
+  ask its OS keychain for permission after Use. Physical Brave/Porkbun and the
+  native phone UI require device verification outside this tree.
+
+| Boundary | Proof | Platform |
+| --- | --- | --- |
+| Discovery selects only hosts from Chromium and Firefox fixtures; site bounds include private suffixes | `computer/cookies/lending/tests.rs` `detection_reads_chromium_and_firefox_host_columns_without_launch_or_keychain`, `discovery_never_launches_or_calls_the_browser_keychain_until_use`, `only_the_registrable_site_and_its_subdomains_can_be_lent` | — |
+| Refused installed browsers raise one notice each per desk run, never an offer; restored access retries the open page, readable browsers still offer, and Never sites stay quiet | `computer/cookies/lending/tests.rs` `discovery_keeps_refused_installed_browsers_and_finds_their_profiles_after_access_is_granted`; `wire/tests/cookie_offers.rs` `refused_browsers_raise_one_notice_each_per_desk_run_and_no_offer`, `a_refused_site_is_offered_after_access_appears_without_reopening_the_page`, `a_granted_browser_offers_once_even_when_another_browser_is_refused`, `a_refused_browser_does_not_raise_a_notice_for_a_never_site` | Unix, unprivileged runner |
+| One offer reaches desk and phone only for a matching site; racing answers lend once, and Remove names the saved login and site and tells the agent | `wire/tests/cookie_offers.rs` `cookie_offer_is_one_card_on_desk_and_phone_only_for_sites_in_chromium_or_firefox`, `use_lends_only_the_site_and_subdomains_and_remove_takes_it_back_and_tells_the_agent` | Unix |
+| Not now quiets a site for that teammate for a day, through switches, stops and restarts; persistent per-teammate Never and Settings undo; unknown, wrong and revoked ids cannot read values | `wire/tests/cookie_offers.rs` `not_now_quiets_a_site_for_a_day_but_never_waits_until_settings_undo`, `a_restart_the_person_did_not_ask_for_keeps_the_card_and_its_answer`, `cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values` | Unix |
+| Values stay out of public sinks; a real desk restart expires pending offers and retains removal and preference records | `wire/tests/cookie_offers.rs` `cookie_values_never_reach_tape_room_agent_or_wire_sinks`, `failed_delivery_keeps_a_removal_handle_and_never_echoes_a_cookie_in_errors`; `tests/desk/cookie_offers.rs` `cookie_offers_expire_on_real_desk_restart_while_lends_and_per_teammate_never_survive` | Unix for the sink |
+| Off makes no discovery calls and expires pending cards; selected sites alone are eligible; absent lists allow every site and empty lists none | `wire/tests/cookie_offers.rs` `cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_explanation`, `cookie_offers_selected_sites_only_offer_matches_and_expire_deselected_cards`, `cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_offers_none` | Unix |
+| Desk and owner write; phone only reads the preference; host-name discovery is explicit, and invalid domains/settings cannot widen offers | `wire/tests/cookie_offers.rs` `cookie_offer_settings_are_owner_written_phone_read_and_site_discovery_is_explicit`, `cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changing_the_setting` | Unix |
+| The preference survives real desk restarts; clearing restores enabled/all sites | `tests/desk/cookie_offers.rs` `cookie_offer_settings_survive_real_desk_restarts_and_clearing_restores_all_sites` | — |
+
+## Accounts: more than one of any provider (epic-25)
+
+An account is a provider credential: a pasted key, a provider sign-in, or a
+keyless server URL, each with its own id, its own name and its own secret in
+the vault (`vault/secrets.json` for keys, `vault/logins/<id>/` for sign-ins,
+the base URL for a local server). Any provider can have several. Nothing
+about an account's secret changes: what a second account adds is a second
+secret in the same places, never a copy of the first.
+
+- **Choosing.** A model id names its account when its provider has two or
+  more: `provider#<credential id>/model`. With one, it is the plain
+  `provider/model` it always was, which runs on the provider's default
+  account (the first created that still works), so a room from before
+  accounts behaves exactly as it did. `models.list` gives every choice its
+  account's id, name, kind and whether the provider has others; never a
+  secret. The phone sees the same list through the seat it already had.
+- **Running.** Every turn, retry, chapter note, call on the teammate's model
+  and picture the teammate asks for resolves the account its model names, and
+  only that account (`session::account_keys`, `Vault::account_auth`). The
+  account's auth stands in for its provider's for that turn, so everything
+  the turn asks of that provider goes to that account.
+- **No fallback.** A teammate whose named account is revoked, deleted, or
+  has lost its secret does not run: its turn fails with a notice saying the
+  account is no longer connected and that it will not move on its own. It is
+  never run on the provider's other account unless the person picks it. An
+  account id belonging to a different provider is refused the same way.
+- **Switching.** A switch made while a turn runs lands on the next turn: the
+  running turn resolved its account when it started. A move to another
+  account is a new history origin, so one account's opaque reasoning is not
+  handed to another's.
+- **Room-level work.** Voice and pictures with no teammate behind them use
+  each provider's default account, as before.
+
+| Boundary | Proof |
+| --- | --- |
+| One account keeps plain ids; two list each model once per account, ids naming their account, in creation order; revoking one returns to plain ids | `vault.rs` `two_accounts_of_a_provider_list_its_models_once_each_by_account` |
+| An account answers only by its own id; revoked, deleted and unknown ids are nothing | `vault.rs` `each_account_answers_by_its_own_id_and_never_for_another` |
+| A teammate's pictures draw on its own account, and on none of the provider's once that account is gone | `imagegen/providers.rs` `a_teammates_gone_account_takes_its_provider_out_rather_than_falling_back` |
+| A plain id runs on the default account; a named one on that account for the whole turn; a gone or foreign account is refused | `session/tests/accounts.rs` |
+| Over the wire: two accounts list apart with no secret in a choice; a teammate on a revoked account does not run and is not moved | `tests/desk/accounts.rs` `two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_does_not_run` |
+
+### Switching a teammate's agent (task-287)
+
+`session.set_backend` moves a teammate to another agent (Hotline Agent or an
+installed harness), with a model when one is named. It is an owner action on
+the desk and on the owner phone, the same reach as `session.set_model`; a
+harness that is not installed or not signed in is refused with what is
+missing, and the phone sees only that it is not ready (`backends.list`
+already hides the reason from it).
+
+- The record changes at once; a turn in progress is not cut short. The live
+  session restarts on the new agent only when the teammate is idle (waiting
+  at most six hours, after which the record takes effect on the next start).
+- The new agent's saved session is withdrawn before it starts, so a teammate
+  that goes A→B→A starts fresh on A, seeded from the chapter like any new
+  session, and never reopens a stale session of A or reports it Restored.
+- A Hotline Agent model named in the switch must be one the desk lists, and
+  runs on the account it names, as in Accounts above.
+
+| Boundary | Proof |
+| --- | --- |
+| An idle teammate moves at once; the agent's old session is withdrawn; nothing is cut short | `wire/tests/models.rs` `session_set_backend_moves_an_idle_teammate_and_withdraws_the_agents_old_session` |
+| A busy teammate restarts on the new agent only once idle | `wire/tests/models.rs` `session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn` |
+| An agent not ready, or not there, is refused and nothing changes | `wire/tests/models.rs` `session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there` |
+
+The picker lists each agent's models before a teammate runs on it. The
+list is the one the agent last reported here (`cache/acp-models.json`): a
+teammate's session records it as it opens, and when the desk starts (and
+when the picker asks) each agent Hotline names (its native CLIs and the ones
+it adapts) and each that has answered on this machine before, with no list
+from the last day, gets one quiet look (`driver/acp/models.rs`). An agent that
+refuses the session until it is signed in is recorded as wanting sign-in; the
+picker then offers Sign in, which only moves the teammate onto the agent, where
+the agent's own sign-in card runs as it always has. Nothing about the
+sign-in itself passes through the look. The look starts the agent's own launch in an empty
+folder of its own (`cache/acp-look/<id>`, a plain id only), offers no file,
+terminal or auth capability, opens a session naming no MCP servers, reads the
+model picker and kills the process group. It never sends a prompt, so it
+spends nothing and runs no tool; one look at a time, bounded at a minute, and
+a failed look waits a day like a good one. The agent still reads its own
+configuration and sign-in as any start does.
+
+| Boundary | Proof |
+| --- | --- |
+| A look that runs out of time ends the agent's whole process group | `driver/acp/models.rs` `a_look_that_runs_out_of_time_ends_the_agents_whole_process_group` |
+| A look offers nothing, names no servers, never prompts, and reads only the model picker | `driver/acp/models.rs` `a_look_offers_nothing_and_reads_the_model_picker_without_a_prompt` |
+| A look that meets "sign in first" records it, and a session opening clears it; the list stays | `driver/acp/models.rs` `a_look_that_meets_sign_in_marks_it_until_a_session_opens` |
+| Only a plain id names a look folder; an empty report keeps the last list | `driver/acp/models.rs` `only_a_plain_id_names_a_look_folder`, `an_agents_reported_models_are_kept_and_an_empty_report_keeps_them` |

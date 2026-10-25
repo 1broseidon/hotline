@@ -21,6 +21,7 @@ fn choice(id: &str) -> ConfigChoice {
         name: id.to_string(),
         description: None,
         group: None,
+        account: None,
     }
 }
 
@@ -462,6 +463,7 @@ async fn a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question() 
         context_limit: None,
         meter: None,
         keys: HashMap::new(),
+        identity: "nope/none".to_string(),
         model: "nope/none".to_string(),
         effort: None,
         preamble: "you are Ada".to_string(),
@@ -1033,6 +1035,7 @@ async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
                 token_dir: dir.clone(),
             },
         )]),
+        identity: "github-copilot/claude-opus-5.5".to_string(),
         model: "github-copilot/claude-opus-5.5".to_string(),
         effort: None,
         preamble: "you are Ada".to_string(),

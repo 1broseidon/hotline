@@ -193,6 +193,10 @@ pub struct HostBrowser {
     /// window can say what to allow, rather than leaving it out as if absent.
     #[serde(default)]
     pub blocked: bool,
+    /// The desk's explanation and remedy, naming the app whose access must
+    /// change (including the bare binary when running a development build).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
 }
 
 /// One profile within a host browser. Only profiles that have a cookie store
@@ -249,6 +253,42 @@ pub enum SharedSecretKind {
     Passkey,
 }
 
+/// Whether a login or passkey may be used without the person's answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SecretUse {
+    #[default]
+    Auto,
+    Ask,
+}
+
+impl From<bool> for SecretUse {
+    fn from(ask: bool) -> Self {
+        if ask { Self::Ask } else { Self::Auto }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SecretUseAnswer {
+    Approve,
+    Allow,
+    Deny,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SecretUseStatus {
+    Pending,
+    Approved,
+    Allowed,
+    Denied,
+    Expired,
+}
+
 /// A secret the operator stored for teammates to use, kept in the OS
 /// credential store under a name spelled like an environment variable. This
 /// is all the window ever sees of one — the value is written once and never
@@ -262,6 +302,9 @@ pub struct SharedSecret {
     /// When the value was last stored or replaced, ms since the epoch.
     pub updated_at: i64,
     pub kind: SharedSecretKind,
+    /// Missing on older records means automatic.
+    #[serde(default)]
+    pub r#use: SecretUse,
     /// A login's sites: the origins its fields are typed on, and no other.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sites: Option<Vec<String>>,
@@ -364,4 +407,109 @@ pub struct ComputerReleases {
     /// Why the last lookup failed, until one succeeds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// Offers default to on for all sites, including rooms saved before this
+/// setting existed. This permits discovery, never lending without Use.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSettings {
+    pub enabled: bool,
+    /// Absent means all sites; an empty list means none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sites: Option<Vec<String>>,
+}
+
+impl Default for CookieOfferSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sites: None,
+        }
+    }
+}
+
+impl CookieOfferSettings {
+    pub fn allows(&self, site: &str) -> bool {
+        self.enabled
+            && self
+                .sites
+                .as_ref()
+                .is_none_or(|sites| sites.iter().any(|s| s == site))
+    }
+}
+
+/// Site names only, read when the person opens the settings page.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSites {
+    pub sites: Vec<CookieOfferSite>,
+    /// A refused or unreadable browser is not an empty inventory.
+    pub unavailable: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSite {
+    pub site: String,
+    pub sources: Vec<CookieOfferSource>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferSource {
+    pub browser_name: String,
+    pub profile_name: String,
+}
+
+/// A host-cookie offer carries metadata only, including after settlement.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOffer {
+    pub id: String,
+    pub ts: i64,
+    pub teammate: String,
+    pub site: String,
+    pub browser_name: String,
+    pub profile_name: String,
+    pub login: String,
+    pub status: CookieOfferStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CookieOfferStatus {
+    Pending,
+    /// A delivery began; retain Remove even if the desk stopped mid-transfer.
+    Unconfirmed,
+    Lent,
+    Declined,
+    Never,
+    Expired,
+    Removed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CookieOfferAnswer {
+    Use,
+    NotNow,
+    Never,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieOfferBlock {
+    pub teammate: String,
+    pub name: String,
+    pub site: String,
 }

@@ -21,6 +21,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
+mod accounts;
+#[cfg(unix)]
+mod capture;
 mod cards;
 mod chapters;
 mod chat;
@@ -163,6 +166,7 @@ impl Scripted {
                 name: "Claude".to_string(),
                 description: None,
                 group: None,
+                account: None,
             }],
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),
@@ -358,6 +362,16 @@ pub(crate) struct Fake {
 }
 
 impl Fake {
+    #[cfg(unix)]
+    pub(crate) fn cookie_heard(&self) -> String {
+        format!(
+            "{:?} {:?} {:?}",
+            lock(&self.preambles),
+            lock(&self.seeds),
+            lock(&self.driver.prompts)
+        )
+    }
+
     pub(super) fn cancel_count(&self) -> usize {
         *lock(&self.driver.cancels)
     }
@@ -704,15 +718,15 @@ async fn until_state(room: &Room, persona_id: &str, want: SessionState) {
 /// on. Answers the room, the fake agents (whose preambles say what the
 /// teammate heard) and the workspace.
 #[cfg(unix)]
-struct ComputerRoom {
-    room: Arc<Room>,
-    agents: Arc<Fake>,
+pub(crate) struct ComputerRoom {
+    pub(crate) room: Arc<Room>,
+    pub(crate) agents: Arc<Fake>,
     root: std::path::PathBuf,
     cwd: std::path::PathBuf,
     /// How often the releases endpoint was asked.
     asked: Arc<std::sync::atomic::AtomicUsize>,
     /// Every set of secrets the fake computer was handed, in order.
-    taken: crate::computer::guide::fake::Taken,
+    pub(crate) taken: crate::computer::guide::fake::Taken,
 }
 
 /// `release` is what the fake computer claims to be (`None`: too old to
@@ -775,7 +789,7 @@ async fn computer_room(
 }
 
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.10.4"},{"tag_name":"v0.10.3"}]"#;
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.11.1"},{"tag_name":"v0.11.0"}]"#;
 
 /// The notices on a teammate's tape, oldest first.
 fn notices(room: &Room, persona_id: &str) -> Vec<String> {
@@ -784,4 +798,79 @@ fn notices(room: &Room, persona_id: &str) -> Vec<String> {
         .filter(|event| event["kind"] == "notice")
         .map(|event| event["text"].as_str().unwrap().to_string())
         .collect()
+}
+
+#[cfg(unix)]
+pub(crate) async fn secret_use_room(
+    name: &str,
+    release: &str,
+    usage: crate::contract::SecretUse,
+) -> ComputerRoom {
+    let fixture = computer_room(name, Some(release), TWO_RELEASES, true).await;
+    let vault = fixture.room.vault.as_ref().unwrap();
+    for name in ["GH_PASSKEY", "OTHER_KEY"] {
+        vault
+            .set_shared(
+                name,
+                crate::vault::StoredSecret::Passkey {
+                    r#use: usage,
+                    rp_id: "github.com".into(),
+                    credential_id: "aGVsbG8=".into(),
+                    private_key: crate::computer::guide::fake::KEY_BASE64.into(),
+                    user_handle: None,
+                    user_name: None,
+                    user_display_name: None,
+                },
+            )
+            .unwrap();
+    }
+    vault
+        .set_shared(
+            "HN_LOGIN",
+            crate::vault::StoredSecret::Login {
+                r#use: usage,
+                sites: vec!["https://news.ycombinator.com".into()],
+                username: "person".into(),
+                password: "private-password".into(),
+                totp: None,
+            },
+        )
+        .unwrap();
+    let mut persona = fixture.room.persona("ada").unwrap();
+    persona.computer.as_mut().unwrap().secrets = Some(vec![
+        "GH_PASSKEY".into(),
+        "OTHER_KEY".into(),
+        "HN_LOGIN".into(),
+    ]);
+    enrol(&fixture.room.log, &persona);
+    fixture.room.start("ada").await.unwrap();
+    fixture
+}
+
+#[cfg(unix)]
+pub(crate) async fn cookie_offer_room(
+    name: &str,
+    firefox: bool,
+) -> (ComputerRoom, tempfile::TempDir) {
+    let profiles = tempfile::tempdir().unwrap();
+    let candidate =
+        crate::computer::cookies::lending::tests::candidate_fixture(profiles.path(), firefox);
+    let fixture = cookie_offer_room_with_candidates(name, vec![candidate]).await;
+    (fixture, profiles)
+}
+
+#[cfg(unix)]
+pub(crate) async fn cookie_offer_room_with_candidates(
+    name: &str,
+    candidates: Vec<crate::computer::cookies::Candidate>,
+) -> ComputerRoom {
+    let fixture = computer_room(name, Some("0.11.2"), TWO_RELEASES, true).await;
+    *lock(&fixture.room.cookie_candidates) = candidates;
+    fixture.room.start("ada").await.unwrap();
+    *fixture.taken.pages.lock().unwrap() = vec![
+        json!({"origin":"https://porkbun.com"}),
+        json!({"origin":"https://account.porkbun.com"}),
+        json!({"origin":"https://no-cookies.example"}),
+    ];
+    fixture
 }

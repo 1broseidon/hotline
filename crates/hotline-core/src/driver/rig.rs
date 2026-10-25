@@ -305,6 +305,19 @@ impl InProcess {
         self
     }
 
+    /// Every account's models as the desk lists them; a test double with no
+    /// accounts lists its keys' models.
+    fn choices(&self, keys: &HashMap<String, ProviderAuth>) -> Vec<ConfigChoice> {
+        self.keys.model_choices().unwrap_or_else(|| {
+            models::choices(
+                keys,
+                &self.keys.enabled_models(),
+                &self.keys.account_models(),
+                &self.keys.model_metadata(),
+            )
+        })
+    }
+
     fn info(&self, keys: &HashMap<String, ProviderAuth>) -> DriverInfo {
         let model = lock(&self.model).clone();
         let effort = lock(&self.effort).clone();
@@ -315,14 +328,9 @@ impl InProcess {
                 active_input: true,
                 ..Default::default()
             },
-            models: models::choices(
-                keys,
-                &self.keys.enabled_models(),
-                &self.keys.account_models(),
-                &metadata,
-            ),
+            models: self.choices(keys),
             model_label: metadata
-                .get(&model)
+                .get(&*models::base_id(&model))
                 .map(|model| model.name.clone())
                 .or_else(|| models::label_of(&model)),
             current_model_id: model.clone(),
@@ -357,12 +365,7 @@ impl Driver for InProcess {
         if keys.is_empty() {
             return Ok(self.info(&keys));
         }
-        let choices = models::choices(
-            &keys,
-            &self.keys.enabled_models(),
-            &self.keys.account_models(),
-            &self.keys.model_metadata(),
-        );
+        let choices = self.choices(&keys);
         let preferred = self.keys.preferred_model();
         let model = model_for(
             persona.model_id.as_deref(),
@@ -474,13 +477,16 @@ impl Driver for InProcess {
     }
 
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
-        let keys = self.keys.provider_auth();
-        let provider = model_id.split('/').next().unwrap_or("");
-        if !keys.contains_key(provider) {
+        // A model on a named account is set only while that account is
+        // there; the switch itself lands on the next turn, never this one.
+        let (held, base) = crate::session::account_keys(&*self.keys, model_id)?;
+        let provider = base.split('/').next().unwrap_or("");
+        if !held.contains_key(provider) {
             return Err(format!(
                 "No connection for {provider} is available on this desk."
             ));
         }
+        let keys = self.keys.provider_auth();
         *lock(&self.model) = model_id.to_string();
         // A model switch keeps the effort only when the new model lists it;
         // otherwise the new model's blank default stands.
@@ -606,13 +612,30 @@ impl InProcess {
         if !granted.is_empty() {
             mcp_tools.extend(granted::tools(granted));
         }
-        let model = lock(&self.model).clone();
+        // The teammate's account, resolved now and owned by this turn: a
+        // switch made while it runs lands on the next one. An account that
+        // is gone fails the turn rather than run it on another account.
+        let identity = lock(&self.model).clone();
+        let (keys, model) = match crate::session::account_keys(&*self.keys, &identity) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                let _ = sender.try_send(Update::Notice {
+                    level: NoticeLevel::Error,
+                    text: Failure::account_gone(error, &identity).notice(),
+                });
+                let _ = sender.try_send(Update::Turn {
+                    stop_reason: "failed".to_string(),
+                    usage: None,
+                });
+                return receiver;
+            }
+        };
         let metadata = self.keys.model_metadata();
         let output_limit = metadata.get(&model).and_then(|model| model.output_limit);
-        let keys = self.keys.provider_auth();
         let meter = turn::ChatMeter::for_model(self.keys.budget(), &keys, &model, &metadata);
         let turn = Turn {
             keys,
+            identity,
             model: model.clone(),
             output_limit,
             context_limit: metadata.get(&model).and_then(|m| m.context_limit),
@@ -638,7 +661,9 @@ impl InProcess {
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
         tokio::spawn(async move {
-            let origin = recovery::Origin::of(&turn.model, &turn.keys);
+            // A move to another account is a new origin too: what one
+            // account's model reasoned is not handed to another's.
+            let origin = recovery::Origin::of(&turn.identity, &turn.model, &turn.keys);
             let changed = lock(&history_origin)
                 .as_ref()
                 .is_some_and(|previous| previous != &origin);
@@ -695,6 +720,9 @@ impl InProcess {
 /// so the turn owns it and the driver stays free to answer other calls.
 struct Turn {
     keys: HashMap<String, ProviderAuth>,
+    /// The teammate's model id as chosen, naming its account when it has one.
+    identity: String,
+    /// The plain `provider/model` the turn asks for, on `keys`.
     model: String,
     /// The Chat budget this turn's rounds are metered against; `None` for a
     /// model that costs nothing per token, or a desk without budgets.

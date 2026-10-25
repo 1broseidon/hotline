@@ -183,6 +183,8 @@ impl ChildAgent {
             let failure = auth::failure(&self.live, &error, "acp_start");
             if failure.kind == crate::driver::failure::Kind::AgentAuth && failure.sign_in.is_some()
             {
+                // The picker offers its sign-in until a session of it opens.
+                super::models::mark_sign_in(&self.root, &self.backend_id);
                 *lock(&self.live.startup_failure) = Some(failure.notice());
                 self.live.failed.store(true, Ordering::SeqCst);
                 lock(&self.live.session).id = None;
@@ -490,6 +492,7 @@ impl ChildAgent {
         lock(&self.live.tools).clear();
         self.live.forget_subagents();
         let disposition = Disposition::of(modes.as_ref(), configs.as_deref());
+        super::models::remember(&self.root, &self.backend_id, &disposition.models);
         let mut session = lock(&self.live.session);
         session.id = Some(id.clone());
         session.model_config = disposition.model_config;
@@ -812,6 +815,11 @@ pub(super) struct Disposition {
 }
 
 impl Disposition {
+    /// The agent's model picker, empty when it offers none.
+    pub(super) fn models(self) -> Vec<crate::contract::ConfigChoice> {
+        self.models
+    }
+
     pub(super) fn of(
         modes: Option<&acp::SessionModeState>,
         configs: Option<&[acp::SessionConfigOption]>,
@@ -829,6 +837,7 @@ impl Disposition {
                     name: mode.name.clone(),
                     description: mode.description.clone(),
                     group: None,
+                    account: None,
                 })
                 .collect();
             disposition.current_mode_id = Some(state.current_mode_id.0.to_string());
@@ -928,6 +937,7 @@ fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigC
             name: option.name,
             description: option.description,
             group: None,
+            account: None,
         })
         .collect()
 }

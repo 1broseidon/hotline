@@ -182,6 +182,13 @@ impl ProviderKeys for NoKeys {
 
 #[async_trait]
 impl RoomHandle for CoreHandle {
+    async fn secrets_capture_answer(
+        &self,
+        answer: crate::contract::CredentialAnswer,
+    ) -> Result<(), String> {
+        self.room.answer_credential(answer).await
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.room.threads_waiting(persona_id)
     }
@@ -733,12 +740,24 @@ impl RoomHandle for Quiet {
                 description: "Hotline's own agent. Runs any model from the providers you connect."
                     .to_string(),
                 unavailable: None,
+                models: None,
+                sign_in: None,
             },
             crate::contract::BackendChoice {
                 id: "cursor".to_string(),
                 name: "Cursor".to_string(),
                 description: "An external harness.".to_string(),
                 unavailable: Some("Not signed in.".to_string()),
+                models: None,
+                sign_in: None,
+            },
+            crate::contract::BackendChoice {
+                id: "codex".to_string(),
+                name: "Codex".to_string(),
+                description: "An external harness, ready.".to_string(),
+                unavailable: None,
+                models: None,
+                sign_in: None,
             },
         ]
     }
@@ -761,12 +780,14 @@ impl RoomHandle for Quiet {
                 name: "Claude".to_string(),
                 description: None,
                 group: None,
+                account: None,
             },
             ConfigChoice {
                 id: "openai/gpt".to_string(),
                 name: "GPT".to_string(),
                 description: None,
                 group: None,
+                account: None,
             },
         ]
     }
@@ -1121,6 +1142,9 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
 
 mod asks;
 mod capabilities;
+mod capture;
+#[cfg(unix)]
+mod cookie_offers;
 mod deltas;
 mod door;
 mod files;
@@ -1129,15 +1153,24 @@ mod mobile_computer;
 mod models;
 mod owner_handler;
 mod personas;
+mod phone_pressure;
 mod roster;
 mod schedules;
 mod seats;
+#[cfg(unix)]
+mod secret_uses;
 mod settings;
 mod threads;
 mod windows;
 
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {
-    snapshot_shaped(log, stream, seat == Seat::Phone, None, threads2)
+    snapshot_shaped(
+        log.load(stream),
+        stream,
+        seat == Seat::Phone,
+        None,
+        threads2,
+    )
 }
 
 mod concurrency;

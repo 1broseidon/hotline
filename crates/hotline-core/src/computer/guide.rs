@@ -123,6 +123,7 @@ pub(crate) mod fake {
     /// the browser has since "minted" one.
     #[derive(Clone, Debug)]
     struct FakeArming {
+        expires_at: i64,
         rp_id: String,
         ask: Option<(Value, Option<bool>)>,
         minted: bool,
@@ -135,6 +136,7 @@ pub(crate) mod fake {
     /// stands: the record a test reads and drives.
     #[derive(Clone, Default)]
     pub(crate) struct Taken {
+        pub(crate) uses: crate::computer::uses::fake::Door,
         sets: Arc<Mutex<Vec<BTreeMap<String, Value>>>>,
         arming: Arc<Mutex<Option<FakeArming>>>,
         /// How many requests pages have parked, so each gets its own id.
@@ -143,6 +145,9 @@ pub(crate) mod fake {
         /// domains, in order.
         forgotten: Forgotten,
         pub(crate) uploads: Arc<Mutex<Vec<Value>>>,
+        pub(crate) pages: Arc<Mutex<Vec<Value>>>,
+        pub(crate) login_error: Arc<Mutex<Option<String>>>,
+        pub(crate) forget_error: Arc<std::sync::atomic::AtomicBool>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -249,6 +254,19 @@ pub(crate) mod fake {
             .is_some_and(|bearer| !bearer.is_empty())
     }
 
+    async fn pages(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+    ) -> axum::response::Response {
+        if !bearer_present(&headers) {
+            return json_answer(axum::http::StatusCode::UNAUTHORIZED, json!({}));
+        }
+        json_answer(
+            axum::http::StatusCode::OK,
+            json!({"pages":taken.pages.lock().unwrap().clone()}),
+        )
+    }
+
     async fn take_secrets(
         axum::extract::State(taken): axum::extract::State<Taken>,
         headers: axum::http::HeaderMap,
@@ -259,6 +277,7 @@ pub(crate) mod fake {
         }
         match serde_json::from_str::<BTreeMap<String, Value>>(&body) {
             Ok(set) => {
+                taken.uses.replace(&set);
                 taken.sets.lock().unwrap().push(set);
                 axum::http::StatusCode::NO_CONTENT
             }
@@ -289,14 +308,16 @@ pub(crate) mod fake {
                 json!({"error": format!("{rp_id:?} is not a site for a passkey")}),
             );
         }
+        let expires_at = crate::session::now_ms() + 10 * 60_000;
         *taken.arming.lock().unwrap() = Some(FakeArming {
+            expires_at,
             rp_id: rp_id.clone(),
             ask: None,
             minted: false,
         });
         json_answer(
             axum::http::StatusCode::OK,
-            json!({"state": "armed", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64}),
+            json!({"state": "armed", "rpId": rp_id, "expiresAt": expires_at}),
         )
     }
 
@@ -313,7 +334,7 @@ pub(crate) mod fake {
             (false, None) => "armed",
         };
         let mut status =
-            json!({"state": state, "rpId": arming.rp_id, "expiresAt": 1_700_000_600_000_i64});
+            json!({"state": state, "rpId": arming.rp_id, "expiresAt": arming.expires_at});
         if let Some((ask, _)) = &arming.ask {
             status["ask"] = ask.clone();
         }
@@ -393,6 +414,12 @@ pub(crate) mod fake {
             .ok()
             .and_then(|body| serde_json::from_value(body["domains"].clone()).ok())
             .unwrap_or_default();
+        if taken.forget_error.load(std::sync::atomic::Ordering::SeqCst) {
+            return json_answer(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error":"cookie-sentinel-273"}),
+            );
+        }
         let count = domains.len();
         taken
             .forgotten
@@ -536,6 +563,7 @@ pub(crate) mod fake {
         /// The release this fake is; `None` is an older image whose `state`
         /// has no `guide` action.
         version: Option<String>,
+        taken: Taken,
     }
 
     impl ServerHandler for FakeComputer {
@@ -612,6 +640,11 @@ pub(crate) mod fake {
                         ContentBlock::text("8x6 image; 1 px = 1 screen px"),
                     ]),
                 },
+                (Some(_), "login_load") if self.taken.login_error.lock().unwrap().is_some() => {
+                    CallToolResult::error(vec![ContentBlock::text(
+                        self.taken.login_error.lock().unwrap().clone().unwrap(),
+                    )])
+                }
                 (Some(_), "login_load") => {
                     CallToolResult::success(vec![ContentBlock::text("loaded")])
                 }
@@ -647,6 +680,7 @@ pub(crate) mod fake {
         let taken = Taken::default();
         let computer = FakeComputer {
             version: version.map(str::to_owned),
+            taken: taken.clone(),
         };
         let service: StreamableHttpService<FakeComputer, LocalSessionManager> =
             StreamableHttpService::new(
@@ -681,6 +715,18 @@ pub(crate) mod fake {
         }
         if version.is_some_and(has_logins_door) {
             app = app.route("/logins/{name}", axum::routing::delete(forget_login));
+        }
+        if version == Some("0.11.2") {
+            app = app
+                .route("/pages", axum::routing::get(pages))
+                .route(
+                    "/secrets/uses",
+                    axum::routing::get(crate::computer::uses::fake::held),
+                )
+                .route(
+                    "/secrets/uses/answer",
+                    axum::routing::post(crate::computer::uses::fake::answer),
+                );
         }
         let app = app.with_state(taken.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

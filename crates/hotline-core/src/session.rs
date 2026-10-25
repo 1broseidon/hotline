@@ -57,9 +57,14 @@ mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
+pub(crate) mod capture;
+mod cookie_offers;
+#[cfg(all(test, unix))]
+pub(crate) use cookie_offers::NOT_NOW_QUIET_MS;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;
+mod secret_uses;
 mod secrets;
 mod sides;
 mod start;
@@ -211,6 +216,48 @@ pub trait ProviderKeys: Send + Sync {
     fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
         None
     }
+
+    /// One account's auth by its credential id, with its provider: what a
+    /// model id naming that account (`provider#account/model`) runs on.
+    /// `None` when the account is revoked, deleted or broken. Test doubles
+    /// have no named accounts.
+    fn account_auth(&self, _account: &str) -> Option<(String, ProviderAuth)> {
+        None
+    }
+
+    /// Every account's models, each choice saying which account serves it,
+    /// as the desk lists them. `None` leaves the driver to list the default
+    /// accounts' models from [`Self::provider_auth`], as test doubles do.
+    fn model_choices(&self) -> Option<Vec<crate::contract::ConfigChoice>> {
+        None
+    }
+}
+
+/// The credentials a turn on `model_id` runs with, and the plain
+/// `provider/model` it asks for.
+///
+/// A plain id runs on its provider's default account, as it always has. An
+/// id naming an account runs on that account and no other: its auth stands
+/// in for the provider's, so everything the turn asks of that provider goes
+/// to that account. An account that is gone is an error, never a quiet move
+/// to the provider's other account.
+pub(crate) fn account_keys(
+    keys: &dyn ProviderKeys,
+    model_id: &str,
+) -> Result<(HashMap<String, ProviderAuth>, String), String> {
+    let (base, account) = crate::models::split_account(model_id);
+    let mut auth = keys.provider_auth();
+    let Some(account) = account else {
+        return Ok((auth, base.into_owned()));
+    };
+    let provider = base.split('/').next().unwrap_or_default().to_string();
+    match keys.account_auth(account) {
+        Some((owner, held)) if owner == provider => {
+            auth.insert(provider, held);
+            Ok((auth, base.into_owned()))
+        }
+        _ => Err(crate::models::account_gone(&provider)),
+    }
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a
@@ -320,14 +367,17 @@ impl Agents for DeskAgents {
     }
 
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
+        // On the account the id names, like a turn: a teammate's note is
+        // written on its own account and never on another's.
+        let (keys, model_id) = account_keys(&*self.keys, model_id)?;
         rig::complete(
-            &self.keys.provider_auth(),
-            model_id,
+            &keys,
+            &model_id,
             system,
             prompt,
             self.keys
                 .model_metadata()
-                .get(model_id)
+                .get(&model_id)
                 .and_then(|model| model.output_limit),
         )
         .await
@@ -635,6 +685,19 @@ pub struct Room {
     /// the name it will be stored under and the site, until the poll that
     /// finds it made, a cancel, or the computer's own ten minutes run out.
     passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
+    #[cfg(test)]
+    pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
+    #[cfg(test)]
+    pub(crate) cookie_discovery_calls: Arc<std::sync::atomic::AtomicUsize>,
+    /// A host permission failure is said once per browser for this desk run,
+    /// across teammates and session restarts.
+    cookie_access_notices: Mutex<HashSet<String>>,
+    /// How many times the person has stopped each teammate. A cookie card and
+    /// its answer last until the next stop, not through a restart the desk
+    /// makes on its own (an agent switch, a policy reload).
+    stops: Mutex<HashMap<String, u64>>,
+    secret_uses: Mutex<HashMap<String, Arc<TokioMutex<secret_uses::UseWatch>>>>,
+    captures: Mutex<HashMap<String, Arc<tokio::sync::Mutex<capture::Capture>>>>,
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
@@ -763,12 +826,21 @@ impl Room {
             computers,
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
+            stops: Mutex::default(),
+            secret_uses: Mutex::default(),
+            #[cfg(test)]
+            cookie_candidates: Mutex::default(),
+            #[cfg(test)]
+            cookie_discovery_calls: Arc::default(),
+            cookie_access_notices: Mutex::default(),
+            captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
+        secret_uses::watch(Arc::downgrade(&room));
         // What the person said that was still waiting when the last desk
         // stopped, and what came back to a job that had not heard it yet, is
         // handed on once, now that the room is up.
@@ -930,12 +1002,14 @@ impl Room {
 
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
-        crate::models::choices(
-            &self.keys.provider_auth(),
-            &self.keys.enabled_models(),
-            &self.keys.account_models(),
-            &self.keys.model_metadata(),
-        )
+        self.keys.model_choices().unwrap_or_else(|| {
+            crate::models::choices(
+                &self.keys.provider_auth(),
+                &self.keys.enabled_models(),
+                &self.keys.account_models(),
+                &self.keys.model_metadata(),
+            )
+        })
     }
 
     /// What tools this teammate was given the last time it started, less

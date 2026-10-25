@@ -168,12 +168,29 @@ pub struct ConfigChoice {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Picker section header — the provider serving this choice, with its
-    /// billing flavor ("Anthropic — subscription", "OpenRouter — API key").
-    /// The same model name can be served two ways at very different prices;
-    /// the section is what tells them apart before the choice is made.
+    /// Picker section header: the name of the provider serving this choice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// The account serving this choice, for a Hotline Agent model. A
+    /// provider with two or more accounts offers its models once per
+    /// account, each id naming its account (`provider#account/model`); with
+    /// one, the id is the plain `provider/model` it always was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<ChoiceAccount>,
+}
+
+/// Which of the person's accounts serves a model choice: a credential, by
+/// its id and the name the person gave it. Never anything secret.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct ChoiceAccount {
+    pub id: String,
+    pub label: String,
+    pub kind: crate::credentials::CredentialKind,
+    /// Another account of the same provider is connected too, so the picker
+    /// names this one ("Anthropic · Work") rather than the provider alone.
+    pub shared: bool,
 }
 
 /// One model in a provider's catalogue, as the filter panel lists them.
@@ -238,7 +255,10 @@ pub struct SlashCommand {
 /// One agent harness as the new-teammate sheet offers it: Hotline Agent, or an
 /// ACP harness the registry knows. `unavailable` is absent when this machine
 /// can start it and a sentence naming what is missing when it cannot.
+/// `models` is the list it last reported on this desk, from a teammate's
+/// session or the daily look; absent until it has reported one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct BackendChoice {
     pub id: String,
@@ -246,6 +266,12 @@ pub struct BackendChoice {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<ConfigChoice>>,
+    /// The agent last asked to be signed in before it would open a session:
+    /// new on this desk, or its sign-in expired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<bool>,
 }
 
 /// Where a fresh room stands on its way to a first turn, as the welcome

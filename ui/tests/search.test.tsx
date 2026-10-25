@@ -24,8 +24,10 @@ async function withSearch(run: (helpers: {
 	const root = createRoot(container);
 	try {
 		await act(async () => {
-			root.render(<TeamSearch roster={roster} selectedId="ada" placement="dock" ask={0} onPick={(personaId, eventId) => picked.push([personaId, eventId])} />);
+			root.render(<TeamSearch roster={roster} selectedId="ada" placement="above" ask={0} onPick={(personaId, eventId) => picked.push([personaId, eventId])} />);
 		});
+		const key = container.querySelector<HTMLButtonElement>('button[aria-label="Search"]')!;
+		await act(async () => key.click());
 		const input = container.querySelector("input")!;
 		await run({
 			container,
@@ -48,7 +50,7 @@ async function withSearch(run: (helpers: {
 	}
 }
 
-test("the dock's field is real: typing shows teammates by name, then matches grouped by teammate, and a pick lands on the line", async () => {
+test("the dock's search key opens the field: typing shows teammates by name, then matches grouped by teammate, and a pick lands on the line", async () => {
 	const picked: [string, string | undefined][] = [];
 	await withSearch(async ({ container, type, settle, act }) => {
 		await type("ki");

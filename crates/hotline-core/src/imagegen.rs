@@ -24,7 +24,7 @@ pub use google::Google;
 pub use openai::OpenAi;
 pub use openrouter::OpenRouter;
 pub(crate) use providers::NOTHING_DRAWS;
-pub use providers::{describe, draws, model, options, resolve};
+pub use providers::{describe, draws, model, options, resolve, resolve_on};
 pub use xai::Grok;
 
 use crate::contract::ImageSettings;

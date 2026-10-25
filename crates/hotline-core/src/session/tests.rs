@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
+mod accounts;
 #[cfg(unix)]
 mod capture;
 mod cards;
@@ -175,6 +176,7 @@ impl Scripted {
                 name: "Claude".to_string(),
                 description: None,
                 group: None,
+                account: None,
             }],
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),
@@ -790,7 +792,7 @@ async fn computer_room(
 }
 
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.10.4"},{"tag_name":"v0.10.3"}]"#;
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.11.1"},{"tag_name":"v0.11.0"}]"#;
 
 /// The notices on a teammate's tape, oldest first.
 fn notices(room: &Room, persona_id: &str) -> Vec<String> {

@@ -1,7 +1,8 @@
 use super::*;
 use rig::message::AssistantContent;
 
-/// Custom providers can change protocol or endpoint without changing their model id.
+/// Custom providers can change protocol or endpoint without changing their
+/// model id, and a teammate can move to another account of the same model.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Origin {
     model: String,
@@ -10,7 +11,10 @@ pub(super) struct Origin {
 }
 
 impl Origin {
-    pub(super) fn of(model: &str, keys: &HashMap<String, ProviderAuth>) -> Self {
+    /// `identity` is the model id as the teammate chose it, naming its
+    /// account; `model` the plain id the turn runs, whose provider `keys`
+    /// holds the account's auth under.
+    pub(super) fn of(identity: &str, model: &str, keys: &HashMap<String, ProviderAuth>) -> Self {
         let (server, api) = match keys.get(model.split('/').next().unwrap_or_default()) {
             Some(ProviderAuth::Custom {
                 base_url, config, ..
@@ -19,7 +23,7 @@ impl Origin {
             _ => (None, None),
         };
         Self {
-            model: model.into(),
+            model: identity.into(),
             server,
             api,
         }
@@ -183,9 +187,9 @@ mod tests {
             },
         };
         keys.insert("custom".into(), auth(OpenAiApi::Responses));
-        let responses = Origin::of("custom/coder", &keys);
+        let responses = Origin::of("custom/coder", "custom/coder", &keys);
         keys.insert("custom".into(), auth(OpenAiApi::ChatCompletions));
-        assert_ne!(responses, Origin::of("custom/coder", &keys));
+        assert_ne!(responses, Origin::of("custom/coder", "custom/coder", &keys));
     }
 
     /// What the model reads of a fresh continuation: the one message's text.

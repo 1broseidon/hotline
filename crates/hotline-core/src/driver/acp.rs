@@ -30,6 +30,7 @@
 mod auth;
 mod install;
 mod live;
+pub mod models;
 mod oauth_proxy;
 pub mod registry;
 mod session;

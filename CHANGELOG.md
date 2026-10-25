@@ -8,6 +8,73 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-24
+
+### Added
+
+- Several accounts of any provider. Settings › Providers can add a provider
+  you already have: the second starts as "Anthropic 2" and any account can
+  be renamed, so two read as "Anthropic · Work" and "Anthropic · Personal".
+  A teammate runs on the account it was given: every turn, retry, chapter
+  note, picture and call on its model uses that account and only that one.
+  Rooms from 0.42 run exactly as before.
+- One picker for model, account, effort and agent. The button says the model
+  and its effort with its maker's mark. The menu's head is the model in use
+  and its account, one large key that opens its models, with an effort
+  slider; below it your accounts, headed API, then the agents: Claude Code,
+  Codex, Cursor, Google Antigravity and Grok Build by name, the rest in one
+  row. Picking a model under another agent moves the teammate there.
+- Switching a teammate's agent. A turn in progress finishes first; the new
+  agent starts fresh from the chapter, never a stale session of its own.
+- Agents' models before any teammate runs on them: the desk looks at its
+  named agents as it starts, opening a session without a prompt, so the
+  picker never waits on a list. An agent that wants its sign-in says
+  "Sign in" on its row, which moves the teammate there to sign in.
+- Credential cards: a teammate asks for a login or passkey for a site, and
+  the values you type go only to the vault (on the desk and the phone).
+- Each login and passkey is automatic or Ask me; an Ask me use waits for
+  Approve, Allow 10 minutes or Deny on a card, on the desk or the phone.
+- Your browser's session for a site a teammate opens: the desk offers your
+  existing cookie, always asking (Use, Not now, Never for this site), and
+  Remove takes it back out of the computer. Settings › Computer turns offers
+  off or limits them to chosen sites.
+
+### Changed
+
+- New computers run Hotline Computer 0.11.0, which brings the extension as a
+  card on the page, Ask me keys and the open-pages list cookie offers need.
+  Existing computers keep their version until updated from the teammate's
+  pane.
+- The window: Settings is the first key of the rail's dock, panes run to the
+  window's edges, Add teammate has its own row, and the traffic lights sit
+  centred in the top row. Settings has its own dock (back, version,
+  shortcuts) and no longer collapses. The teammate's face at the top right
+  is its menu: Settings, New chapter, Threads and Remove; the name stands
+  in the top row only when the rail is closed.
+- The desk and window stay fast on long conversations: cached folds, a live
+  roster kept in memory, streaming that wakes the window only for what
+  shows, and a socket that answers independent commands at once.
+- Not now on a cookie offer quiets that site for a teammate for a day,
+  through agent switches and restarts.
+
+### Fixed
+
+- A revoked or removed account never falls back to another: the turn stops
+  with "Account no longer connected" and offers the accounts that serve the
+  model.
+- After an agent switch the conversation's last lines are no longer handed
+  to the new agent twice.
+- A burst of tool events no longer drops the phone's connection, and a
+  stalled phone seat is closed rather than counted open.
+- A cancelled shell job no longer runs its next command before it dies.
+- Update available is offered for a computer the desk didn't start itself.
+- When macOS won't let the desk read your browsers, it says so once instead
+  of offering nothing.
+- tokio 1.54.1, ctutils 0.4.5 and clipboard-win 5.4.3 (RUSTSEC-2026-0385,
+  RUSTSEC-2026-0386 and a yanked crate).
+  RUSTSEC-2026-0387 (crypto-bigint, under webrtc's DTLS for calls) is
+  ignored with its reason until webrtc takes the fixed release.
+
 ## [0.42.0] - 2026-10-21
 
 ### Added

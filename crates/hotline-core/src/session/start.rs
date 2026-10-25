@@ -303,6 +303,7 @@ impl Room {
     /// its agent, and nothing is left to answer in them. Its jobs' agents are
     /// let go of too; the jobs go on firing.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
+        *lock(&self.stops).entry(persona_id.to_string()).or_default() += 1;
         self.stop_session(persona_id);
         self.drop_sides(persona_id);
         self.let_go_of_jobs(Some(persona_id));

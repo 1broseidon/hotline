@@ -70,6 +70,14 @@ impl ProviderKeys for DeskCredentials {
     fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
         Some(self.budget.clone())
     }
+
+    fn account_auth(&self, account: &str) -> Option<(String, crate::session::ProviderAuth)> {
+        self.vault.account_auth(account)
+    }
+
+    fn model_choices(&self) -> Option<Vec<crate::contract::ConfigChoice>> {
+        Some(self.vault.model_choices())
+    }
 }
 
 /// How far an in-flight device-code login has got. Lives only in this
@@ -671,6 +679,12 @@ impl RoomHandle for Desk {
         self.vault.revoke(id).map_err(|error| error.to_string())
     }
 
+    fn credential_rename(&self, id: &str, label: &str) -> Result<Credential, String> {
+        self.vault
+            .rename(id, label)
+            .map_err(|error| error.to_string())
+    }
+
     async fn credential_delete(&self, id: &str) -> Result<(), String> {
         crate::providers::rig_login::revoke::delete(&self.vault, id)
             .await
@@ -848,7 +862,8 @@ impl RoomHandle for Desk {
         Ok(entries)
     }
 
-    /// Hotline Agent first, then whatever the ACP catalogue and the PATH say.
+    /// Hotline Agent first, then whatever the ACP catalogue and the PATH say,
+    /// each with the models it last reported here.
     async fn backends(&self) -> Vec<BackendChoice> {
         let mut choices = vec![BackendChoice {
             id: HOTLINE_BACKEND_ID.to_string(),
@@ -856,9 +871,17 @@ impl RoomHandle for Desk {
             description: "Hotline's own agent. Runs any model from the providers you connect."
                 .to_string(),
             unavailable: None,
+            models: None,
+            sign_in: None,
         }];
-        for backend in acp::registry::backends(self.log.root()).await {
+        let root = self.log.root();
+        acp::models::refresh_in_background(root);
+        let mut models = acp::models::cached(root);
+        let sign_in = acp::models::needing_sign_in(root);
+        for backend in acp::registry::backends(root).await {
             choices.push(BackendChoice {
+                models: models.remove(&backend.id),
+                sign_in: sign_in.contains(&backend.id).then_some(true),
                 id: backend.id,
                 name: backend.name,
                 description: backend.description,

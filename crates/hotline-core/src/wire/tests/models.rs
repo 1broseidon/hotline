@@ -347,3 +347,97 @@ async fn session_set_config_refuses_an_effort_the_model_does_not_list() {
         "the fixture must pick a model that does not list nope"
     );
 }
+
+async fn set_backend(socket: &mut Socket, ask_id: i64, persona: &str, backend: &str) -> Value {
+    ask(
+        socket,
+        json!({
+            "id": ask_id,
+            "cmd": "session.set_backend",
+            "params": { "personaId": persona, "backendId": backend },
+        }),
+    )
+    .await;
+    answered(socket, ask_id).await
+}
+
+/// An idle teammate moves to another agent at once: the record names the
+/// agent and leaves the model to it, the agent's old session is withdrawn so
+/// it starts fresh (never A→B→A back into a stale one), and the live
+/// session restarts on it.
+#[tokio::test]
+async fn session_set_backend_moves_an_idle_teammate_and_withdraws_the_agents_old_session() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("set-backend-idle", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+    room::checkpoint_session(&log, &id, "codex", "an-old-codex-session").unwrap();
+
+    let moved = set_backend(&mut socket, 2, &id, "codex").await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    let roster = room::roster(&log);
+    assert_eq!(roster[0].backend_id, "codex");
+    assert_eq!(
+        roster[0].model_id, None,
+        "the agent's own model until one is named"
+    );
+    assert!(
+        roster[0]
+            .session_checkpoints
+            .iter()
+            .all(|checkpoint| checkpoint.backend_id != "codex"),
+        "the agent's old session is not reopened"
+    );
+    assert_eq!(quiet.reattached(), vec![id.clone()]);
+    assert!(
+        quiet.invalidations.lock().unwrap().is_empty(),
+        "nothing was cut short"
+    );
+}
+
+/// A teammate mid-turn keeps its turn: the record changes now, and the
+/// session restarts on the new agent only once the teammate is idle.
+#[tokio::test]
+async fn session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("set-backend-busy", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+    let mut thinking = idle(&id);
+    thinking.state = SessionState::Thinking;
+    quiet.set_info(thinking);
+
+    let moved = set_backend(&mut socket, 2, &id, "codex").await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    assert_eq!(room::roster(&log)[0].backend_id, "codex");
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    assert!(
+        quiet.reattached().is_empty(),
+        "a turn in progress is not restarted"
+    );
+
+    quiet.set_info(idle(&id));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while quiet.reattached().is_empty() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(quiet.reattached(), vec![id]);
+}
+
+#[tokio::test]
+async fn session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("set-backend-refused", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+    let not_ready = set_backend(&mut socket, 2, &id, "cursor").await;
+    assert_eq!(not_ready["ok"], false);
+    assert_eq!(not_ready["error"], "Cursor is not ready: Not signed in.");
+    let missing = set_backend(&mut socket, 3, &id, "no-such-agent").await;
+    assert_eq!(missing["ok"], false);
+    assert_eq!(room::roster(&log)[0].backend_id, "hotline");
+    assert_eq!(quiet.reattached(), Vec::<String>::new());
+}

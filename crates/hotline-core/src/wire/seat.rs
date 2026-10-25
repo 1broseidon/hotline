@@ -110,6 +110,7 @@ impl Seat {
                     | Command::SecretsCaptureAnswer(..)
                     | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }
+                    | Command::SessionSetBackend { .. }
                     | Command::SessionSetConfig { .. }
                     | Command::ModelsList { .. }
                     | Command::ModelsEfforts { .. }

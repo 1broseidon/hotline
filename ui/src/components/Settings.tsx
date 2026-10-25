@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { appVersion, watchUpdates } from "../native";
 import { chordKeys } from "../chords";
-import { ArrowLeftIcon } from "../icons";
+import { ArrowLeftIcon, KeyboardIcon } from "../icons";
 import { useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -60,8 +60,9 @@ const FOOTER_SECTIONS: SettingsSection[] = ["shortcuts", "about"];
 
 /**
  * The rail while settings are open: the sections stand where the team
- * stood, one row each, and the band carries the way back where the team's
- * plus was. Settings is a place you go, not a card over the room, so the
+ * stood, one row each, and the dock at its foot carries the way back where
+ * the team's Settings key was. It does not collapse: it is the only way
+ * round settings. Settings is a place you go, not a card over the room, so the
  * room steps aside until you come back.
  */
 export function SettingsRail({
@@ -82,19 +83,7 @@ export function SettingsRail({
 	const desks = useDesks();
 	const here = useActiveDesk();
 	return (
-		<nav aria-label="Settings" className="rail flex flex-col" style={width !== undefined ? { width } : undefined}>
-			<Band>
-				<button
-					type="button"
-					className="control btn-icon -ml-1"
-					title={`Back (${chordKeys("close")})`}
-					aria-label="Back to the team"
-					onClick={onBack}
-				>
-					<ArrowLeftIcon />
-				</button>
-				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Settings</h1>
-			</Band>
+		<nav aria-label="Settings" className="rail settings-rail flex flex-col" style={width !== undefined ? { width } : undefined}>
 			{/* Settings are a desk's: the desk of the teammate open, or another one picked here. */}
 			{desks.length > 1 && here !== null && onDesk !== undefined && (
 				<div className="shrink-0 px-2 pt-1">
@@ -123,47 +112,64 @@ export function SettingsRail({
 					</button>
 				))}
 			</div>
-			<RailFooter section={section} onSection={onSection} />
+			<SettingsDock section={section} onSection={onSection} onBack={onBack} />
 		</nav>
 	);
 }
 
 /**
- * The quiet foot of the settings rail, where the team rail's dock stands: the
- * version opens About, and Shortcuts opens the chord list. It does not scroll
- * with the sections above it.
+ * The settings rail's dock, where the team's dock stands and in its
+ * material: the way back to the team at the start, the version in the
+ * middle (it opens About, and carries a dot when an update is ready), and
+ * the shortcuts at the end. It does not scroll with the sections above it.
  */
-function RailFooter({ section, onSection }: { section: SettingsSection; onSection(section: SettingsSection): void }) {
+function SettingsDock({
+	section,
+	onSection,
+	onBack,
+}: {
+	section: SettingsSection;
+	onSection(section: SettingsSection): void;
+	onBack(): void;
+}) {
 	const [updateReady, setUpdateReady] = useState(false);
 	useEffect(() => watchUpdates((status) => setUpdateReady(status.available !== null), () => {}), []);
 
 	const version = appVersion();
 	const shortcutsChord = chordKeys("shortcuts");
-	const aboutTip = updateReady ? "Update ready" : "About Hotline";
 	return (
-		<div className="rail-foot">
+		<footer className="rail-dock settings-dock">
 			<button
 				type="button"
-				className="rail-foot-item"
-				title={aboutTip}
+				className="settings-dock-back"
+				title={`Back (${chordKeys("close")})`}
+				aria-label="Back to the team"
+				onClick={onBack}
+			>
+				<ArrowLeftIcon />
+			</button>
+			<button
+				type="button"
+				className="settings-dock-version"
+				title={updateReady ? "Update ready" : "About Hotline"}
 				aria-label={version === "" ? "About Hotline" : `About Hotline, version ${version}`}
 				aria-current={section === "about" ? "true" : undefined}
 				onClick={() => onSection("about")}
 			>
-				{version === "" ? "About" : `Hotline ${version}`}
+				{version === "" ? "About" : version}
 				{updateReady && <span className="rail-foot-dot" aria-hidden="true" />}
 			</button>
 			<button
 				type="button"
-				className="rail-foot-item"
+				className="settings-dock-shortcuts"
 				title={shortcutsChord === "" ? "Keyboard shortcuts" : `Keyboard shortcuts (${shortcutsChord})`}
 				aria-label="Keyboard shortcuts"
 				aria-current={section === "shortcuts" ? "true" : undefined}
 				onClick={() => onSection("shortcuts")}
 			>
-				Shortcuts
+				<KeyboardIcon />
 			</button>
-		</div>
+		</footer>
 	);
 }
 

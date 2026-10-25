@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 /// on the same major (see [`releases`]), and on this one when nothing newer
 /// is known. Bumped here deliberately — never derived from the desktop
 /// version, and never `latest`.
-pub const COMPUTER_VERSION: &str = "0.10.3";
+pub const COMPUTER_VERSION: &str = "0.11.0";
 
 /// The MCP server id a session is granted, and the origin the ledger names.
 pub const SERVER_ID: &str = "computer";

@@ -163,13 +163,24 @@ impl CallRoom for RoomSide {
         crate::models::preferred_model(settings)
     }
     fn model_price(&self, model: &str) -> ModelCost {
-        crate::pricing::billed(
-            model
+        // Billed as the account the id names, else the provider's default.
+        let (base, account) = crate::models::split_account(model);
+        let kind = match account {
+            Some(account) => self
+                .vault
+                .list()
+                .into_iter()
+                .find(|credential| credential.id == account)
+                .map(|credential| credential.credential_kind),
+            None => base
                 .split_once('/')
                 .and_then(|(provider, _)| self.vault.connection(provider))
                 .map(|(credential, _)| credential.credential_kind),
-            model,
-            crate::pricing::listed_price(model, &self.vault.model_metadata()),
+        };
+        crate::pricing::billed(
+            kind,
+            &base,
+            crate::pricing::listed_price(&base, &self.vault.model_metadata()),
         )
     }
     fn model_efforts(&self, model: &str) -> Vec<String> {
@@ -181,13 +192,19 @@ impl CallRoom for RoomSide {
         effort: Option<&str>,
         limit: u64,
     ) -> Result<rig::agent::AgentBuilder, String> {
-        crate::driver::rig::completion_builder_with_effort(
-            &self.vault.provider_auth(),
-            model,
-            effort,
-            Some(limit),
-        )
-        .await
+        // A call on a teammate's model runs on the teammate's account.
+        let (base, account) = crate::models::split_account(model);
+        let mut keys = self.vault.provider_auth();
+        if let Some(account) = account {
+            let provider = base.split('/').next().unwrap_or_default().to_string();
+            match self.vault.account_auth(account) {
+                Some((owner, held)) if owner == provider => {
+                    keys.insert(owner, held);
+                }
+                _ => return Err(crate::models::account_gone(&provider)),
+            }
+        }
+        crate::driver::rig::completion_builder_with_effort(&keys, &base, effort, Some(limit)).await
     }
     fn provider_connected(&self, provider: &str) -> bool {
         self.vault.provider_auth().contains_key(provider)

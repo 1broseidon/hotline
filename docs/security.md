@@ -2474,7 +2474,12 @@ narrator leaves the written result available without a new spoken pointer.
   Desk and owner may write the setting, list host sites on explicit page open,
   and undo Never. The phone may read only the preference through
   `computer.cookies.settings`; it cannot discover sites or change settings.
-- **Revocation:** a stopped or changed session expires pending cards. Each lend
+- **Revocation:** a stop, another computer or a desk restart expires pending
+  cards. A restart the person did not ask for (an agent switch, a policy
+  reload) keeps them and their answers, bound to the new session's lease once
+  it is up; Use still checks that lease and the running endpoint. Not now is
+  kept on the tape and quiets that site for that teammate for a day (only
+  fewer offers, never a grant). Each lend
   is separately named and its metadata survives restart; Remove sends exactly
   `domains: [site]` to the authenticated computer's `DELETE /logins/{name}`.
   Both the browser and saved login there lose the cookies. The agent hears the
@@ -2499,8 +2504,95 @@ narrator leaves the written result available without a new spoken pointer.
 | Discovery selects only hosts from Chromium and Firefox fixtures; site bounds include private suffixes | `computer/cookies/lending/tests.rs` `detection_reads_chromium_and_firefox_host_columns_without_launch_or_keychain`, `discovery_never_launches_or_calls_the_browser_keychain_until_use`, `only_the_registrable_site_and_its_subdomains_can_be_lent` | — |
 | Refused installed browsers raise one notice each per desk run, never an offer; restored access retries the open page, readable browsers still offer, and Never sites stay quiet | `computer/cookies/lending/tests.rs` `discovery_keeps_refused_installed_browsers_and_finds_their_profiles_after_access_is_granted`; `wire/tests/cookie_offers.rs` `refused_browsers_raise_one_notice_each_per_desk_run_and_no_offer`, `a_refused_site_is_offered_after_access_appears_without_reopening_the_page`, `a_granted_browser_offers_once_even_when_another_browser_is_refused`, `a_refused_browser_does_not_raise_a_notice_for_a_never_site` | Unix, unprivileged runner |
 | One offer reaches desk and phone only for a matching site; racing answers lend once, and Remove names the saved login and site and tells the agent | `wire/tests/cookie_offers.rs` `cookie_offer_is_one_card_on_desk_and_phone_only_for_sites_in_chromium_or_firefox`, `use_lends_only_the_site_and_subdomains_and_remove_takes_it_back_and_tells_the_agent` | Unix |
-| Session decline, persistent per-teammate Never and Settings undo; unknown, wrong and revoked ids cannot read values | `wire/tests/cookie_offers.rs` `not_now_asks_again_next_session_but_never_waits_until_settings_undo`, `cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values` | Unix |
+| Not now quiets a site for that teammate for a day, through switches, stops and restarts; persistent per-teammate Never and Settings undo; unknown, wrong and revoked ids cannot read values | `wire/tests/cookie_offers.rs` `not_now_quiets_a_site_for_a_day_but_never_waits_until_settings_undo`, `a_restart_the_person_did_not_ask_for_keeps_the_card_and_its_answer`, `cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values` | Unix |
 | Values stay out of public sinks; a real desk restart expires pending offers and retains removal and preference records | `wire/tests/cookie_offers.rs` `cookie_values_never_reach_tape_room_agent_or_wire_sinks`, `failed_delivery_keeps_a_removal_handle_and_never_echoes_a_cookie_in_errors`; `tests/desk/cookie_offers.rs` `cookie_offers_expire_on_real_desk_restart_while_lends_and_per_teammate_never_survive` | Unix for the sink |
 | Off makes no discovery calls and expires pending cards; selected sites alone are eligible; absent lists allow every site and empty lists none | `wire/tests/cookie_offers.rs` `cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_explanation`, `cookie_offers_selected_sites_only_offer_matches_and_expire_deselected_cards`, `cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_offers_none` | Unix |
 | Desk and owner write; phone only reads the preference; host-name discovery is explicit, and invalid domains/settings cannot widen offers | `wire/tests/cookie_offers.rs` `cookie_offer_settings_are_owner_written_phone_read_and_site_discovery_is_explicit`, `cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changing_the_setting` | Unix |
 | The preference survives real desk restarts; clearing restores enabled/all sites | `tests/desk/cookie_offers.rs` `cookie_offer_settings_survive_real_desk_restarts_and_clearing_restores_all_sites` | — |
+
+## Accounts: more than one of any provider (epic-25)
+
+An account is a provider credential: a pasted key, a provider sign-in, or a
+keyless server URL, each with its own id, its own name and its own secret in
+the vault (`vault/secrets.json` for keys, `vault/logins/<id>/` for sign-ins,
+the base URL for a local server). Any provider can have several. Nothing
+about an account's secret changes: what a second account adds is a second
+secret in the same places, never a copy of the first.
+
+- **Choosing.** A model id names its account when its provider has two or
+  more: `provider#<credential id>/model`. With one, it is the plain
+  `provider/model` it always was, which runs on the provider's default
+  account (the first created that still works), so a room from before
+  accounts behaves exactly as it did. `models.list` gives every choice its
+  account's id, name, kind and whether the provider has others; never a
+  secret. The phone sees the same list through the seat it already had.
+- **Running.** Every turn, retry, chapter note, call on the teammate's model
+  and picture the teammate asks for resolves the account its model names, and
+  only that account (`session::account_keys`, `Vault::account_auth`). The
+  account's auth stands in for its provider's for that turn, so everything
+  the turn asks of that provider goes to that account.
+- **No fallback.** A teammate whose named account is revoked, deleted, or
+  has lost its secret does not run: its turn fails with a notice saying the
+  account is no longer connected and that it will not move on its own. It is
+  never run on the provider's other account unless the person picks it. An
+  account id belonging to a different provider is refused the same way.
+- **Switching.** A switch made while a turn runs lands on the next turn: the
+  running turn resolved its account when it started. A move to another
+  account is a new history origin, so one account's opaque reasoning is not
+  handed to another's.
+- **Room-level work.** Voice and pictures with no teammate behind them use
+  each provider's default account, as before.
+
+| Boundary | Proof |
+| --- | --- |
+| One account keeps plain ids; two list each model once per account, ids naming their account, in creation order; revoking one returns to plain ids | `vault.rs` `two_accounts_of_a_provider_list_its_models_once_each_by_account` |
+| An account answers only by its own id; revoked, deleted and unknown ids are nothing | `vault.rs` `each_account_answers_by_its_own_id_and_never_for_another` |
+| A plain id runs on the default account; a named one on that account for the whole turn; a gone or foreign account is refused | `session/tests/accounts.rs` |
+| Over the wire: two accounts list apart with no secret in a choice; a teammate on a revoked account does not run and is not moved | `tests/desk/accounts.rs` `two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_does_not_run` |
+
+### Switching a teammate's agent (task-287)
+
+`session.set_backend` moves a teammate to another agent (Hotline Agent or an
+installed harness), with a model when one is named. It is an owner action on
+the desk and on the owner phone, the same reach as `session.set_model`; a
+harness that is not installed or not signed in is refused with what is
+missing, and the phone sees only that it is not ready (`backends.list`
+already hides the reason from it).
+
+- The record changes at once; a turn in progress is not cut short. The live
+  session restarts on the new agent only when the teammate is idle (waiting
+  at most six hours, after which the record takes effect on the next start).
+- The new agent's saved session is withdrawn before it starts, so a teammate
+  that goes A→B→A starts fresh on A, seeded from the chapter like any new
+  session, and never reopens a stale session of A or reports it Restored.
+- A Hotline Agent model named in the switch must be one the desk lists, and
+  runs on the account it names, as in Accounts above.
+
+| Boundary | Proof |
+| --- | --- |
+| An idle teammate moves at once; the agent's old session is withdrawn; nothing is cut short | `wire/tests/models.rs` `session_set_backend_moves_an_idle_teammate_and_withdraws_the_agents_old_session` |
+| A busy teammate restarts on the new agent only once idle | `wire/tests/models.rs` `session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn` |
+| An agent not ready, or not there, is refused and nothing changes | `wire/tests/models.rs` `session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there` |
+
+The picker lists each agent's models before a teammate runs on it. The
+list is the one the agent last reported here (`cache/acp-models.json`): a
+teammate's session records it as it opens, and when the desk starts (and
+when the picker asks) each agent Hotline names (its native CLIs and the ones
+it adapts) and each that has answered on this machine before, with no list
+from the last day, gets one quiet look (`driver/acp/models.rs`). An agent that
+refuses the session until it is signed in is recorded as wanting sign-in; the
+picker then offers Sign in, which only moves the teammate onto the agent, where
+the agent's own sign-in card runs as it always has. Nothing about the
+sign-in itself passes through the look. The look starts the agent's own launch in an empty
+folder of its own (`cache/acp-look/<id>`, a plain id only), offers no file,
+terminal or auth capability, opens a session naming no MCP servers, reads the
+model picker and kills the process group. It never sends a prompt, so it
+spends nothing and runs no tool; one look at a time, bounded at a minute, and
+a failed look waits a day like a good one. The agent still reads its own
+configuration and sign-in as any start does.
+
+| Boundary | Proof |
+| --- | --- |
+| A look offers nothing, names no servers, never prompts, and reads only the model picker | `driver/acp/models.rs` `a_look_offers_nothing_and_reads_the_model_picker_without_a_prompt` |
+| A look that meets "sign in first" records it, and a session opening clears it; the list stays | `driver/acp/models.rs` `a_look_that_meets_sign_in_marks_it_until_a_session_opens` |
+| Only a plain id names a look folder; an empty report keeps the last list | `driver/acp/models.rs` `only_a_plain_id_names_a_look_folder`, `an_agents_reported_models_are_kept_and_an_empty_report_keeps_them` |

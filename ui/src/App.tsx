@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
+import { chordKeys } from "./chords";
+import { SettingsIcon } from "./icons";
 import { shownState } from "./activity";
 import type { ConfigChoice } from "./generated/contract";
 import { Conversation } from "./components/Conversation";
@@ -7,7 +9,7 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
-import { Titlebar } from "./ui/Titlebar";
+import { FlushChrome, Titlebar } from "./ui/Titlebar";
 import { CallBar, DeskCallCard, DeskCallKey } from "./components/Call";
 import { TeamSearch } from "./components/Search";
 import { UpdateFloat } from "./components/UpdateFloat";
@@ -426,6 +428,11 @@ export function App() {
 	/* Settings' sections have no faces to fall back to: they stand at the
 	 * names' width, and at the narrowest of it in a narrow window. */
 	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
+	/* What the rail's slot holds while open: Settings' sections, the faces, or the rail as dragged. */
+	const railWidth = pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width;
+	/* Settings' sections are the only way round settings, so they stay out
+	 * whatever the team's rail was left at, and have no key to hide them. */
+	const railShown = railSize.open || pane === "settings";
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
 	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
@@ -460,7 +467,7 @@ export function App() {
 	// a pane with no conversation. A call to the desk grows out of the rail's
 	// dock, whose key places it; with the rail closed or showing Settings it
 	// is the strip too, and the key is the title bar's.
-	const teamSearch = (placement: "dock" | "beside" | "under") => (
+	const teamSearch = (placement: "above" | "beside" | "below") => (
 		<TeamSearch
 			roster={roster}
 			selectedId={pane === null ? selectedId : null}
@@ -490,17 +497,30 @@ export function App() {
 	const deskCallKey = (className?: string) => (
 		<DeskCallKey call={call} available={voice} onCall={() => void startCall(nameOf)} {...(className !== undefined ? { className } : {})} />
 	);
+	const settingsKey = (className: string) => (
+		<button
+			type="button"
+			className={className}
+			title={`Settings (${chordKeys("settings")})`}
+			aria-label="Settings"
+			aria-pressed={pane === "settings"}
+			onClick={() => togglePane("settings")}
+		>
+			<SettingsIcon />
+		</button>
+	);
 	return (
 		<div className="flex h-full flex-col">
-			<Titlebar
-				bare={welcome && pane === null}
-				rail={{ open: railSize.open, onToggle: toggleRail }}
-				search={teamSearch("under")}
-				deskKey={deskCallKey("control btn-icon titlebar-desk-call")}
-				onNew={newTeammate}
-				onSettings={() => togglePane("settings")}
-				settingsOpen={pane === "settings"}
-			/>
+			{welcome && pane === null ? (
+				<Titlebar bare />
+			) : (
+				<FlushChrome
+					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" }}
+					width={railWidth}
+					faces={faces && pane !== "settings"}
+					search={teamSearch("below")}
+				/>
+			)}
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
 			{welcome && pane === null ? (
@@ -511,8 +531,12 @@ export function App() {
 					)}
 				</div>
 			) : (
-			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
-			{!railSize.open ? null : pane === "settings" ? (
+			<div className="flex min-h-0 flex-1">
+			{/* The rail's slot slides to nothing when the rail closes, and back:
+			 * its 8px from the window's edge goes with it, so a closed rail
+			 * leaves the pane flush with the window. */}
+			<div className="rail-slot" style={{ width: railShown ? railWidth + 16 : 0 }} inert={!railShown}>
+			{pane === "settings" ? (
 				<Suspense fallback={null}>
 					<SettingsRail
 						section={settingsSection}
@@ -543,13 +567,17 @@ export function App() {
 				onPin={(id, slot, deskId) => void pinTeammate(id, slot, deskId)}
 				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
 				onAddDesk={() => togglePane("add-desk")}
+				onNew={newTeammate}
+				onToggle={platform() === "macos" ? toggleRail : undefined}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
-				search={teamSearch(faces ? "beside" : "dock")}
+				settings={settingsKey("rail-settings-key")}
+				search={teamSearch(faces ? "beside" : "above")}
 				deskKey={deskCallKey()}
 				deskCard={deskInRail && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
 			/>
 			)}
+			</div>
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
@@ -559,7 +587,7 @@ export function App() {
 				)}
 				{/* A pane with no conversation has no band of its own to hang the call from. */}
 				{!conversationShown && callBar}
-				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
+				<div className="relative flex min-h-0 min-w-0 flex-1">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
 						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
@@ -607,6 +635,7 @@ export function App() {
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
 							paneOpen={dock !== null}
+							railOpen={railShown}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{inspector && (

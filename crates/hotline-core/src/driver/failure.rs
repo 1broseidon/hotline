@@ -61,6 +61,10 @@ pub(crate) enum Kind {
     /// to run. Said when the teammate comes up, before anything is sent; a
     /// provider in Settings › Providers fixes it.
     NoProvider,
+    /// The account the teammate's model names is revoked, deleted or has
+    /// lost its secret. The teammate does not run on another account of the
+    /// provider until the person picks one.
+    AccountGone,
     Unknown,
 }
 
@@ -95,6 +99,10 @@ pub(crate) struct Failure {
     pub tools_may_have_run: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<super::auth::SignIn>,
+    /// The model a teammate on a vanished account was on, so the card can
+    /// offer the other accounts that serve it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl Failure {
@@ -277,6 +285,7 @@ impl Failure {
             retry_after_seconds,
             tools_may_have_run: false,
             sign_in: None,
+            model: None,
         };
         failure.set_kind(kind);
         failure
@@ -295,6 +304,7 @@ impl Failure {
             retry_after_seconds: None,
             tools_may_have_run: false,
             sign_in: None,
+            model: None,
         };
         failure.set_kind(Kind::Budget);
         failure
@@ -315,6 +325,7 @@ impl Failure {
             retry_after_seconds: None,
             tools_may_have_run: false,
             sign_in: None,
+            model: None,
         };
         failure.set_kind(Kind::Startup);
         failure
@@ -334,8 +345,19 @@ impl Failure {
             retry_after_seconds: None,
             tools_may_have_run: false,
             sign_in: None,
+            model: None,
         };
         failure.set_kind(Kind::NoProvider);
+        failure
+    }
+
+    /// A teammate on an account that is no longer there. Not a turn that
+    /// failed at the provider: nothing was sent.
+    pub fn account_gone(details: String, model: &str) -> Self {
+        let mut failure = Self::no_provider();
+        failure.details = details;
+        failure.model = Some(crate::models::base_id(model).into_owned());
+        failure.set_kind(Kind::AccountGone);
         failure
     }
 
@@ -478,6 +500,10 @@ impl Failure {
             Kind::HarnessOutdated => (
                 "Agent too old for this model",
                 "Update this teammate's harness on the computer running Hotline, or switch it to a model its version supports, then send another message.",
+            ),
+            Kind::AccountGone => (
+                "Account no longer connected",
+                "This teammate's account was removed or signed out. Pick another account for it; it won't move to one on its own.",
             ),
             Kind::Context => (
                 "Context limit reached",

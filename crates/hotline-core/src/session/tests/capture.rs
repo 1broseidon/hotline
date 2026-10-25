@@ -50,7 +50,7 @@ async fn capture_stores_grants_and_delivers_without_values_in_any_sink() {
         taken,
         agents,
         ..
-    } = computer_room("capture-login", Some("0.10.3"), TWO_RELEASES, true).await;
+    } = computer_room("capture-login", Some("0.11.0"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
     let tool = tools(&room, CapabilityEpoch::default().lease());
@@ -170,7 +170,7 @@ async fn capture_decline_expiry_withdrawal_and_revocation_store_nothing() {
     for outcome in ["declined", "expired", "withdrawn", "revoked"] {
         let ComputerRoom { room, taken, .. } = computer_room(
             &format!("capture-{outcome}"),
-            Some("0.10.3"),
+            Some("0.11.0"),
             TWO_RELEASES,
             true,
         )
@@ -247,7 +247,7 @@ async fn capture_decline_expiry_withdrawal_and_revocation_store_nothing() {
 #[tokio::test]
 async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_replaced() {
     let ComputerRoom { room, .. } =
-        computer_room("capture-existing", Some("0.10.3"), TWO_RELEASES, true).await;
+        computer_room("capture-existing", Some("0.11.0"), TWO_RELEASES, true).await;
     let vault = room.vault.as_ref().unwrap();
     vault
         .set_shared(
@@ -370,7 +370,7 @@ async fn capture_passkey_keeps_approval_origin_name_and_ask_setting() {
 async fn capture_passkey_unused_arming_expires_and_call_card_stays_on_the_desk() {
     let ComputerRoom { room, .. } = computer_room(
         "capture-passkey-expired",
-        Some("0.10.3"),
+        Some("0.11.0"),
         TWO_RELEASES,
         true,
     )
@@ -432,7 +432,7 @@ async fn capture_passkey_refuses_another_origin_and_minting_without_operator_app
     ] {
         let another_origin = case == "capture-other-origin";
         let ComputerRoom { room, taken, .. } =
-            computer_room(case, Some("0.10.3"), TWO_RELEASES, true).await;
+            computer_room(case, Some("0.11.0"), TWO_RELEASES, true).await;
         let _turn = room.open_posting(&ThreadId::dm("ada"), None);
         let mut request = request("passkey");
         if another_origin {
@@ -489,7 +489,7 @@ async fn capture_passkey_refuses_another_origin_and_minting_without_operator_app
 #[tokio::test]
 async fn capture_an_accepted_answer_finishes_when_its_phone_disconnects() {
     let ComputerRoom { room, taken, .. } =
-        computer_room("capture-disconnect", Some("0.10.3"), TWO_RELEASES, true).await;
+        computer_room("capture-disconnect", Some("0.11.0"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
     tools(&room, CapabilityEpoch::default().lease())
@@ -532,7 +532,7 @@ async fn capture_an_accepted_answer_finishes_when_its_phone_disconnects() {
 #[tokio::test]
 async fn capture_cannot_widen_a_job_without_a_computer_or_a_voice_front_or_run() {
     let ComputerRoom { room, .. } =
-        computer_room("capture-narrowed", Some("0.10.3"), TWO_RELEASES, true).await;
+        computer_room("capture-narrowed", Some("0.11.0"), TWO_RELEASES, true).await;
     let job: ScheduledJob = serde_json::from_value(json!({
         "id":"without-computer", "personaId":"ada", "kind":"schedule",
         "prompt":"Work without a computer", "without":["computer"],
@@ -568,7 +568,7 @@ async fn capture_cannot_widen_a_job_without_a_computer_or_a_voice_front_or_run()
 #[tokio::test]
 async fn capture_passkey_denial_is_declined_and_tells_the_agent_why_it_stopped() {
     let ComputerRoom { room, taken, .. } =
-        computer_room("capture-passkey-denied", Some("0.10.3"), TWO_RELEASES, true).await;
+        computer_room("capture-passkey-denied", Some("0.11.0"), TWO_RELEASES, true).await;
     let _turn = room.open_posting(&ThreadId::dm("ada"), None);
     tools(&room, CapabilityEpoch::default().lease())
         .call("request_credential", &request("passkey"))

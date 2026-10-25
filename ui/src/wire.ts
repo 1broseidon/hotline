@@ -159,6 +159,8 @@ type Results = {
 	ping: null;
 	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;
+	"credential.rename": Credential;
+	"session.set_backend": SessionInfo;
 	"credential.login": LoginPrompt;
 	"credential.login_cancel": null;
 	"credential.connect_local": Credential;

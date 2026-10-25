@@ -30,4 +30,5 @@ permissions = [
   "allow-speech-start",
   "allow-speech-stop",
   "allow-speech-cancel",
+  "allow-window-title",
 ]

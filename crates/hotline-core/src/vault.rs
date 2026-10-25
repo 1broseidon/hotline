@@ -276,6 +276,24 @@ impl Vault {
         Ok(())
     }
 
+    /// Renames an account. Only its name changes: its id, secret, login,
+    /// models and the teammates on it stay as they are.
+    pub fn rename(&self, id: &str, label: &str) -> io::Result<Credential> {
+        let label = label.trim();
+        if label.is_empty() || label.chars().count() > 80 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "An account's name is 1 to 80 characters.",
+            ));
+        }
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut credential = self.find(id)?;
+        credential.label = label.to_string();
+        credential.updated_at = now_ms();
+        self.log.append(&StreamId::Room, &event(&credential))?;
+        Ok(credential)
+    }
+
     /// Takes both halves away: the secret or login directory off the disk,
     /// then the tombstone on the stream. Files first, so a crash between them
     /// cannot leave a usable credential behind a row that says it is gone.
@@ -388,22 +406,51 @@ impl Vault {
     }
 
     fn connections_from(&self, events: &[Value]) -> HashMap<String, (Credential, ProviderAuth)> {
-        let secrets = self.read_secrets();
+        Self::defaults(self.accounts_from(events))
+    }
+
+    /// The first account of each provider: its default.
+    fn defaults(
+        accounts: impl IntoIterator<Item = (Credential, ProviderAuth)>,
+    ) -> HashMap<String, (Credential, ProviderAuth)> {
         let mut connections = HashMap::new();
-        for credential in Self::credentials(events) {
-            if credential.revoked {
-                continue;
-            }
-            let auth = match self.credential_auth(&credential, &secrets) {
-                Ok(Some(auth)) => auth,
-                Ok(None) => continue,
-                Err(error) => ProviderAuth::Unavailable(error.to_string()),
-            };
+        for (credential, auth) in accounts {
             connections
                 .entry(credential.provider_id.clone())
                 .or_insert((credential, auth));
         }
         connections
+    }
+
+    /// Every account that can be used, in the order they were created: a
+    /// credential that is not revoked and whose secret or login is there.
+    /// Several can belong to one provider; the first of them is that
+    /// provider's default account, the one a plain `provider/model` runs on.
+    fn accounts_from(&self, events: &[Value]) -> Vec<(Credential, ProviderAuth)> {
+        let secrets = self.read_secrets();
+        Self::credentials(events)
+            .into_iter()
+            .filter(|credential| !credential.revoked)
+            .filter_map(|credential| {
+                let auth = match self.credential_auth(&credential, &secrets) {
+                    Ok(Some(auth)) => auth,
+                    Ok(None) => return None,
+                    Err(error) => ProviderAuth::Unavailable(error.to_string()),
+                };
+                Some((credential, auth))
+            })
+            .collect()
+    }
+
+    /// One account's auth, by its credential id, with the provider it is
+    /// for. Never another account's: a revoked, deleted or broken account is
+    /// `None`, and a teammate on it does not run rather than run on a
+    /// different one.
+    pub fn account_auth(&self, account: &str) -> Option<(String, ProviderAuth)> {
+        self.accounts_from(&self.log.load(&StreamId::Room))
+            .into_iter()
+            .find(|(credential, _)| credential.id == account)
+            .map(|(credential, auth)| (credential.provider_id, auth))
     }
 
     fn credential_auth(
@@ -492,20 +539,86 @@ impl Vault {
         }
     }
 
+    /// The models the person's accounts unlock, as the picker lists them.
+    ///
+    /// A provider with one account offers its models under their plain
+    /// `provider/model` ids, exactly as before accounts. A provider with two
+    /// or more offers them once per account, in the order the accounts were
+    /// created, each id naming its account (`provider#account/model`) and
+    /// each choice marked as one of several. Every choice says which account
+    /// serves it.
     pub(crate) fn model_choices(&self) -> Vec<crate::contract::ConfigChoice> {
         let events = self.log.load(&StreamId::Room);
-        let sources = self.model_sources_from(self.connections_from(&events));
-        let auth = sources
-            .connections
+        let enabled = crate::models::enabled_models(&crate::room::settings_from_events(&events));
+        let accounts = self.accounts_from(&events);
+        let mut count: HashMap<&str, usize> = HashMap::new();
+        for (credential, _) in &accounts {
+            *count.entry(credential.provider_id.as_str()).or_default() += 1;
+        }
+        // Each account's own choices, from its own discovery and manual list.
+        let mut by_provider: HashMap<String, Vec<crate::contract::ConfigChoice>> = HashMap::new();
+        for (credential, auth) in &accounts {
+            let provider = credential.provider_id.clone();
+            let shared = count.get(provider.as_str()).copied().unwrap_or(0) > 1;
+            let sources = self.model_sources_from(HashMap::from([(
+                provider.clone(),
+                (credential.clone(), auth.clone()),
+            )]));
+            let choices = crate::models::choices(
+                &HashMap::from([(provider.clone(), auth.clone())]),
+                &enabled,
+                &sources.account_models(),
+                &sources.model_metadata(),
+            );
+            let account = crate::contract::ChoiceAccount {
+                id: credential.id.clone(),
+                label: credential.label.clone(),
+                kind: credential.credential_kind,
+                shared,
+            };
+            by_provider
+                .entry(provider)
+                .or_default()
+                .extend(choices.into_iter().map(|mut choice| {
+                    if shared {
+                        choice.id = crate::models::on_account(&choice.id, &account.id);
+                    }
+                    choice.account = Some(account.clone());
+                    choice
+                }));
+        }
+        // The providers in the order the default accounts' choices have
+        // always come in, each provider's accounts together.
+        let defaults = Self::defaults(accounts.iter().cloned());
+        let order = crate::models::choices(
+            &defaults
+                .iter()
+                .map(|(provider, (_, auth))| (provider.clone(), auth.clone()))
+                .collect(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let mut seen = std::collections::HashSet::new();
+        let mut providers: Vec<String> = order
             .iter()
-            .map(|(id, (_, auth))| (id.clone(), auth.clone()))
+            .filter_map(|choice| {
+                choice
+                    .id
+                    .split_once('/')
+                    .map(|(provider, _)| provider.to_string())
+            })
+            .filter(|provider| seen.insert(provider.clone()))
             .collect();
-        crate::models::choices(
-            &auth,
-            &crate::models::enabled_models(&crate::room::settings_from_events(&events)),
-            &sources.account_models(),
-            &sources.model_metadata(),
-        )
+        for (credential, _) in &accounts {
+            if seen.insert(credential.provider_id.clone()) {
+                providers.push(credential.provider_id.clone());
+            }
+        }
+        providers
+            .into_iter()
+            .flat_map(|provider| by_provider.remove(&provider).unwrap_or_default())
+            .collect()
     }
 
     pub(crate) fn model_metadata(&self) -> HashMap<String, crate::contract::CatalogModel> {
@@ -1583,8 +1696,10 @@ mod tests {
         assert!(vault.delete(&credential.id).is_err());
     }
 
+    /// A plain `provider/model` runs on the provider's default account: the
+    /// first created that still works. Revoking it hands the default on.
     #[test]
-    fn one_key_per_provider_and_the_first_one_created_wins() {
+    fn a_providers_default_account_is_the_first_created_that_still_works() {
         let vault = vault("keys");
         let first = vault.create("anthropic", "work", "sk-ant-first").unwrap();
         vault.create("anthropic", "spare", "sk-ant-second").unwrap();
@@ -1608,6 +1723,88 @@ mod tests {
             vault.provider_auth().get("anthropic"),
             Some(&ProviderAuth::ApiKey("sk-ant-second".to_string()))
         );
+    }
+
+    /// Every account is reachable by its own id, and only by it: a named
+    /// account that is revoked or deleted is gone, never stood in for by
+    /// the provider's other account.
+    #[test]
+    fn each_account_answers_by_its_own_id_and_never_for_another() {
+        let vault = vault("accounts");
+        let work = vault.create("anthropic", "Work", "sk-ant-work").unwrap();
+        let personal = vault
+            .create("anthropic", "Personal", "sk-ant-personal")
+            .unwrap();
+        assert_eq!(
+            vault.account_auth(&work.id),
+            Some((
+                "anthropic".into(),
+                ProviderAuth::ApiKey("sk-ant-work".into())
+            ))
+        );
+        assert_eq!(
+            vault.account_auth(&personal.id),
+            Some((
+                "anthropic".into(),
+                ProviderAuth::ApiKey("sk-ant-personal".into())
+            ))
+        );
+        vault.revoke(&personal.id).unwrap();
+        assert_eq!(vault.account_auth(&personal.id), None);
+        vault.delete(&work.id).unwrap();
+        assert_eq!(vault.account_auth(&work.id), None);
+        assert_eq!(vault.account_auth("no-such-account"), None);
+    }
+
+    /// One account of a provider lists its models under plain ids, as before
+    /// accounts; two list them once each, every id naming its account.
+    #[test]
+    fn two_accounts_of_a_provider_list_its_models_once_each_by_account() {
+        let vault = vault("account-choices");
+        let work = vault.create("anthropic", "Work", "sk-ant-work").unwrap();
+        let one = vault.model_choices();
+        assert_ne!(one.len(), 0);
+        assert!(one.iter().all(|choice| !choice.id.contains('#')), "{one:?}");
+        assert!(one.iter().all(|choice| {
+            choice
+                .account
+                .as_ref()
+                .is_some_and(|account| account.id == work.id && !account.shared)
+        }));
+
+        let personal = vault
+            .create("anthropic", "Personal", "sk-ant-personal")
+            .unwrap();
+        let two = vault.model_choices();
+        assert_eq!(two.len(), one.len() * 2, "each account offers every model");
+        let on = |account: &str| {
+            two.iter()
+                .filter(|choice| {
+                    choice
+                        .account
+                        .as_ref()
+                        .is_some_and(|held| held.id == account)
+                })
+                .map(|choice| crate::models::split_account(&choice.id).0.into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(on(&work.id), on(&personal.id), "the same models on both");
+        assert!(two.iter().all(|choice| {
+            let (_, account) = crate::models::split_account(&choice.id);
+            choice
+                .account
+                .as_ref()
+                .is_some_and(|held| held.shared && Some(held.id.as_str()) == account)
+        }));
+        assert_eq!(
+            two.iter()
+                .position(|choice| choice.account.as_ref().unwrap().id == personal.id),
+            Some(one.len()),
+            "the accounts in the order they were created, each one's models together"
+        );
+        // Revoking one takes the provider back to one account and plain ids.
+        vault.revoke(&personal.id).unwrap();
+        assert_eq!(vault.model_choices(), one);
     }
 
     #[test]

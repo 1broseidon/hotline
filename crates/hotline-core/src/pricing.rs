@@ -30,6 +30,7 @@ pub(crate) fn listed_price(
     model: &str,
     metadata: &HashMap<String, CatalogModel>,
 ) -> Option<ModelCost> {
+    let model = &*crate::models::base_id(model);
     metadata
         .get(model)
         .and_then(|entry| entry.cost.clone())

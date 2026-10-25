@@ -22,6 +22,7 @@
 //! Closing the window hides it; the tray is how the person gets it back and
 //! how they actually quit, because the room keeps working either way.
 
+mod lights;
 #[cfg(target_os = "macos")]
 mod notify;
 
@@ -414,6 +415,7 @@ fn start() -> Result<(), String> {
         speech::speech_start,
         speech::speech_stop,
         speech::speech_cancel,
+        lights::window_title,
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -444,6 +446,7 @@ fn start() -> Result<(), String> {
         speech::speech_start,
         speech::speech_stop,
         speech::speech_cancel,
+        lights::window_title,
     ]);
     builder
         .manage(desks.clone())
@@ -483,21 +486,16 @@ fn start() -> Result<(), String> {
                     }
                 })
                 .initialization_script(&script);
-            // Overlay puts the traffic lights on the page, and the inset
-            // puts their centre on the top strip's centre line: 16 logical
-            // pixels down, half the strip's 32. The number is tao's, not a
-            // centre — it resizes AppKit's title bar container and the
-            // buttons keep their seat in it, so the centre lands 2 above
-            // the given y; measured, not derived. The strip leaves 80 for
-            // them (index.css). A click into an inactive
-            // window lands on what it hit, the way Finder's does, rather
-            // than only waking the window. Elsewhere the system frame is
-            // dropped and the page draws its own strip and controls.
+            // Overlay puts the traffic lights on the page; the desk seats
+            // them on the top strip's centre line itself (lights.rs). A
+            // click into an inactive window lands on what it hit, the way
+            // Finder's does, rather than only waking the window. Elsewhere
+            // the system frame is dropped and the page draws its own strip
+            // and controls.
             #[cfg(target_os = "macos")]
             let window = window
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true)
-                .traffic_light_position(tauri::LogicalPosition::new(12.0, 18.0))
                 .accept_first_mouse(true);
             #[cfg(not(target_os = "macos"))]
             let window = window.decorations(false);
@@ -509,6 +507,8 @@ fn start() -> Result<(), String> {
             let window = window.build()?;
             #[cfg(target_os = "linux")]
             allow_microphone(&window);
+            #[cfg(target_os = "macos")]
+            lights::seat(&window);
             // The plugin writes size and place to disk on exit, and only
             // updates its cache on close, so a hide that is not an exit
             // would lose the last place unless we save now.
@@ -523,6 +523,16 @@ fn start() -> Result<(), String> {
                         window
                             .state::<std::sync::Arc<transfer::Transfers>>()
                             .hand(paths);
+                    }
+                    #[cfg(target_os = "macos")]
+                    if matches!(
+                        event,
+                        tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::Focused(_)
+                            | tauri::WindowEvent::ScaleFactorChanged { .. }
+                            | tauri::WindowEvent::ThemeChanged(_)
+                    ) {
+                        lights::seat(&window);
                     }
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         let _ = window.app_handle().save_window_state(window_state_flags());

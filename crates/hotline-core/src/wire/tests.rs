@@ -740,12 +740,24 @@ impl RoomHandle for Quiet {
                 description: "Hotline's own agent. Runs any model from the providers you connect."
                     .to_string(),
                 unavailable: None,
+                models: None,
+                sign_in: None,
             },
             crate::contract::BackendChoice {
                 id: "cursor".to_string(),
                 name: "Cursor".to_string(),
                 description: "An external harness.".to_string(),
                 unavailable: Some("Not signed in.".to_string()),
+                models: None,
+                sign_in: None,
+            },
+            crate::contract::BackendChoice {
+                id: "codex".to_string(),
+                name: "Codex".to_string(),
+                description: "An external harness, ready.".to_string(),
+                unavailable: None,
+                models: None,
+                sign_in: None,
             },
         ]
     }
@@ -768,12 +780,14 @@ impl RoomHandle for Quiet {
                 name: "Claude".to_string(),
                 description: None,
                 group: None,
+                account: None,
             },
             ConfigChoice {
                 id: "openai/gpt".to_string(),
                 name: "GPT".to_string(),
                 description: None,
                 group: None,
+                account: None,
             },
         ]
     }

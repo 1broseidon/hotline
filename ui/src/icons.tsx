@@ -35,6 +35,14 @@ export const PlusIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/* A new teammate: a face, as the rail's rows are, with one more beside it. */
+export const PersonPlusIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<circle cx="6" cy="5" r="2.25" />
+		<path d="M2 13c0-2.2 1.8-4 4-4s4 1.8 4 4M12.5 4.5v4M10.5 6.5h4" />
+	</Icon>
+);
+
 /* The window's own controls, drawn small: a frame's glyphs are marks on
  * the chrome, not buttons in the page. */
 export const MinimizeIcon = ({ className }: IconProps) => (
@@ -90,14 +98,12 @@ export const SettingsIcon = ({ className }: IconProps) => (
 		<circle cx="6" cy="11" r="1.5" />
 	</Icon>
 );
-export const MoreIcon = ({ className }: IconProps) => (
+export const KeyboardIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
-		<circle cx="3.5" cy="8" r="1" fill="currentColor" stroke="none" />
-		<circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
-		<circle cx="12.5" cy="8" r="1" fill="currentColor" stroke="none" />
+		<rect x="1.5" y="4" width="13" height="8.5" rx="1.75" />
+		<path d="M4 6.75h.01M6.67 6.75h.01M9.33 6.75h.01M12 6.75h.01M5 10h6" />
 	</Icon>
 );
-
 export const InfoIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<circle cx="8" cy="8" r="5.75" />

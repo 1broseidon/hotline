@@ -144,9 +144,15 @@ async fn list_sources_are_read_once_and_results_stay_current() {
         )
         .await;
     assert_eq!(replacement["ok"], true, "{replacement}");
+    // The same models come back, now served by the replacement account.
+    let mut expected = json!(models);
+    for choice in expected.as_array_mut().unwrap() {
+        choice["account"]["id"] = replacement["result"]["id"].clone();
+        choice["account"]["label"] = json!("replacement");
+    }
     assert_eq!(
         client.call("models.list", json!({})).await["result"],
-        json!(models)
+        expected
     );
     server.abort();
 }

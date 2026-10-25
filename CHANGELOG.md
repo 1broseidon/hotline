@@ -72,6 +72,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   of offering nothing.
 - tokio 1.54.1, ctutils 0.4.5 and clipboard-win 5.4.3 (RUSTSEC-2026-0385,
   RUSTSEC-2026-0386 and a yanked crate).
+  RUSTSEC-2026-0387 (crypto-bigint, under webrtc's DTLS for calls) is
+  ignored with its reason until webrtc takes the fixed release.
 
 ## [0.42.0] - 2026-10-21
 

@@ -379,9 +379,9 @@ const ConversationBand = memo(function ConversationBand({
 			icon: <Avatar id={persona.id} name={persona.name} size={28} hash={persona.avatar?.hash} />,
 		},
 		...folded,
+		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: startChapter },
 		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
-		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];

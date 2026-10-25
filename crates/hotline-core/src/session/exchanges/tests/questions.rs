@@ -50,7 +50,12 @@ async fn an_ask_is_answered_by_the_colleagues_main_conversation() {
         .expect("Bob answers it there");
     assert_eq!(reply["text"], "result-0");
     let heard = &agents.prompts()[0];
-    assert!(heard.contains("[New message from your teammate Ada (an authorized teammate in this room) asking you"), "{heard}");
+    assert!(
+        heard.contains(
+            "[New message from your teammate Ada (an authorized teammate in this room) asking you"
+        ),
+        "{heard}"
+    );
     assert!(
         heard.contains("Hotline sends your final reply back to Ada automatically"),
         "{heard}"

@@ -160,8 +160,7 @@ impl Room {
     ) -> bool {
         // Whatever a teammate may do on its own desk, it gains nothing by
         // crossing a link: one on a linked desk is never implicitly trusted.
-        let implicit = caller.node.is_none()
-            && caller.reach.unwrap_or_default() == Reach::Machine;
+        let implicit = caller.node.is_none() && caller.reach.unwrap_or_default() == Reach::Machine;
         let allowed = implicit
             || target
                 .allowed_senders

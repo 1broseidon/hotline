@@ -198,8 +198,8 @@ impl Pair {
         &self,
         from: &str,
         to: &str,
-        reply_thread: &Option<String>,
-        reply_job: &Option<String>,
+        reply_thread: Option<&str>,
+        reply_job: Option<&str>,
         room: &Room,
     ) -> Option<String> {
         self.requests
@@ -213,8 +213,8 @@ impl Pair {
                     && !r.failed
                     && !r.stopped_by_person
                     && r.phase != Phase::Stopped
-                    && &r.reply_thread == reply_thread
-                    && &r.reply_job == reply_job
+                    && r.reply_thread.as_deref() == reply_thread
+                    && r.reply_job.as_deref() == reply_job
                     && r.human_actions.iter().all(|g| g.consumed)
                     && (r.phase != Phase::Done
                         || r.thread
@@ -386,8 +386,8 @@ impl Room {
                         pair.reusable_thread(
                             &caller.id,
                             &target.id,
-                            &reply_thread,
-                            &reply_job,
+                            reply_thread.as_deref(),
+                            reply_job.as_deref(),
                             self,
                         )
                     })

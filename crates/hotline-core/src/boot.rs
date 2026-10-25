@@ -69,6 +69,11 @@ pub async fn boot(
     } else {
         None
     };
+    // The real desk looks at its agents' models and sign-in as it starts,
+    // quietly, so the picker never waits on them.
+    if let Some(desk) = &desk {
+        crate::driver::acp::models::refresh_in_background(desk.log.root());
+    }
     let room = desk.as_ref().map(|desk| Agents {
         log: desk.log.clone(),
         room: desk.clone(),

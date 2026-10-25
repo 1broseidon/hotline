@@ -741,6 +741,7 @@ impl RoomHandle for Quiet {
                     .to_string(),
                 unavailable: None,
                 models: None,
+                sign_in: None,
             },
             crate::contract::BackendChoice {
                 id: "cursor".to_string(),
@@ -748,6 +749,7 @@ impl RoomHandle for Quiet {
                 description: "An external harness.".to_string(),
                 unavailable: Some("Not signed in.".to_string()),
                 models: None,
+                sign_in: None,
             },
             crate::contract::BackendChoice {
                 id: "codex".to_string(),
@@ -755,6 +757,7 @@ impl RoomHandle for Quiet {
                 description: "An external harness, ready.".to_string(),
                 unavailable: None,
                 models: None,
+                sign_in: None,
             },
         ]
     }

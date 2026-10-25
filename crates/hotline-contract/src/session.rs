@@ -258,6 +258,7 @@ pub struct SlashCommand {
 /// `models` is the list it last reported on this desk, from a teammate's
 /// session or the daily look; absent until it has reported one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct BackendChoice {
     pub id: String,
@@ -267,6 +268,10 @@ pub struct BackendChoice {
     pub unavailable: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<ConfigChoice>>,
+    /// The agent last asked to be signed in before it would open a session:
+    /// new on this desk, or its sign-in expired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<bool>,
 }
 
 /// Where a fresh room stands on its way to a first turn, as the welcome

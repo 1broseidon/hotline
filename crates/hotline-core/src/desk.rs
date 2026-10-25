@@ -881,13 +881,16 @@ impl RoomHandle for Desk {
                 .to_string(),
             unavailable: None,
             models: None,
+            sign_in: None,
         }];
         let root = self.log.root();
         acp::models::refresh_in_background(root);
         let mut models = acp::models::cached(root);
+        let sign_in = acp::models::needing_sign_in(root);
         for backend in acp::registry::backends(root).await {
             choices.push(BackendChoice {
                 models: models.remove(&backend.id),
+                sign_in: sign_in.contains(&backend.id).then_some(true),
                 id: backend.id,
                 name: backend.name,
                 description: backend.description,

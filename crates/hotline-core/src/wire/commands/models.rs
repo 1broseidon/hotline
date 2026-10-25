@@ -344,6 +344,7 @@ mod welcome_tests {
             description: String::new(),
             unavailable: unavailable.map(str::to_string),
             models: None,
+            sign_in: None,
         }
     }
 

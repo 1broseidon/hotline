@@ -93,7 +93,12 @@ export type AvatarBy = "self" | "person";
  * `models` is the list it last reported on this desk, from a teammate's
  * session or the daily look; absent until it has reported one.
  */
-export type BackendChoice = { id: string, name: string, description: string, unavailable?: string, models?: Array<ConfigChoice>, };
+export type BackendChoice = { id: string, name: string, description: string, unavailable?: string, models?: Array<ConfigChoice>, 
+/**
+ * The agent last asked to be signed in before it would open a session:
+ * new on this desk, or its sign-in expired.
+ */
+signIn?: boolean, };
 
 /**
  * One profile within a host browser. Only profiles that have a cookie store

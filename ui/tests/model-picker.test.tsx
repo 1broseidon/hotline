@@ -299,3 +299,37 @@ test("the named agents are Antigravity, Claude Code, Codex, Cursor and Grok Buil
 	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")].map((row) => row.querySelector(".menu-item-text")?.textContent);
 	expect(rows.slice(2)).toEqual(["Claude Code", "Codex", "Cursor", "Google Antigravity", "Grok Build", "Other agents"]);
 });
+
+test("an agent that wants its sign-in says Sign in on its row, opens no stale list, and its row moves the teammate there", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const moves: string[] = [];
+	const withSignIn = [
+		{ id: "hotline", name: "Hotline Agent", choices: [] },
+		{ id: "cursor", name: "Cursor", signIn: true, choices: [{ id: "auto", name: "Auto" }] },
+		{ id: "codex-acp", name: "Codex", choices: [{ id: "gpt-6", name: "GPT-6" }] },
+	];
+	await act(async () => {
+		root.render(
+			<ModelPicker
+				choices={choices}
+				modelId="anthropic#work/claude-haiku"
+				agents={withSignIn}
+				effort={null}
+				label="Model"
+				onModel={() => {}}
+				onAgent={(backend, model) => {
+					moves.push(`${backend}:${model ?? "own"}`);
+				}}
+				onEffort={() => {}}
+			/>,
+		);
+	});
+	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
+	const cursor = [...document.querySelectorAll<HTMLElement>(".model-row")].find((row) => row.textContent?.includes("Cursor"))!;
+	expect(cursor.querySelector(".model-row-signin")?.textContent).toBe("Sign in");
+	expect(cursor.getAttribute("aria-haspopup")).toBeNull();
+	expect(cursor.title).toBe("Opens its sign-in");
+	await act(async () => cursor.click());
+	expect(document.querySelector('[role="menu"][aria-label="Cursor"]')).toBeNull();
+	expect(moves).toEqual(["cursor:own"]);
+});

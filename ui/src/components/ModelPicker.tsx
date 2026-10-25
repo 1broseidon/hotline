@@ -19,12 +19,18 @@ type AccountRow = {
 	agent?: string;
 	/** Why an agent cannot be picked: it is not installed or not signed in. */
 	unavailable?: string;
+	/** The agent wants its own sign-in first: its row is a Sign in key. */
+	signIn?: boolean;
 	/** What the teammate runs on, pinned above the API and Agents sections. */
 	pinned?: boolean;
 };
 
-/** Another agent a teammate can run on: a harness, with its models when it is the one in use. */
-export type AgentChoice = { id: string; name: string; unavailable?: string; choices: ConfigChoice[] };
+/**
+ * Another agent a teammate can run on: a harness, with the models it last
+ * reported, and `signIn` when it last asked to be signed in first (new on
+ * this desk, or its sign-in expired).
+ */
+export type AgentChoice = { id: string; name: string; unavailable?: string; signIn?: boolean; choices: ConfigChoice[] };
 
 /** The row that gathers the registry's other ready agents, each a choice. */
 const MORE_AGENTS = "__more__";
@@ -145,9 +151,11 @@ export function ModelPicker({
 			name: agent.name,
 			detail: agent.unavailable !== undefined ? "Not ready" : "",
 			mark: harnessMark(agent.id),
-			choices: agent.choices,
+			// Until it is signed in its list may be stale or empty: the row is the way in.
+			choices: agent.signIn === true ? [] : agent.choices,
 			agent: agent.id,
 			...(agent.unavailable !== undefined ? { unavailable: agent.unavailable } : {}),
+			...(agent.signIn === true && agent.unavailable === undefined ? { signIn: true } : {}),
 		}));
 	if (others.length > 0) {
 		agentRows.push({
@@ -485,7 +493,7 @@ function Panels({
 						role="menuitem"
 						aria-haspopup={opens(row) ? "menu" : undefined}
 						aria-disabled={row.unavailable !== undefined ? "true" : undefined}
-						title={row.unavailable}
+						title={row.unavailable ?? (row.signIn === true ? "Opens its sign-in" : undefined)}
 						aria-expanded={opens(row) ? account?.key === row.key : undefined}
 						data-row={at}
 						data-active={(level === 0 && active === at) || account?.key === row.key ? "true" : undefined}
@@ -511,7 +519,11 @@ function Panels({
 						</span>
 						<Mark id={row.mark} />
 						<span className="menu-item-text">{row.name}</span>
-						{row.detail !== "" && <span className="model-row-detail">{row.detail}</span>}
+						{row.signIn === true ? (
+							<span className="model-row-signin">Sign in</span>
+						) : (
+							row.detail !== "" && <span className="model-row-detail">{row.detail}</span>
+						)}
 						{opens(row) && <ChevronRightIcon className="model-row-more" />}
 					</button>
 					</Fragment>

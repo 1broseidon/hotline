@@ -183,6 +183,8 @@ impl ChildAgent {
             let failure = auth::failure(&self.live, &error, "acp_start");
             if failure.kind == crate::driver::failure::Kind::AgentAuth && failure.sign_in.is_some()
             {
+                // The picker offers its sign-in until a session of it opens.
+                super::models::mark_sign_in(&self.root, &self.backend_id);
                 *lock(&self.live.startup_failure) = Some(failure.notice());
                 self.live.failed.store(true, Ordering::SeqCst);
                 lock(&self.live.session).id = None;

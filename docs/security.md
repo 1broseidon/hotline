@@ -2297,9 +2297,14 @@ already hides the reason from it).
 
 The picker lists each agent's models before a teammate runs on it. The
 list is the one the agent last reported here (`cache/acp-models.json`): a
-teammate's session records it as it opens, and an agent that has answered on
-this machine before, with no list from the last day, gets one quiet look
-(`driver/acp/models.rs`). The look starts the agent's own launch in an empty
+teammate's session records it as it opens, and when the desk starts (and
+when the picker asks) each agent Hotline names (its native CLIs and the ones
+it adapts) and each that has answered on this machine before, with no list
+from the last day, gets one quiet look (`driver/acp/models.rs`). An agent that
+refuses the session until it is signed in is recorded as wanting sign-in; the
+picker then offers Sign in, which only moves the teammate onto the agent, where
+the agent's own sign-in card runs as it always has. Nothing about the
+sign-in itself passes through the look. The look starts the agent's own launch in an empty
 folder of its own (`cache/acp-look/<id>`, a plain id only), offers no file,
 terminal or auth capability, opens a session naming no MCP servers, reads the
 model picker and kills the process group. It never sends a prompt, so it
@@ -2310,4 +2315,5 @@ configuration and sign-in as any start does.
 | Boundary | Proof |
 | --- | --- |
 | A look offers nothing, names no servers, never prompts, and reads only the model picker | `driver/acp/models.rs` `a_look_offers_nothing_and_reads_the_model_picker_without_a_prompt` |
+| A look that meets "sign in first" records it, and a session opening clears it; the list stays | `driver/acp/models.rs` `a_look_that_meets_sign_in_marks_it_until_a_session_opens` |
 | Only a plain id names a look folder; an empty report keeps the last list | `driver/acp/models.rs` `only_a_plain_id_names_a_look_folder`, `an_agents_reported_models_are_kept_and_an_empty_report_keeps_them` |

@@ -373,6 +373,14 @@ pub fn name_of(root: &Path, backend_id: &str) -> Option<String> {
     Some(agent.name.unwrap_or(agent.id))
 }
 
+/// An agent people know by name: a native CLI or one Hotline adapts. These
+/// are looked at for their models (and their sign-in) before any teammate
+/// runs on them; the catalogue's many others only once one has.
+pub fn named(backend_id: &str) -> bool {
+    NATIVE.iter().any(|native| native.id == backend_id)
+        || ADAPTED.iter().any(|adapted| adapted.id == backend_id)
+}
+
 /// The command that starts this backend, or the sentence saying why nothing
 /// can.
 pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {

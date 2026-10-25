@@ -901,6 +901,16 @@
 		line-height: var(--text-xs--line-height);
 		color: var(--ink-3);
 	}
+	/* An agent that wants its own sign-in: the row is the key, said in the accent. */
+	.model-row-signin {
+		flex-shrink: 0;
+		padding: 1px 8px;
+		border-radius: 9px;
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--accent);
+		background: var(--accent-soft);
+	}
 	.model-row-detail {
 		flex-shrink: 0;
 		font-size: var(--text-xs);

@@ -166,16 +166,11 @@ pub fn refresh_in_background(root: &Path) {
                 continue;
             }
             let bound = if before { LOOK_BOUND } else { FIRST_LOOK_BOUND };
-            let looked = tokio::time::timeout(bound, look(&root, &backend.id, &launch)).await;
-            let (models, sign_in) = match looked {
-                Ok(Ok(models)) => (models, false),
-                Ok(Err(Missed::SignIn)) => (Vec::new(), true),
-                Ok(Err(Missed::Failed(error))) => {
+            let (models, sign_in) = match look(&root, &backend.id, &launch, bound).await {
+                Ok(models) => (models, false),
+                Err(Missed::SignIn) => (Vec::new(), true),
+                Err(Missed::Failed(error)) => {
                     eprintln!("[acp] a look at {}'s models failed: {error}", backend.id);
-                    (Vec::new(), false)
-                }
-                Err(_) => {
-                    eprintln!("[acp] a look at {}'s models ran out of time", backend.id);
                     (Vec::new(), false)
                 }
             };
@@ -209,6 +204,7 @@ async fn look(
     root: &Path,
     backend_id: &str,
     launch: &registry::Launch,
+    bound: Duration,
 ) -> Result<Vec<ConfigChoice>, Missed> {
     let folder = paths::acp_look_dir(root, backend_id);
     std::fs::create_dir_all(&folder).map_err(|error| Missed::Failed(error.to_string()))?;
@@ -235,14 +231,19 @@ async fn look(
     #[cfg(windows)]
     let _job = crate::process_windows::Job::attach(child.id())
         .map_err(|error| Missed::Failed(error.to_string()))?;
+    // The bound is kept here, where the child is owned: a look that runs out
+    // of time still ends the agent's whole process group below, launcher
+    // children (npx, uvx) and all.
     let looked = match (child.stdin.take(), child.stdout.take()) {
-        (Some(stdin), Some(stdout)) => {
+        (Some(stdin), Some(stdout)) => tokio::time::timeout(
+            bound,
             ask(
                 ByteStreams::new(stdin.compat_write(), stdout.compat()),
                 folder,
-            )
-            .await
-        }
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| Err(Missed::Failed("it ran out of time".to_string()))),
         _ => Err(Missed::Failed("the agent gave no pipes".to_string())),
     };
     end_group(&child);
@@ -476,6 +477,37 @@ mod tests {
         mark_sign_in(root.path(), "grok-build");
         remember(root.path(), "grok-build", &[]);
         assert!(needing_sign_in(root.path()).is_empty());
+    }
+
+    /// An agent that never answers is ended with everything it started when
+    /// the look runs out of time, not left running until the desk quits.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_look_that_runs_out_of_time_ends_the_agents_whole_process_group() {
+        let root = tempfile::tempdir().unwrap();
+        let pidfile = root.path().join("grandchild.pid");
+        let launch = registry::Launch {
+            command: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                format!("sleep 600 & echo $! > {}; sleep 600", pidfile.display()),
+            ],
+            env: Vec::new(),
+        };
+        let looked = look(root.path(), "hangs", &launch, Duration::from_millis(400)).await;
+        assert!(matches!(looked, Err(Missed::Failed(_))));
+        let pid: i32 = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // The launcher's own child went with the group (reaped by init, so give it a moment).
+        let gone = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            // Safety: signal 0 only asks whether the pid exists.
+            (unsafe { libc::kill(pid, 0) }) != 0
+        });
+        assert!(gone, "the hung agent's child {pid} is still running");
     }
 
     #[test]

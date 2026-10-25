@@ -425,12 +425,20 @@ roster carries each teammate's slot as `pin`.
 how a person writes it, and a `settings.update` patch that names it is
 refused. The core writes it too, by one rule: a desk with exactly one
 teammate and no lead makes that one lead, after `persona.create` and
-`mobile.persona_create`, after `persona.delete`, and when the desk opens. So
+`mobile.persona_create`, after the person approves a lead's `add_teammate`
+card, after `persona.delete`, and when the desk opens. So
 a desk's first teammate leads, and a desk from before the lead with one
 teammate opens with that one leading. Deleting the lead clears it; with two
 or more left nobody is picked. A stored id that names someone no longer on
 the team reads as no lead. The roster carries it as `lead` on that
 teammate's row.
+
+The lead's own session is the one teammate offered `add_teammate`. It
+raises an ordinary `human_action` card (`question: true`, action id
+`new-teammate:<uuid>`) and nothing more; `human.answer` with `done` on that
+card writes the teammate the card showed, the same record `persona.create`
+writes for a draft naming only a name and goal, and `declined` writes
+nothing. No command or field was added for it.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after

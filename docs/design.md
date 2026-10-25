@@ -1239,7 +1239,21 @@ straight through `message_teammate`, intent `handoff`, saying who has it. The
 live desk call and current lead together grant local handoffs without a
 first-contact card; a direct call, DM, stopped call or former lead does not
 carry that grant. The queue checks it again before starting work. Stopping or
-reassigning colleagues remains the person's choice. With no lead the fallback
+reassigning colleagues remains the person's choice.
+
+The lead alone is offered `add_teammate`, for when the person asks it for a
+teammate ("make me a researcher for X"); its description forbids adding one
+unasked. It takes a name and goal, and an agent, model and folder only when
+the person named them; everything else is the New teammate pane's default,
+filled in by the same code (`drafted_persona`), so the card shows the
+teammate exactly as it would be made: name, goal, agent, model and folder.
+The card is an `ask_question` card bound to that drafted record, so it can be
+answered at the desk, the phone, or by voice on a call. Yes writes that
+record and nothing else; no or expiry writes nothing, and the lead hears the
+outcome as an ordinary card answer. The role is checked when the tools are
+listed, when the tool is called and when the person answers, because the
+person can move it at any time. Retiring a teammate or changing another's
+model, agent or goal is not a lead power: those stay the person's. With no lead the fallback
 call assistant remains, with the roster and optional `personName` setting,
 using bounded named tools rather than the wire command table. No new
 `voice-dispatcher` tape is written; each fallback call keeps its own transcript

@@ -7,7 +7,7 @@
 //! things to reimplement behind a door.
 
 pub(super) mod models;
-pub(super) mod persona;
+pub(crate) mod persona;
 mod settings;
 
 use super::{Parts, RoomHandle, threads};

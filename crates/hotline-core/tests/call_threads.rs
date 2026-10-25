@@ -4,6 +4,7 @@ mod call_threads {
     mod files;
     mod legacy_feedback;
     mod live_work;
+    mod new_teammate;
     mod person_name;
     mod reader;
 }

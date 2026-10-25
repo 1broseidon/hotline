@@ -148,7 +148,7 @@ impl Room {
             None,
             Some(Question {
                 capability,
-                person_name: None,
+                approves: None,
             }),
         )
     }
@@ -169,10 +169,10 @@ impl Room {
         let reason: String = reason.chars().take(500).collect();
         let hours = hours.unwrap_or(ASK_HOURS).clamp(1, ASK_MAX_HOURS);
         let ts = now_ms();
-        let action_id = if question.as_ref().is_some_and(|q| q.person_name.is_some()) {
-            format!("person-name:{}", new_id())
-        } else {
-            new_id()
+        let action_id = match question.as_ref().and_then(|q| q.approves.as_ref()) {
+            Some(Approves::PersonName(_)) => format!("{PERSON_NAME_CARD}{}", new_id()),
+            Some(Approves::NewTeammate(_)) => format!("{NEW_TEAMMATE_CARD}{}", new_id()),
+            None => new_id(),
         };
         let work =
             matches!(home.kind, ThreadKind::Side | ThreadKind::Call).then_some(home.key.as_str());
@@ -294,8 +294,11 @@ impl Room {
         else {
             return Err("That request is no longer waiting for an answer.".to_string());
         };
-        if action_id.starts_with("person-name:") {
+        if action_id.starts_with(PERSON_NAME_CARD) {
             self.settle_person_name(action_id, status, expires_at)?;
+        }
+        if action_id.starts_with(NEW_TEAMMATE_CARD) {
+            self.settle_new_teammate(persona_id, action_id, status, expires_at)?;
         }
         self.supersede_human(persona_id, action_id, status, note.clone());
         self.deliver_answer(persona_id, action_id, &reason, status, note, home);
@@ -574,5 +577,17 @@ impl Room {
 /// Authority held by the core, never reconstructed from card prose or saved flags.
 pub(super) struct Question {
     pub capability: CapabilityLease,
-    pub person_name: Option<String>,
+    pub approves: Option<Approves>,
 }
+
+/// The one write a card's yes makes, held here rather than read back off the
+/// card, so the person approves exactly what the core will do.
+pub(super) enum Approves {
+    PersonName(String),
+    NewTeammate(Box<Persona>),
+}
+
+/// The action-id prefixes of the cards whose yes writes something, so an
+/// answer finds its settlement before the card is superseded.
+const PERSON_NAME_CARD: &str = "person-name:";
+const NEW_TEAMMATE_CARD: &str = "new-teammate:";

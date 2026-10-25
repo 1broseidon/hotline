@@ -50,6 +50,7 @@ mod calls;
 mod lifecycle;
 mod links;
 mod narration;
+pub(crate) mod new_teammate;
 mod pacing;
 mod peers;
 mod person_name;

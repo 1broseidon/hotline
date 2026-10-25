@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Ollama speaks. With a speech model such as `phonon` pulled into a
+  connected Ollama, Settings › Providers › Use for lists its voices, as
+  Ollama names them, and a voice chosen there says replies on Legacy calls
+  through the Ollama server, for nothing. With the desk's own hearing, a
+  call needs no cloud provider at all. Ollama not running, or with no
+  speech model, is simply not offered.
+
 ## [0.43.0] - 2026-10-24
 
 ### Added

@@ -1,7 +1,8 @@
 //! The OpenAI audio shape: `POST {base}/audio/transcriptions` with a
 //! multipart clip, `POST {base}/audio/speech` with a JSON sentence. OpenAI,
-//! Groq, OpenRouter and Mistral (listening only) answer it, and so does a
-//! custom `openai-compatible` connection that serves the `/audio` routes.
+//! Groq, OpenRouter and Mistral (listening only) answer it, and so do a
+//! custom `openai-compatible` connection that serves the `/audio` routes and
+//! an Ollama server's speech models (speaking only, under `/v1`).
 
 use super::{Clip, Speech, SpeechError, SpeechId, TurnClock, base_mime, call, http_client, wav};
 use async_trait::async_trait;

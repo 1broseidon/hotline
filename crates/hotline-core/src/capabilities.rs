@@ -86,7 +86,7 @@ pub async fn options(
             unavailable: speech
                 .tts
                 .is_empty()
-                .then(|| "Connect OpenAI, Google, OpenRouter or Groq to speak.".to_string()),
+                .then(|| "Connect OpenAI, Google, OpenRouter or Groq, or pull a speech model into a connected Ollama, to speak.".to_string()),
             options: speech.tts,
         },
         dispatcher: dispatcher(vault, &settings, &voice),

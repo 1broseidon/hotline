@@ -518,6 +518,8 @@ const PRICES: &[(&str, f64, f64)] = &[
     ("xai-subscription", 0.0, 0.0),
     // The desk's own model runs on the desk and costs nothing.
     ("local", 0.0, 0.0),
+    // An Ollama server is the owner's own, and charges nothing to speak.
+    ("ollama", 0.0, 0.0),
 ];
 
 /// Whisper's price, and a premium voice's, for a provider not in the table.
@@ -531,7 +533,8 @@ fn price(provider_id: &str) -> (f64, f64) {
 }
 
 /// The cost of transcribing a clip of this many seconds.
-/// Whether a provider's voice costs nothing: a subscription's, or the desk's own.
+/// Whether a provider's voice costs nothing: a subscription's, the desk's own,
+/// or the owner's Ollama server's.
 pub fn is_free(provider_id: &str) -> bool {
     price(provider_id) == (0.0, 0.0)
 }
@@ -595,6 +598,12 @@ mod tests {
     fn the_desks_own_hearing_costs_nothing_batch_or_live() {
         assert_eq!(super::stt_usd("local", 120.0), 0.0);
         assert_eq!(super::stt_live_usd("local", 120.0), 0.0);
+    }
+
+    #[test]
+    fn an_ollama_voice_costs_nothing_and_asks_no_budget() {
+        assert_eq!(super::tts_usd("ollama", 8_000), 0.0);
+        assert!(super::is_free("ollama"));
     }
     use super::*;
 

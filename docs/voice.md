@@ -443,6 +443,7 @@ what the picker shows when a provider cannot be asked what else it offers.
 | `xai` API key | `grok-voice-transcribe-2.0` | native `/v1/tts`, voice `eve`, WAV |
 | explicit `xai-subscription` login | `grok-voice-transcribe-2.0` | native `/v1/tts`, voice `eve`, WAV |
 | a custom `openai-compatible` connection | its first model named `whisper` or `transcribe` | its first model named `tts` or `speech`, voice `alloy`, MP3 |
+| `ollama` (Ollama Local) | nothing | only the model and voice the owner chose, PCM wrapped as WAV |
 
 The OpenAI, Groq, OpenRouter, Mistral and custom rows share one adapter: a
 multipart `POST {base}/audio/transcriptions` with `model` and `file` and
@@ -499,6 +500,20 @@ empty for want of a network. Starting a call never asks: it resolves from
 settings, the defaults and the cache. A model picked without a voice speaks in
 its own first voice.
 
+A connected Ollama server (`ollama`, the Ollama Local connection, at the
+base URL it was connected with) speaks once the owner has pulled a speech
+model into it, such as `phonon`, and chosen one of its voices. It is asked
+every time the picker is, never answered for from the cache: `GET /api/tags`
+for the models whose `capabilities` include `speech`, then `POST /api/show`
+for each one's `voices`, `default` first. A server that cannot be asked, or
+has no speech model, or a model that lists no voices, offers nothing, and
+Ollama is left out of the speaking options; the copy written to the cache is
+read only for the voice of a model chosen without one. Speech goes through
+the OpenAI-shaped adapter to `POST {server}/v1/audio/speech` with no key,
+asking for `pcm` (16-bit mono at 24 kHz), because Ollama's WAV is streamed
+with no lengths in its header. Ollama speaks only on the machine it runs on
+under macOS for now.
+
 Not covered: Mistral's voice, which answers with base64 inside JSON. A custom
 connection counts only if it lists a speech model or the owner names one.
 xAI subscription logins use their own explicit speech choice, independently
@@ -512,7 +527,11 @@ speak. Hearing goes first to a model installed on the desk, the most accurate
 one, because it costs nothing, nothing said leaves the machine, and
 installing it was the owner's own act; the order among paid keys is
 unchanged. Subscription speech is selected explicitly and has no paid
-fallback.
+fallback. Ollama speech is selected explicitly too, and is never automatic or
+an unnamed fallback: whether it can speak is a fact of the moment that
+starting a call does not ask, and pulling a model is not choosing it. A saved
+Ollama voice whose model or server is gone fails when it speaks, as any
+provider's does, and the fallback voice says the reply if there is one.
 `settings.voice` overrides any of it:
 
 ```json
@@ -848,7 +867,7 @@ they do not hold a runtime worker.
 Prices in the ledger module are rounded up, since they are a guard and not an
 invoice: speech to text per minute and text to speech per 1,000 characters by
 provider, one high price for a provider not in the table, and zero for the
-desk's own model (`local`). Speech is priced from what is sent (seconds of
+desk's own model (`local`) and an Ollama server (`ollama`). Speech is priced from what is sent (seconds of
 audio, characters of text) and no provider reports usage back, so its
 reservation is its charge and is never settled.
 

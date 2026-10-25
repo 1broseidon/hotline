@@ -1,5 +1,88 @@
 use super::*;
 
+/// A connected Ollama with a speech model pulled is offered for speaking over
+/// the same wire as Settings, with the voices it lists, and a voice chosen
+/// there is what a text call would speak with, at no cost.
+#[tokio::test(flavor = "multi_thread")]
+async fn ollama_local_offers_its_speech_models_for_speaking() {
+    use axum::{
+        Router,
+        routing::{get, post},
+    };
+    let app = Router::new()
+        .route(
+            "/api/tags",
+            get(|| async {
+                json!({"models": [
+                    {"name": "llama3.1:8b", "model": "llama3.1:8b", "capabilities": ["completion"]},
+                    {"name": "phonon:latest", "model": "phonon:latest", "capabilities": ["speech"]},
+                ]})
+                .to_string()
+            }),
+        )
+        .route(
+            "/api/show",
+            post(|| async {
+                json!({"capabilities": ["speech"], "voices": ["Alfie", "default", "Zoey"]})
+                    .to_string()
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (_root, port) = open("ollama-speech").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let connected = client
+        .call("credential.connect_local", json!({"baseUrl": url}))
+        .await;
+    assert_eq!(connected["ok"], true, "{connected}");
+    let providers = client.call("providers.list", json!({})).await;
+    let ollama = providers["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "ollama")
+        .unwrap()
+        .clone();
+    assert_eq!(ollama["does"], json!(["chat", "voice"]), "{ollama}");
+
+    let options = client.call("capabilities.options", json!({})).await;
+    let tts = &options["result"]["tts"];
+    assert_eq!(
+        tts["options"],
+        json!([{"providerId": "ollama", "providerName": "Ollama", "models": [
+            {"id": "phonon:latest", "label": "phonon", "voices": ["default", "Alfie", "Zoey"]}
+        ]}]),
+        "{options}"
+    );
+    assert!(tts.get("automatic").is_none(), "{tts}");
+    assert!(tts.get("unavailable").is_none(), "{tts}");
+
+    let chose = client
+        .call(
+            "settings.update",
+            json!({"patch": {"voice": {"tts": {"provider": "ollama", "model": "phonon:latest", "voice": "Zoey"}}}}),
+        )
+        .await;
+    assert_eq!(chose["ok"], true, "{chose}");
+    let options = client.call("capabilities.options", json!({})).await;
+    assert_eq!(
+        options["result"]["tts"]["selected"],
+        json!({"providerId": "ollama", "providerName": "Ollama", "modelId": "phonon:latest", "voice": "Zoey"})
+    );
+    let status = client
+        .call("voice.status", json!({"inputMode": "text"}))
+        .await;
+    assert_eq!(
+        status["result"]["tts"],
+        json!({"providerId": "ollama", "modelId": "phonon:latest", "voice": "Zoey"}),
+        "{status}"
+    );
+    server.abort();
+}
+
 /// Local discovery, filtering and a streamed Rig turn use the same wire as
 /// Settings and the conversation. No installed Ollama or cloud account needed.
 #[tokio::test(flavor = "multi_thread")]

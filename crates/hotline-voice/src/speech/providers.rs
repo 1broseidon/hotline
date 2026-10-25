@@ -1,11 +1,14 @@
 //! Which of the owner's connected providers can hear and speak, and with what
 //! by default. There is never a new key: a provider counts only if the owner
 //! has already connected it. The desk's own models (`local.rs`) hear beside
-//! them once the owner has downloaded one.
+//! them once the owner has downloaded one, and a connected Ollama server
+//! (`ollama.rs`) speaks once the owner has pulled a speech model into it and
+//! chosen one of its voices.
 
 use super::catalog::{self, Found};
 use super::google::{self, Google};
 use super::local::{self, Installed, Local};
+use super::ollama;
 use super::xai::{self, Xai};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechOutput, SpeechSet, TurnClock};
 use crate::realtime::{GptLive, Realtime, RealtimeSocket, live};
@@ -136,7 +139,9 @@ const ROWS: &[Row] = &[
 /// Whether a connection to this provider can do voice: hear or speak on a
 /// call, or front one (the ChatGPT sign-in runs GPT-Live).
 pub fn speaks(provider_id: &str) -> bool {
-    provider_id == crate::realtime::live::PROVIDER_ID || row(provider_id).is_some()
+    provider_id == crate::realtime::live::PROVIDER_ID
+        || provider_id == ollama::PROVIDER_ID
+        || row(provider_id).is_some()
 }
 
 fn row(provider_id: &str) -> Option<&'static Row> {
@@ -198,6 +203,9 @@ fn listening(connection: &Connection, pick: Option<&Choice>) -> Option<String> {
 /// The voice this connection speaks with, the owner's changes laid over its
 /// default. A custom connection with neither has no voice.
 fn speaking(connection: &Connection, pick: Option<&Choice>) -> Option<Speaking> {
+    if connection.provider_id == ollama::PROVIDER_ID {
+        return ollama_speaking(connection, pick?);
+    }
     let named_model = pick.and_then(|pick| pick.model_id.clone());
     // The native TTS route chooses a voice, not a model. Never report a
     // different model as selected when the provider cannot honor that pick.
@@ -253,6 +261,31 @@ fn speaking(connection: &Connection, pick: Option<&Choice>) -> Option<Speaking> 
     })
 }
 
+/// The Ollama voice the owner chose. Ollama speaks only when chosen, never as
+/// automatic or as an unnamed fallback: whether it can is a fact of the
+/// moment that starting a call does not ask, and pulling a model is not
+/// choosing to be spoken to by it. A choice of the provider alone speaks with
+/// the first speech model it listed when last asked. Its PCM is asked for
+/// because its WAV is streamed with no lengths in the header.
+fn ollama_speaking(connection: &Connection, pick: &Choice) -> Option<Speaking> {
+    let root = connection.root.as_deref();
+    let model = pick
+        .model_id
+        .clone()
+        .or_else(|| catalog::first_speaker(root, ollama::PROVIDER_ID))?;
+    let voice = pick
+        .voice
+        .clone()
+        .or_else(|| catalog::default_voice(root, ollama::PROVIDER_ID, &model))
+        .unwrap_or_else(|| ollama::DEFAULT_VOICE.to_string());
+    Some(Speaking {
+        model,
+        voice,
+        format: AudioFormat::Pcm,
+        max_chars: 4096,
+    })
+}
+
 /// The format a model will actually answer in. Gemini's voices through
 /// OpenRouter refuse everything but raw PCM; the rest take the provider's.
 fn format_for(provider_id: &str, model: &str, default: AudioFormat) -> AudioFormat {
@@ -281,7 +314,11 @@ pub async fn options(connected: &Connected) -> Options {
     let connections = connections(connected);
     let endpoints: Vec<_> = connections
         .iter()
-        .filter(|connection| connection.login.is_none() && row(&connection.provider_id).is_some())
+        .filter(|connection| {
+            connection.login.is_none()
+                && (row(&connection.provider_id).is_some()
+                    || connection.provider_id == ollama::PROVIDER_ID)
+        })
         .map(Connection::endpoint)
         .collect();
     let found: HashMap<String, Found> = catalog::discover_all(Some(&connected.root), &endpoints)
@@ -315,6 +352,18 @@ fn options_from(
         label: None,
         voices: None,
         efforts: None,
+    };
+    let discovered = |found: &Found| -> Vec<CapabilityModel> {
+        found
+            .speak
+            .iter()
+            .map(|model| CapabilityModel {
+                id: model.id.clone(),
+                label: model.label.clone(),
+                voices: Some(model.voices.clone()),
+                efforts: None,
+            })
+            .collect()
     };
     let mut stt = Vec::new();
     let mut tts = Vec::new();
@@ -375,16 +424,7 @@ fn options_from(
                 ..
             }) => {
                 let models: Vec<CapabilityModel> = match offered {
-                    Some(found) if !found.speak.is_empty() => found
-                        .speak
-                        .iter()
-                        .map(|model| CapabilityModel {
-                            id: model.id.clone(),
-                            label: model.label.clone(),
-                            voices: Some(model.voices.clone()),
-                            efforts: None,
-                        })
-                        .collect(),
+                    Some(found) if !found.speak.is_empty() => discovered(found),
                     _ => vec![CapabilityModel {
                         id: default.to_string(),
                         label: None,
@@ -395,6 +435,10 @@ fn options_from(
                 default_first(models, default, |model| &model.id)
             }
             Some(_) => Vec::new(),
+            // Only what the server said just now: no default stands in.
+            None if connection.provider_id == ollama::PROVIDER_ID => {
+                offered.map(discovered).unwrap_or_default()
+            }
             None => connection
                 .models
                 .iter()
@@ -486,6 +530,19 @@ fn connection(
                 tokens: tokens.clone(),
                 bearer,
             }),
+            models: Vec::new(),
+            root: Some(root.to_path_buf()),
+        });
+    }
+    if provider_id == ollama::PROVIDER_ID
+        && let ProviderAuth::Local { base_url } = auth
+    {
+        return Some(Connection {
+            provider_id: provider_id.to_string(),
+            name: ollama::NAME.to_string(),
+            base_url: base_url.trim_end_matches('/').to_string(),
+            key: None,
+            login: None,
             models: Vec::new(),
             root: Some(root.to_path_buf()),
         });
@@ -809,9 +866,13 @@ fn speaker(
                 .with_clock(clock),
         ));
     }
+    let mut endpoint = connection.endpoint();
+    if connection.provider_id == ollama::PROVIDER_ID {
+        endpoint.base_url = ollama::speech_base(&connection.base_url);
+    }
     Ok(Arc::new(
         OpenAiShape::speaker(
-            connection.endpoint(),
+            endpoint,
             &voice.model,
             &voice.voice,
             voice.format,
@@ -826,7 +887,11 @@ fn named<'a>(connections: &'a [Connection], pick: &Choice) -> Result<&'a Connect
         .iter()
         .find(|connection| connection.provider_id == pick.provider_id)
         .ok_or_else(|| {
-            let name = row(&pick.provider_id).map_or(pick.provider_id.as_str(), |row| row.name);
+            let name = match row(&pick.provider_id) {
+                Some(row) => row.name,
+                None if pick.provider_id == ollama::PROVIDER_ID => ollama::NAME,
+                None => pick.provider_id.as_str(),
+            };
             format!(
                 "Voice is set to use {name}, which is not connected. Connect it in Settings, or clear that choice."
             )

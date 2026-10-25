@@ -46,14 +46,22 @@ pub(super) fn descriptor(live: &Live) -> Option<SignIn> {
 
 pub(super) fn failure(
     live: &Live,
+    backend_id: &str,
     text: &str,
     phase: &'static str,
 ) -> super::super::failure::Failure {
-    let mut failure = super::super::failure::Failure::classify(text, None, phase);
-    if failure.kind == super::super::failure::Kind::AgentAuth {
+    use super::super::failure::{Failure, Kind};
+    let mut failure = Failure::classify(text, None, phase);
+    if failure.kind == Kind::AgentAuth {
         failure.sign_in = descriptor(live);
     }
     let session = lock(&live.session);
+    // A spent account names the agent and model it ran, so the card can
+    // offer the agent's other accounts.
+    if matches!(failure.kind, Kind::Quota | Kind::UsageLimit) {
+        failure.backend = Some(backend_id.to_string());
+        failure.model = Some(session.info.current_model_id.clone()).filter(|id| !id.is_empty());
+    }
     failure.name_the_harness(
         &clip(&session.info.agent_name, 256),
         session

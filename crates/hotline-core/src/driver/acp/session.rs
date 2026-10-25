@@ -180,7 +180,7 @@ impl ChildAgent {
             self.publish_ledger(persona, serving);
         }
         if let Err(error) = self.open_session(&connection, persona, capabilities).await {
-            let failure = auth::failure(&self.live, &error, "acp_start");
+            let failure = auth::failure(&self.live, &self.backend_id, &error, "acp_start");
             if failure.kind == crate::driver::failure::Kind::AgentAuth && failure.sign_in.is_some()
             {
                 // The picker offers its sign-in until a session of it opens.

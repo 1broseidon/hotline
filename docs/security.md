@@ -2317,6 +2317,7 @@ secret in the same places, never a copy of the first.
 | A teammate's pictures draw on its own account, and on none of the provider's once that account is gone | `imagegen/providers.rs` `a_teammates_gone_account_takes_its_provider_out_rather_than_falling_back` |
 | A plain id runs on the default account; a named one on that account for the whole turn; a gone or foreign account is refused | `session/tests/accounts.rs` |
 | Over the wire: two accounts list apart with no secret in a choice; a teammate on a revoked account does not run and is not moved | `tests/desk/accounts.rs` `two_accounts_list_their_models_apart_and_a_teammate_on_a_revoked_one_does_not_run` |
+| A usage limit, the harness's or a ChatGPT sign-in's, is its own kind, never retried, and names the model and agent the card offers others of | `driver/failure/tests.rs` `an_agents_usage_limit_is_its_own_kind_in_its_own_words`, `a_chatgpt_usage_limit_says_when_it_resets_whatever_the_header_says`; `driver/acp/auth/tests.rs` `a_harness_out_of_usage_names_its_agent_and_model_on_its_card` |
 
 ### Switching a teammate's agent (task-287)
 

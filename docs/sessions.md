@@ -906,6 +906,14 @@ A harness that answers that the chosen model needs a newer version of it
 at `initialize` ("Codex 1.12.0 is too old for this model") and says to update
 it or switch model.
 
+A harness out of usage says so in its own sentence ("You've hit your limit ·
+resets 3pm"), which the turn's card repeats under the kind `usage_limit`,
+titled for the harness ("Claude Code usage limit reached"); it is read before
+the "rate_limit" or ACP's -32000 the sentence arrives with, and is never retried
+or taken for an expired sign-in. A ChatGPT sign-in at its limit (a 429 whose
+`error.type` is `usage_limit_reached`) is the same kind, with the time it resets
+from the body's `resets_at` whatever a `retry-after` header says.
+
 A slow or stalled start holds up only that teammate. Starts are behind each
 teammate's own gate, and on the wire every command that names a teammate is
 answered on that teammate's own lane of the socket

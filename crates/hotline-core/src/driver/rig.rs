@@ -621,7 +621,7 @@ impl InProcess {
             Err(error) => {
                 let _ = sender.try_send(Update::Notice {
                     level: NoticeLevel::Error,
-                    text: Failure::account_gone(error, &identity).notice(),
+                    text: Failure::account_gone(error, Some(&identity)).notice(),
                 });
                 let _ = sender.try_send(Update::Turn {
                     stop_reason: "failed".to_string(),
@@ -695,6 +695,11 @@ impl InProcess {
                         } => error.redact_value(key),
                         _ => {}
                     }
+                }
+                // A spent account names the model it was serving, account
+                // and all, so the card can offer the others that serve it.
+                if matches!(error.kind, Kind::Quota | Kind::UsageLimit) {
+                    error.model = Some(turn.identity.clone());
                 }
                 let _ = sender
                     .send(Update::Notice {

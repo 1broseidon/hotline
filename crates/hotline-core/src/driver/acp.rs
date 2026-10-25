@@ -689,6 +689,7 @@ impl Driver for ChildAgent {
         }
         let live = self.live.clone();
         let capability = self.capability.clone();
+        let backend_id = self.backend_id.clone();
         tokio::spawn(async move {
             if let Some(capability) = &capability
                 && let Err(error) = capability.check()
@@ -773,6 +774,7 @@ impl Driver for ChildAgent {
                     if !cancelled {
                         let failure = auth::failure(
                             &live,
+                            &backend_id,
                             &format!("{error}{}", live.stderr_hint()),
                             "acp_prompt",
                         );

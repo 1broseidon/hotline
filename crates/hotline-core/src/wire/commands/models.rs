@@ -22,9 +22,13 @@ pub(super) fn welcome(
     backends: Vec<crate::contract::BackendChoice>,
 ) -> crate::contract::Welcome {
     let known = crate::models::providers();
+    // An agent's own account runs that agent, never Hotline Agent.
     let mut providers: Vec<String> = credentials
         .iter()
-        .filter(|credential| !credential.revoked)
+        .filter(|credential| {
+            !credential.revoked
+                && credential.credential_kind != crate::contract::CredentialKind::Agent
+        })
         .map(|credential| {
             known
                 .iter()
@@ -39,7 +43,11 @@ pub(super) fn welcome(
     providers.dedup();
     let harnesses: Vec<crate::contract::BackendChoice> = backends
         .into_iter()
-        .filter(|backend| backend.id != HOTLINE_BACKEND_ID && backend.unavailable.is_none())
+        .filter(|backend| {
+            backend.id != HOTLINE_BACKEND_ID
+                && backend.unavailable.is_none()
+                && backend.account.is_none()
+        })
         .collect();
     let default_backend_id = settings
         .get("defaultBackendId")
@@ -345,6 +353,8 @@ mod welcome_tests {
             unavailable: unavailable.map(str::to_string),
             models: None,
             sign_in: None,
+            account: None,
+            accounts: None,
         }
     }
 
@@ -392,6 +402,41 @@ mod welcome_tests {
             keyed.providers,
             vec!["Anthropic".to_string()],
             "named once, by its catalogue name"
+        );
+    }
+
+    /// An account of Claude Code is that agent's to run: it is no provider
+    /// for Hotline Agent, and no harness of its own to start a room on.
+    #[test]
+    fn an_agents_own_account_is_not_a_way_in_for_hotline_agent() {
+        let mut account = credential("claude-acp", false);
+        account.credential_kind = CredentialKind::Agent;
+        let mut signed_in = backend("claude-acp#a", None);
+        signed_in.account = Some(crate::contract::ChoiceAccount {
+            id: "a".into(),
+            label: "Work".into(),
+            kind: CredentialKind::Agent,
+            shared: true,
+        });
+        let room = welcome(
+            &settings("hotline"),
+            0,
+            false,
+            &[account],
+            vec![
+                backend("hotline", None),
+                backend("claude-acp", None),
+                signed_in,
+            ],
+        );
+        assert!(!room.can_run);
+        assert_eq!(room.providers, [] as [String; 0]);
+        assert_eq!(
+            room.harnesses
+                .iter()
+                .map(|one| one.id.as_str())
+                .collect::<Vec<_>>(),
+            ["claude-acp"]
         );
     }
 

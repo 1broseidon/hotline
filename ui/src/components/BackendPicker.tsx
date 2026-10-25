@@ -41,7 +41,10 @@ export function BackendPicker({
 	onProviders?: (() => void) | undefined;
 }) {
 	const connected = useConnectedProviders();
-	const { ready, more } = arrange(backends);
+	// The agents as they are on this computer: a teammate moves onto one of
+	// the person's accounts of it from its model menu, and the room's default
+	// is never an account that can be removed from under it.
+	const { ready, more } = arrange(backends.filter((one) => one.account === undefined));
 	const selectedIsMore = more.some((one) => one.id === selected);
 	const [open, setOpen] = useState(selectedIsMore);
 
@@ -144,8 +147,9 @@ function useConnectedProviders(): string[] | null {
 		void Promise.all([wire.command("credential.list", {}), wire.command("providers.list", {})])
 			.then(([credentials, providers]) => {
 				if (!current) return;
+				// An agent's own account runs that agent, not Hotline Agent.
 				const live = credentials
-					.filter((one) => !one.revoked)
+					.filter((one) => !one.revoked && one.credentialKind !== "agent")
 					.map((one) => providers.find((provider) => provider.id === one.providerId)?.name ?? one.label);
 				setNames([...new Set(live)].sort((a, b) => a.localeCompare(b)));
 			})

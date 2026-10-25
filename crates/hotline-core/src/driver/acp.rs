@@ -27,6 +27,7 @@
 //! tape, and block the agent until somebody answers. Whether the agent asks at
 //! all is its own configuration and not Hotline's — see [`containment_notice`].
 
+pub(crate) mod accounts;
 mod auth;
 mod install;
 mod live;
@@ -572,6 +573,9 @@ impl Driver for ChildAgent {
         // again behind it, for the next.
         registry::refresh_in_background(&self.root);
         registry::install(&self.root, &self.backend_id).await?;
+        if let Some(gone) = accounts::gone(&self.root, &self.backend_id) {
+            return Ok(self.account_gone(persona, gone));
+        }
         let launch = registry::launch(&self.root, &self.backend_id)?;
         *lock(&self.launch) = Some(launch.clone());
         *lock(&self.persona) = Some(persona.clone());

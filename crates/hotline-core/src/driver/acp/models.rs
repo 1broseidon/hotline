@@ -138,10 +138,13 @@ pub fn remember(root: &Path, backend_id: &str, models: &[ConfigChoice]) {
     write(root, &seen);
 }
 
-/// Looks at each agent people know by name and each that has answered here
-/// before, with no list from the last day, one after another, and returns at
-/// once. The desk calls it as it starts, so the picker never waits on a list.
-pub fn refresh_in_background(root: &Path) {
+/// Looks at each agent people know by name, each that has answered here
+/// before, and each account of the person's (`claude-acp#<id>`) of an agent
+/// that can be started, with no list from the last day, one after another,
+/// and returns at once. The desk calls it as it starts, so the picker never
+/// waits on a list. An account is looked at as its agent is, signed in as
+/// itself, so its own list and its own sign-in are what the picker shows.
+pub fn refresh_in_background(root: &Path, accounts: Vec<String>) {
     if LOOKING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -149,34 +152,43 @@ pub fn refresh_in_background(root: &Path) {
     tokio::spawn(async move {
         let seen = read(&root);
         let now = now_ms();
-        for backend in registry::cached_backends(&root) {
-            if backend.unavailable.is_some()
-                || seen
-                    .get(&backend.id)
-                    .is_some_and(|was| now - was.at < FRESH_MS)
-                || !plain_id(&backend.id)
-            {
+        let ready: Vec<String> = registry::cached_backends(&root)
+            .into_iter()
+            .filter(|backend| backend.unavailable.is_none())
+            .map(|backend| backend.id)
+            .collect();
+        let accounts: Vec<String> = accounts
+            .into_iter()
+            .filter(|id| {
+                ready
+                    .iter()
+                    .any(|agent| agent == super::accounts::split(id).0)
+            })
+            .collect();
+        for id in ready.into_iter().chain(accounts) {
+            let (agent, _) = super::accounts::split(&id);
+            if seen.get(&id).is_some_and(|was| now - was.at < FRESH_MS) || !plain_id(agent) {
                 continue;
             }
-            let Ok(launch) = registry::launch(&root, &backend.id) else {
+            let Ok(launch) = registry::launch(&root, &id) else {
                 continue;
             };
             let before = registry::started_before(&root, &launch);
-            if !before && !registry::named(&backend.id) {
+            if !before && !registry::named(&id) {
                 continue;
             }
             let bound = if before { LOOK_BOUND } else { FIRST_LOOK_BOUND };
-            let (models, sign_in) = match look(&root, &backend.id, &launch, bound).await {
+            let (models, sign_in) = match look(&root, agent, &launch, bound).await {
                 Ok(models) => (models, false),
                 Err(Missed::SignIn) => (Vec::new(), true),
                 Err(Missed::Failed(error)) => {
-                    eprintln!("[acp] a look at {}'s models failed: {error}", backend.id);
+                    eprintln!("[acp] a look at {id}'s models failed: {error}");
                     (Vec::new(), false)
                 }
             };
             // A failed look waits a day like a good one; the list it had stays.
             let mut seen = read(&root);
-            let entry = seen.entry(backend.id.clone()).or_default();
+            let entry = seen.entry(id).or_default();
             entry.at = now_ms();
             entry.sign_in = sign_in;
             if !models.is_empty() {
@@ -199,16 +211,20 @@ fn plain_id(id: &str) -> bool {
 }
 
 /// One look: spawn, `initialize` offering nothing, `session/new` in the
-/// agent's empty folder with no servers, read the model picker, end.
+/// agent's empty folder with no servers, read the model picker, end. The
+/// folder is the agent's, whichever account it is signed in as.
 async fn look(
     root: &Path,
-    backend_id: &str,
+    agent: &str,
     launch: &registry::Launch,
     bound: Duration,
 ) -> Result<Vec<ConfigChoice>, Missed> {
-    let folder = paths::acp_look_dir(root, backend_id);
+    let folder = paths::acp_look_dir(root, agent);
     std::fs::create_dir_all(&folder).map_err(|error| Missed::Failed(error.to_string()))?;
     let mut command = tokio::process::Command::new(&launch.command);
+    for name in &launch.unset {
+        command.env_remove(name);
+    }
     command
         .args(&launch.args)
         .envs(launch.env.iter().cloned())
@@ -493,6 +509,7 @@ mod tests {
                 format!("sleep 600 & echo $! > {}; sleep 600", pidfile.display()),
             ],
             env: Vec::new(),
+            unset: Vec::new(),
         };
         let looked = look(root.path(), "hangs", &launch, Duration::from_millis(400)).await;
         assert!(matches!(looked, Err(Missed::Failed(_))));

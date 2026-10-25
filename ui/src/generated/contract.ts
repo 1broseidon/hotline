@@ -98,7 +98,18 @@ export type BackendChoice = { id: string, name: string, description: string, una
  * The agent last asked to be signed in before it would open a session:
  * new on this desk, or its sign-in expired.
  */
-signIn?: boolean, };
+signIn?: boolean, 
+/**
+ * The account this is the agent signed in as, when it is one of the
+ * person's: `claude-acp#<credential id>`, named as a Hotline Agent
+ * model's account is. Absent for the agent as it is on this computer.
+ */
+account?: ChoiceAccount, 
+/**
+ * The agent can run signed in as accounts of the person's own, which
+ * Settings › Providers adds.
+ */
+accounts?: boolean, };
 
 /**
  * One profile within a host browser. Only profiles that have a cookie store
@@ -517,8 +528,11 @@ export type CredentialAnswer = { actionId: string, name?: string, values?: Crede
 /**
  * How this connection was established: a pasted key, a provider sign-in,
  * or a keyless server URL. OAuth does not imply subscription billing.
+ * `agent` is an account of an agent that keeps its own sign-in — Claude
+ * Code, Codex — in a folder of its own: its provider id is the agent's
+ * backend id, and Hotline holds no secret for it.
  */
-export type CredentialKind = "api_key" | "oauth" | "local";
+export type CredentialKind = "api_key" | "oauth" | "local" | "agent";
 
 export type CredentialStatus = "pending" | "stored" | "declined" | "expired" | "withdrawn";
 

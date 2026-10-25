@@ -1,3 +1,5 @@
+import type { BackendChoice } from "./generated/contract";
+
 /**
  * What an account is called where accounts are listed: its provider's name
  * when the provider has one account, and when it has several, the name the
@@ -21,4 +23,19 @@ export function plainModel(id: string): string {
 	const provider = id.slice(0, slash);
 	const hash = provider.indexOf("#");
 	return hash < 0 ? id : `${provider.slice(0, hash)}${id.slice(slash)}`;
+}
+
+/** `claude-acp#account` without its account: the agent every account of it runs. */
+export function agentOf(backendId: string): string {
+	const hash = backendId.indexOf("#");
+	return hash <= 0 || hash === backendId.length - 1 ? backendId : backendId.slice(0, hash);
+}
+
+/**
+ * What an agent is called where agents are listed: its name, and for one of
+ * the person's accounts of it the account after it ("Claude Code · Work"),
+ * the way a provider's accounts are named.
+ */
+export function backendName(backend: Pick<BackendChoice, "name" | "account">): string {
+	return backend.account === undefined ? backend.name : accountName(backend.name, backend.account.label, backend.account.shared);
 }

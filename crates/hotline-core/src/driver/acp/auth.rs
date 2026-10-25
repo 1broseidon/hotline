@@ -56,9 +56,11 @@ pub(super) fn failure(
         failure.sign_in = descriptor(live);
     }
     let session = lock(&live.session);
-    // A spent account names the agent and model it ran, so the card can
-    // offer the agent's other accounts.
-    if matches!(failure.kind, Kind::Quota | Kind::UsageLimit) {
+    // A spent account of an agent that has accounts names the agent and
+    // model it ran, so the card can offer the agent's other accounts.
+    if matches!(failure.kind, Kind::Quota | Kind::UsageLimit)
+        && super::accounts::supported(super::accounts::split(backend_id).0)
+    {
         failure.backend = Some(backend_id.to_string());
         failure.model = Some(session.info.current_model_id.clone()).filter(|id| !id.is_empty());
     }

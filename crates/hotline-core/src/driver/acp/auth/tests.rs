@@ -242,7 +242,8 @@ fn a_harness_too_old_for_its_model_is_named_on_its_card() {
 
 /// A harness out of usage says whose limit it is, and names its agent,
 /// account and all, and the model it ran, so the card can offer the agent's
-/// other accounts. Any other failure names neither.
+/// other accounts. Any other failure, and an agent with no accounts, names
+/// neither.
 #[test]
 fn a_harness_out_of_usage_names_its_agent_and_model_on_its_card() {
     let live = Live::default();
@@ -262,6 +263,10 @@ fn a_harness_out_of_usage_names_its_agent_and_model_on_its_card() {
     assert_eq!(limited.model.as_deref(), Some("opus"));
     let other = auth::failure(&live, "codex-acp#work", "tool crashed", "acp_prompt");
     assert_eq!((other.backend, other.model), (None, None));
+    // An agent with no accounts has none to offer, so its card names none.
+    let cursor = auth::failure(&live, "cursor", "You've hit your limit", "acp_prompt");
+    assert_eq!(cursor.kind, crate::driver::failure::Kind::UsageLimit);
+    assert_eq!((cursor.backend, cursor.model), (None, None));
 }
 
 #[test]

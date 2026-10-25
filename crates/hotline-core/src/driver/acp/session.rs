@@ -13,6 +13,9 @@ impl ChildAgent {
         launch: &registry::Launch,
     ) -> Result<DriverInfo, String> {
         let mut command = tokio::process::Command::new(&launch.command);
+        for name in &launch.unset {
+            command.env_remove(name);
+        }
         command
             .args(&launch.args)
             .envs(launch.env.iter().cloned())
@@ -82,6 +85,21 @@ impl ChildAgent {
             session.id = None;
             session.info.session_id = None;
         }
+        self.live.publish_info()
+    }
+
+    /// A teammate on an account that is no longer on this desk comes up
+    /// failed, with nothing started: its card names the agent and the model
+    /// it ran, so the person can move it to another account. It never starts
+    /// on one by itself.
+    pub(super) fn account_gone(&self, persona: &Persona, sentence: String) -> DriverInfo {
+        let mut failure =
+            crate::driver::failure::Failure::account_gone(sentence, persona.model_id.as_deref());
+        failure.backend = Some(self.backend_id.clone());
+        // Kept, so the next message looks for the account again.
+        *lock(&self.persona) = Some(persona.clone());
+        *lock(&self.live.startup_failure) = Some(failure.notice());
+        self.live.failed.store(true, Ordering::SeqCst);
         self.live.publish_info()
     }
 

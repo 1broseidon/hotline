@@ -101,7 +101,7 @@ crates/hotline-core/src/
   thread/                    the one name for a conversation, its store and its policy
   vault/                     credential metadata beside the room stream
   session/                   Session, the funnel, quiet, chapters, the scheduler, peer threads
-  driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
+  driver/                    Hotline Agent on Rig, and the ACP child with its registry, OAuth proxy and accounts
   models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
   providers/                 connection work Rig does not own; requests stay on Rig's clients
   capabilities.rs            which connected provider the owner can pick for each job

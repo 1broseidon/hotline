@@ -15,6 +15,7 @@
 //! process, started how", and the built-in agent has no child process, no
 //! binary to find and nothing to download.
 
+use super::accounts;
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -42,12 +43,15 @@ const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How a backend is started: a command, its arguments and the environment
-/// its catalogue entry asks for, as spawned.
+/// its catalogue entry asks for, as spawned. `unset` is what the child must
+/// not inherit from Hotline's own environment, taken away before `env` is
+/// set: an account's agent never signs in with the person's own key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launch {
     pub command: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    pub unset: Vec<String>,
 }
 
 impl Launch {
@@ -287,6 +291,7 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
                 ),
                 args: native.args.iter().map(|arg| (*arg).to_string()).collect(),
                 env: Vec::new(),
+                unset: Vec::new(),
             }),
             archive: None,
             unavailable: found.is_none().then(|| machine.missing(native.command)),
@@ -349,10 +354,12 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
 }
 
 /// The backend with this id, or `None` when nothing on this machine knows it.
+/// An account's id is its agent's.
 pub fn known(root: &Path, backend_id: &str) -> Option<Backend> {
+    let (agent, _) = accounts::split(backend_id);
     cached_backends(root)
         .into_iter()
-        .find(|backend| backend.id == backend_id)
+        .find(|backend| backend.id == agent)
 }
 
 /// The name a person knows this backend by, without asking the machine
@@ -360,6 +367,7 @@ pub fn known(root: &Path, backend_id: &str) -> Option<Backend> {
 /// a teammate runs, not whether this desk could start it. `None` for an id
 /// neither this build nor the cached catalogue knows.
 pub fn name_of(root: &Path, backend_id: &str) -> Option<String> {
+    let (backend_id, _) = accounts::split(backend_id);
     if let Some(native) = NATIVE.iter().find(|native| native.id == backend_id) {
         return Some(native.name.to_string());
     }
@@ -377,13 +385,20 @@ pub fn name_of(root: &Path, backend_id: &str) -> Option<String> {
 /// are looked at for their models (and their sign-in) before any teammate
 /// runs on them; the catalogue's many others only once one has.
 pub fn named(backend_id: &str) -> bool {
+    let (backend_id, _) = accounts::split(backend_id);
     NATIVE.iter().any(|native| native.id == backend_id)
         || ADAPTED.iter().any(|adapted| adapted.id == backend_id)
 }
 
 /// The command that starts this backend, or the sentence saying why nothing
-/// can.
+/// can. An account's is its agent's, pointed at the account's folder.
 pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
+    let mut launch = agent_launch(root, backend_id)?;
+    accounts::sign_in_as(root, backend_id, &mut launch)?;
+    Ok(launch)
+}
+
+fn agent_launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
     let Some(backend) = known(root, backend_id) else {
         return Err(format!(
             "Backend \"{backend_id}\" is not an agent this machine knows. Install its CLI, or pick a different agent."
@@ -513,6 +528,7 @@ fn start_for(root: &Path, agent: &Published) -> Option<Start> {
             command: "uvx".to_string(),
             args,
             env: Vec::new(),
+            unset: Vec::new(),
         }));
     }
     let target = distribution.binary.as_ref()?.get(&platform()?)?;
@@ -527,6 +543,7 @@ fn start_for(root: &Path, agent: &Published) -> Option<Start> {
             .into_owned(),
         args: target.args.clone(),
         env: target.env.clone().into_iter().collect(),
+        unset: Vec::new(),
     };
     Some(Start::Fetch(
         launch,
@@ -594,6 +611,7 @@ fn npx(package: &str, extra: &[String]) -> Launch {
         command: "npx".to_string(),
         args,
         env: Vec::new(),
+        unset: Vec::new(),
     }
 }
 

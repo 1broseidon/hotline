@@ -4,7 +4,7 @@ import type { ChoiceAccount, ConfigChoice, CredentialKind } from "../generated/c
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon } from "../icons";
 import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import { wire } from "../wire";
-import { accountName, plainModel } from "../accounts";
+import { accountName, agentOf, plainModel } from "../accounts";
 
 /**
  * One row of the top level: an account of Hotline Agent and the models it
@@ -28,9 +28,10 @@ type AccountRow = {
 /**
  * Another agent a teammate can run on: a harness, with the models it last
  * reported, and `signIn` when it last asked to be signed in first (new on
- * this desk, or its sign-in expired).
+ * this desk, or its sign-in expired). `account` is one of the person's
+ * accounts of it (`claude-acp#<id>`), a row of its own as a provider's is.
  */
-export type AgentChoice = { id: string; name: string; unavailable?: string; signIn?: boolean; choices: ConfigChoice[] };
+export type AgentChoice = { id: string; name: string; unavailable?: string; signIn?: boolean; account?: ChoiceAccount; choices: ConfigChoice[] };
 
 /** The row that gathers the registry's other ready agents, each a choice. */
 const MORE_AGENTS = "__more__";
@@ -43,7 +44,7 @@ const MAJOR_AGENTS = ["antigravity-acp", "claude-acp", "codex-acp", "cursor", "g
 /** A model's efforts, as `models.efforts` answers for a model not yet in use. */
 type Efforts = { choices: ConfigChoice[]; defaultId: string | null };
 
-const KIND: Record<CredentialKind, string> = { oauth: "subscription", api_key: "API key", local: "this Mac" };
+const KIND: Record<CredentialKind, string> = { oauth: "subscription", api_key: "API key", local: "this Mac", agent: "own sign-in" };
 
 /**
  * The accounts the choices come from, in the order the desk lists them. A
@@ -141,14 +142,14 @@ export function ModelPicker({
 	// row, and those not ready are left out. The agent in use always stands
 	// on its own.
 	const harnesses = (onAgent === undefined ? [] : agents).filter((agent) => agent.id !== "hotline");
-	const known = (agent: AgentChoice) => agent.id === backendId || MAJOR_AGENTS.includes(agent.id);
+	const known = (agent: AgentChoice) => agent.id === backendId || MAJOR_AGENTS.includes(agentOf(agent.id));
 	const others = harnesses.filter((agent) => !known(agent) && agent.unavailable === undefined);
 	const agentRows: AccountRow[] = harnesses
 		.filter(known)
 		.sort((a, b) => a.name.localeCompare(b.name))
 		.map((agent) => ({
 			key: `agent:${agent.id}`,
-			name: agent.name,
+			name: agent.account === undefined ? agent.name : accountName(agent.name, agent.account.label, agent.account.shared),
 			detail: agent.unavailable !== undefined ? "Not ready" : "",
 			mark: harnessMark(agent.id),
 			// Until it is signed in its list may be stale or empty: the row is the way in.

@@ -272,6 +272,15 @@ pub struct BackendChoice {
     /// new on this desk, or its sign-in expired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<bool>,
+    /// The account this is the agent signed in as, when it is one of the
+    /// person's: `claude-acp#<credential id>`, named as a Hotline Agent
+    /// model's account is. Absent for the agent as it is on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<ChoiceAccount>,
+    /// The agent can run signed in as accounts of the person's own, which
+    /// Settings › Providers adds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accounts: Option<bool>,
 }
 
 /// Where a fresh room stands on its way to a first turn, as the welcome

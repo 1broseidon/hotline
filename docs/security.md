@@ -2326,6 +2326,10 @@ secret in the same places, never a copy of the first.
   the folder holds the agent's own tokens, as the person's home folder does
   for the agent signed in on this computer, and the person's MCP servers are
   copied into it as they are in the home folder.
+- **Failover is a press.** A spent or gone account's card offers the other
+  accounts that can take the turn; a teammate moves only when the person
+  picks one, through `session.set_model` or `session.set_backend`, which
+  check what they always checked.
 
 | Boundary | Proof |
 | --- | --- |

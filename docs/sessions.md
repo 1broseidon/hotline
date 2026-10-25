@@ -912,7 +912,8 @@ titled for the harness ("Claude Code usage limit reached"); it is read before
 the "rate_limit" or ACP's -32000 the sentence arrives with, and is never retried
 or taken for an expired sign-in. A ChatGPT sign-in at its limit (a 429 whose
 `error.type` is `usage_limit_reached`) is the same kind, with the time it resets
-from the body's `resets_at` whatever a `retry-after` header says.
+from the body's `resets_at` whatever a `retry-after` header says. Either card,
+and a quota's, offers the teammate's other accounts (see design.md).
 
 ### An agent's own accounts
 

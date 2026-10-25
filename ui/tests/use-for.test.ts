@@ -1,7 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import type { CapabilityJob, CapabilityOptions } from "../src/generated/contract";
 import { budgetsPatch, limitText } from "../src/budgets";
-import { AUTOMATIC, carriedEffort, choicesFor, effortChoices, effortsOf, currentId, listenForOf, listenForPatch, parseCap, parseWords, pickId, splitPickId, tagsFor, usd, voiceChoices, voicePatch } from "../src/useFor";
+import {
+	AUTOMATIC,
+	allVoices,
+	carriedEffort,
+	choicesFor,
+	currentVoiceId,
+	effortChoices,
+	effortsOf,
+	currentId,
+	listenForOf,
+	listenForPatch,
+	parseCap,
+	parseWords,
+	pickId,
+	speakingText,
+	splitPickId,
+	splitVoiceId,
+	tagsFor,
+	usd,
+	voiceLabel,
+	voicePatch,
+} from "../src/useFor";
 
 const images: CapabilityJob = {
 	automatic: { providerId: "openrouter", providerName: "OpenRouter", modelId: "openai/gpt-image-2.5-flare" },
@@ -61,13 +82,30 @@ describe("the speaking row's voices", () => {
 		options: [{ providerId: "openai", providerName: "OpenAI", models: [{ id: "gpt-4o-mini-tts", voices: ["marin", "cedar"] }] }],
 	};
 
-	test("are the model's, led by its default", () => {
-		expect(voiceChoices(tts).map((one) => one.name)).toEqual(["Default · marin", "marin", "cedar"]);
+	test("are every speaking model's, read as names under the provider", () => {
+		const choices = allVoices(tts);
+		expect(choices.map((one) => [one.group, one.name])).toEqual([
+			[undefined, "Automatic"],
+			["OpenAI", "Marin"],
+			["OpenAI", "Cedar"],
+		]);
+		expect(splitVoiceId(choices[2]!.id)).toEqual({ providerId: "openai", modelId: "gpt-4o-mini-tts", voiceId: "cedar" });
+		expect(speakingText(tts)).toBe("Marin on OpenAI");
+		expect(speakingText({ options: [] })).toBe("Talk to the desk");
 	});
 
-	test("keep a voice the owner named that the list no longer has", () => {
-		const job = { ...tts, selected: { providerId: "openai", providerName: "OpenAI", modelId: "gpt-4o-mini-tts", voice: "verse" } };
-		expect(voiceChoices(job).at(-1)).toEqual({ id: "verse", name: "verse" });
+	test("read an Ollama model's default voice as the model, never Default · default", () => {
+		const ollama: CapabilityJob = {
+			selected: { providerId: "ollama", providerName: "Ollama", modelId: "phonon:latest", voice: "default" },
+			options: [{ providerId: "ollama", providerName: "Ollama", models: [{ id: "phonon:latest", label: "phonon", voices: ["default", "Alfie", "Zoey"] }] }],
+		};
+		const choices = allVoices(ollama);
+		expect(choices.map((one) => one.name)).toEqual(["Automatic", "Phonon", "Alfie", "Zoey"]);
+		expect(choices.find((one) => one.id === currentVoiceId(ollama))?.name).toBe("Phonon");
+		expect(speakingText(ollama)).toBe("Phonon on Ollama");
+		expect(voiceLabel("default", "phonon")).toBe("Phonon");
+		expect(voiceLabel("default")).toBe("Default");
+		expect(voiceLabel("eve", "grok")).toBe("Eve");
 	});
 });
 

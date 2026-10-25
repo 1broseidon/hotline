@@ -624,7 +624,9 @@ metadata. Unknown optional limits and capabilities are omitted. Each row's `enab
 saved filter. An unwired provider is an error.
 
 `credential.refresh_models` uses the active connection and Rig's native
-listing client, then answers with `models.catalog`. An absent connection or
+listing client (Hotline's own reader for OpenRouter, Ollama, xAI and
+ChatGPT), keeps only the models whose kind is chat, then answers with
+`models.catalog`. An absent connection or
 unsupported discovery method is an error. Failed discovery preserves the
 last successful list; manual IDs remain separate. Refresh never updates
 selected models or enabled-model filters. `providers.list` exposes

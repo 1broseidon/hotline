@@ -1,4 +1,4 @@
-import type { CapabilityJob, CapabilityOptions, CapabilityPick, CapabilityProvider } from "./generated/contract";
+import type { CapabilityJob, CapabilityModel, CapabilityOptions, CapabilityPick, CapabilityProvider } from "./generated/contract";
 
 /**
  * What Settings › Providers › Use for needs from `capabilities.options`:
@@ -81,23 +81,73 @@ export function currentId(job: CapabilityJob): string {
 	return pickId(selected.providerId, first?.id);
 }
 
-/** The voices the speaking row offers: those of the model in use, automatic's included. */
-function voicesOf(job: CapabilityJob): string[] {
-	const pick = job.selected ?? job.automatic;
-	if (pick === undefined) return [];
-	const provider = job.options.find((one) => one.providerId === pick.providerId);
-	const model = provider?.models.find((one) => one.id === pick.modelId) ?? provider?.models[0];
-	return model?.voices ?? [];
+/** What Ollama calls the voice a speech model speaks in when asked for none. */
+const OWN_VOICE = "default";
+
+/**
+ * A voice as a person reads it: "eve" is Eve. A voice named `default` is the
+ * model's own, so it reads as the model's name ("Phonon"), never "Default"
+ * beside the default.
+ */
+export function voiceLabel(voice: string, model?: string): string {
+	const name = voice === OWN_VOICE && model !== undefined ? model : voice;
+	return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-export function voiceChoices(job: CapabilityJob): PickerChoice[] {
-	const voices = voicesOf(job);
-	const own = voices[0];
-	const named = job.selected?.voice;
-	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: own === undefined ? "Default voice" : `Default · ${own}` }];
-	for (const voice of voices) choices.push({ id: voice, name: voice });
-	if (named !== undefined && !voices.includes(named)) choices.push({ id: named, name: named });
+/** A model's name in a picker: its label, else its id without a gateway's prefix. */
+function modelName(model: CapabilityModel): string {
+	return model.label ?? shortModel(model.id);
+}
+
+const VOICE_SEPARATOR = "\u001f";
+
+function voiceId(providerId: string, modelId: string, voice: string): string {
+	return [providerId, modelId, voice].join(VOICE_SEPARATOR);
+}
+
+export function splitVoiceId(id: string): { providerId: string; modelId: string; voiceId: string } {
+	const [providerId = "", modelId = "", voiceId = ""] = id.split(VOICE_SEPARATOR);
+	return { providerId, modelId, voiceId };
+}
+
+/** The model a pick names, or its provider's first when it names none. */
+function pickedModel(job: CapabilityJob, pick: CapabilityPick): CapabilityModel | undefined {
+	const provider = job.options.find((one) => one.providerId === pick.providerId);
+	return provider?.models.find((one) => one.id === pick.modelId) ?? provider?.models[0];
+}
+
+/**
+ * Every voice of every connected speaking model, under its provider, and
+ * under the model too where a provider has several: "OpenRouter · Grok Voice TTS 1.0".
+ */
+export function allVoices(job: CapabilityJob): PickerChoice[] {
+	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: "Automatic" }];
+	for (const provider of job.options) {
+		for (const model of provider.models) {
+			const group = provider.models.length > 1 ? `${provider.providerName} · ${modelName(model)}` : provider.providerName;
+			for (const voice of model.voices ?? []) {
+				choices.push({ id: voiceId(provider.providerId, model.id, voice), name: voiceLabel(voice, modelName(model)), group });
+			}
+		}
+	}
 	return choices;
+}
+
+export function currentVoiceId(job: CapabilityJob): string {
+	const selected = job.selected;
+	if (selected === undefined) return AUTOMATIC;
+	const model = pickedModel(job, selected);
+	const voice = selected.voice ?? model?.voices?.[0];
+	return model === undefined || voice === undefined ? AUTOMATIC : voiceId(selected.providerId, model.id, voice);
+}
+
+/** The speaking row's second line: the voice in use and who speaks it. */
+export function speakingText(job: CapabilityJob): string {
+	const pick = job.selected ?? job.automatic;
+	if (pick === undefined) return "Talk to the desk";
+	const model = pickedModel(job, pick);
+	const voice = pick.voice === undefined ? "Default voice" : voiceLabel(pick.voice, model === undefined ? undefined : modelName(model));
+	return `${voice} on ${pick.providerName}`;
 }
 
 /** The thinking levels of the model the owner picked; none for Automatic, which stores no level. */

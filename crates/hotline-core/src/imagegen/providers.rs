@@ -694,6 +694,21 @@ mod tests {
         }
     }
 
+    /// The Images picker lists only image models: none the chat picker
+    /// offers, and each the snapshot sorts is sorted as an image model.
+    #[test]
+    fn the_images_picker_lists_only_image_models() {
+        for row in ROWS {
+            let entry = &crate::models::catalog().providers[row.provider_id];
+            for id in row.models {
+                assert!(!entry.models.contains_key(*id), "{id} is a chat model");
+                if let Some(kind) = entry.kinds.get(*id) {
+                    assert_eq!(*kind, crate::models::ModelKind::Image, "{id}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn the_options_are_the_connected_providers_that_draw() {
         let offered = options_from(&[

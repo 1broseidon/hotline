@@ -33,7 +33,12 @@ import {
 	type PickerChoice,
 	shortModel,
 	splitPickId,
+	splitVoiceId,
+	allVoices,
+	currentVoiceId,
+	speakingText,
 	stored,
+	voiceLabel,
 	voicePatch,
 	type Stored,
 } from "../useFor";
@@ -87,7 +92,6 @@ export function UseFor({
 	const hearsHere = useSpeechOnThisMac();
 	const hearHere = useHearOnThisMac();
 	const speaking = options.tts;
-	const speakingNow = speaking.selected ?? speaking.automatic;
 	const hearingNow = options.stt.selected ?? options.stt.automatic;
 	const hearsOnDesk = hearingNow?.providerId === ON_THE_DESK;
 
@@ -186,11 +190,7 @@ export function UseFor({
 				>
 							<JobRow
 								title="Voice"
-								detail={
-									speakingNow === undefined
-										? "Talk to the desk"
-										: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}`
-								}
+								detail={speakingText(speaking)}
 								job={speaking}
 							>
 								<Picker
@@ -316,7 +316,7 @@ function LiveCalls({
 						</span>
 						<Picker
 							value={voice ?? ""}
-							choices={chosen.voices.map((id) => ({ id, name: voiceName(id) ?? id }))}
+							choices={chosen.voices.map((id) => ({ id, name: voiceLabel(id) }))}
 							placeholder="Voice"
 							label={`Voice for ${chosen.name}`}
 							onChange={(id) => write({ provider: chosen.id, ...(login !== undefined ? { credential: login.id } : {}), voice: { provider: chosen.id, voice: id } })}
@@ -358,48 +358,6 @@ function shortChoices(job: CapabilityJob): PickerChoice[] {
 /** Off, last: choicesFor lists a pick no provider offers as "Not connected", which Off is not. */
 function withOff(choices: PickerChoice[]): PickerChoice[] {
 	return [...choices.filter((choice) => choice.id !== IMAGES_OFF_CHOICE.id), IMAGES_OFF_CHOICE];
-}
-
-/** Voices read as names: "eve" is Eve. */
-function voiceName(voice: string | undefined): string | undefined {
-	return voice === undefined ? undefined : voice.charAt(0).toUpperCase() + voice.slice(1);
-}
-
-const VOICE_SEPARATOR = "\u001f";
-
-function voiceId(providerId: string, modelId: string, voiceId: string): string {
-	return [providerId, modelId, voiceId].join(VOICE_SEPARATOR);
-}
-
-function splitVoiceId(id: string): { providerId: string; modelId: string; voiceId: string } {
-	const [providerId = "", modelId = "", voiceId = ""] = id.split(VOICE_SEPARATOR);
-	return { providerId, modelId, voiceId };
-}
-
-/**
- * Every voice of every connected speaking model, under its provider, and
- * under the model too where a provider has several: "OpenRouter · Grok Voice TTS 1.0".
- */
-function allVoices(job: CapabilityJob): PickerChoice[] {
-	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: "Automatic" }];
-	for (const provider of job.options) {
-		for (const model of provider.models) {
-			const group = provider.models.length > 1 ? `${provider.providerName} · ${model.label ?? shortModel(model.id)}` : provider.providerName;
-			for (const voice of model.voices ?? []) {
-				choices.push({ id: voiceId(provider.providerId, model.id, voice), name: voiceName(voice) ?? voice, group });
-			}
-		}
-	}
-	return choices;
-}
-
-function currentVoiceId(job: CapabilityJob): string {
-	const selected = job.selected;
-	if (selected === undefined) return AUTOMATIC;
-	const provider = job.options.find((one) => one.providerId === selected.providerId);
-	const model = provider?.models.find((one) => one.id === selected.modelId) ?? provider?.models[0];
-	const voice = selected.voice ?? model?.voices?.[0];
-	return model === undefined || voice === undefined ? AUTOMATIC : voiceId(selected.providerId, model.id, voice);
 }
 
 /**

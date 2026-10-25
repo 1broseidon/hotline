@@ -16,6 +16,7 @@
 use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, EffortChoices, Provider};
 use crate::session::ProviderAuth;
 use hotline_room::provider_auth::is_custom;
+pub use hotline_support::model_kind::{ModelKind, Said};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -197,6 +198,12 @@ pub struct ProviderEntry {
     /// Keyed by the id the provider's API takes, which for a router such as
     /// OpenRouter has a slash of its own (`anthropic/claude-opus-5`).
     pub models: BTreeMap<String, Model>,
+    /// What each of the provider's other catalogued models is for, when it
+    /// is not chat: the image, speech and embedding models a live listing
+    /// returns beside the chat ones, so [`kind`] can sort a listing that
+    /// does not say. A model absent from both maps is chat.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub kinds: BTreeMap<String, ModelKind>,
 }
 
 /// What Hotline keeps of a models.dev model. The fields are the catalogue's own
@@ -301,19 +308,54 @@ pub fn catalog() -> &'static Catalog {
     })
 }
 
-/// Whether a coding agent can use a model: it calls tools, answers in text
-/// and nothing else, and its provider has not retired it.
+/// What one listed model is for, the one function every listing goes
+/// through: what the provider's own listing said ([`Said::kind`]), else what
+/// the snapshot records for this provider's id, else chat, so a model nobody
+/// describes stays offered as it always was.
+pub fn kind(provider_id: &str, model_id: &str, said: &Said) -> ModelKind {
+    said.kind()
+        .or_else(|| {
+            catalog()
+                .providers
+                .get(provider_id)?
+                .kinds
+                .get(model_id)
+                .copied()
+        })
+        .unwrap_or(ModelKind::Chat)
+}
+
+/// What models.dev says a model is for: its `type`, absent meaning chat,
+/// unless the model answers in no text at all, when its outputs say.
+fn catalogued_kind(model: &Value) -> ModelKind {
+    let outputs: Vec<String> = model["modalities"]["output"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|output| output.as_str().map(str::to_string))
+        .collect();
+    match model["type"].as_str() {
+        Some(word) => ModelKind::from_type(word),
+        None if !outputs.iter().any(|output| output == "text") => ModelKind::from_outputs(&outputs),
+        None => None,
+    }
+    .unwrap_or(ModelKind::Chat)
+}
+
+/// Whether a coding agent can use a model: a chat model that calls tools,
+/// answers in text and nothing else, and its provider has not retired it.
 fn usable(model: &Value) -> bool {
     let calls_tools = model["tool_call"].as_bool() == Some(true);
     let text_out = model["modalities"]["output"]
         .as_array()
         .is_some_and(|output| output.len() == 1 && output[0] == "text");
     let retired = model["status"].as_str() == Some("deprecated");
-    calls_tools && text_out && !retired
+    calls_tools && text_out && !retired && catalogued_kind(model) == ModelKind::Chat
 }
 
-/// The catalogue cut down to what Hotline ships: each wired provider, and the
-/// models of it that [`usable`] keeps. A wired provider the catalogue lacks,
+/// The catalogue cut down to what Hotline ships: each wired provider, the
+/// models of it that [`usable`] keeps, and the kind of each of its models
+/// that is not chat. A wired provider the catalogue lacks,
 /// or one left with no usable model, is an error rather than an absence — a
 /// sync that quietly drops a provider is a picker that quietly empties.
 /// `openai-codex` is synthesised from openai rather than looked up, because
@@ -328,6 +370,7 @@ pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
                     name: "OpenAI-compatible".into(),
                     doc: None,
                     models: BTreeMap::new(),
+                    kinds: BTreeMap::new(),
                 },
             );
             continue;
@@ -339,6 +382,7 @@ pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
                     name: "Ollama Local".into(),
                     doc: Some("https://ollama.com/download".into()),
                     models: BTreeMap::new(),
+                    kinds: BTreeMap::new(),
                 },
             );
             continue;
@@ -356,7 +400,12 @@ pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
             .to_string();
         let doc = provider["doc"].as_str().map(str::to_string);
         let mut models = BTreeMap::new();
+        let mut kinds = BTreeMap::new();
         for (id, model) in provider["models"].as_object().into_iter().flatten() {
+            let kind = catalogued_kind(model);
+            if kind != ModelKind::Chat {
+                kinds.insert(id.clone(), kind);
+            }
             if !usable(model) {
                 continue;
             }
@@ -366,7 +415,15 @@ pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
         if models.is_empty() {
             return Err(format!("provider `{}` has no usable model", wiring.id));
         }
-        providers.insert(wiring.id.to_string(), ProviderEntry { name, doc, models });
+        providers.insert(
+            wiring.id.to_string(),
+            ProviderEntry {
+                name,
+                doc,
+                models,
+                kinds,
+            },
+        );
     }
     Ok(Catalog {
         source: SOURCE.to_string(),
@@ -393,6 +450,7 @@ fn chatgpt_from_openai(api: &Value) -> Result<ProviderEntry, String> {
         name: "ChatGPT".to_string(),
         doc: Some("https://chatgpt.com".to_string()),
         models,
+        kinds: BTreeMap::new(),
     })
 }
 
@@ -896,6 +954,225 @@ mod tests {
         let catalog = snapshot(&api(), "2026-09-02").unwrap();
         let text = serde_json::to_string_pretty(&catalog).unwrap();
         assert_eq!(serde_json::from_str::<Catalog>(&text).unwrap(), catalog);
+    }
+
+    #[test]
+    fn a_snapshot_records_the_kind_of_each_model_that_is_not_chat() {
+        let mut api = api();
+        let typed = |kind: &str, output: &[&str]| {
+            let mut model = model(false, output, None);
+            model["type"] = json!(kind);
+            model
+        };
+        let openai = &mut api["openai"]["models"];
+        openai["gpt-image-1"] = typed("image", &["image"]);
+        openai["text-embedding-3-small"] = typed("embedding", &["text"]);
+        openai["gpt-audio"] = typed("chat", &["text", "audio"]);
+        // A tool-calling text model that models.dev says is not chat is not
+        // offered to a coding agent either.
+        openai["realtime"] = model(true, &["text"], None);
+        openai["realtime"]["type"] = json!("realtime");
+        // No type means chat, unless the model answers in no text at all.
+        openai["untyped-speaker"] = model(false, &["audio"], None);
+        openai["untyped-mixed"] = model(false, &["text", "image"], None);
+
+        let catalog = snapshot(&api, "d").unwrap();
+        let kinds = &catalog.providers["openai"].kinds;
+        assert_eq!(
+            kinds
+                .iter()
+                .map(|(id, kind)| (id.as_str(), *kind))
+                .collect::<Vec<_>>(),
+            [
+                ("gpt-image-1", ModelKind::Image),
+                ("realtime", ModelKind::Realtime),
+                ("text-embedding-3-small", ModelKind::Embedding),
+                ("untyped-speaker", ModelKind::Speech),
+            ]
+        );
+        assert!(!catalog.providers["openai"].models.contains_key("realtime"));
+        assert!(catalog.providers["anthropic"].kinds.is_empty());
+        let text = serde_json::to_string_pretty(&catalog).unwrap();
+        assert!(text.contains(r#""gpt-image-1": "image""#));
+        assert_eq!(serde_json::from_str::<Catalog>(&text).unwrap(), catalog);
+    }
+
+    fn said_outputs(outputs: &[&str]) -> Said {
+        Said::OutputModalities(outputs.iter().map(ToString::to_string).collect())
+    }
+
+    #[test]
+    fn ollama_capabilities_decide_a_local_models_kind() {
+        let capabilities = |list: &[&str]| {
+            Said::OllamaCapabilities(list.iter().map(ToString::to_string).collect())
+        };
+        // The capabilities a real Ollama server lists.
+        assert_eq!(
+            kind("ollama", "phonon:latest", &capabilities(&["speech"])),
+            ModelKind::Speech
+        );
+        for chat in [
+            &["completion", "vision"][..],
+            &["completion", "tools"],
+            &["completion", "vision", "tools", "thinking"],
+        ] {
+            assert_eq!(
+                kind("ollama", "llama", &capabilities(chat)),
+                ModelKind::Chat
+            );
+        }
+        assert_eq!(
+            kind(
+                "ollama",
+                "nomic-embed-text:latest",
+                &capabilities(&["embedding"])
+            ),
+            ModelKind::Embedding
+        );
+        assert_eq!(
+            kind(
+                "ollama-cloud",
+                "x",
+                &capabilities(&["completion", "speech"])
+            ),
+            ModelKind::Speech
+        );
+    }
+
+    #[test]
+    fn openrouter_output_modalities_decide_and_defer_to_the_snapshot_when_mixed() {
+        assert_eq!(
+            kind("openrouter", "anthropic/claude-x", &said_outputs(&["text"])),
+            ModelKind::Chat
+        );
+        assert_eq!(
+            kind(
+                "openrouter",
+                "black-forest-labs/flux-new",
+                &said_outputs(&["image"])
+            ),
+            ModelKind::Image
+        );
+        assert_eq!(
+            kind(
+                "openrouter",
+                "elevenlabs/eleven-v9",
+                &said_outputs(&["speech"])
+            ),
+            ModelKind::Speech
+        );
+        assert_eq!(
+            kind(
+                "openrouter",
+                "assemblyai/new",
+                &said_outputs(&["transcription"])
+            ),
+            ModelKind::Transcription
+        );
+        // Text and pictures is an image model or OpenRouter's own router:
+        // the snapshot knows which.
+        assert_eq!(
+            kind(
+                "openrouter",
+                "openai/gpt-5-image",
+                &said_outputs(&["image", "text"])
+            ),
+            ModelKind::Image
+        );
+        assert_eq!(
+            kind(
+                "openrouter",
+                "openrouter/auto",
+                &said_outputs(&["text", "image"])
+            ),
+            ModelKind::Chat
+        );
+    }
+
+    #[test]
+    fn xai_output_modalities_keep_grok_imagine_out_of_chat() {
+        assert_eq!(
+            kind("xai", "grok-4.7", &said_outputs(&["text"])),
+            ModelKind::Chat
+        );
+        assert_eq!(
+            kind("xai", "grok-imagine-image-9", &said_outputs(&["image"])),
+            ModelKind::Image
+        );
+        assert_eq!(
+            kind("xai", "grok-imagine-video-9", &said_outputs(&["video"])),
+            ModelKind::Video
+        );
+    }
+
+    #[test]
+    fn the_snapshot_sorts_a_model_its_listing_does_not_describe() {
+        assert_eq!(
+            kind("xai", "grok-imagine-image", &Said::Nothing),
+            ModelKind::Image
+        );
+        assert_eq!(
+            kind("openai", "gpt-image-1", &Said::Nothing),
+            ModelKind::Image
+        );
+        assert_eq!(
+            kind(
+                "openai",
+                "text-embedding-3-small",
+                &Said::Type("model".into())
+            ),
+            ModelKind::Embedding
+        );
+        assert_eq!(
+            kind("groq", "whisper-large-v3", &Said::Nothing),
+            ModelKind::Transcription
+        );
+        assert_eq!(
+            kind(
+                "mistral",
+                "voxtral-mini-tts-latest",
+                &Said::Type("base".into())
+            ),
+            ModelKind::Speech
+        );
+        // What the listing says comes first.
+        assert_eq!(
+            kind("xai", "grok-imagine-image", &said_outputs(&["text"])),
+            ModelKind::Chat
+        );
+        // The ids are the provider's own: OpenRouter's image id is not xAI's.
+        assert_eq!(
+            kind("openrouter", "grok-imagine-image", &Said::Nothing),
+            ModelKind::Chat
+        );
+    }
+
+    #[test]
+    fn a_model_nobody_describes_is_chat() {
+        assert_eq!(
+            kind("openai", "gpt-brand-new", &Said::Nothing),
+            ModelKind::Chat
+        );
+        assert_eq!(
+            kind(
+                "ollama",
+                "custom/coder:latest",
+                &Said::OllamaCapabilities(Vec::new())
+            ),
+            ModelKind::Chat
+        );
+        assert_eq!(
+            kind(
+                "openai-compatible",
+                "served",
+                &Said::Type("fine-tuned".into())
+            ),
+            ModelKind::Chat
+        );
+        assert_eq!(
+            kind("openrouter", "x/decider", &said_outputs(&["decisions"])),
+            ModelKind::Chat
+        );
     }
 
     #[test]

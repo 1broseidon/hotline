@@ -680,7 +680,9 @@ empty `error`) before Rig reads them. Keys are privately bound to the exact
 endpoint, so editing a URL requires explicitly supplying or removing its key.
 Discovery fills the form without changing a saved connection until Save.
 Provider discovery supplies current model IDs wherever Rig has a supported
-listing client. The bundled models.dev snapshot enriches exact provider/model
+listing client, or Hotline reads the listing itself where Rig drops what a
+model is for; each listed model gets one kind and the chat picker keeps the
+chat ones. The bundled models.dev snapshot enriches exact provider/model
 matches with metadata; it does not gate newly discovered IDs. Manual model
 IDs belong to the existing connection and survive refreshes and releases.
 Unknown metadata remains unknown. Refresh changes the available list, never

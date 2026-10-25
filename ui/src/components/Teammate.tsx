@@ -7,6 +7,7 @@ import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { MAX_PINS } from "../pins";
+import { voiceLabel } from "../useFor";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -401,8 +402,8 @@ export function Teammate({
 	);
 }
 
-/** What the desk speaks with now, and the voices that model offers. */
-type Speaking = { providerId: string; modelId: string; voice?: string; voices: string[] };
+/** What the desk speaks with now, the voices that model offers, and its name when the desk lists one. */
+type Speaking = { providerId: string; modelId: string; voice?: string; voices: string[]; label?: string };
 
 /**
  * What calls speak with and its voices, or null while the desk cannot speak:
@@ -415,15 +416,12 @@ function useSpeaking(): Speaking | null {
 	if (status === undefined || options === undefined) return null;
 	if (status.front !== undefined) return status.front;
 	const tts = status.tts;
-	const voices = options.tts.options
+	const model = options.tts.options
 		.find((provider) => provider.providerId === tts?.providerId)
-		?.models.find((model) => model.id === tts?.modelId)?.voices;
-	return tts === undefined || voices === undefined || voices.length === 0 ? null : { ...tts, voices };
-}
-
-/** Voices read as names: "eve" is Eve. */
-function voiceName(voice: string): string {
-	return voice.charAt(0).toUpperCase() + voice.slice(1);
+		?.models.find((one) => one.id === tts?.modelId);
+	const voices = model?.voices;
+	if (tts === undefined || voices === undefined || voices.length === 0) return null;
+	return { ...tts, voices, ...(model?.label !== undefined ? { label: model.label } : {}) };
 }
 
 const DESK_VOICE = "";
@@ -444,8 +442,8 @@ function VoiceRow({ persona, disabled, onSave }: { persona: Persona; disabled: b
 			: DESK_VOICE;
 	const desk = speaking.voice ?? speaking.voices[0];
 	const choices = [
-		{ id: DESK_VOICE, name: desk === undefined ? "The desk's" : `The desk's · ${voiceName(desk)}` },
-		...speaking.voices.map((voice) => ({ id: voice, name: voiceName(voice) })),
+		{ id: DESK_VOICE, name: desk === undefined ? "The desk's" : `The desk's · ${voiceLabel(desk, speaking.label)}` },
+		...speaking.voices.map((voice) => ({ id: voice, name: voiceLabel(voice, speaking.label) })),
 	];
 	return (
 		<div className="group-row">

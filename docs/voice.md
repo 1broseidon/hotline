@@ -505,7 +505,10 @@ base URL it was connected with) speaks once the owner has pulled a speech
 model into it, such as `phonon`, and chosen one of its voices. It is asked
 every time the picker is, never answered for from the cache: `GET /api/tags`
 for the models whose `capabilities` include `speech`, then `POST /api/show`
-for each one's `voices`, `default` first. A server that cannot be asked, or
+for each one's `voices`, `default` first. Those are exactly the models the
+chat picker leaves out, because both read the capabilities through one
+function (`hotline_support::model_kind`). The picker reads a voice named
+`default` as the model's own name ("Phonon"), not "Default". A server that cannot be asked, or
 has no speech model, or a model that lists no voices, offers nothing, and
 Ollama is left out of the speaking options; the copy written to the cache is
 read only for the voice of a model chosen without one. Speech goes through

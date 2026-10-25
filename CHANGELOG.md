@@ -17,6 +17,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   call needs no cloud provider at all. Ollama not running, or with no
   speech model, is simply not offered.
 
+### Fixed
+
+- The model picker lists only chat models. A refreshed list no longer
+  offers image, speech, transcription or embedding models as teammates:
+  Ollama's `phonon` and embedding models, OpenRouter's image models and
+  xAI's Grok Imagine stay out, and so do OpenAI's, Google's, Groq's and
+  Mistral's that models.dev knows are not chat. Images, Voice and
+  Transcription each list only their own kind. Refresh a provider to clear
+  a list saved before. With an Ollama voice chosen, the Voice picker names
+  its default voice after the model ("Phonon") instead of "Default".
+
 ## [0.43.0] - 2026-10-24
 
 ### Added

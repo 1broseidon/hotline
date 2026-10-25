@@ -2,9 +2,11 @@ use super::*;
 
 /// A connected Ollama with a speech model pulled is offered for speaking over
 /// the same wire as Settings, with the voices it lists, and a voice chosen
-/// there is what a text call would speak with, at no cost.
+/// there is what a text call would speak with, at no cost. Each picker lists
+/// only its own kind: the speech model is never a chat model, the embedding
+/// model is neither, and nothing on the server draws or transcribes.
 #[tokio::test(flavor = "multi_thread")]
-async fn ollama_local_offers_its_speech_models_for_speaking() {
+async fn ollama_local_offers_each_model_only_to_the_picker_of_its_kind() {
     use axum::{
         Router,
         routing::{get, post},
@@ -14,8 +16,9 @@ async fn ollama_local_offers_its_speech_models_for_speaking() {
             "/api/tags",
             get(|| async {
                 json!({"models": [
-                    {"name": "llama3.1:8b", "model": "llama3.1:8b", "capabilities": ["completion"]},
+                    {"name": "llama3.1:8b", "model": "llama3.1:8b", "capabilities": ["completion", "tools"]},
                     {"name": "phonon:latest", "model": "phonon:latest", "capabilities": ["speech"]},
+                    {"name": "nomic-embed-text:latest", "model": "nomic-embed-text:latest", "capabilities": ["embedding"]},
                 ]})
                 .to_string()
             }),
@@ -59,6 +62,25 @@ async fn ollama_local_offers_its_speech_models_for_speaking() {
     );
     assert!(tts.get("automatic").is_none(), "{tts}");
     assert!(tts.get("unavailable").is_none(), "{tts}");
+    assert_eq!(options["result"]["stt"]["options"], json!([]), "{options}");
+    assert_eq!(
+        options["result"]["images"]["options"],
+        json!([]),
+        "{options}"
+    );
+    let chat = |list: &Value| -> Vec<String> {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let models = client.call("models.list", json!({})).await;
+    assert_eq!(chat(&models["result"]), ["ollama/llama3.1:8b"], "{models}");
+    let refreshed = client
+        .call("credential.refresh_models", json!({"providerId": "ollama"}))
+        .await;
+    assert_eq!(chat(&refreshed["result"]), ["llama3.1:8b"], "{refreshed}");
 
     let chose = client
         .call(

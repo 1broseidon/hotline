@@ -11,6 +11,7 @@
 
 use super::catalog::{Spoken, read_json};
 use futures_util::future::join_all;
+use hotline_support::model_kind::{ModelKind, Said};
 use serde_json::{Value, json};
 
 pub const PROVIDER_ID: &str = "ollama";
@@ -55,16 +56,21 @@ pub async fn speech_models(client: &reqwest::Client, server: &str) -> Option<Vec
     )
 }
 
-/// The installed models whose capabilities include `speech`.
+/// The installed models whose capabilities make them speech models, by the
+/// same reading that keeps them out of the chat picker.
 fn speakers(tags: &Value) -> Vec<String> {
     tags["models"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|model| {
-            model["capabilities"]
+            let capabilities = model["capabilities"]
                 .as_array()
-                .is_some_and(|capabilities| capabilities.iter().any(|one| one == "speech"))
+                .into_iter()
+                .flatten()
+                .filter_map(|one| one.as_str().map(str::to_string))
+                .collect();
+            Said::OllamaCapabilities(capabilities).kind() == Some(ModelKind::Speech)
         })
         .filter_map(|model| model["name"].as_str().map(str::to_string))
         .collect()

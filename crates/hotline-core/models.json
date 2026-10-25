@@ -1498,6 +1498,22 @@
             "output": 32768
           }
         }
+      },
+      "kinds": {
+        "gemini-2.5-flash-image": "image",
+        "gemini-2.5-flash-preview-tts": "speech",
+        "gemini-2.5-pro-preview-tts": "speech",
+        "gemini-3-pro-image": "image",
+        "gemini-3-pro-image-preview": "image",
+        "gemini-3.1-flash-image": "image",
+        "gemini-3.1-flash-image-preview": "image",
+        "gemini-3.1-flash-lite-image": "image",
+        "gemini-3.1-flash-live-preview": "realtime",
+        "gemini-3.1-flash-tts-preview": "speech",
+        "gemini-3.5-live-translate-preview": "realtime",
+        "gemini-embedding-001": "embedding",
+        "gemini-embedding-2": "embedding",
+        "gemini-omni-flash-preview": "video"
       }
     },
     "groq": {
@@ -1632,6 +1648,12 @@
             "output": 16384
           }
         }
+      },
+      "kinds": {
+        "canopylabs/orpheus-arabic-saudi": "speech",
+        "canopylabs/orpheus-v1-english": "speech",
+        "whisper-large-v3": "transcription",
+        "whisper-large-v3-turbo": "transcription"
       }
     },
     "mistral": {
@@ -1915,6 +1937,11 @@
             "output": 131072
           }
         }
+      },
+      "kinds": {
+        "mistral-embed": "embedding",
+        "voxtral-mini-latest": "transcription",
+        "voxtral-mini-tts-latest": "speech"
       }
     },
     "ollama": {
@@ -3033,6 +3060,17 @@
             "output": 100000
           }
         }
+      },
+      "kinds": {
+        "chatgpt-image-latest": "image",
+        "gpt-image-1": "image",
+        "gpt-image-1-mini": "image",
+        "gpt-image-1.5": "image",
+        "gpt-image-2": "image",
+        "gpt-realtime-2.1": "realtime",
+        "text-embedding-3-large": "embedding",
+        "text-embedding-3-small": "embedding",
+        "text-embedding-ada-002": "embedding"
       }
     },
     "openai-codex": {
@@ -8610,6 +8648,18 @@
             "output": 943718
           }
         }
+      },
+      "kinds": {
+        "google/gemini-2.5-flash-image": "image",
+        "google/gemini-3-pro-image": "image",
+        "google/gemini-3-pro-image-preview": "image",
+        "google/gemini-3.1-flash-image": "image",
+        "google/gemini-3.1-flash-image-preview": "image",
+        "google/gemini-3.1-flash-lite-image": "image",
+        "google/gemini-nano-banana-2.1": "image",
+        "openai/gpt-5-image": "image",
+        "openai/gpt-5-image-mini": "image",
+        "openai/gpt-5.4-image-2": "image"
       }
     },
     "xai": {
@@ -8744,6 +8794,13 @@
             "output": 256000
           }
         }
+      },
+      "kinds": {
+        "grok-imagine-image": "image",
+        "grok-imagine-image-quality": "image",
+        "grok-imagine-video": "video",
+        "grok-imagine-video-1.5": "video",
+        "grok-imagine-video-1.5-lite": "video"
       }
     },
     "zai": {

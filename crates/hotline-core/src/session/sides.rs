@@ -256,6 +256,11 @@ impl Occupant for LiveSide {
         {
             return Begin::Skip;
         }
+        // The person's Stop or Interrupt from here on is this turn's. Taking
+        // an answer up below may wait on a card for minutes, with the turn
+        // shown running, and a Stop pressed meanwhile ends what it carries on.
+        self.stopped_by_person.store(false, Ordering::SeqCst);
+        self.interrupted_by_person.store(false, Ordering::SeqCst);
         if let Some(RequestLine {
             request,
             answer: Some(answer),
@@ -269,6 +274,15 @@ impl Occupant for LiveSide {
                 return Begin::Skip;
             }
             line.request = None;
+        }
+        if let Some(RequestLine {
+            request,
+            answer: Some(_),
+        }) = &line.request
+            && self.stopped_by_person.load(Ordering::SeqCst)
+        {
+            room.end_for_the_persons_stop(&self.id, &[], std::slice::from_ref(request));
+            return Begin::Skip;
         }
         if let Some(request_line) = &line.request {
             if let Err(error) = room.begin_request(&request_line.request, Some(&self.id)) {
@@ -293,8 +307,6 @@ impl Occupant for LiveSide {
         {
             *lock(&self.request) = Some(carried);
         }
-        self.stopped_by_person.store(false, Ordering::SeqCst);
-        self.interrupted_by_person.store(false, Ordering::SeqCst);
         Begin::Go(WorkTurn { line: Some(line) })
     }
 

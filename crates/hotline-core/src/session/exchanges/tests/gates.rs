@@ -617,7 +617,10 @@ async fn an_answer_that_outlives_its_handoff_is_still_heard_in_the_thread() {
         request(room, "ada~bob", &handed.handoff).phase,
         Phase::Stopped
     );
-    assert!(heard_by_ada(room, &handed.handoff).is_empty());
+    assert_eq!(
+        heard_by_ada(room, &handed.handoff),
+        [] as [serde_json::Value; 0]
+    );
 
     let handed = handed_off("answer-outlives-a-failure", "failed").await;
     let room = &handed.room;

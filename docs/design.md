@@ -1069,8 +1069,8 @@ and granted tools.
 `handoff` opens a work thread of the recipient's own, which starts from its
 main conversation's context, to implement or continue work there; the main
 conversation is never interrupted by it.
-The handoff's request id names that thread to its sender, the way an agent's
-id does in Claude Code. A later handoff that passes it as `thread` lands in the
+The handoff's request id, which its result also carries, names that thread to
+its sender. A later handoff that passes it as `thread` lands in the
 same thread, behind any turn in flight there, and the recipient takes it up
 with everything said in the thread before; a handoff without `thread` opens a
 new one. An ask that passes it is answered there and leaves the thread open,
@@ -1197,8 +1197,10 @@ the person also resets the pair. These actions do not create new grants.
 The queue is not single file. Each time the pair is looked at, every request
 goes as far as it can, so a handoff at work in its thread, one waiting on the
 person or on a linked desk, and an ask handed to the conversation that answers
-it hold up nothing behind them, in either direction. Two questions to one
-conversation take turns there, as any two lines do.
+it hold up nothing behind them, in either direction. Neither does a request
+still being taken up, which may wait on the person's first-contact card or on
+its recipient's conversation starting: it waits on a task of its own. Two
+questions to one conversation take turns there, as any two lines do.
 
 Restart recovery preserves paused queues and completed results. Work known to
 have started is not blindly replayed: an interrupted turn returns an explicit

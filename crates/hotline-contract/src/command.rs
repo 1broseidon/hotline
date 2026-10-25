@@ -724,7 +724,8 @@ pub enum Command {
         attachments: Option<Vec<Attachment>>,
     },
     /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it. The thread stays live.
+    /// it. The thread stays live, unless the turn was a handoff's own, which
+    /// closes it as stopped.
     #[serde(rename = "side.cancel")]
     SideCancel { side_id: String },
     /// Archives a side thread: its agent is stopped, its chip goes, and the
@@ -967,7 +968,8 @@ pub enum Command {
         attachments: Option<Vec<Attachment>>,
     },
     /// Stops the turn in flight and drops what waited behind it; the thread
-    /// stays as it was. On a pair it stops the automatic exchange.
+    /// stays as it was, unless the turn was a handoff's own, which closes it
+    /// as stopped. On a pair it stops the automatic exchange.
     /// `interrupt` is the composer's Interrupt rather than Stop: in a work
     /// thread it only cuts the turn, what waited behind it is heard next,
     /// and the work the turn was doing goes on in the next one; in the main

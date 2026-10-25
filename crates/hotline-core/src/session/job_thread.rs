@@ -399,9 +399,13 @@ impl Occupant for LiveJob {
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut JobTurn) -> Driven {
         let thread = Occupant::thread(&**self);
         let line = held.line.take().expect("a turn is taken once");
-        // Stopped while its agent was starting: there is nothing to drive.
+        // Stopped while its agent was starting: there is nothing to drive,
+        // and a question it was to answer ends as the person's stop.
         if self.halted.load(Ordering::SeqCst) {
-            return Driven::default();
+            return Driven {
+                cancelled: true,
+                ..Driven::default()
+            };
         }
         let (driver, reach) = lock(&self.up)
             .as_ref()

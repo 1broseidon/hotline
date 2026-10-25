@@ -1559,8 +1559,10 @@ work the person is directing.
 A durable `exchange_pair` record holds the queue and count. The pair's worker
 takes every request as far as it can each time it looks, rather than only the
 first, so a handoff at work in a thread, one waiting on the person or on a
-linked desk, and an ask handed to its conversation hold up nothing behind them
-in either direction. Requests and
+linked desk, an ask handed to its conversation, and a request still being
+taken up (`Room::admit_request`, on a task of its own, since it may wait on the
+person's first-contact card or on its recipient's conversation starting) hold
+up nothing behind them in either direction. Requests and
 replies share the twelve-message brake across intents; receipts do not
 count. At twelve, both tapes receive an `exchange_paused` card. Further
 queued requests and completed results wait without being discarded.

@@ -464,7 +464,7 @@ async fn a_handoff_that_asks_its_opener_waits_for_that_answer_without_reporting_
     let result = answer_to(room, &handed.handoff).expect("the result reaches Ada");
     assert_eq!(result["cause"]["status"], "done");
     assert_eq!(result["text"], "Painted it blue.");
-    assert!(notices(room, "ada").is_empty());
+    assert_eq!(notices(room, "ada"), [] as [String; 0]);
 }
 
 /// Ada's job, a handoff from it to Bob that the job has heard the result of,

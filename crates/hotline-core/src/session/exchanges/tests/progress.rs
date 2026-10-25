@@ -445,18 +445,17 @@ async fn a_handoff_turn_waiting_only_on_its_sender_reports_nothing() {
             && idle(room, &handed.thread)
     })
     .await;
-    assert!(notices(room, "ada").is_empty());
-    assert!(
-        request(room, "ada~bob", &handed.handoff)
-            .progress
-            .is_empty()
+    assert_eq!(notices(room, "ada"), [] as [String; 0]);
+    assert_eq!(
+        request(room, "ada~bob", &handed.handoff).progress,
+        [] as [String; 0]
     );
 }
 
 #[tokio::test]
 async fn the_turn_that_returns_the_result_reports_nothing() {
     let (room, _agents, _handoff, _thread) = handed_over_and_done("progress-result").await;
-    assert!(notices(&room, "ada").is_empty());
+    assert_eq!(notices(&room, "ada"), [] as [String; 0]);
     assert!(
         room.exchange_pair("ada~bob")
             .unwrap()
@@ -606,7 +605,7 @@ async fn a_report_is_heard_in_the_work_thread_it_was_handed_from_or_in_the_dm_on
     let shown = shown_in(&room, &work);
     assert_eq!(shown.len(), 1, "{shown:?}");
     assert!(shown[0].ends_with(&report));
-    assert!(notices(&room, "ada").is_empty());
+    assert_eq!(notices(&room, "ada"), [] as [String; 0]);
     room.prompt_side(&work, "what came back?", None)
         .await
         .unwrap();
@@ -647,7 +646,10 @@ async fn a_report_is_heard_in_the_work_thread_it_was_handed_from_or_in_the_dm_on
     assert_eq!(heard.matches(&late).count(), 1, "{heard}");
     assert!(!heard.contains(&report), "{heard}");
     assert!(notices(&room, "ada").is_empty(), "it was shown once, in W");
-    assert!(request(&room, "ada~bob", &handoff).progress.is_empty());
+    assert_eq!(
+        request(&room, "ada~bob", &handoff).progress,
+        [] as [String; 0]
+    );
 
     // Made once W has closed, a report is shown in the DM and heard there.
     room.prompt_side(&thread, "and the date?", None)

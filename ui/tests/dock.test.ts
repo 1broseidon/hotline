@@ -228,9 +228,9 @@ describe("a link as a row", () => {
 
 describe("what a person can do in a thread", () => {
 	const read = { say: false, close: false, resume: false, stop: false };
-	test("is speak and archive in an open work thread, and continue in a closed one", () => {
-		expect(powersOf("side", "live")).toEqual({ ...read, say: true, close: true });
-		expect(powersOf("side", "parked")).toEqual({ ...read, say: true, close: true });
+	test("is speak, stop and archive in an open work thread, and continue in a closed one", () => {
+		expect(powersOf("side", "live")).toEqual({ ...read, say: true, close: true, stop: true });
+		expect(powersOf("side", "parked")).toEqual({ ...read, say: true, close: true, stop: true });
 		expect(powersOf("side", "closed")).toEqual({ ...read, resume: true });
 	});
 

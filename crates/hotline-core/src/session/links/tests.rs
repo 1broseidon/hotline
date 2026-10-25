@@ -1125,7 +1125,7 @@ async fn reports_wait_summed_while_the_link_is_down() {
         .await;
     }
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(reports_shown(&laptop).is_empty());
+    assert_eq!(reports_shown(&laptop), [] as [String; 0]);
     let said = said_in(&grizzly, &thread);
     let reports = said[said.len() - 3..].join("\n\n");
 
@@ -1311,7 +1311,7 @@ async fn an_older_desk_refusing_a_report_still_gets_the_handoffs_result() {
         1,
         "refused once and never sent again"
     );
-    assert!(reports_shown(&laptop).is_empty());
+    assert_eq!(reports_shown(&laptop), [] as [String; 0]);
 }
 
 #[tokio::test]
@@ -1337,7 +1337,7 @@ async fn a_linked_desk_reports_and_asks_back_only_by_this_desks_own_requests() {
             .unwrap_err(),
         "This desk sent no such request."
     );
-    assert!(reports_shown(&laptop).is_empty());
+    assert_eq!(reports_shown(&laptop), [] as [String; 0]);
 
     let asking = |intent: &str, continues: Option<&str>, about: &str| LinkedDelivery::Request {
         request_id: "q1".into(),
@@ -1428,7 +1428,7 @@ async fn a_report_from_a_desk_the_handoff_was_not_sent_to_is_refused() {
             .unwrap_err(),
         "This desk sent no such request."
     );
-    assert!(reports_shown(&laptop).is_empty());
+    assert_eq!(reports_shown(&laptop), [] as [String; 0]);
     laptop
         .federation_deliver(GRIZZLY, report_for(&handoff, "runner 3 is green"))
         .unwrap();

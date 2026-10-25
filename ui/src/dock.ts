@@ -206,7 +206,8 @@ export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false)
 	if (kind === "call") return state === "closed" ? READ : { ...READ, say: true, stop: true };
 	if (kind !== "side") return READ;
 	if (handedOver) return { say: state !== "closed", close: false, resume: state === "closed", stop: state !== "closed" };
-	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true };
+	// The composer only interrupts, so Stop in the header is what ends a turn and what waited behind it.
+	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true, stop: true };
 }
 
 /**

@@ -467,7 +467,13 @@ fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Person
     if let Some(fields) = rest.as_object_mut() {
         fields.remove("computer");
     }
-    persona_patch_reattaches(&rest) || enabled(previous) != enabled(updated)
+    // A sender taken off is a standing grant revoked: the restart ends what
+    // was asked under it. One added grants only what is asked from now on.
+    let sender_removed = previous
+        .allowed_senders
+        .iter()
+        .any(|sender| !updated.allowed_senders.contains(sender));
+    persona_patch_reattaches(&rest) || enabled(previous) != enabled(updated) || sender_removed
 }
 
 /// A patch of these fields rebuilds the driver, so a live session has to

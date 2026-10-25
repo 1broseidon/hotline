@@ -269,11 +269,13 @@ impl Room {
             )
         });
         let mut reply = driven.replies.join("\n\n");
+        // A thread ended under a handoff's turn settles it here too.
+        let ended = self.ended_without_result(request);
         if failed {
             reply = if reply.is_empty() {
-                QUESTION_ENDED.to_string()
+                ended.to_string()
             } else {
-                format!("{reply}\n\n{QUESTION_ENDED}")
+                format!("{reply}\n\n{ended}")
             };
         }
         self.finish_request(request, reply, failed);
@@ -307,8 +309,6 @@ impl Room {
         request: &Request,
         thread: String,
     ) -> Result<(), String> {
-        let caller = self.participant(&request.from)?;
-        self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
         self.set_handoff_thread(key, &request.id, &thread)?;
         let (_, launch) = self
             .wake_side(
@@ -320,30 +320,10 @@ impl Room {
                 }),
             )
             .await?;
-        let cause = DeliveryCause::Question {
-            request_id: request.id.clone(),
-            persona_id: caller.id.clone(),
-            name: super::super::links::shown(&caller),
-            thread_key: key.into(),
-            about: peers::about(&request.message),
-            work: self
-                .serving(&thread)
-                .map(|(_, handoff)| peers::about(&handoff.message)),
-        };
-        let from = self.delivery_source(&request.to, &cause);
-        let delivered = self
-            .deliver_into_work(
-                &thread,
-                &format!("question:{}", request.id),
-                cause,
-                from,
-                request.message.clone(),
-                Some(RequestLine {
-                    request: request.id.clone(),
-                    answer: None,
-                }),
-            )
-            .await;
+        let work = self
+            .serving(&thread)
+            .map(|(_, handoff)| peers::about(&handoff.message));
+        let delivered = self.ask_in(key, request, Route::Work(thread), work).await;
         // The line is queued first, so the agent's start finds it waiting.
         if let Some(launch) = launch {
             self.launch(launch);

@@ -324,7 +324,7 @@ export type ThreadHandle = ThreadState & {
 	earlier(through?: string): Promise<void>;
 	/** Says something in it: a work thread, or the main conversation. */
 	prompt(text: string, attachments?: Attachment[]): Promise<null>;
-	/** Stops the turn in flight, and in a work thread the work it was doing; the thread stays as it was. */
+	/** Stops the turn in flight, and in a work thread the work it was doing; the thread stays as it was, unless the turn was a handoff's own, which closes it as stopped. */
 	cancel(): Promise<null>;
 	/** Cuts the turn in flight for the person to say something instead: in a work thread the work goes on. */
 	interrupt(): Promise<null>;

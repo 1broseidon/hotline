@@ -677,6 +677,8 @@ pub struct Room {
     /// Serializes each durable exchange queue and its pair-wide brake.
     exchange_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
+    /// Queued requests being taken up, each on a task of its own.
+    exchange_admitting: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
     /// Who is driving each teammate's computer: one thread at a time, whichever
     /// of the teammate's threads asked first (`computer/gate.rs`).
@@ -827,6 +829,7 @@ impl Room {
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
             exchange_workers: Mutex::new(HashSet::default()),
+            exchange_admitting: Mutex::new(HashSet::default()),
             exchange_leases: Mutex::new(HashMap::default()),
             computer_leases: crate::computer::gate::Leases::new(),
             push,

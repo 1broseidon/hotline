@@ -446,7 +446,11 @@ async fn the_tool_returns_once_sent_and_the_answer_is_delivered() {
     let last = heard.last().unwrap();
     assert!(
         last.contains("[New reply from your teammate Bob answering the message you sent them (\"what broke?\")]")
-            && last.contains("the winch"),
+            && last.contains("the winch")
+            && last.contains(&format!(
+                "Its requestId is {}.",
+                sent["requestId"].as_str().unwrap()
+            )),
         "{last}"
     );
     assert!(

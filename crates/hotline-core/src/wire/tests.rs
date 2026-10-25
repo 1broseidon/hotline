@@ -102,6 +102,8 @@ struct Quiet {
     computer_changes: Mutex<Vec<String>>,
     /// Teammates with a card waiting in a thread other than their DM.
     thread_cards: Mutex<std::collections::HashSet<String>>,
+    /// Side/handoff threads a test says a teammate is running, by persona id.
+    sides: Mutex<HashMap<String, Vec<crate::contract::RunningSide>>>,
     policy_updates: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -120,8 +122,17 @@ impl Quiet {
             invalidations: Mutex::new(Vec::new()),
             computer_changes: Mutex::new(Vec::new()),
             thread_cards: Mutex::default(),
+            sides: Mutex::default(),
             policy_updates: Arc::new(tokio::sync::Mutex::new(())),
         }
+    }
+
+    /// What `sides` will answer for a teammate until a test says otherwise.
+    fn set_sides(&self, persona_id: &str, sides: Vec<crate::contract::RunningSide>) {
+        self.sides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(persona_id.to_string(), sides);
     }
 
     fn set_info(&self, info: SessionInfo) {
@@ -461,6 +472,15 @@ impl RoomHandle for CoreHandle {
 impl RoomHandle for Quiet {
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.thread_cards.lock().unwrap().contains(persona_id)
+    }
+
+    fn sides(&self, persona_id: &str) -> Vec<crate::contract::RunningSide> {
+        self.sides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(persona_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {

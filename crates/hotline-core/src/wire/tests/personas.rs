@@ -468,7 +468,7 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
         json!({
             "id": 3,
             "cmd": "persona.update",
-            "params": { "id": id, "patch": { "name": "Ada Lovelace" } },
+            "params": { "id": id, "patch": { "name": "Ada Lovelace", "allowedSenders": ["bob"] } },
         }),
     )
     .await;
@@ -476,7 +476,7 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
     assert_eq!(
         quiet.reattached(),
         vec![id.clone()],
-        "a name patch reattached a second time"
+        "a name or allowedSenders patch reattached a second time"
     );
     assert_eq!(*quiet.invalidations.lock().unwrap(), vec![id.clone()]);
 

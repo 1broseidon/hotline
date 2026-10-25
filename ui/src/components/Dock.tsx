@@ -99,6 +99,7 @@ export function Dock({
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
 	const at = state.open;
+	if (at !== null) opened.current = `${at.thread.kind}:${at.thread.key}`;
 	const row = at === null ? undefined : rows.find((one) => sameThread(one.thread, at.thread));
 	const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
 

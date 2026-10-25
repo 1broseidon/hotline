@@ -459,7 +459,7 @@ fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Person
 /// opened with: the restart revokes those handles, and the computer is made
 /// again with the new set when the session starts it.
 fn persona_patch_reattaches(patch: &Value) -> bool {
-    const KEYS: [&str; 11] = [
+    const KEYS: [&str; 10] = [
         "cwd",
         "reach",
         "folders",
@@ -470,7 +470,6 @@ fn persona_patch_reattaches(patch: &Value) -> bool {
         "backendId",
         "harnessOverride",
         "backgroundWork",
-        "allowedSenders",
     ];
     patch
         .as_object()

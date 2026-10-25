@@ -263,3 +263,41 @@ describe("the bar of a handed-over thread", () => {
 		expect(container.textContent).toContain("Talk to Poe about it");
 	});
 });
+
+describe("opening a closed work thread from the transcript", () => {
+	test("both the link row and the delivery line open the side thread", async () => {
+		const { Transcript } = await import("../src/components/Transcript");
+		const opened: unknown[] = [];
+		const closedLink: Extract<TranscriptEvent, { kind: "link" }> = {
+			kind: "link", id: "link:side:s1", ts: 1, thread: "s1", threadKind: "side", personaId: "exec",
+			title: "Fix the CI badge", state: "closed", end: "agent", outcome: "Badge fixed", openerId: "lead", openerName: "Lead",
+		};
+		const sideReply: Extract<TranscriptEvent, { kind: "delivery" }> = {
+			kind: "delivery", id: "d-side", ts: 2, text: "Badge fixed",
+			from: { kind: "side", thread: "s1", request: "r1" },
+			cause: { kind: "peer", requestId: "r1", personaId: "exec", name: "Exec", threadKey: "lead~exec", status: "done", about: "Fix the CI badge" },
+		};
+		await act(async () => {
+			root.render(
+				<Transcript
+					personaId="lead"
+					name="Lead"
+					events={[closedLink, sideReply]}
+					streaming={[]}
+					live={false}
+					focus={null}
+					onOpenThread={(open) => opened.push(open)}
+				/>,
+			);
+		});
+		const buttons = [...container.querySelectorAll("button")];
+		await act(async () => {
+			buttons[0]?.click();
+			buttons[1]?.click();
+		});
+		expect(opened).toEqual([
+			{ thread: { kind: "side", key: "s1" }, title: "Fix the CI badge" },
+			{ thread: { kind: "side", key: "s1" }, title: "Fix the CI badge" },
+		]);
+	});
+});

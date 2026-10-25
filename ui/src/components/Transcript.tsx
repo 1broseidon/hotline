@@ -718,7 +718,10 @@ const Row = memo(function Row({
 					type="button"
 					className="hung-line"
 					data-missed={deliveryMissed(event) || undefined}
-					onClick={() => onOpenThread?.({
+					onClick={() => onOpenThread?.(event.from?.kind === "side" ? {
+						thread: { kind: "side", key: event.from.thread },
+						...(cause.about !== "" ? { title: cause.about } : {}),
+					} : {
 						thread: { kind: "pair", key: cause.threadKey },
 						withName: cause.name,
 						...(cause.kind === "handoff" ? { handoff: cause } : {}),

@@ -4,7 +4,6 @@
 
 use super::*;
 use crate::contract::Reach;
-use crate::driver::HOTLINE_BACKEND_ID;
 use crate::session::{new_id, now_ms};
 
 impl Room {
@@ -153,28 +152,21 @@ impl Room {
     }
 
     /// Whether `caller` may ask `target` to work without the person's card.
-    pub(in crate::session) fn collaboration_granted(
+    pub(crate) fn collaboration_granted(
         &self,
         caller: &Persona,
         target: &Persona,
-        handoff: bool,
+        _handoff: bool,
     ) -> bool {
         // Whatever a teammate may do on its own desk, it gains nothing by
         // crossing a link: one on a linked desk is never implicitly trusted.
         let implicit = caller.node.is_none()
-            && caller.backend_id == HOTLINE_BACKEND_ID
             && caller.reach.unwrap_or_default() == Reach::Machine;
-        let informed = self.log.load(&StreamId::Room).iter().any(|v| {
-            v["kind"] == "collaboration_informed"
-                && v["id"] == format!("collaboration:{}:{}", caller.id, target.id)
-                && v["deleted"] != true
-        });
-        let allowed = (!handoff || informed)
-            && (implicit
-                || target
-                    .allowed_senders
-                    .iter()
-                    .any(|sender| sender == &caller.id));
+        let allowed = implicit
+            || target
+                .allowed_senders
+                .iter()
+                .any(|sender| sender == &caller.id);
         allowed || self.peers.session_granted(&caller.id, &target.id)
     }
 

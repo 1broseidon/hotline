@@ -214,7 +214,6 @@ impl Room {
     /// inside the wire's invalidate-to-append window.
     pub fn invalidate(&self, persona_id: &str) -> Result<(), String> {
         self.persona(persona_id)?;
-        self.forget_informed_collaboration(persona_id);
         {
             let _lifecycle = lock(&self.lifecycle);
             self.capability_epoch(persona_id).invalidate();

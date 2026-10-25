@@ -27,7 +27,7 @@ pub(super) fn questions_heard(agents: &Fake) -> usize {
     agents
         .prompts()
         .iter()
-        .filter(|p| p.contains("asks you"))
+        .filter(|p| p.contains("asking you"))
         .count()
 }
 
@@ -50,9 +50,9 @@ async fn an_ask_is_answered_by_the_colleagues_main_conversation() {
         .expect("Bob answers it there");
     assert_eq!(reply["text"], "result-0");
     let heard = &agents.prompts()[0];
-    assert!(heard.contains("Ada asks you"), "{heard}");
+    assert!(heard.contains("[New message from your teammate Ada (an authorized teammate in this room) asking you"), "{heard}");
     assert!(
-        heard.contains("Hotline sends that reply back to Ada by itself"),
+        heard.contains("Hotline sends your final reply back to Ada automatically"),
         "{heard}"
     );
 
@@ -119,7 +119,7 @@ async fn an_ask_waits_behind_the_persons_turn_in_the_main_conversation() {
     let answer = answer_to(&room, &id).unwrap();
     assert_eq!(answer["cause"]["status"], "done");
     assert_eq!(answer["text"], "The port is 8080.");
-    assert!(agents.prompts()[1].contains("asks you"));
+    assert!(agents.prompts()[1].contains("asking you"));
 }
 
 #[tokio::test]
@@ -400,7 +400,7 @@ async fn the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_ow
         agents
             .prompts()
             .iter()
-            .any(|p| p.contains("what time is it?") && !p.contains("asks you"))
+            .any(|p| p.contains("what time is it?") && !p.contains("asking you"))
     })
     .await;
 }
@@ -541,7 +541,7 @@ async fn an_ask_naming_a_thread_is_answered_in_it_and_leaves_it_open() {
         .find(|p| p.contains("Which branch is it on?"))
         .expect("the thread's agent heard it");
     assert!(
-        heard.contains("Ada asks you about the work “Fix the build.”"),
+        heard.contains("[New message from your teammate Ada (an authorized teammate in this room) asking you about the work “Fix the build.”"),
         "{heard}"
     );
 

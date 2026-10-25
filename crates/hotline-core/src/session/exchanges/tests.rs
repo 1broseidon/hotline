@@ -436,11 +436,20 @@ async fn a_revoke_tells_the_sender_once_by_name_however_many_it_stopped() {
 #[tokio::test]
 async fn a_legacy_grant_requires_informed_handoff_approval_but_still_allows_ask() {
     let (room, _) = setup("legacy-handoff-grant");
+    let mut caller = room.persona("ada").unwrap();
+    caller.reach = Some(crate::contract::Reach::Workspace);
+    crate::room::append_persona(&room.log, &caller).unwrap();
     let mut target = room.persona("bob").unwrap();
     target.allowed_senders.push("ada".into());
     crate::room::append_persona(&room.log, &target).unwrap();
     let ask = send(&room, "ask").await;
     done(&room, &ask).await;
+    let handoff_granted = send(&room, "handoff").await;
+    done(&room, &handoff_granted).await;
+
+    // Removing ada from allowed_senders requires permission approval for a new handoff.
+    target.allowed_senders.clear();
+    crate::room::append_persona(&room.log, &target).unwrap();
     let handoff = send(&room, "handoff").await;
     until("an open permission card on ada's tape", || {
         room.tape("ada")
@@ -462,7 +471,7 @@ async fn a_legacy_grant_requires_informed_handoff_approval_but_still_allows_ask(
     assert!(
         room.tape("bob")
             .iter()
-            .all(|v| v["cause"]["kind"] != "handoff")
+            .all(|v| v["cause"]["requestId"] != handoff.as_str())
     );
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow_always")
         .await
@@ -747,10 +756,9 @@ async fn stop_at_twelfth_reply_invalidates_dispatched_result_without_cancelling_
 #[tokio::test]
 async fn stop_settles_pending_approval_and_the_next_request_does_not_wait_for_its_deadline() {
     let (room, _) = setup("stop-pending-approval");
-    // Legacy grant triggers informed approval only for Handoff.
-    let mut bob = room.persona("bob").unwrap();
-    bob.allowed_senders.push("ada".into());
-    crate::room::append_persona(&room.log, &bob).unwrap();
+    let mut ada = room.persona("ada").unwrap();
+    ada.reach = Some(crate::contract::Reach::Workspace);
+    crate::room::append_persona(&room.log, &ada).unwrap();
     let old = send(&room, "handoff").await;
     until("an open permission card on ada's tape", || {
         room.tape("ada")
@@ -770,6 +778,9 @@ async fn stop_settles_pending_approval_and_the_next_request_does_not_wait_for_it
             .await
             .is_err()
     );
+    let mut bob = room.persona("bob").unwrap();
+    bob.allowed_senders.push("ada".into());
+    crate::room::append_persona(&room.log, &bob).unwrap();
     let next = send(&room, "ask").await;
     tokio::time::timeout(Duration::from_secs(2), done(&room, &next))
         .await
@@ -1551,7 +1562,15 @@ async fn a_handoff_naming_its_thread_continues_it_and_one_without_opens_another(
     done(&room, &third_id).await;
     assert_eq!(work_thread(&room, &third_id), thread);
 
-    let other = hand_off(&room, "ada", "bob", "Something else.", None)
+    let reused = hand_off(&room, "ada", "bob", "Implicit follow-up.", None)
+        .await
+        .unwrap();
+    let reused_id = reused["requestId"].as_str().unwrap().to_string();
+    assert_eq!(reused["thread"], first_id.as_str());
+    done(&room, &reused_id).await;
+    assert_eq!(work_thread(&room, &reused_id), thread);
+
+    let other = hand_off(&room, "ada", "bob", "Something else.", Some("new"))
         .await
         .unwrap();
     let other_id = other["requestId"].as_str().unwrap().to_string();

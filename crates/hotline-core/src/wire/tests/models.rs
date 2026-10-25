@@ -426,6 +426,47 @@ async fn session_set_backend_waits_for_a_busy_teammate_to_finish_its_turn() {
     assert_eq!(quiet.reattached(), vec![id]);
 }
 
+/// A side (or handoff) thread still working holds the switch even when the
+/// main DM session is idle: reattach would invalidate the teammate and drop
+/// that live thread, so the restart waits until the thread is done and only
+/// then reattaches onto the new agent.
+#[tokio::test]
+async fn session_set_backend_waits_for_a_working_side_thread_with_an_idle_dm() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("set-backend-side-working", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+    // The main DM is idle, but a side thread is mid-turn.
+    quiet.set_info(idle(&id));
+    quiet.set_sides(
+        &id,
+        vec![crate::contract::RunningSide {
+            side_id: "side-1".to_string(),
+            title: "a handoff".to_string(),
+            started_at: 0,
+            working: true,
+        }],
+    );
+
+    let moved = set_backend(&mut socket, 2, &id, "codex").await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    assert_eq!(room::roster(&log)[0].backend_id, "codex");
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    assert!(
+        quiet.reattached().is_empty(),
+        "a working side thread is not cut short by the switch"
+    );
+
+    // The side thread finishes; the switch may now reattach onto the new agent.
+    quiet.set_sides(&id, Vec::new());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while quiet.reattached().is_empty() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(quiet.reattached(), vec![id]);
+}
+
 #[tokio::test]
 async fn session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there() {
     let quiet = Arc::new(Quiet::new());

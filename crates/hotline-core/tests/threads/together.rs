@@ -565,6 +565,7 @@ fn delivered(events: &[Value], cause: &str, id: &str) -> Option<Value> {
 async fn a_follow_up_handoff_lands_in_the_thread_the_first_ran_in() {
     let mut desk = open().await;
     let ada = desk.teammate("Ada", false).await;
+    desk.ok("persona.update", json!({"id": ada, "patch": {"reach": "workspace"}})).await;
     desk.teammate("Bob", false).await;
     let result_for = |desk: &Desk, id: &str| {
         desk.log
@@ -659,6 +660,7 @@ async fn a_delegated_thread_reports_back_takes_the_persons_words_and_answers_que
  {
     let mut desk = open().await;
     let ada = desk.teammate("Ada", false).await;
+    desk.ok("persona.update", json!({"id": ada, "patch": {"reach": "workspace"}})).await;
     // Bob keeps to his workspace, so only the delegation lets him ask Ada
     // back without a card.
     let bob_draft = json!({"name":"Bob","goal":"Keep the harbour.","cwd":desk.workspace});

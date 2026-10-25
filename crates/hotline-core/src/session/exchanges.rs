@@ -177,11 +177,50 @@ struct Pair {
 }
 impl Pair {
     /// The name a handoff from `from` to `to` gives its thread, found by the
-    /// id of any handoff that ran there: the id of the one that opened it.
+    /// id of any handoff that ran there (or its side-thread id): the id of the
+    /// one that opened it.
     fn thread_named(&self, named: &str, from: &str, to: &str) -> Option<String> {
+        let clean = named.strip_prefix("side:").unwrap_or(named);
         self.requests
             .iter()
-            .find(|r| r.id == named && r.from == from && r.to == to && r.intent == Intent::Handoff)
+            .rev()
+            .find(|r| {
+                r.from == from
+                    && r.to == to
+                    && r.intent == Intent::Handoff
+                    && (r.id == named || r.id == clean || r.thread.as_deref() == Some(clean))
+            })
+            .map(|r| r.continues.clone().unwrap_or_else(|| r.id.clone()))
+    }
+    /// The latest active/completed handoff thread from `from` to `to` in the
+    /// same conversation that a follow-up handoff without `thread` can reuse.
+    fn reusable_thread(
+        &self,
+        from: &str,
+        to: &str,
+        reply_thread: &Option<String>,
+        reply_job: &Option<String>,
+        room: &Room,
+    ) -> Option<String> {
+        self.requests
+            .iter()
+            .rev()
+            .find(|r| {
+                r.from == from
+                    && r.to == to
+                    && r.intent == Intent::Handoff
+                    && !r.released
+                    && !r.failed
+                    && !r.stopped_by_person
+                    && r.phase != Phase::Stopped
+                    && &r.reply_thread == reply_thread
+                    && &r.reply_job == reply_job
+                    && r.human_actions.iter().all(|g| g.consumed)
+                    && (r.phase != Phase::Done
+                        || r.thread
+                            .as_deref()
+                            .is_some_and(|side_id| !room.work_is_open(side_id)))
+            })
             .map(|r| r.continues.clone().unwrap_or_else(|| r.id.clone()))
     }
     /// Where a request that works in a thread is done. One that names a thread
@@ -337,8 +376,22 @@ impl Room {
                 paused: false,
                 requests: vec![],
             });
-            let continues = match outgoing.thread.map(str::trim) {
-                None => None,
+            let reply_thread = matches!(sent_from.kind, ThreadKind::Side | ThreadKind::Call)
+                .then(|| sent_from.key.clone());
+            let reply_job = (sent_from.kind == ThreadKind::Job).then(|| sent_from.key.clone());
+            let continues = match outgoing.thread.map(str::trim).filter(|s| !s.is_empty()) {
+                Some("new") => None,
+                None => (intent == Intent::Handoff)
+                    .then(|| {
+                        pair.reusable_thread(
+                            &caller.id,
+                            &target.id,
+                            &reply_thread,
+                            &reply_job,
+                            self,
+                        )
+                    })
+                    .flatten(),
                 Some(named) => Some(
                     pair.thread_named(named, &caller.id, &target.id)
                         .ok_or_else(|| {
@@ -373,9 +426,8 @@ impl Room {
                 human_actions: vec![],
                 thread: None,
                 taken_up_in: None,
-                reply_thread: matches!(sent_from.kind, ThreadKind::Side | ThreadKind::Call)
-                    .then(|| sent_from.key.clone()),
-                reply_job: (sent_from.kind == ThreadKind::Job).then(|| sent_from.key.clone()),
+                reply_thread,
+                reply_job,
                 returned: false,
                 lead_call: (intent == Intent::Handoff
                     && target.node.is_none()
@@ -403,6 +455,40 @@ impl Room {
             thread: (intent == Intent::Handoff).then(|| continues.unwrap_or_else(|| id.clone())),
             request_id: id,
         })
+    }
+    /// Active and recent handoff threads from `from` to `to` in the current chapter.
+    pub(crate) fn handoff_threads_for(&self, from: &str, to: &str) -> Vec<serde_json::Value> {
+        let Some(key) = thread_key(from, to) else {
+            return Vec::new();
+        };
+        let Some(pair) = self.exchange_pair(&key) else {
+            return Vec::new();
+        };
+        let mut seen = Vec::<String>::new();
+        let mut out = Vec::new();
+        for r in pair.requests.iter().rev() {
+            if r.from != from
+                || r.to != to
+                || r.intent != Intent::Handoff
+                || r.released
+                || r.phase == Phase::Stopped
+            {
+                continue;
+            }
+            let thread_id = r.continues.clone().unwrap_or_else(|| r.id.clone());
+            if seen.contains(&thread_id) {
+                continue;
+            }
+            seen.push(thread_id.clone());
+            out.push(serde_json::json!({
+                "thread": thread_id,
+                "sideThreadId": r.thread,
+                "phase": r.phase,
+                "lastRequestId": r.id,
+            }));
+        }
+        out.reverse();
+        out
     }
     pub fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String> {
         self.change_exchange(a, b, false)
@@ -575,6 +661,7 @@ impl Room {
         }
         false
     }
+    #[cfg(test)]
     pub(super) fn forget_informed_collaboration(&self, persona: &str) {
         for mut event in self.log.load(&StreamId::Room) {
             if event["kind"] == "collaboration_informed"
@@ -686,6 +773,30 @@ impl Room {
                     eprintln!("write an ask's answer to its thread: {error}");
                 }
                 return Finished::Answer;
+            }
+            // If a question or card answer was already delivered and read in
+            // this work thread while the turn was still running (for instance via
+            // steer), mark its gate consumed so the turn does not get stuck in
+            // Waiting at the end of the turn.
+            if let Some(side_id) = request.thread.as_deref()
+                && let Some(stream) = StreamId::of_thread(&self.work_thread(side_id))
+            {
+                let events = self.log.load(&stream);
+                for gate in &mut request.human_actions {
+                    if !gate.consumed {
+                        let result_id = format!("exchange-result:{}", gate.id);
+                        let stopped_id = format!("exchange-stopped:{}", gate.id);
+                        let answer_id = format!("human-answer:{}", gate.id);
+                        if events.iter().any(|event| {
+                            (event["id"] == result_id
+                                || event["id"] == stopped_id
+                                || event["id"] == answer_id)
+                                && event["receipt"] == "read"
+                        }) {
+                            gate.consumed = true;
+                        }
+                    }
+                }
             }
             // Only a cleanly completed turn establishes a safe suspension point.
             // A crash or a failed turn is uncertain even if it posted a card.
@@ -825,7 +936,7 @@ impl Room {
                     .map(|r| (p.id, r))
             })
             .ok_or("Handoff disappeared")?;
-        if request.phase != Phase::Waiting
+        if !matches!(request.phase, Phase::Waiting | Phase::Running)
             || !self.exchange_lease_current(id)
             || !request
                 .human_actions
@@ -862,7 +973,7 @@ impl Room {
         let r = pair
             .requests
             .iter_mut()
-            .find(|r| r.id == id && r.phase == Phase::Waiting)
+            .find(|r| r.id == id && matches!(r.phase, Phase::Waiting | Phase::Running))
             .ok_or("This handoff was stopped before its answer")?;
         let gate = r
             .human_actions

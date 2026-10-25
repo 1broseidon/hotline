@@ -789,7 +789,7 @@ async fn computer_room(
 }
 
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.10.4"},{"tag_name":"v0.10.3"}]"#;
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.11.1"},{"tag_name":"v0.11.0"}]"#;
 
 /// The notices on a teammate's tape, oldest first.
 fn notices(room: &Room, persona_id: &str) -> Vec<String> {

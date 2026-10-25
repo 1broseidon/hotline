@@ -44,6 +44,19 @@ pub(super) fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, St
 /// `requestId` for a mobile create, so a retried create finds the teammate
 /// already made instead of a second one.
 fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, String> {
+    let persona = drafted_persona(log, id, draft)?;
+    add_persona(log, &persona)?;
+    Ok(json!(persona))
+}
+
+/// The teammate a draft makes, with the room's defaults filled in, before
+/// it is written. The lead's `add_teammate` shows the person this on its card,
+/// so what they approve is what [`add_persona`] later writes.
+pub(crate) fn drafted_persona(
+    log: &Log,
+    id: String,
+    draft: PersonaDraft,
+) -> Result<Persona, String> {
     let stamped = now();
     let backend_id = given(draft.backend_id).unwrap_or_else(|| default_backend_id(log));
     // A Hotline Agent draft that leaves the model blank takes the room's
@@ -95,10 +108,15 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         created_at: stamped,
         updated_at: stamped,
     };
-    room::append_persona(log, &persona)?;
+    Ok(persona)
+}
+
+/// Writes a drafted teammate onto the room stream.
+pub(crate) fn add_persona(log: &Log, persona: &Persona) -> Result<(), String> {
+    room::append_persona(log, persona)?;
     // The desk's first teammate is its lead.
     room::settle_lead(log)?;
-    Ok(json!(persona))
+    Ok(())
 }
 
 /// All a phone may say about a teammate it creates. The type has no room for

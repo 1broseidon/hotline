@@ -1,6 +1,6 @@
 //! Saving a preferred name is one core-owned operation, approved by its card.
 
-use super::asking::Question;
+use super::asking::{Approves, Question};
 use super::*;
 
 impl Room {
@@ -24,7 +24,7 @@ impl Room {
             None,
             Some(Question {
                 capability,
-                person_name: Some(name.to_string()),
+                approves: Some(Approves::PersonName(name.to_string())),
             }),
         )
     }
@@ -45,10 +45,9 @@ impl Room {
         if expires_at.is_none_or(|expires| expires <= now_ms()) {
             return Err("This name approval has expired. Ask again.".into());
         }
-        let name = question
-            .person_name
-            .as_ref()
-            .ok_or("This card cannot save a name.")?;
+        let Some(Approves::PersonName(name)) = &question.approves else {
+            return Err("This card cannot save a name.".into());
+        };
         if status == HumanActionStatus::Done {
             self.log
                 .append(

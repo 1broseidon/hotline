@@ -56,3 +56,39 @@ describe("a dropdown's tooltip", () => {
 	});
 });
 
+describe("the conversation's band", () => {
+	test("its face is the teammate's menu, headed by who it is; the name stands in the band only with the rail closed", async () => {
+		const source = await Bun.file(new URL("../src/components/Conversation.tsx", import.meta.url)).text();
+		// The "…" is the face, labelled by the teammate, working or not.
+		expect(source).toContain('className="control btn-icon band-face"');
+		expect(source).toMatch(/label=\{state === "thinking" \? `\$\{persona.name\}, working` : persona.name\}/);
+		expect(source).not.toContain("<MoreIcon");
+		// The menu opens on who it is: a heading with the face, the name and the goal.
+		expect(source).toMatch(/kind: "heading",\s*text: persona.name,\s*\.\.\.\(persona.goal \? \{ detail: persona.goal \} : \{\}\)/);
+		// The name leaves the band's left while the rail names it.
+		expect(source).toMatch(/\{!railOpen && ourCall === null && \(/);
+		expect(source).not.toMatch(/title=\{`Teammate \(\$\{chordKeys/);
+	});
+
+	test("a heading with a detail draws as a card: the name over the goal", async () => {
+		const { MenuButton } = await import("../src/ui/Menu");
+		await act(async () => {
+			root.render(
+				<MenuButton
+					className="control"
+					label="Goldie"
+					entries={[
+						{ kind: "heading", text: "Goldie", detail: "Help me with whatever I bring you." },
+						{ kind: "item", id: "settings", text: "Settings", onSelect: () => {} },
+					]}
+				>
+					G
+				</MenuButton>,
+			);
+		});
+		await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+		const card = document.querySelector(".menu-card")!;
+		expect(card.querySelector(".menu-card-name")?.textContent).toBe("Goldie");
+		expect(card.querySelector(".menu-card-detail")?.textContent).toBe("Help me with whatever I bring you.");
+	});
+});

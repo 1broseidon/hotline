@@ -635,6 +635,7 @@ export function App() {
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
 							paneOpen={dock !== null}
+							railOpen={railShown}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{inspector && (

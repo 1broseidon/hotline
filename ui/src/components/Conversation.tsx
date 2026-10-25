@@ -2,9 +2,9 @@ import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useM
 import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
 import { processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
-import { chordGlyph, chordKeys } from "../chords";
+import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, ProgressRing, WarningIcon } from "../icons";
 import { type Call as CallSession, useCall, useCallSnapshot } from "../voice/call";
 import { carry } from "../serverFiles";
 import { nextText } from "../room";
@@ -58,6 +58,7 @@ export function Conversation({
 	processOpen,
 	threadOpen,
 	paneOpen = false,
+	railOpen = true,
 	dock,
 	models,
 	onSaid,
@@ -104,6 +105,8 @@ export function Conversation({
 	threadOpen: ThreadId | undefined;
 	/** The threads pane is beside the conversation, listing what the band's side-thread chips would. */
 	paneOpen?: boolean;
+	/** The rail is out and names the teammate in its selected row; closed, the band names it beside its face. */
+	railOpen?: boolean;
 	/** The work card, docked under the composer when the window is too narrow for it to float. */
 	dock?: ReactNode;
 }) {
@@ -243,7 +246,7 @@ export function Conversation({
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
-				pulling, openScreen, setRefused, onProviders }} />
+				pulling, openScreen, setRefused, onProviders, railOpen }} />
 
 			{notice !== null && (
 				<p
@@ -321,10 +324,10 @@ export function Conversation({
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
 	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
-	pulling, openScreen, setRefused, onProviders,
+	pulling, openScreen, setRefused, onProviders, railOpen,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
 	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
-	| "threadOpen" | "paneOpen" | "callBar" | "onProviders"> & {
+	| "threadOpen" | "paneOpen" | "callBar" | "onProviders" | "railOpen"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
 	setRefused(message: string | null): void;
@@ -369,6 +372,12 @@ const ConversationBand = memo(function ConversationBand({
 	// Four words, as the board's label rule asks (decision ui.tooltip-length):
 	// the rest lives where it is used, not in this menu.
 	const more: MenuEntry[] = [
+		{
+			kind: "heading",
+			text: persona.name,
+			...(persona.goal ? { detail: persona.goal } : {}),
+			icon: <Avatar id={persona.id} name={persona.name} size={28} hash={persona.avatar?.hash} />,
+		},
 		...folded,
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: startChapter },
 		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
@@ -386,22 +395,11 @@ const ConversationBand = memo(function ConversationBand({
 				{/* On a call to this teammate its face grows to the card's full height, ringed. */}
 				{ourCall !== null && <CallFace call={ourCall} persona={persona} />}
 				<Band>
-					<button
-						type="button"
-						className="control btn-quiet -ml-1 min-w-0 shrink gap-2 pl-1 pr-2"
-						// The name is the one way into the teammate's pane, the way a
-						// messages app opens a contact from its header.
-						title={`Teammate (${chordKeys("teammate")})`}
-						aria-label={state === "thinking" ? `${persona.name}, working` : persona.name}
-						aria-expanded={inspectorOpen}
-						onClick={onToggleInspector}
-					>
-						{ourCall === null && <Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />}
-						<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
-						{state === "thinking" && (
-							<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-						)}
-					</button>
+					{/* The rail's selected row names who this is; the band's left is the
+					 * window's to drag. With the rail closed the name comes back here. */}
+					{!railOpen && ourCall === null && (
+						<span className="min-w-0 shrink truncate pl-1 text-lg font-semibold text-ink">{persona.name}</span>
+					)}
 					{ourCall !== null && <CallStatus call={ourCall} roster={roster} />}
 	
 					<span className="min-w-0 flex-1" />
@@ -482,8 +480,16 @@ const ConversationBand = memo(function ConversationBand({
 							<ComputerIcon />
 						</button>
 					)}
-					<MenuButton className="control btn-icon" label="More" entries={more}>
-						<MoreIcon />
+					{/* The teammate's face is its menu: who it is, Settings, New chapter,
+					 * Threads, Remove. It beats while the teammate works. */}
+					<MenuButton
+						className="control btn-icon band-face"
+						label={state === "thinking" ? `${persona.name}, working` : persona.name}
+						title={persona.name}
+						entries={more}
+					>
+						<Avatar id={persona.id} name={persona.name} size={24} hash={persona.avatar?.hash} />
+						{state === "thinking" && <span aria-hidden="true" className="band-face-beat beat" />}
 					</MenuButton>
 				</Band>
 				{callBar}

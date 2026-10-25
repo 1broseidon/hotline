@@ -104,14 +104,6 @@ export const KeyboardIcon = ({ className }: IconProps) => (
 		<path d="M4 6.75h.01M6.67 6.75h.01M9.33 6.75h.01M12 6.75h.01M5 10h6" />
 	</Icon>
 );
-export const MoreIcon = ({ className }: IconProps) => (
-	<Icon className={className}>
-		<circle cx="3.5" cy="8" r="1" fill="currentColor" stroke="none" />
-		<circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
-		<circle cx="12.5" cy="8" r="1" fill="currentColor" stroke="none" />
-	</Icon>
-);
-
 export const InfoIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<circle cx="8" cy="8" r="5.75" />

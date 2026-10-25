@@ -561,10 +561,9 @@ async fn a_policy_update_and_a_message_closing_a_quiet_chapter_both_finish() {
         .expect("the policy update finishes")
         .unwrap()
         .unwrap();
-    until(
-        "both gates and the policy lock are free",
-        || !held("ada") && !held("bob") && room.policy_update_lock().try_lock().is_ok(),
-    )
+    until("both gates and the policy lock are free", || {
+        !held("ada") && !held("bob") && room.policy_update_lock().try_lock().is_ok()
+    })
     .await;
     assert_eq!(markers(&room, "bob")[0]["closedBy"], "idle");
 }

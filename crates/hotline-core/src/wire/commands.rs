@@ -328,12 +328,16 @@ pub(crate) async fn run(
         } => room.mcp_auth_callback(&login_id, &callback_url).await,
         Command::McpAuthStatus { server_id } => room.mcp_auth_status(&server_id).await,
         Command::McpAuthSignOut { server_id } => {
-            let gate = room.policy_update_lock();
-            let _held = gate.lock().await;
+            let held = room.policy_update_lock().lock_owned().await;
             room.invalidate_all()?;
             // Failed credential deletion must leave the old capabilities
             // revoked; reattaching would restore access the operator removed.
             room.mcp_auth_sign_out(&server_id).await?;
+            // The invalidate and the sign-out are done; let go of the policy
+            // lock before the reattach, which takes each teammate's start
+            // gate. The one order is `start_gate -> policy_update_lock`, so a
+            // chapter close cannot deadlock against this.
+            drop(held);
             room.reattach_all().await?;
             Ok(Value::Null)
         }

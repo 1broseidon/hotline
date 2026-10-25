@@ -495,6 +495,80 @@ async fn a_sign_in_and_a_message_closing_a_quiet_chapter_both_finish() {
     assert_eq!(markers(&room, other)[0]["closedBy"], "idle");
 }
 
+/// A policy update and a message closing a quiet chapter run at once. The
+/// update invalidates under the policy lock, as the wire does, lets it go, and
+/// reattaches — which takes the teammate's start gate and then the policy lock
+/// again for the swap; the message holds the other teammate's start gate while
+/// closing its chapter takes that same policy lock. The one order
+/// `start_gate -> policy_update_lock` holds on both sides, so the policy lock
+/// is only ever taken with a start gate in hand and released before the slow
+/// start that follows: neither waits on the other, and both finish however
+/// slow the harness is to come up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_policy_update_and_a_message_closing_a_quiet_chapter_both_finish() {
+    let log = scratch("chapter-policy-quiet");
+    let stale = now_ms() - 10 * 3_600_000;
+    for who in ["ada", "bob"] {
+        enrol(&log, &persona(who));
+        write_tape(
+            &log,
+            who,
+            &[
+                json!({"kind": "chapter", "id": format!("c-{who}"), "ts": stale, "backendId": "hotline"}),
+                spoken("user", &format!("u-{who}"), stale + 1_000, "old line"),
+                spoken("agent", &format!("a-{who}"), stale + 2_000, "Old answer."),
+            ],
+        );
+    }
+    let starts = Arc::new(Semaphore::new(2));
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(saying("one", "Welcome back.")).slow_to_start(starts.clone())),
+    );
+    room.start("ada").await.unwrap();
+    room.start("bob").await.unwrap();
+
+    let updating = tokio::spawn({
+        let room = room.clone();
+        async move {
+            // The wire holds the policy lock across the invalidate and the
+            // durable append, then lets it go before the reattach.
+            {
+                let _held = room.policy_update_lock().lock_owned().await;
+                room.invalidate("ada").unwrap();
+            }
+            room.reattach("ada").await
+        }
+    });
+    let message = tokio::spawn({
+        let room = room.clone();
+        async move { room.prompt("bob", "back again", None, None).await }
+    });
+    let held = |who: &str| room.start_gate(who).try_lock().is_err();
+    until("the reattach holds ada's start gate", || held("ada")).await;
+    until("the message holds bob's start gate", || held("bob")).await;
+    starts.add_permits(10);
+
+    let deadline = Duration::from_secs(30);
+    tokio::time::timeout(deadline, message)
+        .await
+        .expect("the message finishes")
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(deadline, updating)
+        .await
+        .expect("the policy update finishes")
+        .unwrap()
+        .unwrap();
+    until(
+        "both gates and the policy lock are free",
+        || !held("ada") && !held("bob") && room.policy_update_lock().try_lock().is_ok(),
+    )
+    .await;
+    assert_eq!(markers(&room, "bob")[0]["closedBy"], "idle");
+}
+
 /// A person who asks for a fresh chapter is not kept waiting on a model: the
 /// close is on the tape under the first message's title before the summariser
 /// has said anything, and the note supersedes that marker when it lands.

@@ -682,6 +682,31 @@ async fn the_person_parks_a_live_thread_and_only_an_open_one() {
     assert!(room.park_side_thread("ghost").is_err());
 }
 
+/// Parking lets go of the agent, which would cut a turn in flight: a thread
+/// whose turn is working is refused the park and left live and working, for
+/// the person to stop it or wait for its turn first.
+#[tokio::test]
+async fn the_person_cannot_park_a_thread_mid_turn() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(Scripted::new(vec![say("m1", "Working."), turn()]).gated(gate.clone()));
+    let room = room("side-park-working", agents);
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the side thread's turn is in flight", || {
+        room.sides.get(&id).is_some_and(|side| side.working())
+    })
+    .await;
+
+    let refused = room.park_side_thread(&id).unwrap_err();
+    assert_eq!(
+        refused,
+        "That thread is working; stop or wait for its turn first."
+    );
+    let side = room.sides.get(&id).expect("the thread is still live");
+    assert!(side.working(), "its turn is left running");
+
+    gate.add_permits(100);
+}
+
 #[tokio::test]
 async fn a_line_said_to_a_parked_thread_brings_it_back_from_its_own_stream() {
     let agents = Fake::new(Scripted::turns(vec![

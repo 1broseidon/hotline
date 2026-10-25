@@ -378,10 +378,20 @@ impl Room {
 
     /// [`Self::reattach`] for a caller already holding the start gate.
     pub(super) async fn reattach_held(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
-        // The wire invalidates before appending. Repeating it also gives
-        // direct callers the same stale-driver boundary.
-        self.invalidate(persona_id)?;
         let capability = {
+            // Already behind the start gate, so taking the policy lock here
+            // keeps the one order `start_gate -> policy_update_lock`. It also
+            // makes this wait for any policy update in flight to finish its
+            // own invalidate and durable append before the epoch is activated
+            // and the log is read to start: a change half-written cannot be
+            // started on. A second policy update arriving while this waits
+            // invalidates under the lock and quarantines the epoch again, for
+            // the reattach that update will run.
+            let policy_gate = self.policy_update_lock();
+            let _policy_held = policy_gate.lock().await;
+            // The wire invalidates before appending. Repeating it also gives
+            // direct callers the same stale-driver boundary.
+            self.invalidate(persona_id)?;
             let _lifecycle = lock(&self.lifecycle);
             let was_running = lock(&self.sessions).remove(persona_id).is_some();
             let epoch = self.capability_epoch(persona_id);

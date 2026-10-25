@@ -31,7 +31,7 @@ export type MenuEntry =
 			icon?: ReactNode;
 			onSelect(): void;
 	  }
-	| { kind: "heading"; text: string; icon?: ReactNode }
+	| { kind: "heading"; text: string; icon?: ReactNode; detail?: string }
 	| { kind: "rule" };
 
 function Menu({
@@ -180,9 +180,16 @@ function Menu({
 				if (entry.kind === "rule") return <hr key={`rule-${at}`} className="menu-rule" />;
 				if (entry.kind === "heading") {
 					return (
-						<div key={`heading-${at}`} className="menu-heading" role="presentation">
+						<div key={`heading-${at}`} className={entry.detail === undefined ? "menu-heading" : "menu-heading menu-card"} role="presentation">
 							{entry.icon}
-							{entry.text}
+							{entry.detail === undefined ? (
+								entry.text
+							) : (
+								<span className="menu-card-text">
+									<span className="menu-card-name">{entry.text}</span>
+									<span className="menu-card-detail">{entry.detail}</span>
+								</span>
+							)}
 						</div>
 					);
 				}

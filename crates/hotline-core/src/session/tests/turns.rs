@@ -900,3 +900,47 @@ async fn a_link_opens_only_for_a_person_at_this_computer() {
         assert!(refused.contains("http or https"), "{refused}");
     }
 }
+
+/// One agent can stand behind two sessions in these tests, as a chapter's swap
+/// leaves it: the cancel that stops the old session's turn stops that turn,
+/// and never the next one, however close the permits that would have let the
+/// old turn go on arrive behind it.
+#[tokio::test]
+async fn a_cancel_stops_its_own_turn_and_never_the_next() {
+    let said = |text: &str| {
+        vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: text.to_string(),
+                text: text.to_string(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            },
+        ]
+    };
+    for _ in 0..50 {
+        let gate = Arc::new(Semaphore::new(0));
+        let agent = Scripted::turns(vec![said("old"), said("new")]).gated(gate.clone());
+        let line = |words: &str| crate::session::timed(crate::session::now_ms(), words);
+        let mut old = agent.prompt(line("old"), Vec::new(), Reach::Machine).await;
+        // The old turn is waiting on its first update when it is cancelled,
+        // and the permits come in before it is woken.
+        tokio::task::yield_now().await;
+        agent.cancel();
+        gate.add_permits(10);
+        let mut new = agent.prompt(line("new"), Vec::new(), Reach::Machine).await;
+        while old.recv().await.is_some() {}
+        let mut heard = Vec::new();
+        while let Some(update) = new.recv().await {
+            heard.push(update);
+        }
+        assert!(
+            heard
+                .iter()
+                .any(|update| matches!(update, Update::Turn { .. })),
+            "the next turn was cut by the old turn's cancel: {heard:?}"
+        );
+    }
+}

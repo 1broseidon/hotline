@@ -250,14 +250,19 @@ impl Driver for Scripted {
                 if let Some(gate) = &gate {
                     let stop = cancelled.notified();
                     tokio::pin!(stop);
+                    // A cancel made before a permit arrived wins over it. Left
+                    // unchosen, the notified `stop` passes its wake on to the
+                    // next turn to wait, which may be another session's on
+                    // this same agent, as a chapter's swap leaves it.
                     tokio::select! {
-                        permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
+                        biased;
                         () = &mut stop => {
                             for update in on_cancel {
                                 let _ = sender.send(update).await;
                             }
                             return;
                         }
+                        permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
                     }
                 }
                 if sender.send(update).await.is_err() {

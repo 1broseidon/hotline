@@ -1822,8 +1822,10 @@
 		flex: 1;
 		background: var(--line);
 	}
+	/* A plain line is one sentence in parts, so its parts are a space apart. */
 	.rule-line-plain {
 		justify-content: center;
+		gap: 1ch;
 	}
 	/* A rule's words wrap anywhere: a notice that quotes an error is one
 	 * unbroken token, and it must not hold the transcript wider than the pane. */

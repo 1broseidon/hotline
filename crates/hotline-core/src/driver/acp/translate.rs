@@ -110,6 +110,8 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                 title: clip(&call.title, TITLE_CHARS),
                 kind: tool_kind(call.kind, call.meta.as_ref()),
                 location: first_location(&call.locations),
+                hotline_tool: names_hotline_tool(claude_tool_name(call.meta.as_ref()))
+                    || names_hotline_tool(Some(&call.title)),
             };
             pen.emit(Update::ToolCall {
                 call_id: call.tool_call_id.0.to_string(),
@@ -189,12 +191,18 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                         .as_deref()
                         .and_then(first_location)
                         .or_else(|| previous.and_then(|line| line.location.clone())),
+                    // Once known a Hotline tool, always one; a later update may
+                    // also be the first to name it, in its meta or its title.
+                    hotline_tool: previous.is_some_and(|line| line.hotline_tool)
+                        || names_hotline_tool(claude_tool_name(update.meta.as_ref()))
+                        || names_hotline_tool(fields.title.as_deref()),
                 };
                 let announced = ToolLine {
                     files: line.files.clone(),
                     title: line.title.clone(),
                     kind: line.kind.clone(),
                     location: line.location.clone(),
+                    hotline_tool: line.hotline_tool,
                 };
                 tools.insert(call_id.clone(), line);
                 announced
@@ -278,6 +286,20 @@ pub(super) async fn ask_permission(
         ));
         return;
     }
+    // A harness asking leave to call one of Hotline's own room tools is
+    // answered without a card: the room's loopback MCP server already enforces
+    // every lease, subagent restriction and native human or collaboration card
+    // the tool needs, so a second prompt here is only the person asked twice.
+    if is_hotline_mcp_tool(&live, &request)
+        && let Some(option) = allow_option(&request.options)
+    {
+        let _ = responder.respond(RequestPermissionResponse::new(
+            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                option.option_id.clone(),
+            )),
+        ));
+        return;
+    }
     let request_id = new_id();
     let title = describe_request(&live, &request.tool_call);
     let options: Vec<CardOption> = request
@@ -315,6 +337,31 @@ pub(super) async fn ask_permission(
         };
         let _ = responder.respond(RequestPermissionResponse::new(outcome));
     });
+}
+
+/// Whether a permission request is for one of Hotline's own loopback MCP
+/// tools. The call carries the tool's name and title; failing both, it points
+/// back at a call already announced, where the name was first seen and kept.
+fn is_hotline_mcp_tool(live: &Live, request: &RequestPermissionRequest) -> bool {
+    let call = &request.tool_call;
+    names_hotline_tool(claude_tool_name(call.meta.as_ref()))
+        || names_hotline_tool(call.fields.title.as_deref())
+        || lock(&live.tools)
+            .get(call.tool_call_id.0.as_ref())
+            .is_some_and(|line| line.hotline_tool)
+}
+
+/// The option that allows, preferring the one that also remembers the choice:
+/// a room tool the person never needs asked about again.
+fn allow_option(options: &[acp::PermissionOption]) -> Option<&acp::PermissionOption> {
+    options
+        .iter()
+        .find(|option| option.kind == acp::PermissionOptionKind::AllowAlways)
+        .or_else(|| {
+            options
+                .iter()
+                .find(|option| option.kind == acp::PermissionOptionKind::AllowOnce)
+        })
 }
 
 /// What the agent is actually asking to be allowed to do.
@@ -453,10 +500,39 @@ pub(super) fn tool_kind(kind: acp::ToolKind, meta: Option<&acp::Meta>) -> String
 }
 
 fn launches_subagent(meta: Option<&acp::Meta>) -> bool {
+    claude_tool_name(meta).is_some_and(|name| matches!(name, "Agent" | "Task"))
+}
+
+/// The tool behind a call as Claude's adapter names it, in
+/// `_meta.claudeCode.toolName`. The one place the wire spells the real tool.
+fn claude_tool_name(meta: Option<&acp::Meta>) -> Option<&str> {
     meta.and_then(|meta| meta.get("claudeCode"))
         .and_then(|claude| claude.get("toolName"))
         .and_then(Value::as_str)
-        .is_some_and(|name| matches!(name, "Agent" | "Task"))
+}
+
+/// How Claude's adapter namespaces a granted MCP server's tool, `hotline`
+/// being the room's own loopback server ([`crate::mcp::server::SERVER_NAME`]).
+const HOTLINE_TOOL_PREFIX: &str = "mcp__hotline__";
+/// How a human-readable title spells the same, `<server> - <tool>`.
+const HOTLINE_TITLE_PREFIX: &str = "hotline - ";
+
+/// Whether a name — a `claudeCode.toolName`, or a call's title — reaches one
+/// of Hotline's own loopback MCP tools. The `mcp__hotline__` namespace is the
+/// room's own, so anything under it is a tool the room's server guards itself;
+/// a title is fuzzier, so its tool must be one the server actually serves.
+fn names_hotline_tool(name: Option<&str>) -> bool {
+    let Some(name) = name else { return false };
+    name.starts_with(HOTLINE_TOOL_PREFIX)
+        || name
+            .strip_prefix(HOTLINE_TITLE_PREFIX)
+            .is_some_and(is_hotline_tool)
+}
+
+/// Whether a bare tool name is one the room's own MCP server serves: every
+/// teammate's tools, and the lead's `add_teammate`.
+fn is_hotline_tool(tool: &str) -> bool {
+    crate::mcp::server::TOOL_NAMES.contains(&tool) || tool == "add_teammate"
 }
 
 pub(super) fn stop_reason_of(reason: acp::StopReason) -> String {

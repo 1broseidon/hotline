@@ -979,6 +979,204 @@ async fn a_card_is_refused_from_the_moment_the_agent_ends_the_turn() {
     );
 }
 
+/// An agent that, on prompt, asks one permission for a tool named in `_meta`
+/// the way Claude's adapter names it, records the outcome it is handed, and
+/// ends the turn when told. Its options lead with allow-always, as Claude's do.
+fn agent_asking_to_call(
+    tool: &'static str,
+    outcome: Arc<Mutex<Option<String>>>,
+    ends: Arc<tokio::sync::Notify>,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("asking-to-call")
+            .on_receive_request(
+                async move |request: InitializeRequest, responder, _cx| {
+                    responder.respond(
+                        InitializeResponse::new(request.protocol_version)
+                            .agent_info(Implementation::new("asking-to-call", "1")),
+                    )
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: NewSessionRequest, responder, _cx| {
+                    responder.respond(NewSessionResponse::new(SessionId::new("asking")))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |request: PromptRequest,
+                      responder: Responder<PromptResponse>,
+                      cx: ConnectionTo<Client>| {
+                    let ends = ends.clone();
+                    let outcome = outcome.clone();
+                    async move {
+                        let session = request.session_id.clone();
+                        let asking = cx.clone();
+                        cx.spawn(async move {
+                            let meta = serde_json::json!({ "claudeCode": { "toolName": tool } })
+                                .as_object()
+                                .cloned();
+                            let reply = asking
+                                .send_request(RequestPermissionRequest::new(
+                                    session,
+                                    ToolCallUpdate::new(
+                                        ToolCallId::new("h1"),
+                                        ToolCallUpdateFields::new(),
+                                    )
+                                    .meta(meta),
+                                    vec![
+                                        acp::PermissionOption::new(
+                                            "always",
+                                            "Allow always",
+                                            PermissionOptionKind::AllowAlways,
+                                        ),
+                                        acp::PermissionOption::new(
+                                            "deny",
+                                            "Deny",
+                                            PermissionOptionKind::RejectOnce,
+                                        ),
+                                    ],
+                                ))
+                                .block_task()
+                                .await;
+                            if let Ok(response) = reply {
+                                *outcome.lock().unwrap() = match response.outcome {
+                                    RequestPermissionOutcome::Selected(selected) => {
+                                        Some(selected.option_id.0.to_string())
+                                    }
+                                    RequestPermissionOutcome::Cancelled => {
+                                        Some("cancelled".to_string())
+                                    }
+                                    _ => None,
+                                };
+                            }
+                            Ok(())
+                        })?;
+                        cx.spawn(async move {
+                            ends.notified().await;
+                            responder.respond(PromptResponse::new(StopReason::EndTurn))
+                        })?;
+                        Ok(())
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the asking-to-call agent ended: {error}");
+        }
+    }
+}
+
+/// A harness asking leave to call one of Hotline's own room tools is answered
+/// at once with the allow option and never raises a card: the room's own
+/// loopback MCP server already guards the tool, so the person is not asked
+/// twice — once for `mcp__hotline__message_teammate`, once for the native
+/// collaboration card — nor asked at all for a read like `list_teammates`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_permission_for_a_hotline_room_tool_is_allowed_without_a_card() {
+    for (nth, tool) in [
+        "mcp__hotline__list_teammates",
+        "mcp__hotline__message_teammate",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let held = room(&format!("hotline-tool-{nth}"));
+        let ends = Arc::new(tokio::sync::Notify::new());
+        let outcome = Arc::new(Mutex::new(None));
+        let agent = agent_asking_to_call(tool, outcome.clone(), ends.clone());
+        let driver = ChildAgent::new(
+            scratch(&format!("hotline-tool-{nth}")),
+            "claude".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        driver
+            .handshake(&persona(&scratch_cwd(), Vec::new()), client_transport())
+            .await
+            .unwrap();
+        let mut updates = driver
+            .prompt("reach the team".to_string(), Vec::new(), Reach::Workspace)
+            .await;
+
+        // The agent is handed the allow option straight away, and no card is
+        // left waiting on a person.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while outcome.lock().unwrap().is_none() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(outcome.lock().unwrap().as_deref(), Some("always"), "{tool}");
+        assert!(lock(&driver.live.pending).is_empty(), "no card for {tool}");
+
+        ends.notify_one();
+        let mut seen = Vec::new();
+        while let Some(update) = updates.recv().await {
+            let done = matches!(update, Update::Turn { .. });
+            seen.push(update);
+            if done {
+                break;
+            }
+        }
+        assert!(
+            !seen.iter().any(|u| matches!(u, Update::Permission { .. })),
+            "a Hotline room tool must not raise a second card for {tool}: {seen:?}"
+        );
+    }
+}
+
+/// A permission for any other server's tool is a card like any other: it goes
+/// on the tape and waits for a person, so the auto-allow is Hotline's own
+/// tools alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_permission_for_another_servers_tool_still_raises_a_card() {
+    let held = room("other-tool-room");
+    let ends = Arc::new(tokio::sync::Notify::new());
+    let outcome = Arc::new(Mutex::new(None));
+    let agent = agent_asking_to_call("mcp__github__create_issue", outcome.clone(), ends.clone());
+    let driver = ChildAgent::new(
+        scratch("other-tool"),
+        "claude".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "ada"),
+    );
+    tokio::spawn(agent);
+    driver
+        .handshake(&persona(&scratch_cwd(), Vec::new()), client_transport())
+        .await
+        .unwrap();
+    let mut updates = driver
+        .prompt("file an issue".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+
+    let Update::Permission { request_id, .. } = next(&mut updates).await else {
+        panic!("a tool that is not Hotline's own must raise a card");
+    };
+    assert!(
+        outcome.lock().unwrap().is_none(),
+        "the agent waits on the card, not an auto-allow"
+    );
+    assert!(driver.answer_permission(&request_id, "always"));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while outcome.lock().unwrap().is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(outcome.lock().unwrap().as_deref(), Some("always"));
+    ends.notify_one();
+}
+
 #[test]
 fn an_image_content_block_becomes_a_placeholder_and_is_carried() {
     let content = vec![

@@ -148,9 +148,9 @@ export function ProvidersSection({
 
 	return (
 		<div className="pane">
-			<Band column>
+			<Band>
 				{onBack !== undefined && <BackKey onBack={onBack} />}
-				<h2 className="min-w-0 flex-1 truncate pl-4 text-lg font-semibold">Providers</h2>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Providers</h2>
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
@@ -453,9 +453,9 @@ function ProviderPage({
 
 	return (
 		<div className="pane">
-			<Band column>
+			<Band>
 				<BackKey onBack={onBack} />
-				<h2 className="min-w-0 flex-1 truncate pl-4 text-lg font-semibold">{name}</h2>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{name}</h2>
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">

@@ -10,7 +10,7 @@ use regex::{Captures, Regex};
 use std::sync::LazyLock;
 
 /// What a voice turn asks of the agent, after the person's words.
-pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Take the space the question needs; one word can be enough. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
+pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Keep it short, as on the phone: a sentence or three, one word when that answers it. For a recap or a long result, say the main points and offer more instead of going through every item; go long only when asked. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
 Only when there is something to keep that speech cannot carry, add <written>...</written>: code, a table, a file or link, a substantial list or a long write-up. Make that result stand alone. For conversation, omit written: the spoken words are the written record, with no second answer to invent.
 Before a tool, begin with your own short spoken sentence naming the action when acknowledgement helps. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]";
 

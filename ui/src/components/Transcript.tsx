@@ -406,7 +406,7 @@ export function Transcript({
 					};
 					return (
 						<div key={id} data-event-id={id} className="tape-row">
-							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
+							{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
 							{block.kind === "scheduled" ? (
 								<ScheduledGroup name={block.name} runs={block.runs} />
 							) : block.kind === "calls" ? (

@@ -1822,6 +1822,12 @@
 		flex: 1;
 		background: var(--line);
 	}
+	/* A time heads the message it dates: well clear of the one before, close
+	 * over its own, so it never reads as the last one's caption. */
+	.rule-line.tape-stamp {
+		padding: 20px 0 0;
+		margin-bottom: -4px;
+	}
 	/* A plain line is one sentence in parts, so its parts are a space apart. */
 	.rule-line-plain {
 		justify-content: center;

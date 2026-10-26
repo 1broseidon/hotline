@@ -196,7 +196,10 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
     assert_eq!(side_list[0]["sideId"], key.as_str());
     assert_eq!(side_list[0]["status"], "live");
 
-    // Park, speak into it (which wakes it), close, continue.
+    // Park, speak into it (which wakes it), close, continue. Parking a thread
+    // mid-turn is refused, and the agent's words land before its turn rests,
+    // so the park waits for the turn to end.
+    rested(&mut now, &persona, &thread).await;
     let parked = now.call("thread.park", json!({"thread":thread})).await;
     assert_eq!(parked["ok"], true, "{parked}");
     assert_eq!(state_of(&mut now, &persona, &thread).await, "parked");
@@ -284,8 +287,8 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
     server.abort();
 }
 
-/// A thread's state in the list, which is where a client reads it.
-async fn state_of(client: &mut Client, persona: &str, thread: &Value) -> String {
+/// A thread's row in the list, which is where a client reads it.
+async fn row_of(client: &mut Client, persona: &str, thread: &Value) -> Value {
     let listed = client
         .call("thread.list", json!({"personaId":persona}))
         .await["result"]
@@ -295,10 +298,27 @@ async fn state_of(client: &mut Client, persona: &str, thread: &Value) -> String 
         .unwrap()
         .iter()
         .find(|row| row["thread"] == *thread)
-        .expect("the thread is listed")["state"]
+        .expect("the thread is listed")
+        .clone()
+}
+
+/// A thread's state in the list.
+async fn state_of(client: &mut Client, persona: &str, thread: &Value) -> String {
+    row_of(client, persona, thread).await["state"]
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+/// Waits until the list says no turn of the thread is running.
+async fn rested(client: &mut Client, persona: &str, thread: &Value) {
+    tokio::time::timeout(PATIENCE, async {
+        while row_of(client, persona, thread).await["working"] != false {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the thread's turn rests");
 }
 
 #[path = "threads/together.rs"]

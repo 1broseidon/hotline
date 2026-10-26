@@ -63,7 +63,7 @@ export function AddDesk({ onClose }: { onClose(): void }) {
 	return (
 		<div className="pane">
 			<Band column>
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Add a server</h2>
+				<h2 className="min-w-0 flex-1 truncate pl-4 text-lg font-semibold">Add a server</h2>
 				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>

@@ -139,7 +139,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 		<div className="pane">
 			<Band column>
 				{onBack !== undefined && <BackKey onBack={onBack} />}
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Secrets</h2>
+				<h2 className="min-w-0 flex-1 truncate pl-4 text-lg font-semibold">Secrets</h2>
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">

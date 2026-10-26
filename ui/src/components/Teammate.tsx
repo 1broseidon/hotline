@@ -233,7 +233,8 @@ export function Teammate({
 						</div>
 						<VoiceRow persona={persona} disabled={busy} onSave={save} />
 						<div className="group-row">
-							<RowText title="Team lead" value={leader?.name ?? "none"} />
+							{/* On the lead's own sheet the row and its key say it; elsewhere it names who leads. */}
+							<RowText title="Team lead" {...(lead ? {} : { value: leader?.name ?? "none" })} />
 							<button
 								type="button"
 								className="control btn-quiet btn-sm -mr-1.5"
@@ -494,24 +495,25 @@ function HarnessRows({
 			<div className="group-row">
 				<RowText title={`Managed by ${harness}`} />
 			</div>
-			<div className="group-row">
-				<RowText title={modeLabel} {...(session.modes.length === 0 ? { value: "not advertised" } : {})} />
-				{session.modes.length > 0 && (
+			{/* A harness that offers no modes has nothing here to choose, so no row. */}
+			{session.modes.length > 0 && (
+				<div className="group-row">
+					<RowText title={modeLabel} />
 					<Picker
-						value={session.currentModeId ?? ""}
-						choices={session.modes}
-						placeholder={modeLabel}
-						label={modeLabel}
-						disabled={disabled}
-						onChange={(modeId) => {
-							onRefusal(null);
-							void wire
-								.command("session.set_mode", { personaId, modeId })
-								.catch((error: Error) => onRefusal(error.message));
-						}}
-					/>
-				)}
-			</div>
+							value={session.currentModeId ?? ""}
+							choices={session.modes}
+							placeholder={modeLabel}
+							label={modeLabel}
+							disabled={disabled}
+							onChange={(modeId) => {
+								onRefusal(null);
+								void wire
+									.command("session.set_mode", { personaId, modeId })
+									.catch((error: Error) => onRefusal(error.message));
+							}}
+						/>
+				</div>
+			)}
 		</>
 	);
 }

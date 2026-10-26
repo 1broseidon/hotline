@@ -92,7 +92,7 @@ function Thought({ id, text, live }: { id: string; text: string; /** Still arriv
 		<div data-step-id={id}>
 			<button type="button" className="step" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
 				<span aria-hidden="true" className={`step-mark ${live ? "beat" : ""}`} style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
-				<span className="step-title font-sans italic text-ink-3">Thinking</span>
+				<span className="step-title font-sans text-ink-3">Thinking</span>
 				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
 			</button>
 			{open && <div className="step-out font-sans not-italic">{text}</div>}

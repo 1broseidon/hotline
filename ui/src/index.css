@@ -3400,10 +3400,13 @@
 		padding: 0 24px 12px;
 		margin-top: -4px;
 	}
+	/* Docked, it is only as tall as its run, up to a third of the window, so
+	 * a short run never lifts the composer for steps it does not have. */
 	.work-float.work-docked {
 		width: 100%;
 		max-width: 46rem;
-		height: min(240px, 34vh);
+		height: auto;
+		max-height: min(240px, 34vh);
 		margin: 0 auto;
 		background: var(--pop);
 		-webkit-backdrop-filter: none;

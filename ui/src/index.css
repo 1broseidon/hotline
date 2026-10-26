@@ -362,6 +362,17 @@
 		user-select: none;
 		-webkit-user-select: none;
 	}
+	/* A pane with a column says its title over that column, flush with the
+	 * titles of the groups under it, not at the pane's far edge. */
+	.band-row-column {
+		width: 100%;
+		max-width: 560px;
+		margin: 0 auto;
+		padding: 0 24px;
+	}
+	.band-row-column > h2 {
+		padding-left: 12px;
+	}
 	.band-row > :not(span:empty, h1, h2) {
 		pointer-events: auto;
 	}

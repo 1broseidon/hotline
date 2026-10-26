@@ -50,7 +50,7 @@ export function NewTeammate({
 	const here = useActiveDesk();
 	return (
 		<div className="pane">
-			<Band>
+			<Band column>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">New teammate</h2>
 				{/* With more than one desk in the window, which one it lives on is the first thing asked. */}
 				{desks.length > 1 && here !== null && onDesk !== undefined && (

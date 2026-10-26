@@ -8,11 +8,11 @@ import { toggleMaximize } from "../native";
  * double-click maximises, and the controls sit above the drag region so
  * they still take the click.
  */
-export function Band({ children }: { children: ReactNode }) {
+export function Band({ children, column = false }: { children: ReactNode; column?: boolean }) {
 	return (
 		<div className="band">
 			<div data-tauri-drag-region aria-hidden="true" className="band-drag" onDoubleClick={() => void toggleMaximize()} />
-			<div className="band-row">{children}</div>
+			<div className={column ? "band-row band-row-column" : "band-row"}>{children}</div>
 		</div>
 	);
 }

@@ -222,7 +222,7 @@ function Calls({
 					</JobRow>
 				)}
 			</div>
-			{words.hint !== undefined && <p className="hint">{words.hint}</p>}
+			{words.hint !== undefined && <p className="group-hint">{words.hint}</p>}
 		</>
 	);
 }

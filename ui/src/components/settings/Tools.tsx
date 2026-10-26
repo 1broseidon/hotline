@@ -92,7 +92,7 @@ export function ToolsSection({
 
 	return (
 		<div className="pane">
-			<Band>
+			<Band column>
 				{onBack !== undefined && <BackKey onBack={onBack} />}
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Tools</h2>
 			</Band>
@@ -300,7 +300,7 @@ function ServerPage({
 }) {
 	return (
 		<div className="pane">
-			<Band>
+			<Band column>
 				<BackKey onBack={onBack} />
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{server.name}</h2>
 			</Band>

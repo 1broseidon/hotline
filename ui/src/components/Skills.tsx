@@ -128,7 +128,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 
 	return (
 		<div className="pane">
-			<Band>
+			<Band column>
 				{onBack !== undefined && <BackKey onBack={onBack} />}
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Skills</h2>
 			</Band>
@@ -274,7 +274,7 @@ function SkillPage({
 	const onDisk = entry.source === "gateway" || entry.source === "home";
 	return (
 		<div className="pane">
-			<Band>
+			<Band column>
 				<BackKey onBack={onBack} />
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{entry.name}</h2>
 			</Band>

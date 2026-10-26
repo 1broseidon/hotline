@@ -209,7 +209,7 @@ export function Settings({
 
 	return (
 		<div className="pane">
-			<Band>
+			<Band column>
 				{onBack !== undefined && <BackKey onBack={onBack} />}
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">
 					{SECTIONS.find((one) => one.id === section)?.title}

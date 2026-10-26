@@ -3955,6 +3955,11 @@
 .tape-row {
 	content-visibility: auto;
 	contain-intrinsic-block-size: auto 96px;
+	/* That skipping clips paint to the row, so a ring drawn outside an edge
+	 * flush with the column (a live card's) gets 4px of row each side to
+	 * paint in, without moving anything. */
+	margin-inline: -4px;
+	padding-inline: 4px;
 }
 /* That skipping clips paint to the row, so the emoji hung off a bubble's
  * lower edge get the room below it inside the row. */

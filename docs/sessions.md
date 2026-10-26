@@ -1126,8 +1126,9 @@ it: the orphan fold leaves a card that delivers alone. `human.answer` reads
 it off the tape, supersedes it with the outcome and the note, and hands the
 teammate a `delivery` with `cause: {kind: "answer", actionId, status,
 about}` and the note as its `text`, behind the turn in flight or on a turn
-of its own. The agent hears "The person answered your request (…)" or
-"The person declined your request (…)", then the note fenced, word for word.
+of its own. The agent hears "The person answered yes to your request (…) (marked it done)." or
+"The person answered no to your request (…) (declined it).", then the note fenced, word for word,
+so a yes/no question tapped without a note still says which.
 One lock settles a card once, however many answers race for it.
 
 A card that delivers lives two hours (`ASK_HOURS`) unless the teammate

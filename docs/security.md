@@ -184,8 +184,8 @@ Realtime on an OpenAI API key, or GPT-Live on the ChatGPT sign-in, when the
 owner picks one in Settings (the call's audio then goes to OpenAI; for
 GPT-Live the login's bearer goes to `chatgpt.com` to create the call and to
 `api.openai.com` for its sideband, as the Codex app sends it, and the call's
-media is a WebRTC peer the desk opens with host candidates only). Legacy
-voice turns it off, and a client asks for it per call. The Grok login is
+media is a WebRTC peer the desk opens with host candidates only). Turn by
+turn turns it off, and a client asks for it per call. The Grok login is
 only ever sent to xAI's voice origin, and GPT Realtime refuses it. GPT-Live
 uses client delegation to invoke the same `work_on_it` handler as the other
 fronts. The front holds read-only lookups and one work tool. The core binds
@@ -1969,7 +1969,7 @@ path. Conversation equal to its speech is not posted again.
 
 `tests/voice/direct.rs` `conversation_keeps_one_written_record_and_never_posts_or_points`,
 `a_direct_call_uses_its_thread_agent_without_dispatching`, and
-`legacy_speaks_its_own_untagged_opening` exercise the real core over the wire:
+`turn_by_turn_speaks_its_own_untagged_opening` exercise the real core over the wire:
 conversation stays on the call; tables and code reach the owning chat.
 The existing thread-lease and revoked-post tests still cover tool authority.
 Residual risk: classification is syntactic; a model can mislabel or omit useful
@@ -1996,7 +1996,7 @@ narrator leaves the written result available without a new spoken pointer.
   action card. The voice front has no answer tool or wire command access:
   only a finalized caller transcript equal to yes or no selects the last
   announced card. Holding or ending the call removes that input authority.
-  Local Legacy capture reports its floor through owner-only
+  A Turn by turn caller's own capture reports its floor through owner-only
   `voice.input_state`; provider onset events do the same for live calls.
   A changed grant or stopped requesting session revokes question authority;
   withdrawal and a desk answer remove the queued/active card. Answers leave
@@ -2006,7 +2006,7 @@ narrator leaves the written result available without a new spoken pointer.
   driver; moving the card grants no voice permission. Home-session cleanup
   cannot expire a call driver's pending card.
 - **Proof:** `tests/call_threads/cards.rs`
-  `legacy_answers_a_question_once_and_records_yes_and_no_from_the_call`,
+  `turn_by_turn_answers_a_question_once_and_records_yes_and_no_from_the_call`,
   `live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`, and
   `spoken_collaboration_approval_is_only_for_this_session`, and
   `a_home_answer_settles_the_call_question_and_removes_its_voice_notice` drive the real

@@ -3,7 +3,6 @@ import type { CapabilityJob, CapabilityOptions } from "../src/generated/contract
 import { budgetsPatch, limitText } from "../src/budgets";
 import {
 	AUTOMATIC,
-	allVoices,
 	carriedEffort,
 	choicesFor,
 	currentVoiceId,
@@ -15,13 +14,16 @@ import {
 	parseCap,
 	parseWords,
 	pickId,
-	speakingText,
+	speechChoices,
+	speechLine,
 	splitPickId,
 	splitVoiceId,
 	tagsFor,
+	transcriptionLine,
 	usd,
 	voiceLabel,
 	voicePatch,
+	whereTag,
 } from "../src/useFor";
 
 const images: CapabilityJob = {
@@ -76,36 +78,59 @@ describe("a Use for picker", () => {
 	});
 });
 
-describe("the speaking row's voices", () => {
+describe("the Speech row", () => {
 	const tts: CapabilityJob = {
 		automatic: { providerId: "openai", providerName: "OpenAI", modelId: "gpt-4o-mini-tts", voice: "marin" },
-		options: [{ providerId: "openai", providerName: "OpenAI", models: [{ id: "gpt-4o-mini-tts", voices: ["marin", "cedar"] }] }],
+		options: [{ providerId: "openai", providerName: "OpenAI", cost: "$0.03 per 1,000 characters", models: [{ id: "gpt-4o-mini-tts", voices: ["marin", "cedar"] }] }],
 	};
 
-	test("are every speaking model's, read as names under the provider", () => {
-		const choices = allVoices(tts);
+	test("offers every speaking model's voices under the provider, each named with its model", () => {
+		const choices = speechChoices(tts);
 		expect(choices.map((one) => [one.group, one.name])).toEqual([
 			[undefined, "Automatic"],
-			["OpenAI", "Marin"],
-			["OpenAI", "Cedar"],
+			["OpenAI", "gpt-4o-mini-tts · Marin"],
+			["OpenAI", "gpt-4o-mini-tts · Cedar"],
 		]);
 		expect(splitVoiceId(choices[2]!.id)).toEqual({ providerId: "openai", modelId: "gpt-4o-mini-tts", voiceId: "cedar" });
-		expect(speakingText(tts)).toBe("Marin on OpenAI");
-		expect(speakingText({ options: [] })).toBe("Talk to the desk");
+		expect(speechLine(tts)).toBe("gpt-4o-mini-tts through OpenAI · $0.03 per 1,000 characters");
+		expect(speechLine({ options: [] })).toBe("");
+		expect(whereTag(tts, "this Mac")).toBeUndefined();
 	});
 
-	test("read an Ollama model's default voice as the model, never Default · default", () => {
+	test("reads Phonon through Ollama as free on this machine, its own voice as the model's name", () => {
 		const ollama: CapabilityJob = {
-			selected: { providerId: "ollama", providerName: "Ollama", modelId: "phonon:latest", voice: "default" },
-			options: [{ providerId: "ollama", providerName: "Ollama", models: [{ id: "phonon:latest", label: "phonon", voices: ["default", "Alfie", "Zoey"] }] }],
+			selected: { providerId: "ollama", providerName: "Ollama", modelId: "phonon:latest", voice: "Zoey" },
+			options: [{ providerId: "ollama", providerName: "Ollama", onDevice: true, cost: "free", models: [{ id: "phonon:latest", label: "phonon", voices: ["default", "Alfie", "Zoey"] }] }],
 		};
-		const choices = allVoices(ollama);
-		expect(choices.map((one) => one.name)).toEqual(["Automatic", "Phonon", "Alfie", "Zoey"]);
-		expect(choices.find((one) => one.id === currentVoiceId(ollama))?.name).toBe("Phonon");
-		expect(speakingText(ollama)).toBe("Phonon on Ollama");
+		const choices = speechChoices(ollama);
+		expect(choices.map((one) => one.name)).toEqual(["Automatic", "Phonon", "Phonon · Alfie", "Phonon · Zoey"]);
+		expect(choices.find((one) => one.id === currentVoiceId(ollama))?.name).toBe("Phonon · Zoey");
+		expect(speechLine(ollama)).toBe("Phonon through Ollama · free");
 		expect(voiceLabel("default", "phonon")).toBe("Phonon");
 		expect(voiceLabel("default")).toBe("Default");
 		expect(voiceLabel("eve", "grok")).toBe("Eve");
+	});
+});
+
+describe("the Transcription row", () => {
+	const stt: CapabilityJob = {
+		automatic: { providerId: "local", providerName: "On the desk", modelId: "parakeet-tdt-0.6b-v3" },
+		options: [
+			{ providerId: "local", providerName: "On the desk", onDevice: true, cost: "free", models: [{ id: "parakeet-tdt-0.6b-v3", label: "Parakeet TDT 0.6B" }] },
+			{ providerId: "groq", providerName: "Groq", cost: "$0.001 a minute", models: [{ id: "whisper-large-v3-turbo" }] },
+		],
+	};
+
+	test("names the desk's own model by its family and a provider by its name, with the price", () => {
+		expect(transcriptionLine(stt)).toBe("Parakeet · free");
+		expect(transcriptionLine({ ...stt, selected: { providerId: "groq", providerName: "Groq" } })).toBe("Groq · $0.001 a minute");
+	});
+
+	test("tags a model on the desk's machine with the name the desk gives it, Mac or not", () => {
+		expect(whereTag(stt, "this Mac")).toBe("on this Mac");
+		expect(whereTag(stt, "this computer")).toBe("on this computer");
+		expect(whereTag(stt, undefined)).toBe("on the desk");
+		expect(whereTag({ ...stt, selected: { providerId: "groq", providerName: "Groq" } }, "this Mac")).toBeUndefined();
 	});
 });
 
@@ -159,7 +184,9 @@ describe("a connection's tags", () => {
 		expect(tagsFor(options, "anthropic")).toEqual(["Chat"]);
 		expect(tagsFor(options, "mistral")).toEqual([]);
 		// The ChatGPT sign-in runs GPT-Live, though no speech job lists it.
-		expect(tagsFor(options, "openai-codex")).toEqual(["Voice"]);
+		expect(tagsFor(options, "openai-codex")).toEqual([]);
+		const live = [{ front: "gpt-live", credential: "openai-codex", modelId: "gpt-live-1-codex", name: "GPT-Live", providerName: "ChatGPT", voices: ["cove"] }];
+		expect(tagsFor({ ...options, live }, "openai-codex")).toEqual(["Voice"]);
 	});
 
 	test("the add list says what a provider does, or how it connects on an older desk", async () => {

@@ -37,7 +37,7 @@ impl Calls {
         }
     }
 
-    /// State travels with each Legacy turn, outside the saved caller words.
+    /// State travels with each Turn by turn exchange, outside the saved caller words.
     pub fn turn_instruction(&self, id: &str) -> String {
         self.change(id, |call| {
             Ok(format!(
@@ -542,7 +542,7 @@ impl Calls {
     /// A teammate's reply on its own call, said as it streams in: its spoken
     /// version ([`spoken::Spoken`]) sentence by sentence as one line, kept on
     /// the call's thread once it is over. A reply that wrote none is said
-    /// as its own prose on Legacy; live work may use [`Self::unspoken`].
+    /// as its own prose on Turn by turn; live work may use [`Self::unspoken`].
     /// Speaking over it stops it at once, so the call is free for what the person says; the chat has the
     /// written version in any case. A reply that reaches its end is counted
     /// by how it was said ([`Self::count`]).
@@ -557,12 +557,12 @@ impl Calls {
         if speech.is_cancelled() {
             return Ok(());
         }
-        let legacy = !self.fronted(id);
+        let turn_by_turn = !self.fronted(id);
         let (sentences, mut said) = mpsc::channel(8);
         let pointed = std::sync::atomic::AtomicBool::new(false);
         let pointer_added = &pointed;
         let split = async move {
-            let mut spoken = if legacy {
+            let mut spoken = if turn_by_turn {
                 spoken::Spoken::streaming()
             } else {
                 spoken::Spoken::default()
@@ -581,7 +581,7 @@ impl Calls {
                     self.count(id, event, spoken::path(&whole));
                     rest
                 }
-                spoken::Ending::Untagged(opening) if legacy => {
+                spoken::Ending::Untagged(opening) if turn_by_turn => {
                     if !spoken::said_as_written(&spoken::versions(&whole).written) {
                         self.count(id, event, spoken::Path::Untagged);
                     }

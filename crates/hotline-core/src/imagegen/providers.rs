@@ -370,6 +370,8 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
                         efforts: None,
                     })
                     .collect(),
+                on_device: false,
+                cost: None,
             })
         })
         .collect()

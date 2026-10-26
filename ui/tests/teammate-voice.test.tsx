@@ -28,11 +28,11 @@ class NoResize {
 type Call = { cmd: string; params: Record<string, unknown> };
 let calls: Call[];
 let status: Record<string, unknown>;
-// Legacy voice speaks with OpenAI's model and its voices.
+// Turn by turn speaks with OpenAI's model and its voices.
 const options = {
 	tts: { options: [{ providerId: "openai", models: [{ id: "gpt-4o-mini-tts", voices: ["marin", "nova"] }] }] },
 };
-const legacy = { capabilities: [], available: true, budget: { spentDayUsd: 0, spentMonthUsd: 0 }, tts: { providerId: "openai", modelId: "gpt-4o-mini-tts", voice: "marin" } };
+const turnByTurn = { capabilities: [], available: true, budget: { spentDayUsd: 0, spentMonthUsd: 0 }, tts: { providerId: "openai", modelId: "gpt-4o-mini-tts", voice: "marin" } };
 let act: typeof import("react").act;
 let root: Root;
 let container: HTMLDivElement;
@@ -45,7 +45,7 @@ beforeEach(async () => {
 	// A test desk whose room snapshot and commands are supplied below.
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
-	status = legacy;
+	status = turnByTurn;
 	// The desk's voice status and options are what the test sets; everything
 	// else is refused, which the pane reads as "nothing to show".
 	const connection = wireFor("local");
@@ -94,7 +94,7 @@ function voiceButton(): HTMLButtonElement {
 describe("a teammate's voice", () => {
 	test("is picked from the voice front's voices when calls run on one", async () => {
 		status = {
-			...legacy,
+			...turnByTurn,
 			capabilities: ["voiceFront"],
 			front: { providerId: "gpt-live", modelId: "gpt-live-1-codex", voice: "cove", voices: ["cove", "maple"] },
 		};
@@ -105,8 +105,8 @@ describe("a teammate's voice", () => {
 		expect(document.body.textContent).not.toContain("Nova");
 	});
 
-	test("an own voice for the front reads as picked, one for Legacy voice as the desk's", async () => {
-		status = { ...legacy, front: { providerId: "grok", modelId: "grok-voice-latest", voice: "eve", voices: ["eve", "rex"] } };
+	test("an own voice for the front reads as picked, one for Turn by turn as the desk's", async () => {
+		status = { ...turnByTurn, front: { providerId: "grok", modelId: "grok-voice-latest", voice: "eve", voices: ["eve", "rex"] } };
 		await mount({ ...persona, voice: { providerId: "grok", modelId: "grok-voice-latest", voice: "rex" } }, session);
 		expect(voiceButton().title).toBe("Rex");
 		await act(async () => root.unmount());
@@ -115,7 +115,7 @@ describe("a teammate's voice", () => {
 		expect(voiceButton().title).toBe("The desk's · Eve");
 	});
 
-	test("is Legacy voice's when the desk runs no front", async () => {
+	test("is Turn by turn's when the desk runs no live model", async () => {
 		await mount(persona, session);
 		expect(voiceButton().title).toBe("The desk's · Marin");
 	});

@@ -1,4 +1,4 @@
-//! Bounded feedback while a Legacy teammate works without audible speech.
+//! Bounded feedback while a Turn by turn teammate works without audible speech.
 
 use crate::{Calls, VoiceEvent, VoiceState, Work};
 use base64::{Engine, engine::general_purpose::STANDARD};

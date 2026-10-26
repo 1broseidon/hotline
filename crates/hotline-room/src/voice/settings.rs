@@ -10,15 +10,18 @@
 //!              "voices": { "grok": "eve", "openai": "marin" } } }
 //! ```
 //!
-//! `front` is the live-call voice front: Grok Voice (`grok`) on an xAI login
+//! `front` is the call's model, Settings › Calls › Model. A live model hears,
+//! talks and uses tools in one stream: Grok Voice (`grok`) on an xAI login
 //! or key, GPT Realtime (`openai`) on an OpenAI key, or GPT-Live
-//! (`gpt-live`) on a ChatGPT login, with the voice picked
-//! for each kept under its provider. Without it, calls are fronted by
-//! Grok Voice on the first connected xAI login or key, and a desk with
-//! neither keeps the pipeline. `{"provider": "legacy"}`, Legacy voice in
-//! Settings, and a provider this build has no adapter for keep the
-//! transcribe, route and speak pipeline. `{"provider": "off"}`, Live calls
-//! Off in Settings, offers no calls at all, to the desk or to a teammate.
+//! (`gpt-live`) on a ChatGPT login, with the voice picked for each kept
+//! under its provider. Without `front`, calls are fronted by Grok Voice on
+//! the first connected xAI login or key. `{"provider": "turn-by-turn"}`,
+//! Turn by turn in Settings, runs the transcribe, answer and speak
+//! pipeline with `stt` and `tts`; so does `"legacy"`, the value desks up to
+//! 0.43 wrote for the same choice and phones of their time still write, and
+//! a provider this build has no adapter for.
+//! `{"provider": "off"}` offers no calls at all, to the desk or to a
+//! teammate.
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
@@ -44,8 +47,8 @@ pub struct Choice {
     pub effort: Option<String>,
 }
 
-/// A realtime model that can front a call, each with an adapter in
-/// `realtime/`.
+/// A live model that can front a call: a realtime model with an adapter in
+/// the voice crate's `realtime/`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrontProvider {
     Grok,
@@ -55,6 +58,18 @@ pub enum FrontProvider {
 }
 
 impl FrontProvider {
+    /// Every live model, in the order Settings lists them.
+    pub const ALL: [FrontProvider; 3] = [Self::Grok, Self::GptLive, Self::OpenAi];
+
+    /// Its name for a person.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Grok => "Grok Voice",
+            Self::OpenAi => "GPT Realtime",
+            Self::GptLive => "GPT-Live",
+        }
+    }
+
     /// Its name in the `front` setting, and its key under `voices`.
     pub fn key(self) -> &'static str {
         match self {
@@ -105,7 +120,7 @@ pub struct FrontChoice {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VoiceSettings {
-    /// The live-call voice front; `None` is Legacy voice, the pipeline.
+    /// The live model calls run on; `None` is Turn by turn, the pipeline.
     pub front: Option<FrontChoice>,
     /// Live calls are Off in Settings: the desk offers no call of any kind.
     pub calls_off: bool,
@@ -240,6 +255,8 @@ fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {
         None | Some("grok") => FrontProvider::Grok,
         Some("openai") => FrontProvider::OpenAi,
         Some("gpt-live") => FrontProvider::GptLive,
+        // Turn by turn, under its own name or the one earlier desks wrote,
+        // and any model this build cannot run.
         Some(_) => return None,
     };
     let voice = text(
@@ -416,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn grok_fronts_calls_unless_the_owner_picked_gpt_realtime_or_legacy_voice() {
+    fn grok_fronts_calls_unless_the_owner_picked_another_live_model_or_turn_by_turn() {
         let default = Some(FrontChoice {
             provider: FrontProvider::Grok,
             credential: None,
@@ -462,15 +479,39 @@ mod tests {
                 voice: Some("maple".into())
             })
         );
-        for legacy in [
-            json!({"provider": "legacy", "voices": {"grok": "ara"}}),
+        for turn_by_turn in [
+            json!({"provider": "turn-by-turn", "voices": {"grok": "ara"}}),
             json!({"provider": "gemini-live"}),
         ] {
             assert_eq!(
-                VoiceSettings::from_room(&room(json!({ "front": legacy }))).front,
+                VoiceSettings::from_room(&room(json!({ "front": turn_by_turn }))).front,
                 None
             );
         }
+    }
+
+    #[test]
+    fn a_saved_legacy_choice_reads_as_turn_by_turn_with_its_transcription_and_speech() {
+        let saved = |provider: &str| {
+            VoiceSettings::from_room(&room(json!({
+                "front": {"provider": provider, "voices": {"grok": "ara"}},
+                "stt": {"provider": "local", "model": "parakeet-tdt-0.6b-v3"},
+                "tts": {"provider": "ollama", "model": "phonon", "voice": "zoey"},
+            })))
+        };
+        let legacy = saved("legacy");
+        assert_eq!(legacy, saved("turn-by-turn"));
+        assert_eq!(legacy.front, None);
+        assert!(!legacy.calls_off);
+        assert_eq!(
+            legacy.stt.unwrap().model_id.as_deref(),
+            Some("parakeet-tdt-0.6b-v3")
+        );
+        let tts = legacy.tts.unwrap();
+        assert_eq!(
+            (tts.provider_id.as_str(), tts.voice.as_deref()),
+            ("ollama", Some("zoey"))
+        );
     }
 
     #[test]

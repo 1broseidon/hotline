@@ -457,8 +457,8 @@ Only changing whether a computer is enabled reattaches the teammate; limit,
 image and mount edits apply on the next container creation, not a restart of
 an existing container. Secret-grant edits are handed to a running computer.
 
-`capabilities.options` feeds Settings > Providers > Use for and Settings >
-Budgets, and reads the same connections `images.status` and `voice.status`
+`capabilities.options` feeds Settings > Providers > Use for and Calls, and
+Settings > Budgets, and reads the same connections `images.status` and `voice.status`
 resolve from. Its `spending` is `CapabilitySpending`
 `{budgets: SpendingBudget[], unavailable?}`: always the `chat`, `voice` and
 `images` budgets in that order, each
@@ -472,7 +472,13 @@ images from the image tally (`spending.json`);
 `unavailable` is set when either cannot be read. The `stt` and `tts` options are every speech model each
 connected provider offers, as the provider lists them (cached for a day; the
 provider's default when it cannot be asked), with voices on each speaking
-model and the default model first; see `docs/voice.md`. The command may wait on
+model and the default model first, and each provider says whether it runs on
+the desk's own machine (`onDevice`) and what it costs as the voice ledger
+counts it (`cost`: `free`, or a price). `live` is the live models calls can
+run on, `{front, credential, modelId, name, providerName, voices}`, one per
+connected login or key that runs each, absent when none is; `deviceName` is
+what Settings calls the desk's machine, `this Mac` on macOS, else `this
+computer`; see `docs/voice.md`. The command may wait on
 those lists for up to five seconds; starting a call does not. Voice reads
 `settings.spending` when the owner has set it. A room that never set it but
 kept an early version's `settings.voice.dayUsd` and `monthUsd` has those as
@@ -1466,7 +1472,7 @@ No extra speech credential is created.
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
 | `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
 | `voice.interrupt` | `{callId}` | void |
-| `voice.input_state` | `{callId, speaking}`; Legacy capture onset/drop, before a finalized utterance | void |
+| `voice.input_state` | `{callId, speaking}`; Turn by turn capture onset/drop, before a finalized utterance | void |
 | `voice.front_audio` | `{callId,seq,data}` | void; front calls only, PCM16 mono at the negotiated `inputRate`; see [voice-calls.md](voice-calls.md) |
 | `voice.front_barge` | `{callId,playedMs}` | void; front calls only |
 | `voice.hold` | `{callId,hold}` | void |

@@ -12,9 +12,10 @@ use super::ollama;
 use super::xai::{self, Xai};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechOutput, SpeechSet, TurnClock};
 use crate::realtime::{GptLive, Realtime, RealtimeSocket, live};
-use hotline_contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
+use hotline_contract::{CapabilityLiveModel, CapabilityModel, CapabilityPick, CapabilityProvider};
 use hotline_room::provider_auth::ProviderAuth;
-use hotline_room::voice::settings::{Choice, FrontProvider, VoiceSettings};
+use hotline_room::voice::ledger;
+use hotline_room::voice::settings::{Choice, FrontChoice, FrontProvider, VoiceSettings};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -165,6 +166,18 @@ struct Connection {
 impl Connection {
     fn custom(&self) -> bool {
         hotline_room::provider_auth::is_custom(&self.provider_id)
+    }
+
+    /// An Ollama server on this machine's loopback: the sound it is sent
+    /// never leaves the desk's machine.
+    fn on_device(&self) -> bool {
+        self.provider_id == ollama::PROVIDER_ID
+            && url::Url::parse(&self.base_url).is_ok_and(|url| match url.host() {
+                Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+                Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+                Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+                None => false,
+            })
     }
 
     /// The custom connection's first model whose id says it does this job.
@@ -342,11 +355,14 @@ fn options_from(
     connections: &[Connection],
     found: &HashMap<String, Found>,
 ) -> Options {
-    let provider = |connection: &Connection, models: Vec<CapabilityModel>| CapabilityProvider {
-        provider_id: connection.provider_id.clone(),
-        provider_name: connection.name.clone(),
-        models,
-    };
+    let provider =
+        |connection: &Connection, models: Vec<CapabilityModel>, cost: String| CapabilityProvider {
+            provider_id: connection.provider_id.clone(),
+            provider_name: connection.name.clone(),
+            models,
+            on_device: connection.on_device(),
+            cost: Some(cost),
+        };
     let plain = |id: String| CapabilityModel {
         id,
         label: None,
@@ -371,6 +387,8 @@ fn options_from(
         stt.push(CapabilityProvider {
             provider_id: local::PROVIDER_ID.into(),
             provider_name: local::PROVIDER_NAME.into(),
+            on_device: true,
+            cost: Some(ledger::stt_cost(local::PROVIDER_ID)),
             models: local
                 .iter()
                 .map(|model| CapabilityModel {
@@ -415,7 +433,11 @@ fn options_from(
                 .collect(),
         };
         if !hears.is_empty() {
-            stt.push(provider(connection, hears));
+            stt.push(provider(
+                connection,
+                hears,
+                ledger::stt_cost(&connection.provider_id),
+            ));
         }
         let speaks: Vec<CapabilityModel> = match row(&connection.provider_id) {
             Some(Row {
@@ -451,7 +473,11 @@ fn options_from(
                 .collect(),
         };
         if !speaks.is_empty() {
-            tts.push(provider(connection, speaks));
+            tts.push(provider(
+                connection,
+                speaks,
+                ledger::tts_cost(&connection.provider_id),
+            ));
         }
     }
     let automatic_local = local.first().map(|model| CapabilityPick {
@@ -601,15 +627,60 @@ pub fn resolve_front(connected: &Connected, settings: &VoiceSettings) -> Option<
     front_from(&connections(connected), settings)
 }
 
+/// The live models the desk can run on what the owner has connected: each
+/// once for every connected login or key it runs on, which is exactly what
+/// [`resolve_front`] would open, so Settings never offers a live model a
+/// call could not run on.
+pub fn live_models(connected: &Connected) -> Vec<CapabilityLiveModel> {
+    let mut models = Vec::new();
+    for front in FrontProvider::ALL {
+        for (credential, through) in logins(front) {
+            let settings = VoiceSettings {
+                front: Some(FrontChoice {
+                    provider: front,
+                    credential: Some((*credential).into()),
+                    voice: None,
+                }),
+                ..VoiceSettings::default()
+            };
+            let Some(realtime) = resolve_front(connected, &settings) else {
+                continue;
+            };
+            models.push(CapabilityLiveModel {
+                front: front.key().into(),
+                credential: (*credential).into(),
+                model_id: realtime.id().model_id,
+                name: front.name().into(),
+                provider_name: (*through).into(),
+                voices: front.voices().iter().map(ToString::to_string).collect(),
+            });
+        }
+    }
+    models
+}
+
+/// The logins and keys a live model runs on, each with the name Settings
+/// gives it, the one paid for by a plan first.
+fn logins(front: FrontProvider) -> &'static [(&'static str, &'static str)] {
+    match front {
+        FrontProvider::Grok => &[
+            (xai::SUBSCRIPTION_PROVIDER_ID, "Grok subscription"),
+            (xai::PROVIDER_ID, "xAI"),
+        ],
+        FrontProvider::GptLive => &[(live::PROVIDER_ID, "ChatGPT")],
+        FrontProvider::OpenAi => &[(OPENAI, "OpenAI")],
+    }
+}
+
 fn front_from(connections: &[Connection], settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
     let front = settings.front.as_ref()?;
-    let logins: &[&str] = match front.provider {
-        FrontProvider::Grok => &[xai::PROVIDER_ID, xai::SUBSCRIPTION_PROVIDER_ID],
-        FrontProvider::OpenAi => &[OPENAI],
-        FrontProvider::GptLive => return None,
-    };
+    if front.provider == FrontProvider::GptLive {
+        return None;
+    }
     let connection = connections.iter().find(|connection| {
-        logins.contains(&connection.provider_id.as_str())
+        logins(front.provider)
+            .iter()
+            .any(|(login, _)| *login == connection.provider_id)
             && front
                 .credential
                 .as_ref()
@@ -1355,6 +1426,146 @@ mod tests {
         let none = options_from(&[], &[], &HashMap::new());
         assert!(none.stt.is_empty() && none.tts.is_empty());
         assert!(none.automatic_stt.is_none() && none.automatic_tts.is_none());
+    }
+
+    #[test]
+    fn each_option_says_where_it_runs_and_what_the_ledger_charges() {
+        let ollama = |base_url: &str| Connection {
+            provider_id: ollama::PROVIDER_ID.into(),
+            name: ollama::NAME.into(),
+            base_url: base_url.into(),
+            key: None,
+            login: None,
+            models: Vec::new(),
+            root: None,
+        };
+        assert!(ollama("http://localhost:11434").on_device());
+        assert!(ollama("http://127.0.0.1:11434").on_device());
+        assert!(ollama("http://[::1]:11434").on_device());
+        assert!(!ollama("http://studio.lan:11434").on_device());
+        assert!(!connected("openai").on_device());
+        let options = options_from(
+            &[local::listed("parakeet-tdt-0.6b-v3", "Parakeet TDT 0.6B")],
+            &[connected("groq")],
+            &HashMap::new(),
+        );
+        let said = |provider: &CapabilityProvider| (provider.on_device, provider.cost.clone());
+        assert_eq!(said(&options.stt[0]), (true, Some("free".into())));
+        assert_eq!(
+            said(&options.stt[1]),
+            (false, Some("$0.001 a minute".into()))
+        );
+        assert_eq!(
+            said(&options.tts[0]),
+            (false, Some("$0.022 per 1,000 characters".into()))
+        );
+    }
+
+    fn no_chatgpt(_: &Path) -> futures_util::future::BoxFuture<'_, Result<live::Login, String>> {
+        Box::pin(async { Err("No ChatGPT login in this test.".to_string()) })
+    }
+
+    #[test]
+    fn the_live_group_is_the_realtime_models_of_connected_providers_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = hotline_support::credentials::CredentialFiles::new(
+            dir.path().into(),
+            Arc::new(hotline_support::credentials::MemoryStore::default()),
+        )
+        .file(dir.path().join("auth.json"));
+        let connected = |providers: Vec<(&str, ProviderAuth)>| Connected {
+            root: dir.path().into(),
+            providers: providers
+                .into_iter()
+                .map(|(id, auth)| (id.to_string(), auth))
+                .collect(),
+            sign_ins: SignIns {
+                xai: xai::test_bearer,
+                chatgpt: no_chatgpt,
+            },
+        };
+        let key = |key: &str| ProviderAuth::ApiKey(key.into());
+        let listed = |connected: &Connected| {
+            live_models(connected)
+                .into_iter()
+                .map(|model| {
+                    (
+                        model.front,
+                        model.credential,
+                        model.model_id,
+                        model.provider_name,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let row = |front: &str, credential: &str, model: &str, through: &str| {
+            (
+                front.into(),
+                credential.into(),
+                model.into(),
+                through.into(),
+            )
+        };
+
+        // Chat and speech providers run no live model, and none is listed.
+        assert_eq!(
+            listed(&connected(vec![
+                ("anthropic", key("sk-ant")),
+                ("groq", key("gsk")),
+                (
+                    "ollama",
+                    ProviderAuth::Local {
+                        base_url: "http://localhost:11434".into()
+                    }
+                ),
+            ])),
+            Vec::<(String, String, String, String)>::new()
+        );
+        let everything = listed(&connected(vec![
+            ("openai", key("sk")),
+            ("xai", ProviderAuth::StoredLogin { tokens }),
+            (
+                "openai-codex",
+                ProviderAuth::Login {
+                    token_dir: dir.path().into(),
+                },
+            ),
+        ]));
+        assert_eq!(
+            everything,
+            [
+                row(
+                    "grok",
+                    "xai-subscription",
+                    crate::realtime::socket::GROK_MODEL,
+                    "Grok subscription"
+                ),
+                row("gpt-live", "openai-codex", live::MODEL, "ChatGPT"),
+                row(
+                    "openai",
+                    "openai",
+                    crate::realtime::socket::OPENAI_MODEL,
+                    "OpenAI"
+                ),
+            ]
+        );
+        // Grok Voice on an xAI key is listed as that key; a key under the
+        // subscription's id is no login, and no front runs on it.
+        assert_eq!(
+            listed(&connected(vec![
+                ("xai", key("xai-key")),
+                ("xai-subscription", key("x"))
+            ])),
+            [row(
+                "grok",
+                "xai",
+                crate::realtime::socket::GROK_MODEL,
+                "xAI"
+            )]
+        );
+        let grok = live_models(&connected(vec![("xai", key("xai-key"))])).remove(0);
+        assert_eq!(grok.name, "Grok Voice");
+        assert_eq!(grok.voices[0], "eve");
     }
 
     #[test]

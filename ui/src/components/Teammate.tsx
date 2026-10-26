@@ -408,7 +408,7 @@ type Speaking = { providerId: string; modelId: string; voice?: string; voices: s
 /**
  * What calls speak with and its voices, or null while the desk cannot speak:
  * the voice front when the desk runs one (Grok Voice, GPT-Live, GPT
- * Realtime), else Legacy voice's speaking model.
+ * Realtime), else Turn by turn's Speech model.
  */
 function useSpeaking(): Speaking | null {
 	const status = useRoomRead("voice.status");
@@ -428,8 +428,8 @@ const DESK_VOICE = "";
 
 /**
  * The voice this teammate answers a direct call in. It is one of the voices
- * of whatever calls speak with now, the voice front or Legacy voice's
- * speaking model; a voice picked for another reads as the desk's, which is
+ * of whatever calls speak with now, the live model or Turn by turn's Speech
+ * model; a voice picked for another reads as the desk's, which is
  * what a call would use.
  */
 function VoiceRow({ persona, disabled, onSave }: { persona: Persona; disabled: boolean; onSave(patch: Partial<Persona>): void }) {

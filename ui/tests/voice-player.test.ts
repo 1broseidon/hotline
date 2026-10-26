@@ -46,7 +46,7 @@ describe("progressive voice playback", () => {
 		expect(() => r.player.push("audio/wav", "AA==")).toThrow("more voice audio");
 		r.player.stop();
 	});
-	test("a long Legacy reply streamed as many chunks is scheduled, not refused", async () => {
+	test("a long Turn by turn reply streamed as many chunks is scheduled, not refused", async () => {
 		const r = rig();
 		// Five minutes of speech in 300 one-second chunks, each decoded as it arrives.
 		for (let i = 0; i < 300; i++) {

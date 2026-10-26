@@ -165,7 +165,7 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
 
 /// Scenario: When the live voice goes away.
 #[tokio::test]
-async fn a_desk_without_a_front_refuses_live_and_only_starts_legacy_explicitly() {
+async fn a_desk_without_a_front_refuses_live_and_only_starts_turn_by_turn_explicitly() {
     let mut desk = front_desk(false, 64).await;
     let socket = &mut desk.socket;
     let setting = answer(
@@ -201,7 +201,7 @@ async fn a_desk_without_a_front_refuses_live_and_only_starts_legacy_explicitly()
 
 /// Scenario: When the live voice goes away.
 #[tokio::test]
-async fn a_front_that_cannot_open_ends_visibly_without_accepting_legacy_input() {
+async fn a_front_that_cannot_open_ends_visibly_without_accepting_turn_by_turn_input() {
     let mut desk = front_desk(true, 64).await;
     desk.front.session.lock().unwrap().take();
     let call = Uuid::new_v4().to_string();
@@ -331,7 +331,7 @@ async fn a_dropped_live_call_that_cannot_reconnect_ends_once_with_a_persistent_r
     let notice = frame_where(&mut desk.socket, |f| f["event"]["type"] == "said").await;
     assert_eq!(
         notice["event"]["text"],
-        "Live voice is unavailable. You can try again or choose Legacy voice."
+        "Live voice is unavailable. You can try again or choose Turn by turn."
     );
     let clip = frame_where(&mut desk.socket, |f| f["event"]["type"] == "clip").await;
     assert_eq!(clip["event"]["mimeType"], "audio/wav");
@@ -871,7 +871,7 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
 
 /// Scenario: When the live voice goes away.
 #[tokio::test]
-async fn a_selected_paid_front_with_no_budget_never_starts_legacy() {
+async fn a_selected_paid_front_with_no_budget_never_starts_turn_by_turn() {
     struct PaidFront;
     #[async_trait::async_trait]
     impl Realtime for PaidFront {

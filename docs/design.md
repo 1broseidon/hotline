@@ -702,7 +702,7 @@ check or install updates.
 ### Voice calls: desk first, teammate second
 
 
-Legacy voice attaches to an agent thread (ADR 0008 §5). A new call has a
+Turn by turn attaches to an agent thread (ADR 0008 §5). A new call has a
 Call thread; `voice.call_start.thread` attaches to an existing work or call
 thread owned by the selected teammate. Both use the work-thread occupant,
 `Room::thread_agent` and `Room::run_queue`: one queue, independent revocable
@@ -790,14 +790,14 @@ chat message. The existing in-flight hang-up post and one closing note remain.
 The core permits a contextual chat pointer at most once in three caller turns.
 The teammate streams its own opening without a pointer; once the result is
 known, the narrator can add a brief pointer in its own words. No stock phrase
-or fixed word cap is requested. Legacy and narrator instructions carry the
+or fixed word cap is requested. Turn by turn and narrator instructions carry the
 turn count, last pointer turn and three recent generated spoken lines; live
 voice receives the same state. Reservations count even if speech is cut or
 generation fails, conservatively avoiding a repeated reminder. A conversational
 turn never reserves one. Generated speech remains distinct from proof of hearing.
 The optional `spoken` field and tape segment layout are unchanged.
 
-Legacy speaks the teammate's own first sentence as it arrives, including an
+Turn by turn speaks the teammate's own first sentence as it arrives, including an
 untagged prose opening, and streams the spoken reply. It never waits for a
 rewrite before saying that opening. If no speech has begun after 1.8 seconds,
 the core sends one soft, wordless WAV on the ordinary clip wire, to desk and
@@ -855,14 +855,16 @@ the desk dispatcher and agent work retain their ordinary spending rules.
 
 ### Interruptions describe playback, not generation
 
-The desk keeps its microphone open during Legacy speech as it does for live
-voice. Confirmed local speech onset and a tap stop playback locally before
-waiting for the wire. Late clips from the cut Legacy line are discarded;
-live audio remains muted until the caller's next transcript arrives. Browser
-capture requests echo cancellation, and native Mac recognition enables voice
-processing. Physical speaker cancellation, especially across the native
-recognizer and webview playback, still needs the task-206 scenario pass;
-these switches alone do not prove that the teammate cannot hear itself.
+A live model keeps the desk's microphone open while it speaks: confirmed
+local speech onset stops playback before waiting for the wire, and live
+audio remains muted until the caller's next transcript arrives. Turn by
+turn does not listen while a reply plays. The desk window lets go of its
+recognizer, or ignores its microphone, from the first clip until playback
+ends, and a tap (Cut in) is the way to interrupt. Echo cancellation in the
+browser's capture and the Mac recognizer's voice processing did not keep a
+reply on a speaker from being heard as the person and cutting itself off;
+a realtime model handles its own echo, the pipeline cannot. Late clips from
+a cut Turn by turn line are discarded.
 
 An interruption writes a notice on the call thread with the generated line,
 its speech id and the played milliseconds when the live client supplies them.
@@ -870,7 +872,7 @@ It explicitly says that the line was not heard to its end and that the last
 heard word is unknown: generation and elapsed audio do not establish a word
 boundary. The notice metadata is additive; older readers keep its text, and the tape
 segment layout and importer are unchanged. The written reply remains intact.
-The next Legacy thread turn gets
+The next Turn by turn thread turn gets
 the interruption as playback context, separately from the saved caller text,
 and live providers receive truncation or interruption context. Cutting a
 streamed reply also prevents its late completion from starting speech again.
@@ -919,19 +921,19 @@ the physical relay scenario remain to be verified in the phone tree.
 
 Settings selects the call mode in the core, including when a client omits
 `voice.call_start.mode`. `front` requires a live model; `pipeline` is the
-person's explicit Legacy choice. A missing login, spent budget or failed
-provider never turns a live request into Legacy. `voice.status.liveSelected`
+person's explicit choice of Turn by turn. A missing login, spent budget or
+failed provider never turns a live request into Turn by turn. `voice.status.liveSelected`
 keeps selection separate from availability. A failed live call keeps its
 one-sentence reason as `state.liveError`, including in its snapshot, so a
-client arriving after the failure still explains it and offers **Call with
-Legacy voice**. That choice starts a new call on the same conversation.
+client arriving after the failure still explains it and offers **Call turn
+by turn**. That choice starts a new call on the same conversation.
 
 The provider adapters renew and reconnect with their bounded transcript.
 If a session exits, the call runtime makes a bounded replacement attempt
 with the conversation preserved; a replacement that fails before making
 progress ends the live call visibly. Fixed local recordings explain a failed
-live connection or spent Voice budget once and offer an explicit Legacy
-choice, without asking the unavailable provider to speak. The call card keeps
+live connection or spent Voice budget once and offer an explicit Turn by
+turn choice, without asking the unavailable provider to speak. The call card keeps
 the reason, while spoken notices contain no provider error codes. A revoked login or spent budget ends
 it without reopening the revoked connection. Start, recovery and refusal
 logs identify their reason. Refusal logs correlate provider `event_id` to

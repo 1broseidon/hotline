@@ -55,10 +55,21 @@ async fn ollama_local_offers_each_model_only_to_the_picker_of_its_kind() {
     let tts = &options["result"]["tts"];
     assert_eq!(
         tts["options"],
-        json!([{"providerId": "ollama", "providerName": "Ollama", "models": [
+        json!([{"providerId": "ollama", "providerName": "Ollama", "onDevice": true, "cost": "free", "models": [
             {"id": "phonon:latest", "label": "phonon", "voices": ["default", "Alfie", "Zoey"]}
         ]}]),
         "{options}"
+    );
+    // Ollama runs no live model, so Calls offers none; it names the desk's
+    // machine for its own platform.
+    assert!(options["result"].get("live").is_none(), "{options}");
+    assert_eq!(
+        options["result"]["deviceName"],
+        if cfg!(target_os = "macos") {
+            "this Mac"
+        } else {
+            "this computer"
+        },
     );
     assert!(tts.get("automatic").is_none(), "{tts}");
     assert!(tts.get("unavailable").is_none(), "{tts}");

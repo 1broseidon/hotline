@@ -11,11 +11,29 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Added
 
 - Ollama speaks. With a speech model such as `phonon` pulled into a
-  connected Ollama, Settings › Providers › Use for lists its voices, as
-  Ollama names them, and a voice chosen there says replies on Legacy calls
-  through the Ollama server, for nothing. With the desk's own hearing, a
-  call needs no cloud provider at all. Ollama not running, or with no
-  speech model, is simply not offered.
+  connected Ollama, Settings › Providers › Calls › Speech lists its voices,
+  as Ollama names them, and a voice chosen there says replies on Turn by
+  turn calls through the Ollama server, for nothing. With the desk's own
+  hearing, a call needs no cloud provider at all. Ollama not running, or
+  with no speech model, is simply not offered.
+
+### Changed
+
+- Calls choose a Live model or Turn by turn, and the settings follow the
+  choice. Settings › Providers › Calls › Model lists, under Live, the
+  realtime models your connected providers run (Grok Voice, GPT-Live, GPT
+  Realtime), once per login or key, and never one whose provider is not
+  connected; a live model shows only its Voice and the Call assistant.
+  Turn by turn, where the teammate answers on its own model and the desk
+  transcribes and speaks, shows Transcription (moved here from Use for) and
+  Speech ("Phonon · Zoey"), each saying what it costs ("Parakeet · free")
+  and tagged "on this Mac", or "on this computer" off macOS, when it runs on
+  the desk's own machine. "Legacy voice" is gone: a room that chose it reads
+  as Turn by turn with its transcription and speech picks unchanged, and a
+  failed live call offers Call turn by turn.
+- A Turn by turn call from the desk window no longer listens while a reply
+  plays, so a reply on the speaker is never cut off by its own echo. Tap the
+  call to interrupt; live models still take talking over them.
 
 ### Fixed
 
@@ -23,9 +41,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   offers image, speech, transcription or embedding models as teammates:
   Ollama's `phonon` and embedding models, OpenRouter's image models and
   xAI's Grok Imagine stay out, and so do OpenAI's, Google's, Groq's and
-  Mistral's that models.dev knows are not chat. Images, Voice and
+  Mistral's that models.dev knows are not chat. Images, Speech and
   Transcription each list only their own kind. Refresh a provider to clear
-  a list saved before. With an Ollama voice chosen, the Voice picker names
+  a list saved before. With an Ollama voice chosen, the Speech picker names
   its default voice after the model ("Phonon") instead of "Default".
 
 ## [0.43.0] - 2026-10-24

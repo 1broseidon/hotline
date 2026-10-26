@@ -532,13 +532,38 @@ fn price(provider_id: &str) -> (f64, f64) {
         .map_or(UNKNOWN_PRICE, |(_, stt, tts)| (*stt, *tts))
 }
 
-/// The cost of transcribing a clip of this many seconds.
 /// Whether a provider's voice costs nothing: a subscription's, the desk's own,
 /// or the owner's Ollama server's.
 pub fn is_free(provider_id: &str) -> bool {
     price(provider_id) == (0.0, 0.0)
 }
 
+/// What transcribing with a provider costs, as Settings shows it: `free`,
+/// or its price a minute.
+pub fn stt_cost(provider_id: &str) -> String {
+    cost_words(price(provider_id).0, "a minute")
+}
+
+/// What speaking with a provider costs, as Settings shows it: `free`, or
+/// its price per 1,000 characters.
+pub fn tts_cost(provider_id: &str) -> String {
+    cost_words(price(provider_id).1, "per 1,000 characters")
+}
+
+/// A price as a person reads it. The table's prices run to fractions of a
+/// cent, so four places are kept, less the zeros past the cents.
+fn cost_words(usd: f64, per: &str) -> String {
+    if usd <= 0.0 {
+        return "free".into();
+    }
+    let mut amount = format!("{usd:.4}");
+    while amount.ends_with('0') && amount.len() > "0.00".len() {
+        amount.pop();
+    }
+    format!("${amount} {per}")
+}
+
+/// The cost of transcribing a clip of this many seconds.
 pub fn stt_usd(provider_id: &str, seconds: f64) -> f64 {
     price(provider_id).0 * seconds.max(0.0) / 60.0
 }
@@ -598,6 +623,16 @@ mod tests {
     fn the_desks_own_hearing_costs_nothing_batch_or_live() {
         assert_eq!(super::stt_usd("local", 120.0), 0.0);
         assert_eq!(super::stt_live_usd("local", 120.0), 0.0);
+    }
+
+    #[test]
+    fn settings_names_a_price_from_the_table_and_free_when_it_is_zero() {
+        assert_eq!(super::stt_cost("local"), "free");
+        assert_eq!(super::tts_cost("ollama"), "free");
+        assert_eq!(super::stt_cost("openai"), "$0.006 a minute");
+        assert_eq!(super::stt_cost("xai"), "$0.0017 a minute");
+        assert_eq!(super::tts_cost("google"), "$0.03 per 1,000 characters");
+        assert_eq!(super::tts_cost("groq"), "$0.022 per 1,000 characters");
     }
 
     #[test]

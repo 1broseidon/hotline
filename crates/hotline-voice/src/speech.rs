@@ -27,8 +27,8 @@ pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
 pub use openai_shape::{AudioFormat, Endpoint, OpenAiShape};
 pub use providers::{
-    Connected, Options, SignIns, listens_for, options, resolve, resolve_front, resolve_output,
-    speaks,
+    Connected, Options, SignIns, listens_for, live_models, options, resolve, resolve_front,
+    resolve_output, speaks,
 };
 
 use async_trait::async_trait;

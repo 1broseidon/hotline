@@ -90,7 +90,7 @@ crates/hotline-voice/src/     calls and voice engines; the room is reached throu
   call_room.rs               the core's callbacks, with temporary operations labelled by removal slice
   lib.rs, call.rs, input.rs   call ownership, lifecycle and bounded input
   duplex.rs, front*.rs        live sound, the front's conversation and its leased tools
-  dispatcher.rs              the legacy desk assistant and its metering
+  dispatcher.rs              the desk's call assistant and its metering
   turn.rs, synthesis.rs       turns, streamed replies and spoken clips
   record.rs, replies.rs       the call's record and spoken-reply counts
   speech.rs                  the Speech seam: a clip heard, a reply spoken, and the errors either gives

@@ -91,6 +91,18 @@ pub async fn options(
         },
         dispatcher: dispatcher(vault, &settings, &voice),
         spending: spending(&settings, images_spent, voice_budget),
+        live: connected::live_models(vault),
+        device_name: Some(device_name(std::env::consts::OS).into()),
+    }
+}
+
+/// What the desk's machine is called where Settings says a model runs on
+/// it: a Mac by name, any other machine as a computer.
+fn device_name(os: &str) -> &'static str {
+    if os == "macos" {
+        "this Mac"
+    } else {
+        "this computer"
     }
 }
 
@@ -131,6 +143,8 @@ fn dispatcher(
                 provider_id: provider_id.to_string(),
                 provider_name: choice.group.clone().unwrap_or_else(|| provider_id.into()),
                 models: vec![entry],
+                on_device: false,
+                cost: None,
             }),
         }
     }
@@ -171,7 +185,8 @@ fn dispatcher(
 
 /// The three budgets, each with its limits, what it has spent and on what.
 /// Chat and voice come from the voice tally (and the room's limits as voice
-/// reads them, legacy voice caps included), images from the image tally.
+/// reads them, early versions' voice-only caps included), images from the
+/// image tally.
 fn spending(
     settings: &Map<String, Value>,
     images_spent: Result<SpendingSummary, String>,
@@ -252,5 +267,44 @@ fn pick(options: &[CapabilityProvider], choice: &Choice) -> CapabilityPick {
         model_id: choice.model_id.clone(),
         voice: choice.voice.clone(),
         effort: choice.effort.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::{self, ModelKind, Said};
+
+    #[test]
+    fn a_model_on_the_desk_runs_on_this_mac_only_on_macos() {
+        assert_eq!(super::device_name("macos"), "this Mac");
+        assert_eq!(super::device_name("linux"), "this computer");
+        assert_eq!(super::device_name("windows"), "this computer");
+    }
+    use hotline_voice::realtime::{live, socket};
+
+    /// The live group lists the realtime models the voice crate can run.
+    /// Where the snapshot knows one of them, the kind classifier must agree
+    /// it is realtime, so the picker never offers a model under a kind it is not.
+    #[test]
+    fn every_live_model_the_snapshot_knows_is_a_realtime_model() {
+        for (provider_id, model_id) in [
+            ("xai", socket::GROK_MODEL),
+            ("openai", socket::OPENAI_MODEL),
+            ("openai-codex", live::MODEL),
+        ] {
+            let known = models::catalog()
+                .providers
+                .get(provider_id)
+                .and_then(|provider| provider.kinds.get(model_id))
+                .copied();
+            assert!(
+                known.is_none_or(|kind| kind == ModelKind::Realtime),
+                "{provider_id}/{model_id} is {known:?}"
+            );
+        }
+        assert_eq!(
+            models::kind("openai", socket::OPENAI_MODEL, &Said::Nothing),
+            ModelKind::Realtime
+        );
     }
 }

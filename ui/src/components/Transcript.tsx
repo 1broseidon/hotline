@@ -16,6 +16,7 @@ import {
 	deliveryLine,
 	deliveryMissed,
 	foldReactions,
+	heardOnce,
 	peerLine,
 	quotedLine,
 	retryForNotice,
@@ -194,7 +195,7 @@ export function Transcript({
 	}, [events]);
 	const answered = useMemo(() => superseded(events), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(events), [events]);
+	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call")), [events, thread?.kind]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */

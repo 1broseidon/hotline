@@ -51,7 +51,7 @@ pub(crate) use socket::WRITE_STALL;
 pub(crate) use socket::{federation, seated_phone_v2};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// A desk that runs agents, as a wire or a Remote is seated on it: its log,
 /// the live half behind its room handle, and the parts the wire drives

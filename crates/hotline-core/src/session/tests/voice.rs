@@ -170,3 +170,94 @@ async fn a_calls_post_rides_on_the_home_sessions_next_line_once() {
     let second = heard(&prompts, 2).await;
     assert!(!second[1].contains("scheduler fix"), "{}", second[1]);
 }
+
+/// A reply said on a turn by turn call is said once, however many bubbles
+/// the chat shows it in. The desk writes a long reply as bubbles (`reply`,
+/// `reply-2`), and the later ones are the same reply, which the call has
+/// already said as it streamed: they are never handed to it as replies of
+/// their own, to be read out again from their first word.
+#[tokio::test]
+async fn a_reply_written_as_several_bubbles_is_said_on_the_call_once() {
+    let first = "Here's what we covered this week. We built a status page and audited the board. We tested the approval and yes or no cards. We took the firewall up to the new release and sorted out the SSH trouble.";
+    let second = "Three things are still open. The firewall jump is waiting on your go-ahead. I haven't confirmed the new teammate was added.";
+    let reply = format!("<spoken>{first}\n\n{second}</spoken>");
+    let turn = vec![
+        Update::Delta {
+            kind: MessageKind::Agent,
+            message_id: "reply".into(),
+            text: reply.clone(),
+        },
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: "reply".into(),
+            text: reply,
+        },
+        Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        },
+    ];
+    let room = room("voice-bubbles-said-once", Fake::new(Scripted::new(turn)));
+    let fake = Arc::new(crate::voice::tests::Fake::default());
+    *lock(&fake.transcript) = "What did we talk about this week?".into();
+    let vault = Arc::new(
+        crate::vault::Vault::open_with_store(
+            room.log.root(),
+            room.log.clone(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
+    let calls = crate::voice::Calls::new(
+        room.log.clone(),
+        crate::voice::room::RoomSide::new(Arc::downgrade(&room), vault),
+        Some(crate::voice::tests::with_fake(fake.clone())),
+    );
+    room.set_voice(&calls);
+    room.start("ada").await.unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    calls
+        .start_target(
+            &id,
+            Some("ada".into()),
+            false,
+            Arc::new(crate::wire::tests::CoreHandle { room: room.clone() }),
+        )
+        .unwrap();
+    use base64::Engine as _;
+    calls
+        .utterance(
+            &id,
+            1,
+            "audio/wav",
+            &base64::prelude::BASE64_STANDARD.encode(crate::voice::tests::wav()),
+            1000,
+        )
+        .unwrap();
+    let bubbles = || {
+        room.log
+            .load(&StreamId::of_thread(&ThreadId::call(&id)).unwrap())
+            .into_iter()
+            .filter(|event| event["kind"] == "agent")
+            .count()
+    };
+    until("the reply is written as two bubbles", || bubbles() == 2).await;
+    let said = || lock(&fake.spoken).join(" ");
+    until("the whole reply is said", || {
+        said().ends_with("new teammate was added.")
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let said = said();
+    assert_eq!(
+        said.matches("Three things are still open.").count(),
+        1,
+        "{said}"
+    );
+    assert_eq!(
+        said.matches("Here's what we covered this week.").count(),
+        1,
+        "{said}"
+    );
+    calls.end(&id).unwrap();
+}

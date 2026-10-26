@@ -151,6 +151,10 @@ struct Told<'a, F> {
     voice: Option<crate::voice::Origin>,
     replies: Vec<serde_json::Value>,
     files: Vec<crate::contract::ChangedFile>,
+    /// Replies the call already has whole: said as they streamed, or handed
+    /// over with their spoken version. Their later bubbles are the same
+    /// reply, so the call is never given them as replies of their own.
+    with_call: Vec<String>,
 }
 
 impl<F: Fn() -> bool> Witness for Told<'_, F> {
@@ -214,6 +218,9 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
             && let Some(voice) = lock(&self.threads.room.voice).upgrade()
         {
             voice.reply_delta(self.seat.persona_id, message_id, words.written, origin);
+            if !self.with_call.iter().any(|id| id == message_id) {
+                self.with_call.push(message_id.to_string());
+            }
         }
         if words.shown.is_empty() || !(self.open)() {
             return;
@@ -262,10 +269,17 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         } = &event
         {
             let room = self.threads.room;
+            let rest_of_reply = id.rsplit_once('-').is_some_and(|(reply, bubble)| {
+                bubble.parse::<usize>().is_ok() && self.with_call.iter().any(|id| id == reply)
+            });
             if let Some(origin) = &self.voice
                 && !origin.front
+                && !rest_of_reply
                 && let Some(voice) = lock(&room.voice).upgrade()
             {
+                if spoken.is_some() && !self.with_call.contains(id) {
+                    self.with_call.push(id.clone());
+                }
                 let answer = spoken.as_ref().map_or_else(
                     || text.clone(),
                     |spoken| format!("<spoken>{spoken}</spoken><written>{text}</written>"),
@@ -323,6 +337,7 @@ impl Threads<'_> {
         let mut told = Told {
             replies: Vec::new(),
             files: Vec::new(),
+            with_call: Vec::new(),
             voice: voice.clone(),
             threads: Threads { room: self.room },
             seat,

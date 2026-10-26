@@ -206,7 +206,7 @@ fn desk(services: Services) -> (tempfile::TempDir, Arc<crate::desk::Desk>, Arc<C
     let calls = desk.parts().voice.unwrap();
     (root, desk, calls)
 }
-fn wav() -> Vec<u8> {
+pub(crate) fn wav() -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(b"RIFF");
     bytes.extend(32036u32.to_le_bytes());

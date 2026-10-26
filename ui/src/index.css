@@ -3895,15 +3895,24 @@
 		font-size: var(--text-md);
 		line-height: var(--text-md--line-height);
 	}
+	/* A table in a bubble is rows on the bubble, not a grid of boxes: a rule
+	 * under the head and between rows, and no walls. */
 	.md th,
 	.md td {
-		border: var(--hairline) solid var(--line);
-		padding: 4px 10px;
+		padding: 6px 12px;
 		text-align: left;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.md th:first-child,
+	.md td:first-child {
+		padding-left: 0;
+	}
+	.md tr:last-child td {
+		border-bottom: none;
 	}
 	.md th {
 		font-weight: 600;
-		background: var(--fill-code);
+		color: var(--ink-2);
 	}
 	.md strong {
 		font-weight: 600;

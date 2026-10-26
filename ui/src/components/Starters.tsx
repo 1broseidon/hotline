@@ -37,11 +37,6 @@ export function Starters({ persona, onPick }: { persona: Persona; onPick(text: s
 	return (
 		<fieldset className="mx-auto mb-3 w-full min-w-0 max-w-[46rem]" aria-label="Things to try">
 			<div className="grouped">
-				<div className="group-row">
-					<p className="group-row-text text-sm text-ink-3" style={{ whiteSpace: "normal" }}>
-						A conversation runs in chapters: one closes after a quiet stretch with a handoff note, and {persona.name} remembers across them.
-					</p>
-				</div>
 				{prompts.map((prompt) => (
 					<button key={prompt} type="button" className="group-row group-row-choice w-full text-left" onClick={() => onPick(prompt)}>
 						<span className="group-row-text text-sm text-ink" style={{ whiteSpace: "normal" }}>
@@ -50,6 +45,10 @@ export function Starters({ persona, onPick }: { persona: Persona; onPick(text: s
 					</button>
 				))}
 			</div>
+			{/* Said under the choices, as a group's hint, so only what can be picked looks pickable. */}
+			<p className="group-hint">
+				A conversation runs in chapters: one closes after a quiet stretch with a handoff note, and {persona.name} remembers across them.
+			</p>
 		</fieldset>
 	);
 }

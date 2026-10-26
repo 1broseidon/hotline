@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CredentialAnswer, TranscriptEvent } from "../../generated/contract";
+import { CheckIcon } from "../../icons";
 import { wire } from "../../wire";
 
 type Ask = Extract<TranscriptEvent, { kind: "credential_ask" }>;
@@ -14,10 +15,16 @@ export function CredentialAsk({ event, teammate }: { event: Ask; teammate: strin
 		return () => clearTimeout(timer);
 	}, [event.expiresAt, event.status]);
 	const status = event.status === "pending" && expired ? "expired" : event.status;
+	// Settled, it reads as a permission does: what was asked, of what, and how it ended.
 	if (status !== "pending") return (
 		<div className="card mt-3">
-			<p className="eyebrow mb-1">Credential · {status === "stored" ? `Stored as ${event.storedAs ?? event.name}` : status.charAt(0).toUpperCase() + status.slice(1)}</p>
-			<p className="selectable text-ink-2">{event.site} · {teammate}</p>
+			<p className="eyebrow mb-1">{event.credentialKind === "passkey" ? "Asked for a passkey" : "Asked to sign in"}</p>
+			<p className="selectable font-mono text-md">{event.site.replace(/^https?:\/\//, "").replace(/\/$/, "")}</p>
+			<p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink-3">
+				{status === "stored" && <CheckIcon className="text-ink-4" />}
+				{status === "stored" ? `Stored as ${event.storedAs ?? event.name}` : status === "expired" ? "Expired unanswered" : status.charAt(0).toUpperCase() + status.slice(1)}
+				{` · ${teammate}`}
+			</p>
 		</div>
 	);
 	if (event.armed) return (

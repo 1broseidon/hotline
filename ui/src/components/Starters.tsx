@@ -21,9 +21,16 @@ export function untouched(events: TranscriptEvent[], more: boolean): boolean {
 	return !more && !events.some((event) => event.kind === "user" || event.kind === "delivery" || event.kind === "agent");
 }
 
-export function Starters({ persona, onPick }: { persona: Persona; onPick(text: string): void }) {
-	const own = isOwnFolder(persona.cwd);
-	const prompts = own
+/**
+ * What to ask first. A project folder is code, so the prompts read it. A
+ * folder Hotline made is the teammate's own, so the prompts start on its goal,
+ * or, with no goal to start on, make something to show it works.
+ */
+export function startersFor(persona: Pick<Persona, "goal">, own: boolean): string[] {
+	if (own && persona.goal.trim() !== "") {
+		return ["Given your goal, what's the first thing you'd do?", "What do you need from me to get going?", "What can you do from here? Give me three concrete things."];
+	}
+	return own
 		? [
 				"Make a small command-line game in this folder and run it once to show me it works.",
 				"Write a README here that says what this folder is for, from your goal.",
@@ -34,6 +41,10 @@ export function Starters({ persona, onPick }: { persona: Persona; onPick(text: s
 				"Find something small worth fixing here, and fix it.",
 				"What would you change first in this project, and why?",
 			];
+}
+
+export function Starters({ persona, onPick }: { persona: Persona; onPick(text: string): void }) {
+	const prompts = startersFor(persona, isOwnFolder(persona.cwd));
 	return (
 		<fieldset className="mx-auto mb-3 w-full min-w-0 max-w-[46rem]" aria-label="Things to try">
 			<div className="grouped">
@@ -47,7 +58,7 @@ export function Starters({ persona, onPick }: { persona: Persona; onPick(text: s
 			</div>
 			{/* Said under the choices, as a group's hint, so only what can be picked looks pickable. */}
 			<p className="group-hint">
-				A conversation runs in chapters: one closes after a quiet stretch with a handoff note, and {persona.name} remembers across them.
+				Chapters close after a quiet stretch; {persona.name} remembers across them.
 			</p>
 		</fieldset>
 	);

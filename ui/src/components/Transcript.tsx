@@ -86,6 +86,7 @@ export function Transcript({
 	personaId,
 	name,
 	avatarHash,
+	goal,
 	people,
 	events,
 	streaming,
@@ -113,6 +114,8 @@ export function Transcript({
 	name: string;
 	/** The teammate's picture, when it has one. */
 	avatarHash?: string | undefined;
+	/** What the teammate is for: said under its name before anything else is. */
+	goal?: string | undefined;
 	/** Every teammate by id, for the colleagues a line names. */
 	people?: ReadonlyMap<string, Person> | undefined;
 	events: TranscriptEvent[];
@@ -367,7 +370,7 @@ export function Transcript({
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
 				<Avatar id={personaId} name={name} size={48} hash={avatarHash} />
 				<p className="text-lg font-semibold">{name}</p>
-				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
+				<p className="max-w-[360px] text-center text-md text-ink-2">{goal?.trim() ? goal.trim() : "Nothing said yet. Say hello below."}</p>
 			</div>
 		);
 	}

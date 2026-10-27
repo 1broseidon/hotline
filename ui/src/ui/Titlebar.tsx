@@ -121,6 +121,8 @@ const LIGHTS_RIGHT = 76;
  * top-right corner. Whatever pane's band runs under either is measured and
  * makes room for it (`--lead-room`, `--controls-room`), so the faces-only
  * rail, a closed rail and any pane at the right all keep their titles clear.
+ * A call's card at the pane's top is measured the same way, so its face
+ * stands clear of the traffic lights and the rail's key.
  */
 export function FlushChrome({
 	rail,
@@ -161,11 +163,15 @@ export function FlushChrome({
 				const lights = platform() === "macos" && !document.documentElement.hasAttribute("data-fullscreen") ? LIGHTS_RIGHT : 0;
 				const leadRight = Math.max(lights, ...keys.map((key) => key.getBoundingClientRect().right));
 				const controlsLeft = controls.current?.getBoundingClientRect().left ?? Number.POSITIVE_INFINITY;
-				for (const band of document.querySelectorAll<HTMLElement>("#root .band")) {
+				for (const band of document.querySelectorAll<HTMLElement>("#root .band, #root .call-head")) {
 					sized.observe(band);
 					const box = band.getBoundingClientRect();
 					const top = box.top < 40;
-					band.style.setProperty("--lead-room", top && box.left < leadRight ? `${Math.ceil(leadRight - box.left)}px` : "0px");
+					// A band makes its room inside itself; a call's card moves over by it,
+					// so it is measured from the pane it stands in, which never moves with it.
+					const card = band.classList.contains("call-head") ? band.parentElement : null;
+					const left = card?.getBoundingClientRect().left ?? box.left;
+					band.style.setProperty("--lead-room", top && left < leadRight ? `${Math.ceil(leadRight - left)}px` : "0px");
 					band.style.setProperty("--controls-room", top && box.right > controlsLeft ? `${Math.ceil(box.right - controlsLeft)}px` : "0px");
 				}
 			}, 16);

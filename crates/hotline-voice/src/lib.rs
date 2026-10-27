@@ -179,7 +179,7 @@ impl CallSpeech {
             fallback_tts: speech.fallback_tts,
         }
     }
-    /// A front call needs no Legacy speech services: the front
+    /// A front call needs no transcription or speech services: the front
     /// hears and speaks itself, and its identity stands in for the speech
     /// the call would otherwise have resolved.
     fn front(front: &dyn realtime::Realtime) -> Self {

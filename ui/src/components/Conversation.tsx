@@ -262,6 +262,7 @@ export function Conversation({
 				<Transcript
 					personaId={personaId}
 					name={persona.name}
+					goal={persona.goal}
 					people={people}
 					events={shown}
 					streaming={streaming}

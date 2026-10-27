@@ -483,7 +483,7 @@ export function App() {
 	const teamRail = railSize.open && pane !== "settings";
 	const deskCalling = call !== null && call.target === undefined;
 	// A failure needs its sentence and choice: use the pane when the rail is faces only.
-	const deskInRail = deskCalling && teamRail && !(faces && callState.legacyAvailable);
+	const deskInRail = deskCalling && teamRail && !(faces && callState.turnByTurnOffered);
 	const callBar = call === null || deskInRail ? undefined : (
 		<CallBar
 			call={call}

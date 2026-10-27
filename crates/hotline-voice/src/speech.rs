@@ -2,7 +2,8 @@
 //! connected provider the owner has.
 //!
 //! Most providers share the OpenAI audio shape, so one adapter covers them
-//! ([`OpenAiShape`]); Google's Gemini has its own ([`Google`]). An adapter is
+//! ([`OpenAiShape`]), a connected Ollama server's speech models among them;
+//! Google's Gemini has its own ([`Google`]). An adapter is
 //! built for one job, listening or speaking, because the wire reports the
 //! model behind each: the other job answers [`SpeechError::WrongJob`].
 //!
@@ -16,6 +17,7 @@ mod catalog;
 mod clip;
 mod google;
 pub mod local;
+mod ollama;
 mod openai_shape;
 mod providers;
 mod wav;
@@ -25,8 +27,8 @@ pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
 pub use openai_shape::{AudioFormat, Endpoint, OpenAiShape};
 pub use providers::{
-    Connected, Options, SignIns, listens_for, options, resolve, resolve_front, resolve_output,
-    speaks,
+    Connected, Options, SignIns, listens_for, live_models, options, resolve, resolve_front,
+    resolve_output, speaks,
 };
 
 use async_trait::async_trait;

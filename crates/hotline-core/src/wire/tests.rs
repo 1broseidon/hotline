@@ -154,8 +154,8 @@ impl Quiet {
 /// A real session room behind the WebSocket door, with all desk-only
 /// facilities stubbed. This keeps the wire regression independent of a model
 /// key while the collaboration card and answer still pass through Room.
-struct CoreHandle {
-    room: Arc<Room>,
+pub(crate) struct CoreHandle {
+    pub(crate) room: Arc<Room>,
 }
 
 struct NoAgents;

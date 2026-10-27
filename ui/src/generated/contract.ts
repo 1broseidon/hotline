@@ -180,6 +180,35 @@ unavailable?: string,
 options: Array<CapabilityProvider>, };
 
 /**
+ * A live model a call can run on: a realtime model that hears, talks and
+ * uses tools in one stream, once for each connected login or key that runs
+ * it. Picking one writes `voice.front` as `{provider: front, credential}`.
+ */
+export type CapabilityLiveModel = { 
+/**
+ * Which live model, as `voice.front.provider` names it: `grok`,
+ * `gpt-live` or `openai`.
+ */
+front: string, 
+/**
+ * The login or key it runs on, as `voice.front.credential` names it:
+ * `xai-subscription`, `xai`, `openai-codex` or `openai`.
+ */
+credential: string, modelId: string, 
+/**
+ * Its name for a person ("Grok Voice").
+ */
+name: string, 
+/**
+ * What it runs through, which decides who pays ("Grok subscription").
+ */
+providerName: string, 
+/**
+ * Every voice it speaks in, its default first.
+ */
+voices: Array<string>, };
+
+/**
  * One model a connected provider can be asked to do a job with.
  */
 export type CapabilityModel = { id: string, label?: string, 
@@ -193,7 +222,27 @@ voices?: Array<string>,
  */
 efforts?: Array<string>, };
 
-export type CapabilityOptions = { images: CapabilityJob, stt: CapabilityJob, tts: CapabilityJob, dispatcher: CapabilityJob, spending: CapabilitySpending, };
+export type CapabilityOptions = { images: CapabilityJob, 
+/**
+ * Transcription on a Turn by turn call.
+ */
+stt: CapabilityJob, 
+/**
+ * Speech on a Turn by turn call.
+ */
+tts: CapabilityJob, dispatcher: CapabilityJob, spending: CapabilitySpending, 
+/**
+ * The live models the connected providers can run, for Settings ›
+ * Calls › Model. Absent when there are none, or from a desk older than
+ * the field.
+ */
+live?: Array<CapabilityLiveModel>, 
+/**
+ * What the desk's machine is called where Settings says a model runs
+ * on it (`onDevice`): `this Mac` on macOS, else `this computer`.
+ * Absent from a desk older than the field.
+ */
+deviceName?: string, };
 
 /**
  * A provider, and the model and voice on it when they are known.
@@ -207,7 +256,18 @@ effort?: string, };
 /**
  * A connected provider and the models it can do one job with.
  */
-export type CapabilityProvider = { providerId: string, providerName: string, models: Array<CapabilityModel>, };
+export type CapabilityProvider = { providerId: string, providerName: string, models: Array<CapabilityModel>, 
+/**
+ * Transcription and speech: it runs on the desk's own machine, so the
+ * sound never leaves it (the desk's own models, an Ollama on loopback).
+ */
+onDevice?: boolean, 
+/**
+ * Transcription and speech: what it costs as the voice ledger counts
+ * it, in a few words for a person: `free`, or a price such as
+ * `$0.006 a minute`.
+ */
+cost?: string, };
 
 /**
  * The spending budgets and what has been spent against each so far.
@@ -289,8 +349,9 @@ export type Client = "desktop" | "phone";
  */
 export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, thread?: ThreadId, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, 
 /**
- * Omitted: use Settings. `front` requires live; `pipeline` is the
- * person's explicit Legacy choice. A failed live call never changes mode.
+ * Omitted: use Settings. `front` requires a live model; `pipeline`
+ * is the person's explicit choice of Turn by turn for this call. A
+ * failed live call never changes mode.
  */
 mode?: VoiceCallMode, 
 /**
@@ -2321,7 +2382,7 @@ export type VoiceEndReason = "client" | "goodbye" | "budget" | "replaced" | "err
 
 export type VoiceEvent = { "type": "state", state: VoiceState, 
 /**
- * A live call failed; a new Legacy call requires the person to choose it.
+ * A live call failed; a Turn by turn call needs the person to choose it.
  */
 liveError?: string, 
 /**

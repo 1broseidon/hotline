@@ -45,7 +45,7 @@ pub trait CallRoom: Send + Sync {
     fn cancel_work(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
     /// Model information for reply diagnostics.
     fn info(&self, persona: &str) -> Option<SessionInfo>;
-    /// Keeps a Legacy reply's spoken version on its own thread.
+    /// Keeps a Turn by turn reply's spoken version on its own thread.
     fn call_spoken(&self, persona: &str, thread: &ThreadId, event: &str, spoken: &str) -> bool;
     fn voice_spoken(&self, persona: &str, event: &str, spoken: &str) -> bool;
     /// The no-lead fallback may narrate a completed handoff after hang-up.
@@ -62,7 +62,7 @@ pub trait CallRoom: Send + Sync {
     fn model_price(&self, model: &str) -> ModelCost;
     /// The no-lead fallback's effort lookup.
     fn model_efforts(&self, model: &str) -> Vec<String>;
-    /// Builds the no-lead assistant and Legacy speech rewrites.
+    /// Builds the no-lead assistant and Turn by turn speech rewrites.
     async fn completion_builder(
         &self,
         model: &str,

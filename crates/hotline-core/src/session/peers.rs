@@ -492,7 +492,7 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
             about,
             ..
         } => format!(
-            "The person answered your request{}.{}",
+            "The person answered yes to your request{} (marked it done).{}",
             named(about),
             said(text)
         ),
@@ -501,7 +501,7 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
             about,
             ..
         } => format!(
-            "The person declined your request{}.{}",
+            "The person answered no to your request{} (declined it).{}",
             named(about),
             said(text)
         ),

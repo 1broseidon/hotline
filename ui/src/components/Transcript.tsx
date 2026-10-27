@@ -16,6 +16,7 @@ import {
 	deliveryLine,
 	deliveryMissed,
 	foldReactions,
+	heardOnce,
 	peerLine,
 	quotedLine,
 	retryForNotice,
@@ -85,6 +86,7 @@ export function Transcript({
 	personaId,
 	name,
 	avatarHash,
+	goal,
 	people,
 	events,
 	streaming,
@@ -112,6 +114,8 @@ export function Transcript({
 	name: string;
 	/** The teammate's picture, when it has one. */
 	avatarHash?: string | undefined;
+	/** What the teammate is for: said under its name before anything else is. */
+	goal?: string | undefined;
 	/** Every teammate by id, for the colleagues a line names. */
 	people?: ReadonlyMap<string, Person> | undefined;
 	events: TranscriptEvent[];
@@ -194,7 +198,7 @@ export function Transcript({
 	}, [events]);
 	const answered = useMemo(() => superseded(events), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(events), [events]);
+	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call")), [events, thread?.kind]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -366,7 +370,7 @@ export function Transcript({
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
 				<Avatar id={personaId} name={name} size={48} hash={avatarHash} />
 				<p className="text-lg font-semibold">{name}</p>
-				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
+				<p className="max-w-[360px] text-center text-md text-ink-2">{goal?.trim() ? goal.trim() : "Nothing said yet. Say hello below."}</p>
 			</div>
 		);
 	}
@@ -405,7 +409,7 @@ export function Transcript({
 					};
 					return (
 						<div key={id} data-event-id={id} className="tape-row">
-							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
+							{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
 							{block.kind === "scheduled" ? (
 								<ScheduledGroup name={block.name} runs={block.runs} />
 							) : block.kind === "calls" ? (
@@ -581,14 +585,14 @@ const Row = memo(function Row({
 			// Only a pair's user lines are a teammate's; a call, and a thread a teammate handed over, are spoken in by the person.
 			if (thread.kind === "call" || (thread.kind === "side" && speakers !== undefined)) return <>
                 <p className="said-name text-right">You</p>
-                <UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
+                <UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
             </>;
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
 			) : speakers !== undefined ? (
 				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
-				<UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
+				<UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		case "agent":

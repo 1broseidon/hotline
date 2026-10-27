@@ -1,4 +1,4 @@
-import type { CapabilityJob, CapabilityOptions, CapabilityPick, CapabilityProvider } from "./generated/contract";
+import type { CapabilityJob, CapabilityLiveModel, CapabilityModel, CapabilityOptions, CapabilityPick, CapabilityProvider } from "./generated/contract";
 
 /**
  * What Settings › Providers › Use for needs from `capabilities.options`:
@@ -81,23 +81,116 @@ export function currentId(job: CapabilityJob): string {
 	return pickId(selected.providerId, first?.id);
 }
 
-/** The voices the speaking row offers: those of the model in use, automatic's included. */
-function voicesOf(job: CapabilityJob): string[] {
-	const pick = job.selected ?? job.automatic;
-	if (pick === undefined) return [];
-	const provider = job.options.find((one) => one.providerId === pick.providerId);
-	const model = provider?.models.find((one) => one.id === pick.modelId) ?? provider?.models[0];
-	return model?.voices ?? [];
+/** What Ollama calls the voice a speech model speaks in when asked for none. */
+const OWN_VOICE = "default";
+
+/**
+ * A voice as a person reads it: "eve" is Eve. A voice named `default` is the
+ * model's own, so it reads as the model's name ("Phonon"), never "Default"
+ * beside the default.
+ */
+export function voiceLabel(voice: string, model?: string): string {
+	const name = voice === OWN_VOICE && model !== undefined ? model : voice;
+	return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-export function voiceChoices(job: CapabilityJob): PickerChoice[] {
-	const voices = voicesOf(job);
-	const own = voices[0];
-	const named = job.selected?.voice;
-	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: own === undefined ? "Default voice" : `Default · ${own}` }];
-	for (const voice of voices) choices.push({ id: voice, name: voice });
-	if (named !== undefined && !voices.includes(named)) choices.push({ id: named, name: named });
+/** A model's name in a picker: its label, else its id without a gateway's prefix. */
+function modelName(model: CapabilityModel): string {
+	return model.label ?? shortModel(model.id);
+}
+
+const VOICE_SEPARATOR = "\u001f";
+
+function voiceId(providerId: string, modelId: string, voice: string): string {
+	return [providerId, modelId, voice].join(VOICE_SEPARATOR);
+}
+
+export function splitVoiceId(id: string): { providerId: string; modelId: string; voiceId: string } {
+	const [providerId = "", modelId = "", voiceId = ""] = id.split(VOICE_SEPARATOR);
+	return { providerId, modelId, voiceId };
+}
+
+/** The model a pick names, or its provider's first when it names none. */
+function pickedModel(job: CapabilityJob, pick: CapabilityPick): CapabilityModel | undefined {
+	const provider = job.options.find((one) => one.providerId === pick.providerId);
+	return provider?.models.find((one) => one.id === pick.modelId) ?? provider?.models[0];
+}
+
+/**
+ * A speaking model as the Speech row names it: its label as a name
+ * ("phonon" is Phonon), else its id as the provider spells it.
+ */
+function speechModelName(model: CapabilityModel): string {
+	return model.label === undefined ? shortModel(model.id) : voiceLabel(model.label);
+}
+
+/**
+ * The Speech picker: every voice of every connected speaking model, under
+ * its provider, each named with its model ("Phonon · Zoey"), so the closed
+ * picker says both. A model's own voice is named for the model alone.
+ */
+export function speechChoices(job: CapabilityJob): PickerChoice[] {
+	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: "Automatic" }];
+	for (const provider of job.options) {
+		for (const model of provider.models) {
+			for (const voice of model.voices ?? []) {
+				const name = voice === OWN_VOICE ? speechModelName(model) : `${speechModelName(model)} · ${voiceLabel(voice)}`;
+				choices.push({ id: voiceId(provider.providerId, model.id, voice), name, group: provider.providerName });
+			}
+		}
+	}
 	return choices;
+}
+
+export function currentVoiceId(job: CapabilityJob): string {
+	const selected = job.selected;
+	if (selected === undefined) return AUTOMATIC;
+	const model = pickedModel(job, selected);
+	const voice = selected.voice ?? model?.voices?.[0];
+	return model === undefined || voice === undefined ? AUTOMATIC : voiceId(selected.providerId, model.id, voice);
+}
+
+/** What a Transcription or Speech row runs on now, and where: the pick, else what Automatic comes to. */
+type RunsOn = { provider: CapabilityProvider | undefined; pick: CapabilityPick; model: CapabilityModel | undefined };
+
+function runsOn(job: CapabilityJob): RunsOn | undefined {
+	const pick = job.selected ?? job.automatic;
+	if (pick === undefined) return undefined;
+	const provider = job.options.find((one) => one.providerId === pick.providerId);
+	return { provider, pick, model: pickedModel(job, pick) };
+}
+
+/** The desk's own models' provider, whose models are named family first ("Parakeet TDT 0.6B"). */
+const ON_THE_DESK = "local";
+
+/**
+ * The Transcription row's second line: who hears, and what it costs
+ * ("Parakeet · free", "Groq · $0.001 a minute"). A model on the desk is
+ * named by its family, since the desk is not a provider anyone chose.
+ */
+export function transcriptionLine(job: CapabilityJob): string {
+	const now = runsOn(job);
+	if (now === undefined) return "";
+	const who =
+		now.pick.providerId === ON_THE_DESK && now.model !== undefined ? (modelName(now.model).split(" ")[0] ?? now.pick.providerName) : now.pick.providerName;
+	return [who, now.provider?.cost].filter((part) => part !== undefined && part !== "").join(" · ");
+}
+
+/** The Speech row's second line: the model through its provider, and what it costs ("Phonon through Ollama · free"). */
+export function speechLine(job: CapabilityJob): string {
+	const now = runsOn(job);
+	if (now === undefined) return "";
+	const who = now.model === undefined ? now.pick.providerName : `${speechModelName(now.model)} through ${now.pick.providerName}`;
+	return [who, now.provider?.cost].filter((part) => part !== undefined && part !== "").join(" · ");
+}
+
+/**
+ * The small tag beside a Transcription or Speech row whose model runs on
+ * the desk's own machine, named as the desk names it ("on this Mac", "on
+ * this computer"); none for a model reached over the network.
+ */
+export function whereTag(job: CapabilityJob, deviceName: string | undefined): string | undefined {
+	return runsOn(job)?.provider?.onDevice === true ? `on ${deviceName ?? "the desk"}` : undefined;
 }
 
 /** The thinking levels of the model the owner picked; none for Automatic, which stores no level. */
@@ -204,8 +297,9 @@ export function tagsFor(options: CapabilityOptions, providerId: string): string[
 	const tags: string[] = [];
 	if (offers(options.dispatcher.options)) tags.push("Chat");
 	if (offers(options.images.options)) tags.push("Images");
-	// A login that runs a voice front does voice even with no speech job (the ChatGPT sign-in).
-	if (offers(options.stt.options) || offers(options.tts.options) || FRONT_LOGINS.includes(providerId)) tags.push("Voice");
+	// A login that runs a live model does voice even with no speech job (the ChatGPT sign-in).
+	const live = (options.live ?? []).some((one) => (SPEECH_FROM[one.credential] ?? one.credential) === providerId);
+	if (offers(options.stt.options) || offers(options.tts.options) || live) tags.push("Voice");
 	return tags;
 }
 
@@ -222,62 +316,33 @@ export function parseCap(raw: string): number | null {
 	return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) / 100 : null;
 }
 
-/**
- * The voice fronts a desk can run, in the order Live calls lists them, each
- * under the provider it comes from and once for every login or key that can
- * run it, told apart by who pays (the per-minute prices are the ones the
- * Voice budget counts).
- */
-export const FRONTS = [
-	{
-		id: "grok",
-		name: "Grok Voice",
-		group: "xAI",
-		connect: "Connect xAI or sign in to Grok above",
-		voices: ["eve", "ara", "rex", "sal", "leo"],
-		logins: [
-			{ id: "xai-subscription", detail: "Included with your Grok subscription" },
-			{ id: "xai", detail: "$0.08 a minute on your xAI key" },
-		],
-	},
-	{
-		id: "gpt-live",
-		name: "GPT-Live",
-		group: "OpenAI",
-		connect: "Sign in with ChatGPT above",
-		voices: ["cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "sol"],
-		logins: [{ id: "openai-codex", detail: "Included with your ChatGPT subscription" }],
-	},
-	{
-		id: "openai",
-		name: "GPT Realtime",
-		group: "OpenAI",
-		// A ChatGPT sign-in does not run it.
-		connect: "Add an OpenAI API key above",
-		voices: ["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"],
-		logins: [{ id: "openai", detail: "About $0.10 a minute on your OpenAI key" }],
-	},
-] as const;
-
-/** Every login or key some front can run on. */
-export const FRONT_LOGINS: readonly string[] = FRONTS.flatMap((one) => one.logins.map((login) => login.id));
-
-export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
-
-/** Off in Settings: the picker's last choice for Live calls and for Images, never the default. */
+/** Off in Settings: the picker's last choice for Calls and for Images, never the default. */
 export const OFF = "off";
 
 /** The Images picker's Off, in the picker's own `provider|model` ids. */
 export const IMAGES_OFF_CHOICE: PickerChoice = { id: pickId(OFF, undefined), name: "Off" };
 
-/** The pipeline: calls are heard, answered and spoken one step at a time, as before the front. */
-export const LEGACY = "legacy";
+/**
+ * Turn by turn: the teammate answers on its own model, and the desk
+ * transcribes what is said and speaks the reply. Desks up to 0.43 wrote
+ * `legacy` for it, and phones of their time still do, so that reads as
+ * this too.
+ */
+export const TURN_BY_TURN = "turn-by-turn";
 
 /**
- * The voice front `settings.voice` holds. Without one, Grok Voice fronts
- * calls (the desk falls back to the pipeline when no xAI login or key is
- * connected); `off` offers no calls; `legacy`, or a provider this window
- * does not know, is the pipeline.
+ * The live models the desk has adapters for, by the name `voice.front`
+ * gives each, with the name it shows while its provider is not connected
+ * (the desk's `capabilities.options.live` names the connected ones).
+ */
+const LIVE_NAMES: Record<string, string> = { grok: "Grok Voice", "gpt-live": "GPT-Live", openai: "GPT Realtime" };
+
+export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
+
+/**
+ * The call model `settings.voice` holds. Without one, Grok Voice fronts
+ * calls; `off` offers no calls; `turn-by-turn`, `legacy`, or a model this
+ * window does not know, is Turn by turn, as the desk reads it.
  */
 export function frontOf(voice: unknown): FrontSetting {
 	const fallback: FrontSetting = { provider: "grok", voices: {} };
@@ -292,16 +357,88 @@ export function frontOf(voice: unknown): FrontSetting {
 	const known =
 		typeof provider !== "string" || provider === "grok"
 			? "grok"
-			: provider === OFF || FRONTS.some((one) => one.id === provider)
+			: provider === OFF || provider in LIVE_NAMES
 				? provider
-				: LEGACY;
+				: TURN_BY_TURN;
 	return { provider: known, ...(typeof credential === "string" ? { credential } : {}), voices: named };
 }
 
+/** What a call model's choice shows beneath it. */
+export type CallKind = "live" | "turn-by-turn" | "off";
+
+export function callKind(front: FrontSetting): CallKind {
+	return front.provider === OFF ? "off" : front.provider === TURN_BY_TURN ? "turn-by-turn" : "live";
+}
+
 /**
- * `settings.voice` with the front changed, the rest kept. Legacy voice keeps
- * the voices picked, so going back to the front finds them; the default, Grok
- * on whatever xAI login is connected with nothing picked, removes the key.
+ * The rows of Settings › Calls for each choice: a live model hears and
+ * speaks itself, so it has only its voice; Turn by turn has the desk's
+ * Transcription and Speech; Off has nothing to set.
+ */
+export function callRows(kind: CallKind): string[] {
+	switch (kind) {
+		case "live":
+			return ["Model", "Voice", "Call assistant"];
+		case "turn-by-turn":
+			return ["Model", "Transcription", "Speech", "Call assistant"];
+		case "off":
+			return ["Model"];
+	}
+}
+
+/** What the Model row says of each choice, and the hint under the group. */
+export const CALL_WORDS: Record<CallKind, { detail: string; hint?: string }> = {
+	live: { detail: "Hears, talks and uses tools in one stream", hint: "Talk over it to interrupt." },
+	"turn-by-turn": { detail: "The teammate answers; the desk transcribes and speaks", hint: "Tap to interrupt." },
+	off: { detail: "No calls, to the desk or a teammate" },
+};
+
+/** A live model's picker id: the model and the login it runs on, `grok|xai`. */
+function liveId(front: string, credential: string): string {
+	return `${front}${SEPARATOR}${credential}`;
+}
+
+/** The connected live model the setting names: its login, else the first that runs it. */
+export function chosenLive(live: CapabilityLiveModel[], front: FrontSetting): CapabilityLiveModel | undefined {
+	const running = live.filter((one) => one.front === front.provider);
+	return running.find((one) => one.credential === front.credential) ?? running[0];
+}
+
+/**
+ * The Model picker: Live, the realtime models of connected providers, each
+ * once per login or key that runs it; then Turn by turn; then Off. A live
+ * model the owner chose whose provider is no longer connected stays listed
+ * as such, so the picker never claims calls run on something they do not.
+ */
+export function callModelChoices(live: CapabilityLiveModel[], front: FrontSetting): PickerChoice[] {
+	const choices: PickerChoice[] = live.map((one) => ({ id: liveId(one.front, one.credential), name: one.name, detail: one.providerName, group: "Live" }));
+	if (callKind(front) === "live" && chosenLive(live, front) === undefined) {
+		choices.push({ id: liveId(front.provider, front.credential ?? ""), name: LIVE_NAMES[front.provider] ?? front.provider, detail: "Not connected", group: "Live" });
+	}
+	choices.push({ id: TURN_BY_TURN, name: "Turn by turn", detail: "teammate's own model", group: "Turn by turn" });
+	choices.push({ id: OFF, name: "Off", detail: "No calls", group: "No calls" });
+	return choices;
+}
+
+/** The Model picker's current choice. */
+export function callModelId(live: CapabilityLiveModel[], front: FrontSetting): string {
+	const kind = callKind(front);
+	if (kind !== "live") return kind === "off" ? OFF : TURN_BY_TURN;
+	const chosen = chosenLive(live, front);
+	return chosen === undefined ? liveId(front.provider, front.credential ?? "") : liveId(chosen.front, chosen.credential);
+}
+
+/** What picking a Model choice writes as the front: Turn by turn and Off by name, a live model with its login. */
+export function callModelPick(id: string): { provider: string; credential?: string } {
+	if (id === TURN_BY_TURN || id === OFF) return { provider: id };
+	const at = id.indexOf(SEPARATOR);
+	return { provider: id.slice(0, at), credential: id.slice(at + 1) };
+}
+
+/**
+ * `settings.voice` with the front changed, the rest kept. Turn by turn keeps
+ * the voices picked, so going back to a live model finds them; the default,
+ * Grok on whatever xAI login is connected with nothing picked, removes the key.
  */
 export function frontPatch(current: unknown, next: { provider: string; credential?: string; voice?: { provider: string; voice: string } }): Record<string, unknown> | null {
 	const voice: Record<string, unknown> =

@@ -40,10 +40,10 @@ async fn device_text_uses_the_call_thread_and_preserves_its_spoken_reply() {
     .await;
 }
 
-/// Legacy streams the agent's own opening; the chat retains the complete reply.
-/// Scenario: Legacy voice on a slower teammate.
+/// Turn by turn streams the agent's own opening; the chat retains the complete reply.
+/// Scenario: Turn by turn on a slower teammate.
 #[tokio::test]
-async fn legacy_speaks_its_own_untagged_opening() {
+async fn turn_by_turn_speaks_its_own_untagged_opening() {
     direct_call_uses_its_thread(
         true,
         UNTAGGED_REPLY,
@@ -55,7 +55,7 @@ async fn legacy_speaks_its_own_untagged_opening() {
     .await;
 }
 
-/// Legacy voice uses the thread agent, gives it the speech contract and keeps
+/// Turn by turn uses the thread agent, gives it the speech contract and keeps
 /// both versions in that thread. Speech and text input share this path, and
 /// the turn is metered as the teammate's Chat work.
 async fn direct_call_uses_its_thread(
@@ -354,7 +354,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         .unwrap();
     send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 1).await["ok"], true);
-    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"}}}}})).await;
+    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"turn-by-turn"},"dispatcher":{"provider":"not-connected"}}}}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 2).await["ok"], true);
     send(&mut socket, json!({"id":3,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
     let persona = frame_where(&mut socket, |f| f["id"] == 3).await["result"]["id"]
@@ -386,7 +386,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     )
     .await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 7).await["ok"], true);
-    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"},"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
+    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"turn-by-turn"},"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
     assert_eq!(frame_where(&mut socket, |f| f["id"] == 8).await["ok"], true);
     send(
         &mut socket,
@@ -447,8 +447,8 @@ async fn calls_off_refuses_a_call_and_says_why() {
         .as_str()
         .unwrap()
         .to_string();
-    let legacy = answer(&mut socket, 20, json!({"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"}}}}})).await;
-    assert_eq!(legacy["ok"], true);
+    let turn_by_turn = answer(&mut socket, 20, json!({"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"turn-by-turn"}}}}})).await;
+    assert_eq!(turn_by_turn["ok"], true);
     send(
         &mut socket,
         json!({"id":3,"cmd":"voice.status","params":{}}),
@@ -498,7 +498,7 @@ async fn calls_off_refuses_a_call_and_says_why() {
     let status = frame_where(&mut socket, |f| f["id"] == 9).await;
     assert_eq!(
         status["result"]["directAvailable"], true,
-        "Legacy voice still calls"
+        "a choice an earlier desk saved as legacy calls Turn by turn"
     );
     socket.close(None).await.unwrap();
     server.abort();

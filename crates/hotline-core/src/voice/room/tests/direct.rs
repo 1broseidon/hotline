@@ -144,9 +144,9 @@ fn kept_spoken(desk: &crate::desk::Desk, persona: &str, event: &str) -> Option<S
         .and_then(|line| line["spoken"].as_str().map(str::to_string))
 }
 
-/// Legacy says its own opening while the model is still working, never a rewrite.
+/// Turn by turn says its own opening while the model is still working, never a rewrite.
 #[tokio::test]
-async fn legacy_says_its_first_sentence_before_the_reply_finishes() {
+async fn turn_by_turn_says_its_first_sentence_before_the_reply_finishes() {
     let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls.reply_delta(&persona, "reply-1", "Inspecting the flaky test. ", &origin);
@@ -171,7 +171,7 @@ async fn legacy_says_its_first_sentence_before_the_reply_finishes() {
 }
 
 #[tokio::test]
-async fn legacy_never_speaks_a_code_block_or_rewrites_its_own_opening() {
+async fn turn_by_turn_never_speaks_a_code_block_or_rewrites_its_own_opening() {
     let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     write_reply(&desk, &persona, "reply-1", UNTAGGED);
@@ -566,7 +566,7 @@ async fn a_direct_call_pays_for_no_call_assistant() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_legacy_turn_without_opening_speech_gets_one_sound_on_the_clip_wire() {
+async fn a_turn_by_turn_reply_without_opening_speech_gets_one_sound_on_the_clip_wire() {
     let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls
@@ -672,7 +672,7 @@ async fn a_text_opening_does_not_suppress_the_cue_while_tts_is_stalled() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_quiet_legacy_turn_gets_progress_until_it_ends_or_is_interrupted() {
+async fn a_quiet_turn_by_turn_reply_gets_progress_until_it_ends_or_is_interrupted() {
     for interrupt in [false, true] {
         let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
         let origin = on_turn(&calls, &id, 1);

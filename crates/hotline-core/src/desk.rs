@@ -1056,11 +1056,15 @@ impl RoomHandle for Desk {
         let discovered = match (wiring.client, auth) {
             (_, ProviderAuth::Unavailable(error)) => return Err(error),
             (Client::Ollama, ProviderAuth::Local { base_url }) => {
-                crate::providers::discovery::ollama_models(&base_url, "").await?
+                crate::providers::discovery::ollama_models("ollama", &base_url, "").await?
             }
             (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => {
-                crate::providers::discovery::ollama_models(crate::providers::OLLAMA_CLOUD_URL, &key)
-                    .await?
+                crate::providers::discovery::ollama_models(
+                    "ollama-cloud",
+                    crate::providers::OLLAMA_CLOUD_URL,
+                    &key,
+                )
+                .await?
             }
             (Client::Copilot, ProviderAuth::Login { token_dir }) => {
                 crate::providers::discovery::copilot_models(&token_dir).await?

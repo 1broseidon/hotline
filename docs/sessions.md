@@ -685,10 +685,13 @@ Both use Rig's native Z.ai client, including streaming and tools. See the
 [Coding Plan guide](https://docs.z.ai/devpack/overview).
 
 Ollama Local connects to an HTTP or HTTPS server URL (default
-`http://localhost:11434`) without a key. Connection first reads `/api/tags`
-through Rig, so custom installed model ids enter the picker unchanged, even
-when absent from models.dev. Ollama Cloud uses the same Rig client at
-`https://ollama.com` with its API key. Its discovered models replace the
+`http://localhost:11434`) without a key. Connection first reads `/api/tags`,
+so custom installed model ids enter the picker unchanged, even when absent
+from models.dev. Hotline reads that list itself rather than through Rig's
+lister, which drops each model's `capabilities`: a speech model such as
+`phonon` (`["speech"]`) or an embedding model is left out of the chat picker,
+and a server too old to list capabilities offers every model. Ollama Cloud
+is read the same way at `https://ollama.com` with its API key. Its discovered models replace the
 bundled cloud list; a failed refresh keeps the last successful list. Both
 connections offer Refresh in Settings → Providers. Pull local models with
 Ollama itself; cloud models exposed by a local server after `ollama signin`
@@ -751,9 +754,27 @@ a model the account lists as policy-disabled is simply not offered.
 Provider model discovery is also available through **Refresh** for OpenAI
 API, Anthropic API, OpenRouter, Gemini, Groq, DeepSeek, Mistral, xAI and
 ChatGPT. It uses the configured provider's Rig client where Rig has a
-lister. Rig lists neither xAI nor ChatGPT, so Hotline reads those itself.
-xAI's list comes from `/v1/language-models`, with the key or the Grok
-subscription's refreshed bearer, and keeps only models that answer in text.
+lister. Rig lists neither xAI nor ChatGPT, so Hotline reads those itself,
+and it reads OpenRouter's `/models` itself because Rig's lister drops
+`architecture.output_modalities`, the only field that tells its image models
+from its chat ones. xAI's list comes from `/v1/language-models`, with the
+key or the Grok subscription's refreshed bearer.
+
+Every listed model, from every provider and from a custom server, gets
+exactly one kind (`models::kind`), and the chat picker keeps only chat
+models. The kind is what the provider's own listing says: Ollama's
+`capabilities` (`speech`, `embedding`, `image`, else `completion` is chat),
+OpenRouter's and xAI's output modalities (text alone is chat; a picture,
+video or speech without text is that kind; text beside a picture decides
+nothing, since OpenRouter's own router lists both), or an OpenAI-shaped
+`type` (`embedding`, `image` and the rest; Mistral's `base` decides
+nothing). Failing that, the snapshot's `kinds` for that provider and id (so
+OpenAI's `gpt-image-1` and Groq's `whisper-large-v3` leave the chat picker
+though their listings say nothing), and failing that chat, as before, so
+no model nobody describes disappears. A list cached before this rule keeps
+its models until the next Refresh. The Images, Voice and Transcription
+pickers read their own lists, of their own kind (see
+[voice.md](voice.md#what-the-picker-offers)).
 ChatGPT's comes from the endpoint the Codex CLI reads,
 `https://chatgpt.com/backend-api/codex/models`, and keeps only the models
 Codex shows. That backend leaves out models newer than the `client_version`
@@ -1111,8 +1132,9 @@ it: the orphan fold leaves a card that delivers alone. `human.answer` reads
 it off the tape, supersedes it with the outcome and the note, and hands the
 teammate a `delivery` with `cause: {kind: "answer", actionId, status,
 about}` and the note as its `text`, behind the turn in flight or on a turn
-of its own. The agent hears "The person answered your request (…)" or
-"The person declined your request (…)", then the note fenced, word for word.
+of its own. The agent hears "The person answered yes to your request (…) (marked it done)." or
+"The person answered no to your request (…) (declined it).", then the note fenced, word for word,
+so a yes/no question tapped without a note still says which.
 One lock settles a card once, however many answers race for it.
 
 A card that delivers lives two hours (`ASK_HOURS`) unless the teammate

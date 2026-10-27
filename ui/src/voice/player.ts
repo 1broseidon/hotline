@@ -3,7 +3,7 @@ import { fromBase64 } from "./wav";
 /** Clips still waiting to be decoded; ones already scheduled to play are bounded by bytes. */
 export const MAX_QUEUED_CLIPS = 128;
 /**
- * Encoded audio decoded or scheduled and not yet heard. A Legacy reply streams
+ * Encoded audio decoded or scheduled and not yet heard. A Turn by turn reply streams
  * as many small WAV chunks far faster than it is spoken; at 24 kHz this is
  * about fifteen minutes, matching how far ahead a live voice may queue.
  */

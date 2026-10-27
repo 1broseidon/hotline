@@ -1,9 +1,9 @@
 use super::super::*;
 
-/// Both session drivers can ignore the requested opening. The shared Legacy
+/// Both session drivers can ignore the requested opening. The shared Turn by turn
 /// runtime still sends audio, then quiet progress, while real tool work waits.
 #[tokio::test]
-async fn tool_first_legacy_turns_get_a_cue_and_progress_on_both_drivers() {
+async fn tool_first_turn_by_turn_replies_get_a_cue_and_progress_on_both_drivers() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let gate = desk.root.path().join("finish-tool-turn");

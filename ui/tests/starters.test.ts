@@ -21,3 +21,18 @@ describe("the starter card", () => {
 		expect(untouched([line("tool", "t1"), line("turn", "t2")], true)).toBe(false);
 	});
 });
+
+describe("what the starters ask", async () => {
+	const { startersFor } = await import("../src/components/Starters");
+
+	test("a teammate in its own folder with a goal starts on that goal", () => {
+		const prompts = startersFor({ goal: "Keep the household running: bills, renewals and the calendar." }, true);
+		expect(prompts[0]).toBe("Given your goal, what's the first thing you'd do?");
+		expect(prompts.join(" ")).not.toContain("command-line game");
+	});
+
+	test("with no goal it makes something, and in a project it reads the code", () => {
+		expect(startersFor({ goal: "  " }, true)[0]).toContain("command-line game");
+		expect(startersFor({ goal: "Keep the household running." }, false)[0]).toBe("Tell me how this project is built and where to start reading.");
+	});
+});

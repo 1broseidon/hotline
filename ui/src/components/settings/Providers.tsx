@@ -93,7 +93,6 @@ export function ProvidersSection({
 	const connected = (held ?? [])
 		.map((credential) => ({ credential, provider: providers.find((one) => one.id === credential.providerId) }))
 		.sort((a, b) => Number(a.credential.revoked) - Number(b.credential.revoked) || nameOf(a).localeCompare(nameOf(b)));
-	const live = new Set(connected.filter((one) => !one.credential.revoked).map((one) => one.credential.providerId));
 	// How many accounts each provider has: two or more and each is named.
 	const accounts = new Map<string, number>();
 	for (const one of connected) {
@@ -223,7 +222,7 @@ export function ProvidersSection({
 						</div>
 						<p className="group-hint">Keys and sign-ins stay on this computer.</p>
 					</section>
-					{capabilities !== null && <UseFor options={capabilities} voice={voice} connected={[...live]} onChanged={() => void reloadCapabilities()} />}
+					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
 					{capabilities !== null && <Budgets spending={capabilities.spending} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>

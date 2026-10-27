@@ -37,8 +37,9 @@ pub enum Command {
         stream_audio: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         input_mode: Option<VoiceInputMode>,
-        /// Omitted: use Settings. `front` requires live; `pipeline` is the
-        /// person's explicit Legacy choice. A failed live call never changes mode.
+        /// Omitted: use Settings. `front` requires a live model; `pipeline`
+        /// is the person's explicit choice of Turn by turn for this call. A
+        /// failed live call never changes mode.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mode: Option<VoiceCallMode>,
         /// The rate of the microphone audio a front call will send:
@@ -84,7 +85,8 @@ pub enum Command {
         data: String,
         duration_ms: u32,
     },
-    /// Local Legacy capture owns the floor before a finalized clip or text arrives.
+    /// A Turn by turn caller's own capture has the floor before a finalized
+    /// clip or text arrives.
     #[serde(rename = "voice.input_state")]
     VoiceInputState { call_id: String, speaking: bool },
     #[serde(rename = "voice.interrupt")]

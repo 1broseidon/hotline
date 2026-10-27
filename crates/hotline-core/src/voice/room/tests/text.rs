@@ -60,7 +60,7 @@ async fn finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn()
 }
 
 #[tokio::test]
-async fn text_mode_needs_only_output_configuration_and_legacy_audio_stays_unavailable() {
+async fn text_mode_needs_only_output_configuration_and_pipeline_audio_stays_unavailable() {
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_voice_services(
@@ -81,7 +81,7 @@ async fn text_mode_needs_only_output_configuration_and_legacy_audio_stays_unavai
                 "setting",
                 json!({
                     "id":"voice", "value": {
-                        "front":{"provider":"legacy"},
+                        "front":{"provider":"turn-by-turn"},
                         "stt":{"provider":"not-connected"},
                         "tts":{"provider":"openai"},
                         "dispatcher":{"provider":"openai","model":"gpt-5-mini"}
@@ -117,7 +117,7 @@ async fn text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds(
     let old_call = calls.start(&old, desk.clone()).unwrap();
     assert_eq!(old_call.input_mode, VoiceInputMode::Audio);
     assert!(old_call.input.iter().any(|v| v == "audio/wav"));
-    assert!(calls.text(&old, 1, "Text on a legacy call.").is_err());
+    assert!(calls.text(&old, 1, "Text on an audio call.").is_err());
     let id = Uuid::new_v4().to_string();
     calls
         .start_with_input(&id, None, true, VoiceInputMode::Text, desk)

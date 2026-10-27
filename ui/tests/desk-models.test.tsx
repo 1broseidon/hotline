@@ -101,7 +101,7 @@ test("each row names the model with its tag from the catalogue, and a window not
 	}
 });
 
-test("a model is downloaded only when asked, followed until it lands, and removed; Voice opens even with nothing connected", async () => {
+test("a model is downloaded only when asked, followed until it lands, and removed; the desk's models open under Transcription even with nothing connected", async () => {
 	const { teardown } = installDom();
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
@@ -133,9 +133,9 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 	const button = (label: string) =>
 		[...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent === label || node.getAttribute("aria-label") === label);
 	try {
-		await act(async () => { root.render(<UseFor options={options} voice={undefined} onChanged={() => { refreshed += 1; }} />); });
+		await act(async () => { root.render(<UseFor options={options} voice={{ front: { provider: "turn-by-turn" } }} onChanged={() => { refreshed += 1; }} />); });
 		expect(asked).toEqual([]);
-		await act(async () => { button("Transcription")!.click(); });
+		await act(async () => { [...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent?.startsWith("Models on the desk"))!.click(); });
 		await settle();
 		expect(asked.map((one) => one.cmd)).toEqual(["voice.models"]);
 		expect(container.textContent).toContain("Download a speech model for the desk");
@@ -202,13 +202,13 @@ test("Words to listen for is one fold under the desk's models, and saving writes
 		dispatcher: { options: [] },
 		spending: { budgets: [] },
 	};
-	const voice = { stt: { provider: "local", model: "parakeet-tdt-110m-en" }, listenFor: ["Ophelia"] };
+	const voice = { front: { provider: "turn-by-turn" }, stt: { provider: "local", model: "parakeet-tdt-110m-en" }, listenFor: ["Ophelia"] };
 	const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 	const button = (starts: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => (node.textContent ?? "").startsWith(starts) || node.getAttribute("aria-label") === starts);
 	try {
 		await act(async () => { root.render(<UseFor options={options} voice={voice} onChanged={() => {}} />); });
 		expect(button("Words to listen for")).toBeUndefined();
-		await act(async () => { button("Transcription")!.click(); });
+		await act(async () => { button("Models on the desk")!.click(); });
 		await settle();
 		// Closed, it says what it is now; open, it is one field and Save.
 		expect(button("Words to listen for")!.textContent).toBe("Words to listen forOpheliaChange");

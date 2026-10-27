@@ -6,10 +6,12 @@
 //! `cache/` folder, keyed by provider id alone: what is stored is model
 //! names and voices, never a key. A fetch that fails falls back to the cached
 //! copy, even a stale one, and then to nothing, which the caller fills with
-//! the provider's built-in default. Starting a call never comes here to ask:
-//! it reads only [`default_voice`], from the cache and the curated lists.
+//! the provider's built-in default. A connected Ollama server is the
+//! exception: it is asked every time and never answered for from the cache.
+//! Starting a call never comes here to ask: it reads only [`default_voice`]
+//! and [`first_speaker`], from the cache and the curated lists.
 
-use super::Endpoint;
+use super::{Endpoint, ollama};
 use futures_util::future::join_all;
 use hotline_support::paths;
 use serde::{Deserialize, Serialize};
@@ -129,6 +131,13 @@ pub fn default_voice(root: Option<&Path>, provider_id: &str, model: &str) -> Opt
         .and_then(|spoken| spoken.voices.first().cloned())
 }
 
+/// The first speech model the provider listed when it was last asked, for a
+/// choice that names the provider alone.
+pub fn first_speaker(root: Option<&Path>, provider_id: &str) -> Option<String> {
+    let found = read(root?, provider_id)?;
+    found.speak.first().map(|spoken| spoken.id.clone())
+}
+
 /// Every built-in provider's list, asked all at once. A provider that could
 /// not be asked and has nothing cached is simply absent.
 pub async fn discover_all(root: Option<&Path>, endpoints: &[Endpoint]) -> Vec<(String, Found)> {
@@ -169,6 +178,17 @@ fn remember_failure(endpoint: &Endpoint) {
 /// fetch, else whatever the cache still holds. A provider that just failed is
 /// not asked again for [`RETRY_AFTER`], and answers from the cache meanwhile.
 pub async fn discover(root: Option<&Path>, endpoint: &Endpoint) -> Option<Found> {
+    // An Ollama server is the owner's own and answers at once, and what it
+    // offers changes whenever a model is pulled or the server quits: it is
+    // asked every time, and one that cannot be asked offers nothing, never
+    // yesterday's list. The copy kept is read only when a call starts.
+    if endpoint.provider_id == ollama::PROVIDER_ID {
+        let found = fetch(endpoint).await?;
+        if let Some(root) = root {
+            write(root, &endpoint.provider_id, &found);
+        }
+        return Some(found);
+    }
     let cached = root.and_then(|root| read(root, &endpoint.provider_id));
     if let Some(cached) = &cached
         && fresh(cached.fetched_at, now_ms())
@@ -246,6 +266,7 @@ async fn fetch(endpoint: &Endpoint) -> Option<Found> {
                 parse_openrouter_speak(&speech?),
             )
         }
+        ollama::PROVIDER_ID => (Vec::new(), ollama::speech_models(&client, base).await?),
         "google" => {
             let body = get(
                 &client,
@@ -280,6 +301,12 @@ async fn get(client: &reqwest::Client, url: &str, auth: Option<Auth<'_>>) -> Opt
         Some(Auth::Google(key)) => request.header("x-goog-api-key", key),
         None => request,
     };
+    read_json(request).await
+}
+
+/// The JSON a request answers with, if it answers with success and a
+/// list of a plausible size.
+pub(super) async fn read_json(request: reqwest::RequestBuilder) -> Option<Value> {
     let response = request.send().await.ok()?;
     if !response.status().is_success() {
         return None;

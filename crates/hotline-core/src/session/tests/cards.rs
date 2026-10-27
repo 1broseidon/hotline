@@ -381,7 +381,7 @@ async fn request_human_returns_at_once_and_the_answer_is_delivered() {
     let heard = lock(&agents.driver.prompts).clone();
     let last = heard.last().unwrap();
     assert!(
-        last.contains("The person answered your request (\"Which branch should I ship?\")")
+        last.contains("The person answered yes to your request (\"Which branch should I ship?\") (marked it done).")
             && last.contains("The release branch."),
         "{last}"
     );
@@ -427,12 +427,9 @@ async fn a_card_that_delivers_outlives_a_cancel_and_a_restart() {
         .unwrap();
     let delivery = heard_delivery(&room, "ada", 1).await;
     assert_eq!(delivery["cause"]["status"], "dismissed");
-    assert!(
-        lock(&agents.driver.prompts)
-            .last()
-            .unwrap()
-            .contains("The person declined your request (\"Tap the 2FA prompt\").")
-    );
+    assert!(lock(&agents.driver.prompts).last().unwrap().contains(
+        "The person answered no to your request (\"Tap the 2FA prompt\") (declined it)."
+    ));
 }
 
 /// A card that delivers and goes a day unanswered is taken down, and the

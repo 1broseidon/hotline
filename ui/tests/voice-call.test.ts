@@ -185,17 +185,25 @@ describe("a call with the desk", () => {
 		expect(r.played).toEqual(["one", "new"]);
 	});
 
-	test("microphone speech cuts Legacy playback before the utterance ends", async () => {
+	test("turn by turn does not listen while a reply plays, so its echo never cuts it, and a tap does", async () => {
 		const r = rig();
 		await r.call.start();
 		r.desk({ type: "said", id: "s1", text: "A long answer." });
 		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
+		expect(r.call.current.phase).toBe("speaking");
+		// The speaker's own reply, loud in the microphone, is not taken for the person.
 		r.speak(0.3, 1_000, 1_600);
-		expect(r.call.current.phase).toBe("hearing");
+		r.speak(0, 1_650, 3_000);
+		expect(r.call.current.phase).toBe("speaking");
+		expect(r.sent.filter((one) => one.cmd === "voice.interrupt" || one.cmd === "voice.input_state" || one.cmd === "voice.utterance")).toEqual([]);
+		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "two" });
+		expect(r.played).toEqual(["one", "two"]);
+		// A tap cuts it off, and the call listens again.
+		r.call.interrupt();
 		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(1);
-		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(0);
-		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "late" });
-		expect(r.played).toEqual(["one"]);
+		expect(r.call.current.phase).toBe("listening");
+		r.speak(0.3, 3_100, 3_700);
+		expect(r.call.current.phase).toBe("hearing");
 	});
 
 	test("cutting in on unfinished work waits for the desk to say it can listen", async () => {
@@ -246,7 +254,7 @@ describe("a call with the desk", () => {
 		r.call.hangUp();
 	});
 
-	test("provider recovery clears Reconnecting when it succeeds or offers Legacy on failure", async () => {
+	test("provider recovery clears Reconnecting when it succeeds or offers Turn by turn on failure", async () => {
 		const r = rig();
 		await r.call.start();
 		r.call.receive({ type: "state", state: "listening", reconnecting: true });
@@ -255,7 +263,7 @@ describe("a call with the desk", () => {
 		expect(r.call.current.phase).toBe("listening");
 		r.call.receive({ type: "state", state: "ended", liveError: "Live voice could not reconnect." });
 		expect(r.call.current.phase).toBe("ended");
-		expect(r.call.current.legacyAvailable).toBe(true);
+		expect(r.call.current.turnByTurnOffered).toBe(true);
 	});
 
 	test("a desk that no longer pairs ends the call at once", async () => {
@@ -531,7 +539,7 @@ describe("a call while the teammate works", () => {
 		r.call.hangUp();
 	});
 
-	test("speech mid-turn stays interruptible while the teammate works", async () => {
+	test("what the teammate says mid-turn plays through, and the mic opens again after it", async () => {
 		const r = rig(MACK, { personaId: "mack" });
 		await r.call.start();
 		r.desk(WORKING);
@@ -540,14 +548,15 @@ describe("a call while the teammate works", () => {
 		r.desk({ type: "said", id: "s1", text: "Looking at the logs." });
 		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "logs" });
 		expect(r.call.current.phase).toBe("speaking");
-		// These are echo-cancelled microphone samples from the caller.
 		r.speak(0.3, 1_000, 1_600);
 		r.speak(0, 1_650, 3_000);
-		expect(r.sent.some((one) => one.cmd === "voice.utterance")).toBe(true);
-		r.desk({ type: "state", state: "listening" });
+		expect(r.sent.some((one) => one.cmd === "voice.utterance")).toBe(false);
 		r.desk(WORKING);
 		r.finishClip();
 		expect(r.call.current.phase).toBe("listening");
+		r.speak(0.3, 3_100, 3_700);
+		r.speak(0, 3_750, 5_000);
+		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(1);
 		r.call.hangUp();
 	});
 
@@ -577,7 +586,7 @@ describe("a call while the teammate works", () => {
 		r.call.hangUp();
 	});
 
-	test("Legacy waiting audio comes from the core without local filler tones", async () => {
+	test("Turn by turn waiting audio comes from the core without local filler tones", async () => {
         const speech = fakeSpeech();
         const r = textRig(speech, { personaId: "mack", input: ["text/plain"] }, TEXT_DESK, MACK);
         await r.call.start();
@@ -746,18 +755,21 @@ describe("a call heard by this Mac", () => {
 		expect(r.speech.counts.starts).toBe(2);
 	});
 
-	test("native recognition stays open and speech cuts Legacy playback", async () => {
+	test("this Mac stops listening while a reply plays and listens again once it ends", async () => {
 		const r = textRig();
 		await r.call.start();
+		const starts = r.speech.counts.starts;
 		const cancels = r.speech.counts.cancels;
 		r.desk({ type: "said", id: "s1", text: "On it." });
-		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "one" });
-		expect(r.speech.counts.cancels).toBe(cancels);
+		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "one" });
+		expect(r.call.current.phase).toBe("speaking");
+		expect(r.speech.counts.cancels).toBe(cancels + 1);
 		r.levels(-20, 1_200, 1_500);
-		expect(r.call.current.phase).toBe("hearing");
-		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(1);
-		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "late" });
-		expect(r.played).toEqual(["one"]);
+		expect(r.call.current.phase).toBe("speaking");
+		expect(r.sent.filter((one) => one.cmd === "voice.interrupt")).toHaveLength(0);
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+		expect(r.speech.counts.starts).toBe(starts + 1);
 	});
 
 	test("holding while the engine finishes discards those words, and resuming listens on this Mac again", async () => {
@@ -994,13 +1006,13 @@ describe("a call through a voice front", () => {
 		expect(r.sent.filter((one) => one.cmd === "voice.front_audio").length).toBeGreaterThan(before);
 	});
 
-	test("a front that goes mid-call ends without sending Legacy audio", async () => {
+	test("a front that goes mid-call ends without sending Turn by turn audio", async () => {
 		const r = fronted();
 		await r.call.start();
 		r.desk({ type: "frontEnded" });
 		expect(r.call.current.trouble).toContain("could not reconnect");
 		expect(r.call.current.phase).toBe("ended");
-		expect(r.call.current.legacyAvailable).toBe(true);
+		expect(r.call.current.turnByTurnOffered).toBe(true);
 		const sent = r.sent.filter((one) => one.cmd === "voice.front_audio").length;
 		r.speak(0.3, 2_000, 2_600);
 		r.speak(0, 2_650, 4_000);
@@ -1025,12 +1037,12 @@ test("a selected live model is requested even when the front is unavailable", as
     await r.call.start();
     expect(r.sent.find(one => one.cmd === "voice.call_start")?.params["mode"]).toBe("front");
     expect(r.call.current.phase).toBe("ended");
-    expect(r.call.current.legacyAvailable).toBe(true);
+    expect(r.call.current.turnByTurnOffered).toBe(true);
     expect(r.sent.some(one => one.cmd === "voice.call_start" && one.params["mode"] === "pipeline")).toBe(false);
 });
 
-test("only an explicit Legacy choice overrides the live selection", async () => {
-    const r = rig({ legacy: true });
+test("only an explicit Turn by turn choice overrides the live selection", async () => {
+    const r = rig({ turnByTurn: true });
     r.status({ liveSelected: true, available: false, capabilities: ["voiceDirectCalls"] });
     await r.call.start();
     expect(r.sent.find(one => one.cmd === "voice.call_start")?.params["mode"]).toBe("pipeline");
@@ -1044,18 +1056,18 @@ test("a failed live snapshot says why even if the failure preceded subscription"
     r.snapshot([{ type: "state", state: "ended", reason: "error", liveError: "Live voice provider is unreachable." }]);
     expect(r.call.current.phase).toBe("ended");
     expect(r.call.current.trouble).toBe("Live voice provider is unreachable.");
-    expect(r.call.current.legacyAvailable).toBe(true);
+    expect(r.call.current.turnByTurnOffered).toBe(true);
 });
 
 
-test("an explicit Legacy selection wins over an available live capability", async () => {
+test("an explicit Turn by turn selection wins over an available live capability", async () => {
     const r = rig();
     r.status({ liveSelected: false, available: true, capabilities: ["voiceFront", "voiceDirectCalls"] });
     await r.call.start();
     expect(r.sent.find(one => one.cmd === "voice.call_start")?.params["mode"]).toBeUndefined();
     expect(r.call.current.phase).toBe("listening");
     r.call.hangUp();
-    expect(r.call.current.legacyAvailable).not.toBe(true);
+    expect(r.call.current.turnByTurnOffered).not.toBe(true);
 });
 
 test("the explicit retry after a live failure keeps its call thread", async () => {
@@ -1066,17 +1078,17 @@ test("the explicit retry after a live failure keeps its call thread", async () =
 });
 
 
-test("a failed live call finishes its fixed notice once before the Legacy offer", async () => {
+test("a failed live call finishes its fixed notice once before the Turn by turn offer", async () => {
     const r = rig();
     await r.call.start();
     r.desk({ type: "state", state: "listening", reconnecting: true });
-    r.desk({ type: "said", id: "notice", text: "Choose Legacy voice." });
+    r.desk({ type: "said", id: "notice", text: "Choose Turn by turn." });
     r.desk({ type: "clip", id: "notice", index: 0, final: true, mimeType: "audio/wav", data: "notice" });
     r.desk({ type: "state", state: "ended", reason: "error", liveError: "The Voice budget is spent." });
     expect(r.call.current.phase).toBe("speaking");
     expect(r.played).toEqual(["notice"]);
     r.finishClip();
     expect(r.call.current.phase).toBe("ended");
-    expect(r.call.current.legacyAvailable).toBe(true);
+    expect(r.call.current.turnByTurnOffered).toBe(true);
     expect(r.sent.filter(({ cmd }) => cmd === "voice.call_start")).toHaveLength(1);
 });

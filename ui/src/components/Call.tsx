@@ -130,7 +130,7 @@ export function CallBar({
 				</button>
 			))}
 
-			{state.trouble !== undefined && !state.legacyAvailable && <CallTrouble text={state.trouble} />}
+			{state.trouble !== undefined && !state.turnByTurnOffered && <CallTrouble text={state.trouble} />}
 
 			<span className="min-w-0 flex-1" />
 
@@ -181,7 +181,7 @@ export function CallBar({
 				</>
 			)}
 		</aside>
-		{state.legacyAvailable && state.trouble && <LiveFailure call={call} text={state.trouble} />}
+		{state.turnByTurnOffered && state.trouble && <LiveFailure call={call} text={state.trouble} />}
 		{transcript && <CallTranscript lines={state.lines} name={target?.name ?? "The desk"} alone={alone} />}
 		</>
 	);
@@ -218,7 +218,7 @@ function LiveFailure({ call, text }: { call: CallSession; text: string }) {
 	return (
 		<div className="call-live-failure" role="alert">
 			<p>{text}</p>
-			<button type="button" className="control" onClick={() => void restartCall(call, true)}>Call with Legacy voice</button>
+			<button type="button" className="control" onClick={() => void restartCall(call, true)}>Call turn by turn</button>
 		</div>
 	);
 }
@@ -389,12 +389,12 @@ export function DeskCallCard({ call, roster, compact }: { call: CallSession; ros
 				</>
 			) : (
 				<>
-					{state.legacyAvailable && state.trouble && <LiveFailure call={call} text={state.trouble} />}
+					{state.turnByTurnOffered && state.trouble && <LiveFailure call={call} text={state.trouble} />}
 					{transcript && <CallTranscript lines={state.lines} name="The desk" alone={false} />}
 					<div className="desk-call-top">
 						{mark}
 						{/* Trouble takes the status's place: the keys' row is too narrow for both. */}
-						{state.trouble !== undefined && !state.legacyAvailable ? (
+						{state.trouble !== undefined && !state.turnByTurnOffered ? (
 							<span className="call-bar-status">
 								<span className="desk-call-name">Desk</span>
 								<span className="call-bar-dot" aria-hidden="true" />

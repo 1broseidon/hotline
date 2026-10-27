@@ -21,6 +21,11 @@ pub async fn options(vault: &Vault) -> Options {
     speech::options(&connected(vault)).await
 }
 
+/// The live models the connected providers can run ([`speech::live_models`]).
+pub fn live_models(vault: &Vault) -> Vec<crate::contract::CapabilityLiveModel> {
+    speech::live_models(&connected(vault))
+}
+
 /// The realtime model that fronts a live call ([`speech::resolve_front`]).
 pub fn resolve_front(vault: &Vault, settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
     speech::resolve_front(&connected(vault), settings)

@@ -7,7 +7,7 @@ import { CheckIcon, CopyIcon, ReplyIcon, SmileIcon, SpeakerIcon } from "../../ic
 import { popupMessageMenu, writeClipboard } from "../../native";
 import { lineOf, type Run } from "../../transcriptFolds";
 import { Markdown } from "../Markdown";
-import { SentFile } from "../SentFile";
+import { OwnFile, OwnPicture, SentFile } from "../SentFile";
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
 export type ReplyTarget = { eventId: string; text: string };
@@ -153,6 +153,7 @@ export function NamedSay({ name, mine, text }: { name: string; mine: boolean; te
 }
 
 export function UserBubble({
+	personaId,
 	event,
 	quote,
 	run,
@@ -160,6 +161,7 @@ export function UserBubble({
 	onJump,
 	onReply,
 }: {
+	personaId: string;
 	event: Extract<TranscriptEvent, { kind: "user" }>;
 	quote: string | undefined;
 	run: Run;
@@ -178,6 +180,10 @@ export function UserBubble({
 	};
 	// Said on a call and handed over: the call's own record has the rest of it.
 	const onCall = event.id.startsWith("voice:");
+	// What you sent rides over your words, as the phone draws it: pictures as
+	// themselves, other files as cards. A line of only files has no bubble.
+	const files = event.attachments ?? [];
+	const wordless = text.trim() === "" && quote === undefined && files.length > 0;
 	return (
 		<div className={`said-group flex flex-col items-end ${run.top ? "mt-1" : "mt-3"}`}>
 			{onCall && !run.top && (
@@ -186,27 +192,31 @@ export function UserBubble({
 					Said on the call
 				</span>
 			)}
-			{/* biome-ignore lint/a11y/noStaticElementInteractions: the menu is the pointer's way to the copy and reply in the row beside the bubble. */}
-			<div className={`speech said-me ${runClass(run)}`} onContextMenu={(click) => bubbleMenu(click, actions)}>
-				{quote !== undefined && answered !== undefined && (
-					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>
-						{quote}
-					</button>
-				)}
-				{text}
-				{event.attachments !== undefined && event.attachments.length > 0 && (
-					<ul className="mt-2 flex flex-wrap gap-1" style={{ whiteSpace: "normal" }}>
-						{event.attachments.map((item) => (
-							<li key={item.path} className="chip max-w-full pr-2" title={item.path}>
-								<span className="chip-name">{item.name}</span>
-							</li>
-						))}
-					</ul>
-				)}
-				{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
-				<Reactions emoji={reactions} />
-				<BubbleActions {...actions} />
-			</div>
+			{files.length > 0 && (
+				<div className="own-files">
+					{files.map((file, index) =>
+						file.kind === "image" ? (
+							<OwnPicture key={`${file.path}-${index}`} personaId={personaId} eventId={event.id} index={index} file={file} />
+						) : (
+							<OwnFile key={`${file.path}-${index}`} file={file} />
+						),
+					)}
+				</div>
+			)}
+			{!wordless && (
+				// biome-ignore lint/a11y/noStaticElementInteractions: the menu is the pointer's way to the copy and reply in the row beside the bubble.
+				<div className={`speech said-me ${runClass(run)}`} onContextMenu={(click) => bubbleMenu(click, actions)}>
+					{quote !== undefined && answered !== undefined && (
+						<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>
+							{quote}
+						</button>
+					)}
+					{text}
+					{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
+					<Reactions emoji={reactions} />
+					<BubbleActions {...actions} />
+				</div>
+			)}
 			{link !== null && <LinkCard url={link} always={onlyLink(text, link)} mine />}
 		</div>
 	);

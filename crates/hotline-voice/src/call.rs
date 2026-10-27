@@ -73,7 +73,7 @@ impl Calls {
         self.start_call(id, request, room)
     }
 
-    /// Starts a call in the selected mode; live failures never select Legacy.
+    /// Starts a call in the selected mode; live failures never select Turn by turn.
     pub fn start_call(
         self: &Arc<Self>,
         id: &str,
@@ -144,7 +144,7 @@ impl Calls {
             let realtime = if live {
                 Some(self.required_front()?)
             } else {
-                eprintln!("[voice] call {id}: Legacy selected explicitly or in Settings");
+                eprintln!("[voice] call {id}: turn by turn, chosen for this call or in Settings");
                 None
             };
             let speech_services = match &realtime {

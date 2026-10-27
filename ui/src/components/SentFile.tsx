@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type { Attachment, FileChunk } from "../generated/contract";
 import { FileIcon, FolderIcon } from "../icons";
+import { openSentFile } from "../native";
 import { onServer, openSent, saveSent, showPath } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { Viewer } from "../ui/Viewer";
@@ -137,6 +138,80 @@ function SentPicture({
 	);
 }
 
+/** The longer side a picture you sent is read back at: the phone's size for it. */
+const OWN_PICTURE_EDGE = 1280;
+
+/**
+ * A picture you sent, drawn over your bubble as the phone draws it: read back
+ * from the copy the desk kept when it was sent, at the phone's size, and full
+ * size on a press. A quiet shape of its size holds the place until it is read
+ * (and while the line is still on its way, with no id the desk knows); a
+ * message with nothing kept for it, from before the desk kept copies, keeps
+ * its chip.
+ */
+export function OwnPicture({ personaId, eventId, index, file }: { personaId: string; eventId: string; index: number; file: Attachment }) {
+	const url = useSentFile(personaId, eventId, index, OWN_PICTURE_EDGE, !eventId.startsWith("saying:"));
+	const [viewing, setViewing] = useState(false);
+	const ratio = file.width !== undefined && file.height !== undefined ? Math.min(2, Math.max(0.5, file.width / file.height)) : 4 / 3;
+	if (url === null) {
+		return (
+			<span className="chip max-w-full pr-2" title={file.path}>
+				<span className="chip-name">{file.name}</span>
+			</span>
+		);
+	}
+	if (url === undefined) return <div className="own-picture sent-placeholder" style={{ aspectRatio: ratio }} />;
+	return (
+		<>
+			<button type="button" className="own-picture picture-open" style={{ aspectRatio: ratio }} title="Open full size" onClick={() => setViewing(true)}>
+				<img decoding="async" src={url} alt={file.name} />
+			</button>
+			{viewing && <OwnViewer personaId={personaId} eventId={eventId} index={index} file={file} preview={url} onClose={() => setViewing(false)} />}
+		</>
+	);
+}
+
+/** Full size in the viewer, shown at the bubble's size until the whole picture is read. */
+function OwnViewer({ personaId, eventId, index, file, preview, onClose }: { personaId: string; eventId: string; index: number; file: Attachment; preview: string; onClose(): void }) {
+	const full = useSentFile(personaId, eventId, index);
+	return <Viewer src={full ?? preview} alt={file.name} onClose={onClose} />;
+}
+
+/**
+ * A file you sent that is not a picture: a card with what it is, as a
+ * teammate's file has, opened from where it was on this computer. The desk
+ * keeps no copy of it, so a desk on a server has nothing to open.
+ */
+export function OwnFile({ file }: { file: Attachment }) {
+	const [error, setError] = useState<string | null>(null);
+	const pdf = file.mimeType === "application/pdf";
+	const what = [pdf ? "PDF" : kindOf(file), file.size !== undefined ? sizeText(file.size) : undefined].filter((part) => part !== undefined).join(" · ");
+	return (
+		<div className="own-file" title={file.path}>
+			<div className="sent-card">
+				<FileIcon className="shrink-0 text-ink-3" />
+				<span className="min-w-0 flex-1">
+					<span className="block truncate">{file.name}</span>
+					<span className="block text-ink-3">{what}</span>
+				</span>
+				{!onServer() && (
+					<button
+						type="button"
+						className="control btn btn-sm"
+						onClick={() => {
+							setError(null);
+							openSentFile(file.path).catch((failed: unknown) => setError(failed instanceof Error ? failed.message : String(failed)));
+						}}
+					>
+						Open
+					</button>
+				)}
+			</div>
+			{error !== null && <p className="sent-error">{error}</p>}
+		</div>
+	);
+}
+
 /** How many pictures stay readable after their bubble leaves the screen. */
 const KEPT = 48;
 const pictures = new Map<string, Promise<string>>();
@@ -148,15 +223,15 @@ const pictures = new Map<string, Promise<string>>();
  * the least recently asked for. A failed read is forgotten, so the next ask
  * tries again.
  */
-function sentUrl(personaId: string, eventId: string, index: number): Promise<string> {
-	const key = `${personaId}/${eventId}/${index}`;
+function sentUrl(personaId: string, eventId: string, index: number, edge?: number): Promise<string> {
+	const key = `${personaId}/${eventId}/${index}/${edge ?? "full"}`;
 	const known = pictures.get(key);
 	if (known !== undefined) {
 		pictures.delete(key);
 		pictures.set(key, known);
 		return known;
 	}
-	const fetched = readSent(personaId, eventId, index);
+	const fetched = readSent(personaId, eventId, index, edge);
 	pictures.set(key, fetched);
 	fetched.catch(() => {
 		if (pictures.get(key) === fetched) pictures.delete(key);
@@ -170,12 +245,12 @@ function sentUrl(personaId: string, eventId: string, index: number): Promise<str
 	return fetched;
 }
 
-async function readSent(personaId: string, eventId: string, index: number): Promise<string> {
+async function readSent(personaId: string, eventId: string, index: number, edge?: number): Promise<string> {
 	const parts: Uint8Array<ArrayBuffer>[] = [];
 	let type = "";
 	let offset: number | undefined = 0;
 	while (offset !== undefined) {
-		const chunk: FileChunk = await wire.command("file.read", { personaId, eventId, index, offset });
+		const chunk: FileChunk = await wire.command("file.read", { personaId, eventId, index, offset, ...(edge !== undefined ? { size: edge } : {}) });
 		type = chunk.mimeType;
 		parts.push(await bytesOf(chunk.data));
 		offset = chunk.next;
@@ -183,11 +258,12 @@ async function readSent(personaId: string, eventId: string, index: number): Prom
 	return URL.createObjectURL(new Blob(parts, { type }));
 }
 
-function useSentFile(personaId: string, eventId: string, index: number): string | null | undefined {
+function useSentFile(personaId: string, eventId: string, index: number, edge?: number, ready = true): string | null | undefined {
 	const [url, setUrl] = useState<string | null | undefined>(undefined);
 	useEffect(() => {
+		if (!ready) return;
 		let gone = false;
-		sentUrl(personaId, eventId, index).then(
+		sentUrl(personaId, eventId, index, edge).then(
 			(made) => {
 				if (!gone) setUrl(made);
 			},
@@ -198,7 +274,7 @@ function useSentFile(personaId: string, eventId: string, index: number): string 
 		return () => {
 			gone = true;
 		};
-	}, [personaId, eventId, index]);
+	}, [personaId, eventId, index, edge, ready]);
 	return url;
 }
 

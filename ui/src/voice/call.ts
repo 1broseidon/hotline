@@ -55,7 +55,8 @@ export type CallSnapshot = {
 	trouble?: string | undefined;
 	/** This Mac heard no words and the desk would hear the call with its own model, free: worth offering. */
 	deskModel?: boolean;
-	legacyAvailable?: boolean;
+	/** A live call failed: offer the person a Turn by turn call instead, which only they choose. */
+	turnByTurnOffered?: boolean;
 };
 
 /** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
@@ -144,7 +145,7 @@ const FRONT_GONE = "Live voice disconnected and could not reconnect.";
 type Names = (personaId: string) => string | undefined;
 
 export type CallTarget = { thread?: import("../generated/contract").ThreadId; personaId: string; name: string; avatarHash?: string | undefined };
-export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined; legacy?: boolean };
+export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined; turnByTurn?: boolean };
 
 /** Remove only a stable recognized prefix known to predate the speaker's onset. */
 function afterRecognizedPrefix(text: string, prefix: string): string {
@@ -257,7 +258,7 @@ export class Call {
 	/**
 	 * A front call: a realtime model on the desk hears and speaks, so the
 	 * microphone streams all the time and its speech plays as it comes.
-	 * Null is a Legacy call; a failed live call ends.
+	 * Null is a Turn by turn call; a failed live call ends.
 	 */
 	private front: VoiceFront | null = null;
 	private liveRequested = false;
@@ -288,12 +289,12 @@ export class Call {
 	nameOf(personaId: string): string | undefined { return this.names(personaId); }
 	readonly readAvatar = (personaId: string, hash: string, offset: number): Promise<FileChunk> =>
 		this.transport.command("avatar.read", { personaId, hash, offset }) as Promise<FileChunk>;
-	redial(legacy = false): Call {
+	redial(turnByTurn = false): Call {
 		const target = this.target === undefined ? undefined : {
 			...this.target,
-			...(this.started && this.snapshot.legacyAvailable ? { thread: this.target.thread ?? { kind: "call" as const, key: this.id } } : {}),
+			...(this.started && this.snapshot.turnByTurnOffered ? { thread: this.target.thread ?? { kind: "call" as const, key: this.id } } : {}),
 		};
-		return new Call(this.transport, this.names, undefined, undefined, { ...this.options, target, legacy }, this.transcription);
+		return new Call(this.transport, this.names, undefined, undefined, { ...this.options, target, turnByTurn }, this.transcription);
 	}
 
 	watch(listener: () => void): () => void {
@@ -329,11 +330,11 @@ export class Call {
 			// A desk call asks to learn whether the desk fronts calls or takes text; not knowing keeps it on audio.
 			else status = await this.transport.command("voice.status", asked);
 			if (this.ended) return;
-			if (this.target !== undefined && !this.options.legacy && !supportsDirectCalls(status)) throw new Error(
+			if (this.target !== undefined && !this.options.turnByTurn && !supportsDirectCalls(status)) throw new Error(
 				(status as { unavailable?: string } | null)?.unavailable ?? "This desk needs an update before it can call a teammate directly.",
 			);
 			// A front hears the call itself, so this Mac's recognition is not asked for.
-			const live = !this.options.legacy && offersFront(status);
+			const live = !this.options.turnByTurn && offersFront(status);
 			this.liveRequested = live;
 			if (live) this.front = { inputRate: WAV_RATE, outputRate: 0 };
 			this.textInput = live ? false : await this.transcribes(status);
@@ -359,7 +360,7 @@ export class Call {
 				streamAudio: true,
 				...(this.target !== undefined ? { personaId: this.target.personaId, ...(this.target.thread !== undefined ? { thread: this.target.thread } : {}) } : {}),
 				...(this.textInput ? { inputMode: "text" } : {}),
-				...(this.front !== null ? { mode: "front", inputRate: WAV_RATE } : this.options.legacy ? { mode: "pipeline" } : {}),
+				...(this.front !== null ? { mode: "front", inputRate: WAV_RATE } : this.options.turnByTurn ? { mode: "pipeline" } : {}),
 			}) as { input?: string[]; personaId?: string; front?: VoiceFront } | null;
 			this.started = true;
 			if (this.target !== undefined && response?.personaId !== this.target.personaId) {
@@ -369,7 +370,7 @@ export class Call {
 				throw new Error("The desk did not accept on-device transcription. Update it and call again.");
 			}
 			this.pcm = !this.textInput && response?.input?.includes("audio/pcm") === true;
-			// A live call is never accepted as Legacy, even from an older desk.
+			// A live call is never accepted as Turn by turn, even from an older desk.
 			if (this.front !== null && response?.front?.inputRate !== WAV_RATE) {
 				throw new Error("The desk could not start live voice.");
 			}
@@ -476,11 +477,12 @@ export class Call {
 			this.bargeFront();
 			return;
 		}
-		this.silenceLegacy();
+		this.silence();
 		this.settle();
 	}
 
-	private silenceLegacy(): void {
+	/** Stops the desk's reply: what plays, and what is still to come of it. */
+	private silence(): void {
 		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
 		for (const id of this.seen) this.muted.add(id);
 		this.deferred = [];
@@ -504,7 +506,7 @@ export class Call {
 			case "state": {
 				this.providerReconnecting = event.reconnecting === true;
 				if (event.liveError) {
-					this.set({ trouble: event.liveError, legacyAvailable: true });
+					this.set({ trouble: event.liveError, turnByTurnOffered: true });
 					if (this.audio.playing || this.outputLines.size > 0) { this.closing = "error"; this.settle(); }
 					else this.end("error");
 					return;
@@ -586,7 +588,7 @@ export class Call {
 				return;
 			case "frontEnded":
 				if (this.front === null) return;
-				this.set({ legacyAvailable: true });
+				this.set({ turnByTurnOffered: true });
 				this.fail(FRONT_GONE);
 				return;
 		}
@@ -626,13 +628,14 @@ export class Call {
 		if (this.reconnectTimer !== null || this.providerReconnecting) return this.set({ phase: "reconnecting" });
 		if (this.held) return this.set({ phase: "held" });
 		if (this.audio.playing) {
-			if (this.snapshot.phase !== "speaking" && this.snapshot.phase !== "hearing") {
+			// Turn by turn does not listen while a reply plays, so the reply is
+			// never cut off by its own echo: a tap on the call interrupts it. A
+			// live model hears all the time and handles its own echo.
+			if (this.snapshot.phase !== "speaking") {
+				this.cancelInput();
 				this.detector.reset(this.now());
-				this.frames = [];
-				this.heard = false;
 			}
 			this.set({ phase: "speaking" });
-			if (this.textInput && !this.recognizing) this.listen();
 			return;
 		}
 		// A front listens all the time; it says when the teammate is working.
@@ -683,7 +686,7 @@ export class Call {
 		if (this.snapshot.phase === "reconnecting") return;
 		if (this.front !== null) return this.hearFront(block, rate);
 		const phase = this.snapshot.phase;
-		if (phase !== "listening" && phase !== "hearing" && phase !== "speaking") return;
+		if (phase !== "listening" && phase !== "hearing") return;
 		this.rate = rate;
 		const level = rms(block);
 		this.level = level;
@@ -699,7 +702,6 @@ export class Call {
 			switch (turn.kind) {
 				case "start":
 					this.inputState(true);
-					if (this.audio.playing) this.silenceLegacy();
 					this.heard = true;
 					this.set({ phase: "hearing" });
 					if (this.pcm) {
@@ -864,7 +866,6 @@ export class Call {
 					switch (turn.kind) {
 						case "start":
 							this.inputState(true);
-							if (this.audio.playing) this.silenceLegacy();
 							this.heard = true;
 							// Words the engine had before the onset were the room's, not the speaker's.
 							for (const snapshot of this.textSnapshots) {
@@ -1050,7 +1051,7 @@ export class Call {
 	private fail(trouble: string): void {
 		if (this.ended) return;
 		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
-		this.set({ trouble, legacyAvailable: this.liveRequested });
+		this.set({ trouble, turnByTurnOffered: this.liveRequested });
 		this.end("error");
 	}
 
@@ -1104,9 +1105,9 @@ export async function startCall(names?: Names, target?: CallTarget): Promise<Cal
 }
 
 /** Retry the original desk and target, even after the window moved elsewhere. */
-export async function restartCall(previous: Call, legacy = false): Promise<Call> {
+export async function restartCall(previous: Call, turnByTurn = false): Promise<Call> {
 	active?.hangUp();
-	const call = previous.redial(legacy);
+	const call = previous.redial(turnByTurn);
 	active = call;
 	for (const holder of holders) holder();
 	await call.start();

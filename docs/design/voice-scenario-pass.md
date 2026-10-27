@@ -14,7 +14,7 @@ operator, date, build SHA, device, driver, voice provider, call id and result
 (or a task id for failure). Check a box only after all applicable cells pass or
 have a filed disposition accepted by George. Do not infer phone adoption from
 desktop behavior. Use Hotline Agent and ACP, and Grok Voice, GPT Realtime,
-GPT-Live and explicitly selected Legacy where applicable. The ignored
+GPT-Live and explicitly selected Turn by turn where applicable. The ignored
 `hotline-voice` scripted_front provider tests are optional additional evidence,
 not a substitute for this pass and not run by ordinary `make check`.
 
@@ -81,7 +81,7 @@ until George's desk and phone pass.
 | 14. Interrupting | Pass when no lookup preceded the speech (cut at once, cut recorded, next reply answers it). Fail after lookups: task-254. Echo on speaker not testable here. | `1f3a2cae`, `2735d01a` |
 | 15. A bad network | Not testable on the desk window (calls run in-process; a reload kept the call up). Core wire tests cover the 20 s hold; phone and relay are George's. | `6722376c` |
 | 16. Live voice goes away | Not forced: no safe way to break the live provider here. | — |
-| 17. Legacy voice | **Fail on the first sentence** (task-256): a tool-heavy turn (web search) went straight to tools with no spoken first sentence for over a minute. The soft cue can't be heard here. The espeak voice was misheard ("Bell Rock" as "Male Rock"), which made the turn long. | `a180a43d` |
+| 17. Turn by turn | **Fail on the first sentence** (task-256): a tool-heavy turn (web search) went straight to tools with no spoken first sentence for over a minute. The soft cue can't be heard here. The espeak voice was misheard ("Bell Rock" as "Male Rock"), which made the turn long. | `a180a43d` |
 
 ## Scripted evidence and requirement checklist
 
@@ -165,7 +165,7 @@ Device results: Linux — pending; desk — pending; phone — pending.
 
 ### 8. Something needs you during the call
 
-Scripted: [`call_threads/cards.rs::live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`](../../crates/hotline-core/tests/call_threads/cards.rs). Finalized answers and busy-floor ordering; legacy_answers_a_question_once_and_records_yes_and_no_from_the_call covers both drivers. Opaque push approvals remain desk-only under decision-15 despite the illustrative deck dialogue.
+Scripted: [`call_threads/cards.rs::live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`](../../crates/hotline-core/tests/call_threads/cards.rs). Finalized answers and busy-floor ordering; turn_by_turn_answers_a_question_once_and_records_yes_and_no_from_the_call covers both drivers. Opaque push approvals remain desk-only under decision-15 despite the illustrative deck dialogue.
 
 Device results: Linux — pending; desk — pending; phone — pending.
 
@@ -248,17 +248,17 @@ Device results: Linux — pending; desk — pending; phone — pending.
 
 ### 16. When the live voice goes away
 
-Scripted: [`voice/front.rs::a_dropped_live_call_that_cannot_reconnect_ends_once_with_a_persistent_reason`](../../crates/hotline-core/tests/voice/front.rs). Bounded recovery and persistent failure. The same file covers failed starts, missing front and spent budget without automatic Legacy; explicit phone choice still needs a real device.
+Scripted: [`voice/front.rs::a_dropped_live_call_that_cannot_reconnect_ends_once_with_a_persistent_reason`](../../crates/hotline-core/tests/voice/front.rs). Bounded recovery and persistent failure. The same file covers failed starts, missing front and spent budget without automatic Turn by turn; explicit phone choice still needs a real device.
 
 Device results: Linux — pending; desk — pending; phone — pending.
 
-- [ ] A live call never silently becomes Legacy; retry with context first.
-- [ ] If live cannot start or reconnect, the card says why and offers Call with Legacy voice.
+- [ ] A live call never silently becomes Turn by turn; retry with context first.
+- [ ] If live cannot start or reconnect, the card says why and offers Call turn by turn.
 - [ ] A spent budget is said once, with what the person can do about it.
 
-### 17. Legacy voice on a slower teammate
+### 17. Turn by turn on a slower teammate
 
-Scripted: [`voice/direct.rs::legacy_speaks_its_own_untagged_opening`](../../crates/hotline-core/tests/voice/direct.rs). Opening reaches speech through the real core. Audible streaming, single waiting sound and interruption remain device checks.
+Scripted: [`voice/direct.rs::turn_by_turn_speaks_its_own_untagged_opening`](../../crates/hotline-core/tests/voice/direct.rs). Opening reaches speech through the real core. Audible streaming, single waiting sound and interruption remain device checks.
 
 Device results: Linux — pending; desk — pending; phone — pending.
 

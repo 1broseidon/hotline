@@ -8,6 +8,71 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Ollama speaks. With a speech model such as `phonon` pulled into a
+  connected Ollama, Settings › Providers › Calls › Speech lists its voices,
+  as Ollama names them, and a voice chosen there says replies on Turn by
+  turn calls through the Ollama server, for nothing. With the desk's own
+  hearing, a call needs no cloud provider at all. Ollama not running, or
+  with no speech model, is simply not offered.
+- Pictures and documents you send show in the conversation, as on the
+  phone: a picture as itself over your message, read back from the copy the
+  desk kept when you sent it, full size on a click; a document as a card
+  with its name, kind and size, and Open. A message of only files draws no
+  empty bubble.
+
+### Changed
+
+- Calls choose a Live model or Turn by turn, and the settings follow the
+  choice. Settings › Providers › Calls › Model lists, under Live, the
+  realtime models your connected providers run (Grok Voice, GPT-Live, GPT
+  Realtime), once per login or key, and never one whose provider is not
+  connected; a live model shows only its Voice and the Call assistant.
+  Turn by turn, where the teammate answers on its own model and the desk
+  transcribes and speaks, shows Transcription (moved here from Use for) and
+  Speech ("Phonon · Zoey"), each saying what it costs ("Parakeet · free")
+  and tagged "on this Mac", or "on this computer" off macOS, when it runs on
+  the desk's own machine. "Legacy voice" is gone: a room that chose it reads
+  as Turn by turn with its transcription and speech picks unchanged, and a
+  failed live call offers Call turn by turn.
+- A Turn by turn call from the desk window no longer listens while a reply
+  plays, so a reply on the speaker is never cut off by its own echo. Tap the
+  call to interrupt; live models still take talking over them.
+- Calls answer shorter: a sentence or three unless you ask for more, and a
+  recap names its main points and offers the rest.
+- A new teammate's first chat shows its goal under its name, and in a folder
+  of its own the things to try start on that goal.
+- A teammate's goal sits in a field on its sheet, so it reads as editable.
+- A card waiting on you says "Needs you" in the accent and leads with its
+  question. A settled sign-in card reads like a settled permission: what was
+  asked, of which site, and how it ended.
+- Polish across the window: times sit with the message they date, tables in
+  replies are rows without a grid, a run's steps open only as tall as they
+  are, states (Done, Working, Thinking, Expired unanswered) and budget
+  amounts read in the instrument face, and Add teammate and a run's steps
+  label no longer look disabled.
+
+### Fixed
+
+- The model picker lists only chat models. A refreshed list no longer
+  offers image, speech, transcription or embedding models as teammates:
+  Ollama's `phonon` and embedding models, OpenRouter's image models and
+  xAI's Grok Imagine stay out, and so do OpenAI's, Google's, Groq's and
+  Mistral's that models.dev knows are not chat. Images, Speech and
+  Transcription each list only their own kind. Refresh a provider to clear
+  a list saved before. With an Ollama voice chosen, the Speech picker names
+  its default voice after the model ("Phonon") instead of "Default".
+- A Turn by turn reply long enough to show as several bubbles is said once.
+  Its later bubbles were read out again as replies of their own.
+- A call's transcript shows a reply said as it was written once, not the
+  whole reply and then each of its bubbles again.
+- An answer to a yes/no card reaches the teammate as "answered yes" or
+  "answered no", not just "answered".
+- A team-list preview of a reply that opens with a table shows its words,
+  not the table's pipes.
+- A waiting card's outline is whole on its left edge.
+
 ## [0.43.0] - 2026-10-24
 
 ### Added

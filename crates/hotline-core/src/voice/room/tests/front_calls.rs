@@ -88,7 +88,7 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_spent_live_budget_says_one_local_notice_and_never_selects_legacy() {
+async fn a_spent_live_budget_says_one_local_notice_and_never_selects_turn_by_turn() {
     struct PaidFront(Mutex<Option<realtime::RealtimeSession>>);
     #[async_trait]
     impl realtime::Realtime for PaidFront {
@@ -142,10 +142,10 @@ async fn a_spent_live_budget_says_one_local_notice_and_never_selects_legacy() {
     }
     assert_eq!(
         notices,
-        ["The Voice budget is spent. Raise it in Settings or choose Legacy voice."]
+        ["The Voice budget is spent. Raise it in Settings or choose Turn by turn."]
     );
     assert_eq!(clips, 1);
-    assert!(calls.text(&id, 1, "Must not become Legacy.").is_err());
+    assert!(calls.text(&id, 1, "Must not become Turn by turn.").is_err());
     assert!(matches!(
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {

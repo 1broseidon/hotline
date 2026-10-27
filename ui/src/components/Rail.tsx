@@ -221,7 +221,7 @@ export function Rail({
 						<span className="rail-add-face" aria-hidden="true">
 							<PersonPlusIcon />
 						</span>
-						{!compact && <span className="min-w-0 flex-1 truncate text-ink-3">Add teammate</span>}
+						{!compact && <span className="min-w-0 flex-1 truncate text-ink-2">Add teammate</span>}
 					</button>
 				)}
 			</div>
@@ -545,10 +545,14 @@ export function unreadOf(
 /**
  * A preview is one line in a narrow rail, whatever shape it was written in.
  * The markdown an agent writes is rendered in the column and stripped here:
- * asterisks and backticks in a two-inch column are noise, not emphasis.
+ * asterisks and backticks in a two-inch column are noise, not emphasis. A
+ * table's rows are not a line at all, so the prose around it is the preview,
+ * and a reply that is only a table says so.
  */
-function oneLine(source: string): string {
-	return source
+export function oneLine(source: string): string {
+	const prose = source.replace(/^\s*\|.*$/gm, "");
+	if (prose.trim() === "" && source.trim() !== "") return "Table";
+	return prose
 		.replace(/^\s{0,3}(```|~~~).*$/gm, "")
 		.replace(/^\s{0,3}#{1,6}\s+/gm, "")
 		.replace(/^\s{0,3}>\s?/gm, "")

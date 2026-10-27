@@ -4094,8 +4094,8 @@
 		display: flex;
 		flex-shrink: 0;
 		flex-direction: column;
-		/* Under the window's lead (a closed rail) it starts past the lead's keys. */
-		margin: 5px 5px 0 calc(5px + var(--lead-room, 0px));
+		/* Under the window's lead or controls it drops below the top bar (Titlebar.tsx). */
+		margin: calc(5px + var(--chrome-drop, 0px)) 5px 0;
 		border-radius: calc(var(--radius-pane) - 5px);
 		background: var(--raised);
 		box-shadow:
@@ -4111,14 +4111,14 @@
 	}
 	/* As the strip folds away the card settles back into the resting band. */
 	.call-head:has(> .call-bar[data-folding]) {
-		margin: 0 0 0 var(--lead-room, 0px);
+		margin: 0;
 		border-radius: 0;
 		background: var(--canvas);
 		box-shadow: none;
 	}
 	@keyframes call-head-lift {
 		from {
-			margin: 0 0 0 var(--lead-room, 0px);
+			margin: var(--chrome-drop, 0px) 0 0;
 			border-radius: 0;
 			background: var(--canvas);
 			box-shadow: none;

@@ -104,6 +104,7 @@ export function Transcript({
 	onOpenWork,
 	workOpen,
 	onProviders,
+	onStop,
 	thread,
 	more = false,
 	onEarlier,
@@ -158,6 +159,8 @@ export function Transcript({
 	workOpen?: string | null | undefined;
 	/** Opens Settings › Providers, from a card saying no provider is connected. */
 	onProviders?(): void;
+	/** Stop on the work card while a turn runs, in the composer's place (Composer's `stopOnCard`). */
+	onStop?(): void;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -463,17 +466,23 @@ export function Transcript({
 		{activity !== null && (
 			<div className="ambient">
 				<div className="mx-auto w-full max-w-[46rem] px-6">
-					<button
-						type="button"
-						className="ambient-mark"
-						data-sleeping={sleeping || undefined}
-						aria-expanded={onOpenWork !== undefined ? workOpen === null : workShown}
-						title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
-						onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
-					>
-						<Glyph phase={activity.phase} />
-						{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
-					</button>
+					<div className="ambient-card" data-sleeping={sleeping || undefined}>
+						<button
+							type="button"
+							className="ambient-mark"
+							aria-expanded={onOpenWork !== undefined ? workOpen === null : workShown}
+							title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
+							onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
+						>
+							<Glyph phase={activity.phase} />
+							{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
+						</button>
+						{onStop !== undefined && !sleeping && (
+							<button type="button" className="ambient-stop" title="Interrupt (Esc)" onClick={onStop}>
+								Stop
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 		)}

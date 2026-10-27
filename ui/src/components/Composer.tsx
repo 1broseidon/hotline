@@ -66,6 +66,8 @@ export function Composer({
 	onClearReply,
 	onDraftChange,
 	corner,
+	above,
+	stopOnCard = false,
 	focused = false,
 	embedded = false,
 }: {
@@ -84,6 +86,10 @@ export function Composer({
 	onDraftChange?(hasContent: boolean): void;
 	/** Keys that sit on the pill's top right, over the conversation's foot. */
 	corner?: ReactNode;
+	/** The peek, standing up out of the pill's top over the conversation's foot. */
+	above?: ReactNode;
+	/** Stop is on the work card above while a turn runs (Transcript's `onStop`), so the pill has none. */
+	stopOnCard?: boolean;
 	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
 	focused?: boolean;
 	/**
@@ -353,6 +359,7 @@ export function Composer({
 		<div className="relative shrink-0 px-6 pb-4">
 			<div className="relative mx-auto w-full max-w-[46rem]">
 				{corner !== undefined && <div className="composer-corner">{corner}</div>}
+				{above}
 				<div className="composer">
 					<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
 						<PlusIcon />
@@ -469,7 +476,7 @@ export function Composer({
 							</p>
 						)}
 					</div>
-					{working && (
+					{working && !stopOnCard && (
 						<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
 							<StopIcon />
 						</button>

@@ -1435,40 +1435,70 @@
 	.said-name + .said-name {
 		margin-left: 12px;
 	}
-	/* Them, at work: the mark floats over the foot of the conversation, just
-	 * above the composer, with one word for what kind of work. It is not a
-	 * message and gets no bubble; it is in the room while the reply is on its
-	 * way and gone when it lands. A press opens the work above it. The
-	 * pupils are the canvas colour, so the eyes read as eyes against it. */
-	/* The row's bottom edge is the composer's top, and nothing shows below
-	 * it: the mark wakes up from behind the composer and sinks back behind
-	 * it to sleep. Above and to the sides it may move freely. */
+	/* Them, at work: the mark and its word on a card tucked behind the
+	 * composer's top, a little narrower than it, Stop at its right as the
+	 * phone's activity bar has it (the pill has none meanwhile). The card runs
+	 * on under the composer, which paints over it, so only its top shows. It
+	 * is not a message; it is in the room while the reply is on its way and
+	 * gone when it lands. A press opens the peek above it. */
 	.ambient {
 		position: absolute;
 		inset: auto 0 0 0;
-		padding-bottom: 10px;
-		z-index: 1;
+		z-index: 0;
 		pointer-events: none;
-		clip-path: inset(-160px -80px 0 -80px);
+		clip-path: inset(-160px -80px -40px -80px);
 	}
-	.ambient-mark {
+	.ambient-card {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 4px 4px 4px 2px;
-		border-radius: var(--radius-control);
-		color: var(--ink-3);
+		gap: 8px;
+		margin: 0 18px -22px;
+		padding: 5px 6px 27px 10px;
+		border-radius: 14px 14px 0 0;
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
 		pointer-events: auto;
 		/* The transcript makes room first (its 200ms padding ease), then the
-		 * mark rises into it, slow out of sleep; the glyph's first blink
+		 * card rises into it, slow out of sleep; the glyph's first blink
 		 * (WAKE_BLINK) lands as it surfaces. */
 		animation: wake 650ms 200ms cubic-bezier(0.33, 1, 0.68, 1) both;
 	}
-	/* Settle on the cradle, then sink: 300 + 480ms, SLEEP_MS in components/transcript/hooks.ts. */
-	.ambient-mark[data-sleeping] {
+	/* Settle, then sink: 300 + 480ms, SLEEP_MS in components/transcript/hooks.ts. */
+	.ambient-card[data-sleeping] {
 		pointer-events: none;
 		animation: sleep 480ms 300ms cubic-bezier(0.5, 0, 0.75, 0) both;
 	}
+	.ambient-mark {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		align-items: center;
+		gap: 8px;
+		padding: 2px 4px 2px 0;
+		border-radius: var(--radius-control);
+		color: var(--ink-3);
+	}
+	.ambient-card .glyph {
+		width: 22px;
+		height: 15.7px;
+	}
+	.ambient-stop {
+		flex-shrink: 0;
+		height: 24px;
+		padding: 0 11px;
+		border-radius: 12px;
+		background: var(--fill-active);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--ink);
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.ambient-stop:hover {
+		background: var(--line-strong);
+	}
+
 	@keyframes wake {
 		from {
 			transform: translateY(calc(100% + 10px));
@@ -3457,28 +3487,88 @@
 		border-radius: var(--radius-pane);
 		overflow: clip;
 	}
-	/* A window too narrow for the card to float beside the words docks it
-	 * under the composer, the width of the column, where it pushes the
-	 * conversation up instead of covering it. */
+	/* The peek (Work.tsx): a turn of work as a glance. It slides up over
+	 * the conversation's foot from behind the composer, standing on the
+	 * composer's top (Composer's `above`) and tucked under it, rather than
+	 * lifting the conversation; a glance you put away. While the turn runs it
+	 * stands on the work card instead, so the card's Thinking and Stop stay
+	 * under it. The card's width and surface, translucent over what it
+	 * covers, blurred so its lines still read. */
 	.work-dock {
-		flex-shrink: 0;
-		padding: 0 24px 12px;
-		margin-top: -4px;
+		position: absolute;
+		right: 0;
+		bottom: calc(100% - 22px);
+		left: 0;
+		z-index: 0;
+		display: flex;
+		justify-content: center;
+		/* Nothing of it shows below the composer's top on the way up: the
+		 * slide is clipped at its own foot, which stands under the composer. */
+		overflow: hidden;
+		padding-top: 2px;
 	}
-	/* Docked, it is only as tall as its run, up to a third of the window, so
-	 * a short run never lifts the composer for steps it does not have. */
+	.composer {
+		position: relative;
+		z-index: 1;
+	}
 	.work-float.work-docked {
-		width: 100%;
-		max-width: 46rem;
+		width: calc(100% - 84px);
 		height: auto;
-		max-height: min(240px, 34vh);
-		margin: 0 auto;
-		background: var(--pop);
-		-webkit-backdrop-filter: none;
-		backdrop-filter: none;
+		padding-bottom: 22px;
+		border-radius: 14px 14px 0 0;
+		background: color-mix(in oklab, var(--raised) 84%, transparent);
+		-webkit-backdrop-filter: blur(18px) saturate(1.3);
+		backdrop-filter: blur(18px) saturate(1.3);
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line);
+		animation: wake 420ms cubic-bezier(0.33, 1, 0.68, 1) both;
+	}
+	.conversation:has(.ambient-card:not([data-sleeping])) .work-dock {
+		bottom: calc(100% + 36px);
+	}
+	.conversation:has(.ambient-card:not([data-sleeping])) .work-float.work-docked {
+		padding-bottom: 0;
+		border-radius: 14px 14px 0 0;
+		box-shadow: 0 0 0 var(--hairline) var(--line);
+		animation: none;
+	}
+	.conversation:has(.work-docked) .ambient-card {
+		border-top-left-radius: 0;
+		border-top-right-radius: 0;
+	}
+	/* A window onto the work, never a list that grows: always four lines
+	 * (24px each, and its 8px top and bottom), each step one plain line,
+	 * scrolling under a soft fade at either edge. A line is pressed to read it
+	 * in the pane, so there is nothing here to open. */
+	.work-docked .work-window {
+		flex: none;
+		height: calc(4 * 24px + 16px);
+		margin: 0 4px 6px;
+		background: transparent;
+		box-shadow: none;
+		-webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+		mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+	}
+	.work-docked .work-window .step-title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* The pane's page (Dock.tsx): the turn flush and full height, with room
+	 * for every step to open; no well inside it, the pane is the surface. */
+	.work-page {
+		display: flex;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+	}
+	.work-page .work-window {
+		margin: 0;
+		padding: 4px 8px 16px;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
 	}
 	.work-window {
 		min-height: 0;
@@ -3979,8 +4069,8 @@
 @media (prefers-reduced-motion: reduce) {
 	.welcome-stage,
 	.beat,
-	.ambient-mark,
-	.ambient-mark[data-sleeping],
+	.ambient-card,
+	.ambient-card[data-sleeping],
 	.menu,
 	.rail-tip,
 	.search-panel,

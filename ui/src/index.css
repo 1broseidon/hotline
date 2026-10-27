@@ -4689,6 +4689,21 @@
 		height: auto;
 		margin: 4px auto 16px;
 	}
+	/* In the faces-only rail the keys stand bare on the faces' axis, and the
+	 * bar only gathers round them while it is pointed at or holds focus. */
+	.rail-dock-compact:not(:hover, :focus-within) {
+		background: transparent;
+		box-shadow: none;
+	}
+	.rail-dock-compact:not(:hover, :focus-within) .rail-settings-key::after,
+	.rail-dock-compact:not(:hover, :focus-within) .desk-call-key::before {
+		opacity: 0;
+	}
+	.rail-dock-compact {
+		transition:
+			background var(--dur-press) var(--ease-out),
+			box-shadow var(--dur-press) var(--ease-out);
+	}
 	/* The three keys share the bar in equal thirds, Settings at the start,
 	 * search in the middle between two hairlines, the desk's line at the end. */
 	.rail-dock:not(.rail-dock-compact) > .rail-settings-key,

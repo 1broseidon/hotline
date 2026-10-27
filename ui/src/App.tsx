@@ -517,7 +517,6 @@ export function App() {
 				<FlushChrome
 					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" }}
 					width={railWidth}
-					faces={faces && pane !== "settings"}
 					search={teamSearch("below")}
 				/>
 			)}
@@ -568,7 +567,6 @@ export function App() {
 				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
 				onAddDesk={() => togglePane("add-desk")}
 				onNew={newTeammate}
-				onToggle={platform() === "macos" ? toggleRail : undefined}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
 				settings={settingsKey("rail-settings-key")}

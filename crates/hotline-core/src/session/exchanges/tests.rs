@@ -1219,7 +1219,7 @@ async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
             agents
                 .prompts()
                 .iter()
-                .all(|prompt| prompt.starts_with("The person answered your request")),
+                .all(|prompt| prompt.starts_with("The person answered yes to your request")),
             "the answer is heard only as the person's own: {:?}",
             agents.prompts()
         );

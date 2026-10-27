@@ -520,8 +520,9 @@ async fn a_declined_human_request_carries_the_note() {
     assert_eq!(delivery["text"], "It is in the shared vault, use that.");
     let last = lock(&agents.driver.prompts).last().unwrap().clone();
     assert!(
-        last.contains("The person declined your request (\"Enter the vault password\").")
-            && last.contains("It is in the shared vault, use that."),
+        last.contains(
+            "The person answered no to your request (\"Enter the vault password\") (declined it)."
+        ) && last.contains("It is in the shared vault, use that."),
         "{last}"
     );
     let card = tape(&room, "ada")

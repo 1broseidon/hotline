@@ -929,7 +929,7 @@ async fn a_card_raised_while_an_ask_is_answered_in_a_thread_is_heard_when_answer
         agents
             .prompts()
             .iter()
-            .any(|p| p.contains("The person answered your request") && p.contains("Blue")),
+            .any(|p| p.contains("The person answered yes to your request") && p.contains("Blue")),
         "{:?}",
         agents.prompts()
     );

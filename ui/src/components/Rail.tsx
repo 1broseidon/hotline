@@ -331,7 +331,7 @@ function Row({
 				/>
 			)}
 			<span className="relative flex shrink-0">
-				<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
+				<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : 36} hash={entry.persona.avatar?.hash} busy={busy} />
 				{lead && <LeadBadge />}
 				{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
 				{onTip !== undefined && vital.color !== null && (
@@ -576,7 +576,7 @@ export type RailSize = { width: number; open: boolean; compact: boolean };
 const RAIL_WIDTH = 240;
 export const RAIL_MIN = 180;
 const RAIL_MAX = 420;
-/** Faces only: a 28px face in the row's padding, in the rail's gutter. */
+/** Faces only: a 36px face in the row's padding, in the rail's gutter. */
 /* On macOS the faces column is as wide as the traffic lights over its head. */
 export const RAIL_FACES = platform() === "macos" ? 72 : 52;
 /** Dragged narrower than this, the names give way to faces rather than squeezing. */

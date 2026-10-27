@@ -2776,17 +2776,6 @@
 		border-left: var(--hairline) solid var(--line);
 		box-shadow: none;
 	}
-	/* The edges straddle those hairlines now there is no gutter to sit in. */
-	.rail-edge {
-		margin: 0 -4px;
-	}
-	.dock-edge {
-		inset: 0 auto 0 -4px;
-	}
-	.rail-edge::after,
-	.dock-edge::after {
-		inset: 0 auto 0 3px;
-	}
 	.chrome-lead {
 		position: fixed;
 		top: 0;
@@ -2854,15 +2843,16 @@
 		color: var(--ink);
 	}
 
-	/* The rail's edge is the gutter beside it, taken back out of the row's
-	 * gap by its margins so it adds no width: a hit area the gutter's width,
-	 * with a hairline that shows on hover or while dragging. With the rail
-	 * closed it sits in the window's left gutter, where it can be pulled
-	 * back out. The drag holds its cursor over the whole window. */
+	/* The rail's edge straddles the pane's hairline, taken back out of the
+	 * row by its margins so it adds no width and the rail keeps its 8px
+	 * gutter: a hit area 8px wide, centred on the hairline, which it lights
+	 * on hover or while dragging. With the rail closed it sits on the
+	 * window's left edge, where it can be pulled back out. The drag holds
+	 * its cursor over the whole window. */
 	.rail-edge {
 		position: relative;
 		width: 8px;
-		margin: 0 -8px;
+		margin: 0 -4px;
 		flex-shrink: 0;
 		cursor: col-resize;
 		touch-action: none;
@@ -2872,7 +2862,7 @@
 	.dock-edge::after {
 		content: "";
 		position: absolute;
-		inset: 8px auto 8px 3px;
+		inset: 0 auto 0 3px;
 		width: 2px;
 		border-radius: 1px;
 		background: transparent;
@@ -2901,6 +2891,12 @@
 	.rail-compact .rail-row {
 		justify-content: center;
 		padding: 6px 0;
+	}
+	/* With no names beside them the faces are the roster, so they stand at
+	 * the pinned faces' size: 36px, the new teammate's dashed face with them. */
+	.rail-compact .rail-add-face {
+		width: 36px;
+		height: 36px;
 	}
 	/* Faces only has no margin for the unread dot, so it rides the other shoulder. */
 	.rail-face-unread {
@@ -3334,14 +3330,11 @@
 	}
 	.dock-edge {
 		position: absolute;
-		inset: 0 auto 0 -8px;
+		inset: 0 auto 0 -4px;
 		z-index: 1;
 		width: 8px;
 		cursor: col-resize;
 		touch-action: none;
-	}
-	.dock-edge::after {
-		inset: 8px 3px 8px auto;
 	}
 	/* A page in the pane (a thread) fills it under its own band. */
 	.dock-page {

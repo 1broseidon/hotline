@@ -2898,6 +2898,11 @@
 		width: 36px;
 		height: 36px;
 	}
+	/* On macOS the faces column is wider, beside the traffic lights, and its faces 48px (Rail.tsx). */
+	html[data-platform="macos"] .rail-compact .rail-add-face {
+		width: 48px;
+		height: 48px;
+	}
 	/* Faces only has no margin for the unread dot, so it rides the other shoulder. */
 	.rail-face-unread {
 		position: absolute;

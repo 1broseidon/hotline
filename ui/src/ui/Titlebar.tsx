@@ -112,8 +112,6 @@ export function Titlebar({
 
 /** Where macOS's traffic lights end, with a gap after them (lights.rs seats them 12 in). */
 const LIGHTS_RIGHT = 76;
-/** Where the rail's key stands on macOS, past the lights (index.css `.chrome-lead`). */
-const KEY_LEFT = 80;
 
 /**
  * The room's chrome once the panes run to the window's top: no strip of its
@@ -195,13 +193,9 @@ export function FlushChrome({
 			window.removeEventListener("resize", fit);
 		};
 	}, []);
-	// The rail's key stands past the traffic lights in every state; where that
-	// would put it across the faces-only rail's edge, it stands just past it.
-	const edge = width + 16;
-	const straddles = rail.open && platform() === "macos" && edge > KEY_LEFT - 8 && edge < KEY_LEFT + 34;
 	return (
 		<>
-			<div ref={lead} className="chrome-lead" style={rail.open ? { width, ...(straddles ? { paddingLeft: edge + 8 } : {}) } : undefined}>
+			<div ref={lead} className="chrome-lead" style={rail.open ? { width } : undefined}>
 				{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
 				{rail.key !== false && <button
 					type="button"

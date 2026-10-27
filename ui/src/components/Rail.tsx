@@ -321,7 +321,7 @@ function Row({
 				/>
 			)}
 			<span className="relative flex shrink-0">
-				<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : 36} hash={entry.persona.avatar?.hash} busy={busy} />
+				<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} busy={busy} />
 				{lead && <LeadBadge />}
 				{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
 				{onTip !== undefined && vital.color !== null && (
@@ -488,7 +488,7 @@ function PinTile({
 			}}
 		>
 			<span className="relative flex">
-				<Avatar id={persona.id} name={persona.name} size={compact ? 36 : 52} hash={persona.avatar?.hash} busy={busy} />
+				<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} busy={busy} />
 				{lead && <LeadBadge />}
 				{unread && <span aria-hidden="true" className="rail-face-unread" />}
 				{vital.color !== null && (
@@ -566,9 +566,11 @@ export type RailSize = { width: number; open: boolean; compact: boolean };
 const RAIL_WIDTH = 240;
 export const RAIL_MIN = 180;
 const RAIL_MAX = 420;
-/** Faces only: a 36px face in the row's padding, in the rail's gutter. */
-/* On macOS the faces column is as wide as the traffic lights over its head. */
-export const RAIL_FACES = platform() === "macos" ? 72 : 52;
+/* On macOS the faces column holds the traffic lights and the rail's key
+ * beside them, so it is wider, and its faces grow to fill it. */
+export const RAIL_FACES = platform() === "macos" ? 100 : 52;
+/** Faces only: the face in the row's padding, in the rail's gutter. */
+const FACE = platform() === "macos" ? 48 : 36;
 /** Dragged narrower than this, the names give way to faces rather than squeezing. */
 const RAIL_TO_FACES = 120;
 /** And narrower than this, the faces go too. */

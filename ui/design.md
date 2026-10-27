@@ -186,7 +186,7 @@ divider between things already on different planes.
 The accent is wet leaf, `oklch(76% 0.17 142)`, on a budget under 5% of any
 screen, meaning exactly: an agent at work, the send key, the primary
 action, the card waiting on you. It is never a background or a decoration.
-Your own words are a slate wash, not the accent. Warn and danger exist
+Your own words are mint (`--said-me`), the phone's colour for them, not the accent. Warn and danger exist
 and are text or a soft wash, never a fill. Faces are seven hues at one
 lightness and one chroma, kept below the accent's so the working beat is
 the loudest colour in the rail; red is absent.
@@ -326,6 +326,11 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-10-26 Hill climb against Grok Bot, judged by Codex: a card waiting
+  on you says Needs you in the accent; a goal rests in a well; states read in
+  the instrument face; a pane's title stays at the head of its band (over the
+  column was tried and rejected); what you send rides over your bubble.
 
 - 2026-10-09 A reply to a call carries what was said aloud as a transcript
   line above its bubble (0.36).

@@ -4891,12 +4891,15 @@
 		background: var(--accent);
 		box-shadow: 0 0 0 2px var(--canvas);
 	}
+	/* Who a menu is about: the face and name centred on each other, a line
+	 * under the name when there is one, and a hairline inset as the menu's
+	 * rules are, the face on the items' leading edge. */
 	.menu-card {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 6px 8px 10px;
-		margin-bottom: 4px;
+		margin: 0 6px 4px;
+		padding: 8px 2px 10px;
 		border-bottom: var(--hairline) solid var(--line);
 		text-transform: none;
 		letter-spacing: 0;
@@ -4907,6 +4910,7 @@
 		flex-direction: column;
 	}
 	.menu-card-name {
+		line-height: var(--text-sm--line-height);
 		font-weight: 600;
 		font-size: var(--text-sm);
 		color: var(--ink);

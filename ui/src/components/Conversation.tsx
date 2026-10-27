@@ -375,6 +375,7 @@ const ConversationBand = memo(function ConversationBand({
 	const more: MenuEntry[] = [
 		{
 			kind: "heading",
+			card: true,
 			text: persona.name,
 			...(persona.goal ? { detail: persona.goal } : {}),
 			icon: <Avatar id={persona.id} name={persona.name} size={28} hash={persona.avatar?.hash} />,

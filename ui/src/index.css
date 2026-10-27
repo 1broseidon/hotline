@@ -1609,7 +1609,8 @@
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
 		letter-spacing: 0.04em;
-		color: var(--ink-4);
+		/* It opens the run, so it annotates (ink-3) rather than sits as furniture. */
+		color: var(--ink-3);
 		transition: color var(--dur-press) var(--ease-out), background var(--dur-press) var(--ease-out);
 	}
 	.steps-caption:hover,
@@ -2847,6 +2848,7 @@
 		place-items: center;
 		border-radius: 50%;
 		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+		color: var(--ink-2);
 	}
 	.rail-add:hover {
 		color: var(--ink);

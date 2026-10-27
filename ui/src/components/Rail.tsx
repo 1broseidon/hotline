@@ -221,7 +221,7 @@ export function Rail({
 						<span className="rail-add-face" aria-hidden="true">
 							<PersonPlusIcon />
 						</span>
-						{!compact && <span className="min-w-0 flex-1 truncate text-ink-3">Add teammate</span>}
+						{!compact && <span className="min-w-0 flex-1 truncate text-ink-2">Add teammate</span>}
 					</button>
 				)}
 			</div>

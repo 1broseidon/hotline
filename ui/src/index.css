@@ -2941,25 +2941,47 @@
 		width: 9px;
 		height: 9px;
 	}
+	/* Faces only: a hovered face grows out of its own row to the right, the
+	 * row's fill carried on past the rail over the pane, with the name and
+	 * the latest line beside the face. It stands exactly over the row, the
+	 * face in the same place, and opens from the row's width outwards. */
 	.rail-tip {
+		--row: 64px;
 		position: fixed;
 		z-index: 40;
-		max-width: 260px;
-		padding: 6px 10px;
+		display: flex;
+		max-width: 320px;
+		align-items: center;
+		gap: 12px;
+		padding-right: 16px;
 		border-radius: var(--radius-control);
 		background: var(--pop);
 		box-shadow:
 			var(--top-light),
 			var(--shadow-float);
-		transform: translateY(-50%);
 		pointer-events: none;
-		animation: tip-in var(--dur-open) var(--ease-out) both;
+		animation: tip-grow var(--dur-open) var(--ease-out) both;
 	}
-	/* pop-in, keeping the card centred on its row. */
-	@keyframes tip-in {
+	.rail-tip-face {
+		display: flex;
+		flex-shrink: 0;
+	}
+	/* The face's dots ring in the card's own surface, not the rail's. */
+	.rail-tip .rail-face-vital,
+	.rail-tip .rail-face-unread {
+		box-shadow: 0 0 0 2px var(--pop);
+	}
+	@keyframes tip-grow {
 		from {
-			opacity: 0;
-			transform: translate(-2px, -50%);
+			clip-path: inset(0 calc(100% - var(--row)) 0 0 round var(--radius-control));
+		}
+		to {
+			clip-path: inset(0 0 0 0 round var(--radius-control));
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.rail-tip {
+			animation: none;
 		}
 	}
 	.rail-row {

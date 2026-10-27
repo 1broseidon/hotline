@@ -105,13 +105,14 @@ export function Rail({
 	/* The only teammate on a desk is its lead, and stays it. */
 	const alone = (row: TeamRow) => (onDesk(row) ? entries : (elsewhere[row.deskId] ?? [])).length === 1;
 	const key = (row: TeamRow) => `${row.deskId}/${row.entry.persona.id}`;
-	const showTip = (row: HTMLElement | null, name = "", line = "") => {
+	const showTip: ShowTip = (row, name = "", line = "", face = null) => {
 		if (row === null) {
 			setTip(null);
 			return;
 		}
 		const box = row.getBoundingClientRect();
-		setTip({ name, line, left: box.right + 8, top: box.top + box.height / 2 });
+		const current = row.getAttribute("aria-current") === "true";
+		setTip({ name, line, face, current, left: box.left, top: box.top, width: box.width, height: box.height });
 	};
 	return (
 		<nav
@@ -234,9 +235,17 @@ export function Rail({
 				</p>
 			)}
 			{tip !== null && (
-				<div role="tooltip" className="rail-tip" style={{ left: tip.left, top: tip.top }}>
-					<span className="block truncate font-medium text-ink">{tip.name}</span>
-					{tip.line !== "" && <span className="block truncate text-sm text-ink-3">{tip.line}</span>}
+				<div
+					role="tooltip"
+					className="rail-tip"
+					data-current={tip.current || undefined}
+					style={{ left: tip.left, top: tip.top, height: tip.height, minWidth: tip.width, ["--row" as string]: `${tip.width}px` }}
+				>
+					<span className="rail-tip-face" style={{ paddingLeft: (tip.width - FACE) / 2 }}>{tip.face}</span>
+					<span className="min-w-0">
+						<span className="block truncate font-medium text-ink">{tip.name}</span>
+						{tip.line !== "" && <span className="block truncate text-sm text-ink-3">{tip.line}</span>}
+					</span>
 				</div>
 			)}
 		</nav>
@@ -277,7 +286,7 @@ function Row({
 	alone: boolean;
 	onLead(): void;
 	/** Faces only: the row shows its name and line on a card while hovered or focused. */
-	onTip?: (row: HTMLElement | null, name?: string, line?: string) => void;
+	onTip?: ShowTip;
 }) {
 	const state = shownState(entry.session);
 	const vital = VITAL[state];
@@ -286,6 +295,20 @@ function Row({
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
 	const lead = entry.lead === true;
+	const face = (
+		<span className="relative flex shrink-0">
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} busy={busy} />
+			{lead && <LeadBadge />}
+			{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
+			{onTip !== undefined && vital.color !== null && (
+				<span
+					aria-hidden="true"
+					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					style={{ background: vital.color }}
+				/>
+			)}
+		</span>
+	);
 	return (
 		<button
 			type="button"
@@ -297,8 +320,8 @@ function Row({
 			onClick={onSelect}
 			{...(onTip !== undefined
 				? {
-						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line),
-						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line),
+						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line, face),
+						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line, face),
 						onMouseLeave: () => onTip(null),
 						onBlur: () => onTip(null),
 					}
@@ -320,18 +343,7 @@ function Row({
 					className="absolute left-[1px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent"
 				/>
 			)}
-			<span className="relative flex shrink-0">
-				<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} busy={busy} />
-				{lead && <LeadBadge />}
-				{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
-				{onTip !== undefined && vital.color !== null && (
-					<span
-						aria-hidden="true"
-						className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
-						style={{ background: vital.color }}
-					/>
-				)}
-			</span>
+			{face}
 			{onTip === undefined && (
 			<span className="min-w-0 flex-1">
 				<span className="flex h-[18px] items-center gap-1.5">
@@ -424,7 +436,7 @@ function PinTile({
 	alone: boolean;
 	onLead(): void;
 	onDrag(drag: { id: string; over: number | null } | null): void;
-	onTip(row: HTMLElement | null, name?: string, line?: string): void;
+	onTip: ShowTip;
 }) {
 	const { persona } = entry;
 	const vital = VITAL[entry.session.state];
@@ -432,6 +444,20 @@ function PinTile({
 	const line = lineOf(entry);
 	const named = desk === undefined ? persona.name : `${persona.name} · ${desk}`;
 	const lead = entry.lead === true;
+	const face = (
+		<span className="relative flex">
+			<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} busy={busy} />
+			{lead && <LeadBadge />}
+			{unread && <span aria-hidden="true" className="rail-face-unread" />}
+			{vital.color !== null && (
+				<span
+					aria-hidden="true"
+					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					style={{ background: vital.color }}
+				/>
+			)}
+		</span>
+	);
 	const left = nudged(slot, -1, count);
 	const right = nudged(slot, 1, count);
 	return (
@@ -448,8 +474,8 @@ function PinTile({
 			data-dragging={dragging || undefined}
 			data-over={over || undefined}
 			onClick={onSelect}
-			onMouseEnter={compact ? (event) => onTip(event.currentTarget, named, line) : undefined}
-			onFocus={compact ? (event) => onTip(event.currentTarget, named, line) : undefined}
+			onMouseEnter={compact ? (event) => onTip(event.currentTarget, named, line, face) : undefined}
+			onFocus={compact ? (event) => onTip(event.currentTarget, named, line, face) : undefined}
 			onMouseLeave={compact ? () => onTip(null) : undefined}
 			onBlur={compact ? () => onTip(null) : undefined}
 			onDragStart={(event) => {
@@ -487,18 +513,7 @@ function PinTile({
 				});
 			}}
 		>
-			<span className="relative flex">
-				<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} busy={busy} />
-				{lead && <LeadBadge />}
-				{unread && <span aria-hidden="true" className="rail-face-unread" />}
-				{vital.color !== null && (
-					<span
-						aria-hidden="true"
-						className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
-						style={{ background: vital.color }}
-					/>
-				)}
-			</span>
+			{face}
 			{!compact && (
 				<span className={`rail-pin-name text-sm ${unread ? "font-semibold text-ink" : "font-medium text-ink-2"}`}>{persona.name}</span>
 			)}
@@ -516,7 +531,10 @@ function LeadBadge() {
 }
 
 /** The hover card of a row in the faces-only rail, placed beside the row in the window. */
-type Tip = { name: string; line: string; left: number; top: number };
+/** Shows a faces-only row's card, or with no row puts it away. */
+type ShowTip = (row: HTMLElement | null, name?: string, line?: string, face?: ReactNode) => void;
+/** A hovered face in the faces-only rail, grown out to the right over its own row. */
+type Tip = { name: string; line: string; face: ReactNode; current: boolean; left: number; top: number; width: number; height: number };
 
 /** Off-screen, and the tape has a line newer than the last one this window showed. */
 /** Whether a row shows as unread: the badge on the dock counts these (App.tsx). */

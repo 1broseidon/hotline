@@ -109,12 +109,15 @@ export function ModelPicker({
 	onEffort,
 	onAddAccount,
 	fallbackName,
+	knownName,
 	onOpen,
 }: {
 	/** Each time the menu opens, so lists the desk fills in later can be read again. */
 	onOpen?: (() => void) | undefined;
 	/** What the button says before a harness has named its model: the harness. */
 	fallbackName?: string | undefined;
+	/** The name the strip last knew this model by, for one no list names now. */
+	knownName?: string | undefined;
 	/** Hotline Agent's models, each with its account. */
 	choices: ConfigChoice[];
 	modelId: string;
@@ -178,7 +181,7 @@ export function ModelPicker({
 	const current = currentRow?.choices.find((choice) => choice.id === modelId || plainModel(choice.id) === modelId);
 	// A model on an account that is gone still has its name from another account serving it.
 	const sameModel = choices.find((choice) => plainModel(choice.id) === plainModel(modelId));
-	const modelName = current?.name ?? sameModel?.name ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
+	const modelName = current?.name ?? sameModel?.name ?? knownName ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
 	const effortName = effort?.choices.find((choice) => choice.id === effort.value)?.name ?? null;
 	const rowLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` · ${currentRow.detail}`}`;
 	// An agent that has not named its model yet is already the head's name.

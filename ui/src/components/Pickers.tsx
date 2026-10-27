@@ -1,4 +1,7 @@
+import { useEffect } from "react";
+import { plainModel } from "../accounts";
 import type { ConfigChoice, SessionConfig } from "../generated/contract";
+import { lastKnown, rememberKnown } from "../lastKnown";
 import { refreshRoomRead, useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
@@ -92,12 +95,36 @@ export function SessionPickers({
 		choices: backend.id === persona.backendId && session.models.length > 0 ? session.models : (backend.models ?? []),
 	}));
 
+	// The model's pretty name, from any list the window holds, and the effort
+	// a live session runs at. What a live session names is remembered, so a
+	// resting teammate's strip still says it: never a model id, never a
+	// model without the effort it last ran at.
+	const listed = [...session.models, ...(agents.find((agent) => agent.id === persona.backendId)?.choices ?? []), ...models];
+	const namedHere = listed.find((choice) => choice.id === currentModel || plainModel(choice.id) === plainModel(currentModel))?.name;
+	const liveEffort = session.configs.find((config) => config.category === "effort");
+	const liveEffortName = liveEffort?.options.find((option) => option.id === liveEffort.currentId)?.name ?? null;
+	const live = session.currentModelId !== undefined;
+	useEffect(() => {
+		if (live && currentModel !== "" && namedHere !== undefined) {
+			rememberKnown(personaId, { modelId: currentModel, name: namedHere, effort: liveEffortName });
+		}
+	}, [live, personaId, currentModel, namedHere, liveEffortName]);
+	const known = lastKnown(personaId, currentModel);
+
 	// Model, account, effort and agent in one pull-down: Hotline Agent's
 	// accounts, then the other agents. A Hotline Agent teammate with no
 	// account left still has it, so it can move to an installed agent or add
 	// an account; only before the agents have been read is there nothing.
 	if (backends !== undefined || (hotline && modelChoices.length > 0)) {
 		const effort = configs.find((config) => config.category === "effort");
+		// A resting harness offers no effort to change: the strip names the
+		// one it last ran at, a single level, so no slider stands for it.
+		const shownEffort =
+			effort !== undefined
+				? { value: effort.currentId ?? "", choices: effort.options }
+				: known?.effort != null
+					? { value: known.effort, choices: [{ id: known.effort, name: known.effort }] }
+					: null;
 		const others = configs.filter((config) => config.category !== "effort");
 		return (
 			<>
@@ -109,7 +136,8 @@ export function SessionPickers({
 					onAgent={setBackend}
 					onOpen={() => refreshRoomRead("backends.list")}
 					{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
-					effort={effort === undefined ? null : { value: effort.currentId ?? "", choices: effort.options }}
+					{...(known !== null ? { knownName: known.name } : {})}
+					effort={shownEffort}
 					label={session.modelLabel ?? "Model"}
 					onModel={setModel}
 					onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
@@ -150,7 +178,8 @@ export function SessionPickers({
 						className="control max-w-[220px] truncate px-2 font-medium text-ink-2"
 						title={currentModel !== "" ? "The model of the last session; the list comes once it starts" : "Starts on its own model"}
 					>
-						{restingModel}
+						{known?.name ?? restingModel}
+						{known?.effort != null && <span className="text-ink-3"> · {known.effort}</span>}
 					</span>
 				)
 			)}

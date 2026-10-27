@@ -20,7 +20,7 @@ export function CredentialAsk({ event, teammate }: { event: Ask; teammate: strin
 		<div className="card mt-3">
 			<p className="eyebrow mb-1">{event.credentialKind === "passkey" ? "Asked for a passkey" : "Asked to sign in"}</p>
 			<p className="selectable font-mono text-md">{event.site.replace(/^https?:\/\//, "").replace(/\/$/, "")}</p>
-			<p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink-3">
+			<p className="instrument mt-1.5 flex items-center gap-1.5">
 				{status === "stored" && <CheckIcon className="text-ink-4" />}
 				{status === "stored" ? `Stored as ${event.storedAs ?? event.name}` : status === "expired" ? "Expired unanswered" : status.charAt(0).toUpperCase() + status.slice(1)}
 				{` · ${teammate}`}

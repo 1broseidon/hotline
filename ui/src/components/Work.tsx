@@ -207,7 +207,8 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 	return (
 		<Band>
 			<div className="min-w-0 flex-1 pl-1">
-				<h2 className="flex items-center gap-2 truncate text-lg font-semibold">
+				{/* The heading is the run's state, so it reads in the instrument face, as states do. */}
+				<h2 className="flex items-center gap-2 truncate font-mono text-sm font-medium text-ink">
 					{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 					<span className="truncate">{heading}</span>
 				</h2>

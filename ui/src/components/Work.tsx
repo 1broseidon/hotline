@@ -6,8 +6,9 @@ import { ArrowDownIcon, CloseIcon, SidebarIcon } from "../icons";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
-import { runEnding, StepRows, stepRuns, stepsSummary } from "./Transcript";
+import { runEnding, stepRuns, stepsSummary } from "./Transcript";
 import { glance } from "../glance";
+import { Trail } from "./transcript/Trail";
 import type { Step } from "../scheduledRuns";
 
 /**
@@ -218,7 +219,7 @@ export function WorkPage({
 		<section className="work-page" aria-label={`${name}'s work`}>
 			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? stepsSummary(run.items) : undefined} actions={null} onClose={onClose} />
 			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={stepId === undefined}>
-				{run === undefined ? empty : <StepRows key={stepId ?? ""} items={run.items} settled={!running} openId={stepId} />}
+				{run === undefined ? empty : <Trail key={stepId ?? ""} items={run.items} settled={!running} openId={stepId} />}
 			</FollowWindow>
 		</section>
 	);

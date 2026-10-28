@@ -184,7 +184,7 @@ function Tool({
 }
 
 /** A tool's output, cleaned once per output rather than on every streamed word. */
-const StepOutput = memo(function StepOutput({ output }: { output: ToolOutput[] }) {
+export const StepOutput = memo(function StepOutput({ output }: { output: ToolOutput[] }) {
 	const parts = useMemo(
 		() => output.map((one) => ({ edit: one.type === "diff", text: outputText(one) })).filter((part) => part.text !== ""),
 		[output],

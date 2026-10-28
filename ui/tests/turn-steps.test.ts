@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TranscriptEvent } from "../src/generated/contract";
-import { toBlocks, withStreaming } from "../src/transcriptFolds";
+import { stepRuns, toBlocks, withStreaming } from "../src/transcriptFolds";
 
 const user = (id: string, ts: number): TranscriptEvent => ({ kind: "user", id, ts, text: "plan the release" });
 const agent = (id: string, ts: number): TranscriptEvent => ({ kind: "agent", id, ts, text: `said ${id}` });
@@ -36,5 +36,12 @@ describe("a turn's steps", () => {
 	test("a call's transcript keeps each run of steps where it fell", () => {
 		const blocks = toBlocks([user("u", 1), tool("s1", 2), agent("a1", 3), tool("s2", 4), agent("a2", 5), turn("end", 6)], true);
 		expect(shape(blocks)).toEqual(["u", "steps(s1)", "a1", "steps(s2)", "a2", "end"]);
+	});
+
+	test("a run says whether its turn is still open, so a turn just begun is never taken for more of the last", () => {
+		const ended = stepRuns([user("u1", 1), tool("s1", 2), agent("a1", 3), turn("end", 4), user("u2", 5)], []);
+		expect(ended.map((run) => [run.id, run.open === true])).toEqual([["s1", false]]);
+		const begun = stepRuns([user("u1", 1), tool("s1", 2), agent("a1", 3), turn("end", 4), user("u2", 5)], [{ messageId: "t2", kind: "thought", ts: 6, text: "thinking" }]);
+		expect(begun.map((run) => [run.id, run.open === true])).toEqual([["s1", false], ["t2", true]]);
 	});
 });

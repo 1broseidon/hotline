@@ -140,10 +140,13 @@ export function withStreaming(written: Block[], streaming: Streaming[]): Block[]
 
 /**
  * The turns' steps in a tape, in order, each under the id its caption opens
- * it by. What is streaming joins the running turn's, as it does on screen.
+ * it by, `open` while its turn has not ended. What is streaming joins the
+ * running turn's, as it does on screen.
  */
-export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[] }[] {
-	return withStreaming(toBlocks(events), streaming).flatMap((block) => (block.kind === "steps" ? [{ id: block.id, items: block.items }] : []));
+export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[]; open?: boolean }[] {
+	return withStreaming(toBlocks(events), streaming).flatMap((block) =>
+		block.kind === "steps" ? [{ id: block.id, items: block.items, ...(block.open === true ? { open: true } : {}) }] : [],
+	);
 }
 
 /**

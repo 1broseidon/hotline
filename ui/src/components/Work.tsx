@@ -101,6 +101,9 @@ export function ProcessWork({
 	);
 }
 
+/** The turn just begun, as a place to step to before it has a run of its own. */
+const NOW = { id: "" };
+
 /** Slack under the newest step that still counts as following it. */
 const FOLLOW_SLACK = 48;
 
@@ -109,8 +112,11 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const { events, streaming } = useThread(dmOf(personaId));
 	const runs = useMemo(() => stepRuns(events, streaming), [events, streaming]);
 	const latest = runs[runs.length - 1];
-	const run = blockId === null ? latest : runs.find((one) => one.id === blockId);
-	const running = live && run !== undefined && run === latest;
+	// A turn that has just begun has no steps yet: the latest run is the last
+	// turn's, ended, and the new turn is shown as starting, never as more of it.
+	const begun = live && latest !== undefined && latest.open !== true;
+	const run = blockId === null ? (begun ? undefined : latest) : runs.find((one) => one.id === blockId);
+	const running = live && run !== undefined && run.open === true;
 	const waiting = blockId === null && live && run === undefined;
 	const state = running || waiting ? "Working" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
 	const items = run?.items;
@@ -152,16 +158,18 @@ export function WorkPage({
 		settledOpen.current = true;
 		if (held !== null && held === latest.id) setHeld(null);
 	}, [held, latest]);
-	const at = run === undefined ? -1 : runs.indexOf(run);
+	// The turn just begun, with no steps yet, is the newest of all and has no run.
+	const fresh = held === null && run === undefined;
+	const at = run === undefined ? (fresh ? runs.length : -1) : runs.indexOf(run);
 	const earlier = at > 0 ? runs[at - 1] : undefined;
-	const later = at >= 0 && at < runs.length - 1 ? runs[at + 1] : undefined;
+	const later = at >= 0 && at < runs.length - 1 ? runs[at + 1] : at === runs.length - 1 && live && run?.open !== true ? NOW : undefined;
 	const step = (to: { id: string } | undefined) => {
-		if (to !== undefined) setHeld(to === latest ? null : to.id);
+		if (to !== undefined) setHeld(to === latest || to === NOW ? null : to.id);
 	};
 	// Only the turn it opened at opens a line on arrival.
 	const openId = held === blockId ? stepId : undefined;
 	const hot = useHot();
-	const actions = runs.length > 1 && (
+	const actions = (runs.length > 1 || (fresh && runs.length > 0)) && (
 		<>
 			{held !== null && later !== undefined && (
 				<button type="button" className="work-latest" onClick={() => setHeld(null)}>

@@ -210,7 +210,8 @@ mod apple {
     }
 
     /// Events are emitted on the main thread with no context of their own,
-    /// so the app they go to is kept here, from the first start.
+    /// so the app they go to is kept here, from the first start. Every window
+    /// hears them; each listens only for its own session's.
     static APP: OnceLock<AppHandle> = OnceLock::new();
 
     extern "C" fn heard(json: *const c_char) {
@@ -219,7 +220,7 @@ mod apple {
         match serde_json::from_slice::<Event>(json) {
             Ok(event) => {
                 if let Some(app) = APP.get() {
-                    let _ = app.emit_to("main", EVENT, event);
+                    let _ = app.emit(EVENT, event);
                 }
             }
             Err(error) => eprintln!("[speech] unreadable event: {error}"),

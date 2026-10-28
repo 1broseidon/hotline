@@ -34,6 +34,7 @@ import { useSaved } from "./useSaved";
 import { openOnDesk, useNavigation } from "./useNavigation";
 import { useSeen } from "./useSeen";
 import { useWindowHotkeys } from "./useWindowHotkeys";
+import { chatWindow } from "./chatWindow";
 
 
 /* Settings is opened now and then, not at launch: it loads on first open,
@@ -52,8 +53,9 @@ export function DeskRoot() {
 	const desk = useActiveDesk();
 	const desks = useDesks();
 	// Every desk not on screen is watched for toasts and unread (deskWatch.ts).
+	// A chat in a window of its own leaves that to the main window.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: syncWatches reads desks.ts itself; these are what change it.
-	useEffect(syncWatches, [desk?.id, desks]);
+	useEffect(() => (chatWindow === null ? syncWatches() : undefined), [desk?.id, desks]);
 	// Keyed by the endpoint too: a desk paired again has a new bridge, and its
 	// old connection (and everything subscribed on it) is gone.
 	return <App key={desk === null ? "none" : `${desk.id} ${desk.origin} ${desk.token}`} />;
@@ -201,8 +203,9 @@ export function App() {
 
 	const seen = useSeen(selectedId, selected?.latest);
 
+	// Toasts are the main window's: a chat beside it would post each one twice.
 	useEffect(() => {
-		noticeRoster(roster, { id: activeDeskId() ?? "" });
+		if (chatWindow === null) noticeRoster(roster, { id: activeDeskId() ?? "" });
 	}, [roster]);
 
 	// The dock's badge is the rail's unread count: the rows in bold, counted,
@@ -213,7 +216,7 @@ export function App() {
 		[roster, selectedId, seen, unreadElsewhere],
 	);
 	useEffect(() => {
-		void setBadge(badge);
+		if (chatWindow === null) void setBadge(badge);
 	}, [badge]);
 
 	// In native fullscreen the traffic lights leave with the menu bar, and
@@ -248,7 +251,7 @@ export function App() {
 	// One from a desk not on screen opens that desk on that teammate.
 	useEffect(
 		() =>
-			listenToastClicks((payload) => {
+			chatWindow !== null ? undefined : listenToastClicks((payload) => {
 				const { deskId, personaId } = toastTarget(payload);
 				select(personaId, deskId ?? undefined);
 			}),
@@ -437,7 +440,7 @@ export function App() {
 	const railWidth = pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width;
 	/* Settings' sections are the only way round settings, so they stay out
 	 * whatever the team's rail was left at, and have no key to hide them. */
-	const railShown = railSize.open || pane === "settings";
+	const railShown = (railSize.open && chatWindow === null) || pane === "settings";
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
 	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
@@ -518,7 +521,7 @@ export function App() {
 				<Titlebar bare />
 			) : (
 				<FlushChrome
-					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" }}
+					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" && chatWindow === null }}
 					width={railWidth}
 					search={teamSearch("below")}
 				/>
@@ -579,7 +582,7 @@ export function App() {
 			/>
 			)}
 			</div>
-			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
+			{!narrow && railShown && <RailEdge size={railSize} onSize={setRailSize} />}
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
@@ -695,10 +698,10 @@ export function App() {
 						}
 					>
 						{/* Settings › Updates says it already, with the notes and the install. */}
-						<UpdateFloat onOpen={() => {
+						{chatWindow === null && <UpdateFloat onOpen={() => {
 							setSettingsSection("updates");
 							setPane("settings");
-						}} />
+						}} />}
 					</div>
 				)}
 				</div>

@@ -778,7 +778,12 @@ fn many_of(kind: &str, title: &str) -> &'static str {
 }
 
 fn is_shell(title: &str) -> bool {
-    let first = title.split_whitespace().next().unwrap_or_default();
+    // Some harnesses title a shell call "bash: grep -n …".
+    let first = title
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(':');
     matches!(
         first.rsplit('/').next().unwrap_or_default(),
         "sh" | "bash" | "zsh" | "shell"
@@ -929,6 +934,17 @@ mod tests {
 
     fn one(title: &str, kind: &str) -> String {
         step_said(title, kind, None).one
+    }
+
+    #[test]
+    fn a_command_titled_with_its_shell_and_a_colon_is_named_by_its_program() {
+        let said = step_said(
+            "bash: grep -n \"Median time\" page.txt | head",
+            "execute",
+            None,
+        );
+        assert_eq!(said.one, "Ran grep");
+        assert_eq!(said.doing, "Running grep");
     }
 
     #[test]

@@ -173,6 +173,14 @@ export const CheckIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/** A page the agent opened and read, as against one a search only found. */
+export const EyeIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M1.75 8s2.25-4.25 6.25-4.25S14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8z" />
+		<circle cx="8" cy="8" r="1.9" />
+	</Icon>
+);
+
 export const ComputerIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<rect x="2.25" y="2.75" width="11.5" height="8" rx="1.25" />

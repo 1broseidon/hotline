@@ -130,13 +130,19 @@ function linesText(added: number, removed: number): string {
 	return `+${added} −${removed}`;
 }
 
-/** "0.4s", "6.2s", "42s", "1m 04s". */
-function durationText(ms: number): string {
-	const seconds = Math.max(0, ms) / 1000;
+/** "31ms", "0.4s", "6.2s", "42s", "1m 04s". */
+export function durationText(ms: number): string {
+	if (ms < 100) return `${Math.max(0, Math.round(ms))}ms`;
+	const seconds = ms / 1000;
 	if (seconds < 10) return `${seconds.toFixed(1)}s`;
 	if (seconds < 60) return `${Math.round(seconds)}s`;
 	const whole = Math.round(seconds);
 	return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
+}
+
+/** How long one step took; null for a step still running or written before the desk kept its end. */
+export function stepTook(step: ToolStep): string | null {
+	return step.endedTs === undefined ? null : durationText(step.endedTs - step.ts);
 }
 
 /** How long a turn's work took, from its first step to its last step's end; null when its steps carry no ends. */

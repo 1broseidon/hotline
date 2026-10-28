@@ -133,15 +133,19 @@ describe("the pane's sections, built from a recorded turn", () => {
 		expect(files).toEqual(["src/upload/Uploader.tsx+18 −4", "src/upload/safari.ts+31 −0"]);
 	});
 
-	test("a failed line opens to its command and its error", async () => {
+	test("a failed line opens to its command on a line and its error in full", async () => {
 		const { Trail } = await import("../src/components/transcript/Trail");
 		await act(async () => root.render(<Trail items={recorded()} settled />));
 		const failed = container.querySelector<HTMLButtonElement>('.trail-step[data-status="failed"] .trail-head')!;
 		expect(failed.querySelector(".trail-fact")?.textContent).toBe("timeout");
 		await act(async () => failed.click());
 		const labels = [...container.querySelectorAll('.trail-step[data-status="failed"] .trail-label')].map((one) => one.textContent);
-		expect(labels).toEqual(["Command", "Error"]);
-		expect(container.querySelector('.trail-step[data-status="failed"] .step-out')?.textContent).toContain("timeout expired");
+		expect(labels).toEqual(["Error"]);
+		expect(container.querySelector('.trail-step[data-status="failed"] .trail-cmd')?.textContent).toBe("psql -c 'select 1'");
+		// An error is shown whole, never folded away.
+		const error = container.querySelector('.trail-step[data-status="failed"] .trail-out')!;
+		expect(error.textContent).toContain("timeout expired");
+		expect(error.hasAttribute("data-clipped")).toBe(false);
 	});
 
 	test("from a 0.44 desk: no titles, no line counts, no empty sections", async () => {

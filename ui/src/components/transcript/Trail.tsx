@@ -52,16 +52,7 @@ export function Trail({
 	const steps = lines.reduce((n, line) => n + line.steps.length, 0);
 	return (
 		<div className="work-sections">
-			{sources.length > 0 && (
-				<section aria-label="Sources">
-					<h3 className="work-heading">Sources · {sources.length}</h3>
-					<div className="source-grid">
-						{sources.map((source) => (
-							<SourceCard key={source.url} source={source} />
-						))}
-					</div>
-				</section>
-			)}
+			{sources.length > 0 && <Sources sources={sources} />}
 			{files.length > 0 && (
 				<section aria-label="Files changed">
 					<h3 className="work-heading">Files changed · {files.length}</h3>
@@ -86,6 +77,46 @@ export function Trail({
 	);
 }
 
+/** How many sources show before the rest are asked for: a turn most often reads a few. */
+const SOURCES_SHOWN = 4;
+
+/** The pages the turn read, then those it only found: the first few as cards, the rest a press away. */
+function Sources({ sources }: { sources: Source[] }) {
+	const [all, setAll] = useState(false);
+	const more = sources.length - SOURCES_SHOWN;
+	return (
+		<section aria-label="Sources">
+			<h3 className="work-heading">Sources · {sources.length}</h3>
+			<div className="source-grid">
+				{(all ? sources : sources.slice(0, SOURCES_SHOWN)).map((source) => (
+					<SourceCard key={source.url} source={source} />
+				))}
+			</div>
+			{more > 0 && (
+				<button type="button" className="source-more" aria-expanded={all} onClick={() => setAll((was) => !was)}>
+					{all ? "Show fewer" : `Show ${more} more`}
+				</button>
+			)}
+		</section>
+	);
+}
+
+/**
+ * A page's title as words: a search result's title can arrive as the page's
+ * markdown, a logo's image and link and all, which reads as noise on a card.
+ */
+export function plainTitle(title: string | undefined): string | undefined {
+	if (title === undefined) return undefined;
+	const words = title
+		// A link's address may be cut off with the title: to its end, then.
+		.replace(/!\[[^\]]*\](\([^)]*\)?)?/g, "")
+		.replace(/\[([^\]]*)\]\([^)]*\)?/g, "$1")
+		.replace(/[[\]]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	return words === "" ? undefined : words;
+}
+
 /** "/blog/next-15-4" for a page with no title of its own: where on the site it is. */
 function pathOf(url: string): string {
 	try {
@@ -99,7 +130,8 @@ function pathOf(url: string): string {
 
 /** A page the turn read or found: its site's icon and name, and its title, a press away from the page. */
 function SourceCard({ source }: { source: Source }) {
-	const titled = source.title !== undefined;
+	const title = plainTitle(source.title);
+	const titled = title !== undefined;
 	return (
 		<a
 			href={source.url}
@@ -114,7 +146,7 @@ function SourceCard({ source }: { source: Source }) {
 				<Favicon site={source.site} size={16} />
 				<span className="truncate">{source.site}</span>
 			</span>
-			<span className={titled ? "source-title" : "source-title source-path"}>{titled ? source.title : pathOf(source.url)}</span>
+			<span className={titled ? "source-title" : "source-title source-path"}>{titled ? title : pathOf(source.url)}</span>
 		</a>
 	);
 }

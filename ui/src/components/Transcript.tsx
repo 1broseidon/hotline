@@ -5,7 +5,8 @@ import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, 
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
-import { type Activity, activityOf } from "../activity";
+import { RESTING, type WorkMark, activityOf } from "../activity";
+import { pageOf, sitesRead, toolSteps } from "../turnFacts";
 import { glance } from "../glance";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
@@ -29,7 +30,7 @@ import {
 	toBlocks,
 	withStreaming,
 } from "../transcriptFolds";
-import { useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
+import { useCadence, useDone, useLanding, useScrollToEvent, useSleep, useSteady } from "./transcript/hooks";
 import { CallTools, Steps } from "./transcript/Steps";
 import { AgentSay, NamedSay, UserBubble, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
 import { CredentialAsk } from "./transcript/CredentialAsk";
@@ -48,7 +49,6 @@ export {
 	retryForNotice,
 	runEnding,
 	stepRuns,
-	stepsSummary,
 	superseded,
 	turnCauseLine,
 } from "../transcriptFolds";
@@ -169,7 +169,7 @@ export function Transcript({
 	 * row): the activity and whether it is going to sleep, or null. Given, the
 	 * transcript draws no card of its own.
 	 */
-	onMark?: ((mark: { activity: Activity; sleeping: boolean } | null) => void) | undefined;
+	onMark?: ((mark: WorkMark | null) => void) | undefined;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -343,19 +343,25 @@ export function Transcript({
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
+	const latestRun = useMemo(() => stepRuns(events, streaming).at(-1), [events, streaming]);
 	const currentActivity = useMemo(() => {
 		if (!live && !queued) return null;
 		const now = activityOf(events, streaming, queued);
 		// At work with its tools, the card says what in a few words ("Running cargo test"), as the peek's last line does.
-		if (!["read", "search", "edit", "execute", "doing"].includes(now.phase)) return now;
-		const run = stepRuns(events, streaming).at(-1);
-		const said = run === undefined ? undefined : glance(run.items, true).at(-1)?.text;
-		return said === undefined ? now : { ...now, word: said };
-	}, [live, queued, events, streaming]);
+		if (!["read", "search", "edit", "execute", "doing"].includes(now.phase) || latestRun === undefined) return now;
+		const line = glance(latestRun.items, true).at(-1);
+		if (line === undefined) return now;
+		// Reading the web: the sites of the pages read so far stand beside the words.
+		const newest = line.steps.at(-1);
+		const reading = newest !== undefined && pageOf(newest) !== null;
+		return { ...now, word: line.text, ...(reading ? { sites: sitesRead(latestRun.items) } : {}) };
+	}, [live, queued, events, streaming, latestRun]);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
+	const steps = latestRun === undefined ? 0 : toolSteps(latestRun.items).length;
+	const done = useDone(personaId, activity, latestRun?.items);
 	useEffect(() => {
-		onMark?.(activity === null ? null : { activity, sleeping });
-	}, [onMark, activity, sleeping]);
+		onMark?.(activity !== null ? { activity, sleeping, count: steps } : done !== null ? { activity: RESTING, sleeping: false, done } : null);
+	}, [onMark, activity, sleeping, steps, done]);
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.

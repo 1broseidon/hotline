@@ -14,6 +14,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   fetch's page and its title when the tool gave one, a web search's results)
   and, for each file it changed, the lines added and removed.
 
+### Changed
+
+- A teammate's work reads in plain words and counts. While it works the
+  composer's row says what it is doing and how many steps so far, with the
+  icons of the sites it has read while it reads the web; when the turn ends
+  the row says what it came to ("12 steps · 4 sources · 3 files · 1 failed")
+  for a few seconds. The line above a reply carries the sites' icons, the
+  steps, the files and any failure. The work pane shows Sources as cards,
+  Files changed with the lines in and out, then Steps as plain lines with one
+  fact at the right ("4 results", "212 passed", "+55 −6", "6.2s",
+  "timeout"); a line opens to its Command and Output or Error. Thinking is no
+  longer a line of its own: it is read with the step it led to.
+
 ## [0.44.1] - 2026-10-28
 
 ### Changed

@@ -1,3 +1,4 @@
+import type { TurnSummary } from "./turnFacts";
 import type { SessionInfo, SessionState, TranscriptEvent } from "./generated/contract";
 import type { Streaming } from "./tape";
 
@@ -40,6 +41,20 @@ export type Activity = {
 	phase: ActivityPhase;
 	/** One word beside the mark. Never a path or a command. */
 	word: string;
+	/** While it reads the web: the sites of the pages read so far, as icons beside the words. */
+	sites?: string[];
+};
+
+/**
+ * The composer's bottom row while a teammate works, and for a moment after:
+ * the mark and its words, how many steps so far, and once the turn is over
+ * its counts.
+ */
+export type WorkMark = {
+	activity: Activity;
+	sleeping: boolean;
+	count?: number;
+	done?: TurnSummary;
 };
 
 /**

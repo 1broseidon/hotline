@@ -1774,117 +1774,191 @@
 	.step-edit-same {
 		color: var(--ink-3);
 	}
-	/* The pane's trail (Trail.tsx): one line down the left joining the steps'
-	 * dots, each step a plain heading over a quiet line of what ran, its time
-	 * at the right; opened, what ran and what came back as labelled blocks. */
-	.trail {
-		position: relative;
+	/* The pane's work (Trail.tsx): Sources as cards, Files changed with the
+	 * lines in and out, then Steps as plain lines with a fact at the right;
+	 * a line opens to what ran and what came back, as labelled blocks. */
+	.work-sections {
+		display: flex;
+		flex-direction: column;
+		gap: 18px;
+		padding: 8px 4px 8px;
+	}
+	.work-heading {
+		margin: 0 0 8px 6px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-3);
+	}
+	.source-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 8px;
+	}
+	.source-card {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		gap: 6px;
+		padding: 10px 12px 11px;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.source-card:hover {
+		background: var(--pop);
+	}
+	.source-site {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 7px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.source-title {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+	.source-path {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+	}
+	.file-list {
 		margin: 0;
-		padding: 4px 0 8px;
+		padding: 0;
 		list-style: none;
 	}
-	.trail-step {
-		position: relative;
+	.file-row {
+		display: flex;
+		min-height: 26px;
+		align-items: center;
+		gap: 12px;
+		padding: 2px 6px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
 	}
-	/* The line joining each dot to the next. */
-	.trail-step:not(:last-child)::before {
-		content: "";
-		position: absolute;
-		top: 22px;
-		bottom: -6px;
-		left: 15px;
-		width: 1.5px;
-		background: var(--line);
+	.file-path {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.file-folder {
+		color: var(--ink-3);
+	}
+	.file-name {
+		color: var(--ink);
+	}
+	.file-lines {
+		flex-shrink: 0;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	.file-added {
+		color: var(--accent-ink);
+	}
+	.file-removed {
+		color: var(--danger);
+	}
+	.trail {
+		margin: 0;
+		padding: 0;
+		list-style: none;
 	}
 	.trail-head {
-		position: relative;
 		display: flex;
 		width: 100%;
-		align-items: flex-start;
-		gap: 12px;
-		padding: 8px 10px 8px 11px;
+		min-height: 30px;
+		align-items: center;
+		gap: 10px;
+		padding: 4px 6px;
 		border-radius: var(--radius-control);
 		text-align: left;
 	}
-	.trail-head:hover:not(:disabled) {
-		background: var(--fill-hover);
-	}
+	.trail-head:hover:not(:disabled),
 	.trail-head[aria-expanded="true"] {
 		background: var(--fill-hover);
 	}
 	.trail-dot {
-		position: relative;
-		z-index: 1;
 		flex-shrink: 0;
-		width: 10px;
-		height: 10px;
-		margin-top: 5px;
+		width: 6px;
+		height: 6px;
 		border-radius: 50%;
 		background: var(--ink-4);
-		box-shadow: 0 0 0 3px var(--canvas);
 	}
-	.trail-step[data-status="in_progress"] .trail-dot,
-	.trail-step[data-status="pending"] .trail-dot {
+	.trail-step[data-status="in_progress"] .trail-dot {
 		background: var(--accent);
 	}
 	.trail-step[data-status="failed"] .trail-dot {
 		background: var(--danger);
 	}
-	.trail-step[data-thought] .trail-dot {
-		background: transparent;
-		box-shadow:
-			inset 0 0 0 1.5px var(--ink-4),
-			0 0 0 3px var(--canvas);
-	}
-	.trail-words {
-		display: flex;
+	.trail-said {
 		min-width: 0;
 		flex: 1;
-		flex-direction: column;
-		gap: 2px;
-	}
-	.trail-said {
-		font-size: 14.5px;
-		line-height: 1.35;
-		font-weight: 500;
-		color: var(--ink);
-	}
-	.trail-step[data-thought] .trail-said {
-		color: var(--ink-2);
-		font-weight: 400;
-	}
-	.trail-ran {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-3);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
 	}
-	.trail-when {
+	.trail-step[data-status="in_progress"] .trail-said,
+	.trail-step[data-status="failed"] .trail-said {
+		color: var(--ink);
+	}
+	/* The one fact beside a line: a count, a time, the lines in and out. */
+	.trail-fact,
+	.step-fact {
 		flex-shrink: 0;
-		margin-top: 2px;
+		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-3);
 	}
-	.trail-step[data-status="failed"] .trail-when {
-		color: var(--danger);
+	.trail-fact[data-tone="live"],
+	.step-fact[data-tone="live"] {
+		color: var(--accent-ink);
 	}
-	.trail-step[data-status="in_progress"] .trail-when {
-		color: var(--accent);
+	.trail-fact[data-tone="danger"],
+	.step-fact[data-tone="danger"] {
+		color: var(--danger);
 	}
 	.trail-chevron {
 		flex-shrink: 0;
-		margin-top: 3px;
 		color: var(--ink-3);
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
 	}
-	/* Opened: the command and its output, each in its own labelled block. */
+	.trail-head:hover .trail-chevron,
+	.trail-head:focus-visible .trail-chevron,
+	.trail-head[aria-expanded="true"] .trail-chevron {
+		opacity: 1;
+	}
+	/* Opened: the thinking before it, then each step's command and output. */
 	.trail-detail {
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
-		margin: 2px 10px 10px 33px;
+		margin: 4px 6px 12px 22px;
+	}
+	.trail-run {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
 	}
 	.trail-label {
 		margin: 0 0 6px;
@@ -2227,6 +2301,58 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.composer-work-count,
+	.composer-work-failed {
+		margin-left: auto;
+		flex-shrink: 0;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	.composer-work-count {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+	}
+	.composer-work-failed {
+		color: var(--danger);
+	}
+	.composer-work-count ~ .composer-work-chevron,
+	.composer-work-failed ~ .composer-work-chevron {
+		margin-left: 2px;
+	}
+	/* A site's icon, and a few of them overlapping: the pages read. */
+	/* A site's icon sits on a light tile, as browsers show them, so a dark
+	 * mark (GitHub's, Next.js's) reads on the dark theme. */
+	.favicon {
+		display: inline-flex;
+		flex-shrink: 0;
+		box-sizing: border-box;
+		align-items: center;
+		justify-content: center;
+		padding: 1.5px;
+		border-radius: 4px;
+		background: oklch(97% 0.004 250);
+		object-fit: contain;
+	}
+	.favicon-letter {
+		font-weight: 600;
+		line-height: 1;
+		color: var(--ink-2);
+		background: var(--pressed);
+	}
+	.favicons {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+	}
+	.favicons > .favicon {
+		box-shadow: 0 0 0 1.5px var(--canvas);
+	}
+	.composer .favicons > .favicon {
+		box-shadow: 0 0 0 1.5px var(--pop);
+	}
+	.favicons > .favicon + .favicon {
+		margin-left: -4px;
 	}
 	.composer-work-chevron {
 		margin-left: auto;
@@ -3811,10 +3937,15 @@
 		-webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
 		mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
 	}
+	/* A line says what was done in words, so it reads in the sans, as the
+	 * pane's lines do; its fact at the right is the measured part. */
 	.work-docked .work-window .step-title {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		letter-spacing: 0;
 	}
 	/* The pane's page (Dock.tsx): the turn flush and full height, with room
 	 * for every step to open; no well inside it, the pane is the surface. */

@@ -35,13 +35,13 @@ describe("the peek", () => {
 		const picked: (string | null)[] = [];
 		await act(async () => root.render(<GlanceRows items={steps} running={false} onPick={(id) => picked.push(id)} />));
 		const rows = [...container.querySelectorAll<HTMLButtonElement>("button.step")];
-		expect(rows.map((row) => row.textContent)).toEqual(["Thought it through", "Search mail since Monday", "Read 9 threads"]);
+		expect(rows.map((row) => row.textContent)).toEqual(["Search mail since Monday", "Read 9 threads"]);
 		// No chevron to aim for, and no row claims to open or close.
 		expect(container.querySelector("button.step svg")).toBeNull();
 		expect(rows.every((row) => !row.hasAttribute("aria-expanded"))).toBe(true);
 		await act(async () => {
+			rows[0]!.click();
 			rows[1]!.click();
-			rows[2]!.click();
 		});
 		expect(picked).toEqual(["s1", "s2"]);
 		expect(container.querySelector(".step-out")).toBeNull();

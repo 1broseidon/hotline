@@ -33,8 +33,21 @@ describe("a turn at a glance", () => {
 
 	test("while the turn runs its last line says what is happening now, in the newest step's words", () => {
 		const lines = glance([thought("hmm"), tool("read a.ts", read("a.ts")), tool("git log", ran("git log")), tool("cargo test", ran("cargo test"))], true);
-		expect(lines.map((line) => line.text)).toEqual(["Thought it through", "Read a.ts", "Running cargo test"]);
-		expect(lines.map((line) => line.live)).toEqual([false, false, true]);
+		expect(lines.map((line) => line.text)).toEqual(["Read a.ts", "Running cargo test"]);
+		expect(lines.map((line) => line.live)).toEqual([false, true]);
+	});
+
+	test("a thought is not a line: it rides with the line after it, and is one only while the turn is thinking now", () => {
+		const steps = [thought("Look at the files first."), tool("read a.ts", read("a.ts")), thought("Now b."), tool("read b.ts", read("b.ts")), thought("Then run it.")];
+		const done = glance(steps, false);
+		expect(done.map((line) => line.text)).toEqual(["Read 2 files"]);
+		expect(done[0]!.thoughts).toEqual(["Look at the files first.", "Now b.", "Then run it."]);
+		expect(done[0]!.steps.map((step) => step.id)).toEqual([steps[1]!.id, steps[3]!.id]);
+		const thinking = glance(steps, true);
+		expect(thinking.map((line) => [line.text, line.live])).toEqual([
+			["Read 2 files", false],
+			["Thinking", true],
+		]);
 	});
 
 	test("a step written before the core said it shows a few words of its title", () => {

@@ -6,7 +6,8 @@ import { ArrowDownIcon, CloseIcon, SidebarIcon } from "../icons";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
-import { runEnding, stepRuns, stepsSummary } from "./Transcript";
+import { runEnding, stepRuns } from "./Transcript";
+import { factOf, workDetail } from "../turnFacts";
 import { glance } from "../glance";
 import { Trail } from "./transcript/Trail";
 import type { Step } from "../scheduledRuns";
@@ -151,7 +152,7 @@ export function Work({
 			label={`${name}'s work`}
 			heading={state}
 			working={state === "Working"}
-			{...(run !== undefined ? { detail: stepsSummary(run.items) } : {})}
+			{...(run !== undefined ? { detail: workDetail(run.items) } : {})}
 			docked={docked}
 			following={run?.id}
 			count={run?.items.length ?? 0}
@@ -177,19 +178,26 @@ export function Work({
  */
 export function GlanceRows({ items, running, onPick }: { items: Step[]; running: boolean; onPick: ((stepId: string | null) => void) | undefined }) {
 	const lines = useMemo(() => glance(items, running), [items, running]);
-	return lines.map((line) => (
-		<div key={line.id} data-step-id={line.id}>
-			<button type="button" className="step" onClick={() => onPick?.(line.id)}>
-				<span
-					aria-hidden="true"
-					className={`step-mark ${line.live ? "beat" : ""}`}
-					style={{ background: line.failed ? "var(--danger)" : line.live ? "var(--accent)" : "var(--ink-4)" }}
-				/>
-				<span className="step-title">{line.text}</span>
-				{line.failed && <span className="shrink-0 text-danger">failed</span>}
-			</button>
-		</div>
-	));
+	return lines.map((line) => {
+		const fact = factOf(line.steps, line.live);
+		return (
+			<div key={line.id} data-step-id={line.id}>
+				<button type="button" className="step" onClick={() => onPick?.(line.id)}>
+					<span
+						aria-hidden="true"
+						className={`step-mark ${line.live ? "beat" : ""}`}
+						style={{ background: line.failed ? "var(--danger)" : line.live ? "var(--accent)" : "var(--ink-4)" }}
+					/>
+					<span className="step-title">{line.text}</span>
+					{fact !== null && (
+						<span className="step-fact" data-tone={fact.tone}>
+							{fact.text}
+						</span>
+					)}
+				</button>
+			</div>
+		);
+	});
 }
 
 /**
@@ -217,7 +225,7 @@ export function WorkPage({
 	const { run, running, state, content, empty } = useTurnWork(personaId, blockId, name, live);
 	return (
 		<section className="work-page" aria-label={`${name}'s work`}>
-			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? stepsSummary(run.items) : undefined} actions={null} onClose={onClose} />
+			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? workDetail(run.items) : undefined} actions={null} onClose={onClose} />
 			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={stepId === undefined}>
 				{run === undefined ? empty : <Trail key={stepId ?? ""} items={run.items} settled={!running} openId={stepId} />}
 			</FollowWindow>

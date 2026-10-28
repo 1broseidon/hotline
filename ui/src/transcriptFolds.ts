@@ -138,12 +138,6 @@ export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "s
 	return "done";
 }
 
-/** "12 steps", "12 steps · one failed": the caption, and the work pane's line. */
-export function stepsSummary(items: Step[]): string {
-	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
-	return `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
-}
-
 /** Only an operator message from this turn can be offered again. A schedule,
  * peer delivery, or a later message is not a failed draft to replay. */
 export function retryForNotice(events: TranscriptEvent[], noticeId: string,

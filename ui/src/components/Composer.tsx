@@ -4,7 +4,9 @@ import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
 import { ArrowUpIcon, ChevronDownIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
-import type { Activity } from "../activity";
+import type { WorkMark } from "../activity";
+import { type TurnSummary, summaryWords } from "../turnFacts";
+import { Favicons } from "./Favicon";
 import { Glyph } from "../ui/Glyph";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
@@ -98,7 +100,7 @@ export function Composer({
 	 * runs: the mark and a few words, between the plus and the keys. A press
 	 * grows the turn's steps (`above`) up inside the pill, and folds them.
 	 */
-	work?: { activity: Activity; sleeping: boolean; open: boolean; onToggle(): void } | undefined;
+	work?: ({ open: boolean; onToggle(): void } & WorkMark) | undefined;
 	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
 	focused?: boolean;
 	/**
@@ -384,8 +386,16 @@ export function Composer({
 							title={work.open ? "Hide the steps" : "Show the steps"}
 							onClick={work.onToggle}
 						>
-							<Glyph phase={work.activity.phase} />
-							<span className="composer-work-word">{work.activity.word || "Working"}</span>
+							{work.done === undefined ? (
+								<>
+									<Glyph phase={work.activity.phase} />
+									<span className="composer-work-word">{work.activity.word || "Working"}</span>
+									{work.activity.sites !== undefined && <Favicons sites={work.activity.sites} size={15} />}
+									{work.count !== undefined && work.count > 0 && <span className="composer-work-count">{work.count}</span>}
+								</>
+							) : (
+								<DoneWords summary={work.done} />
+							)}
 							<ChevronDownIcon className="composer-work-chevron" />
 						</button>
 					)}
@@ -706,3 +716,14 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 	xml: "application/xml",
 	zip: "application/zip",
 };
+
+/** The turn's work once it is over, for a moment before the row leaves: its counts, failures apart in red. */
+function DoneWords({ summary }: { summary: TurnSummary }) {
+	const words = summaryWords(summary);
+	return (
+		<>
+			<span className="composer-work-word">{words.said}</span>
+			{words.failed !== null && <span className="composer-work-failed">{words.failed}</span>}
+		</>
+	);
+}

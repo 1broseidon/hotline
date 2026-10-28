@@ -2354,6 +2354,12 @@
 	.favicons > .favicon + .favicon {
 		margin-left: -2px;
 	}
+	.favicons-more {
+		margin-left: 4px;
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--ink-3);
+	}
 	.steps-caption .favicons + * {
 		margin-left: 2px;
 	}

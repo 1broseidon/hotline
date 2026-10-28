@@ -20,14 +20,15 @@ export function Favicon({ site, size = 16 }: { site: string; size?: number }) {
 	return <img aria-hidden="true" alt="" className="favicon" style={style} src={`https://${site}/favicon.ico`} loading="lazy" onError={() => setFailed(true)} />;
 }
 
-/** A few sites' icons, overlapping like a hand of cards: the pages read so far. */
-export function Favicons({ sites, most = 4, size = 16 }: { sites: string[]; most?: number; size?: number }) {
+/** A few sites' icons, overlapping like a hand of cards: the pages read so far, and how many more. */
+export function Favicons({ sites, most = 3, size = 16 }: { sites: string[]; most?: number; size?: number }) {
 	if (sites.length === 0) return null;
 	return (
 		<span className="favicons">
 			{sites.slice(0, most).map((site) => (
 				<Favicon key={site} site={site} size={size} />
 			))}
+			{sites.length > most && <span className="favicons-more">+{sites.length - most}</span>}
 		</span>
 	);
 }

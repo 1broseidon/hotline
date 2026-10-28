@@ -88,8 +88,15 @@ export function reduceThread(held: Held, fold: Fold): Held {
 		case "event":
 			// The durable line has landed, so the bubble Hotline was drawing
 			// for it is no longer the best thing it has; what it was
-			// drawing after that bubble stays until its own line lands.
-			return { ...held, events: mergeInWindow(held.events, fold.item, held.more), streaming: settle(held.streaming, fold.item) };
+			// drawing after that bubble stays until its own line lands. A
+			// turn's end is the last of its lines: words still drawn then
+			// never got one (stopped, or the agent restarted, mid-sentence),
+			// and drawn on they would sit under every turn after it.
+			return {
+				...held,
+				events: mergeInWindow(held.events, fold.item, held.more),
+				streaming: fold.item.kind === "turn" ? [] : settle(held.streaming, fold.item),
+			};
 		case "words": {
 			if (fold.deltas.length === 0) return held;
 			let streaming = held.streaming;

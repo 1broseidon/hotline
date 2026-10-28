@@ -179,6 +179,10 @@ async fn a_prompt_or_a_stop_ends_work_the_agent_started_itself() {
     assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == "the build"));
     assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == " passed"));
     driver.cancel();
+    // What it had said stays said: its words were already on screen.
+    assert!(
+        matches!(next(&mut report).await, Update::Message { text, .. } if text == "the build passed")
+    );
     assert!(
         matches!(next(&mut report).await, Update::Turn { stop_reason, .. } if stop_reason == "aborted")
     );

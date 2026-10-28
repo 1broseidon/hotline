@@ -1875,7 +1875,7 @@
 		margin-top: 3px;
 		color: var(--ink-3);
 	}
-	/* Opened: what ran and what came back, each in its own labelled block. */
+	/* Opened: the command and its output, each in its own labelled block. */
 	.trail-detail {
 		display: flex;
 		flex-direction: column;

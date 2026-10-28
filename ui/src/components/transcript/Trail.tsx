@@ -8,8 +8,8 @@ import { StepOutput } from "./Steps";
 /*
  * A turn's work as the right-hand pane reads it: a trail down one line, each
  * step a plain heading (what was done, in the core's few words) over a quiet
- * line of what was run, its time on the right. Opened, a step shows what ran
- * and what came back as two labelled blocks, never one wall of text. Easy to
+ * line of what was run, its time on the right. Opened, a step shows its
+ * command and output as two labelled blocks, never one wall of text. Easy to
  * follow at a glance, with everything there when you want it.
  */
 
@@ -145,13 +145,13 @@ function TrailStep({ row, status, at, startOpen }: { row: Row; status: ToolStatu
 						<>
 							{ran !== null && ran !== "" && (
 								<section>
-									<h4 className="trail-label">Ran</h4>
+									<h4 className="trail-label">Command</h4>
 									<pre className="trail-code">{ran}</pre>
 								</section>
 							)}
 							{hasOutput && (
 								<section>
-									<h4 className="trail-label">{status === "failed" ? "What went wrong" : "What came back"}</h4>
+									<h4 className="trail-label">{status === "failed" ? "Error" : "Output"}</h4>
 									<StepOutput output={readable(output!)} />
 								</section>
 							)}

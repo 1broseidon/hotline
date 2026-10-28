@@ -19,6 +19,7 @@ import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { Starters, untouched } from "./Starters";
+import { AskCard, askLine, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
 /**
@@ -133,6 +134,16 @@ export function Conversation({
 	const [refused, setRefused] = useState<string | null>(null);
 	/* The mark at work, carried in the composer's bottom row rather than on a card of its own. */
 	const [mark, setMark] = useState<{ activity: Activity; sleeping: boolean } | null>(null);
+	/* The cards waiting on the person, answered from the composer: which is open there, or none.
+	 * With nothing left waiting it closes, and does not open by itself for the next one. */
+	const asks = useMemo(() => openAsks(events), [events]);
+	const [askAt, setAskAt] = useState<number | null>(null);
+	const anyAsk = asks.length > 0;
+	useEffect(() => {
+		if (!anyAsk) setAskAt(null);
+	}, [anyAsk]);
+	const askIndex = askAt === null || asks.length === 0 ? 0 : Math.min(askAt, asks.length - 1);
+	const asking = askAt !== null && asks.length > 0 ? asks[askIndex]! : null;
 
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
@@ -229,6 +240,22 @@ export function Conversation({
 		() => (screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen)),
 		[screen, personaId, persona.name],
 	);
+	const askPanel =
+		asking === null ? null : (
+			<div className="composer-ask">
+				{asks.length > 1 && (
+					<div className="composer-ask-head">
+						<span>
+							{askIndex + 1} of {asks.length}
+						</span>
+						<button type="button" className="composer-ask-next" onClick={() => setAskAt((at) => ((at ?? 0) + 1) % asks.length)}>
+							Next
+						</button>
+					</div>
+				)}
+				<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} onOpenScreen={openScreen} />
+			</div>
+		);
 	// Stable across renders, so the transcript's rows can skip a render while a reply streams.
 	const retryMessage = useCallback(
 		(message: Extract<TranscriptEvent, { kind: "user" }>) => {
@@ -291,16 +318,29 @@ export function Conversation({
 					</div>
 				)}
 				<Composer
-					{...(dock !== undefined ? { above: <div className="work-dock">{dock}</div> } : {})}
-					{...(mark !== null
+					{...(asking !== null
+						? { above: askPanel }
+						: dock !== undefined
+							? { above: <div className="work-dock">{dock}</div> }
+							: {})}
+					{...(asks.length > 0
 						? {
 								work: {
-									...mark,
-									open: workOpen === null,
-									onToggle: () => onOpenWork(null),
+									activity: { phase: "blocked" as const, word: asks.length === 1 ? `Needs you · ${askLine(asks[0]!)}` : `${asks.length} things need you` },
+									sleeping: false,
+									open: asking !== null,
+									onToggle: () => setAskAt((at) => (at === null ? 0 : null)),
 								},
 							}
-						: {})}
+						: mark !== null
+							? {
+									work: {
+										...mark,
+										open: workOpen === null,
+										onToggle: () => onOpenWork(null),
+									},
+								}
+							: {})}
 					onDraftChange={setDraftHasContent}
 					personaId={personaId}
 					name={persona.name}

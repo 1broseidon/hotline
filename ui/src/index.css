@@ -2000,6 +2000,39 @@
 		margin: 0 0 4px;
 		border-bottom: var(--hairline) solid var(--line);
 	}
+	/* A card waiting on the person, opened in the composer to answer there:
+	 * the pill's first row, the card at its full width, a tall one scrolling. */
+	.composer[data-work] > .composer-ask {
+		order: -2;
+		flex-basis: 100%;
+		max-height: min(55vh, 520px);
+		overflow-y: auto;
+		margin: 0 0 4px;
+		padding: 6px 4px 8px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.composer-ask > :not(.composer-ask-head) {
+		max-width: none;
+		width: 100%;
+		margin-top: 0;
+	}
+	.composer-ask-head {
+		display: flex;
+		align-items: center;
+		padding: 0 6px 6px;
+		color: var(--ink-3);
+		font-size: var(--text-sm);
+	}
+	.composer-ask-next {
+		margin-left: auto;
+		padding: 2px 8px;
+		border-radius: var(--radius-control);
+		color: var(--accent);
+		font-weight: 600;
+	}
+	.composer-ask-next:hover {
+		background: var(--fill-hover);
+	}
 	.composer[data-work] .work-float.work-docked {
 		width: 100%;
 		padding-bottom: 0;

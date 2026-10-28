@@ -63,14 +63,11 @@ export const Steps = memo(function Steps({
 export function StepRows({
 	items,
 	settled = false,
-	onPick,
 	openId,
 }: {
 	items: Step[];
 	/** The turn is over: nothing in it is still running. */
 	settled?: boolean;
-	/** The peek: each row is one plain line, and pressing one hands its id here instead of opening it. */
-	onPick?: ((id: string) => void) | undefined;
 	/** The row to open on arrival, brought into view: the one pressed in the peek. */
 	openId?: string | undefined;
 }) {
@@ -84,7 +81,7 @@ export function StepRows({
 	}
 	return rows.map((row, at) =>
 		row.kind === "thinking" ? (
-			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} onPick={onPick} startOpen={row.id === openId} />
+			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} startOpen={row.id === openId} />
 		) : (
 			<Tool
 				key={row.id}
@@ -93,7 +90,6 @@ export function StepRows({
 				// A harness that never closed a call leaves it running on the tape after the turn ended.
 				status={settled && (row.status === "in_progress" || row.status === "pending") ? "completed" : row.status}
 				output={row.output}
-				onPick={onPick}
 				startOpen={row.id === openId}
 			/>
 		),
@@ -114,32 +110,24 @@ function Thought({
 	id,
 	text,
 	live,
-	onPick,
 	startOpen,
 }: {
 	id: string;
 	text: string;
 	/** Still arriving. */
 	live: boolean;
-	onPick: ((id: string) => void) | undefined;
 	startOpen: boolean;
 }) {
 	const [open, setOpen] = useState(startOpen);
 	const row = useArrival(startOpen);
-	const picked = onPick !== undefined;
 	return (
 		<div ref={row} data-step-id={id}>
-			<button
-				type="button"
-				className="step"
-				aria-expanded={picked ? undefined : open}
-				onClick={() => (picked ? onPick(id) : setOpen((was) => !was))}
-			>
+			<button type="button" className="step" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
 				<span aria-hidden="true" className={`step-mark ${live ? "beat" : ""}`} style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
 				<span className="step-title text-ink-3">Thinking</span>
-				{!picked && (open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />)}
+				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
 			</button>
-			{!picked && open && <div className="step-out font-sans not-italic">{text}</div>}
+			{open && <div className="step-out font-sans not-italic">{text}</div>}
 		</div>
 	);
 }
@@ -157,29 +145,26 @@ function Tool({
 	title,
 	status,
 	output,
-	onPick,
 	startOpen,
 }: {
 	id: string;
 	title: string;
 	status: ToolStatus;
 	output: ToolOutput[] | undefined;
-	onPick: ((id: string) => void) | undefined;
 	startOpen: boolean;
 }) {
 	// Some harnesses record an empty text output; that is nothing to open.
 	const hasOutput = output !== undefined && output.some((one) => one.type === "diff" || one.text.trim() !== "");
 	const [open, setOpen] = useState(startOpen && hasOutput);
 	const row = useArrival(startOpen);
-	const picked = onPick !== undefined;
 	return (
 		<div ref={row} data-step-id={id}>
 			<button
 				type="button"
 				className="step"
-				aria-expanded={!picked && hasOutput ? open : undefined}
-				disabled={!picked && !hasOutput}
-				onClick={() => (picked ? onPick(id) : setOpen((was) => !was))}
+				aria-expanded={hasOutput ? open : undefined}
+				disabled={!hasOutput}
+				onClick={() => setOpen((was) => !was)}
 			>
 				<span
 					aria-hidden="true"
@@ -191,9 +176,9 @@ function Tool({
 				</span>
 				{status === "failed" && <span className="shrink-0 text-danger">failed</span>}
 				{status === "in_progress" && <span className="shrink-0 text-ink-3">running</span>}
-				{!picked && hasOutput && (open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />)}
+				{hasOutput && (open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />)}
 			</button>
-			{!picked && open && hasOutput && <StepOutput output={output} />}
+			{open && hasOutput && <StepOutput output={output} />}
 		</div>
 	);
 }

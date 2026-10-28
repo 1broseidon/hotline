@@ -54,7 +54,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   step, under a soft fade, without moving the conversation. A line pressed
   opens that turn in the right-hand pane, flush and full height like a
   thread, with that step open; the peek goes. The card that floated over
-  the conversation, and the one docked under the composer, are gone.
+  the conversation, and the one docked under the composer, are gone. The
+  card and the peek say what the teammate did in a few words ("Ran cargo
+  test", "Read 3 files", "Used Linear twice"), steps of one kind in a row as
+  one line; the pane still shows each command as it was run.
 - The team rail with faces only is roomier on macOS: the traffic lights and
   the rail's key share its head, so the key stays in one place whether the
   rail shows names, faces or nothing, and the faces are bigger. A face

@@ -6,6 +6,7 @@ import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon,
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
 import { activityOf } from "../activity";
+import { glance } from "../glance";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
@@ -23,6 +24,7 @@ import {
 	type Run,
 	type Side,
 	sideOf,
+	stepRuns,
 	superseded,
 	toBlocks,
 	withStreaming,
@@ -334,7 +336,15 @@ export function Transcript({
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
-	const currentActivity = useMemo(() => live || queued ? activityOf(events, streaming, queued) : null, [live, queued, events, streaming]);
+	const currentActivity = useMemo(() => {
+		if (!live && !queued) return null;
+		const now = activityOf(events, streaming, queued);
+		// At work with its tools, the card says what in a few words ("Running cargo test"), as the peek's last line does.
+		if (!["read", "search", "edit", "execute", "doing"].includes(now.phase)) return now;
+		const run = stepRuns(events, streaming).at(-1);
+		const said = run === undefined ? undefined : glance(run.items, true).at(-1)?.text;
+		return said === undefined ? now : { ...now, word: said };
+	}, [live, queued, events, streaming]);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
 
 	// A thread is said once: as its answer when one came back, else as its

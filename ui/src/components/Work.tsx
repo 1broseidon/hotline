@@ -7,6 +7,8 @@ import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
 import { runEnding, StepRows, stepRuns, stepsSummary } from "./Transcript";
+import { glance } from "../glance";
+import type { Step } from "../scheduledRuns";
 
 /**
  * What the card shows: a turn's work, by its caption's id, or the turn
@@ -162,9 +164,31 @@ export function Work({
 			}
 			onClose={onClose}
 		>
-			{run === undefined ? empty : <StepRows items={run.items} settled={!running} onPick={onPick} />}
+			{run === undefined ? empty : <GlanceRows items={run.items} running={running} onPick={onPick} />}
 		</WorkCard>
 	);
+}
+
+/**
+ * The peek's lines: what was done in a few words, a run of one kind as one
+ * line (glance.ts), each a press away from its steps in the pane. The pane
+ * shows the steps themselves, each as it was run.
+ */
+export function GlanceRows({ items, running, onPick }: { items: Step[]; running: boolean; onPick: ((stepId: string | null) => void) | undefined }) {
+	const lines = useMemo(() => glance(items, running), [items, running]);
+	return lines.map((line) => (
+		<div key={line.id} data-step-id={line.id}>
+			<button type="button" className="step" onClick={() => onPick?.(line.id)}>
+				<span
+					aria-hidden="true"
+					className={`step-mark ${line.live ? "beat" : ""}`}
+					style={{ background: line.failed ? "var(--danger)" : line.live ? "var(--accent)" : "var(--ink-4)" }}
+				/>
+				<span className="step-title">{line.text}</span>
+				{line.failed && <span className="shrink-0 text-danger">failed</span>}
+			</button>
+		</div>
+	));
 }
 
 /**

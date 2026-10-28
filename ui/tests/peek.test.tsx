@@ -30,23 +30,20 @@ const steps: Step[] = [
 ];
 
 describe("the peek", () => {
-	test("each step is one plain line with nothing to open, and a pressed line is handed on to the pane", async () => {
-		const { StepRows } = await import("../src/components/transcript/Steps");
-		const picked: string[] = [];
-		await act(async () => root.render(<StepRows items={steps} settled onPick={(id) => picked.push(id)} />));
+	test("its lines say what was done in a few words, nothing to open, and a pressed line is handed on to the pane", async () => {
+		const { GlanceRows } = await import("../src/components/Work");
+		const picked: (string | null)[] = [];
+		await act(async () => root.render(<GlanceRows items={steps} running={false} onPick={(id) => picked.push(id)} />));
 		const rows = [...container.querySelectorAll<HTMLButtonElement>("button.step")];
-		expect(rows.length).toBe(3);
+		expect(rows.map((row) => row.textContent)).toEqual(["Thought it through", "Search mail since Monday", "Read 9 threads"]);
 		// No chevron to aim for, and no row claims to open or close.
 		expect(container.querySelector("button.step svg")).toBeNull();
 		expect(rows.every((row) => !row.hasAttribute("aria-expanded"))).toBe(true);
-		// A step with no output is still a line you can press to read in the pane.
-		expect(rows[2]!.disabled).toBe(false);
 		await act(async () => {
 			rows[1]!.click();
 			rows[2]!.click();
 		});
 		expect(picked).toEqual(["s1", "s2"]);
-		// Pressing opens nothing in place.
 		expect(container.querySelector(".step-out")).toBeNull();
 	});
 });

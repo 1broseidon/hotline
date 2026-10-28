@@ -20,7 +20,8 @@ import { Mermaid } from "./Mermaid";
  * block is drawn, as an image that cannot run anything (see Mermaid.tsx).
  *
  * Only an agent's bubbles come through here, and a release's notes in
- * Settings › Updates. What you typed is shown as you typed it.
+ * Settings › Updates. What you typed is shown as you typed it. A markdown
+ * file a teammate sent is a document, and opens as one (`MarkdownDocument`).
  */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
 	return rendered(text);
@@ -52,6 +53,21 @@ function rendered(text: string): ReactElement {
 	trees.set(text, tree);
 	if (trees.size > KEPT) trees.delete(trees.keys().next().value as string);
 	return tree;
+}
+
+/**
+ * A markdown file opened from its card: a document, so its headings and rules
+ * stand as they were written. The rest is a bubble's: no HTML, no remote
+ * images, links open in the browser, code with its copy key.
+ */
+export function MarkdownDocument({ text }: { text: string }) {
+	return (
+		<article className="md md-doc">
+			<ReactMarkdown remarkPlugins={[remarkGfm]} components={DOCUMENT} skipHtml>
+				{text}
+			</ReactMarkdown>
+		</article>
+	);
 }
 
 const COMPONENTS: Components = {
@@ -130,3 +146,6 @@ function CodeBlock({ children }: { children: ReactNode }) {
 		</div>
 	);
 }
+
+const { a, img, pre, table } = COMPONENTS;
+const DOCUMENT: Components = { a, img, pre, table } as Components;

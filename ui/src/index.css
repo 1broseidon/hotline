@@ -4479,6 +4479,53 @@
 	.md strong {
 		font-weight: 600;
 	}
+	/* A markdown file opened as a document: a reading column, its headings and
+	 * rules as written. */
+	.md-doc {
+		max-width: 72ch;
+		margin: 0 auto;
+		font-size: var(--text-md);
+		line-height: 1.6;
+	}
+	.md-doc h1,
+	.md-doc h2,
+	.md-doc h3,
+	.md-doc h4,
+	.md-doc h5,
+	.md-doc h6 {
+		margin: 1.4em 0 0.5em;
+		font-weight: 600;
+		line-height: 1.3;
+		color: var(--ink);
+	}
+	.md-doc h1 {
+		font-size: 1.7em;
+	}
+	.md-doc h2 {
+		font-size: 1.35em;
+		padding-bottom: 0.25em;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.md-doc h3 {
+		font-size: 1.15em;
+	}
+	.md-doc h5,
+	.md-doc h6 {
+		color: var(--ink-2);
+	}
+	.md-doc hr {
+		margin: 1.6em 0;
+		border: none;
+		border-top: var(--hairline) solid var(--line);
+	}
+	.md-doc input[type="checkbox"] {
+		margin-right: 0.4em;
+		vertical-align: -1px;
+	}
+	.md-doc li:has(> input[type="checkbox"]) {
+		list-style: none;
+		margin-left: -1.2em;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {

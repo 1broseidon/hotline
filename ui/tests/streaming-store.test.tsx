@@ -139,3 +139,15 @@ test("tool results and answered cards update the rendered transcript during a re
 	expect(container.querySelector('[data-event-id="card"] button')).toBeNull();
 	expect(container.querySelector('[data-event-id="card"]')?.textContent).toContain("Asked permission");
 });
+
+test("words whose line was never written go when their turn ends, and are not drawn under every turn after", () => {
+	words("late", "Duo or on the Mac. You can remove it later with netsh interface portproxy reset.");
+	flush();
+	expect(store.snapshot().streaming.map((one) => one.messageId)).toEqual(["late"]);
+	// Stopped or restarted before the agent finished saying it: no line for "late" is written.
+	handlers.event({ kind: "turn", id: "end", ts: 6, stopReason: "aborted" });
+	expect(store.snapshot().streaming).toEqual([]);
+	handlers.event({ kind: "user", id: "next", ts: 7, text: "wait 30 seconds then send a message" });
+	handlers.event({ kind: "agent", id: "answer", ts: 8, text: "30 seconds are up." });
+	expect(store.snapshot().streaming).toEqual([]);
+});

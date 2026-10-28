@@ -819,7 +819,9 @@ impl Driver for ChildAgent {
         }
         self.live.settle_permissions();
         // Work the agent took up by itself has no prompt to answer the
-        // cancel, so it is ended here, and what it was saying goes with it.
+        // cancel, so it is ended here. What it had said is kept, as a
+        // stopped turn's is: dropped, its words would stay drawn with no
+        // line to settle them.
         let unprompted = {
             let mut updates = lock(&self.live.updates);
             lock(&self.live.unprompted_open)
@@ -827,7 +829,9 @@ impl Driver for ChildAgent {
                 .and_then(|_| updates.take())
         };
         if let Some(sender) = unprompted {
-            lock(&self.live.open).take();
+            if let Some(said) = self.live.take_open() {
+                let _ = sender.try_send(said);
+            }
             let _ = sender.try_send(Update::Turn {
                 stop_reason: "aborted".into(),
                 usage: None,

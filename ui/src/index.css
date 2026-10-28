@@ -4173,6 +4173,24 @@
 		flex: 1;
 		flex-direction: column;
 	}
+	/* Holding an earlier turn: the way back to the one that follows the latest. */
+	.work-latest {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+		height: 22px;
+		padding: 0 9px;
+		border-radius: 999px;
+		background: var(--fill-code);
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+		white-space: nowrap;
+	}
+	.work-latest:hover {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
 	/* The turn's shape and sources, fixed over the steps scrolling beneath. */
 	.work-page > .work-head {
 		flex: none;

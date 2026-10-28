@@ -2,7 +2,7 @@ import { Fragment, type ReactNode, memo, useMemo, useEffect, useLayoutEffect, us
 import { processLabel } from "../activity";
 import { chordKeys } from "../chords";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
-import { ArrowDownIcon, CloseIcon } from "../icons";
+import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
@@ -116,7 +116,7 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	const empty = <p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>;
-	return { run, running, state, content, empty };
+	return { runs, run, latest, running, state, content, empty };
 }
 
 /**
@@ -141,15 +141,49 @@ export function WorkPage({
 	live: boolean;
 	onClose(): void;
 }) {
-	const { run, running, state, content, empty } = useTurnWork(personaId, blockId, name, live);
+	/* The turn shown: null follows the latest, rolling on to each new turn
+	 * as it starts; an id holds that turn, and stepping back in time is what
+	 * holds one. Opened on the latest turn's own caption, the pane follows. */
+	const [held, setHeld] = useState<string | null>(blockId);
+	const { runs, run, latest, running, state, content, empty } = useTurnWork(personaId, held, name, live);
+	const settledOpen = useRef(false);
+	useEffect(() => {
+		if (settledOpen.current || latest === undefined) return;
+		settledOpen.current = true;
+		if (held !== null && held === latest.id) setHeld(null);
+	}, [held, latest]);
+	const at = run === undefined ? -1 : runs.indexOf(run);
+	const earlier = at > 0 ? runs[at - 1] : undefined;
+	const later = at >= 0 && at < runs.length - 1 ? runs[at + 1] : undefined;
+	const step = (to: { id: string } | undefined) => {
+		if (to !== undefined) setHeld(to === latest ? null : to.id);
+	};
+	// Only the turn it opened at opens a line on arrival.
+	const openId = held === blockId ? stepId : undefined;
 	const hot = useHot();
+	const actions = runs.length > 1 && (
+		<>
+			{held !== null && later !== undefined && (
+				<button type="button" className="work-latest" onClick={() => setHeld(null)}>
+					{live && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+					{live ? "Working now" : "Latest"}
+				</button>
+			)}
+			<button type="button" className="control btn-icon" title="Earlier turn" aria-label="Earlier turn" disabled={earlier === undefined} onClick={() => step(earlier)}>
+				<ChevronLeftIcon />
+			</button>
+			<button type="button" className="control btn-icon" title="Later turn" aria-label="Later turn" disabled={later === undefined} onClick={() => step(later)}>
+				<ChevronRightIcon />
+			</button>
+		</>
+	);
 	return (
 		<section className="work-page" aria-label={`${name}'s work`}>
-			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? workDetail(run.items) : undefined} actions={null} onClose={onClose} />
+			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? workDetail(run.items) : undefined} actions={actions} onClose={onClose} />
 			{/* The turn's shape and its sources stay put; the steps, which run long, scroll. */}
-			{run !== undefined && <TrailHead items={run.items} settled={!running} hot={hot} />}
-			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={stepId === undefined}>
-				{run === undefined ? empty : <TrailSteps key={stepId ?? ""} items={run.items} settled={!running} openId={stepId} hot={hot} />}
+			{run !== undefined && <TrailHead key={run.id} items={run.items} settled={!running} hot={hot} />}
+			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={openId === undefined}>
+				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} />}
 			</FollowWindow>
 		</section>
 	);

@@ -382,6 +382,7 @@ export function Composer({
 							className="composer-work"
 							data-sleeping={work.sleeping || undefined}
 							data-blocked={work.activity.phase === "blocked" || undefined}
+							data-done={work.done !== undefined || undefined}
 							aria-expanded={work.open}
 							title={work.open ? "Hide the steps" : "Show the steps"}
 							onClick={work.onToggle}
@@ -390,7 +391,7 @@ export function Composer({
 								<>
 									<Glyph phase={work.activity.phase} />
 									<span className="composer-work-word">{work.activity.word || "Working"}</span>
-									{work.activity.sites !== undefined && <Favicons sites={work.activity.sites} size={15} />}
+									{work.activity.sites !== undefined && <Favicons sites={work.activity.sites} size={16} />}
 									{work.count !== undefined && work.count > 0 && <span className="composer-work-count">{work.count}</span>}
 								</>
 							) : (

@@ -2352,7 +2352,24 @@
 		box-shadow: 0 0 0 1.5px var(--pop);
 	}
 	.favicons > .favicon + .favicon {
-		margin-left: -4px;
+		margin-left: -2px;
+	}
+	.steps-caption .favicons + * {
+		margin-left: 2px;
+	}
+	/* What the turn came to, as counts: the instrument voice. */
+	.composer-work[data-done] .composer-work-word,
+	.composer-work[data-done] .composer-work-failed {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		letter-spacing: 0.02em;
+	}
+	.composer-work[data-done] .composer-work-word {
+		color: var(--ink-2);
+	}
+	/* The live line of the peek is what is happening now: it reads in full ink. */
+	.work-window .step[data-live] .step-title {
+		color: var(--ink);
 	}
 	.composer-work-chevron {
 		margin-left: auto;

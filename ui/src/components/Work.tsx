@@ -182,7 +182,7 @@ export function GlanceRows({ items, running, onPick }: { items: Step[]; running:
 		const fact = factOf(line.steps, line.live);
 		return (
 			<div key={line.id} data-step-id={line.id}>
-				<button type="button" className="step" onClick={() => onPick?.(line.id)}>
+				<button type="button" className="step" data-live={line.live || undefined} onClick={() => onPick?.(line.id)}>
 					<span
 						aria-hidden="true"
 						className={`step-mark ${line.live ? "beat" : ""}`}

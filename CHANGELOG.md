@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-27
+
 ### Added
 
 - Ollama speaks. With a speech model such as `phonon` pulled into a

@@ -4183,6 +4183,15 @@
 		/* A hairline that fades out toward both edges, not a hard rule. */
 		background: linear-gradient(to right, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent) bottom / 100% var(--hairline) no-repeat;
 	}
+	/* The steps' heading stays at the top while its steps scroll under it. */
+	.work-page .steps-heading {
+		position: sticky;
+		top: -4px;
+		z-index: 1;
+		margin: 0 -4px 4px;
+		padding: 8px 10px 8px;
+		background: var(--canvas);
+	}
 	.work-page .work-window {
 		margin: 0;
 		padding: 4px 8px 16px;

@@ -106,7 +106,7 @@ export function TrailSteps({ items, settled = false, openId, hot }: { items: Ste
 			)}
 			{lines.length > 0 && (
 				<section aria-label="Steps">
-					<h3 className="work-heading">Steps{steps > 0 ? ` · ${steps}` : ""}</h3>
+					<h3 className="work-heading steps-heading">Steps{steps > 0 ? ` · ${steps}` : ""}</h3>
 					<ol className="trail">
 						{lines.map((line) => (
 							<TrailLine key={line.id} line={line} sources={sources} startOpen={line.ids.includes(openId ?? "")} hot={hot} />

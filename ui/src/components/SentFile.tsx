@@ -95,7 +95,7 @@ export function SentFile({
 				<FileIcon className="shrink-0 text-ink-3" />
 				<span className="min-w-0 flex-1">
 					<span className="block truncate">{file.name}</span>
-					<span className="block text-ink-3">{what}</span>
+					<span className="instrument block">{what}</span>
 				</span>
 				{actions}
 			</div>
@@ -192,7 +192,7 @@ export function OwnFile({ file }: { file: Attachment }) {
 				<FileIcon className="shrink-0 text-ink-3" />
 				<span className="min-w-0 flex-1">
 					<span className="block truncate">{file.name}</span>
-					<span className="block text-ink-3">{what}</span>
+					<span className="instrument block">{what}</span>
 				</span>
 				{!onServer() && (
 					<button

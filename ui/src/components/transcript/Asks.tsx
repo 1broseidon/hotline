@@ -124,7 +124,7 @@ export function HumanAction({
 
 	return (
 		<div className="card card-live mt-3">
-			<p className="eyebrow mb-1.5 text-accent">Needs you</p>
+			<p className="eyebrow mb-1.5">Needs you</p>
 			<p className="selectable text-lg font-medium">{event.reason}</p>
 			{onOpenScreen !== undefined && !event.question && (
 				<p className="mt-1.5 text-sm text-ink-3">

@@ -79,6 +79,9 @@
 	--said-them: oklch(22% 0.008 250);
 
 	--warn: oklch(80% 0.14 80);
+	/* Waiting on the person, as words and an outline: the same amber everywhere it asks. */
+	--warn-ink: oklch(80% 0.14 80);
+	--warn-soft: oklch(80% 0.14 80 / 0.14);
 	--danger: oklch(72% 0.17 25);
 	/* Hanging up: a red deep enough to carry a white glyph. */
 	--hang-up: oklch(60% 0.2 27);
@@ -171,6 +174,9 @@
 	--said-them: oklch(95% 0.005 250);
 
 	--warn: oklch(64% 0.15 75);
+	/* Darker as words on a light card, so small text keeps its contrast. */
+	--warn-ink: oklch(50% 0.13 65);
+	--warn-soft: oklch(64% 0.15 75 / 0.16);
 	--danger: oklch(55% 0.19 27);
 	--hang-up: oklch(57% 0.21 27);
 	--danger-soft: oklch(55% 0.19 27 / 0.1);
@@ -229,6 +235,7 @@
 	--color-on-accent: var(--on-accent);
 	--color-accent-soft: var(--accent-soft);
 	--color-accent-ink: var(--accent-ink);
+	--color-warn-ink: var(--warn-ink);
 	--color-said-me: var(--said-me);
 	--color-said-them: var(--said-them);
 

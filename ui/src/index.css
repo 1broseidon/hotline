@@ -641,12 +641,15 @@
 		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
 	}
+	/* A group's label, as the work pane labels its sections: small, tracked, upper case. */
 	.group-title {
-		margin: 0 0 6px 12px;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		font-weight: 500;
-		color: var(--ink-2);
+		margin: 0 0 8px 12px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-3);
 	}
 	.group-hint {
 		margin: 6px 12px 0;
@@ -2217,11 +2220,15 @@
 			0 0 0 var(--hairline) var(--line);
 		overflow-wrap: anywhere;
 	}
+	/* A card waiting on the person: the amber the composer's "Needs you" is. */
 	.card-live {
 		box-shadow:
 			var(--top-light),
-			0 0 0 var(--hairline) var(--accent),
-			0 0 0 3px var(--accent-soft);
+			0 0 0 var(--hairline) var(--warn),
+			0 0 0 3px var(--warn-soft);
+	}
+	.card-live > .eyebrow:first-child {
+		color: var(--warn-ink);
 	}
 	.card-actions {
 		display: flex;
@@ -2497,7 +2504,7 @@
 		color: var(--warn);
 	}
 	.composer-work[data-blocked] {
-		color: var(--warn);
+		color: var(--warn-ink);
 	}
 	.composer-work[data-sleeping] {
 		opacity: 0.5;
@@ -3985,11 +3992,17 @@
 		min-width: 0;
 		flex-shrink: 0;
 	}
+	/* Too narrow for both side by side, the pane takes the conversation's
+	 * place whole, with its back and close, rather than covering half of it
+	 * and leaving the composer's keys under its edge. */
 	.dock-slot[data-overlay] {
 		position: absolute;
-		inset: 0 0 0 auto;
+		inset: 0;
 		z-index: 30;
-		width: min(var(--dock-width), 100%);
+		width: 100%;
+	}
+	.dock-slot[data-overlay] .dock-edge {
+		display: none;
 	}
 	.dock-slot[data-overlay] .dock {
 		box-shadow:

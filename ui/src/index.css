@@ -1977,6 +1977,87 @@
 	.composer-attach {
 		color: var(--ink-3);
 	}
+	/* While a turn runs the composer is two rows, as on the phone: what you
+	 * write on top, and under it the plus, what the teammate is doing (a
+	 * press grows its steps up inside the pill), Stop and the voice keys.
+	 * The steps, open, are the pill's first row. */
+	.composer[data-work] {
+		flex-wrap: wrap;
+		row-gap: 2px;
+		align-items: center;
+	}
+	.composer[data-work] > .composer-body {
+		order: -1;
+		flex-basis: 100%;
+		padding: 2px 8px 0;
+	}
+	.composer[data-work] > .work-dock {
+		position: static;
+		order: -2;
+		flex-basis: 100%;
+		overflow: visible;
+		padding: 0;
+		margin: 0 0 4px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.composer[data-work] .work-float.work-docked {
+		width: 100%;
+		padding-bottom: 0;
+		border-radius: 0;
+		background: transparent;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+		box-shadow: none;
+		animation: none;
+	}
+	.composer-work {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		height: 30px;
+		align-items: center;
+		gap: 8px;
+		margin: 0 4px;
+		padding: 0 10px 0 8px;
+		border-radius: 15px;
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+		transition: background var(--dur-press) var(--ease-out), opacity var(--dur-open) var(--ease-out);
+	}
+	.composer-work:hover,
+	.composer-work[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
+	.composer-work .glyph {
+		width: 22px;
+		height: 15.7px;
+		color: var(--accent);
+	}
+	.composer-work[data-blocked] .glyph {
+		color: var(--warn);
+	}
+	.composer-work[data-blocked] {
+		color: var(--warn);
+	}
+	.composer-work[data-sleeping] {
+		opacity: 0.5;
+	}
+	.composer-work-word {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.composer-work-chevron {
+		margin-left: auto;
+		flex-shrink: 0;
+		color: var(--ink-3);
+		transform: rotate(180deg);
+		transition: transform var(--dur-press) var(--ease-out);
+	}
+	.composer-work[aria-expanded="true"] .composer-work-chevron {
+		transform: none;
+	}
 	.composer-attach:hover {
 		background: var(--fill-hover);
 		color: var(--ink);

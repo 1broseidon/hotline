@@ -1,6 +1,6 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
-import { processLabel, shownState } from "../activity";
+import { type Activity, processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -131,6 +131,8 @@ export function Conversation({
 	/* A refusal the core handed up: a chapter that would not open, a message
 	 * that would not send. The band is the one place with room for a sentence. */
 	const [refused, setRefused] = useState<string | null>(null);
+	/* The mark at work, carried in the composer's bottom row rather than on a card of its own. */
+	const [mark, setMark] = useState<{ activity: Activity; sleeping: boolean } | null>(null);
 
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
@@ -267,7 +269,7 @@ export function Conversation({
 					events={shown}
 					streaming={streaming}
 					live={state === "thinking"}
-					onStop={cancel}
+					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					cornered={cornered}
 					focus={focus}
@@ -290,7 +292,15 @@ export function Conversation({
 				)}
 				<Composer
 					{...(dock !== undefined ? { above: <div className="work-dock">{dock}</div> } : {})}
-					stopOnCard
+					{...(mark !== null
+						? {
+								work: {
+									...mark,
+									open: workOpen === null,
+									onToggle: () => onOpenWork(null),
+								},
+							}
+						: {})}
 					onDraftChange={setDraftHasContent}
 					personaId={personaId}
 					name={persona.name}

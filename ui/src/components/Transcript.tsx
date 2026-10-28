@@ -5,7 +5,7 @@ import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, 
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, WarningIcon } from "../icons";
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
-import { activityOf } from "../activity";
+import { type Activity, activityOf } from "../activity";
 import { glance } from "../glance";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
@@ -107,6 +107,7 @@ export function Transcript({
 	workOpen,
 	onProviders,
 	onStop,
+	onMark,
 	thread,
 	more = false,
 	onEarlier,
@@ -163,6 +164,12 @@ export function Transcript({
 	onProviders?(): void;
 	/** Stop on the work card while a turn runs, in the composer's place (Composer's `stopOnCard`). */
 	onStop?(): void;
+	/**
+	 * Where the mark goes when the composer carries it (the composer's bottom
+	 * row): the activity and whether it is going to sleep, or null. Given, the
+	 * transcript draws no card of its own.
+	 */
+	onMark?: ((mark: { activity: Activity; sleeping: boolean } | null) => void) | undefined;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -346,6 +353,9 @@ export function Transcript({
 		return said === undefined ? now : { ...now, word: said };
 	}, [live, queued, events, streaming]);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
+	useEffect(() => {
+		onMark?.(activity === null ? null : { activity, sleeping });
+	}, [onMark, activity, sleeping]);
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.
@@ -473,7 +483,7 @@ export function Transcript({
 				)}
 			</div>
 		</Scroll>
-		{activity !== null && (
+		{activity !== null && onMark === undefined && (
 			<div className="ambient">
 				<div className="mx-auto w-full max-w-[46rem] px-6">
 					<div className="ambient-card" data-sleeping={sleeping || undefined}>

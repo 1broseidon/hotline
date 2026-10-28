@@ -4180,7 +4180,8 @@
 		overflow-y: auto;
 		gap: 14px;
 		padding: 4px 12px 12px;
-		border-bottom: var(--hairline) solid var(--line);
+		/* A hairline that fades out toward both edges, not a hard rule. */
+		background: linear-gradient(to right, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent) bottom / 100% var(--hairline) no-repeat;
 	}
 	.work-page .work-window {
 		margin: 0;

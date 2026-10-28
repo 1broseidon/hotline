@@ -1435,40 +1435,70 @@
 	.said-name + .said-name {
 		margin-left: 12px;
 	}
-	/* Them, at work: the mark floats over the foot of the conversation, just
-	 * above the composer, with one word for what kind of work. It is not a
-	 * message and gets no bubble; it is in the room while the reply is on its
-	 * way and gone when it lands. A press opens the work above it. The
-	 * pupils are the canvas colour, so the eyes read as eyes against it. */
-	/* The row's bottom edge is the composer's top, and nothing shows below
-	 * it: the mark wakes up from behind the composer and sinks back behind
-	 * it to sleep. Above and to the sides it may move freely. */
+	/* Them, at work: the mark and its word on a card tucked behind the
+	 * composer's top, a little narrower than it, Stop at its right as the
+	 * phone's activity bar has it (the pill has none meanwhile). The card runs
+	 * on under the composer, which paints over it, so only its top shows. It
+	 * is not a message; it is in the room while the reply is on its way and
+	 * gone when it lands. A press opens the peek above it. */
 	.ambient {
 		position: absolute;
 		inset: auto 0 0 0;
-		padding-bottom: 10px;
-		z-index: 1;
+		z-index: 0;
 		pointer-events: none;
-		clip-path: inset(-160px -80px 0 -80px);
+		clip-path: inset(-160px -80px -40px -80px);
 	}
-	.ambient-mark {
+	.ambient-card {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 4px 4px 4px 2px;
-		border-radius: var(--radius-control);
-		color: var(--ink-3);
+		gap: 8px;
+		margin: 0 18px -22px;
+		padding: 5px 6px 27px 10px;
+		border-radius: 14px 14px 0 0;
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
 		pointer-events: auto;
 		/* The transcript makes room first (its 200ms padding ease), then the
-		 * mark rises into it, slow out of sleep; the glyph's first blink
+		 * card rises into it, slow out of sleep; the glyph's first blink
 		 * (WAKE_BLINK) lands as it surfaces. */
 		animation: wake 650ms 200ms cubic-bezier(0.33, 1, 0.68, 1) both;
 	}
-	/* Settle on the cradle, then sink: 300 + 480ms, SLEEP_MS in components/transcript/hooks.ts. */
-	.ambient-mark[data-sleeping] {
+	/* Settle, then sink: 300 + 480ms, SLEEP_MS in components/transcript/hooks.ts. */
+	.ambient-card[data-sleeping] {
 		pointer-events: none;
 		animation: sleep 480ms 300ms cubic-bezier(0.5, 0, 0.75, 0) both;
 	}
+	.ambient-mark {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		align-items: center;
+		gap: 8px;
+		padding: 2px 4px 2px 0;
+		border-radius: var(--radius-control);
+		color: var(--ink-3);
+	}
+	.ambient-card .glyph {
+		width: 22px;
+		height: 15.7px;
+	}
+	.ambient-stop {
+		flex-shrink: 0;
+		height: 24px;
+		padding: 0 11px;
+		border-radius: 12px;
+		background: var(--fill-active);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--ink);
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.ambient-stop:hover {
+		background: var(--line-strong);
+	}
+
 	@keyframes wake {
 		from {
 			transform: translateY(calc(100% + 10px));
@@ -2776,17 +2806,6 @@
 		border-left: var(--hairline) solid var(--line);
 		box-shadow: none;
 	}
-	/* The edges straddle those hairlines now there is no gutter to sit in. */
-	.rail-edge {
-		margin: 0 -4px;
-	}
-	.dock-edge {
-		inset: 0 auto 0 -4px;
-	}
-	.rail-edge::after,
-	.dock-edge::after {
-		inset: 0 auto 0 3px;
-	}
 	.chrome-lead {
 		position: fixed;
 		top: 0;
@@ -2854,15 +2873,16 @@
 		color: var(--ink);
 	}
 
-	/* The rail's edge is the gutter beside it, taken back out of the row's
-	 * gap by its margins so it adds no width: a hit area the gutter's width,
-	 * with a hairline that shows on hover or while dragging. With the rail
-	 * closed it sits in the window's left gutter, where it can be pulled
-	 * back out. The drag holds its cursor over the whole window. */
+	/* The rail's edge straddles the pane's hairline, taken back out of the
+	 * row by its margins so it adds no width and the rail keeps its 8px
+	 * gutter: a hit area 8px wide, centred on the hairline, which it lights
+	 * on hover or while dragging. With the rail closed it sits on the
+	 * window's left edge, where it can be pulled back out. The drag holds
+	 * its cursor over the whole window. */
 	.rail-edge {
 		position: relative;
 		width: 8px;
-		margin: 0 -8px;
+		margin: 0 -4px;
 		flex-shrink: 0;
 		cursor: col-resize;
 		touch-action: none;
@@ -2872,7 +2892,7 @@
 	.dock-edge::after {
 		content: "";
 		position: absolute;
-		inset: 8px auto 8px 3px;
+		inset: 0 auto 0 3px;
 		width: 2px;
 		border-radius: 1px;
 		background: transparent;
@@ -2901,6 +2921,17 @@
 	.rail-compact .rail-row {
 		justify-content: center;
 		padding: 6px 0;
+	}
+	/* With no names beside them the faces are the roster, so they stand at
+	 * the pinned faces' size: 36px, the new teammate's dashed face with them. */
+	.rail-compact .rail-add-face {
+		width: 36px;
+		height: 36px;
+	}
+	/* On macOS the faces column is wider, beside the traffic lights, and its faces 48px (Rail.tsx). */
+	html[data-platform="macos"] .rail-compact .rail-add-face {
+		width: 48px;
+		height: 48px;
 	}
 	/* Faces only has no margin for the unread dot, so it rides the other shoulder. */
 	.rail-face-unread {
@@ -2940,25 +2971,47 @@
 		width: 9px;
 		height: 9px;
 	}
+	/* Faces only: a hovered face grows out of its own row to the right, the
+	 * row's fill carried on past the rail over the pane, with the name and
+	 * the latest line beside the face. It stands exactly over the row, the
+	 * face in the same place, and opens from the row's width outwards. */
 	.rail-tip {
+		--row: 64px;
 		position: fixed;
 		z-index: 40;
-		max-width: 260px;
-		padding: 6px 10px;
+		display: flex;
+		max-width: 320px;
+		align-items: center;
+		gap: 12px;
+		padding-right: 16px;
 		border-radius: var(--radius-control);
 		background: var(--pop);
 		box-shadow:
 			var(--top-light),
 			var(--shadow-float);
-		transform: translateY(-50%);
 		pointer-events: none;
-		animation: tip-in var(--dur-open) var(--ease-out) both;
+		animation: tip-grow var(--dur-open) var(--ease-out) both;
 	}
-	/* pop-in, keeping the card centred on its row. */
-	@keyframes tip-in {
+	.rail-tip-face {
+		display: flex;
+		flex-shrink: 0;
+	}
+	/* The face's dots ring in the card's own surface, not the rail's. */
+	.rail-tip .rail-face-vital,
+	.rail-tip .rail-face-unread {
+		box-shadow: 0 0 0 2px var(--pop);
+	}
+	@keyframes tip-grow {
 		from {
-			opacity: 0;
-			transform: translate(-2px, -50%);
+			clip-path: inset(0 calc(100% - var(--row)) 0 0 round var(--radius-control));
+		}
+		to {
+			clip-path: inset(0 0 0 0 round var(--radius-control));
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.rail-tip {
+			animation: none;
 		}
 	}
 	.rail-row {
@@ -3334,14 +3387,11 @@
 	}
 	.dock-edge {
 		position: absolute;
-		inset: 0 auto 0 -8px;
+		inset: 0 auto 0 -4px;
 		z-index: 1;
 		width: 8px;
 		cursor: col-resize;
 		touch-action: none;
-	}
-	.dock-edge::after {
-		inset: 8px 3px 8px auto;
 	}
 	/* A page in the pane (a thread) fills it under its own band. */
 	.dock-page {
@@ -3438,28 +3488,88 @@
 		border-radius: var(--radius-pane);
 		overflow: clip;
 	}
-	/* A window too narrow for the card to float beside the words docks it
-	 * under the composer, the width of the column, where it pushes the
-	 * conversation up instead of covering it. */
+	/* The peek (Work.tsx): a turn of work as a glance. It slides up over
+	 * the conversation's foot from behind the composer, standing on the
+	 * composer's top (Composer's `above`) and tucked under it, rather than
+	 * lifting the conversation; a glance you put away. While the turn runs it
+	 * stands on the work card instead, so the card's Thinking and Stop stay
+	 * under it. The card's width and surface, translucent over what it
+	 * covers, blurred so its lines still read. */
 	.work-dock {
-		flex-shrink: 0;
-		padding: 0 24px 12px;
-		margin-top: -4px;
+		position: absolute;
+		right: 0;
+		bottom: calc(100% - 22px);
+		left: 0;
+		z-index: 0;
+		display: flex;
+		justify-content: center;
+		/* Nothing of it shows below the composer's top on the way up: the
+		 * slide is clipped at its own foot, which stands under the composer. */
+		overflow: hidden;
+		padding-top: 2px;
 	}
-	/* Docked, it is only as tall as its run, up to a third of the window, so
-	 * a short run never lifts the composer for steps it does not have. */
+	.composer {
+		position: relative;
+		z-index: 1;
+	}
 	.work-float.work-docked {
-		width: 100%;
-		max-width: 46rem;
+		width: calc(100% - 84px);
 		height: auto;
-		max-height: min(240px, 34vh);
-		margin: 0 auto;
-		background: var(--pop);
-		-webkit-backdrop-filter: none;
-		backdrop-filter: none;
+		padding-bottom: 22px;
+		border-radius: 14px 14px 0 0;
+		background: color-mix(in oklab, var(--raised) 84%, transparent);
+		-webkit-backdrop-filter: blur(18px) saturate(1.3);
+		backdrop-filter: blur(18px) saturate(1.3);
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line);
+		animation: wake 420ms cubic-bezier(0.33, 1, 0.68, 1) both;
+	}
+	.conversation:has(.ambient-card:not([data-sleeping])) .work-dock {
+		bottom: calc(100% + 36px);
+	}
+	.conversation:has(.ambient-card:not([data-sleeping])) .work-float.work-docked {
+		padding-bottom: 0;
+		border-radius: 14px 14px 0 0;
+		box-shadow: 0 0 0 var(--hairline) var(--line);
+		animation: none;
+	}
+	.conversation:has(.work-docked) .ambient-card {
+		border-top-left-radius: 0;
+		border-top-right-radius: 0;
+	}
+	/* A window onto the work, never a list that grows: always four lines
+	 * (24px each, and its 8px top and bottom), each step one plain line,
+	 * scrolling under a soft fade at either edge. A line is pressed to read it
+	 * in the pane, so there is nothing here to open. */
+	.work-docked .work-window {
+		flex: none;
+		height: calc(4 * 24px + 16px);
+		margin: 0 4px 6px;
+		background: transparent;
+		box-shadow: none;
+		-webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+		mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+	}
+	.work-docked .work-window .step-title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* The pane's page (Dock.tsx): the turn flush and full height, with room
+	 * for every step to open; no well inside it, the pane is the surface. */
+	.work-page {
+		display: flex;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+	}
+	.work-page .work-window {
+		margin: 0;
+		padding: 4px 8px 16px;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
 	}
 	.work-window {
 		min-height: 0;
@@ -3960,8 +4070,8 @@
 @media (prefers-reduced-motion: reduce) {
 	.welcome-stage,
 	.beat,
-	.ambient-mark,
-	.ambient-mark[data-sleeping],
+	.ambient-card,
+	.ambient-card[data-sleeping],
 	.menu,
 	.rail-tip,
 	.search-panel,
@@ -4102,7 +4212,8 @@
 		display: flex;
 		flex-shrink: 0;
 		flex-direction: column;
-		margin: 5px 5px 0;
+		/* Under the window's lead or controls it drops below the top bar (Titlebar.tsx). */
+		margin: calc(5px + var(--chrome-drop, 0px)) 5px 0;
 		border-radius: calc(var(--radius-pane) - 5px);
 		background: var(--raised);
 		box-shadow:
@@ -4125,7 +4236,7 @@
 	}
 	@keyframes call-head-lift {
 		from {
-			margin: 0;
+			margin: var(--chrome-drop, 0px) 0 0;
 			border-radius: 0;
 			background: var(--canvas);
 			box-shadow: none;
@@ -4697,6 +4808,21 @@
 		height: auto;
 		margin: 4px auto 16px;
 	}
+	/* In the faces-only rail the keys stand bare on the faces' axis, and the
+	 * bar only gathers round them while it is pointed at or holds focus. */
+	.rail-dock-compact:not(:hover, :focus-within) {
+		background: transparent;
+		box-shadow: none;
+	}
+	.rail-dock-compact:not(:hover, :focus-within) .rail-settings-key::after,
+	.rail-dock-compact:not(:hover, :focus-within) .desk-call-key::before {
+		opacity: 0;
+	}
+	.rail-dock-compact {
+		transition:
+			background var(--dur-press) var(--ease-out),
+			box-shadow var(--dur-press) var(--ease-out);
+	}
 	/* The three keys share the bar in equal thirds, Settings at the start,
 	 * search in the middle between two hairlines, the desk's line at the end. */
 	.rail-dock:not(.rail-dock-compact) > .rail-settings-key,
@@ -4883,12 +5009,15 @@
 		background: var(--accent);
 		box-shadow: 0 0 0 2px var(--canvas);
 	}
+	/* Who a menu is about: the face and name centred on each other, a line
+	 * under the name when there is one, and a hairline inset as the menu's
+	 * rules are, the face on the items' leading edge. */
 	.menu-card {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 6px 8px 10px;
-		margin-bottom: 4px;
+		margin: 0 6px 4px;
+		padding: 8px 2px 10px;
 		border-bottom: var(--hairline) solid var(--line);
 		text-transform: none;
 		letter-spacing: 0;
@@ -4899,6 +5028,7 @@
 		flex-direction: column;
 	}
 	.menu-card-name {
+		line-height: var(--text-sm--line-height);
 		font-weight: 600;
 		font-size: var(--text-sm);
 		color: var(--ink);

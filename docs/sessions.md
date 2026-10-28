@@ -327,8 +327,8 @@ background subagents finish and it has said what they found. While nothing
 else is open, that turn reads as done. The reply is chat, not narration; the
 phone and a call hear it then, as they would at a turn's end; and the
 session's `awaitingSubagents` is true while `state` stays `thinking`. So the
-window shows no Working mark, the work card says Done, the composer has no
-Interrupt key, and the desktop toast for a finished turn fires. Everything
+window shows no work card, its peek says Done, nothing offers Stop, and the
+desktop toast for a finished turn fires. Everything
 that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 

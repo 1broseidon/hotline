@@ -100,6 +100,12 @@ pub enum Update {
         /// The tool's own name, which the UI picks an icon by.
         kind: String,
     },
+    /// What the agent says a call does, in its own few words (a shell
+    /// command's description), for the step's glance (`glance::step_said`).
+    ToolSaid {
+        call_id: String,
+        words: String,
+    },
     /// Structured mutations retained with the corresponding tool record.
     ToolFiles {
         call_id: String,

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
@@ -60,7 +60,17 @@ export const Steps = memo(function Steps({
  * "Thinking" row, since harnesses send thinking in pieces that break
  * mid-sentence, and a tool with its output.
  */
-export function StepRows({ items, settled = false }: { items: Step[]; /** The turn is over: nothing in it is still running. */ settled?: boolean }) {
+export function StepRows({
+	items,
+	settled = false,
+	openId,
+}: {
+	items: Step[];
+	/** The turn is over: nothing in it is still running. */
+	settled?: boolean;
+	/** The row to open on arrival, brought into view: the one pressed in the peek. */
+	openId?: string | undefined;
+}) {
 	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | Extract<Step, { kind: "tool" }>)[] = [];
 	for (const item of items) {
 		const last = rows[rows.length - 1];
@@ -71,7 +81,7 @@ export function StepRows({ items, settled = false }: { items: Step[]; /** The tu
 	}
 	return rows.map((row, at) =>
 		row.kind === "thinking" ? (
-			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} />
+			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} startOpen={row.id === openId} />
 		) : (
 			<Tool
 				key={row.id}
@@ -80,16 +90,38 @@ export function StepRows({ items, settled = false }: { items: Step[]; /** The tu
 				// A harness that never closed a call leaves it running on the tape after the turn ended.
 				status={settled && (row.status === "in_progress" || row.status === "pending") ? "completed" : row.status}
 				output={row.output}
+				startOpen={row.id === openId}
 			/>
 		),
 	);
 }
 
+/** A row asked to open on arrival is brought into view once, where its pane can show it. */
+function useArrival(startOpen: boolean) {
+	const row = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (startOpen) row.current?.scrollIntoView({ block: "nearest" });
+	}, [startOpen]);
+	return row;
+}
+
 /** What the agent was thinking: "Thinking" until pressed, the whole thought after. */
-function Thought({ id, text, live }: { id: string; text: string; /** Still arriving. */ live: boolean }) {
-	const [open, setOpen] = useState(false);
+function Thought({
+	id,
+	text,
+	live,
+	startOpen,
+}: {
+	id: string;
+	text: string;
+	/** Still arriving. */
+	live: boolean;
+	startOpen: boolean;
+}) {
+	const [open, setOpen] = useState(startOpen);
+	const row = useArrival(startOpen);
 	return (
-		<div data-step-id={id}>
+		<div ref={row} data-step-id={id}>
 			<button type="button" className="step" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
 				<span aria-hidden="true" className={`step-mark ${live ? "beat" : ""}`} style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
 				<span className="step-title text-ink-3">Thinking</span>
@@ -113,17 +145,20 @@ function Tool({
 	title,
 	status,
 	output,
+	startOpen,
 }: {
 	id: string;
 	title: string;
 	status: ToolStatus;
 	output: ToolOutput[] | undefined;
+	startOpen: boolean;
 }) {
-	const [open, setOpen] = useState(false);
 	// Some harnesses record an empty text output; that is nothing to open.
 	const hasOutput = output !== undefined && output.some((one) => one.type === "diff" || one.text.trim() !== "");
+	const [open, setOpen] = useState(startOpen && hasOutput);
+	const row = useArrival(startOpen);
 	return (
-		<div data-step-id={id}>
+		<div ref={row} data-step-id={id}>
 			<button
 				type="button"
 				className="step"

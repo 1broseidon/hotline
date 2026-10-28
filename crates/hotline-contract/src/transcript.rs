@@ -101,6 +101,12 @@ pub enum TranscriptEvent {
         files: Option<Vec<ChangedFile>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         output: Option<Vec<ToolOutput>>,
+        /// The step said in a few words, for a glance at a turn (the work
+        /// card and the peek, on the desk and the phone): the agent's own
+        /// description when it gave one, else the desk's words for the tool.
+        /// Absent on steps written before 0.44.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        said: Option<StepSaid>,
     },
     Permission {
         /// The call that raised this card in the home chat.
@@ -805,6 +811,19 @@ pub struct JobPost {
     pub at: i64,
     /// The post's first words, clipped for a line.
     pub text: String,
+}
+
+/// A step in a few words. Steps in a row with the same `key` are one line of
+/// a glance: `one` for a single step, `many` with `{n}` for the count, and
+/// `doing` for the line while the step is the one running now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct StepSaid {
+    pub key: String,
+    pub one: String,
+    pub many: String,
+    pub doing: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

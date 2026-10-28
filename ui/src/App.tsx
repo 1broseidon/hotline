@@ -112,10 +112,7 @@ export function App() {
 	/* A narrow window keeps the pane and shows the rail as faces only, open
 	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
-	/* Under this the floating work card would sit on the conversation's
-	 * words, so it docks under the composer instead. */
 	const mainRef = useRef<HTMLElement>(null);
-	const [dockWork, setDockWork] = useState(false);
 	const dockWidthRef = useRef(dockWidth);
 	dockWidthRef.current = dockWidth;
 	const measured = useRef<() => void>(() => {});
@@ -123,7 +120,6 @@ export function App() {
 		const el = mainRef.current;
 		if (el === null) return;
 		const measure = () => {
-			setDockWork(el.clientWidth < WORK_DOCK_BELOW);
 			setPaneOverlays(dockOverlays(el.clientWidth, dockWidthRef.current));
 		};
 		measured.current = measure;
@@ -284,6 +280,15 @@ export function App() {
     }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
+	/* The peek's line, or its pane key, opens the turn in the right-hand pane
+	 * at that line, and the peek goes: one place to read it at a time. */
+	const openWorkPane = useCallback(
+		(personaId: string, blockId: string | null, stepId: string | null) => {
+			closeWork(personaId);
+			openDock({ open: null, work: { personaId, blockId, ...(stepId !== null ? { stepId } : {}) } });
+		},
+		[closeWork, openDock],
+	);
 	/* A caption or the mark, pressed again with its work already open, closes it. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
@@ -447,7 +452,6 @@ export function App() {
 				personaId={entry.persona.id}
 				processId={open.processId}
 				process={entry.session.processes?.find((process) => process.id === open.processId)}
-				docked={dockWork}
 				onClose={() => closeWork(entry.persona.id)}
 			/>
 		) : (
@@ -456,11 +460,10 @@ export function App() {
 				open={open}
 				name={entry.persona.name}
 				live={shownState(entry.session) === "thinking"}
-				docked={dockWork}
+				onPick={(stepId) => openWorkPane(entry.persona.id, open.blockId, stepId)}
 				onClose={() => closeWork(entry.persona.id)}
 			/>
 		);
-	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork && !dockOverlay ? workCard(selected, workOf) : null;
 
 
 	// A call to a teammate is the conversation's inset card, or a strip atop
@@ -517,7 +520,6 @@ export function App() {
 				<FlushChrome
 					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" }}
 					width={railWidth}
-					faces={faces && pane !== "settings"}
 					search={teamSearch("below")}
 				/>
 			)}
@@ -568,7 +570,6 @@ export function App() {
 				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
 				onAddDesk={() => togglePane("add-desk")}
 				onNew={newTeammate}
-				onToggle={platform() === "macos" ? toggleRail : undefined}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
 				settings={settingsKey("rail-settings-key")}
@@ -636,7 +637,7 @@ export function App() {
 							threadOpen={dock?.open?.thread}
 							paneOpen={dock !== null}
 							railOpen={railShown}
-							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
+							{...(workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{inspector && (
 							<Teammate
@@ -680,24 +681,23 @@ export function App() {
 							onOpenTeammate={select}
 						/>
 					)}
-					{/* What floats over the window runs down its right edge: a turn's work at the top, a new version at the bottom. */}
-				{(floatWork !== null || pane !== "settings") && (
+					{/* What floats over the window runs down its right edge: a new version, at the bottom. */}
+				{pane !== "settings" && (
 					<div
 						className="float-stack"
 						style={
-							dock !== null && pane !== "settings" && !dockOverlay
+							dock !== null && !dockOverlay
 								? { right: dockWidth + 24 }
 								: inspector && selected !== null && pane === null
 									? { right: INSPECTOR_WIDTH + 24 }
 									: undefined
 						}
 					>
-						{floatWork}
 						{/* Settings › Updates says it already, with the notes and the install. */}
-						{pane !== "settings" && <UpdateFloat onOpen={() => {
+						<UpdateFloat onOpen={() => {
 							setSettingsSection("updates");
 							setPane("settings");
-						}} />}
+						}} />
 					</div>
 				)}
 				</div>
@@ -711,8 +711,6 @@ export function App() {
 /** The teammate's pane (`.inspector` in index.css); what floats keeps clear of it. */
 const INSPECTOR_WIDTH = 320;
 
-/** The width of the window's main column below which a work card docks. */
-const WORK_DOCK_BELOW = 960;
 
 /**
  * A band over the active desk when it is a remote one that is not there:

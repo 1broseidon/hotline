@@ -119,6 +119,13 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                 kind: line.kind.clone(),
             })
             .await;
+            if let Some(words) = own_words(call.raw_input.as_ref()) {
+                pen.emit(Update::ToolSaid {
+                    call_id: call.tool_call_id.0.to_string(),
+                    words,
+                })
+                .await;
+            }
             let finished = finished(call.status, &call.content);
             let files = line.files.clone();
             lock(pen.tools).insert(call.tool_call_id.0.to_string(), line);
@@ -207,6 +214,15 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                 tools.insert(call_id.clone(), line);
                 announced
             };
+            // The input often arrives after the call was announced, and with it
+            // the agent's own words for what the call does.
+            if let Some(words) = own_words(fields.raw_input.as_ref()) {
+                pen.emit(Update::ToolSaid {
+                    call_id: call_id.clone(),
+                    words,
+                })
+                .await;
+            }
             let content = fields.content.unwrap_or_default();
             match fields.status.and_then(|status| finished(status, &content)) {
                 Some((ok, output, images)) => {
@@ -362,6 +378,18 @@ fn allow_option(options: &[acp::PermissionOption]) -> Option<&acp::PermissionOpt
                 .iter()
                 .find(|option| option.kind == acp::PermissionOptionKind::AllowOnce)
         })
+}
+
+/// What the agent says a call does in its own few words, when its input
+/// carries them: Claude's shell and subagent tools ask the model for a short
+/// `description` of every call.
+fn own_words(input: Option<&Value>) -> Option<String> {
+    input?
+        .get("description")?
+        .as_str()
+        .map(str::trim)
+        .filter(|words| !words.is_empty())
+        .map(str::to_string)
 }
 
 /// What the agent is actually asking to be allowed to do.
@@ -692,4 +720,23 @@ fn changed_files(
         }
     }
     files
+}
+
+#[cfg(test)]
+mod own_words_tests {
+    use super::own_words;
+    use serde_json::json;
+
+    #[test]
+    fn a_calls_own_description_is_its_few_words_and_nothing_else_is() {
+        let input =
+            json!({"command": "cargo test -p core", "description": "  Run the core tests "});
+        assert_eq!(
+            own_words(Some(&input)).as_deref(),
+            Some("Run the core tests")
+        );
+        assert_eq!(own_words(Some(&json!({"command": "ls"}))), None);
+        assert_eq!(own_words(Some(&json!({"description": "   "}))), None);
+        assert_eq!(own_words(None), None);
+    }
 }

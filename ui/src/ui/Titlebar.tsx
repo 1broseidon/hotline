@@ -121,19 +121,18 @@ const LIGHTS_RIGHT = 76;
  * top-right corner. Whatever pane's band runs under either is measured and
  * makes room for it (`--lead-room`, `--controls-room`), so the faces-only
  * rail, a closed rail and any pane at the right all keep their titles clear.
+ * A call's card that would stand under either drops below the top bar
+ * instead (`--chrome-drop`), keeping the pane's whole width.
  */
 export function FlushChrome({
 	rail,
 	width,
-	faces,
 	search,
 }: {
 	/** `key: false` shows no key to hide or show it (Settings' sections stay out). */
 	rail: { open: boolean; onToggle(): void; key?: boolean };
 	/** The rail's width while it is open: its head is the lead's drag area. */
 	width: number;
-	/** The faces-only rail: on macOS its column carries the rail's key, the traffic lights filling its head. */
-	faces: boolean;
 	search: ReactNode;
 }) {
 	const frame = drawsFrame();
@@ -168,6 +167,15 @@ export function FlushChrome({
 					band.style.setProperty("--lead-room", top && box.left < leadRight ? `${Math.ceil(leadRight - box.left)}px` : "0px");
 					band.style.setProperty("--controls-room", top && box.right > controlsLeft ? `${Math.ceil(box.right - controlsLeft)}px` : "0px");
 				}
+				// A call's card moves when it drops, so it is measured by the pane it
+				// stands at the top of, which does not.
+				for (const card of document.querySelectorAll<HTMLElement>("#root .call-head")) {
+					if (card.parentElement === null) continue;
+					sized.observe(card.parentElement);
+					const pane = card.parentElement.getBoundingClientRect();
+					const under = pane.top < 40 && (pane.left < leadRight || pane.right > controlsLeft);
+					card.style.setProperty("--chrome-drop", under ? "40px" : "0px");
+				}
 			}, 16);
 		};
 		fit();
@@ -189,7 +197,7 @@ export function FlushChrome({
 		<>
 			<div ref={lead} className="chrome-lead" style={rail.open ? { width } : undefined}>
 				{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
-				{rail.key !== false && !(rail.open && faces && platform() === "macos") && <button
+				{rail.key !== false && <button
 					type="button"
 					className="control btn-icon"
 					title={`${rail.open ? "Hide" : "Show"} the team (${chordKeys("sidebar")})`}

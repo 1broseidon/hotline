@@ -673,6 +673,15 @@ pub(super) fn event_of(
             }
             Vec::new()
         }
+        // Its own words are its glance from now on; the line is written again
+        // so the card says them while the call still runs.
+        Update::ToolSaid { call_id, words } => match in_flight.get_mut(&call_id) {
+            Some(pending) => {
+                pending.words = Some(words);
+                vec![pending.event(&call_id, ToolStatus::InProgress, None)]
+            }
+            None => Vec::new(),
+        },
         Update::ToolCall {
             call_id,
             title,
@@ -683,6 +692,7 @@ pub(super) fn event_of(
                 files: None,
                 title,
                 kind,
+                words: None,
             };
             let event = pending.event(&call_id, ToolStatus::InProgress, None);
             in_flight.insert(call_id, pending);
@@ -757,6 +767,8 @@ pub(super) struct PendingTool {
     title: String,
     pub(super) kind: String,
     files: Option<Vec<crate::contract::ChangedFile>>,
+    /// The agent's own few words for the call, when it gave them.
+    words: Option<String>,
 }
 
 impl PendingTool {
@@ -776,6 +788,11 @@ impl PendingTool {
             locations: None,
             files: self.files.clone(),
             output: output.map(|output| vec![output]),
+            said: Some(crate::glance::step_said(
+                &self.title,
+                &self.kind,
+                self.words.as_deref(),
+            )),
         }
     }
 }

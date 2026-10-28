@@ -109,3 +109,54 @@ test("one rail lists every desk's teammates with their desk, dims an unreachable
 		await teardown();
 	}
 });
+
+test("in the faces-only rail a face grows out over its own row to the right: the same face, then the name", async () => {
+	const { teardown } = installDom();
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { Rail } = await import("../src/components/Rail");
+	const { replaceDesks, setActiveDesk, setDeskFilter, LOCAL_DESK } = await import("../src/desks");
+	replaceDesks([{ id: LOCAL_DESK, name: "This computer", kind: "local", origin: "http://127.0.0.1:1", token: "token" }]);
+	setActiveDesk(LOCAL_DESK);
+	setDeskFilter(null);
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container);
+	try {
+		await act(async () =>
+			root.render(
+				<Rail
+					entries={[entry("huck", { latest: 10 })]}
+					selectedId={null}
+					seen={{ huck: 10 }}
+					connection="open"
+					onSelect={() => {}}
+					onEdit={() => {}}
+					onDelete={() => {}}
+					onPin={() => {}}
+					onLead={() => {}}
+					onAddDesk={() => {}}
+					onNew={() => {}}
+					compact
+					settings={null}
+					search={null}
+					deskKey={null}
+				/>,
+			),
+		);
+		const row = container.querySelector<HTMLElement>("[data-teammate-row]")!;
+		expect(document.querySelector(".rail-tip")).toBeNull();
+		await act(async () => row.focus());
+		const tip = document.querySelector<HTMLElement>(".rail-tip")!;
+		expect(tip.textContent).toContain("HUCK");
+		// The card carries the row's own face at its start, where the row's stands.
+		expect(tip.querySelector(".rail-tip-face [aria-hidden], .rail-tip-face img, .rail-tip-face span")).not.toBeNull();
+		expect(tip.style.getPropertyValue("--row")).not.toBe("");
+		await act(async () => row.blur());
+		expect(document.querySelector(".rail-tip")).toBeNull();
+	} finally {
+		await act(async () => root.unmount());
+		container.remove();
+		teardown();
+	}
+});

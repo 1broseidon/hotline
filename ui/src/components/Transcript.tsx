@@ -6,6 +6,7 @@ import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon,
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
 import { activityOf } from "../activity";
+import { glance } from "../glance";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
@@ -23,6 +24,7 @@ import {
 	type Run,
 	type Side,
 	sideOf,
+	stepRuns,
 	superseded,
 	toBlocks,
 	withStreaming,
@@ -104,6 +106,7 @@ export function Transcript({
 	onOpenWork,
 	workOpen,
 	onProviders,
+	onStop,
 	thread,
 	more = false,
 	onEarlier,
@@ -158,6 +161,8 @@ export function Transcript({
 	workOpen?: string | null | undefined;
 	/** Opens Settings › Providers, from a card saying no provider is connected. */
 	onProviders?(): void;
+	/** Stop on the work card while a turn runs, in the composer's place (Composer's `stopOnCard`). */
+	onStop?(): void;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -331,7 +336,15 @@ export function Transcript({
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
-	const currentActivity = useMemo(() => live || queued ? activityOf(events, streaming, queued) : null, [live, queued, events, streaming]);
+	const currentActivity = useMemo(() => {
+		if (!live && !queued) return null;
+		const now = activityOf(events, streaming, queued);
+		// At work with its tools, the card says what in a few words ("Running cargo test"), as the peek's last line does.
+		if (!["read", "search", "edit", "execute", "doing"].includes(now.phase)) return now;
+		const run = stepRuns(events, streaming).at(-1);
+		const said = run === undefined ? undefined : glance(run.items, true).at(-1)?.text;
+		return said === undefined ? now : { ...now, word: said };
+	}, [live, queued, events, streaming]);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
 
 	// A thread is said once: as its answer when one came back, else as its
@@ -463,17 +476,23 @@ export function Transcript({
 		{activity !== null && (
 			<div className="ambient">
 				<div className="mx-auto w-full max-w-[46rem] px-6">
-					<button
-						type="button"
-						className="ambient-mark"
-						data-sleeping={sleeping || undefined}
-						aria-expanded={onOpenWork !== undefined ? workOpen === null : workShown}
-						title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
-						onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
-					>
-						<Glyph phase={activity.phase} />
-						{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
-					</button>
+					<div className="ambient-card" data-sleeping={sleeping || undefined}>
+						<button
+							type="button"
+							className="ambient-mark"
+							aria-expanded={onOpenWork !== undefined ? workOpen === null : workShown}
+							title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
+							onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
+						>
+							<Glyph phase={activity.phase} />
+							{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
+						</button>
+						{onStop !== undefined && !sleeping && (
+							<button type="button" className="ambient-stop" title="Interrupt (Esc)" onClick={onStop}>
+								Stop
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 		)}

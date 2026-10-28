@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-27
+
 ### Added
 
 - Ollama speaks. With a speech model such as `phonon` pulled into a
@@ -47,6 +49,33 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A card waiting on you says "Needs you" in the accent and leads with its
   question. A settled sign-in card reads like a settled permission: what was
   asked, of which site, and how it ended.
+- A teammate at work shows a card tucked behind the top of the composer:
+  its mark and what it is doing, and Stop at the right, which leaves the
+  composer. Pressing the card, or a run's steps caption, slides a peek up
+  over the end of the conversation: four plain lines that follow the newest
+  step, under a soft fade, without moving the conversation. A line pressed
+  opens that turn in the right-hand pane, flush and full height like a
+  thread, with that step open; the peek goes. The card that floated over
+  the conversation, and the one docked under the composer, are gone. The
+  card and the peek say what the teammate did in a few words ("Ran cargo
+  test", "Read 3 files", "Used Linear twice"), steps of one kind in a row as
+  one line; the pane still shows each command as it was run. The words are
+  the agent's own description of a step when it gives one, else the desk's:
+  every step on the tape now carries them, from one list of Hotline's own
+  tools and their labels, so the desk and the phone say the same.
+- The team rail with faces only is roomier on macOS: the traffic lights and
+  the rail's key share its head, so the key stays in one place whether the
+  rail shows names, faces or nothing, and the faces are bigger. A face
+  pointed at grows out over its own row with the teammate's name and latest
+  line, and the dock's keys stand bare until pointed at. The rail keeps an
+  even gutter on both sides, and dragging its edge lights the pane's own
+  line rather than a second one beside it.
+- A resting teammate's top bar keeps the model's name and the effort its
+  last session ran at, never a model id or a model without its effort.
+- A call's card stands below the top bar when the rail is closed (and on
+  Linux and Windows, under the window's controls), at the pane's full width.
+- The teammate menu opens on its face and name, centred, with its goal
+  under the name when it has one.
 - Polish across the window: times sit with the message they date, tables in
   replies are rows without a grid, a run's steps open only as tall as they
   are, states (Done, Working, Thinking, Expired unanswered) and budget
@@ -72,6 +101,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A team-list preview of a reply that opens with a table shows its words,
   not the table's pipes.
 - A waiting card's outline is whole on its left edge.
+- On macOS the traffic lights sit on the top bar's centre line from the
+  window's first show, not only after it was clicked away from and back.
 
 ## [0.43.0] - 2026-10-24
 

@@ -1892,6 +1892,13 @@ export type SpendingSettings = { chat: BudgetLimits, voice: BudgetLimits, images
 export type SpendingSummary = { dayUsd: number, monthUsd: number, };
 
 /**
+ * A step in a few words. Steps in a row with the same `key` are one line of
+ * a glance: `one` for a single step, `many` with `{n}` for the count, and
+ * `doing` for the line while the step is the one running now.
+ */
+export type StepSaid = { key: string, one: string, many: string, doing: string, };
+
+/**
  * `streamDelta`: text arriving as the agent writes it. Never persisted — the
  * durable line is the `TranscriptEvent` that lands when the message is whole.
  */
@@ -2134,7 +2141,14 @@ from?: DeliveryFrom,
 /**
  * A post from a scheduled run: which job it came from.
  */
-scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, } | { "kind": "permission", 
+scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, files?: Array<ChangedFile>, output?: Array<ToolOutput>, 
+/**
+ * The step said in a few words, for a glance at a turn (the work
+ * card and the peek, on the desk and the phone): the agent's own
+ * description when it gave one, else the desk's words for the tool.
+ * Absent on steps written before 0.44.
+ */
+said?: StepSaid, } | { "kind": "permission", 
 /**
  * The call that raised this card in the home chat.
  */

@@ -659,12 +659,22 @@ pub(super) fn event_of(
             title,
             kind,
         } => {
-            let pending = PendingTool {
-                ts: now_ms(),
-                files: None,
-                title,
-                kind,
-                words: None,
+            // A call written again while it runs (its title or path only now
+            // known) keeps when it started, its files and the agent's own
+            // words for it: those came once and do not come again.
+            let pending = match in_flight.remove(&call_id) {
+                Some(known) => PendingTool {
+                    title,
+                    kind,
+                    ..known
+                },
+                None => PendingTool {
+                    ts: now_ms(),
+                    files: None,
+                    title,
+                    kind,
+                    words: None,
+                },
             };
             let event = pending.event(&call_id, ToolStatus::InProgress, None);
             in_flight.insert(call_id, pending);
@@ -684,7 +694,12 @@ pub(super) fn event_of(
             } else {
                 ToolStatus::Failed
             };
-            let sources = crate::glance::sources_of(&pending.title, &pending.kind, &output);
+            // A step that failed read nothing: its address is no source.
+            let sources = if ok {
+                crate::glance::sources_of(&pending.title, &pending.kind, &output)
+            } else {
+                Vec::new()
+            };
             let output = ToolOutput::Text {
                 text: clip(&output, TOOL_OUTPUT_CHARS),
             };

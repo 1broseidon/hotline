@@ -699,6 +699,33 @@ pub fn sources_of(title: &str, kind: &str, output: &str) -> Vec<WebSource> {
         }
         return found;
     }
+    // A command that fetched a page (`curl` or `wget` with an address) read
+    // it, as a fetch does; `gh api` and the like are an API, not a page.
+    if group_of(kind, title) == "execute" {
+        let command = command_of(title);
+        let fetches = command
+            .split(['|', ';', '&'])
+            .map(str::trim)
+            .filter(|part| {
+                let program = part.split_whitespace().next().unwrap_or_default();
+                matches!(
+                    program.rsplit('/').next().unwrap_or_default(),
+                    "curl" | "wget"
+                )
+            })
+            .filter_map(|part| part.split_whitespace().find_map(url_in));
+        let mut found: Vec<WebSource> = Vec::new();
+        for url in fetches {
+            if !found.iter().any(|known| known.url == url) {
+                found.push(WebSource {
+                    url,
+                    title: None,
+                    found: false,
+                });
+            }
+        }
+        return found;
+    }
     if group_of(kind, title) != "fetch" {
         return Vec::new();
     }
@@ -831,6 +858,17 @@ fn command_of(title: &str) -> String {
 /// The program a command runs, said as a person would: "git status", "a Python script".
 fn program_of(title: &str) -> String {
     let command = command_of(title);
+    // A harness titles a shell call "Terminal" until it knows the command.
+    if command.trim().eq_ignore_ascii_case("terminal") {
+        return "a command".to_string();
+    }
+    // A loop or a condition is the shell's own: what it runs is inside.
+    if matches!(
+        command.split_whitespace().next().unwrap_or_default(),
+        "for" | "while" | "until" | "if" | "case" | "{" | "("
+    ) {
+        return "a shell script".to_string();
+    }
     let mut words = command
         .split_whitespace()
         .skip_while(|word| *word == "sudo" || (word.contains('=') && !word.starts_with('-')));
@@ -891,6 +929,19 @@ mod tests {
 
     fn one(title: &str, kind: &str) -> String {
         step_said(title, kind, None).one
+    }
+
+    #[test]
+    fn a_placeholder_title_or_a_loop_is_not_named_as_a_program() {
+        assert_eq!(one("Terminal", "execute"), "Ran a command");
+        assert_eq!(
+            one("for r in a b; do echo $r; done", "execute"),
+            "Ran a shell script"
+        );
+        assert_eq!(
+            one("while true; do sleep 1; done", "execute"),
+            "Ran a shell script"
+        );
     }
 
     #[test]
@@ -1105,6 +1156,76 @@ mod written {
             } => Some(said.one.clone()),
             _ => None,
         })
+    }
+
+    #[test]
+    fn the_agents_own_words_outlast_the_call_being_written_again_while_it_runs() {
+        // Claude's adapter announces a shell call as "Terminal", sends its
+        // description, then writes the call again with the command as title.
+        let written = crate::session::events_of_updates(vec![
+            Update::ToolCall {
+                call_id: "c1".into(),
+                title: "Terminal".into(),
+                kind: "execute".into(),
+            },
+            Update::ToolSaid {
+                call_id: "c1".into(),
+                words: "Fetch the latest release notes".into(),
+            },
+            Update::ToolCall {
+                call_id: "c1".into(),
+                title: "for r in a b; do gh api repos/$r/releases/latest; done".into(),
+                kind: "execute".into(),
+            },
+            Update::ToolResult {
+                call_id: "c1".into(),
+                ok: true,
+                output: "ok".into(),
+                images: Vec::new(),
+            },
+        ]);
+        assert_eq!(said_of(&written[0]).as_deref(), Some("Ran a command"));
+        assert_eq!(
+            said_of(&written[2]).as_deref(),
+            Some("Fetch the latest release notes")
+        );
+        assert_eq!(
+            said_of(&written[3]).as_deref(),
+            Some("Fetch the latest release notes")
+        );
+    }
+
+    #[test]
+    fn a_page_fetched_with_curl_is_a_source_and_a_failed_one_is_not() {
+        let fetch = |ok| {
+            crate::session::events_of_updates(vec![
+                Update::ToolCall {
+                    call_id: "c1".into(),
+                    title: "curl -sL -m 30 https://bun.com/blog/bun-v1.4.4 | python3 -I -c 'x'"
+                        .into(),
+                    kind: "execute".into(),
+                },
+                Update::ToolResult {
+                    call_id: "c1".into(),
+                    ok,
+                    output: "Bun v1.4.4".into(),
+                    images: Vec::new(),
+                },
+            ])
+        };
+        let sources = |events: &[Vec<TranscriptEvent>]| match &events[1][0] {
+            TranscriptEvent::Tool { sources, .. } => sources.clone(),
+            _ => None,
+        };
+        let read = sources(&fetch(true)).expect("a source");
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].url, "https://bun.com/blog/bun-v1.4.4");
+        assert_eq!(sources(&fetch(false)), None);
+        // An API is not a page.
+        assert_eq!(
+            super::sources_of("gh api repos/oven-sh/bun/releases/latest", "execute", "{}"),
+            Vec::new()
+        );
     }
 
     #[test]

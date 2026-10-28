@@ -122,6 +122,18 @@ pub(super) struct Pen<'a> {
 }
 
 impl Live {
+    /// The message still being said, closed as it stands, for an activity
+    /// ended where it cannot be flushed through `emit`: its words are already
+    /// on screen, so its line is written as a stopped turn's is.
+    pub(super) fn take_open(&self) -> Option<Update> {
+        let message = lock(&self.open).take()?;
+        (!message.text.is_empty()).then_some(Update::Message {
+            kind: message.kind,
+            id: message.id,
+            text: message.text,
+        })
+    }
+
     pub(super) fn subscribe_unprompted(&self) -> mpsc::UnboundedReceiver<mpsc::Receiver<Update>> {
         let (sender, receiver) = mpsc::unbounded_channel();
         *lock(&self.unprompted) = Some(sender);

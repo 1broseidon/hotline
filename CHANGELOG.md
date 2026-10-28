@@ -57,7 +57,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the conversation, and the one docked under the composer, are gone. The
   card and the peek say what the teammate did in a few words ("Ran cargo
   test", "Read 3 files", "Used Linear twice"), steps of one kind in a row as
-  one line; the pane still shows each command as it was run.
+  one line; the pane still shows each command as it was run. The words are
+  the agent's own description of a step when it gives one, else the desk's:
+  every step on the tape now carries them, from one list of Hotline's own
+  tools and their labels, so the desk and the phone say the same.
 - The team rail with faces only is roomier on macOS: the traffic lights and
   the rail's key share its head, so the key stays in one place whether the
   rail shows names, faces or nothing, and the faces are bigger. A face

@@ -584,6 +584,18 @@ nothing but its inline style, with no script. Operator sign-in does not alter a
 teammate's MCP grant, and sign-out invalidates live sessions before clearing
 the vault record.
 
+A step a teammate takes is said in a few words wherever a turn is shown at a
+glance (the work card and the peek on the desk, their twins on the phone):
+`said` on each tool event on the tape, worked out once by the core as the step
+is written (`hotline-core/src/glance.rs`). The agent's own description of a
+step wins when it gives one (Claude's shell tool writes one beside every
+command, passed on as `Update::ToolSaid`); Hotline's own tools are said from
+`HOTLINE_TOOLS`, the one manifest of their labels, and a tool added without a
+label fails `every_hotline_tool_has_a_label`; anything else is said by its ACP
+kind, the connected service a tool belongs to, or the program a command runs.
+The windows only group a run of one kind into a line and count it, so the desk
+and the phone never keep lists of their own.
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline

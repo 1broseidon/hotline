@@ -16,6 +16,7 @@ pub use hotline_support::{credentials, log_file, paths, room_lock};
 use hotline_support::{fence, images, thumbs};
 pub mod desk;
 pub mod driver;
+pub mod glance;
 pub mod imagegen;
 pub mod import;
 pub(crate) mod link_preview;

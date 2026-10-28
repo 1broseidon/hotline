@@ -394,6 +394,7 @@ impl Threads<'_> {
                     output: Some(vec![crate::contract::ToolOutput::Text {
                         text: text.clone(),
                     }]),
+                    said: Some(crate::glance::step_said("work_result", "work_result", None)),
                 },
             );
             if !failed

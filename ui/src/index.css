@@ -4183,18 +4183,29 @@
 		/* A hairline that fades out toward both edges, not a hard rule. */
 		background: linear-gradient(to right, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent) bottom / 100% var(--hairline) no-repeat;
 	}
-	/* The steps' heading stays at the top while its steps scroll under it. */
+	/* The steps' heading stays at the top while its steps scroll under it.
+	 * It starts where it sticks, with nothing above it in the window, so a
+	 * scroll never slides it into place; and the window does not bounce at
+	 * its ends, which would carry the heading with it. */
 	.work-page .steps-heading {
 		position: sticky;
-		top: -4px;
+		top: 0;
 		z-index: 1;
 		margin: 0 -4px 4px;
-		padding: 8px 10px 8px;
+		padding: 12px 10px 8px;
 		background: var(--canvas);
+	}
+	.work-page .work-window > .work-sections {
+		padding-top: 0;
+	}
+	/* Files changed, when the turn changed any, scroll above the steps. */
+	.work-page .work-window > .work-sections > [aria-label="Files changed"] {
+		padding-top: 12px;
 	}
 	.work-page .work-window {
 		margin: 0;
-		padding: 4px 8px 16px;
+		padding: 0 8px 16px;
+		overscroll-behavior: none;
 		border-radius: 0;
 		background: transparent;
 		box-shadow: none;

@@ -4173,6 +4173,15 @@
 		flex: 1;
 		flex-direction: column;
 	}
+	/* The turn's shape and sources, fixed over the steps scrolling beneath. */
+	.work-page > .work-head {
+		flex: none;
+		max-height: 45%;
+		overflow-y: auto;
+		gap: 14px;
+		padding: 4px 12px 12px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
 	.work-page .work-window {
 		margin: 0;
 		padding: 4px 8px 16px;

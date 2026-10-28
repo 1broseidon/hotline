@@ -40,8 +40,15 @@ function readable(output: ToolOutput[]): ToolOutput[] {
 }
 
 /** The pane's open line and the bar's segment light together: the line id under the pointer. */
-type Hot = { id: string | null; set(id: string | null): void };
+export type Hot = { id: string | null; set(id: string | null): void };
 
+/** Which line is under the pointer, shared by the bar and the lines. */
+export function useHot(): Hot {
+	const [id, set] = useState<string | null>(null);
+	return useMemo(() => ({ id, set }), [id]);
+}
+
+/** A turn's work as one column: its top, then its steps. */
 export function Trail({
 	items,
 	settled = false,
@@ -50,19 +57,43 @@ export function Trail({
 	items: Step[];
 	/** The turn is over: nothing in it is still running. */
 	settled?: boolean;
-	/** The line to open on arrival, brought into view: the one pressed in the peek. */
+	/** The line to open on arrival, brought into view. */
 	openId?: string | undefined;
 }) {
+	const hot = useHot();
+	return (
+		<>
+			<TrailHead items={items} settled={settled} hot={hot} />
+			<TrailSteps items={items} settled={settled} openId={openId} hot={hot} />
+		</>
+	);
+}
+
+/**
+ * The pane's top, which stays put while the steps scroll under it: the turn's
+ * shape and the first of its sources. Nothing when there is neither.
+ */
+export function TrailHead({ items, settled = false, hot }: { items: Step[]; settled?: boolean; hot: Hot }) {
+	const sources = useMemo(() => sourcesOf(items), [items]);
+	const lines = useMemo(() => glance(items, !settled), [items, settled]);
+	if (toolSteps(items).length === 0 && sources.length === 0) return null;
+	return (
+		<div className="work-sections work-head">
+			<Shape items={items} lines={lines} live={!settled} hot={hot} />
+			{sources.length > 0 && <Sources sources={sources} />}
+		</div>
+	);
+}
+
+/** What runs long, and so scrolls: the files the turn changed and its steps. */
+export function TrailSteps({ items, settled = false, openId, hot }: { items: Step[]; settled?: boolean; openId?: string | undefined; hot: Hot }) {
 	const sources = useMemo(() => sourcesOf(items), [items]);
 	const files = useMemo(() => filesOf(items), [items]);
 	const lines = useMemo(() => glance(items, !settled), [items, settled]);
 	const steps = lines.reduce((n, line) => n + line.steps.length, 0);
-	const [hotId, setHot] = useState<string | null>(null);
-	const hot: Hot = { id: hotId, set: setHot };
+	if (files.length === 0 && lines.length === 0) return null;
 	return (
 		<div className="work-sections">
-			<Shape items={items} lines={lines} live={!settled} hot={hot} />
-			{sources.length > 0 && <Sources sources={sources} />}
 			{files.length > 0 && (
 				<section aria-label="Files changed">
 					<h3 className="work-heading">Files changed · {files.length}</h3>

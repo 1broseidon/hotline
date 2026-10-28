@@ -2,15 +2,13 @@ import { Fragment, type ReactNode, memo, useMemo, useEffect, useLayoutEffect, us
 import { processLabel } from "../activity";
 import { chordKeys } from "../chords";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
-import { ArrowDownIcon, CloseIcon, SidebarIcon } from "../icons";
+import { ArrowDownIcon, CloseIcon } from "../icons";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
 import { runEnding, stepRuns } from "./Transcript";
-import { factOf, workDetail } from "../turnFacts";
-import { glance } from "../glance";
-import { Trail } from "./transcript/Trail";
-import type { Step } from "../scheduledRuns";
+import { workDetail } from "../turnFacts";
+import { TrailHead, TrailSteps, useHot } from "./transcript/Trail";
 
 /**
  * What the card shows: a turn's work, by its caption's id, or the turn
@@ -122,89 +120,10 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 }
 
 /**
- * The peek: a teammate's turn as a glance, sliding up from behind the
- * composer over the conversation's foot. Four plain lines that follow the
- * newest, nothing in them to open; a line pressed (or the pane key) opens the
- * turn in the right-hand pane, that line open there, and the peek goes. A
- * caption opens its own turn; the work card opens the turn running now. A
- * subagent's run, a side thread or a call is a thread, and opens in the pane.
- */
-export function Work({
-	open,
-	name,
-	live,
-	docked = true,
-	onPick,
-	onClose,
-}: {
-	open: OpenWork;
-	name: string;
-	/** A turn is running for this teammate. */
-	live: boolean;
-	docked?: boolean;
-	/** Opens the turn in the right-hand pane, at the line pressed or at its top. */
-	onPick?: ((stepId: string | null) => void) | undefined;
-	onClose(): void;
-}) {
-	const { run, running, state, content, empty } = useTurnWork(open.personaId, open.blockId, name, live);
-	return (
-		<WorkCard
-			label={`${name}'s work`}
-			heading={state}
-			working={state === "Working"}
-			{...(run !== undefined ? { detail: workDetail(run.items) } : {})}
-			docked={docked}
-			following={run?.id}
-			count={run?.items.length ?? 0}
-			content={content}
-			actions={
-				onPick !== undefined && (
-					<button type="button" className="control btn-icon" title="Open in pane" aria-label="Open the work in the pane" onClick={() => onPick(null)}>
-						<SidebarIcon />
-					</button>
-				)
-			}
-			onClose={onClose}
-		>
-			{run === undefined ? empty : <GlanceRows items={run.items} running={running} onPick={onPick} />}
-		</WorkCard>
-	);
-}
-
-/**
- * The peek's lines: what was done in a few words, a run of one kind as one
- * line (glance.ts), each a press away from its steps in the pane. The pane
- * shows the steps themselves, each as it was run.
- */
-export function GlanceRows({ items, running, onPick }: { items: Step[]; running: boolean; onPick: ((stepId: string | null) => void) | undefined }) {
-	const lines = useMemo(() => glance(items, running), [items, running]);
-	return lines.map((line) => {
-		const fact = factOf(line.steps, line.live);
-		return (
-			<div key={line.id} data-step-id={line.id}>
-				<button type="button" className="step" data-live={line.live || undefined} onClick={() => onPick?.(line.id)}>
-					<span
-						aria-hidden="true"
-						className={`step-mark ${line.live ? "beat" : ""}`}
-						style={{ background: line.failed ? "var(--danger)" : line.live ? "var(--accent)" : "var(--ink-4)" }}
-					/>
-					<span className="step-title">{line.text}</span>
-					{fact !== null && (
-						<span className="step-fact" data-tone={fact.tone}>
-							{fact.text}
-						</span>
-					)}
-				</button>
-			</div>
-		);
-	});
-}
-
-/**
  * A turn's work as a page of the right-hand pane, flush and full height like
- * a thread: the room to read it, every step opening to say what it did. The
- * line pressed in the peek arrives open and in view; otherwise the page
- * follows the newest step, as the peek does.
+ * a thread: the room to read it, every step opening to say what it did. A
+ * line asked for arrives open and in view; otherwise the page follows the
+ * newest step.
  */
 export function WorkPage({
 	personaId,
@@ -216,18 +135,21 @@ export function WorkPage({
 }: {
 	personaId: string;
 	blockId: string | null;
-	/** The line pressed in the peek, opened on arrival. */
+	/** A line to open on arrival. */
 	stepId?: string | undefined;
 	name: string;
 	live: boolean;
 	onClose(): void;
 }) {
 	const { run, running, state, content, empty } = useTurnWork(personaId, blockId, name, live);
+	const hot = useHot();
 	return (
 		<section className="work-page" aria-label={`${name}'s work`}>
 			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? workDetail(run.items) : undefined} actions={null} onClose={onClose} />
+			{/* The turn's shape and its sources stay put; the steps, which run long, scroll. */}
+			{run !== undefined && <TrailHead items={run.items} settled={!running} hot={hot} />}
 			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={stepId === undefined}>
-				{run === undefined ? empty : <Trail key={stepId ?? ""} items={run.items} settled={!running} openId={stepId} />}
+				{run === undefined ? empty : <TrailSteps key={stepId ?? ""} items={run.items} settled={!running} openId={stepId} hot={hot} />}
 			</FollowWindow>
 		</section>
 	);

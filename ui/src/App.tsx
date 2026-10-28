@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useNarrow } from "./narrow";
 import { chordKeys } from "./chords";
 import { SettingsIcon } from "./icons";
-import { shownState } from "./activity";
 import type { ConfigChoice } from "./generated/contract";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
@@ -16,7 +15,7 @@ import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import { Teammate } from "./components/Teammate";
-import { ProcessWork, sameWork, Work, type OpenWork } from "./components/Work";
+import { ProcessWork, sameWork, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { EmptyRoom, Welcome } from "./components/Welcome";
 import { LeadPrompt } from "./components/LeadPrompt";
@@ -283,16 +282,18 @@ export function App() {
     }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
-	/* The peek's line, or its pane key, opens the turn in the right-hand pane
-	 * at that line, and the peek goes: one place to read it at a time. */
-	const openWorkPane = useCallback(
-		(personaId: string, blockId: string | null, stepId: string | null) => {
-			closeWork(personaId);
-			openDock({ open: null, work: { personaId, blockId, ...(stepId !== null ? { stepId } : {}) } });
+	/* A turn's work is read in one place, the right-hand pane: its caption
+	 * or the composer's activity row opens it there, and pressed again with
+	 * that turn open, closes it. */
+	const toggleWorkPane = useCallback(
+		(personaId: string, blockId: string | null) => {
+			if (dock?.work?.personaId === personaId && dock.work.blockId === blockId) closeDock();
+			else openDock({ open: null, work: { personaId, blockId } });
 		},
-		[closeWork, openDock],
+		[dock, closeDock, openDock],
 	);
-	/* A caption or the mark, pressed again with its work already open, closes it. */
+	/* A command left running opens in the card over the composer's foot;
+	 * pressed again with it open, the card closes. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
 			const was = works[work.personaId];
@@ -446,7 +447,7 @@ export function App() {
 	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
 
 
-	/* The work card shows only on its own teammate's conversation: not over
+	/* A command's card shows only on its own teammate's conversation: not over
 	 * Settings or another pane, and not on a teammate who has none open. */
 	const workCard = (entry: RosterEntry, open: OpenWork) =>
 		open.processId !== undefined ? (
@@ -457,16 +458,7 @@ export function App() {
 				process={entry.session.processes?.find((process) => process.id === open.processId)}
 				onClose={() => closeWork(entry.persona.id)}
 			/>
-		) : (
-			<Work
-				key={`work-${entry.persona.id}`}
-				open={open}
-				name={entry.persona.name}
-				live={shownState(entry.session) === "thinking"}
-				onPick={(stepId) => openWorkPane(entry.persona.id, open.blockId, stepId)}
-				onClose={() => closeWork(entry.persona.id)}
-			/>
-		);
+		) : null;
 
 
 	// A call to a teammate is the conversation's inset card, or a strip atop
@@ -633,8 +625,8 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
-							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
-							workOpen={workOf?.processId === undefined ? workOf?.blockId : undefined}
+							onOpenWork={(blockId) => toggleWorkPane(selected.persona.id, blockId)}
+							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}

@@ -127,7 +127,7 @@ test("the main conversation's Interrupt and Esc cut the turn as an interrupt, ne
 		rail.click();
 	});
 	await settle();
-	const interrupt = container.querySelector<HTMLButtonElement>('[aria-label="Interrupt"]');
+	const interrupt = container.querySelector<HTMLButtonElement>('button[title="Interrupt (Esc)"]');
 	if (interrupt === null) throw new Error(`No Interrupt in: ${container.textContent}`);
 	await act(async () => interrupt.click());
 	const field = container.querySelector("textarea");

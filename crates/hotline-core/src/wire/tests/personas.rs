@@ -468,7 +468,7 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
         json!({
             "id": 3,
             "cmd": "persona.update",
-            "params": { "id": id, "patch": { "name": "Ada Lovelace" } },
+            "params": { "id": id, "patch": { "name": "Ada Lovelace", "allowedSenders": ["bob"] } },
         }),
     )
     .await;
@@ -476,7 +476,7 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
     assert_eq!(
         quiet.reattached(),
         vec![id.clone()],
-        "a name patch reattached a second time"
+        "a name or allowedSenders patch reattached a second time"
     );
     assert_eq!(*quiet.invalidations.lock().unwrap(), vec![id.clone()]);
 
@@ -492,7 +492,25 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
     assert_eq!(answered(&mut socket, 4).await["ok"], false);
     assert_eq!(
         *quiet.invalidations.lock().unwrap(),
-        vec![id],
+        vec![id.clone()],
         "an invalid patch must not revoke a working session"
+    );
+
+    // A sender taken off is a standing grant revoked: it restarts the session,
+    // ending what was asked under it.
+    ask(
+        &mut socket,
+        json!({
+            "id": 5,
+            "cmd": "persona.update",
+            "params": { "id": id, "patch": { "allowedSenders": [] } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 5).await["ok"], true);
+    assert_eq!(
+        quiet.reattached(),
+        vec![id.clone(), id],
+        "a sender taken off did not revoke"
     );
 }

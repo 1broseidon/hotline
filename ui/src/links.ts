@@ -73,12 +73,13 @@ export function handedIn(link: LinkEvent, owner: string): boolean {
 /**
  * What colleagues have handed this teammate that is not finished yet, from
  * the newest line of each, and who handed it: the one line the person's
- * conversation keeps for all of them.
+ * conversation keeps for all of them. A handoff whose delegation the core
+ * recorded as ended is no longer one the teammate works on for anybody.
  */
 export function handoffsUnderway(events: readonly TranscriptEvent[], owner: string): { count: number; from: string[] } {
 	const newest = new Map<string, LinkEvent>();
 	for (const event of events) if (event.kind === "link" && handedIn(event, owner)) newest.set(event.id, event);
-	const open = [...newest.values()].filter((link) => link.state !== "closed");
+	const open = [...newest.values()].filter((link) => link.state !== "closed" && link.handoffEnded !== true);
 	const from = [...new Set(open.map((link) => link.openerName ?? "a teammate"))];
 	return { count: open.length, from };
 }

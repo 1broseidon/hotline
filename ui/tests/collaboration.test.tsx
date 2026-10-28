@@ -112,6 +112,15 @@ describe("Ask or hand off", () => {
 		});
 	});
 
+	test("a question says who asks", () => {
+		const question = {
+			...delivery,
+			text: "Which port?",
+			cause: { kind: "question" as const, requestId: "r", personaId: "ada", name: "Ada", threadKey: "ada~mack", about: "Which port?" },
+		};
+		expect(deliveryLine(question)).toEqual({ name: "Ada", said: "asks: Which port?" });
+	});
+
 	const marker: Extract<TranscriptEvent, { kind: "peer" }> = {
 		kind: "peer", id: "peer-1", ts: 0, threadKey: "ada~mack", withPersonaId: "mack", withName: "Mack",
 		role: "caller", exchanges: 1, status: "done",
@@ -149,5 +158,27 @@ describe("Ask or hand off", () => {
 		expect(html).toContain("· Open");
 		const old = { kind: "side", id: "side:s1", ts: 1, sideId: "s1", personaId: "ada", title: "Old marker", status: "live" } as TranscriptEvent;
 		expect(transcript([old])).not.toContain("Old marker");
+	});
+});
+
+describe("a thread a teammate handed over", () => {
+	const said: TranscriptEvent = { kind: "user", id: "said", ts: 3, text: "Use the staging key." };
+	const lines: TranscriptEvent[] = [delivery, { kind: "agent", id: "reply", ts: 2, text: "On it." }, said];
+	const drawn = (thread: { kind: "side" | "pair"; key: string }, speakers: { me: string; them: string; mine: "user" | "agent" }) =>
+		renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={thread} speakers={speakers} events={lines} streaming={[]} live={false} focus={null} />);
+
+	test("draws the person's own line as theirs and the opener's brief whole under the opener's name", () => {
+		const html = drawn({ kind: "side", key: "s1" }, { me: "Ada", them: "Mack", mine: "agent" });
+		expect(html).toContain("Implement the fix and report back.");
+		expect(html.match(/>Mack</g)?.length).toBe(1);
+		expect(html.indexOf(">Mack<")).toBeLessThan(html.indexOf("Implement the fix"));
+		expect(html).toContain(">You<");
+		expect(html.indexOf(">You<")).toBeLessThan(html.indexOf("Use the staging key."));
+	});
+
+	test("leaves a pair's user lines to the teammate who sent them", () => {
+		const html = drawn({ kind: "pair", key: "ada~mack" }, { me: "Ada", them: "Mack", mine: "user" });
+		expect(html).not.toContain(">You<");
+		expect(html.indexOf(">Ada<")).toBeLessThan(html.indexOf("Use the staging key."));
 	});
 });

@@ -127,27 +127,14 @@ impl Room {
                     spoken: crate::wire::commands::from_voice(),
                     unprompted: None,
                     retry: false,
+                    wake: false,
+                    request: None,
                 },
                 attachments,
             },
         )
         .await;
         Ok(())
-    }
-
-    /// Something that came back for a teammate, into its own conversation:
-    /// written to its tape first, so it survives a restart and is heard once,
-    /// and then handed to the driver behind the turn in flight, or on a turn
-    /// of its own if there is none. It never cuts into a turn, and a teammate
-    /// that is not running is started for it.
-    pub(crate) async fn deliver_into(
-        self: &Arc<Self>,
-        persona_id: &str,
-        cause: DeliveryCause,
-        text: String,
-    ) -> Result<(), String> {
-        self.deliver_identified(persona_id, &new_id(), cause, text)
-            .await
     }
 
     pub(super) fn handoff_queued(&self, persona_id: &str, id: &str) -> bool {
@@ -160,12 +147,18 @@ impl Room {
         })
     }
 
+    /// Something for a teammate, into its own conversation: written to its
+    /// tape first, so it survives a restart and is heard once, and then handed
+    /// to the driver behind the turn in flight, or on a turn of its own if
+    /// there is none. It never cuts into a turn, and a teammate that is not
+    /// running is started for it. `request` is the ask its turn answers.
     pub(super) async fn deliver_identified(
         self: &Arc<Self>,
         persona_id: &str,
         id: &str,
         cause: DeliveryCause,
         text: String,
+        request: Option<turns::RequestLine>,
     ) -> Result<(), String> {
         let _working = self.working()?;
         if self.handoff_queued(persona_id, id) {
@@ -203,6 +196,7 @@ impl Room {
         let mut wired = Wired::words(timed(ts, &wire));
         wired.said = Some(id.into());
         wired.from = Some(from);
+        wired.request = request;
         lock(&session.dispatched_deliveries).insert(id.into());
         self.dispatch(session, wired);
         Ok(())
@@ -412,23 +406,56 @@ impl Room {
         });
     }
 
-    /// Stops the turn in flight and drops whatever was waiting behind it.
-    ///
-    /// A `request_human` the cancelled turn was parked on dies with it: the
-    /// tool call is inside the turn, so nothing is reading the answer any
-    /// more. The card is superseded and the wait released here, because
-    /// otherwise the transcript keeps a live button for ten minutes and
-    /// pressing it writes `done` for an agent that stopped listening.
+    /// The person's Stop of the turn in flight: as [`Room::cut_turn`], and a
+    /// question the turn was answering ends as their stop of it.
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
-        lock(&session.turns).waiting.clear();
+        session
+            .stopped_by_person
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.cut_turn(&session, false);
+        Ok(())
+    }
+
+    /// The person's Interrupt of the turn in flight, to say something
+    /// instead: as [`Room::cut_turn`], and a question the turn was answering
+    /// ends with that said, for its asker to ask again if it still needs to,
+    /// never as their stop of it. The main conversation has no thread to
+    /// carry the answer on, and the person's next line must never become it.
+    pub fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        let session = self.session(persona_id)?;
+        session
+            .interrupted_by_person
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.cut_turn(&session, true);
+        Ok(())
+    }
+
+    /// Stops the turn in flight and drops whatever was waiting behind it,
+    /// a colleague's question included, which fails to its asker. A question
+    /// the turn was answering ends as one whose turn ended without a result,
+    /// unless the person asked for the cut. A first-contact card involving
+    /// the teammate expires with the cut, unless it is a `redirect`, the
+    /// person's Interrupt, which decides nothing about a colleague.
+    pub(super) fn cut_turn(&self, session: &Session, redirect: bool) {
+        let persona_id = session.persona_id.as_str();
+        let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();
-        self.settle_collaboration(persona_id);
-        self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
-        Ok(())
+        if redirect {
+            self.settle_permissions_of_a_redirect(persona_id);
+        } else {
+            self.settle_collaboration(persona_id);
+            self.settle_permissions(persona_id);
+        }
+        self.fail_dropped_questions(
+            persona_id,
+            dropped
+                .iter()
+                .filter_map(|line| line.request.as_ref())
+                .map(|line| line.request.as_str()),
+        );
     }
 }
 
@@ -505,6 +532,7 @@ pub(super) fn said(events: &[Value]) -> Vec<Said> {
                         && matches!(
                             cause,
                             DeliveryCause::Handoff { .. }
+                                | DeliveryCause::Question { .. }
                                 | DeliveryCause::Peer {
                                     request_id: Some(_),
                                     ..

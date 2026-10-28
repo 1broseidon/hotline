@@ -252,6 +252,24 @@ fn warm_reads_need_no_disk_but_authoritative_reads_still_report_io_errors() {
 }
 
 #[test]
+fn an_id_is_found_on_its_stream_across_revisions_compaction_and_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let stream = StreamId::Tape("ada".into());
+    assert!(!log.contains(&stream, "u1"));
+    log.append(&stream, &json!({"id":"u1", "kind":"user", "ts":1}))
+        .unwrap();
+    log.append(&stream, &json!({"id":"u1", "kind":"user", "ts":2}))
+        .unwrap();
+    assert!(log.contains(&stream, "u1"));
+    assert!(!log.contains(&stream, "u2"));
+    assert!(!log.contains(&StreamId::Tape("bob".into()), "u1"));
+    log.compact(&stream).unwrap();
+    assert!(log.contains(&stream, "u1"));
+    assert!(Log::open(root.path()).contains(&stream, "u1"));
+}
+
+#[test]
 fn thread_links_follow_revisions_compaction_and_restart() {
     let root = tempfile::tempdir().unwrap();
     let log = Log::open(root.path());

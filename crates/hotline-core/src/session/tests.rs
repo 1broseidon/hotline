@@ -77,6 +77,8 @@ pub(crate) struct Scripted {
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
+    /// Each line steered into a turn in flight, by its words.
+    steered: Arc<Mutex<Vec<String>>>,
     /// Each prompt exactly as handed over, stamp and all.
     heard: Arc<Mutex<Vec<String>>>,
     /// Each retry, by its words, apart from the prompts it also counts as.
@@ -113,6 +115,7 @@ impl Scripted {
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
+            steered: Arc::new(Mutex::new(Vec::new())),
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
             start_gate: None,
@@ -149,6 +152,13 @@ impl Scripted {
 
     pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
         self.gate = Some(gate);
+        self
+    }
+
+    /// An agent that takes lines into the turn in flight, as a driver with
+    /// active input does.
+    pub(super) fn steerable(mut self) -> Self {
+        self.unconsumed = Some(Arc::new(Mutex::new(Vec::new())));
         self
     }
 
@@ -240,14 +250,19 @@ impl Driver for Scripted {
                 if let Some(gate) = &gate {
                     let stop = cancelled.notified();
                     tokio::pin!(stop);
+                    // A cancel made before a permit arrived wins over it. Left
+                    // unchosen, the notified `stop` passes its wake on to the
+                    // next turn to wait, which may be another session's on
+                    // this same agent, as a chapter's swap leaves it.
                     tokio::select! {
-                        permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
+                        biased;
                         () = &mut stop => {
                             for update in on_cancel {
                                 let _ = sender.send(update).await;
                             }
                             return;
                         }
+                        permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
                     }
                 }
                 if sender.send(update).await.is_err() {
@@ -262,6 +277,7 @@ impl Driver for Scripted {
         let Some(unconsumed) = &self.unconsumed else {
             return false;
         };
+        lock(&self.steered).push(words_of(&text));
         lock(unconsumed).push((text, attachments));
         true
     }
@@ -356,9 +372,6 @@ pub(crate) struct Fake {
     /// When set, the summariser does not answer until this is notified.
     hold_note: Arc<tokio::sync::Notify>,
     holding: std::sync::atomic::AtomicBool,
-    /// Run once, the next time an agent is built: a test's way into the
-    /// moment between a session being looked for and being kept.
-    on_agent: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Fake {
@@ -408,6 +421,11 @@ impl Fake {
         lock(&self.driver.prompts).clone()
     }
 
+    /// Every line steered into a turn in flight, in order.
+    pub(super) fn steered(&self) -> Vec<String> {
+        lock(&self.driver.steered).clone()
+    }
+
     /// A room whose summariser is asked and refused, which is the shape of
     /// every desk with no model set up.
     pub(crate) fn new(driver: Scripted) -> Arc<Fake> {
@@ -424,13 +442,7 @@ impl Fake {
             answer,
             hold_note: Arc::new(tokio::sync::Notify::new()),
             holding: std::sync::atomic::AtomicBool::new(false),
-            on_agent: Mutex::new(None),
         })
-    }
-
-    /// Runs `then` once, as the next agent is built.
-    pub(super) fn when_building(&self, then: impl FnOnce() + Send + 'static) {
-        *lock(&self.on_agent) = Some(Box::new(then));
     }
 }
 
@@ -448,10 +460,6 @@ impl Agents for Fake {
         lock(&self.seeds).push(said);
         lock(&self.views).push(persona.clone());
         lock(&self.tools).push(tools);
-        let then = lock(&self.on_agent).take();
-        if let Some(then) = then {
-            then();
-        }
         Ok(self.driver.clone())
     }
 

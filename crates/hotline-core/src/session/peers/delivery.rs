@@ -1,97 +1,13 @@
-//! A delivery from one teammate to another, and the collaboration grant it
-//! needs first: the exchange itself, the person's card that authorizes it, and
-//! the decision written back when the card is answered or expires.
+//! The collaboration grant one teammate needs to ask another: the person's
+//! card that authorizes it, and the decision written back when the card is
+//! answered or expires.
 
 use super::*;
+use crate::contract::Reach;
 use crate::driver::HOTLINE_BACKEND_ID;
-use crate::session::runner::Witness;
-use crate::session::turns::Source;
 use crate::session::{new_id, now_ms};
 
-/// A pair keeps its directional receipts and marker while the shared loop
-/// reads the target's turn.
-struct PeerTurn<'a> {
-    room: &'a Room,
-    session: &'a PeerSession,
-    caller: &'a Persona,
-    target: &'a Persona,
-}
-
-impl Witness for PeerTurn<'_> {
-    fn write(&mut self, event: TranscriptEvent, asked: bool) {
-        self.room.append_thread(self.session, event);
-        if asked {
-            self.room
-                .mark(self.session, self.caller, self.target, PeerStatus::Waiting);
-        }
-    }
-}
-
 impl Room {
-    pub(in crate::session) fn cancel_peer_exchange(&self, from: &str, to: &str) {
-        let session = lock(&self.peers.sessions).remove(&(from.into(), to.into()));
-        if let Some(session) = session {
-            session.caller_capability.revoke();
-            session.target_capability.revoke();
-            session.driver.invalidate();
-        }
-    }
-    /// One teammate's message to another, answered.
-    ///
-    /// Runs the target's peer turn to its end and hands back what it said, so
-    /// the tool that asked can return the reply rather than promising one. The
-    /// caller may be mid-turn on its own tape while this runs: nothing here
-    /// touches the caller's session, only its tape's marker.
-    #[cfg(test)]
-    pub async fn deliver(
-        self: &Arc<Self>,
-        from: &str,
-        to: &str,
-        message: &str,
-    ) -> Result<DeliverResult, String> {
-        self.deliver_with_capability(from, to, message, None).await
-    }
-
-    /// The same delivery with the caller's live session lease when the
-    /// request came from a teammate tool. Direct callers use a fresh lease;
-    /// the normal tool path binds the temporary grant to the caller session.
-    #[cfg(test)]
-    pub(crate) async fn deliver_with_capability(
-        self: &Arc<Self>,
-        from: &str,
-        to: &str,
-        message: &str,
-        caller_capability: Option<CapabilityLease>,
-    ) -> Result<DeliverResult, String> {
-        let _working = self.working()?;
-        let asked = self.ask(from, to, message)?;
-        self.exchange(asked, caller_capability).await
-    }
-
-    /// The checks a message passes before anything is started for it, and
-    /// the claim on its thread.
-    pub(in crate::session) fn ask(
-        self: &Arc<Self>,
-        from: &str,
-        to: &str,
-        message: &str,
-    ) -> Result<Asked, String> {
-        let (caller, target, message) = self.checked(from, to, message)?;
-        let key = thread_key(&caller.id, &target.id)
-            .ok_or_else(|| "Those two teammates cannot share a thread.".to_string())?;
-        self.peers.begin(&key, &target.id)?;
-        Ok(Asked {
-            _answering: Answering {
-                room: self.clone(),
-                key: key.clone(),
-            },
-            caller,
-            target,
-            key,
-            message: message.to_string(),
-        })
-    }
-
     /// Who is sending to whom, and the message trimmed, or why not.
     pub(in crate::session) fn checked<'m>(
         &self,
@@ -116,150 +32,8 @@ impl Room {
         Ok((caller, target, message))
     }
 
-    /// The exchange a message starts: approval, the target's peer session,
-    /// its turn, and the marker on both tapes as it goes.
-    pub(in crate::session) async fn exchange(
-        self: &Arc<Self>,
-        asked: Asked,
-        caller_capability: Option<CapabilityLease>,
-    ) -> Result<DeliverResult, String> {
-        let Asked {
-            caller,
-            target,
-            key,
-            message,
-            _answering,
-        } = asked;
-        let message = message.as_str();
-        let caller_capability =
-            caller_capability.unwrap_or_else(|| self.capability_lease(&caller.id));
-        let target_capability = self.capability_lease(&target.id);
-        caller_capability.check()?;
-        target_capability.check()?;
-        let authorization = self
-            .authorize_collaboration(
-                &caller,
-                &target,
-                &caller_capability,
-                &target_capability,
-                false,
-                None,
-            )
-            .await?;
-        if let Err(error) = thread::ensure(self.log.root(), &key) {
-            return Err(format!("That thread could not be opened: {error}"));
-        }
-
-        let session = self
-            .peer_session(
-                &caller,
-                &target,
-                &key,
-                caller_capability.clone(),
-                target_capability.clone(),
-                authorization.scope,
-            )
-            .await?;
-        caller_capability.check()?;
-        target_capability.check()?;
-        if !session.valid() {
-            return Err("That peer session's capabilities have been revoked.".to_string());
-        }
-        if authorization.temporary {
-            let scope = authorization
-                .scope
-                .expect("a temporary collaboration approval has a scope");
-            if !self
-                .peers
-                .grant_session(&caller.id, &target.id, &session, scope)
-            {
-                return Err(
-                    "That collaboration approval expired before the peer session could start."
-                        .to_string(),
-                );
-            }
-        }
-        self.mark(&session, &caller, &target, PeerStatus::Open);
-        self.append_thread(
-            &session,
-            TranscriptEvent::User {
-                id: new_id(),
-                ts: now_ms(),
-                text: message.to_string(),
-                attachments: None,
-                reactions: None,
-                reply_to: None,
-                scheduled: None,
-                ring: None,
-                receipt: None,
-                client: None,
-            },
-        );
-
-        if !session.valid() {
-            self.mark(&session, &caller, &target, PeerStatus::Failed);
-            return Err("That peer session's capabilities have been revoked.".to_string());
-        }
-        // The same funnel as a tape: what the peer says between its tool
-        // calls is thinking, and the asker hears the report. What it posts
-        // goes to its own chat, the target's.
-        let _posting = self.open_posting(&ThreadId::pair(&key), None);
-        let driven = self
-            .threads()
-            .drive(
-                session.driver.as_ref(),
-                Source::Say {
-                    text: timed(now_ms(), &envelope(&caller, message)),
-                    attachments: Vec::new(),
-                },
-                self.reach_of(&target.id),
-                None,
-                None,
-                &mut PeerTurn {
-                    room: self,
-                    session: &session,
-                    caller: &caller,
-                    target: &target,
-                },
-            )
-            .await;
-        // A permission the turn left open on the thread is a button nobody is
-        // behind, exactly as on a tape — and no seat is shown a peer card, so
-        // the child's own timeout is the only thing that ever answered it.
-        if driven.asked {
-            let stream = StreamId::Pair(session.thread_key.clone());
-            for expired in
-                crate::log::expire_orphaned_permissions(&self.log.load(&stream), now_ms())
-            {
-                if let Err(error) = self.log.append(&stream, &expired) {
-                    eprintln!(
-                        "the thread {} could not be appended to: {error}",
-                        session.thread_key
-                    );
-                }
-            }
-        }
-        *lock(&session.last_used) = now_ms();
-        self.let_go_of_computer(&target.id, &session.holder);
-
-        if !session.valid() {
-            self.mark(&session, &caller, &target, PeerStatus::Failed);
-            return Err("That peer session's capabilities have been revoked.".to_string());
-        }
-        if let Some(error) = driven.failure {
-            self.mark(&session, &caller, &target, PeerStatus::Failed);
-            return Err(format!("{} could not answer: {error}", target.name));
-        }
-        lock(&session.marker).exchanges += 1;
-        self.mark(&session, &caller, &target, PeerStatus::Done);
-        Ok(DeliverResult {
-            from: target.name,
-            reply: driven.replies.join("\n\n"),
-        })
-    }
-
-    /// Checks the directional collaboration policy before a thread or target
-    /// session is created. A Whole machine Hotline Agent caller has implicit
+    /// Checks the directional collaboration policy before anything is handed
+    /// to the recipient. A Whole machine Hotline Agent caller has implicit
     /// authority; every workspace caller needs either the recipient's stable
     /// sender grant or an approval tied to the two live capability leases.
     pub(in crate::session) async fn authorize_collaboration(
@@ -270,7 +44,7 @@ impl Room {
         target_capability: &CapabilityLease,
         handoff: bool,
         origin: Option<&crate::contract::ThreadId>,
-    ) -> Result<CollaborationAuthorization, String> {
+    ) -> Result<(), String> {
         caller_capability.check()?;
         target_capability.check()?;
         // Discovery ran before these leases were captured. Re-read both
@@ -281,33 +55,8 @@ impl Room {
         caller_capability.check()?;
         target_capability.check()?;
         let scope = self.peers.scope(&caller.id, &target.id);
-        // Whatever a teammate may do on its own desk, it gains nothing by
-        // crossing a link: one on a linked desk is never implicitly trusted.
-        let implicit = caller.node.is_none()
-            && caller.backend_id == HOTLINE_BACKEND_ID
-            && caller.reach.unwrap_or_default() == Reach::Machine;
-        let informed = self.log.load(&StreamId::Room).iter().any(|v| {
-            v["kind"] == "collaboration_informed"
-                && v["id"] == format!("collaboration:{}:{}", caller.id, target.id)
-                && v["deleted"] != true
-        });
-        if (!handoff || informed)
-            && (implicit
-                || target
-                    .allowed_senders
-                    .iter()
-                    .any(|sender| sender == &caller.id))
-        {
-            return Ok(CollaborationAuthorization {
-                temporary: false,
-                scope: None,
-            });
-        }
-        if let Some(scope) = self.peers.session_granted(&caller.id, &target.id) {
-            return Ok(CollaborationAuthorization {
-                temporary: true,
-                scope: Some(scope),
-            });
+        if self.collaboration_granted(&caller, &target, handoff) {
+            return Ok(());
         }
 
         let request_id = format!("{COLLAB_REQUEST_PREFIX}{}", new_id());
@@ -380,10 +129,7 @@ impl Room {
                         scope,
                     },
                 );
-                Ok(CollaborationAuthorization {
-                    temporary: true,
-                    scope: Some(scope),
-                })
+                Ok(())
             }
             CollaborationDecision::Permanent => {
                 if !self
@@ -396,10 +142,7 @@ impl Room {
                         "That collaboration grant was revoked before work started.".to_string()
                     );
                 }
-                Ok(CollaborationAuthorization {
-                    temporary: false,
-                    scope: None,
-                })
+                Ok(())
             }
             CollaborationDecision::Deny => Err(format!(
                 "The operator denied {}'s request to ask {} to work.",
@@ -407,6 +150,32 @@ impl Room {
                 target.name
             )),
         }
+    }
+
+    /// Whether `caller` may ask `target` to work without the person's card.
+    pub(in crate::session) fn collaboration_granted(
+        &self,
+        caller: &Persona,
+        target: &Persona,
+        handoff: bool,
+    ) -> bool {
+        // Whatever a teammate may do on its own desk, it gains nothing by
+        // crossing a link: one on a linked desk is never implicitly trusted.
+        let implicit = caller.node.is_none()
+            && caller.backend_id == HOTLINE_BACKEND_ID
+            && caller.reach.unwrap_or_default() == Reach::Machine;
+        let informed = self.log.load(&StreamId::Room).iter().any(|v| {
+            v["kind"] == "collaboration_informed"
+                && v["id"] == format!("collaboration:{}:{}", caller.id, target.id)
+                && v["deleted"] != true
+        });
+        let allowed = (!handoff || informed)
+            && (implicit
+                || target
+                    .allowed_senders
+                    .iter()
+                    .any(|sender| sender == &caller.id));
+        allowed || self.peers.session_granted(&caller.id, &target.id)
     }
 
     /// Persists a directional standing grant on the recipient. The caller

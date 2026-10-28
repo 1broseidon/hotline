@@ -31,6 +31,7 @@
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
+use super::exchanges::Cut;
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
@@ -41,6 +42,7 @@ use crate::driver::{MessageKind, Update};
 use crate::room;
 use crate::voice::spoken::versions;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 /// What the DM keeps from the door of a turn to its end.
@@ -51,6 +53,8 @@ pub(super) struct Hold {
     from_voice: bool,
     /// The lines the driver took mid-turn, in the order it took them.
     steered: Vec<Wired>,
+    /// The colleague's ask this turn answers.
+    request: Option<String>,
 }
 
 impl Occupant for Session {
@@ -109,6 +113,15 @@ impl Occupant for Session {
             session.abandon();
             return Begin::Stop;
         }
+        // A colleague's question is answered only while its ask is still
+        // open: one stopped while it waited here is never taken up.
+        let request = wired.request.as_ref().map(|line| line.request.clone());
+        if let Some(request) = &request
+            && let Err(error) = room.begin_request(request, None)
+        {
+            eprintln!("question not taken up: {error}");
+            return Begin::Skip;
+        }
         if let Some(said) = wired.said.clone() {
             lock(&session.unread).push(said);
         }
@@ -124,16 +137,25 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         } else {
+            let mut text = wired.text;
+            if let Some(heard) = room.take_heard(&session.thread()) {
+                text = format!("{heard}\n\n{text}");
+            } else if wired.wake {
+                return Begin::Skip;
+            }
             Source::Say {
-                text: wired.text,
+                text,
                 attachments: wired.attachments,
             }
         };
+        session.stopped_by_person.store(false, Ordering::SeqCst);
+        session.interrupted_by_person.store(false, Ordering::SeqCst);
         Begin::Go(Hold {
             source: Some(source),
             reach,
             from_voice,
             steered: Vec::new(),
+            request,
         })
     }
 
@@ -146,6 +168,7 @@ impl Occupant for Session {
             steered: &mut held.steered,
             from_voice: held.from_voice,
             card: None,
+            answering_a_question: held.request.is_some(),
         };
         room.threads()
             .drive(
@@ -165,9 +188,7 @@ impl Occupant for Session {
         room.turn_ended(session);
         if driven.asked {
             // A permission the turn left open is a button nobody is
-            // behind. A `request_human` wait is not: the tool is still
-            // parked on it, and only the person, the deadline, or a
-            // session stop settles that card.
+            // behind.
             room.threads()
                 .expire_asked(&session.thread(), &session.persona_id);
         }
@@ -188,6 +209,16 @@ impl Occupant for Session {
             };
             lock(&session.turns).waiting.push_front(wire);
         }
+        if let Some(request) = &held.request {
+            let stopped = session.stopped_by_person.swap(false, Ordering::SeqCst);
+            let interrupted = session.interrupted_by_person.swap(false, Ordering::SeqCst);
+            let cut = if stopped {
+                Some(Cut::Stop)
+            } else {
+                interrupted.then_some(Cut::Interrupt)
+            };
+            room.answer_question(request, &driven, cut);
+        }
         Then::Next
     }
 
@@ -199,6 +230,7 @@ impl Occupant for Session {
         room.set_state(self, SessionState::Ready);
         room.attach_computer_when_idle(&self.persona_id);
         room.swap_computer_when_idle(&self.persona_id);
+        room.rebuild_for_sign_in_when_idle(self);
     }
 }
 
@@ -212,6 +244,9 @@ struct Heard<'a> {
     from_voice: bool,
     /// The card the update in hand raises, until its event is written.
     card: Option<(String, crate::push::Waiting)>,
+    /// Whether the turn answers a colleague's question, whose whole reply
+    /// goes to them: nothing the person says is steered into it.
+    answering_a_question: bool,
 }
 
 impl Heard<'_> {
@@ -365,7 +400,9 @@ impl Witness for Heard<'_> {
     }
 
     fn steer(&mut self) {
-        self.room.steer_waiting(self.session, self.steered);
+        if !self.answering_a_question {
+            self.room.steer_waiting(self.session, self.steered);
+        }
     }
 }
 
@@ -408,9 +445,6 @@ impl Room {
         }
         drop(turns);
         if steered {
-            // A new instruction is neither an answer nor permission. Release
-            // an obsolete human wait so the model can reconsider the request.
-            self.release_human_waits(&session.persona_id);
             // A turn that was only waiting on its subagents has a line to
             // answer now, so it is working again.
             self.await_subagents(session, false);

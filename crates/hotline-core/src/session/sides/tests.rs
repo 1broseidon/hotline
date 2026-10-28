@@ -89,10 +89,10 @@ async fn a_millisecond_passes() {
     until("the clock moves on", || now_ms() > before).await;
 }
 
-/// A handoff is read along: the person cannot type into it, live or
-/// archived, and cannot bring it back; the desk says who to talk to.
+/// The person talks in a handoff and brings it back once it has ended, but
+/// only its result archives it.
 #[tokio::test]
-async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
+async fn a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them() {
     let agents = Fake::new(Scripted::new(vec![say("m1", "On it."), turn()]));
     let room = room("side-handed-over", agents.clone());
     let (live, launch) = room
@@ -113,23 +113,58 @@ async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
         )
         .unwrap();
     room.launch(launch);
-    let refused = room
-        .prompt_side(&live.id, "do it my way", None)
+    room.prompt_side(&live.id, "do it my way", None)
         .await
+        .unwrap();
+    assert!(kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()));
+
+    let refused = room
+        .archive_side(&live.id, SideEnd::Person, None)
         .unwrap_err();
     assert!(
         refused.starts_with("Mack handed this thread over"),
         "{refused}"
     );
-    assert!(
-        !kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()),
-        "a refused line is never written"
+    assert_eq!(
+        room.link_of(&ThreadId::side(&live.id)).unwrap().state,
+        ThreadState::Live,
+        "the person's Archive leaves it open"
     );
 
-    room.archive_side(&live.id, SideEnd::Person, None).unwrap();
-    let refused = room.continue_side(&live.id).await.unwrap_err();
-    assert!(refused.contains("Talk to Mack about it"), "{refused}");
-    assert!(room.prompt_side(&live.id, "and now?", None).await.is_err());
+    room.finish_side(&live, End::Agent, None);
+    assert!(matches!(
+        room.link_of(&ThreadId::side(&live.id)).unwrap().state,
+        ThreadState::Closed(_)
+    ));
+    let back = room.continue_side(&live.id).await.unwrap();
+    assert_eq!(back.status, SideStatus::Live);
+    assert!(room.sides.get(&live.id).is_some());
+}
+
+/// What the teammate is told in a thread it was handed: the person can talk
+/// to it there, and the reply it ends each turn with goes to whoever handed
+/// the work over.
+#[test]
+fn a_handed_over_threads_brief_says_where_its_replies_go() {
+    let mut mack = persona("mack");
+    mack.name = "Mack".to_string();
+    let brief = work_preamble(&persona("ada"), None, &[], Some(&mack), None, None);
+    assert!(
+        brief.contains("The person can talk to you here too."),
+        "{brief}"
+    );
+    assert!(
+        brief.contains("The reply you end each turn with goes to Mack, whoever started the turn"),
+        "{brief}"
+    );
+    assert!(brief.contains("message them with intent ask"), "{brief}");
+    assert!(
+        brief.contains(
+            "your result goes back only from a turn that ends with nothing left to wait on"
+        ),
+        "{brief}"
+    );
+    assert!(!brief.contains("can read this thread"), "{brief}");
 }
 
 #[tokio::test]
@@ -139,8 +174,8 @@ async fn a_side_thread_opened_empty_waits_and_is_named_by_the_first_line() {
     let summary = room.start_side("ada", "  ").await.unwrap();
     assert_eq!(summary.title, "");
     assert_eq!(summary.status, SideStatus::Live);
-    // Its agent is still being brought up, which is a thread at work.
-    assert!(summary.working);
+    // Its agent is still being brought up with nothing to say: no turn runs.
+    assert!(!summary.working);
     assert_eq!(kinds(&side_stream(&room, &summary.side_id)), ["side"]);
     settled(&room, &summary.side_id).await;
     assert!(!room.sides("ada")[0].working);
@@ -165,6 +200,33 @@ async fn a_side_thread_opened_empty_waits_and_is_named_by_the_first_line() {
         .unwrap();
     assert_eq!(said["text"], "Also the README");
     assert_eq!(said["replyTo"], "m1");
+}
+
+/// A thread brought back with nothing to say holds its queue while its agent
+/// starts, and runs no turn: the roster and the lists say it is not working
+/// until a line is said in it.
+#[tokio::test]
+async fn a_thread_brought_back_runs_no_turn_until_a_line_is_said() {
+    let starts = Arc::new(Semaphore::new(1));
+    let agents =
+        Fake::new(Scripted::new(vec![say("m1", "Done."), turn()]).slow_to_start(starts.clone()));
+    let room = room("side-continued-starting", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    settled(&room, &id).await;
+    room.archive_side(&id, SideEnd::Person, None).unwrap();
+
+    let back = room.continue_side(&id).await.unwrap();
+    assert!(!back.working, "its agent is only starting");
+    assert!(!room.sides("ada")[0].working);
+    assert!(room.side_threads("ada").iter().all(|side| !side.working));
+    assert!(room.sides.get(&id).unwrap().working(), "it holds its queue");
+
+    room.prompt_side(&id, "One more thing", None).await.unwrap();
+    assert!(room.sides("ada")[0].working, "a line waits for the start");
+    starts.add_permits(1);
+    until("the line is answered", || agents.prompts().len() == 2).await;
+    settled(&room, &id).await;
+    assert!(!room.sides("ada")[0].working);
 }
 
 #[tokio::test]
@@ -537,11 +599,38 @@ async fn a_chapter_changing_in_the_main_conversation_leaves_a_side_thread_alone(
     let agents = Fake::new(Scripted::new(vec![turn()]));
     let room = room("side-chapter", agents);
     let summary = room.start_side("ada", "Task").await.unwrap();
-    room.stop_session("ada");
+    room.stop_with_capability("ada");
     assert_eq!(room.sides("ada").len(), 1);
     room.prompt_side(&summary.side_id, "still here?", None)
         .await
         .unwrap();
+}
+
+/// A live mark decided on before a thread ended (a turn's end, the thread's
+/// name, a delegation that ended) lands before the end or not at all, so a
+/// thread that was parked or archived is never written back as live.
+#[tokio::test]
+async fn a_live_mark_that_comes_after_a_thread_ended_leaves_it_ended() {
+    let agents = Fake::new(Scripted::new(vec![turn()]));
+    let room = room("side-mark-after-end", agents);
+    for ending in [Ending::Park, Ending::Close(End::Agent, None)] {
+        let summary = room.start_side("ada", "Task").await.unwrap();
+        settled(&room, &summary.side_id).await;
+        let side = room.sides.get(&summary.side_id).unwrap();
+        room.end_side(&side, ending);
+        let ended = room
+            .link_of(&ThreadId::side(&summary.side_id))
+            .unwrap()
+            .state;
+
+        room.mark_side(&side, ThreadState::Live, None);
+        assert_eq!(
+            room.link_of(&ThreadId::side(&summary.side_id))
+                .unwrap()
+                .state,
+            ended
+        );
+    }
 }
 
 #[tokio::test]
@@ -591,6 +680,31 @@ async fn the_person_parks_a_live_thread_and_only_an_open_one() {
         "an archived one is not open"
     );
     assert!(room.park_side_thread("ghost").is_err());
+}
+
+/// Parking lets go of the agent, which would cut a turn in flight: a thread
+/// whose turn is working is refused the park and left live and working, for
+/// the person to stop it or wait for its turn first.
+#[tokio::test]
+async fn the_person_cannot_park_a_thread_mid_turn() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(Scripted::new(vec![say("m1", "Working."), turn()]).gated(gate.clone()));
+    let room = room("side-park-working", agents);
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the side thread's turn is in flight", || {
+        room.sides.get(&id).is_some_and(|side| side.working())
+    })
+    .await;
+
+    let refused = room.park_side_thread(&id).unwrap_err();
+    assert_eq!(
+        refused,
+        "That thread is working; stop or wait for its turn first."
+    );
+    let side = room.sides.get(&id).expect("the thread is still live");
+    assert!(side.working(), "its turn is left running");
+
+    gate.add_permits(100);
 }
 
 #[tokio::test]

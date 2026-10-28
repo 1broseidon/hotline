@@ -81,6 +81,11 @@ pub struct Link {
     /// thread on the teammate it was handed to, and its link is on the
     /// sender's tape as well as the owner's. Absent when the person opened it.
     pub opener: Option<Opener>,
+    /// The latest handoff into the thread no longer stands: it was stopped,
+    /// or collaboration was revoked, by a stop, a policy change, a deletion
+    /// or an unlinked desk. What is said in it no longer reaches its opener.
+    /// Absent while it stands.
+    pub handoff_ended: bool,
 }
 
 /// A teammate that opened a thread on another, and what it is called.
@@ -175,6 +180,10 @@ impl Link {
                 .as_ref()
                 .map(|opener| Value::from(opener.name.clone())),
         );
+        put(
+            "handoffEnded",
+            self.handoff_ended.then_some(Value::Bool(true)),
+        );
         line
     }
 
@@ -219,6 +228,7 @@ impl Link {
             opener: text("openerId")
                 .zip(text("openerName"))
                 .map(|(persona_id, name)| Opener { persona_id, name }),
+            handoff_ended: event.get("handoffEnded").and_then(Value::as_bool) == Some(true),
         })
     }
 
@@ -262,6 +272,7 @@ impl Link {
                     }),
                 elapsed_ms: None,
                 opener: opened_by.map(Opener::from),
+                handoff_ended: false,
             }),
             TranscriptEvent::Subagent {
                 id,
@@ -288,6 +299,7 @@ impl Link {
                 binding: None,
                 elapsed_ms,
                 opener: None,
+                handoff_ended: false,
             }),
             _ => None,
         }
@@ -403,6 +415,7 @@ mod tests {
             }),
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
         }
     }
 
@@ -423,8 +436,20 @@ mod tests {
             binding: None,
             elapsed_ms: Some(40),
             opener: None,
+            handoff_ended: false,
         };
         assert_eq!(Link::read(&run.event()), Some(run));
+        let ended = Link {
+            opener: Some(Opener {
+                persona_id: "mack".into(),
+                name: "Mack".into(),
+            }),
+            handoff_ended: true,
+            ..closed_side()
+        };
+        assert_eq!(ended.event()["handoffEnded"], true);
+        assert_eq!(Link::read(&ended.event()), Some(ended));
+        assert!(closed_side().event().get("handoffEnded").is_none());
     }
 
     #[test]

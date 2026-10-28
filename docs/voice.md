@@ -643,8 +643,8 @@ like a tag (`<spoke>`, `Vec<String>`, `a < b`) is text.
 
 No tag is shown in any agent message, on a call or not
 (`runner::drive_updates` for the words as they stream, `event_of` for what is
-written): the main conversation, a side thread, a subagent's run and a peer
-exchange alike, and the reply the phone is pushed, which is the written
+written): the main conversation, a side thread and a subagent's run alike,
+and the reply the phone is pushed, which is the written
 version. An ACP agent such as Claude Code or Codex keeps the call's contract in
 its own session history, so it may write the tags in a typed reply long after
 the call; that reply is shown and kept as its written version, and keeps no

@@ -1,4 +1,4 @@
-import type { Ability, LinkState, ScheduleEntry, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { Ability, LinkState, RosterEntry, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import { sideTitle } from "./links";
 
 /**
@@ -101,6 +101,7 @@ export function rowOfLink(link: LinkEvent, personaId: string): ThreadSummary {
 		state: link.state,
 		...(link.end !== undefined ? { end: link.end } : {}),
 		...(link.openerId !== undefined ? { opener: { personaId: link.openerId, name: link.openerName ?? "" } } : {}),
+		...(link.handoffEnded === true ? { handoffEnded: true } : {}),
 		startedAt: link.ts,
 		updatedAt: link.at ?? link.ts,
 		working: false,
@@ -127,13 +128,15 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 			rows.set(id, rowOfLink(link, personaId));
 			continue;
 		}
-		if (known.state === link.state && known.end === link.end && known.title === link.title) continue;
+		const ended = link.handoffEnded === true;
+		if (known.state === link.state && known.end === link.end && known.title === link.title && (known.handoffEnded === true) === ended) continue;
 		if (known.updatedAt > (link.at ?? link.ts)) continue;
-		const { end: _end, outcome: _outcome, ...rest } = known;
+		const { end: _end, outcome: _outcome, handoffEnded: _ended, ...rest } = known;
 		rows.set(id, {
 			...rest,
 			state: link.state,
 			...(link.end !== undefined ? { end: link.end } : {}),
+			...(ended ? { handoffEnded: true } : {}),
 			...(link.outcome !== undefined ? { outcome: link.outcome } : known.outcome !== undefined ? { outcome: known.outcome } : {}),
 			title: link.title,
 			working: link.state === "live" && known.working,
@@ -189,9 +192,9 @@ export function relativeTime(at: number, now: number = Date.now()): string {
 
 /**
  * What a person can do in a thread, by what it is: only a work thread is
- * spoken in, ended and brought back. One a teammate handed over is the two
- * teammates' work: it is read along, and only its turn may be stopped. The
- * desk refuses the rest the same way.
+ * spoken in, ended and brought back. One a teammate handed over is spoken in
+ * and brought back like any work thread, and only its result ends it: the
+ * person never archives it. The desk refuses the rest the same way.
  */
 export type Powers = { say: boolean; close: boolean; resume: boolean; stop: boolean };
 
@@ -202,8 +205,9 @@ export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false)
 	if (kind === "job") return state === "closed" ? READ : { ...READ, say: true };
 	if (kind === "call") return state === "closed" ? READ : { ...READ, say: true, stop: true };
 	if (kind !== "side") return READ;
-	if (handedOver) return { ...READ, stop: state !== "closed" };
-	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true };
+	if (handedOver) return { say: state !== "closed", close: false, resume: state === "closed", stop: state !== "closed" };
+	// The composer only interrupts, so Stop in the header is what ends a turn and what waited behind it.
+	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true, stop: true };
 }
 
 /**
@@ -214,6 +218,38 @@ export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false)
  */
 export function threadOwnerId(row: ThreadSummary | undefined, listedFor: string): string {
 	return row === undefined || row.thread.kind === "pair" ? listedFor : row.personaId;
+}
+
+/**
+ * Whether a turn of a thread is running, as the roster row of the teammate
+ * whose agent it is says. The roster hears a turn start and end first; a list
+ * is read at a moment, and in the pane of the teammate who handed a thread
+ * over it is not read again when the receiver's turn ends. A pair, which no
+ * roster row follows, is the list's word.
+ */
+export function turnRunning(owner: RosterEntry | undefined, thread: ThreadId, row: ThreadSummary | undefined): boolean {
+	if (owner === undefined) return row?.working === true;
+	switch (thread.kind) {
+		case "side":
+			return owner.sides?.some((side) => side.sideId === thread.key && side.working) ?? false;
+		case "run":
+			return owner.subagents?.some((run) => run.runId === thread.key) ?? false;
+		case "job":
+			return owner.workingJobs?.includes(thread.key) ?? false;
+		case "call":
+			return owner.workingCalls?.includes(thread.key) ?? false;
+		default:
+			return row?.working === true;
+	}
+}
+
+/** The listed rows, each running or not as `turnRunning` says. */
+export function withTurns(rows: ThreadSummary[], roster: RosterEntry[], listedFor: string): ThreadSummary[] {
+	return rows.map((row) => {
+		const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
+		const working = turnRunning(owner, row.thread, row);
+		return working === row.working ? row : { ...row, working };
+	});
 }
 
 /** The teammate who handed a work thread over, when one did rather than the person. */

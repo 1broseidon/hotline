@@ -3403,9 +3403,10 @@
 	/* A thread in the list: the status dot leads the row. Running
 	 * breathes in the accent, waiting on you is the warning colour, parked is
 	 * a ring, closed is dim. */
-	/* Where the composer is in a handoff: the two faces, whose work it is, and
-	 * the way to where it is steered. Waiting on the person, it becomes the
-	 * one field they answer in, in the warning colour a waiting card has. */
+	/* Above the composer in a handoff: the two faces, whose work it is, and the
+	 * way to the conversation of the one who handed it over. Waiting on the
+	 * person, the bar and the composer give way to the one field they answer
+	 * in, in the warning colour a waiting card has. */
 	.handoff-bar {
 		display: flex;
 		flex-shrink: 0;

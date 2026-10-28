@@ -101,6 +101,10 @@ pub(super) struct ToolLine {
     /// The first path the call named, which is the detail a permission answer
     /// usually turns on.
     pub(super) location: Option<String>,
+    /// Whether the call reaches one of Hotline's own loopback MCP tools, which
+    /// the room's own server already guards, so a harness asking leave to make
+    /// it is answered without a second card (see [`translate::ask_permission`]).
+    pub(super) hotline_tool: bool,
 }
 
 /// What a subagent's session has open: the conversation's own lives on

@@ -104,7 +104,7 @@ impl Room {
                 if !lock(&session.turns).running {
                     continue;
                 }
-                let _ = self.cancel(&session.persona_id);
+                self.cut_turn(session, false);
                 self.write(
                     &session.persona_id,
                     &TranscriptEvent::Notice {
@@ -258,6 +258,8 @@ impl Room {
                 spoken: line.said.starts_with("voice:"),
                 unprompted: None,
                 retry: false,
+                wake: false,
+                request: None,
             },
         );
         Ok(())

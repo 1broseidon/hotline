@@ -35,7 +35,7 @@ impl Room {
         let _admission = self.sides.waking.lock().await;
         let (side, launch) = match self.live_side(&thread.key) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(&thread.key, false)?,
+            Err(_) => self.wake_work(&thread.key, false, None)?,
         };
         let stream = StreamId::of_thread(thread).ok_or("The call has no transcript.")?;
         let transcript = self.log.load(&stream);
@@ -69,9 +69,10 @@ impl Room {
                     voice: self.attached_voice(thread),
                     text: brief,
                     attachments: Vec::new(),
-                    handoff: None,
+                    request: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
             );
         }
@@ -97,10 +98,28 @@ impl Room {
         if text.is_empty() && attachments.is_none() {
             return Err("There is nothing to say.".to_string());
         }
-        self.refuse_handed_over(side_id)?;
+        let persona_id = match self.sides.get(side_id) {
+            Some(side) => Some(side.persona_id.clone()),
+            None => self
+                .link_of(&self.work_thread(side_id))
+                .and_then(|link| link.persona_id),
+        };
+        if let Some(persona_id) = persona_id
+            && let Some(action) = self.card_a_handoff_waits_on(&persona_id, side_id)
+        {
+            if attachments.is_some() {
+                return Err("Answer what it asked you first: your words are its card's note, and files cannot ride on it.".to_string());
+            }
+            return self.answer_human(
+                &persona_id,
+                &action,
+                crate::contract::HumanAnswer::Done,
+                Some(text.to_string()),
+            );
+        }
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(side_id, false)?,
+            Err(_) => self.wake_work(side_id, false, None)?,
         };
         self.say_in_side(&side, text, reply_to, attachments);
         if let Some(launch) = launch {
@@ -109,14 +128,56 @@ impl Room {
         Ok(())
     }
 
-    /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it. The thread stays live.
-    pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
+    /// The card in a thread that a handoff still open waits on, the oldest if
+    /// it waits on several: the one the person's words answer.
+    fn card_a_handoff_waits_on(&self, persona_id: &str, side_id: &str) -> Option<String> {
+        let stream = StreamId::of_thread(&self.work_thread(side_id))?;
+        self.log
+            .load(&stream)
+            .iter()
+            .filter(|event| event["kind"] == "human_action" && event["status"] == "pending")
+            .filter_map(|card| card["actionId"].as_str())
+            .find(|action| {
+                self.handoff_awaiting(persona_id, action)
+                    .is_some_and(|handoff| self.handoff_is_open(&handoff))
+            })
+            .map(str::to_string)
+    }
+
+    /// Cuts the turn in flight in a side thread for the person to say
+    /// something instead, as the composer's Interrupt does: what waited
+    /// behind it is heard next, and a colleague's handoff or question the
+    /// turn was answering goes on in the turn the person's next line starts.
+    /// Only their Stop ends that work.
+    pub fn interrupt_side(&self, side_id: &str) -> Result<(), String> {
         let side = self.live_side(side_id)?;
-        lock(&side.turns).clear();
+        side.interrupted_by_person.store(true, Ordering::SeqCst);
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
+        Ok(())
+    }
+
+    /// Stops the turn in flight in a side thread and drops what waited behind
+    /// it: a colleague's question fails to its asker, and a colleague's
+    /// handoff ends as the person's stop of it, as does every request an
+    /// interrupt left the thread carrying. The thread stays live, unless the
+    /// turn was a handoff's: the person's stop ends the handoff.
+    pub fn cancel_side(self: &Arc<Self>, side_id: &str) -> Result<(), String> {
+        let side = self.live_side(side_id)?;
+        side.stopped_by_person.store(true, Ordering::SeqCst);
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
+        let requests: Vec<&str> = dropped
+            .iter()
+            .filter_map(|line| line.request.as_ref())
+            .map(|line| line.request.as_str())
+            .collect();
+        let carried = self.carried_into(side_id, side.request().as_deref());
+        self.end_for_the_persons_stop(side_id, &requests, &carried);
+        self.fail_dropped_questions(&side.persona_id, requests);
         Ok(())
     }
 }

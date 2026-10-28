@@ -142,7 +142,8 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     /// Revokes existing execution before a new policy is written to the log.
     fn invalidate(&self, persona_id: &str) -> Result<(), String>;
-    /// A gateway change revokes every session, including cached peer sessions.
+    /// A gateway change revokes every session, with every teammate's threads,
+    /// job agents and exchanges.
     fn invalidate_all(&self) -> Result<(), String>;
     /// Rebuilds a live session from the teammate's current record.
     async fn reattach(&self, persona_id: &str) -> Result<(), String>;
@@ -156,6 +157,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         attachments: Option<Vec<hotline_contract::Attachment>>,
     ) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
+    /// Cuts the main conversation's turn for the person to say something
+    /// instead: an answer it was giving a colleague ends with that said,
+    /// never as their stop. A room that tells no Interrupt apart stops it.
+    fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        self.cancel(persona_id)
+    }
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
     async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String>;
     async fn set_config(
@@ -272,6 +279,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
+    /// Cuts the turn in flight for the person to say something instead: the
+    /// work the turn was doing goes on.
+    fn side_interrupt(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
     fn side_archive(&self, _side_id: &str) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
     }
@@ -325,15 +338,6 @@ pub trait RoomHandle: Send + Sync + 'static {
         _option_id: &str,
     ) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
-    }
-
-    async fn peers_answer_permission(
-        &self,
-        _key: &str,
-        _request_id: &str,
-        _option_id: &str,
-    ) -> Result<(), String> {
-        Err("Peer threads are unavailable on this room.".to_string())
     }
 
     /// Text as an agent writes it, for a tape subscription to forward. Never
@@ -469,8 +473,9 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Manual model IDs are unavailable on this room.".into())
     }
 
-    /// A teammate is gone: its agent is stopped, every peer session it was a
-    /// side of is dropped, and nothing is kept for its id.
+    /// A teammate is gone: its agent, its threads and its jobs' agents are
+    /// stopped, every exchange it was a side of is stopped, and nothing is
+    /// kept for its id.
     fn forget(&self, persona_id: &str);
 
     /// Test harnesses without a runtime return conservative, explicit defaults.

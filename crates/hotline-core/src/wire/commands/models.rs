@@ -174,12 +174,12 @@ pub(super) async fn set_backend(
     {
         write_last_model(log, model)?;
     }
-    if busy(room.info(persona_id).state) {
+    if busy(room, persona_id) {
         let room = room.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
             let started = std::time::Instant::now();
-            while busy(room.info(&persona_id).state) && started.elapsed() < SWITCH_PATIENCE {
+            while busy(&room, &persona_id) && started.elapsed() < SWITCH_PATIENCE {
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             }
             if let Err(error) = room.reattach(&persona_id).await {
@@ -192,9 +192,26 @@ pub(super) async fn set_backend(
     Ok(room.info(persona_id))
 }
 
-/// A teammate in the middle of a turn, or of starting one.
-fn busy(state: SessionState) -> bool {
-    matches!(state, SessionState::Thinking | SessionState::Starting)
+/// A teammate the switch must wait for before it reattaches: its main
+/// conversation is mid-turn or starting one, or a side/handoff thread, job,
+/// call or subagent it runs is still working. Reattach invalidates the
+/// teammate — dropping its live side/handoff threads and revoking its
+/// exchanges — so switching the backend while any of that work runs would cut
+/// it short even when the main DM is idle. The switch is written already and
+/// lands on the next start regardless; this only defers the live restart.
+fn busy(room: &Arc<dyn RoomHandle>, persona_id: &str) -> bool {
+    matches!(
+        room.info(persona_id).state,
+        SessionState::Thinking | SessionState::Starting
+    ) || room.sides(persona_id).iter().any(|side| {
+        side.working
+            || room.thread_working(&crate::contract::ThreadId {
+                kind: crate::contract::ThreadKind::Side,
+                key: side.side_id.clone(),
+            })
+    }) || !room.working_jobs(persona_id).is_empty()
+        || !room.working_calls(persona_id).is_empty()
+        || !room.subagents(persona_id).is_empty()
 }
 
 /// Write a Hotline Agent teammate's effort first, then switch a live session

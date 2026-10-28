@@ -59,6 +59,11 @@ pub struct ThreadSummary {
     /// The teammate that opened it, when one did: "from Mack" on the row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub opener: Option<SideOpener>,
+    /// The handoff it serves has ended, as its link records: what is said in
+    /// it no longer reaches `opener`. Absent while it stands.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub handoff_ended: bool,
     pub started_at: i64,
     /// The newest thing in the thread: what the window counts unread against.
     pub updated_at: i64,

@@ -1,16 +1,14 @@
 //! Two teammates talking, driven by the scripted driver.
 //!
-//! Nothing here reaches a model. What is under test is what a delivery leaves
-//! behind: the thread both sides share, the receipts on it, and the marker on
-//! each of their own tapes.
+//! Nothing here reaches a model. What is under test is what an ask needs and
+//! leaves behind: the person's grant, the thread both sides share, the
+//! receipts on it, and what each side hears.
 
 use super::*;
-use crate::contract::{ChapterClose, NoticeLevel, ToolStatus};
-use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;
-use crate::session::now_ms;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use crate::session::{new_id, now_ms};
 use crate::test_support::until;
 use serde_json::json;
 
@@ -24,9 +22,8 @@ fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
 
-/// A pair in the ordinary workspace reach. The tests below deliberately keep
-/// both teammates out of a main session: a peer request itself must carry the
-/// caller and recipient leases that make the approval temporary.
+/// A pair in the ordinary workspace reach, so an ask needs the person's
+/// grant.
 fn workspace_room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     let log = scratch(name);
     let mut ada = persona("ada");
@@ -56,35 +53,67 @@ async fn collaboration_card(room: &Room, persona_id: &str) -> Value {
     card().unwrap()
 }
 
+fn permission_cards(room: &Room, persona_id: &str) -> usize {
+    room.tape(persona_id)
+        .iter()
+        .filter(|event| kind_of(event) == "permission")
+        .count()
+}
+
+/// `from` asks `to` with its tools, as an agent does, and the request's id.
+async fn ask(room: &Arc<Room>, from: &str, to: &str, message: &str) -> Result<String, String> {
+    let sent = TeammateTools::new(room, from)
+        .call("message_teammate", &json!({ "to": to, "message": message }))
+        .await?;
+    Ok(serde_json::from_str::<Value>(&sent).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string())
+}
+
+/// What came back to `whose` for this request, once it has.
+async fn answer(room: &Room, whose: &str, id: &str) -> Value {
+    let found = || {
+        room.tape(whose)
+            .into_iter()
+            .find(|event| kind_of(event) == "delivery" && event["cause"]["requestId"] == id)
+    };
+    until("the answer is delivered", || found().is_some()).await;
+    found().unwrap()
+}
+
 #[tokio::test]
 async fn workspace_delivery_requires_consent_before_peer_side_effects() {
     let room = workspace_room(
         "workspace-deny",
         Fake::new(Scripted::new(answers("a1", "should not run"))),
     );
-    let delivery = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "read the private file").await })
-    };
+    let id = ask(&room, "ada", "bob", "read the private file")
+        .await
+        .unwrap();
     let card = collaboration_card(&room, "ada").await;
     let request_id = card["requestId"].as_str().unwrap().to_string();
     assert_eq!(
         card["title"],
-        "Allow Ada to ask Bob to work?\n\nBob can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
+        "Allow Ada to ask Bob to work?\n\nAda's questions reach Bob's main conversation with you, and Bob answers from everything said there, including what you told it. Bob can also take handoffs in a work thread of its own, and uses its own workspace and enabled tools to fulfill Ada's requests."
     );
     assert_eq!(card["options"][0]["name"], "Allow this session");
     assert_eq!(card["options"][1]["name"], "Always allow Ada");
     assert_eq!(card["options"][2]["name"], "Deny");
     assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
-    assert!(lock(&room.peers.sessions).is_empty());
+    assert!(room.session("bob").is_err());
 
     room.answer_permission("ada", &request_id, DENY)
         .await
         .unwrap();
-    let error = delivery.await.unwrap().unwrap_err();
-    assert!(error.contains("denied"), "{error}");
+    let refused = answer(&room, "ada", &id).await;
+    assert_eq!(refused["cause"]["status"], "failed");
+    assert!(
+        refused["text"].as_str().unwrap().contains("denied"),
+        "{refused}"
+    );
     assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
-    assert!(lock(&room.peers.sessions).is_empty());
+    assert!(room.session("bob").is_err(), "nothing was handed to Bob");
     let settled = room
         .tape("ada")
         .into_iter()
@@ -100,12 +129,9 @@ async fn explicit_whole_machine_hotline_agent_can_collaborate_without_a_card() {
         Fake::new(Scripted::new(answers("a1", "ready"))),
     );
 
-    let answered = room
-        .deliver("ada", "bob", "check the harbour")
-        .await
-        .unwrap();
+    let id = ask(&room, "ada", "bob", "check the harbour").await.unwrap();
 
-    assert_eq!(answered.reply, "ready");
+    assert_eq!(answer(&room, "ada", &id).await["text"], "ready");
     assert!(room.tape("ada").into_iter().all(|event| {
         event["requestId"]
             .as_str()
@@ -155,137 +181,161 @@ async fn collaboration_rechecks_reach_after_discovery() {
 async fn session_consent_is_directional_and_expires_when_a_side_stops() {
     let room = workspace_room(
         "workspace-session",
-        Fake::new(Scripted::turns(vec![
-            answers("a1", "first"),
-            answers("a2", "second"),
-            answers("a3", "after restart"),
-        ])),
+        Fake::new(Scripted::new(answers("a1", "done"))),
     );
-    let first = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "one").await })
-    };
-    let card = collaboration_card(&room, "ada").await;
-    let request_id = card["requestId"].as_str().unwrap().to_string();
-    room.answer_permission("ada", &request_id, ALLOW_SESSION)
-        .await
-        .unwrap();
-    assert_eq!(first.await.unwrap().unwrap().reply, "first");
-
-    // The same live caller/recipient peer session is covered without a new
-    // prompt, and the reverse direction has no grant of its own.
-    assert_eq!(
-        room.deliver("ada", "bob", "two").await.unwrap().reply,
-        "second"
-    );
-    let reverse = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("bob", "ada", "back").await })
-    };
-    let reverse_card = collaboration_card(&room, "bob").await;
-    room.answer_permission("bob", reverse_card["requestId"].as_str().unwrap(), DENY)
-        .await
-        .unwrap();
-    assert!(reverse.await.unwrap().is_err());
-
-    // Stopping either participant revokes the peer leases and drops the
-    // temporary grant; a later request must ask again.
-    room.stop("bob").unwrap();
-    let after_stop = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "three").await })
-    };
+    let first = ask(&room, "ada", "bob", "one").await.unwrap();
     let card = collaboration_card(&room, "ada").await;
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
         .await
         .unwrap();
-    assert_eq!(after_stop.await.unwrap().unwrap().reply, "after restart");
+    assert_eq!(
+        answer(&room, "ada", &first).await["cause"]["status"],
+        "done"
+    );
+
+    // The same direction is covered without a new card, and the reverse
+    // direction has no grant of its own.
+    let second = ask(&room, "ada", "bob", "two").await.unwrap();
+    assert_eq!(
+        answer(&room, "ada", &second).await["cause"]["status"],
+        "done"
+    );
+    assert_eq!(permission_cards(&room, "ada"), 1);
+    let reverse = ask(&room, "bob", "ada", "back").await.unwrap();
+    let reverse_card = collaboration_card(&room, "bob").await;
+    room.answer_permission("bob", reverse_card["requestId"].as_str().unwrap(), DENY)
+        .await
+        .unwrap();
+    assert_eq!(
+        answer(&room, "bob", &reverse).await["cause"]["status"],
+        "failed"
+    );
+
+    // Stopping either participant ends the temporary grant; a later request
+    // must ask again.
+    room.stop("bob").unwrap();
+    let after_stop = ask(&room, "ada", "bob", "three").await.unwrap();
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    assert_eq!(
+        answer(&room, "ada", &after_stop).await["cause"]["status"],
+        "done"
+    );
+    assert_eq!(permission_cards(&room, "ada"), 2);
+}
+
+/// The person's Interrupt of either teammate's main-conversation turn
+/// redirects that turn and decides nothing about the colleague: a
+/// first-contact card up meanwhile stays up, and the person's answer to it
+/// still lets the request through.
+#[tokio::test]
+async fn an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up() {
+    for whose in ["ada", "bob"] {
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let room = workspace_room(
+            &format!("interrupt-leaves-the-card-{whose}"),
+            Fake::new(Scripted::new(answers("a1", "done")).gated(gate.clone())),
+        );
+        room.start(whose).await.unwrap();
+        room.prompt(whose, "busy", None, None).await.unwrap();
+        until("the person's turn is running", || room.mid_turn(whose)).await;
+        let id = ask(&room, "ada", "bob", "one").await.unwrap();
+        let card = collaboration_card(&room, "ada").await;
+        room.interrupt(whose).unwrap();
+        until("the cut turn is over", || !room.mid_turn(whose)).await;
+
+        let still = room
+            .tape("ada")
+            .into_iter()
+            .find(|event| event["requestId"] == card["requestId"])
+            .unwrap();
+        assert!(still.get("decision").is_none(), "{whose}: {still}");
+        gate.add_permits(100);
+        room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+            .await
+            .unwrap();
+        assert_eq!(
+            answer(&room, "ada", &id).await["cause"]["status"],
+            "done",
+            "{whose}"
+        );
+    }
 }
 
 #[tokio::test]
 async fn permanent_consent_survives_peer_restart_and_uses_stable_sender_id() {
     let room = workspace_room(
         "workspace-permanent",
-        Fake::new(Scripted::turns(vec![
-            answers("a1", "first"),
-            answers("a2", "second"),
-            answers("a3", "after rename"),
-        ])),
+        Fake::new(Scripted::new(answers("a1", "done"))),
     );
-    let first = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "one").await })
-    };
+    let first = ask(&room, "ada", "bob", "one").await.unwrap();
     let card = collaboration_card(&room, "ada").await;
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_ALWAYS)
         .await
         .unwrap();
-    assert_eq!(first.await.unwrap().unwrap().reply, "first");
+    assert_eq!(
+        answer(&room, "ada", &first).await["cause"]["status"],
+        "done"
+    );
     assert_eq!(room.persona("bob").unwrap().allowed_senders, ["ada"]);
 
     room.stop("bob").unwrap();
     let mut renamed = room.persona("bob").unwrap();
     renamed.name = "Morgan".to_string();
     crate::room::append_persona(&room.log, &renamed).unwrap();
-    let second = room.deliver("ada", "Morgan", "two").await.unwrap();
-    assert_eq!(second.from, "Morgan");
-    assert_eq!(second.reply, "second");
+    let second = ask(&room, "ada", "Morgan", "two").await.unwrap();
+    let answered = answer(&room, "ada", &second).await;
+    assert_eq!(answered["cause"]["name"], "Morgan");
+    assert_eq!(answered["cause"]["status"], "done");
     assert!(room.persona("morgan").is_err());
     assert_eq!(room.persona("bob").unwrap().allowed_senders, ["ada"]);
+    let third = ask(&room, "ada", "bob", "three").await.unwrap();
     assert_eq!(
-        room.deliver("ada", "bob", "three").await.unwrap().reply,
-        "after rename"
+        answer(&room, "ada", &third).await["cause"]["status"],
+        "done"
     );
+    assert_eq!(permission_cards(&room, "ada"), 1);
 }
 
 #[tokio::test]
 async fn removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again() {
     let room = workspace_room(
         "workspace-remove-grant",
-        Fake::new(Scripted::new(answers("a1", "first"))),
+        Fake::new(Scripted::new(answers("a1", "done"))),
     );
-    let first = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "one").await })
-    };
+    let first = ask(&room, "ada", "bob", "one").await.unwrap();
     let card = collaboration_card(&room, "ada").await;
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_ALWAYS)
         .await
         .unwrap();
-    first.await.unwrap().unwrap();
-
-    let cached = lock(&room.peers.sessions)
-        .get(&(String::from("ada"), String::from("bob")))
-        .cloned()
-        .expect("the standing grant left a cached peer session");
-    let cached_tools =
-        TeammateTools::new(&room, "bob").with_capability(cached.target_capability.clone());
+    answer(&room, "ada", &first).await;
+    // Bob's main conversation answered under the grant: its tools are the
+    // work the grant left running.
+    let answering = TeammateTools::new(&room, "bob")
+        .with_capability(room.session("bob").unwrap().capability.clone());
+    assert!(answering.call("list_teammates", &json!({})).await.is_ok());
 
     // This is the ordering used by persona.update: revoke execution before
     // writing the replacement record, then reactivate the new epoch. The old
-    // target tools and cached peer session must remain dead after removal.
+    // tools must remain dead after removal.
     room.invalidate("bob").unwrap();
     let mut bob = room.persona("bob").unwrap();
     bob.allowed_senders.clear();
     crate::room::append_persona(&room.log, &bob).unwrap();
     room.reattach("bob").await.unwrap();
-    assert!(
-        cached_tools
-            .call("list_teammates", &json!({}))
-            .await
-            .is_err()
-    );
-    assert!(lock(&room.peers.sessions).is_empty());
+    assert!(answering.call("list_teammates", &json!({})).await.is_err());
 
-    let after_removal = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "two").await })
-    };
+    let after_removal = ask(&room, "ada", "bob", "two").await.unwrap();
     let card = collaboration_card(&room, "ada").await;
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), DENY)
         .await
         .unwrap();
-    assert!(after_removal.await.unwrap().is_err());
+    assert_eq!(
+        answer(&room, "ada", &after_removal).await["cause"]["status"],
+        "failed"
+    );
 }
 
 /// A turn that thinks once and then answers.
@@ -316,154 +366,22 @@ fn kinds(events: &[Value]) -> Vec<&str> {
     events.iter().map(kind_of).collect()
 }
 
-/// The peer marker on a teammate's own tape, folded to one line.
-fn marker_on(room: &Room, persona_id: &str) -> Value {
-    room.tape(persona_id)
-        .into_iter()
-        .find(|event| kind_of(event) == "peer")
-        .expect("the tape carries a peer marker")
-}
-
-#[tokio::test]
-async fn a_delivery_writes_both_sides_of_the_thread_with_its_receipts() {
-    let room = room(
-        "deliver",
-        Fake::new(Scripted::new(answers("a1", "it jammed on the second lift"))),
-    );
-
-    let answered = room
-        .deliver("ada", "Bob", "did the crane jam?")
-        .await
-        .unwrap();
-    assert_eq!(answered.from, "Bob");
-    assert_eq!(answered.reply, "it jammed on the second lift");
-
-    let events = thread_of(&room, "ada~bob");
-    assert_eq!(
-        kinds(&events),
-        ["user", "thought", "agent", "turn"],
-        "the caller's line is in the thread before the turn that answers it"
-    );
-    assert_eq!(events[0]["text"], "did the crane jam?");
-    assert_eq!(
-        events[0]["receipt"], "read",
-        "the recipient's first sign of a turn is what reads the message"
-    );
-    assert_eq!(events[2]["text"], "it jammed on the second lift");
-    assert_eq!(
-        events[2]["receipt"], "sent",
-        "whether the caller read the reply is not knowable here"
-    );
-    // The words of the exchange are the thread's; neither tape carries them.
-    assert!(
-        !room
-            .tape("ada")
-            .iter()
-            .any(|event| kind_of(event) == "user")
-    );
-    assert!(
-        !room
-            .tape("bob")
-            .iter()
-            .any(|event| kind_of(event) == "agent")
-    );
-}
-
-/// A peer reply is paced in the same funnel as a tape: two paragraphs are two
-/// bubbles, and history reads them as the one thing the model said.
-#[tokio::test]
-async fn a_peer_reply_is_paced_the_same_way() {
-    let first = "Paragraph 1 is long enough to stand as its own bubble in the chat.";
-    let second = "Paragraph 2 is long enough to stand as its own bubble in the chat.";
-    let text = format!("{first}\n\n{second}");
-    let room = room("paced", Fake::new(Scripted::new(answers("a1", &text))));
-
-    let answered = room.deliver("ada", "Bob", "status?").await.unwrap();
-    assert_eq!(answered.reply, text);
-
-    let events = thread_of(&room, "ada~bob");
-    let agents: Vec<&Value> = events
-        .iter()
-        .filter(|event| kind_of(event) == "agent")
-        .collect();
-    assert_eq!(agents.len(), 2, "{}", kinds(&events).join(", "));
-    assert_eq!(agents[0]["id"], "a1");
-    assert_eq!(agents[1]["id"], "a1-2");
-    assert_eq!(agents[0]["ts"], agents[1]["ts"]);
-    assert_eq!(agents[0]["text"], first);
-    assert_eq!(agents[1]["text"], second);
-    assert_eq!(
-        crate::session::tests::words(said_in(&events, false)),
-        [Said::User("status?".to_string()), Said::Agent(text),]
-    );
-}
-
-#[tokio::test]
-async fn each_side_gets_a_marker_on_its_own_tape() {
-    let room = room("markers", Fake::new(Scripted::new(answers("a1", "aye"))));
-    room.deliver("ada", "bob", "are you free?").await.unwrap();
-
-    let caller = marker_on(&room, "ada");
-    assert_eq!(caller["threadKey"], "ada~bob");
-    assert_eq!(caller["role"], "caller");
-    assert_eq!(caller["withPersonaId"], "bob");
-    assert_eq!(caller["withName"], "Bob");
-    assert_eq!(caller["exchanges"], 1);
-    assert_eq!(caller["status"], "done");
-
-    let target = marker_on(&room, "bob");
-    assert_eq!(target["role"], "target");
-    assert_eq!(target["withPersonaId"], "ada");
-    assert_eq!(target["withName"], "Ada");
-    assert_eq!(target["exchanges"], 1);
-    assert_eq!(target["status"], "done");
-}
-
-#[tokio::test]
-async fn a_second_delivery_bumps_the_same_marker() {
-    let room = room(
-        "second",
-        Fake::new(Scripted::turns(vec![
-            answers("a1", "first"),
-            answers("a2", "second"),
-        ])),
-    );
-    room.deliver("ada", "bob", "one").await.unwrap();
-    let first = marker_on(&room, "ada");
-    let again = room.deliver("ada", "bob", "two").await.unwrap();
-    assert_eq!(again.reply, "second");
-
-    let second = marker_on(&room, "ada");
-    assert_eq!(
-        second["id"], first["id"],
-        "a run of exchanges is one line, superseded by id"
-    );
-    assert_eq!(second["exchanges"], 2);
-    assert_eq!(
-        thread_of(&room, "ada~bob")
-            .iter()
-            .filter(|event| kind_of(event) == "user")
-            .count(),
-        2
-    );
-}
-
 /// The thread's key decides which side is stored as `user`, so the same pair
 /// reads the same way up whichever of them asked.
 #[tokio::test]
 async fn the_thread_is_stored_the_same_way_up_whoever_asked() {
     let room = room("orient", Fake::new(Scripted::new(answers("a1", "on it"))));
-    room.deliver("bob", "ada", "can you look?").await.unwrap();
+    let id = ask(&room, "bob", "ada", "can you look?").await.unwrap();
+    answer(&room, "bob", &id).await;
 
     let events = thread_of(&room, "ada~bob");
     assert_eq!(
         kinds(&events),
-        ["agent", "thought", "user", "turn"],
+        ["agent", "user"],
         "ada is the key's first participant, so ada's words are the user side"
     );
     assert_eq!(events[0]["text"], "can you look?");
-    assert_eq!(events[0]["receipt"], "read");
-    assert_eq!(events[2]["text"], "on it");
+    assert_eq!(events[1]["text"], "on it");
 }
 
 /// Waits for the `count`th delivery on a teammate's tape to have been heard
@@ -527,11 +445,14 @@ async fn the_tool_returns_once_sent_and_the_answer_is_delivered() {
     let heard = agents.prompts();
     let last = heard.last().unwrap();
     assert!(
-        last.contains("Bob answered the message you sent them (\"what broke?\")")
-            && last.contains("the winch"),
+        last.contains("[New reply from your teammate Bob answering the message you sent them (\"what broke?\")]")
+            && last.contains("the winch")
+            && last.contains(&format!(
+                "Its requestId is {}.",
+                sent["requestId"].as_str().unwrap()
+            )),
         "{last}"
     );
-    assert_eq!(marker_on(&room, "ada")["status"], "done");
     assert!(
         room.tape("ada")
             .iter()
@@ -566,33 +487,6 @@ async fn a_refused_exchange_is_delivered_as_unanswered() {
     assert_eq!(delivery["cause"]["about"], "can I use your build?");
 }
 
-/// A peer session has no conversation of its own to be answered in, so what
-/// it sends a third teammate waits for the reply as before.
-#[tokio::test]
-async fn a_peer_session_still_waits_for_its_answer() {
-    let room = room(
-        "tool-peer",
-        Fake::new(Scripted::new(answers("a1", "the winch"))),
-    );
-    let answered = TeammateTools::new(&room, "ada")
-        .for_peer(crate::contract::ThreadId::pair("ada-bob"))
-        .call(
-            "message_teammate",
-            &serde_json::json!({ "to": "Bob", "message": "what broke?" }),
-        )
-        .await
-        .unwrap();
-
-    let answered: Value = serde_json::from_str(&answered).unwrap();
-    assert_eq!(answered["from"], "Bob");
-    assert_eq!(answered["reply"], "the winch");
-    assert!(
-        room.tape("ada")
-            .iter()
-            .all(|event| kind_of(event) != "delivery")
-    );
-}
-
 /// A delivery says where it came from in a field, and keeps it as it is read:
 /// the turn that takes it has no id to parse. One written before the field
 /// still reads, as without a source.
@@ -601,8 +495,9 @@ async fn a_delivery_carries_where_it_came_from_and_keeps_it_when_read() {
     let agents = Fake::new(Scripted::new(answers("a1", "ok")));
     let room = room("provenance", agents);
     room.start("ada").await.unwrap();
-    room.deliver_into(
+    room.deliver_identified(
         "ada",
+        &new_id(),
         DeliveryCause::Peer {
             request_id: Some("req-1".to_string()),
             persona_id: "bob".to_string(),
@@ -612,17 +507,20 @@ async fn a_delivery_carries_where_it_came_from_and_keeps_it_when_read() {
             about: "what broke?".to_string(),
         },
         "the winch".to_string(),
+        None,
     )
     .await
     .unwrap();
-    room.deliver_into(
+    room.deliver_identified(
         "ada",
+        &new_id(),
         DeliveryCause::Answer {
             action_id: "act-1".to_string(),
             status: HumanActionStatus::Done,
             about: "which key?".to_string(),
         },
         "the blue one".to_string(),
+        None,
     )
     .await
     .unwrap();
@@ -666,10 +564,9 @@ async fn a_delivery_carries_where_it_came_from_and_keeps_it_when_read() {
 }
 
 /// What a restart left: a delivery the agent never read is handed to it
-/// again, once, and an exchange cut off mid-turn is closed and its sender
-/// told, while an old one is only closed.
+/// again, once, and one it has read is not.
 #[tokio::test]
-async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
+async fn a_restart_hands_on_an_unheard_delivery_once() {
     let agents = Fake::new(Scripted::new(answers("a1", "ok")));
     let room = room("recover", agents.clone());
     room.start("ada").await.unwrap();
@@ -704,36 +601,8 @@ async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
             from: None,
         },
     );
-    for (id, ts) in [
-        ("xthread:recent", now - 60_000),
-        ("xthread:old", now - 3 * 60 * 60_000),
-    ] {
-        for (whose, other, name, role) in [
-            ("ada", "bob", "Bob", PeerRole::Caller),
-            ("bob", "ada", "Ada", PeerRole::Target),
-        ] {
-            room.write(
-                whose,
-                &TranscriptEvent::Peer {
-                    id: id.to_string(),
-                    ts,
-                    thread_key: if id.ends_with("recent") {
-                        "ada~bob"
-                    } else {
-                        "ada~old"
-                    }
-                    .to_string(),
-                    with_persona_id: other.to_string(),
-                    with_name: name.to_string(),
-                    role,
-                    exchanges: 0,
-                    status: PeerStatus::Open,
-                    seat: None,
-                },
-            );
-        }
-    }
 
+    room.recover_exchanges().await;
     room.recover_exchanges().await;
 
     let heard = delivered(&room, "ada", 1).await;
@@ -747,42 +616,25 @@ async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
         1
     );
     assert!(prompts.iter().all(|line| !line.contains("already heard")));
-    for whose in ["ada", "bob"] {
-        let tape = room.tape(whose);
-        for id in ["xthread:recent", "xthread:old"] {
-            let marker = tape.iter().rev().find(|event| event["id"] == id).unwrap();
-            assert_eq!(marker["status"], "failed", "{whose} {id}");
-        }
-    }
-    let told = delivered(&room, "ada", 3).await;
-    assert_eq!(told["cause"]["status"], "failed");
-    assert_eq!(told["cause"]["personaId"], "bob");
-    assert_eq!(
-        room.tape("ada")
-            .iter()
-            .filter(|event| kind_of(event) == "delivery" && event["cause"]["status"] == "failed")
-            .count(),
-        1,
-        "only the recent exchange is worth waking for"
-    );
 }
 
 #[tokio::test]
 async fn a_teammate_this_room_does_not_have_is_refused_in_a_sentence() {
     let room = room("stranger", Fake::new(Scripted::new(answers("a1", "aye"))));
-    let refused = room.deliver("ada", "Cal", "hello?").await.unwrap_err();
+    let refused = ask(&room, "ada", "Cal", "hello?").await.unwrap_err();
     assert!(refused.contains("Cal"), "{refused}");
     assert!(refused.contains("list_teammates"), "{refused}");
     assert_eq!(thread_of(&room, "ada~cal"), [] as [Value; 0]);
 
-    let itself = room.deliver("ada", "Ada", "hello?").await.unwrap_err();
+    let itself = ask(&room, "ada", "Ada", "hello?").await.unwrap_err();
     assert!(itself.contains("cannot message itself"), "{itself}");
 }
 
 #[tokio::test]
 async fn a_thread_is_listed_for_both_sides_and_its_reply_can_be_read() {
     let room = room("listed", Fake::new(Scripted::new(answers("a1", "aye"))));
-    room.deliver("ada", "bob", "are you free?").await.unwrap();
+    let id = ask(&room, "ada", "bob", "are you free?").await.unwrap();
+    answer(&room, "ada", &id).await;
 
     let listed = room.peer_threads("ada");
     assert_eq!(listed.len(), 1);
@@ -790,7 +642,6 @@ async fn a_thread_is_listed_for_both_sides_and_its_reply_can_be_read() {
     assert_eq!(summary.thread_key, "ada~bob");
     assert_eq!(summary.with_persona_id, "bob");
     assert_eq!(summary.with_name, "Bob");
-    assert_eq!(summary.exchanges, 1);
     assert!(!summary.waiting);
     assert_eq!(summary.working_persona_id, None);
     let preview = summary.preview.as_ref().expect("the last thing said");
@@ -820,277 +671,22 @@ async fn a_thread_is_listed_for_both_sides_and_its_reply_can_be_read() {
     assert_eq!(read["receipt"], "read");
 }
 
-#[tokio::test]
-async fn a_peer_session_that_has_gone_quiet_is_stopped_and_a_deleted_teammate_takes_its_own() {
-    let room = room("idle", Fake::new(Scripted::new(answers("a1", "aye"))));
-    room.deliver("ada", "bob", "still there?").await.unwrap();
-    assert_eq!(lock(&room.peers.sessions).len(), 1);
-
-    let now = now_ms();
-    room.sweep_threads(now);
-    assert_eq!(
-        lock(&room.peers.sessions).len(),
-        1,
-        "a session used a moment ago is not idle"
-    );
-    for live in lock(&room.peers.sessions).values() {
-        *lock(&live.last_used) = now - crate::thread::QUIET_MS - 1;
-    }
-    room.sweep_threads(now);
-    assert!(lock(&room.peers.sessions).is_empty());
-
-    room.deliver("ada", "bob", "and now?").await.unwrap();
-    assert_eq!(lock(&room.peers.sessions).len(), 1);
-    room.drop_peer_sessions("bob");
-    assert!(lock(&room.peers.sessions).is_empty());
-}
-
-/// A session revoked while another start for the same pair was on its way is
-/// found stale when that start goes to keep its own, and is replaced. A lock
-/// the start never lets go of would wedge the runtime's workers and its clock,
-/// so the deadline is kept on this thread and the runtime is let go of in the
-/// background rather than waited for: the test fails instead of hanging.
-#[test]
-fn a_start_that_finds_a_revoked_session_in_its_place_replaces_it() {
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-    let agents = Fake::new(Scripted::turns(vec![
-        answers("a1", "first"),
-        answers("a2", "second"),
-    ]));
-    let room = runtime.block_on(async {
-        let room = room("stale-in-place", agents.clone());
-        room.deliver("ada", "bob", "first question").await.unwrap();
-        room
-    });
-    let pair = (String::from("ada"), String::from("bob"));
-    let stale = lock(&room.peers.sessions)
-        .remove(&pair)
-        .expect("the first peer session is cached");
-    stale.caller_capability.revoke();
-    let sessions = room.clone();
-    let put_back = pair.clone();
-    agents.when_building(move || {
-        lock(&sessions.peers.sessions).insert(put_back, stale);
-    });
-
-    let (done, second) = std::sync::mpsc::channel();
-    let starter = room.clone();
-    runtime.spawn(async move {
-        let _ = done.send(starter.deliver("ada", "bob", "second question").await);
-    });
-    let finished = second.recv_timeout(std::time::Duration::from_secs(10));
-    runtime.shutdown_background();
-    finished
-        .expect("the second start lets go of the session map")
-        .unwrap();
-    let kept = lock(&room.peers.sessions)
-        .get(&pair)
-        .cloned()
-        .expect("the second peer session is cached");
-    assert!(kept.valid());
-}
-
-/// A peer-only session has two authorities: the caller is allowed to ask, and
-/// the target is allowed to answer. Dropping either side removes the cached
-/// driver and revokes the handles cloned into it, while a fresh lease remains
-/// usable after that side is reattached.
-#[tokio::test]
-async fn invalidating_either_side_revokes_cached_peer_tools_without_a_main_session() {
-    let room = room(
-        "invalidate-peer",
-        Fake::new(Scripted::turns(vec![
-            answers("a1", "first"),
-            answers("a2", "second"),
-        ])),
-    );
-
-    room.deliver("ada", "bob", "first question").await.unwrap();
-    let first = {
-        lock(&room.peers.sessions)
-            .get(&(String::from("ada"), String::from("bob")))
-            .cloned()
-            .expect("the first peer session is cached")
-    };
-    let first_target_tools =
-        TeammateTools::new(&room, "bob").with_capability(first.target_capability.clone());
-    assert!(
-        first_target_tools
-            .call("list_teammates", &json!({}))
-            .await
-            .is_ok()
-    );
-
-    // There is no main session to stop: revoking the caller still has to
-    // invalidate the target driver and every tool handle it owns.
-    room.invalidate("ada").unwrap();
-    assert!(lock(&room.peers.sessions).is_empty());
-    let refused = first_target_tools
-        .call("list_teammates", &json!({}))
-        .await
-        .unwrap_err();
-    assert!(
-        refused.contains("capabilities have been revoked"),
-        "{refused}"
-    );
-
-    room.reattach("ada").await.unwrap();
-    let fresh_target_tools =
-        TeammateTools::new(&room, "bob").with_capability(room.capability_lease("bob"));
-    assert!(
-        fresh_target_tools
-            .call("list_teammates", &json!({}))
-            .await
-            .is_ok()
-    );
-
-    room.deliver("ada", "bob", "second question").await.unwrap();
-    let second = {
-        lock(&room.peers.sessions)
-            .get(&(String::from("ada"), String::from("bob")))
-            .cloned()
-            .expect("the replacement peer session is cached")
-    };
-    let second_target_tools =
-        TeammateTools::new(&room, "bob").with_capability(second.target_capability.clone());
-
-    room.invalidate("bob").unwrap();
-    assert!(lock(&room.peers.sessions).is_empty());
-    let refused = second_target_tools
-        .call("list_teammates", &json!({}))
-        .await
-        .unwrap_err();
-    assert!(
-        refused.contains("capabilities have been revoked"),
-        "{refused}"
-    );
-
-    room.reattach("bob").await.unwrap();
-    let fresh_target_tools =
-        TeammateTools::new(&room, "bob").with_capability(room.capability_lease("bob"));
-    assert!(
-        fresh_target_tools
-            .call("list_teammates", &json!({}))
-            .await
-            .is_ok()
-    );
-}
-
-#[tokio::test]
-async fn peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does() {
-    let room = workspace_room(
-        "peer-lease-ownership",
-        Fake::new(Scripted::turns(vec![
-            answers("a1", "first"),
-            answers("a2", "second"),
-        ])),
-    );
-    room.start("ada").await.unwrap();
-    let main_capability = room.session("ada").unwrap().capability.clone();
-    let main_tools = TeammateTools::new(&room, "ada").with_capability(main_capability);
-    assert!(main_tools.call("list_teammates", &json!({})).await.is_ok());
-
-    let first = {
-        let tools = main_tools.clone();
-        tokio::spawn(async move {
-            tools
-                .call(
-                    "message_teammate",
-                    &json!({ "to": "bob", "message": "one" }),
-                )
-                .await
-        })
-    };
-    let card = collaboration_card(&room, "ada").await;
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
-        .await
-        .unwrap();
-    let first_result: Value = serde_json::from_str(&first.await.unwrap().unwrap()).unwrap();
-    assert_eq!(first_result["sent"], true);
-    assert_eq!(delivered(&room, "ada", 1).await["text"], "first");
-
-    let first_peer = lock(&room.peers.sessions)
-        .get(&(String::from("ada"), String::from("bob")))
-        .cloned()
-        .expect("the peer session is cached");
-    let first_peer_tools =
-        TeammateTools::new(&room, "bob").with_capability(first_peer.target_capability.clone());
-    room.start_fresh_chapter("ada", ChapterClose::User)
-        .await
-        .unwrap();
-    assert!(
-        main_tools.call("list_teammates", &json!({})).await.is_ok(),
-        "ending a peer must leave the main caller lease usable"
-    );
-    assert!(
-        first_peer_tools
-            .call("list_teammates", &json!({}))
-            .await
-            .is_err()
-    );
-    // The answer to the next message is delivered into Ada's conversation,
-    // and a delivery after a chapter closed opens the next one on a fresh
-    // session, as the person's next message would. Open it first, so what is
-    // under test is the peer session and not that restart.
-    room.in_this_chapter("ada").await.unwrap();
-    let main_tools = TeammateTools::new(&room, "ada")
-        .with_capability(room.session("ada").unwrap().capability.clone());
-
-    let second = {
-        let tools = main_tools.clone();
-        tokio::spawn(async move {
-            tools
-                .call(
-                    "message_teammate",
-                    &json!({ "to": "bob", "message": "two" }),
-                )
-                .await
-        })
-    };
-    let card = collaboration_card(&room, "ada").await;
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
-        .await
-        .unwrap();
-    assert!(second.await.unwrap().is_ok());
-    delivered(&room, "ada", 2).await;
-    let second_peer = lock(&room.peers.sessions)
-        .get(&(String::from("ada"), String::from("bob")))
-        .cloned()
-        .expect("the replacement peer session is cached");
-    let second_peer_tools =
-        TeammateTools::new(&room, "bob").with_capability(second_peer.target_capability.clone());
-
-    room.stop("ada").unwrap();
-    assert!(main_tools.call("list_teammates", &json!({})).await.is_err());
-    assert!(
-        second_peer_tools
-            .call("list_teammates", &json!({}))
-            .await
-            .is_err()
-    );
-    assert!(lock(&room.peers.sessions).is_empty());
-}
-
+/// A card nobody answered is dropped with its ask: it is expired on the tape
+/// and cannot be answered later, so it grants nothing.
 #[tokio::test]
 async fn a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later() {
     let room = workspace_room(
         "dropped-collaboration-wait",
         Fake::new(Scripted::new(answers("a1", "should not run"))),
     );
-    let delivery = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "wait for approval").await })
-    };
+    ask(&room, "ada", "bob", "wait for approval").await.unwrap();
     let card = collaboration_card(&room, "ada").await;
     let request_id = card["requestId"].as_str().unwrap().to_string();
-    delivery.abort();
-    assert!(delivery.await.unwrap_err().is_cancelled());
-    for _ in 0..100 {
-        if lock(&room.peers.waiting).is_empty() {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert!(lock(&room.peers.waiting).is_empty());
+    room.stop_exchange("ada", "bob").unwrap();
+    until("the wait is dropped", || {
+        lock(&room.peers.waiting).is_empty()
+    })
+    .await;
     assert!(
         room.answer_permission("ada", &request_id, ALLOW_ALWAYS)
             .await
@@ -1101,12 +697,13 @@ async fn a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later() 
         .tape("ada")
         .into_iter()
         .find(|event| event["requestId"] == request_id)
-        .expect("cancellation leaves an expired collaboration card");
+        .expect("the dropped wait leaves an expired collaboration card");
     assert_eq!(settled["decision"], "expired");
     assert_eq!(
         room.persona("bob").unwrap().allowed_senders,
         [] as [String; 0]
     );
+    assert!(room.session("bob").is_err(), "nothing was handed to Bob");
 }
 
 #[tokio::test]
@@ -1115,195 +712,34 @@ async fn an_answered_collaboration_cannot_start_after_a_chapter_generation_chang
         "collaboration-generation-race",
         Fake::new(Scripted::new(answers("a1", "should not run"))),
     );
-    let delivery = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "start after approval").await })
-    };
+    let id = ask(&room, "ada", "bob", "start after approval")
+        .await
+        .unwrap();
     let card = collaboration_card(&room, "ada").await;
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
         .await
         .unwrap();
     room.peers.advance_generation("ada");
 
-    let error = delivery.await.unwrap().unwrap_err();
-    assert!(error.contains("approval expired"), "{error}");
+    let refused = answer(&room, "ada", &id).await;
+    assert_eq!(refused["cause"]["status"], "failed");
+    assert!(
+        refused["text"]
+            .as_str()
+            .unwrap()
+            .contains("approval expired"),
+        "{refused}"
+    );
     assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
-    assert!(lock(&room.peers.sessions).is_empty());
+    assert!(room.session("bob").is_err());
     assert!(lock(&room.peers.session_grants).is_empty());
 }
 
-#[tokio::test]
-async fn nested_peer_leases_follow_the_outer_target_but_revoke_independently() {
-    let room = workspace_room(
-        "nested-peer-leases",
-        Fake::new(Scripted::turns(vec![
-            answers("a1", "outer"),
-            answers("a2", "nested"),
-        ])),
-    );
-    let outer_delivery = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "outer question").await })
-    };
-    let card = collaboration_card(&room, "ada").await;
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
-        .await
-        .unwrap();
-    outer_delivery.await.unwrap().unwrap();
-    let outer = lock(&room.peers.sessions)
-        .get(&(String::from("ada"), String::from("bob")))
-        .cloned()
-        .expect("the outer peer session is cached");
-
-    let nested_delivery = {
-        let room = room.clone();
-        let caller_capability = outer.target_capability.clone();
-        tokio::spawn(async move {
-            room.deliver_with_capability("bob", "ada", "nested question", Some(caller_capability))
-                .await
-        })
-    };
-    let card = collaboration_card(&room, "bob").await;
-    room.answer_permission("bob", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
-        .await
-        .unwrap();
-    nested_delivery.await.unwrap().unwrap();
-    let nested = lock(&room.peers.sessions)
-        .get(&(String::from("bob"), String::from("ada")))
-        .cloned()
-        .expect("the nested peer session is cached");
-
-    // Ending B's nested conversation only revokes its scoped caller lease.
-    nested.caller_capability.revoke();
-    assert!(outer.target_capability.is_current());
-    assert!(outer.valid());
-
-    // Revoking the outer A->B target lease propagates through the nested
-    // caller lease, even though the nested session has its own token.
-    outer.target_capability.revoke();
-    assert!(!nested.valid());
-}
-
-#[tokio::test]
-async fn revoking_an_outer_peer_settles_a_nested_collaboration_wait() {
-    let room = workspace_room(
-        "nested-peer-wait",
-        Fake::new(Scripted::new(answers("a1", "outer"))),
-    );
-    let outer_delivery = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "bob", "outer question").await })
-    };
-    let card = collaboration_card(&room, "ada").await;
-    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
-        .await
-        .unwrap();
-    outer_delivery.await.unwrap().unwrap();
-    let outer = lock(&room.peers.sessions)
-        .get(&(String::from("ada"), String::from("bob")))
-        .cloned()
-        .expect("the outer peer session is cached");
-
-    let nested_delivery = {
-        let room = room.clone();
-        let caller_capability = outer.target_capability.clone();
-        tokio::spawn(async move {
-            room.deliver_with_capability("bob", "ada", "nested question", Some(caller_capability))
-                .await
-        })
-    };
-    let card = collaboration_card(&room, "bob").await;
-    let request_id = card["requestId"].as_str().unwrap().to_string();
-    outer.target_capability.revoke();
-    room.settle_invalid_collaboration();
-
-    assert!(nested_delivery.await.unwrap().is_err());
-    assert!(lock(&room.peers.waiting).is_empty());
-    let settled = room
-        .tape("bob")
-        .into_iter()
-        .find(|event| event["requestId"] == request_id)
-        .expect("the nested card is settled when the outer lease ends");
-    assert_eq!(settled["decision"], "expired");
-}
-
-#[tokio::test]
-async fn revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session() {
-    let agents = Fake::new(Scripted::turns(vec![
-        answers("a1", "outer"),
-        answers("a2", "nested"),
-    ]));
-    let room = room("three-party-revocation", agents.clone());
-    let mut cal = persona("cal");
-    cal.name = "Cal".to_string();
-    enrol(room.log(), &cal);
-    for id in ["ada", "bob", "cal"] {
-        room.start(id).await.unwrap();
-    }
-    let ada = TeammateTools::new(&room, "ada")
-        .with_capability(room.session("ada").unwrap().capability.clone());
-    let bob_main = TeammateTools::new(&room, "bob")
-        .with_capability(room.session("bob").unwrap().capability.clone());
-    let cal_main = TeammateTools::new(&room, "cal")
-        .with_capability(room.session("cal").unwrap().capability.clone());
-    ada.call(
-        "message_teammate",
-        &json!({"to": "bob", "message": "outer"}),
-    )
-    .await
-    .unwrap();
-    delivered(&room, "ada", 1).await;
-    let outer = lock(&room.peers.sessions)[&("ada".to_string(), "bob".to_string())].clone();
-    let bob_delegated = TeammateTools::new(&room, "bob")
-        .with_capability(outer.target_capability.clone())
-        .for_peer(crate::contract::ThreadId::pair("ada-bob"));
-    bob_delegated
-        .call(
-            "message_teammate",
-            &json!({"to": "cal", "message": "nested"}),
-        )
-        .await
-        .unwrap();
-    let nested = lock(&room.peers.sessions)[&("bob".to_string(), "cal".to_string())].clone();
-    let cal_delegated =
-        TeammateTools::new(&room, "cal").with_capability(nested.target_capability.clone());
-    assert!(
-        cal_delegated
-            .call("list_teammates", &json!({}))
-            .await
-            .is_ok()
-    );
-    let cancellations = agents.cancel_count();
-
-    room.stop("ada").unwrap();
-
-    assert!(
-        cal_delegated
-            .call("list_teammates", &json!({}))
-            .await
-            .is_err()
-    );
-    assert!(
-        bob_delegated
-            .call("list_teammates", &json!({}))
-            .await
-            .is_err()
-    );
-    assert!(bob_main.call("list_teammates", &json!({})).await.is_ok());
-    assert!(cal_main.call("list_teammates", &json!({})).await.is_ok());
-    assert!(lock(&room.peers.sessions).is_empty());
-    assert_eq!(
-        agents.cancel_count() - cancellations,
-        3,
-        "stop the main caller and both delegated drivers"
-    );
-}
-
-/// The receipt machine, which is what the two ticks in a thread mean.
+/// The receipts a reader moves in a pair's thread.
 ///
-/// Every one of these is about the *kind* of event and never its text: a tick
-/// the model could produce by writing the right sentence would be a lie the
-/// reader has no way to check.
+/// Every one of these is about the *kind* of event and never its text: a
+/// tick the model could produce by writing the right sentence would be a
+/// lie the reader has no way to check.
 mod receipts {
     use super::*;
 
@@ -1346,55 +782,6 @@ mod receipts {
         }
     }
 
-    fn tool() -> TranscriptEvent {
-        TranscriptEvent::Tool {
-            id: "to".to_string(),
-            ts: 4,
-            tool_call_id: "c1".to_string(),
-            title: "ls .".to_string(),
-            tool_kind: None,
-            status: ToolStatus::Completed,
-            locations: None,
-            files: None,
-            output: None,
-            said: None,
-        }
-    }
-
-    fn turn() -> TranscriptEvent {
-        TranscriptEvent::Turn {
-            id: "tu".to_string(),
-            ts: 5,
-            stop_reason: "end_turn".to_string(),
-            usage: None,
-        }
-    }
-
-    fn notice(text: &str) -> TranscriptEvent {
-        TranscriptEvent::Notice {
-            id: "no".to_string(),
-            ts: 6,
-            level: NoticeLevel::Error,
-            text: text.to_string(),
-        }
-    }
-
-    fn chapter() -> TranscriptEvent {
-        TranscriptEvent::Chapter {
-            id: "ch".to_string(),
-            ts: 7,
-            backend_id: "hotline".to_string(),
-            session_id: None,
-            ended_at: None,
-            title: None,
-            note: None,
-            status: None,
-            tags: None,
-            closed_by: None,
-            resumed_from: None,
-        }
-    }
-
     fn id_of(event: &TranscriptEvent) -> String {
         serde_json::to_value(event).unwrap()["id"]
             .as_str()
@@ -1406,140 +793,18 @@ mod receipts {
         receipt_of(event).flatten()
     }
 
-    /// A whole delivery through the seam, and what it wrote.
-    struct Ran {
-        window: Option<TranscriptEvent>,
-        stored: Vec<TranscriptEvent>,
-        reads: Vec<String>,
-    }
-
-    fn run(events: Vec<TranscriptEvent>) -> Ran {
-        let mut window = None;
-        let mut stored = Vec::new();
-        let mut reads = Vec::new();
-        for event in events {
-            let step = through_receipts(&mut window, event);
-            if let Some(read) = step.read {
-                reads.push(id_of(&read));
-            }
-            stored.push(step.event);
-        }
-        Ran {
-            window,
-            stored,
-            reads,
-        }
-    }
-
-    #[test]
-    fn a_message_entering_the_thread_is_sent() {
-        let ran = run(vec![user("u1", "hello")]);
-        assert_eq!(receipt(&ran.stored[0]), Some(Receipt::Sent));
-    }
-
-    #[test]
-    fn the_reply_is_sent_too() {
-        let ran = run(vec![user("u1", ""), agent("a1", "hi")]);
-        assert_eq!(receipt(&ran.stored[1]), Some(Receipt::Sent));
-    }
-
-    #[test]
-    fn the_targets_first_sign_of_a_turn_reads_the_callers_message() {
-        let ran = run(vec![user("u1", ""), thought("…")]);
-        assert_eq!(ran.reads, ["u1"]);
-    }
-
-    #[test]
-    fn read_is_stamped_once_not_on_every_event_of_the_turn() {
-        let ran = run(vec![
-            user("u1", ""),
-            thought(""),
-            tool(),
-            agent("a1", ""),
-            turn(),
-        ]);
-        assert_eq!(ran.reads, ["u1"]);
-    }
-
-    #[test]
-    fn the_reply_alone_is_proof_enough() {
-        let ran = run(vec![user("u1", ""), agent("a1", "done")]);
-        assert_eq!(ran.reads, ["u1"]);
-    }
-
-    #[test]
-    fn a_turn_that_stopped_with_nothing_to_say_still_read_the_message() {
-        let ran = run(vec![user("u1", ""), turn()]);
-        assert_eq!(ran.reads, ["u1"]);
-    }
-
-    #[test]
-    fn an_error_before_the_model_ran_does_not_read_the_message() {
-        let ran = run(vec![user("u1", ""), notice("the backend died")]);
-        assert_eq!(ran.reads, [] as [String; 0]);
-        assert_eq!(ran.window.as_ref().map(id_of), Some("u1".to_string()));
-    }
-
-    #[test]
-    fn a_chapter_marker_written_as_the_session_opens_does_not_read_the_message() {
-        let ran = run(vec![user("u1", ""), chapter()]);
-        assert_eq!(ran.reads, [] as [String; 0]);
-    }
-
-    #[test]
-    fn nothing_is_read_before_a_message_arrives() {
-        let ran = run(vec![thought(""), tool(), agent("a1", ""), turn()]);
-        assert_eq!(ran.reads, [] as [String; 0]);
-    }
-
-    #[test]
-    fn two_deliveries_each_get_their_own_read() {
-        let ran = run(vec![
-            user("u1", ""),
-            agent("a1", ""),
-            turn(),
-            user("u2", ""),
-            agent("a2", ""),
-            turn(),
-        ]);
-        assert_eq!(ran.reads, ["u1", "u2"]);
-    }
-
-    /// A caller that sent twice in a row: the ticks belong to the message the
-    /// turn is actually about, and the earlier one waits for its own.
-    #[test]
-    fn a_second_message_before_any_turn_supersedes_the_one_waiting() {
-        let ran = run(vec![user("u1", ""), user("u2", ""), agent("a1", "")]);
-        assert_eq!(ran.reads, ["u2"]);
-    }
-
-    #[test]
-    fn the_text_of_the_events_is_never_read() {
-        for wording in [
-            "",
-            "read",
-            "I have read your message",
-            "receipt: read",
-            "✓✓",
-        ] {
-            let ran = run(vec![user("u1", wording), thought(wording)]);
-            assert_eq!(ran.reads, ["u1"], "{wording}");
-            // …and the same sentence with no turn behind it stays unread.
-            let ran = run(vec![user("u1", wording), notice(wording)]);
-            assert!(ran.reads.is_empty(), "{wording}");
-        }
-    }
-
     #[test]
     fn the_ladder_only_climbs() {
         assert_eq!(higher(None, Receipt::Sent), Receipt::Sent);
         assert_eq!(higher(Some(Receipt::Sent), Receipt::Read), Receipt::Read);
         assert_eq!(higher(Some(Receipt::Read), Receipt::Sent), Receipt::Read);
         assert_eq!(higher(Some(Receipt::Read), Receipt::Read), Receipt::Read);
-        // A message that already carries a receipt is not lowered by the fold.
+        // A message that already carries a receipt is not lowered by a stamp.
         let already = stamped(user("u1", ""), Receipt::Read);
-        let ran = run(vec![already]);
-        assert_eq!(receipt(&ran.stored[0]), Some(Receipt::Read));
+        assert_eq!(
+            receipt(&stamped(already, Receipt::Sent)),
+            Some(Receipt::Read)
+        );
     }
 
     fn stored(events: &[TranscriptEvent]) -> Vec<Value> {
@@ -1590,42 +855,8 @@ mod receipts {
     }
 }
 
-/// A permission raised inside a peer turn is on a stream no seat draws a
-/// card for, so nobody ever answers it; when the turn ends the card is
-/// expired on the thread the way a tape's would be, and the thread stops
-/// saying somebody is waiting.
-#[tokio::test]
-async fn a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends() {
-    let mut script = vec![Update::Permission {
-        request_id: "r1".to_string(),
-        title: "Run ls".to_string(),
-        options: vec![crate::contract::PermissionOption {
-            option_id: "once".to_string(),
-            name: "Allow once".to_string(),
-            kind: None,
-        }],
-    }];
-    script.extend(answers("a1", "aye"));
-    let room = room("peer-permission", Fake::new(Scripted::new(script)));
-
-    room.deliver("ada", "Bob", "may I look?").await.unwrap();
-
-    let events = thread_of(&room, "ada~bob");
-    let card = events
-        .iter()
-        .find(|event| kind_of(event) == "permission")
-        .expect("the card is on the thread");
-    assert_eq!(card["decision"], "expired", "{card}");
-    assert!(
-        room.peer_threads("ada")
-            .iter()
-            .all(|thread| !thread.waiting),
-        "a thread whose turn ended still says somebody is waiting"
-    );
-}
-
-/// Exercise the asynchronous tool route, not the old synchronous peer helper:
-/// an approval covers later asks and handoffs even after another operator turn.
+/// An approval covers later asks and handoffs, even after another operator
+/// turn.
 #[tokio::test]
 async fn collaboration_consent_covers_separate_operator_turns_and_both_intents() {
     for decision in [ALLOW_SESSION, ALLOW_ALWAYS] {
@@ -1689,69 +920,6 @@ async fn collaboration_consent_covers_separate_operator_turns_and_both_intents()
     }
 }
 
-/// A card raised in a peer turn is the person's to answer: it is counted for
-/// the teammate answering, answered through `peers.answer_permission` while
-/// the turn is behind it, and the turn goes on.
-#[tokio::test]
-async fn a_card_raised_in_a_peer_turn_is_answerable_while_the_turn_waits() {
-    let gate = Arc::new(tokio::sync::Semaphore::new(1));
-    let mut script = vec![Update::Permission {
-        request_id: "r1".to_string(),
-        title: "Run ls".to_string(),
-        options: vec![crate::contract::PermissionOption {
-            option_id: "once".to_string(),
-            name: "Allow once".to_string(),
-            kind: None,
-        }],
-    }];
-    script.extend(answers("a1", "aye"));
-    let agents = Fake::new(Scripted::new(script).gated(gate.clone()));
-    agents.awaiting("r1");
-    let room = room("peer-permission-answer", agents);
-
-    let asking = {
-        let room = room.clone();
-        tokio::spawn(async move { room.deliver("ada", "Bob", "may I look?").await })
-    };
-    for _ in 0..500 {
-        if thread_of(&room, "ada~bob")
-            .iter()
-            .any(|event| kind_of(event) == "permission")
-        {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
-    assert!(room.threads_waiting("bob"), "the roster row says Bob waits");
-    assert!(!room.threads_waiting("ada"));
-
-    assert!(
-        room.answer_peer_permission("ada~bob", "nope", "once")
-            .await
-            .is_err()
-    );
-    room.answer_peer_permission("ada~bob", "r1", "once")
-        .await
-        .unwrap();
-    let card = thread_of(&room, "ada~bob")
-        .into_iter()
-        .find(|event| kind_of(event) == "permission")
-        .unwrap();
-    assert_eq!(card["decision"], "once", "{card}");
-    assert_eq!(card["decidedOptionName"], "Allow once");
-    assert!(
-        room.answer_peer_permission("ada~bob", "r1", "once")
-            .await
-            .is_err(),
-        "a card is answered once"
-    );
-    assert!(!room.threads_waiting("bob"));
-
-    gate.add_permits(10);
-    let result = asking.await.unwrap().unwrap();
-    assert_eq!(result.reply, "aye");
-}
-
 /// What two teammates said to each other is found by either of them, and the
 /// hit names the thread; a rebuild keeps it.
 #[tokio::test]
@@ -1760,9 +928,10 @@ async fn a_pair_thread_is_searchable_by_both_teammates_and_survives_a_rebuild() 
         "peer-search",
         Fake::new(Scripted::new(answers("a1", "the winch is jammed"))),
     );
-    room.deliver("ada", "Bob", "what about the capstan?")
+    let id = ask(&room, "ada", "Bob", "what about the capstan?")
         .await
         .unwrap();
+    answer(&room, "ada", &id).await;
     for (who, word) in [("ada", "capstan"), ("bob", "capstan"), ("ada", "winch")] {
         let found =
             crate::store::search::search_teammate(room.log.root(), who, word, None).unwrap();

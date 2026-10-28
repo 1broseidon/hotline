@@ -328,12 +328,16 @@ pub(crate) async fn run(
         } => room.mcp_auth_callback(&login_id, &callback_url).await,
         Command::McpAuthStatus { server_id } => room.mcp_auth_status(&server_id).await,
         Command::McpAuthSignOut { server_id } => {
-            let gate = room.policy_update_lock();
-            let _held = gate.lock().await;
+            let held = room.policy_update_lock().lock_owned().await;
             room.invalidate_all()?;
             // Failed credential deletion must leave the old capabilities
             // revoked; reattaching would restore access the operator removed.
             room.mcp_auth_sign_out(&server_id).await?;
+            // The invalidate and the sign-out are done; let go of the policy
+            // lock before the reattach, which takes each teammate's start
+            // gate. The one order is `start_gate -> policy_update_lock`, so a
+            // chapter close cannot deadlock against this.
+            drop(held);
             room.reattach_all().await?;
             Ok(Value::Null)
         }
@@ -415,7 +419,10 @@ pub(crate) async fn run(
             )
             .await
         }
-        Command::SessionCancel { persona_id } => threads::cancel(room, &ThreadId::dm(persona_id)),
+        Command::SessionCancel {
+            persona_id,
+            interrupt,
+        } => threads::cancel(room, &ThreadId::dm(persona_id), interrupt),
         Command::ProcessStop { persona_id, id } => {
             room.process_stop(&persona_id, &id).map(|()| Value::Null)
         }
@@ -635,7 +642,7 @@ pub(crate) async fn run(
             )
             .await
         }
-        Command::SideCancel { side_id } => threads::cancel(room, &ThreadId::side(side_id)),
+        Command::SideCancel { side_id } => threads::cancel(room, &ThreadId::side(side_id), false),
         Command::SideArchive { side_id } => threads::close(room, &ThreadId::side(side_id)),
         Command::SideContinue { side_id } => room
             .side_continue(&side_id)
@@ -663,22 +670,6 @@ pub(crate) async fn run(
         Command::PeersMarkRead { key, event_ids } => {
             Ok(json!(room.mark_peer_read(&key, &event_ids)))
         }
-        Command::PeersAnswerPermission {
-            key,
-            request_id,
-            option_id,
-        } => {
-            threads::answer(
-                log,
-                room,
-                &ThreadId::pair(key),
-                ThreadAnswer::Permission {
-                    request_id,
-                    option_id,
-                },
-            )
-            .await
-        }
 
         Command::ClientHello { .. } => {
             Err("A hello is read at the door, on the socket it names.".into())
@@ -695,7 +686,7 @@ pub(crate) async fn run(
             reply_to,
             attachments,
         } => threads::prompt(log, room, &thread, &text, reply_to, attachments).await,
-        Command::ThreadCancel { thread } => threads::cancel(room, &thread),
+        Command::ThreadCancel { thread, interrupt } => threads::cancel(room, &thread, interrupt),
         Command::ThreadPark { thread } => threads::park(room, &thread),
         Command::ThreadClose { thread } => threads::close(room, &thread),
         Command::ThreadContinue { thread } => threads::resume(log, room, &thread).await,

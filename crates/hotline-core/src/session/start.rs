@@ -42,6 +42,14 @@ impl Room {
         self.capability_epoch(persona_id).lease()
     }
 
+    /// What a request between two teammates holds of one of them: its
+    /// lasting authority, which a chapter's swap, a parked thread and a job's
+    /// firing ending leave alone and a stop or a policy change ends, scoped
+    /// so that ending the request ends it alone.
+    pub(super) fn request_lease(&self, persona_id: &str) -> CapabilityLease {
+        self.capability_epoch(persona_id).lasting().scoped()
+    }
+
     /// Read-only tools bound to the call under the teammate's authority.
     /// The lease is the teammate's own, so changing its grants on the card
     /// refuses the front's next call.
@@ -143,6 +151,9 @@ impl Room {
             driver,
             info: Mutex::new(info.clone()),
             turns: Mutex::new(Turns::default()),
+            stopped_by_person: std::sync::atomic::AtomicBool::new(false),
+            interrupted_by_person: std::sync::atomic::AtomicBool::new(false),
+            rebuild_for_sign_in: std::sync::atomic::AtomicBool::new(false),
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_posts: Mutex::new(Vec::new()),
@@ -212,13 +223,12 @@ impl Room {
                 self.revoke_session(session);
             }
         }
-        self.drop_peer_sessions(persona_id);
+        self.peers.expire_grants(persona_id);
         self.drop_sides(persona_id);
         self.let_go_of_jobs(Some(persona_id));
         self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
         Ok(())
     }
@@ -262,24 +272,22 @@ impl Room {
         for persona_id in &roster_ids {
             self.revoke_exchanges(persona_id);
         }
-        self.peers.invalidate_all();
+        self.peers.expire_all_grants();
         self.drop_all_sides();
         self.let_go_of_jobs(None);
         self.settle_all_collaboration();
         for session in sessions {
             self.settle_permissions(&session.persona_id);
-            self.release_human_waits(&session.persona_id);
             self.computers.mark_idle(&session.persona_id, now_ms());
         }
         Ok(())
     }
 
-    /// A deleted teammate: its own session stopped, every peer session it was
-    /// a side of dropped, and its start gate let go, because nothing should
-    /// wait behind — or be kept for — an id that names nobody any more.
+    /// A deleted teammate: its own session stopped, with the collaboration
+    /// grants it held or was given, and its start gate let go, because nothing
+    /// should wait behind — or be kept for — an id that names nobody any more.
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
-        self.drop_peer_sessions(persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
         let computers = self.computers.clone();
@@ -302,39 +310,48 @@ impl Room {
         Ok(())
     }
 
-    /// The main session's stop alone, for a chapter swap: a side thread has a
-    /// conversation of its own and goes on through one.
+    /// The person's stop of the main session alone. It ends what the
+    /// teammate's requests hold of it as well, which a chapter's swap leaves
+    /// standing.
     pub(super) fn stop_session(&self, persona_id: &str) {
         self.stop_with_capability(persona_id);
+        self.capability_epoch(persona_id).stop();
         self.revoke_exchanges(persona_id);
     }
 
-    /// A chapter restart captures its replacement authority in the same
-    /// critical section as stopping the old session, so a later stop also
-    /// cancels a replacement that has not reached its first await yet.
+    /// Replaces the main session, for a chapter swap: its handles end, and
+    /// the requests the teammate sent or was given, which hold its lasting
+    /// authority, go on. A side thread has a conversation of its own and
+    /// goes on through one.
+    ///
+    /// The replacement authority is captured in the same critical section as
+    /// stopping the old session, so a later stop also cancels a replacement
+    /// that has not reached its first await yet.
     pub(super) fn stop_with_capability(&self, persona_id: &str) -> CapabilityLease {
+        self.swap_out(persona_id).0
+    }
+
+    /// [`Self::stop_with_capability`], and whether a session was running.
+    fn swap_out(&self, persona_id: &str) -> (CapabilityLease, bool) {
         let (session, capability) = {
             let _lifecycle = lock(&self.lifecycle);
-            // A stop invalidates this session's handles. Preserve an already
-            // quarantined epoch so a concurrent policy update is not reopened
-            // by the routine stop path.
+            // A quarantined epoch stays closed, so a concurrent policy update
+            // is not reopened by the swap.
             let epoch = self.capability_epoch(persona_id);
-            epoch.stop();
+            epoch.replace_session();
             (lock(&self.sessions).remove(persona_id), epoch.lease())
         };
-        self.drop_peer_sessions(persona_id);
+        self.peers.expire_grants(persona_id);
         let Some(session) = session else {
             self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);
-            self.release_human_waits(persona_id);
             self.computers.mark_idle(persona_id, now_ms());
-            return capability;
+            return (capability, false);
         };
         lock(&session.turns).waiting.clear();
         session.driver.invalidate();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;
@@ -342,7 +359,7 @@ impl Room {
         if !lock(&self.sessions).contains_key(persona_id) {
             let _ = self.info_changes.send(info);
         }
-        capability
+        (capability, true)
     }
 
     /// Rebuilds a live session from the teammate's current record, so a change
@@ -361,10 +378,20 @@ impl Room {
 
     /// [`Self::reattach`] for a caller already holding the start gate.
     pub(super) async fn reattach_held(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
-        // The wire invalidates before appending. Repeating it also gives
-        // direct callers the same stale-driver boundary.
-        self.invalidate(persona_id)?;
         let capability = {
+            // Already behind the start gate, so taking the policy lock here
+            // keeps the one order `start_gate -> policy_update_lock`. It also
+            // makes this wait for any policy update in flight to finish its
+            // own invalidate and durable append before the epoch is activated
+            // and the log is read to start: a change half-written cannot be
+            // started on. A second policy update arriving while this waits
+            // invalidates under the lock and quarantines the epoch again, for
+            // the reattach that update will run.
+            let policy_gate = self.policy_update_lock();
+            let _policy_held = policy_gate.lock().await;
+            // The wire invalidates before appending. Repeating it also gives
+            // direct callers the same stale-driver boundary.
+            self.invalidate(persona_id)?;
             let _lifecycle = lock(&self.lifecycle);
             let was_running = lock(&self.sessions).remove(persona_id).is_some();
             let epoch = self.capability_epoch(persona_id);
@@ -375,9 +402,39 @@ impl Room {
         let Some(capability) = capability else {
             return Ok(());
         };
-        // A restart that fails to start (a key gone, a harness missing) leaves
-        // the teammate stopped, and the band has to say
-        // why, because nobody pressed Start to be handed the error.
+        self.start_again(persona_id, capability).await
+    }
+
+    /// Rebuilds a running main session from the teammate's current record
+    /// the way a chapter's swap does: the old session's handles end, and the
+    /// teammate's threads, its requests and its authority stand. For what
+    /// changes the session and not what the teammate may do: its computer
+    /// joining or made again, or a sign-in to a server its policy grants.
+    /// What narrows reach goes through [`Self::reattach`].
+    pub(super) async fn rebuild(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let _working = self.working()?;
+        let gate = self.start_gate(persona_id);
+        let _held = gate.lock().await;
+        self.rebuild_held(persona_id).await
+    }
+
+    /// [`Self::rebuild`] for a caller already holding the start gate.
+    pub(super) async fn rebuild_held(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let (capability, was_running) = self.swap_out(persona_id);
+        if !was_running {
+            return Ok(());
+        }
+        self.start_again(persona_id, capability).await
+    }
+
+    /// Starts the main session again on `capability`. A start that fails (a
+    /// key gone, a harness missing) leaves the teammate stopped, and the band
+    /// has to say why, because nobody pressed Start to be handed the error.
+    async fn start_again(
+        self: &Arc<Self>,
+        persona_id: &str,
+        capability: CapabilityLease,
+    ) -> Result<(), String> {
         if let Err(error) = self.start_now(persona_id, capability).await {
             let mut info = idle_info(persona_id);
             info.state = SessionState::Stopped;
@@ -386,6 +443,58 @@ impl Room {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// A sign-in to an MCP server has completed. It adds reach the policies
+    /// already grant and narrows none, so each running main session is
+    /// rebuilt to connect with it once its turn is over, and nothing a
+    /// teammate holds or was given ends; a sign-out, a server removed or a
+    /// policy change ends all of it, through [`Self::invalidate_all`].
+    pub(crate) async fn signed_in_to_mcp(self: &Arc<Self>) {
+        let running: Vec<Arc<Session>> = {
+            let gate = self.policy_update_lock();
+            let _held = gate.lock().await;
+            lock(&self.sessions).values().cloned().collect()
+        };
+        // Never under the policy lock: a rebuild takes the start gate, and a
+        // message holds that gate while closing a chapter takes the lock.
+        for session in running {
+            session
+                .rebuild_for_sign_in
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            self.rebuild_for_sign_in_when_idle(&session);
+        }
+    }
+
+    /// Rebuilds a main session a sign-in completed under, between turns: a
+    /// turn in flight is never cut for it, and its end calls this again (see
+    /// [`Room::run_queue`]). Behind the start gate a message has claimed its
+    /// turn already, or waits and lands on the session this brings up. A
+    /// session stopped, revoked or replaced meanwhile is left alone: what
+    /// starts its teammate again connects with the sign-in.
+    pub(super) fn rebuild_for_sign_in_when_idle(self: &Arc<Self>, session: &Arc<Session>) {
+        use std::sync::atomic::Ordering::SeqCst;
+        if !session.rebuild_for_sign_in.load(SeqCst) || lock(&session.turns).running {
+            return;
+        }
+        let room = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            let gate = room.start_gate(&session.persona_id);
+            let _held = gate.lock().await;
+            if lock(&session.turns).running
+                || !session.capability.is_current()
+                || !room.current_session(&session)
+                || !session.rebuild_for_sign_in.swap(false, SeqCst)
+            {
+                return;
+            }
+            let Ok(_working) = room.working() else {
+                return;
+            };
+            // A rebuild that fails says why on the teammate's band itself.
+            let _ = room.rebuild_held(&session.persona_id).await;
+        });
     }
 
     /// Every live session, because a policy of "all" includes every server

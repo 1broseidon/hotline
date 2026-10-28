@@ -116,7 +116,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
-| `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
+| `persona.delete` | `{id}` | none — the agent is stopped, the requests to and from it stopped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
@@ -154,7 +154,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `session.stop` | `{personaId}` | none |
 | `session.retry` | `{personaId}` | none; runs the last turn again when it failed and nothing was said after it, without writing the person's message again; otherwise refused |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
-| `session.cancel` | `{personaId}` | none |
+| `session.cancel` | `{personaId, interrupt?}` | none; stops the turn in flight and drops what waited behind it, and a colleague's question among that fails at once to its asker; a question the turn was answering ends as the person's stop of its answer, told to its asker once without a wake. `interrupt` is the composer's Interrupt: that answer ends instead with the person having interrupted it, to be asked again if still needed, told the same way and never as their stop, and a first-contact card involving the teammate stays up, which the Stop expires; without it, as from the phone or an older window, it is the Stop |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
 | `session.set_config` | `{personaId, configId, value}` | `SessionInfo`. A companion phone may set only a config the live session reports as an effort; any other is refused with "Change that on your desktop." |
@@ -187,13 +187,12 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner or local desk only |
 | `teammates.exchange_resume` | `{a, b}` | none; answers a pair's `exchange_paused` card with Keep going (below) |
 | `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop exchange (below) |
-| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
-| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
-| `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
-| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
+| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then; one opened without a task runs no turn and is not `working` while its agent starts. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
+| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued. In a thread a teammate handed over, while its handoff waits on a card there, the words are that card's answer (and attachments are refused) |
+| `side.cancel` | `{sideId}` | none; stops the turn in flight and drops what waited behind it, failing at once a colleague's question among that and ending as the person's stop of it a colleague's handoff whose line, or the answer that would carry it on, was among it, and every request an interrupt left the thread carrying; the thread stays live, unless the turn was a handoff's own, which closes it as stopped |
+| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none. Refused for a thread a teammate handed over, which ends with its result |
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
@@ -201,9 +200,9 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
-| `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs) |
+| `thread.cancel` | `{thread, interrupt?}` | none; stops the turn in flight; the thread stays as it was, unless the turn was a handoff's own, which closes it as stopped. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs). `interrupt` is the composer's Interrupt: on a work or call thread it only cuts the turn, what waited behind it is heard next, and a handoff or question the turn was answering goes on in the next turn; without it, as from an older window, it is the Stop that ends that work. On the main conversation it is `session.cancel`'s. Elsewhere it changes nothing |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none |
-| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`), or cancels a job (`schedule.cancel`) |
+| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`, refused for one a teammate handed over), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
@@ -378,10 +377,9 @@ commands, not teammate tools. There are no link commands or roster links.
 `human.answer` is the same fact for a `request_human` card: `done` or
 `declined`, with an optional `note` the agent receives word for word. A card
 that `delivers` is answered off the tape at any time until it is settled,
-across restarts, and the answer reaches the teammate as a `delivery`. A card
-a tool is waiting on (a colleague's side session asked it) is refused once
-the deadline passed, the session stopped, the room restarted, or somebody
-else answered first, or the teammate withdrew the card (`withdrawn`). The
+across restarts, and the answer reaches the teammate as a `delivery`. Every
+card delivers; one that is settled (answered, expired, or withdrawn by the
+teammate, `withdrawn`) is refused. The
 tape still writes `dismissed` for a decline, which is the previous edition's
 word for that afterlife.
 
@@ -396,7 +394,7 @@ event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `folders`, `goal`, `mcpPolicy`,
 `backgroundWork`, `allowedSenders`, `backendId` or `harnessOverride` invalidates
-current main and peer execution before writing the record, clears queued
+current main execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
 
@@ -444,7 +442,7 @@ nothing. No command or field was added for it.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
-the patch. A patch that names `mcpServers` invalidates all main and peer
+the patch. A patch that names `mcpServers` invalidates every teammate's
 sessions before persistence and reattaches live main sessions afterward.
 Policy updates are serialized across client sockets. One failed restart
 does not prevent the remaining teammates from applying the change.
@@ -697,7 +695,10 @@ and no answer repeats the address, which carries the code. `mcp.auth_status` rep
 `failed`; its result never includes an access token, refresh token or client
 secret. `mcp.auth_sign_out` revokes the live gateway capability before it
 deletes the registration and tokens from the protected vault. Signing in
-does not change a teammate's MCP policy.
+does not change a teammate's MCP policy: once it completes, each running
+main session is rebuilt to connect with it when its turn is over, and
+nothing a teammate holds or was given ends
+([sessions.md](sessions.md#reattaching)).
 
 `mcp.secret_set` is the other credential: the token a server in `bearer` or
 `header` auth mode sends on every request. The window saves it before it
@@ -760,15 +761,16 @@ workingPersonaId?, preview}`, newest first. `preview` is JSON `null` when
 nothing has been said, rather than omitted, so a thread that exists is
 still a row. The events of one of them are a `{"thread": key}`
 subscription, which is a stream like any other, so there is no command
-that loads a thread. `peers.mark_read` says that
+that loads a thread. A pair has no agent: the core writes each question and
+each answer there, so `exchanges` and `waiting` count only what an older
+version's peer turns wrote, and `workingPersonaId` is never set; whether a
+colleague is answering is its own conversation's state. `peers.mark_read` says that
 those messages have been read and answers how many actually moved: an id
 naming nothing, an event that is not a message, and a message that is
 already read all move nothing, which is what makes a repeated receipt
-harmless. `peers.answer_permission` answers a permission card in a peer
-thread (`perm:<requestId>` on the pair stream) and is refused once its turn is
-over. A message's `receipt` is `sent` when it enters the thread and
-`read` once the recipient's session has proved a turn on it; nothing ever
-un-reads a message.
+harmless. A message's `receipt` is `sent` when the core writes it into the
+thread and `read` once `peers.mark_read` names it; nothing ever un-reads a
+message.
 
 `room.import`'s `from` is a path to an existing Hotline data directory. The
 source is never written. `Report` is `{teammates, tapes, threads,
@@ -915,16 +917,20 @@ needs a newer core.
 
 A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
 state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
-backendId?, elapsedMs?, openerId?, openerName?}`; `end` is how a closed thread
+backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?}`; `end` is how a closed thread
 ended (`person`, `agent`, `idle`, `stopped`, `done`, `failed`, `cancelled`).
+`handoffEnded` is `true` on a thread a teammate handed over once the handoff it
+serves has ended (see [sessions.md](sessions.md), the delegation), and absent
+while it stands.
 It is rewritten under the same id as the thread goes. A `thread_delta` is
 `{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never
 written down. The room broadcasts only that; the older four are what the door
 turns it into for a socket that did not declare.
 
 **`ThreadSummary`**, one shape for every kind: `{thread, personaId,
-withPersonaId?, withName?, title?, state, end?, opener?, startedAt, updatedAt,
-working, waiting, preview?, outcome?}`. `personaId` is the teammate whose thread it is
+withPersonaId?, withName?, title?, state, end?, opener?, handoffEnded?,
+startedAt, updatedAt, working, waiting, preview?, outcome?}`; `handoffEnded` is
+what the thread's link records. `personaId` is the teammate whose thread it is
 (a pair is listed with the first of its two, and `withPersonaId` is the other;
 `withName` is what to call the other when it is on a linked desk, in no roster
 here, [Linked desks](#linked-desks));
@@ -941,16 +947,16 @@ refused in a sentence, never silently:
 | --- | --- | --- | --- | --- | --- |
 | `prompt` | yes | yes | | | |
 | `cancel` | the turn | the turn | stops the exchange | | |
-| `park`, `close` | | yes | | | |
+| `park`, `close` | | yes (`close` refused in one a teammate handed over) | | | |
 | `continue` | | yes | resumes the exchange | | |
-| `answer` | yes | yes (a permission, or a request) | a permission | | |
+| `answer` | yes | yes (a permission, or a request) | | | |
 | `page`, subscription | yes | yes | yes | yes | yes |
 
 **Seats.** The local desk and an owner may run all of it. A companion phone
 may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 `mobile.prompt`, as before), `thread.answer` in anything but a pair
-(`peers.answer_permission` is the owner's and the desk's), neither
+(a pair raises no card), neither
 `thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
 pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
@@ -964,7 +970,7 @@ main conversation is never parked or closed: its chapters are its lifecycle.
 `session.prompt`, `session.cancel`, `session.answer_permission`,
 `human.answer` (a DM's `thread.answer`, which also finds a card raised in one of
 its work threads), `side.prompt`, `side.cancel`, `side.archive`,
-`side.answer_permission`, `peers.answer_permission` and `tape.page` run
+`side.answer_permission` and `tape.page` run
 `thread.prompt`, `cancel`, `answer`, `close` and `page` on the matching
 `ThreadId`, and answer what they always did. `side.start`, `side.continue`,
 `side.list` and `peers.list` answer their own summaries (`SideThreadSummary`,
@@ -1431,7 +1437,7 @@ answered under the link seat, for the desk the handshake proved:
 | --- | --- | --- |
 | `ping` | `{}` | none; sent every 25 s, and a channel that has heard nothing for three is closed |
 | `federation.roster` | `{teammates: LinkedTeammate[]}` | none; the sender's teammates, sent when they change (looked at every 2 s). Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}, goal, agent, model, effort, capabilities}`, the `list_teammates` row, and nothing more; rows are cut to plausible ids, known states and capability words, and bounded text, and a row from a desk older than the profile reads as the narrowest one |
-| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request — or `{kind:"result", requestId, reply, failed}` for a request the receiver sent |
+| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result or a report. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent, continues?, about?}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request; `continues`, on an ask or a handoff, is the request id of the sender's handoff that opened the work thread it continues or is answered in (a desk that takes it only on a handoff refuses an ask that carries it, and one older still ignores it), and `about`, on an ask without `continues`, is the request id of the receiving desk's handoff whose thread is asking back; the receiving desk looks either up in its own record of the pair when it takes the request up, and a desk older than `about` ignores it — or `{kind:"result", requestId, reply, failed, stoppedByPerson?}` for a request the receiver sent, `stoppedByPerson` saying the person on the sending desk stopped it, or interrupted its answer, and `reply` being what its sender is told of that, which ends with the sentence that says which, which the receiver ends the request with as its own person's stop, shown and heard once without a wake and never handed back as a failure, a request it still holds as queued included (a desk older than it ignores it and delivers the failure); a request sent again before such a stop has crossed is accepted as still queued — or `{kind:"progress", requestId, text, wakes}`, the reports a handoff the receiver sent has made in its thread here, joined, which the receiver hears only for a live handoff of its own to a teammate of the sending desk, and wakes its delegator for only by its own rule, `wakes` saying the reports came from a turn that stopped to wait. A report is sent once its thread's turn ends, or when the link comes back; one cut off before it was answered is sent again, so it can arrive twice, and one a desk older than reports refuses is dropped, while the handoff's result still arrives |
 | `federation.unlink` | `{}` | none; the sender ended the link |
 
 Everything else, a subscription included, is answered `forbidden`. The desk

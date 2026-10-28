@@ -18,11 +18,43 @@ impl Room {
         let Some(side) = self.sides.get(side_id) else {
             return;
         };
-        lock(&side.turns).clear();
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
         self.finish_side(&side, End::Stopped, Some(outcome.to_string()));
+    }
+
+    /// Cancels the turn in flight in a live thread when it is the one
+    /// answering `request`, and nothing else: the thread stays open, and the
+    /// lines waiting behind the turn stay queued.
+    pub(in crate::session) fn cancel_turn_answering(&self, side_id: &str, request: &str) {
+        let Some(side) = self.sides.get(side_id) else {
+            return;
+        };
+        if side.request().as_deref() != Some(request) {
+            return;
+        }
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
+    }
+
+    /// The requests an interrupt left for the person's next line, in a
+    /// thread closed before that line came, have no turn to answer them:
+    /// each ends as one whose turn ended without a result. On a task of its
+    /// own, since a stop ends a thread under the exchange lock this takes.
+    fn end_unanswered(&self, requests: Vec<String>) {
+        let Some(room) = lock(&self.me).upgrade() else {
+            return;
+        };
+        tokio::spawn(async move {
+            for request in requests {
+                let reply = room.ended_without_result(&request).to_string();
+                room.finish_request(&request, reply, true);
+            }
+        });
     }
 
     /// Lets go of a thread's agent and leaves the thread open.
@@ -35,7 +67,17 @@ impl Room {
             return;
         }
         self.sides.remove(&side.id);
-        lock(&side.turns).clear();
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
+        // A parked thread leaves what it carries to the agent that brings it
+        // back (`Room::carried_into`): a park ends no request.
+        if matches!(ending, Ending::Close(..)) {
+            let in_flight = side.request();
+            let carried = self.carried_into(&side.id, in_flight.as_deref());
+            if !carried.is_empty() {
+                self.end_unanswered(carried);
+            }
+        }
         side.capability.revoke();
         // A thread ended while its agent is still starting has none to stop
         // here: the start sees that it is closed and stops it itself.
@@ -61,12 +103,18 @@ impl Room {
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
-    /// Archives a thread that has no agent: the person ended a parked one.
+    /// Archives a thread that has no agent: the person ended a parked one,
+    /// and with it what an interrupt left it carrying, as a live thread's
+    /// close does.
     pub(super) fn archive_parked(&self, link: Link, by: End, result: Option<String>) {
         let thread = link.thread.clone();
         let Some(persona_id) = link.persona_id.clone() else {
             return;
         };
+        let carried = self.carried_into(&thread.key, None);
+        if !carried.is_empty() {
+            self.end_unanswered(carried);
+        }
         let said_so = result.is_some();
         let result = result.or_else(|| {
             last_words(
@@ -129,7 +177,13 @@ impl Room {
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
+    /// A live mark on a thread that has ended writes nothing: the end's own
+    /// link stands.
     pub(super) fn mark_side(&self, side: &LiveSide, state: ThreadState, outcome: Option<String>) {
+        let _marking = lock(&side.marking);
+        if state == ThreadState::Live && side.closed.load(Ordering::SeqCst) {
+            return;
+        }
         let thread = side.thread.clone();
         let saved = lock(&side.saved).clone();
         self.write_link(&Link {
@@ -148,7 +202,30 @@ impl Room {
             }),
             elapsed_ms: None,
             opener: side.opener.clone(),
+            handoff_ended: side.opener.is_some() && self.handoff_ended(&side.id),
         });
+    }
+
+    /// Writes on each thread's link whether the delegation it serves still
+    /// stands, where that has changed ([`Room::handoff_ended`]): a live
+    /// thread's from its agent's record, one with no agent from its link.
+    pub(in crate::session) fn mark_handoffs(&self, threads: &[String]) {
+        for side_id in threads {
+            let Some(link) = self.link_of(&self.work_thread(side_id)) else {
+                continue;
+            };
+            let ended = link.opener.is_some() && self.handoff_ended(side_id);
+            if link.handoff_ended == ended {
+                continue;
+            }
+            match self.sides.get(side_id) {
+                Some(side) => self.mark_side(&side, ThreadState::Live, None),
+                None => self.write_link(&Link {
+                    handoff_ended: ended,
+                    ..link
+                }),
+            }
+        }
     }
 
     pub(super) fn side_summary(&self, side: &LiveSide) -> SideThreadSummary {
@@ -162,7 +239,7 @@ impl Room {
             status: SideStatus::Live,
             started_at: side.started,
             last_at: last_at(&events).max(side.started),
-            working: side.working(),
+            working: side.turn_running(),
             waiting: waiting_on(&events),
             preview: preview_line(&events),
             result: None,

@@ -393,8 +393,10 @@ async fn a_work_thread_posts_once_a_turn_and_wakes_its_home(driver: Driver) {
     );
 }
 
-/// A pair posts to its own chat, the target's, never the asker's.
-async fn a_pair_posts_to_its_targets_own_chat(driver: Driver) {
+/// A colleague's question is answered by the target's main conversation,
+/// whose reply is already the chat: a post from that turn is refused, and
+/// lands in neither the target's chat nor the asker's.
+async fn a_question_turn_may_not_post(driver: Driver) {
     let mut desk = open().await;
     // A Whole machine Hotline Agent asks without a first-contact card.
     let (ada, ada_tape) = desk.teammate("Ada", Driver::HotlineAgent, true).await;
@@ -403,7 +405,7 @@ async fn a_pair_posts_to_its_targets_own_chat(driver: Driver) {
     let ask = json!({
         "to": "Bob",
         "intent": "ask",
-        "message": r#"CALL post_to_chat {"text":"Ada asked me about the crane."}"#,
+        "message": "About the crane:\nCALL post_to_chat {\"text\":\"Ada asked me about the crane.\"}",
     });
     let sent = desk
         .client
@@ -413,26 +415,16 @@ async fn a_pair_posts_to_its_targets_own_chat(driver: Driver) {
         )
         .await;
     assert_eq!(sent["ok"], true, "{sent}");
-    let posted = desk
-        .event(bob_tape, |event| {
-            event["kind"] == "agent" && event["text"] == "Ada asked me about the crane."
-        })
-        .await;
-    assert_eq!(posted["from"]["kind"], "pair", "{posted}");
     says(&desk.results(ada_tape).await, 0, "requestId");
-    assert!(
-        desk.chat(&ada)
-            .iter()
-            .all(|event| event["text"] != "Ada asked me about the crane."),
-        "the asker's chat is not the pair's to post to"
-    );
-    assert_eq!(
-        desk.chat(&bob)
-            .iter()
-            .filter(|event| event["text"] == "Ada asked me about the crane.")
-            .count(),
-        1
-    );
+    says(&desk.results(bob_tape).await, 0, "already the chat");
+    for whose in [&ada, &bob] {
+        assert!(
+            desk.chat(whose)
+                .iter()
+                .all(|event| event["text"] != "Ada asked me about the crane."),
+            "a refused post lands nowhere"
+        );
+    }
 }
 
 /// A file sent from a work thread lands in the chat stamped from the
@@ -571,11 +563,11 @@ async fn an_acp_work_thread_posts_once_a_turn_and_wakes_its_home() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_hotline_agent_pair_posts_to_its_own_chat() {
-    a_pair_posts_to_its_targets_own_chat(Driver::HotlineAgent).await;
+async fn a_hotline_agent_question_turn_may_not_post() {
+    a_question_turn_may_not_post(Driver::HotlineAgent).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_acp_pair_posts_to_its_own_chat() {
-    a_pair_posts_to_its_targets_own_chat(Driver::Acp).await;
+async fn an_acp_question_turn_may_not_post() {
+    a_question_turn_may_not_post(Driver::Acp).await;
 }

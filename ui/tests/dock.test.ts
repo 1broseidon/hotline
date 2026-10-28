@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ScheduleEntry, ThreadSummary } from "../src/generated/contract";
+import type { RosterEntry, ScheduleEntry, ThreadSummary } from "../src/generated/contract";
 import {
 	clampDock,
 	DOCK_KEY,
@@ -23,8 +23,10 @@ import {
 	saveDockWidth,
 	threadDot,
 	threadOwnerId,
+	turnRunning,
 	withLinks,
 	withoutWords,
+	withTurns,
 } from "../src/dock";
 
 const thread = (key: string, kind: ThreadSummary["thread"]["kind"] = "side", extra: Partial<ThreadSummary> = {}): ThreadSummary => ({
@@ -206,6 +208,17 @@ describe("a link as a row", () => {
 		expect(closed[0]).toMatchObject({ state: "closed", end: "done" });
 	});
 
+	test("says a handoff has ended as its link records it, and stands again when a newer link says so", () => {
+		const opened = { openerId: "mack", openerName: "Mack" };
+		expect(rowOfLink(link("a", { ...opened, handoffEnded: true }), "p").handoffEnded).toBe(true);
+		expect(rowOfLink(link("a", opened), "p")).not.toHaveProperty("handoffEnded");
+		const listed = thread("a", "side", { state: "closed", end: "agent", updatedAt: 10 });
+		const ended = withLinks([listed], [link("a", { ...opened, state: "closed", end: "agent", at: 20, handoffEnded: true })], "p");
+		expect(ended[0]).toMatchObject({ handoffEnded: true });
+		const again = withLinks(ended, [link("a", { ...opened, state: "closed", end: "agent", at: 30 })], "p");
+		expect(again[0]).not.toHaveProperty("handoffEnded");
+	});
+
 	test("leaves a row alone when the link agrees, and ignores the conversation's own", () => {
 		const listed = [thread("a", "side", { working: true })];
 		expect(withLinks(listed, [link("a")], "p")).toEqual(listed);
@@ -215,9 +228,9 @@ describe("a link as a row", () => {
 
 describe("what a person can do in a thread", () => {
 	const read = { say: false, close: false, resume: false, stop: false };
-	test("is speak and archive in an open work thread, and continue in a closed one", () => {
-		expect(powersOf("side", "live")).toEqual({ ...read, say: true, close: true });
-		expect(powersOf("side", "parked")).toEqual({ ...read, say: true, close: true });
+	test("is speak, stop and archive in an open work thread, and continue in a closed one", () => {
+		expect(powersOf("side", "live")).toEqual({ ...read, say: true, close: true, stop: true });
+		expect(powersOf("side", "parked")).toEqual({ ...read, say: true, close: true, stop: true });
 		expect(powersOf("side", "closed")).toEqual({ ...read, resume: true });
 	});
 
@@ -233,10 +246,10 @@ describe("what a person can do in a thread", () => {
 		expect(powersOf("job", "closed")).toEqual(read);
 	});
 
-	test("is reading along in a handoff, with only its turn to stop until it ends", () => {
-		expect(powersOf("side", "live", true)).toEqual({ ...read, stop: true });
-		expect(powersOf("side", "parked", true)).toEqual({ ...read, stop: true });
-		expect(powersOf("side", "closed", true)).toEqual(read);
+	test("is spoken in and continued in a handoff, and never archived by the person", () => {
+		expect(powersOf("side", "live", true)).toEqual({ ...read, say: true, stop: true });
+		expect(powersOf("side", "parked", true)).toEqual({ ...read, say: true, stop: true });
+		expect(powersOf("side", "closed", true)).toEqual({ ...read, resume: true });
 	});
 
 	test("belongs to its own teammate, even listed in the pane of the one who handed it over", () => {
@@ -245,6 +258,20 @@ describe("what a person can do in a thread", () => {
 		expect(threadOwnerId(handed, "poe")).toBe("poe");
 		expect(threadOwnerId(thread("ada~mack", "pair", { personaId: "ada" }), "mack")).toBe("mack");
 		expect(threadOwnerId(undefined, "mack")).toBe("mack");
+	});
+
+	test("runs a turn as the roster of the teammate whose agent it is says, over a list read at a moment", () => {
+		const rosterOf = (id: string, rest: Partial<RosterEntry> = {}) => ({ persona: { id }, waiting: false, drawing: false, ...rest }) as RosterEntry;
+		const handed = thread("h", "side", { personaId: "poe", opener: { personaId: "mack", name: "Mack" }, working: true });
+		const roster = [rosterOf("mack"), rosterOf("poe", { sides: [{ sideId: "h", title: "h", startedAt: 1, working: false }] })];
+		// Listed in Mack's pane while Poe's agent started, then Poe's roster said it rests.
+		expect(withTurns([handed], roster, "mack")[0]?.working).toBe(false);
+		expect(turnRunning(roster[1], handed.thread, handed)).toBe(false);
+		expect(turnRunning(rosterOf("poe", { sides: [{ sideId: "h", title: "h", startedAt: 1, working: true }] }), handed.thread, undefined)).toBe(true);
+		// No roster row follows a pair, nor a teammate gone from the roster: the list says.
+		const pair = thread("ada~mack", "pair", { personaId: "ada", working: true });
+		expect(withTurns([pair], [rosterOf("mack")], "mack")[0]?.working).toBe(true);
+		expect(turnRunning(undefined, handed.thread, handed)).toBe(true);
 	});
 
 	test("knows a handoff by a teammate opener other than its own teammate", () => {

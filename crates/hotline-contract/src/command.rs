@@ -569,8 +569,18 @@ pub enum Command {
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     },
+    /// Stops the main conversation's turn in flight and drops what waited
+    /// behind it. `interrupt` is the composer's Interrupt rather than the
+    /// person's Stop: an answer the turn was giving a colleague ends with
+    /// that said, to be asked again if still needed, never as their stop of
+    /// it. Without it, as from an older window or the phone, it is the Stop.
     #[serde(rename = "session.cancel")]
-    SessionCancel { persona_id: String },
+    SessionCancel {
+        persona_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        interrupt: bool,
+    },
     /// Stops one command the teammate left running. The teammate is not
     /// woken by its end: the person stopped it.
     #[serde(rename = "process.stop")]
@@ -716,7 +726,8 @@ pub enum Command {
         attachments: Option<Vec<Attachment>>,
     },
     /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it. The thread stays live.
+    /// it. The thread stays live, unless the turn was a handoff's own, which
+    /// closes it as stopped.
     #[serde(rename = "side.cancel")]
     SideCancel { side_id: String },
     /// Archives a side thread: its agent is stopped, its chip goes, and the
@@ -749,14 +760,6 @@ pub enum Command {
     /// or an id naming nothing, moves nothing.
     #[serde(rename = "peers.mark_read")]
     PeersMarkRead { key: String, event_ids: Vec<String> },
-    /// Answers a permission card raised in a peer thread, while the teammate
-    /// who raised it is still answering there. Owner seat only.
-    #[serde(rename = "peers.answer_permission")]
-    PeersAnswerPermission {
-        key: String,
-        request_id: String,
-        option_id: String,
-    },
     /// Every runtime this machine knows how to drive, rootless-available first.
     #[serde(rename = "computer.runtimes")]
     ComputerRuntimes {},
@@ -967,9 +970,19 @@ pub enum Command {
         attachments: Option<Vec<Attachment>>,
     },
     /// Stops the turn in flight and drops what waited behind it; the thread
-    /// stays as it was. On a pair it stops the automatic exchange.
+    /// stays as it was, unless the turn was a handoff's own, which closes it
+    /// as stopped. On a pair it stops the automatic exchange.
+    /// `interrupt` is the composer's Interrupt rather than Stop: in a work
+    /// thread it only cuts the turn, what waited behind it is heard next,
+    /// and the work the turn was doing goes on in the next one; in the main
+    /// conversation it is `session.cancel`'s. Elsewhere it changes nothing.
     #[serde(rename = "thread.cancel")]
-    ThreadCancel { thread: ThreadId },
+    ThreadCancel {
+        thread: ThreadId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        interrupt: bool,
+    },
     /// Lets go of a work thread's agent and keeps the thread open: saying
     /// something in it brings one back.
     #[serde(rename = "thread.park")]

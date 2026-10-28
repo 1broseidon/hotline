@@ -454,6 +454,12 @@ pub enum TranscriptEvent {
         opener_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         opener_name: Option<String>,
+        /// The latest handoff into the thread no longer stands, as the core
+        /// recorded when it ended: what is said in it no longer reaches its
+        /// opener. Absent while it stands.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        handoff_ended: bool,
     },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
@@ -626,6 +632,20 @@ pub enum DeliveryCause {
         thread_key: String,
         /// The start of the message, clipped to a line.
         about: String,
+    },
+    /// A colleague's question. The reply of the turn it starts goes back to
+    /// them by itself.
+    Question {
+        request_id: String,
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        /// The start of the question, clipped to a line.
+        about: String,
+        /// The start of the handoff the question is about, when it is about one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        work: Option<String>,
     },
     /// The person answered a `request_human` card the teammate did not wait
     /// on, or its lifetime ran out without an answer (`expired`). `text` is the

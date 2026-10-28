@@ -220,13 +220,7 @@ impl Desk {
             let Some(room) = room_for_oauth.upgrade() else {
                 return;
             };
-            tokio::spawn(async move {
-                let gate = room.policy_update_lock();
-                let _held = gate.lock().await;
-                if room.invalidate_all().is_ok() {
-                    let _ = room.reattach_all().await;
-                }
-            });
+            tokio::spawn(async move { room.signed_in_to_mcp().await });
         }));
         let voice = crate::voice::Calls::with_models(
             log.clone(),
@@ -483,6 +477,10 @@ impl RoomHandle for Desk {
         self.room.cancel(persona_id)
     }
 
+    fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        self.room.interrupt(persona_id)
+    }
+
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
         self.room.set_model(persona_id, model_id).await
     }
@@ -593,6 +591,10 @@ impl RoomHandle for Desk {
         self.room.cancel_side(side_id)
     }
 
+    fn side_interrupt(&self, side_id: &str) -> Result<(), String> {
+        self.room.interrupt_side(side_id)
+    }
+
     async fn job_prompt(
         &self,
         job_id: &str,
@@ -644,17 +646,6 @@ impl RoomHandle for Desk {
     ) -> Result<(), String> {
         self.room
             .answer_side_permission(side_id, request_id, option_id)
-            .await
-    }
-
-    async fn peers_answer_permission(
-        &self,
-        key: &str,
-        request_id: &str,
-        option_id: &str,
-    ) -> Result<(), String> {
-        self.room
-            .answer_peer_permission(key, request_id, option_id)
             .await
     }
 

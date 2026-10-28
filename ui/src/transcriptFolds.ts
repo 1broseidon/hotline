@@ -172,6 +172,7 @@ export function deliveryLine(event: DeliveryEvent): { name: string; said: string
 	if (cause.kind === "peer" && cause.status === "failed")
 		return { name: cause.name, said: cause.about ? `didn't answer · ${cause.about}` : "didn't answer" };
 	const said = plain(firstLine(withoutOpener(event.text))) || cause.about;
+	if (cause.kind === "question") return { name: cause.name, said: `asks: ${said}` };
 	if (cause.kind !== "handoff") return { name: cause.name, said };
 	// A handoff still behind the teammate's current turn says so; once taken up it is just what was handed.
 	return { name: cause.name, said: `handed you: ${said}${event.receipt === "sent" ? " · queued" : ""}` };

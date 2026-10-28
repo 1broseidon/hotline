@@ -21,8 +21,7 @@
 //! Its row says what is its own: the teammate's checkpoint is the session it
 //! resumes, its seed is the open chapter, its folder is written here, its
 //! computer does not hold the start up for a download, and the watches a driver
-//! offers are taken before it starts. A pair uses the same builder, with its
-//! caller as opener and its history oriented to the target answering it.
+//! offers are taken before it starts.
 
 use super::computer::{
     COMPUTER_DOWNLOADING, ComputerAtStart, Driving, computer_failed_note, computer_unavailable,
@@ -145,7 +144,6 @@ pub(super) fn lease_of(kind: ThreadKind, parent: &CapabilityLease) -> Capability
 fn driving_of(thread: &ThreadId, title: &str, lease: &CapabilityLease) -> Driving {
     match thread.kind {
         ThreadKind::Dm => Driving::new(lease_key(thread), "the main conversation", lease),
-        ThreadKind::Pair => Driving::new(lease_key(thread), title, lease),
         _ if title.is_empty() => Driving::new(lease_key(thread), "an untitled thread", lease),
         _ => Driving::new(lease_key(thread), format!("the thread \"{title}\""), lease),
     }
@@ -358,13 +356,8 @@ impl Room {
             _ => Vec::new(),
         };
         let has_history = !earlier.is_empty();
-        let pair = thread.kind == ThreadKind::Pair;
-        let flip = pair
-            && crate::paths::thread_participants(&thread.key)
-                .is_some_and(|(_, agent_side)| agent_side != view.id);
         let history = match &tape {
             Some(events) => said(events),
-            None if pair => super::peers::said_in(&earlier, flip),
             None if in_process => said(&earlier),
             None => Vec::new(),
         };
@@ -379,9 +372,6 @@ impl Room {
         );
 
         let opened_by = opener.and_then(|opener| self.participant(&opener.persona_id).ok());
-        if pair && opened_by.is_none() {
-            return Err("The teammate asking in this pair is no longer available.".to_string());
-        }
         let stored = self.stored_secrets();
         let build = |view: &Persona, transcript: Option<String>| {
             let mut preamble = preamble_of(
@@ -430,8 +420,8 @@ impl Room {
         let mut info = driver.start(&checkpointed).await?;
         lease.check()?;
         // Hotline Agent with no provider comes up for the main conversation,
-        // to say so on its tape before anything is sent. A side or peer
-        // thread would only open onto that, so it is refused instead.
+        // to say so on its tape before anything is sent. Another thread would
+        // only open onto that, so it is refused instead.
         if in_process && !main && driver.startup_failure().is_some() {
             return Err(crate::driver::failure::NO_PROVIDER.to_string());
         }
@@ -498,12 +488,6 @@ fn preamble_of(
         // The DM's: what it needs to know of the chapter it joins, and of its
         // computer, is the note.
         ThreadKind::Dm => super::preamble(persona, reach, note, stored),
-        ThreadKind::Pair => super::peers::peer_preamble(
-            opener.expect("a pair's caller was resolved before building its agent"),
-            persona,
-            reach,
-            stored,
-        ),
         _ => super::sides::work_preamble(persona, reach, stored, opener, context, transcript),
     }
 }
@@ -522,7 +506,6 @@ fn tools_of(
         Tools::Work => tools.for_work(thread.key.clone()),
         Tools::Run => tools.for_run(),
         Tools::Job => tools.for_job(thread.key.clone()),
-        Tools::Peer => tools.for_peer(thread.clone()),
         Tools::None => tools,
     }
 }
@@ -582,7 +565,7 @@ mod tests {
 
     #[test]
     fn a_threads_agent_never_holds_its_teammates_session() {
-        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Pair] {
+        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Job] {
             let view = own_view(with_computer(), Policy::of(kind));
             assert!(view.session_checkpoints.is_empty(), "{kind:?}");
             assert_eq!(view.last_session_id, None, "{kind:?}");
@@ -715,7 +698,7 @@ mod tests {
         assert_eq!(dm.resume, Resume::Checkpoint);
         assert!(dm.seed.chapters && !dm.seed.own_history);
         assert_eq!(dm.computer, Computer::Download);
-        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Pair] {
+        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Job] {
             let policy = Policy::of(kind);
             assert_ne!(policy.resume, Resume::Checkpoint, "{kind:?}");
             assert!(!policy.seed.chapters, "{kind:?}");
@@ -747,7 +730,6 @@ mod tests {
         for kind in [
             ThreadKind::Dm,
             ThreadKind::Side,
-            ThreadKind::Pair,
             ThreadKind::Run,
             ThreadKind::Job,
         ] {
@@ -788,79 +770,6 @@ mod tests {
             lock(&agents.preambles)[0].contains("This is a subagent run of Ada's"),
             "a run is the teammate, told it is a run"
         );
-    }
-
-    #[tokio::test]
-    async fn a_pair_seeds_each_driver_in_the_answerers_direction_without_the_home_session() {
-        use crate::driver::rig::Said;
-        use serde_json::json;
-
-        for backend in [HOTLINE_BACKEND_ID, "cursor"] {
-            for target in ["ada", "bob"] {
-                let agents = Fake::new(Scripted::new(reply("Ready.")));
-                let log = scratch("agent-pair-history");
-                for id in ["ada", "bob"] {
-                    let mut teammate = persona(id);
-                    teammate.backend_id = backend.to_string();
-                    teammate.session_checkpoints = vec![SessionCheckpoint {
-                        backend_id: backend.to_string(),
-                        session_id: "home-session".to_string(),
-                    }];
-                    teammate.last_session_id = Some("home-session".to_string());
-                    teammate.cwd = log.root().join(id).to_string_lossy().into_owned();
-                    enrol(&log, &teammate);
-                }
-                for event in [
-                    json!({"kind":"user", "id":"a1", "ts":1, "text":"Ada's line"}),
-                    json!({"kind":"agent", "id":"b1", "ts":2, "text":"Bob's line"}),
-                ] {
-                    log.append(&StreamId::Pair("ada~bob".to_string()), &event)
-                        .unwrap();
-                }
-                let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
-                let caller = if target == "ada" { "bob" } else { "ada" };
-                let _agent = room
-                    .thread_agent(Opening {
-                        thread: ThreadId::pair("ada~bob"),
-                        persona: room.persona(target).unwrap(),
-                        title: "A colleague's request".to_string(),
-                        opener: Some(Opener {
-                            persona_id: caller.to_string(),
-                            name: caller.to_string(),
-                        }),
-                        lease: room.capability_lease(target),
-                        heard_from: None,
-                    })
-                    .await
-                    .unwrap();
-                let expected = if target == "ada" {
-                    vec![
-                        Said::Agent("Ada's line".to_string()),
-                        Said::User("Bob's line".to_string()),
-                    ]
-                } else {
-                    vec![
-                        Said::User("Ada's line".to_string()),
-                        Said::Agent("Bob's line".to_string()),
-                    ]
-                };
-                assert_eq!(
-                    crate::session::tests::words(lock(&agents.seeds)[0].clone()),
-                    expected
-                );
-                let view = &agents.views()[0];
-                assert!(
-                    view.session_checkpoints.is_empty(),
-                    "a pair never reopens the home session"
-                );
-                assert!(view.last_session_id.is_none());
-                let preamble = &lock(&agents.preambles)[0];
-                assert!(preamble.contains("replying privately to your teammate"));
-                assert!(preamble.contains(&room.persona(caller).unwrap().name));
-                let tools = agents.tools();
-                assert!(!tools[0].in_work() && !tools[0].in_run());
-            }
-        }
     }
 
     #[tokio::test]

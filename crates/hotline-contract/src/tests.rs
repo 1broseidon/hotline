@@ -102,3 +102,107 @@ fn an_agent_event_is_stamped_with_where_it_came_from_additively() {
     let event: TranscriptEvent = serde_json::from_value(posted.clone()).unwrap();
     assert_eq!(serde_json::to_value(&event).unwrap(), posted);
 }
+
+#[test]
+fn a_question_delivery_round_trips_with_and_without_its_work() {
+    let plain = json!({
+        "kind":"delivery","id":"q","ts":1,
+        "cause":{"kind":"question","requestId":"r","personaId":"ada","name":"Ada","threadKey":"ada~bob","about":"x"},
+        "text":"t",
+    });
+    let event: TranscriptEvent = serde_json::from_value(plain.clone()).unwrap();
+    let written = serde_json::to_value(&event).unwrap();
+    assert_eq!(written, plain);
+    assert!(written["cause"].get("work").is_none());
+    let mut about_work = plain;
+    about_work["cause"]["work"] = json!("w");
+    let event: TranscriptEvent = serde_json::from_value(about_work.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&event).unwrap(), about_work);
+}
+
+#[test]
+fn a_linked_delivery_grows_by_a_report_and_by_the_handoff_an_ask_is_about() {
+    let plain = json!({
+        "kind":"request","requestId":"r","fromPersonaId":"ada","to":"bob",
+        "message":"m","intent":"ask",
+    });
+    let request: LinkedDelivery = serde_json::from_value(plain.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&request).unwrap(), plain);
+    let mut asked_back = plain;
+    asked_back["about"] = json!("h");
+    let request: LinkedDelivery = serde_json::from_value(asked_back.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&request).unwrap(), asked_back);
+    assert!(LinkedDelivery::decl(&ts_rs::Config::default()).contains("about?: string"));
+
+    let report = json!({"kind":"progress","requestId":"h","text":"runner 3 is green","wakes":true});
+    let delivery: LinkedDelivery = serde_json::from_value(report.clone()).unwrap();
+    assert_eq!(
+        delivery,
+        LinkedDelivery::Progress {
+            request_id: "h".into(),
+            text: "runner 3 is green".into(),
+            wakes: true,
+        }
+    );
+    assert_eq!(serde_json::to_value(&delivery).unwrap(), report);
+}
+
+#[test]
+fn a_result_says_the_person_stopped_it_only_when_they_did() {
+    let plain = json!({"kind":"result","requestId":"r","reply":"done","failed":false});
+    let result: LinkedDelivery = serde_json::from_value(plain.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&result).unwrap(), plain);
+    let mut stopped = json!({"kind":"result","requestId":"r","reply":"stopped","failed":true});
+    stopped["stoppedByPerson"] = json!(true);
+    let result: LinkedDelivery = serde_json::from_value(stopped.clone()).unwrap();
+    assert_eq!(
+        result,
+        LinkedDelivery::Result {
+            request_id: "r".into(),
+            reply: "stopped".into(),
+            failed: true,
+            stopped_by_person: true,
+        }
+    );
+    assert_eq!(serde_json::to_value(&result).unwrap(), stopped);
+    assert!(LinkedDelivery::decl(&ts_rs::Config::default()).contains("stoppedByPerson?: boolean"));
+}
+
+/// An older window's cancel, which says nothing more, is the Stop it always
+/// was; the composer's Interrupt says so.
+#[test]
+fn a_thread_cancel_is_a_stop_unless_it_says_it_interrupts() {
+    let side = json!({"kind":"side","key":"s1"});
+    let stop = json!({"cmd":"thread.cancel","params":{"thread":side}});
+    let interrupt = json!({"cmd":"thread.cancel","params":{"thread":side,"interrupt":true}});
+    for (value, interrupts) in [(&stop, false), (&interrupt, true)] {
+        let command = serde_json::from_value::<Command>(value.clone()).unwrap();
+        assert!(
+            matches!(command, Command::ThreadCancel { interrupt, .. } if interrupt == interrupts),
+            "{value}"
+        );
+        assert_eq!(&serde_json::to_value(&command).unwrap(), value);
+    }
+    assert!(
+        Command::decl(&ts_rs::Config::default())
+            .contains(r#""cmd": "thread.cancel", "params": { thread: ThreadId, "#)
+    );
+}
+
+/// The same for the main conversation's `session.cancel`.
+#[test]
+fn a_session_cancel_is_a_stop_unless_it_says_it_interrupts() {
+    let stop = json!({"cmd":"session.cancel","params":{"personaId":"ada"}});
+    let interrupt = json!({"cmd":"session.cancel","params":{"personaId":"ada","interrupt":true}});
+    for (value, interrupts) in [(&stop, false), (&interrupt, true)] {
+        let command = serde_json::from_value::<Command>(value.clone()).unwrap();
+        assert!(
+            matches!(command, Command::SessionCancel { interrupt, .. } if interrupt == interrupts),
+            "{value}"
+        );
+        assert_eq!(&serde_json::to_value(&command).unwrap(), value);
+    }
+    assert!(Command::decl(&ts_rs::Config::default()).contains(
+        r#""cmd": "session.cancel", "params": { personaId: string, interrupt?: boolean, }"#
+    ));
+}

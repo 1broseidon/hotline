@@ -179,8 +179,8 @@ resolves vault connections and their discovery/manual records once per request,
 using one room snapshot for credentials and enabled models. No secret survives
 in a listing cache. Thread listing scans the side and pair directories once,
 reads each selected tape once, and asks the shared fold for thread links without
-copying unrelated side histories. Pair working state comes from live sessions,
-not from rebuilding the peer history list.
+copying unrelated side histories. A pair's thread has no agent of its own, so
+its summary names nobody at work in it and is read from its stream alone.
 
 ### 2. A wire of commands and subscriptions
 
@@ -202,8 +202,8 @@ seat. Here the wire is one WebSocket carrying three things:
   has shown per teammate. A view is a snapshot followed by updates.
 
 The live roster keeps a small projection per watched tape: the last visible
-message, the current tool title and pending card ids. Live work and peer
-sessions likewise keep their pending-card projection for their own lifetime.
+message, the current tool title and pending card ids. Live work likewise keeps
+its pending-card projection for its own lifetime.
 Log seeds these from the folded stream and hands over a broadcast under the
 same writer lock; a lagged receiver replaces both together. This is derived
 state, not another folded-history cache: ordinary tool and session updates
@@ -529,8 +529,8 @@ caller and recipient and offers a session grant, a standing sender grant, or
 denial. A standing grant is an `allowedSenders` id on the recipient; it
 survives rename and restart, while a session grant is tied to both live
 capability leases and expires on session or chapter replacement. Revocation
-clears waits, queued work and cached peer sessions. An authorized reply does
-not grant the reverse direction or any third party.
+clears waits and queued work and ends the delegations it touches. An
+authorized reply does not grant the reverse direction or any third party.
 
 A card a teammate raised to ask the person is the teammate's to take back.
 `request_human` returns the card's id, and `withdraw_request` supersedes the
@@ -1070,14 +1070,129 @@ is read-only reference and is not modified by work here.
 
 ### Teammate messages: ask or hand off
 
-`message_teammate(to, message, intent)` defaults to `ask`: a bounded answer or
-review in a side session with none of the recipient's main conversation. Ask
-is not tool-free: the recipient uses its own workspace and granted tools.
+`message_teammate(to, message, intent)` defaults to `ask`: an answer or a
+review from the conversation that has the work, which the core picks from its
+own records and never from the message. An ask that names a thread (below) is
+answered in that work thread, by the teammate doing the work. An ask sent from
+a work thread a colleague handed over, to that colleague, is answered by the
+conversation that handed it over. Any other ask is answered by the recipient's
+main conversation. Each arrives as a line that starts a turn there, or waits
+behind the one in flight, and that turn's reply goes back to the asker. There
+is no separate ask session: a copy with none of the main conversation answered
+and promised in the teammate's place, while the conversation the person reads
+never heard of it. Ask is not tool-free: the recipient uses its own workspace
+and granted tools.
 `handoff` opens a work thread of the recipient's own, which starts from its
 main conversation's context, to implement or continue work there; the main
 conversation is never interrupted by it.
+The handoff's request id, which its result also carries, names that thread to
+its sender. A later handoff that passes it as `thread` lands in the
+same thread, behind any turn in flight there, and the recipient takes it up
+with everything said in the thread before; a handoff without `thread` opens a
+new one. An ask that passes it is answered there and leaves the thread open,
+since only a handoff's result closes it. Asking the sender to choose, rather
+than guessing from timing or topic, keeps a colleague's unrelated work out of a
+thread and a follow-up out of a fresh one. Only the teammate whose handoff
+opened a thread on that recipient names it.
 The recipient never silently promotes an Ask. Neither intent overrides the
 person or expands the recipient's permissions.
+
+A colleague's question is a `delivery` with cause `question`, an additive
+variant the reference tree never wrote, so its tapes import unchanged. It
+names the asker, the pair's thread and the request, and, asked back from a
+delegated thread or into a named one, the start of the handoff that thread
+serves. Its `from` names no
+request, so a turn's door never takes it for a colleague's result.
+
+**A delegated thread** is the work thread a handoff opened. A handoff waits
+for the answers its turn asked for, as it waits on a card: an ask sent from
+inside a handoff's turn is a gate on the handoff, its answer is the handoff's
+next turn in the thread, and the result returns only from a turn that ends
+with nothing left to wait on. The answer to an ask sent from a delegated
+thread comes back to that thread, which opens again for it if it has closed;
+a stop never reopens the thread it closed.
+
+Each turn of a delegated thread that is not the handoff's result reports to
+the teammate that handed it over, the way Claude Code tells the session that
+started another of each turn it ends. The report is the teammate's own last
+words, cut to 400 characters, and never what the person said there: the
+thread's brief tells the teammate that its closing reply goes to the delegator
+and should say what was asked, what changed and what is left. A turn that
+stopped for a card adds the card's reason. The report is shown at once, as an
+`info` notice in the conversation the result would go to, and kept on the
+handoff in the pair record until that conversation's agent hears it, once,
+with the next line it takes: the reports a thread made meanwhile are one
+summary of at most 1,600 characters, the oldest dropped and counted. A report
+from a turn that stopped to wait, on the person or on a colleague other than
+the delegator, wakes the delegator when it is idle and no other thread it
+handed over is at work, once however many end together; each wake counts
+toward the pair's twelve, so two teammates that delegate to each other cannot
+wake each other forever. A report from the person's own turn, or from a
+stopped or failed one, waits for what the delegator hears next. A handoff
+waiting only on the delegator reports nothing, since the question reaches the delegator itself.
+
+The delegation stands, after the result too, until the person stops the
+exchange or collaboration is revoked: that releases it, its thread reports no
+more, and what the delegator had not heard is dropped. A request, an ask as
+much as a handoff, and the delegation it carries end only by an explicit end:
+Stop exchange, a revocation (a policy change, either teammate stopped or
+removed), or the end of the link to the other desk. A chapter turning over or reopened, the thread it was sent from parking and the
+job firing that sent it ending leave it standing, within a run and after a
+restart, so its result, reports and questions back keep flowing (decided
+2026-10-23 by the operator; before, such a request held leases scoped from
+the session, thread or firing that sent it, and any of those ending stopped
+it within a run though a restart brought it back). Its leases are each
+teammate's lasting authority, which only a stop or a policy update ends.
+What changes a teammate's session and not what it may do rebuilds its main
+session as a chapter's swap does (`Room::rebuild`) and ends nothing it holds
+or was given: its computer joining once downloaded or made again, and a
+sign-in to an MCP server completing, which adds reach its policy already
+granted, each between turns (decided 2026-10-24 by the coordinating session;
+before, each went through the policy change's revocation and archived the
+teammate's threads, or every teammate's, with every request and delegation
+in them). A sign-out, a server removed and a policy change narrow reach and
+still revoke.
+While it stands it is the grant for its thread's questions back
+to the delegator, which reach the delegating conversation without a card.
+Once a stop or a revocation has ended it, the thread's link says so
+(`handoffEnded`), and the window shows only that: whether what is said in the
+thread reaches the delegator is the core's to decide, never the window's to
+infer.
+
+The person talks in a delegated thread and continues it once it has closed,
+but does not archive it: it ends with its result, which is the delegator's and
+the teammate's. While the handoff waits on a card in it, what the person says
+is that card's answer and carries the handoff on. Otherwise it is a line
+behind the turn in flight that carries no request, and its turn reaches the
+delegator only as the teammate's report. So the person works on delegated
+work where the delegator hears of it, not in a main conversation that nothing
+ties to the delegation. Stop and Interrupt differ (decided 2026-10-23 by the
+coordinating session after testing on a desk): the person's Stop of a
+handoff's turn ends the handoff as theirs, told once without a wake, while
+the composer's Interrupt only cuts the turn, so the person's line after it is
+the one exception and carries the interrupted handoff, or question, to its
+result. In a main conversation, which has no thread to carry an answer on and
+whose next line must never become a colleague's answer, an Interrupt ends the
+answer it cut with neutral words, to be asked again if still needed, never as
+the person's stop.
+
+The pair record's new fields (`progress`, `progress_left_out`,
+`progress_wakes`, `released`, `about`, `owed_to_thread`, `stopped_by_person`,
+`taken_up_in`) are optional and left out when empty, so a record without them
+has no report waiting, no delegation released, no question back, no stop of
+the person's and no thread carrying it after an Interrupt, which a restart
+settles anyway. So is the link's `handoffEnded`: a link without
+it, the reference tree's included, is a delegation that stands, and the
+segment layout and the importer are unchanged. A report crosses a desk link as its own
+`LinkedDelivery`, which a desk from before reports refuses; the handoff's
+result is a separate frame and arrives as before. The person's stop of a
+request a linked desk sent crosses as that result with `stoppedByPerson`,
+its reply the report the sender is to hear, so the sender's desk tells it
+as this desk would, without a wake, even for a request it still holds as
+queued because the reply to its forward was lost; that request sent again
+before the stop has crossed is taken as still queued, so the stop is what
+the sender's desk hears. An older desk ignores the field and hands the
+reply back as a failure, as it always did.
 
 One directional collaboration approval explains and covers both intents. Old
 standing approvals remain valid for Ask, but the first Handoff requires informed
@@ -1095,10 +1210,18 @@ results wait without loss. The person's Keep going resets the counter; Stop
 exchange settles outstanding work and writes an explicit notice. Hearing from
 the person also resets the pair. These actions do not create new grants.
 
+The queue is not single file. Each time the pair is looked at, every request
+goes as far as it can, so a handoff at work in its thread, one waiting on the
+person or on a linked desk, and an ask handed to the conversation that answers
+it hold up nothing behind them, in either direction. Neither does a request
+still being taken up, which may wait on the person's first-contact card or on
+its recipient's conversation starting: it waits on a task of its own. Two
+questions to one conversation take turns there, as any two lines do.
+
 Restart recovery preserves paused queues and completed results. Work known to
 have started is not blindly replayed: an interrupted turn returns an explicit
-failure advising inspection before retrying. An unstarted handoff resumes from
-its saved request. This chooses at-most-once side effects over pretending that a
+failure advising inspection before retrying. An unstarted handoff or ask is
+handed over again from its saved request. This chooses at-most-once side effects over pretending that a
 crash can safely repeat arbitrary agent work. Stable delivery ids prevent a
 saved result from appearing twice. Acceptance is reported only after the request
 is saved. Storage failures are logged; startup treats any running request without a saved result as uncertain
@@ -1183,9 +1306,12 @@ nothing granted: the recipient's `allowedSenders` and the person's
 first-contact card decide it there, the card on the recipient's tape, and
 a whole-machine teammate on another desk is no more trusted for it. The
 answer comes back the same way, saved until it arrives, and each desk keeps
-its own copy of the pair's thread. Ending a link fails what waited on it
-with a sentence, withdraws the cards its teammates were waiting on and ends
-the standing grants they held, so a link made again starts from nothing.
+its own copy of the pair's thread. A delegated thread reports across the
+link, and an ask names a thread or the handoff it is asked back about across
+it, each by a request id the receiving desk looks up in its own record. Ending
+a link fails what waited on it with a sentence, withdraws the cards its
+teammates were waiting on and ends the standing grants and the delegations
+they held, so a link made again starts from nothing.
 
 The window lists every desk's teammates in one rail, with a desk filter
 where it had a switcher. The screen follows the teammate: opening one on

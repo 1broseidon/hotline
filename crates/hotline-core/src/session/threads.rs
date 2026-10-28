@@ -267,7 +267,7 @@ impl Room {
     /// Whether one of the teammate's threads other than its DM has a card
     /// waiting on the person, for the roster row.
     pub fn threads_waiting(&self, persona_id: &str) -> bool {
-        self.side_cards_waiting(persona_id) || self.peer_cards_waiting(persona_id)
+        self.side_cards_waiting(persona_id)
     }
 }
 

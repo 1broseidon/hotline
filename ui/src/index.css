@@ -365,6 +365,10 @@
 	.band-row > :not(span:empty, h1, h2) {
 		pointer-events: auto;
 	}
+	/* A band's quiet facts (a run's step count) are text, not controls: they drag too. */
+	.band-row > .instrument {
+		pointer-events: none;
+	}
 	/* ------------------------------------------------------------- refusal
 	 * A refusal is a row on the danger fill: the glyph, one sentence of ours,
 	 * and a disclosure for whoever wants the words behind it. */

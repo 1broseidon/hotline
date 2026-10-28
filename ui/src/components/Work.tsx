@@ -274,13 +274,12 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 }) {
 	return (
 		<Band>
-			<div className="min-w-0 flex-1 pl-1">
-				{/* The heading is the run's state, so it reads in the instrument face, as states do. */}
-				<h2 className="flex items-center gap-2 truncate font-mono text-sm font-medium text-ink">
-					{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-					<span className="truncate">{heading}</span>
-				</h2>
-			</div>
+			{/* The heading is the run's state, so it reads in the instrument face, as states do.
+			 * It is the band's own h2, so a press on it or the space after it drags the window. */}
+			<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink">
+				{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+				<span className="truncate">{heading}</span>
+			</h2>
 			{detail !== undefined && <span className="instrument min-w-0 truncate pr-1">{detail}</span>}
 			{actions}
 			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>

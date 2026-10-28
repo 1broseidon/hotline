@@ -50,6 +50,7 @@ mod calls;
 mod lifecycle;
 mod links;
 mod narration;
+pub(crate) mod new_teammate;
 mod pacing;
 mod peers;
 mod person_name;
@@ -57,6 +58,19 @@ mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
+
+/// The tape events a run of driver updates writes, one list per update, for
+/// tests outside the session that need what a step is written as.
+#[cfg(test)]
+pub(crate) fn events_of_updates(
+    updates: Vec<crate::driver::Update>,
+) -> Vec<Vec<crate::contract::TranscriptEvent>> {
+    let mut in_flight = std::collections::HashMap::new();
+    updates
+        .into_iter()
+        .map(|update| prompt::event_of(update, &mut in_flight, false, false))
+        .collect()
+}
 pub(crate) mod capture;
 mod cookie_offers;
 #[cfg(all(test, unix))]

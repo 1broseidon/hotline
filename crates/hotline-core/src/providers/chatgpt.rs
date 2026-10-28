@@ -4,6 +4,7 @@
 //! ([`super::rig_login`]).
 
 use super::discovery::{self, DiscoveryHttp, ListedModel};
+use crate::models::Said;
 use bytes::Bytes;
 use rig::http_client::HttpClientExt;
 use serde::Deserialize;
@@ -169,14 +170,17 @@ fn listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
                 .is_none_or(|seen| seen == "list")
         })
         .filter(|entry| entry.supported_in_api != Some(false))
-        .map(|entry| ListedModel {
-            id: entry.slug,
-            name: entry.display_name,
-            context_limit: entry.context_window,
-            output_limit: None,
+        .map(|entry| {
+            let model = ListedModel {
+                id: entry.slug,
+                name: entry.display_name,
+                context_limit: entry.context_window,
+                output_limit: None,
+            };
+            (model, Said::Nothing)
         })
         .collect();
-    discovery::finish(models)
+    discovery::finish("openai-codex", models)
 }
 
 #[cfg(test)]

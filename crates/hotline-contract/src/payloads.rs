@@ -533,11 +533,43 @@ pub struct CapabilityModel {
 /// A connected provider and the models it can do one job with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct CapabilityProvider {
     pub provider_id: String,
     pub provider_name: String,
     pub models: Vec<CapabilityModel>,
+    /// Transcription and speech: it runs on the desk's own machine, so the
+    /// sound never leaves it (the desk's own models, an Ollama on loopback).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub on_device: bool,
+    /// Transcription and speech: what it costs as the voice ledger counts
+    /// it, in a few words for a person: `free`, or a price such as
+    /// `$0.006 a minute`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<String>,
+}
+
+/// A live model a call can run on: a realtime model that hears, talks and
+/// uses tools in one stream, once for each connected login or key that runs
+/// it. Picking one writes `voice.front` as `{provider: front, credential}`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CapabilityLiveModel {
+    /// Which live model, as `voice.front.provider` names it: `grok`,
+    /// `gpt-live` or `openai`.
+    pub front: String,
+    /// The login or key it runs on, as `voice.front.credential` names it:
+    /// `xai-subscription`, `xai`, `openai-codex` or `openai`.
+    pub credential: String,
+    pub model_id: String,
+    /// Its name for a person ("Grok Voice").
+    pub name: String,
+    /// What it runs through, which decides who pays ("Grok subscription").
+    pub provider_name: String,
+    /// Every voice it speaks in, its default first.
+    pub voices: Vec<String>,
 }
 
 /// A provider, and the model and voice on it when they are known.
@@ -653,10 +685,24 @@ pub enum SpendingKind {
 #[ts(export, export_to = "contract.ts")]
 pub struct CapabilityOptions {
     pub images: CapabilityJob,
+    /// Transcription on a Turn by turn call.
     pub stt: CapabilityJob,
+    /// Speech on a Turn by turn call.
     pub tts: CapabilityJob,
     pub dispatcher: CapabilityJob,
     pub spending: CapabilitySpending,
+    /// The live models the connected providers can run, for Settings ›
+    /// Calls › Model. Absent when there are none, or from a desk older than
+    /// the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<CapabilityLiveModel>>", optional)]
+    pub live: Vec<CapabilityLiveModel>,
+    /// What the desk's machine is called where Settings says a model runs
+    /// on it (`onDevice`): `this Mac` on macOS, else `this computer`.
+    /// Absent from a desk older than the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub device_name: Option<String>,
 }
 
 /// Where one of the desk's own speech models stands.
@@ -751,7 +797,8 @@ pub struct VoiceFront {
 pub enum VoiceCallMode {
     #[default]
     Selected,
-    /// An explicit choice to use Legacy voice for this call.
+    /// An explicit choice of Turn by turn for this call: the desk
+    /// transcribes, the teammate answers, the desk speaks.
     Pipeline,
     Front,
 }
@@ -799,7 +846,7 @@ pub enum VoiceEndReason {
 pub enum VoiceEvent {
     State {
         state: VoiceState,
-        /// A live call failed; a new Legacy call requires the person to choose it.
+        /// A live call failed; a Turn by turn call needs the person to choose it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         live_error: Option<String>,
         /// True only while recovering a dropped transport or live provider.
@@ -857,7 +904,8 @@ pub enum VoiceEvent {
     /// answer with `voice.front_barge`, the milliseconds actually played.
     #[serde(rename = "frontStop")]
     FrontStop {},
-    /// Older desks used this to switch to Legacy. Clients must stop instead.
+    /// Older desks used this to switch the call to Turn by turn. Clients
+    /// must stop instead.
     #[serde(rename = "frontEnded")]
     FrontEnded {},
 }

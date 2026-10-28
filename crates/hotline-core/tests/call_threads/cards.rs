@@ -40,11 +40,11 @@ pub(super) async fn said(asked: &mut tokio::sync::mpsc::Receiver<Command>) -> St
     .expect("the card is said")
 }
 
-/// Both real drivers raise informational cards; the Legacy wire's finalized
+/// Both real drivers raise informational cards; the Turn by turn wire's finalized
 /// yes/no settles only the announced card and leaves its source in the chat.
 /// Scenario: Something needs you during the call.
 #[tokio::test]
-async fn legacy_answers_a_question_once_and_records_yes_and_no_from_the_call() {
+async fn turn_by_turn_answers_a_question_once_and_records_yes_and_no_from_the_call() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let (ada, _) = desk.teammate("Ada", driver, false).await;

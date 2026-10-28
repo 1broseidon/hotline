@@ -1357,6 +1357,7 @@ mod receipts {
             locations: None,
             files: None,
             output: None,
+            said: None,
         }
     }
 

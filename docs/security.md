@@ -184,8 +184,8 @@ Realtime on an OpenAI API key, or GPT-Live on the ChatGPT sign-in, when the
 owner picks one in Settings (the call's audio then goes to OpenAI; for
 GPT-Live the login's bearer goes to `chatgpt.com` to create the call and to
 `api.openai.com` for its sideband, as the Codex app sends it, and the call's
-media is a WebRTC peer the desk opens with host candidates only). Legacy
-voice turns it off, and a client asks for it per call. The Grok login is
+media is a WebRTC peer the desk opens with host candidates only). Turn by
+turn turns it off, and a client asks for it per call. The Grok login is
 only ever sent to xAI's voice origin, and GPT Realtime refuses it. GPT-Live
 uses client delegation to invoke the same `work_on_it` handler as the other
 fronts. The front holds read-only lookups and one work tool. The core binds
@@ -757,6 +757,7 @@ extend; when a change adds a boundary, it adds a row.
 | macOS network stays available and package downloads land in private caches | `hotline-tools/src/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
 | Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree; cancelling during sleep cannot run the next statement (50 repetitions) | `hotline-tools/src/shell/tests.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started`, `cancellation_during_sleep_never_runs_the_next_statement`; `tests/steering.rs` `an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finishes` | macOS and Linux; sandbox test on Linux needs bubblewrap |
 | A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `hotline-mcp/src/lib.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
+| Only the current lead's own session is offered `add_teammate`; its card shows the record as it would be made with the room's defaults; only the person's yes (desk or spoken) writes exactly that record, a no or a stale card writes nothing, and a demoted lead is refused at the call | `tests/call_threads/new_teammate.rs` `the_leads_card_makes_the_teammate_only_on_yes_with_the_rooms_defaults`, `a_teammate_that_does_not_lead_has_no_add_teammate`, `a_spoken_yes_on_a_call_adds_the_teammate` | — |
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
 | Revocation evicts cached logins and retained Copilot transports refuse the next request; ChatGPT delete revokes each stored token once and deletes locally even if the provider fails | `providers/rig_login/tests/revoke.rs` `rig_revoke_copilot_retained_transport_stops_on_its_next_request`, `rig_revoke_chatgpt_forgets_retained_tokens_and_refuses_a_new_lookup`, `rig_revoke_a_refresh_in_flight_cannot_restore_the_login`; `tests/desk/logins.rs` `rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails` | Provider revocation is best effort; already dispatched requests can finish |
@@ -1968,7 +1969,7 @@ path. Conversation equal to its speech is not posted again.
 
 `tests/voice/direct.rs` `conversation_keeps_one_written_record_and_never_posts_or_points`,
 `a_direct_call_uses_its_thread_agent_without_dispatching`, and
-`legacy_speaks_its_own_untagged_opening` exercise the real core over the wire:
+`turn_by_turn_speaks_its_own_untagged_opening` exercise the real core over the wire:
 conversation stays on the call; tables and code reach the owning chat.
 The existing thread-lease and revoked-post tests still cover tool authority.
 Residual risk: classification is syntactic; a model can mislabel or omit useful
@@ -1983,7 +1984,8 @@ narrator leaves the written result available without a new spoken pointer.
   yes/no card under the requesting session's capability lease. Its answer
   conveys information, not permission for an operation. A core-owned
   `set_person_name` card can also accept yes/no by voice, solely to save its
-  bound preferred name (see below). `request_human`,
+  bound preferred name (see below), and the lead's `add_teammate` card solely
+  to write its bound teammate record. `request_human`,
   passkeys and opaque driver permissions remain desk-only, including requests
   involving credentials, 2FA, screens, payments and deletions. Older cards
   have no question marker; after restart no saved marker recreates a lease.
@@ -1994,7 +1996,7 @@ narrator leaves the written result available without a new spoken pointer.
   action card. The voice front has no answer tool or wire command access:
   only a finalized caller transcript equal to yes or no selects the last
   announced card. Holding or ending the call removes that input authority.
-  Local Legacy capture reports its floor through owner-only
+  A Turn by turn caller's own capture reports its floor through owner-only
   `voice.input_state`; provider onset events do the same for live calls.
   A changed grant or stopped requesting session revokes question authority;
   withdrawal and a desk answer remove the queued/active card. Answers leave
@@ -2004,7 +2006,7 @@ narrator leaves the written result available without a new spoken pointer.
   driver; moving the card grants no voice permission. Home-session cleanup
   cannot expire a call driver's pending card.
 - **Proof:** `tests/call_threads/cards.rs`
-  `legacy_answers_a_question_once_and_records_yes_and_no_from_the_call`,
+  `turn_by_turn_answers_a_question_once_and_records_yes_and_no_from_the_call`,
   `live_cards_wait_for_the_caller_and_desk_actions_refuse_spoken_yes`, and
   `spoken_collaboration_approval_is_only_for_this_session`, and
   `a_home_answer_settles_the_call_question_and_removes_its_voice_notice` drive the real
@@ -2096,6 +2098,50 @@ narrator leaves the written result available without a new spoken pointer.
   that proposal, but two separately approved proposals can overwrite each
   other in settlement order. The saved name is prompt data, not instructions;
   no name proposal can write another setting or create a standing grant.
+
+## The lead adds a teammate the person asked for (task-281)
+
+- **Default and grant source:** no teammate may add a teammate. The desk's
+  current lead (`teamLead`, which only the person sets through
+  `persona.lead` or the one-teammate rule) is offered `add_teammate` in its
+  own conversation and its work and call threads; a job, a subagent run, a
+  colleague's thread and a voice front are not. The tool only proposes: the
+  person's yes on its card, at the desk, on the phone or spoken on the
+  matching live call, grants the one write. Its description tells the model
+  to use it only when the person asked for a teammate; that is guidance, and
+  the card is the control.
+- **Enforcement:** `TeammateTools::may_add_teammates` keeps the tool out of
+  the listing, the ledger and `call` for anyone but the lead's own session,
+  and `Room::ask_new_teammate` checks the session lease and the role again.
+  It builds the record with `drafted_persona`, the code `persona.create` uses,
+  from only a name, a goal and optionally an agent (resolved against the
+  registry and refused when absent or not ready), a model and an absolute
+  folder; the tool has no field for reach, extra folders, MCP servers,
+  background work or a computer, so those are the pane's narrowest defaults.
+  The record and lease are bound to a core-generated `new-teammate:` approval
+  id before the card is published, and a card that would be clipped is
+  refused, so the person reads every field. `answer_later` serializes
+  settlement with withdrawal and expiry; `settle_new_teammate` writes nothing
+  on decline, and on approval rechecks the lease, expiry and role before
+  appending exactly the bound record, freshly stamped. A second answer,
+  a withdrawn, expired or restarted card, or a former lead cannot make one.
+- **Proof:** `tests/call_threads/new_teammate.rs`
+  `the_leads_card_makes_the_teammate_only_on_yes_with_the_rooms_defaults`
+  drives one card, decline, approve, a repeated approval and a
+  `message_teammate` to the new teammate through both real drivers and the
+  wire, and checks the record against the pane's own defaults.
+  `a_teammate_that_does_not_lead_has_no_add_teammate` proves a non-lead's
+  ledger lacks it, its call raises no card, and a lead demoted mid-session is
+  refused at the call. `a_spoken_yes_on_a_call_adds_the_teammate` covers the
+  voice answer.
+- **Residual risk:** the model chooses the name, goal and folder, and speech
+  recognition can mishear a yes; voice does not authenticate the speaker.
+  A folder the lead names becomes the new teammate's working directory, with
+  workspace reach inside it, so a careless yes can point a teammate at a
+  sensitive directory; the card shows the path, as the pane's own folder
+  field would. The new teammate is a fresh session with its own lease and
+  nothing beyond the defaults; the lead gains no reach over it beyond
+  `message_teammate`, which is checked as for any colleague.
 
 ## Credential capture in the chat (task-266)
 

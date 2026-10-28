@@ -10,7 +10,7 @@ use regex::{Captures, Regex};
 use std::sync::LazyLock;
 
 /// What a voice turn asks of the agent, after the person's words.
-pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Take the space the question needs; one word can be enough. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
+pub const CONTRACT: &str = "[Voice call: answer naturally in <spoken>...</spoken>. Lead with the answer, in plain speech. Keep it short, as on the phone: a sentence or three, one word when that answers it. For a recap or a long result, say the main points and offer more instead of going through every item; go long only when asked. Never point at the chat in this version: the core decides after seeing the result. Bad habits: appending 'details are in the chat' to ordinary answers, repeating a reminder, or announcing a hand-off.
 Only when there is something to keep that speech cannot carry, add <written>...</written>: code, a table, a file or link, a substantial list or a long write-up. Make that result stand alone. For conversation, omit written: the spoken words are the written record, with no second answer to invent.
 Before a tool, begin with your own short spoken sentence naming the action when acknowledgement helps. Often just answer. State, code and results require a lookup. If cut off, answer the new words without repeating yourself.]";
 
@@ -160,7 +160,7 @@ fn table(line: &str) -> bool {
 /// The sentences of a reply that are said, taken as the reply streams.
 ///
 /// Everything inside `<spoken>` is said, a sentence as soon as it is whole,
-/// and nothing after it. Legacy uses `streaming` to say prose immediately.
+/// and nothing after it. Turn by turn uses `streaming` to say prose immediately.
 /// For live work, text before a spoken version is held rather than
 /// said as it streams: a reply that never writes one is said again by the
 /// call assistant once it is whole (`Calls::answer`), and its opening must not
@@ -173,7 +173,7 @@ fn table(line: &str) -> bool {
 /// part of one that ends a chunk.
 #[derive(Default)]
 pub struct Spoken {
-    /// Legacy says its own prose as it arrives; live work can still be rewritten.
+    /// Turn by turn says its own prose as it arrives; live work can still be rewritten.
     stream_opening: bool,
     tags: Tags,
     place: Place,

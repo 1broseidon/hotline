@@ -7,6 +7,7 @@ import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
 import { MAX_PINS } from "../pins";
+import { voiceLabel } from "../useFor";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -232,7 +233,8 @@ export function Teammate({
 						</div>
 						<VoiceRow persona={persona} disabled={busy} onSave={save} />
 						<div className="group-row">
-							<RowText title="Team lead" value={leader?.name ?? "none"} />
+							{/* On the lead's own sheet the row and its key say it; elsewhere it names who leads. */}
+							<RowText title="Team lead" {...(lead ? {} : { value: leader?.name ?? "none" })} />
 							<button
 								type="button"
 								className="control btn-quiet btn-sm -mr-1.5"
@@ -401,13 +403,13 @@ export function Teammate({
 	);
 }
 
-/** What the desk speaks with now, and the voices that model offers. */
-type Speaking = { providerId: string; modelId: string; voice?: string; voices: string[] };
+/** What the desk speaks with now, the voices that model offers, and its name when the desk lists one. */
+type Speaking = { providerId: string; modelId: string; voice?: string; voices: string[]; label?: string };
 
 /**
  * What calls speak with and its voices, or null while the desk cannot speak:
  * the voice front when the desk runs one (Grok Voice, GPT-Live, GPT
- * Realtime), else Legacy voice's speaking model.
+ * Realtime), else Turn by turn's Speech model.
  */
 function useSpeaking(): Speaking | null {
 	const status = useRoomRead("voice.status");
@@ -415,23 +417,20 @@ function useSpeaking(): Speaking | null {
 	if (status === undefined || options === undefined) return null;
 	if (status.front !== undefined) return status.front;
 	const tts = status.tts;
-	const voices = options.tts.options
+	const model = options.tts.options
 		.find((provider) => provider.providerId === tts?.providerId)
-		?.models.find((model) => model.id === tts?.modelId)?.voices;
-	return tts === undefined || voices === undefined || voices.length === 0 ? null : { ...tts, voices };
-}
-
-/** Voices read as names: "eve" is Eve. */
-function voiceName(voice: string): string {
-	return voice.charAt(0).toUpperCase() + voice.slice(1);
+		?.models.find((one) => one.id === tts?.modelId);
+	const voices = model?.voices;
+	if (tts === undefined || voices === undefined || voices.length === 0) return null;
+	return { ...tts, voices, ...(model?.label !== undefined ? { label: model.label } : {}) };
 }
 
 const DESK_VOICE = "";
 
 /**
  * The voice this teammate answers a direct call in. It is one of the voices
- * of whatever calls speak with now, the voice front or Legacy voice's
- * speaking model; a voice picked for another reads as the desk's, which is
+ * of whatever calls speak with now, the live model or Turn by turn's Speech
+ * model; a voice picked for another reads as the desk's, which is
  * what a call would use.
  */
 function VoiceRow({ persona, disabled, onSave }: { persona: Persona; disabled: boolean; onSave(patch: Partial<Persona>): void }) {
@@ -444,8 +443,8 @@ function VoiceRow({ persona, disabled, onSave }: { persona: Persona; disabled: b
 			: DESK_VOICE;
 	const desk = speaking.voice ?? speaking.voices[0];
 	const choices = [
-		{ id: DESK_VOICE, name: desk === undefined ? "The desk's" : `The desk's · ${voiceName(desk)}` },
-		...speaking.voices.map((voice) => ({ id: voice, name: voiceName(voice) })),
+		{ id: DESK_VOICE, name: desk === undefined ? "The desk's" : `The desk's · ${voiceLabel(desk, speaking.label)}` },
+		...speaking.voices.map((voice) => ({ id: voice, name: voiceLabel(voice, speaking.label) })),
 	];
 	return (
 		<div className="group-row">
@@ -496,24 +495,25 @@ function HarnessRows({
 			<div className="group-row">
 				<RowText title={`Managed by ${harness}`} />
 			</div>
-			<div className="group-row">
-				<RowText title={modeLabel} {...(session.modes.length === 0 ? { value: "not advertised" } : {})} />
-				{session.modes.length > 0 && (
+			{/* A harness that offers no modes has nothing here to choose, so no row. */}
+			{session.modes.length > 0 && (
+				<div className="group-row">
+					<RowText title={modeLabel} />
 					<Picker
-						value={session.currentModeId ?? ""}
-						choices={session.modes}
-						placeholder={modeLabel}
-						label={modeLabel}
-						disabled={disabled}
-						onChange={(modeId) => {
-							onRefusal(null);
-							void wire
-								.command("session.set_mode", { personaId, modeId })
-								.catch((error: Error) => onRefusal(error.message));
-						}}
-					/>
-				)}
-			</div>
+							value={session.currentModeId ?? ""}
+							choices={session.modes}
+							placeholder={modeLabel}
+							label={modeLabel}
+							disabled={disabled}
+							onChange={(modeId) => {
+								onRefusal(null);
+								void wire
+									.command("session.set_mode", { personaId, modeId })
+									.catch((error: Error) => onRefusal(error.message));
+							}}
+						/>
+				</div>
+			)}
 		</>
 	);
 }

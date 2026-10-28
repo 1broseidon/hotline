@@ -49,10 +49,10 @@ export function Budgets({ spending, onChanged }: { spending: Spending; onChanged
 						key={budget.kind}
 						title={BUDGETS[budget.kind]}
 						value={
-							<>
+							<span className="instrument">
 								{usd(budget.spentDayUsd)} today · {usd(budget.spentMonthUsd)} this month
 								<span className="text-ink-3"> · {limitText(budget)}</span>
-							</>
+							</span>
 						}
 						open={open === budget.kind}
 						onToggle={() => setOpen((was) => toggled(was, budget.kind))}
@@ -62,7 +62,7 @@ export function Budgets({ spending, onChanged }: { spending: Spending; onChanged
 								<span className="group-row-text">
 									<span className="group-row-title">{LINES[line.kind]}</span>
 								</span>
-								<span className="shrink-0 text-sm text-ink-3">
+								<span className="instrument shrink-0 text-ink-3">
 									{usd(line.dayUsd)} today · {usd(line.monthUsd)} this month
 								</span>
 							</div>

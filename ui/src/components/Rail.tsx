@@ -1,7 +1,7 @@
 import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
-import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon, SidebarIcon } from "../icons";
+import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
 import { platform, popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
@@ -43,7 +43,6 @@ export function Rail({
 	onLead,
 	onAddDesk,
 	onNew,
-	onToggle,
 	width,
 	compact = false,
 	settings,
@@ -72,8 +71,6 @@ export function Rail({
 	onAddDesk(): void;
 	/** A new teammate: the list's last row, where the new one will stand. */
 	onNew(): void;
-	/** Faces only, where the window's traffic lights fill the rail's head: the rail's key heads the column instead. */
-	onToggle?: (() => void) | undefined;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
@@ -108,13 +105,14 @@ export function Rail({
 	/* The only teammate on a desk is its lead, and stays it. */
 	const alone = (row: TeamRow) => (onDesk(row) ? entries : (elsewhere[row.deskId] ?? [])).length === 1;
 	const key = (row: TeamRow) => `${row.deskId}/${row.entry.persona.id}`;
-	const showTip = (row: HTMLElement | null, name = "", line = "") => {
+	const showTip: ShowTip = (row, name = "", line = "", face = null) => {
 		if (row === null) {
 			setTip(null);
 			return;
 		}
 		const box = row.getBoundingClientRect();
-		setTip({ name, line, left: box.right + 8, top: box.top + box.height / 2 });
+		const current = row.getAttribute("aria-current") === "true";
+		setTip({ name, line, face, current, left: box.left, top: box.top, width: box.width, height: box.height });
 	};
 	return (
 		<nav
@@ -122,13 +120,6 @@ export function Rail({
 			className={`rail flex flex-col ${compact ? "rail-compact" : ""}`}
 			style={width !== undefined ? { width } : undefined}
 		>
-			{compact && onToggle !== undefined && (
-				<div className="flex shrink-0 justify-center pb-1">
-					<button type="button" className="control btn-icon" title={`Hide the team (${chordKeys("sidebar")})`} aria-label="Hide the team" onClick={onToggle}>
-						<SidebarIcon />
-					</button>
-				</div>
-			)}
 			<DeskFilter compact={compact} onAdd={onAddDesk} />
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{pinned.length + rest.length === 0 ? (
@@ -221,7 +212,7 @@ export function Rail({
 						<span className="rail-add-face" aria-hidden="true">
 							<PersonPlusIcon />
 						</span>
-						{!compact && <span className="min-w-0 flex-1 truncate text-ink-3">Add teammate</span>}
+						{!compact && <span className="min-w-0 flex-1 truncate text-ink-2">Add teammate</span>}
 					</button>
 				)}
 			</div>
@@ -244,9 +235,17 @@ export function Rail({
 				</p>
 			)}
 			{tip !== null && (
-				<div role="tooltip" className="rail-tip" style={{ left: tip.left, top: tip.top }}>
-					<span className="block truncate font-medium text-ink">{tip.name}</span>
-					{tip.line !== "" && <span className="block truncate text-sm text-ink-3">{tip.line}</span>}
+				<div
+					role="tooltip"
+					className="rail-tip"
+					data-current={tip.current || undefined}
+					style={{ left: tip.left, top: tip.top, height: tip.height, minWidth: tip.width, ["--row" as string]: `${tip.width}px` }}
+				>
+					<span className="rail-tip-face" style={{ paddingLeft: (tip.width - FACE) / 2 }}>{tip.face}</span>
+					<span className="min-w-0">
+						<span className="block truncate font-medium text-ink">{tip.name}</span>
+						{tip.line !== "" && <span className="block truncate text-sm text-ink-3">{tip.line}</span>}
+					</span>
 				</div>
 			)}
 		</nav>
@@ -287,7 +286,7 @@ function Row({
 	alone: boolean;
 	onLead(): void;
 	/** Faces only: the row shows its name and line on a card while hovered or focused. */
-	onTip?: (row: HTMLElement | null, name?: string, line?: string) => void;
+	onTip?: ShowTip;
 }) {
 	const state = shownState(entry.session);
 	const vital = VITAL[state];
@@ -296,6 +295,20 @@ function Row({
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
 	const lead = entry.lead === true;
+	const face = (
+		<span className="relative flex shrink-0">
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={onTip === undefined ? 28 : FACE} hash={entry.persona.avatar?.hash} busy={busy} />
+			{lead && <LeadBadge />}
+			{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
+			{onTip !== undefined && vital.color !== null && (
+				<span
+					aria-hidden="true"
+					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					style={{ background: vital.color }}
+				/>
+			)}
+		</span>
+	);
 	return (
 		<button
 			type="button"
@@ -307,8 +320,8 @@ function Row({
 			onClick={onSelect}
 			{...(onTip !== undefined
 				? {
-						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line),
-						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line),
+						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line, face),
+						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line, face),
 						onMouseLeave: () => onTip(null),
 						onBlur: () => onTip(null),
 					}
@@ -330,18 +343,7 @@ function Row({
 					className="absolute left-[1px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent"
 				/>
 			)}
-			<span className="relative flex shrink-0">
-				<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
-				{lead && <LeadBadge />}
-				{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
-				{onTip !== undefined && vital.color !== null && (
-					<span
-						aria-hidden="true"
-						className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
-						style={{ background: vital.color }}
-					/>
-				)}
-			</span>
+			{face}
 			{onTip === undefined && (
 			<span className="min-w-0 flex-1">
 				<span className="flex h-[18px] items-center gap-1.5">
@@ -434,7 +436,7 @@ function PinTile({
 	alone: boolean;
 	onLead(): void;
 	onDrag(drag: { id: string; over: number | null } | null): void;
-	onTip(row: HTMLElement | null, name?: string, line?: string): void;
+	onTip: ShowTip;
 }) {
 	const { persona } = entry;
 	const vital = VITAL[entry.session.state];
@@ -442,6 +444,20 @@ function PinTile({
 	const line = lineOf(entry);
 	const named = desk === undefined ? persona.name : `${persona.name} · ${desk}`;
 	const lead = entry.lead === true;
+	const face = (
+		<span className="relative flex">
+			<Avatar id={persona.id} name={persona.name} size={compact ? FACE : 52} hash={persona.avatar?.hash} busy={busy} />
+			{lead && <LeadBadge />}
+			{unread && <span aria-hidden="true" className="rail-face-unread" />}
+			{vital.color !== null && (
+				<span
+					aria-hidden="true"
+					className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+					style={{ background: vital.color }}
+				/>
+			)}
+		</span>
+	);
 	const left = nudged(slot, -1, count);
 	const right = nudged(slot, 1, count);
 	return (
@@ -458,8 +474,8 @@ function PinTile({
 			data-dragging={dragging || undefined}
 			data-over={over || undefined}
 			onClick={onSelect}
-			onMouseEnter={compact ? (event) => onTip(event.currentTarget, named, line) : undefined}
-			onFocus={compact ? (event) => onTip(event.currentTarget, named, line) : undefined}
+			onMouseEnter={compact ? (event) => onTip(event.currentTarget, named, line, face) : undefined}
+			onFocus={compact ? (event) => onTip(event.currentTarget, named, line, face) : undefined}
 			onMouseLeave={compact ? () => onTip(null) : undefined}
 			onBlur={compact ? () => onTip(null) : undefined}
 			onDragStart={(event) => {
@@ -497,18 +513,7 @@ function PinTile({
 				});
 			}}
 		>
-			<span className="relative flex">
-				<Avatar id={persona.id} name={persona.name} size={compact ? 36 : 52} hash={persona.avatar?.hash} busy={busy} />
-				{lead && <LeadBadge />}
-				{unread && <span aria-hidden="true" className="rail-face-unread" />}
-				{vital.color !== null && (
-					<span
-						aria-hidden="true"
-						className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
-						style={{ background: vital.color }}
-					/>
-				)}
-			</span>
+			{face}
 			{!compact && (
 				<span className={`rail-pin-name text-sm ${unread ? "font-semibold text-ink" : "font-medium text-ink-2"}`}>{persona.name}</span>
 			)}
@@ -526,7 +531,10 @@ function LeadBadge() {
 }
 
 /** The hover card of a row in the faces-only rail, placed beside the row in the window. */
-type Tip = { name: string; line: string; left: number; top: number };
+/** Shows a faces-only row's card, or with no row puts it away. */
+type ShowTip = (row: HTMLElement | null, name?: string, line?: string, face?: ReactNode) => void;
+/** A hovered face in the faces-only rail, grown out to the right over its own row. */
+type Tip = { name: string; line: string; face: ReactNode; current: boolean; left: number; top: number; width: number; height: number };
 
 /** Off-screen, and the tape has a line newer than the last one this window showed. */
 /** Whether a row shows as unread: the badge on the dock counts these (App.tsx). */
@@ -545,10 +553,14 @@ export function unreadOf(
 /**
  * A preview is one line in a narrow rail, whatever shape it was written in.
  * The markdown an agent writes is rendered in the column and stripped here:
- * asterisks and backticks in a two-inch column are noise, not emphasis.
+ * asterisks and backticks in a two-inch column are noise, not emphasis. A
+ * table's rows are not a line at all, so the prose around it is the preview,
+ * and a reply that is only a table says so.
  */
-function oneLine(source: string): string {
-	return source
+export function oneLine(source: string): string {
+	const prose = source.replace(/^\s*\|.*$/gm, "");
+	if (prose.trim() === "" && source.trim() !== "") return "Table";
+	return prose
 		.replace(/^\s{0,3}(```|~~~).*$/gm, "")
 		.replace(/^\s{0,3}#{1,6}\s+/gm, "")
 		.replace(/^\s{0,3}>\s?/gm, "")
@@ -572,9 +584,11 @@ export type RailSize = { width: number; open: boolean; compact: boolean };
 const RAIL_WIDTH = 240;
 export const RAIL_MIN = 180;
 const RAIL_MAX = 420;
-/** Faces only: a 28px face in the row's padding, in the rail's gutter. */
-/* On macOS the faces column is as wide as the traffic lights over its head. */
-export const RAIL_FACES = platform() === "macos" ? 72 : 52;
+/* On macOS the faces column holds the traffic lights and the rail's key
+ * beside them, so it is wider, and its faces grow to fill it. */
+export const RAIL_FACES = platform() === "macos" ? 100 : 52;
+/** Faces only: the face in the row's padding, in the rail's gutter. */
+const FACE = platform() === "macos" ? 48 : 36;
 /** Dragged narrower than this, the names give way to faces rather than squeezing. */
 const RAIL_TO_FACES = 120;
 /** And narrower than this, the faces go too. */

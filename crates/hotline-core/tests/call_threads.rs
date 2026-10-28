@@ -2,10 +2,11 @@ mod call_threads {
     mod cards;
     mod closing;
     mod files;
-    mod legacy_feedback;
     mod live_work;
+    mod new_teammate;
     mod person_name;
     mod reader;
+    mod turn_by_turn_feedback;
 }
 use crate::common::{Client, acp_fixture};
 use hotline_core::log::{Log, StreamId};
@@ -419,7 +420,7 @@ impl Desk {
 }
 
 #[tokio::test]
-async fn legacy_utterances_are_on_the_calls_thread_never_the_dm() {
+async fn turn_by_turn_utterances_are_on_the_calls_thread_never_the_dm() {
     for driver in [Driver::HotlineAgent, Driver::Acp] {
         let mut desk = open().await;
         let (ada, _) = desk.teammate("Ada", driver, false).await;

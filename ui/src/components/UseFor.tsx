@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CapabilityJob, CapabilityOptions } from "../generated/contract";
 import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
@@ -7,36 +7,46 @@ import { deviceTranscription } from "../voice/transcription";
 import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
 import { Fold } from "../ui/Fold";
 import { DeskModels } from "./DeskModels";
+import {
+	AUTOMATIC,
+	CALL_WORDS,
+	callKind,
+	callModelChoices,
+	callModelId,
+	callModelPick,
+	callRows,
+	carriedEffort,
+	chosenLive,
+	choicesFor,
+	currentId,
+	currentVoiceId,
+	effortChoices,
+	effortsOf,
+	frontOf,
+	frontPatch,
+	IMAGES_OFF_CHOICE,
+	listenForOf,
+	listenForPatch,
+	OFF,
+	parseWords,
+	type PickerChoice,
+	shortModel,
+	speechChoices,
+	speechLine,
+	splitPickId,
+	splitVoiceId,
+	stored,
+	transcriptionLine,
+	voiceLabel,
+	voicePatch,
+	whereTag,
+	type Stored,
+} from "../useFor";
 
-/** The Transcription picker's own choice: this Mac, not a provider. Provider ids never start with a bar. */
+/** The Transcription picker's own choice: this Mac's recognizer, not a provider. Provider ids never start with a bar. */
 const ON_THIS_MAC = "|this-mac";
 /** The desk's own models, as the core names their provider. */
 const ON_THE_DESK = "local";
-import {
-	AUTOMATIC,
-	carriedEffort,
-	choicesFor,
-	currentId,
-	effortChoices,
-	effortsOf,
-	FRONTS,
-	FRONT_LOGINS,
-	IMAGES_OFF_CHOICE,
-	LEGACY,
-	OFF,
-	frontOf,
-	frontPatch,
-	listenForOf,
-	listenForPatch,
-	parseWords,
-	type FrontSetting,
-	type PickerChoice,
-	shortModel,
-	splitPickId,
-	stored,
-	voicePatch,
-	type Stored,
-} from "../useFor";
 
 /**
  * Which connected provider and model does each job (what they may spend is
@@ -53,12 +63,9 @@ import {
 export function UseFor({
 	options,
 	voice,
-	connected = [],
 	onChanged,
 }: {
 	options: CapabilityOptions;
-	/** The providers with a live login or key, for the fronts no speech job lists (a ChatGPT sign-in). */
-	connected?: string[];
 	/** `settings.voice` as written, so a write to one job keeps the rest. */
 	voice: unknown;
 	/** The options are stale: ask for them again. */
@@ -74,31 +81,10 @@ export function UseFor({
 			.catch((error: Error) => setRefusal(error.message));
 	};
 
-	const setVoice = (job: "stt" | "tts" | "dispatcher", choice: Stored | null) =>
-		write({ voice: voicePatch(voice, job, choice) });
-
 	const pickModel = (id: string): Stored | null => {
 		if (id === AUTOMATIC) return null;
 		const { providerId, modelId } = splitPickId(id);
 		return stored(providerId, modelId);
-	};
-
-	const [more, setMore] = useState(false);
-	const hearsHere = useSpeechOnThisMac();
-	const hearHere = useHearOnThisMac();
-	const speaking = options.tts;
-	const speakingNow = speaking.selected ?? speaking.automatic;
-	const hearingNow = options.stt.selected ?? options.stt.automatic;
-	const hearsOnDesk = hearingNow?.providerId === ON_THE_DESK;
-
-	// One voice pick sets who speaks and, when that provider can also hear,
-	// who listens: a call is one provider unless the owner splits it below.
-	const pickVoice = (id: string) => {
-		if (id === AUTOMATIC) return write({ voice: voicePatch(voicePatch(voice, "tts", null), "stt", null) });
-		const { providerId, modelId, voiceId } = splitVoiceId(id);
-		let next = voicePatch(voice, "tts", stored(providerId, modelId, voiceId));
-		if (options.stt.options.some((one) => one.providerId === providerId)) next = voicePatch(next, "stt", stored(providerId, undefined));
-		write({ voice: next });
 	};
 
 	return (
@@ -118,212 +104,186 @@ export function UseFor({
 							}}
 						/>
 					</JobRow>
-					{/* Transcription and the free models, folded under one row that says what transcribes you now. */}
-					<button
-						type="button"
-						className="nt-fold-row nt-fold-head"
-						aria-expanded={more}
-						aria-label="Transcription"
-						onClick={() => setMore((was) => !was)}
-					>
-						<span className="nt-fold-title">Transcription</span>
-						<span className="nt-fold-value">
-							{hearsHere && hearHere
-								? "On this Mac, free and private"
-								: hearsOnDesk
-									? "On the desk, free and private"
-									: hearingNow !== undefined
-										? hearingNow.providerName
-										: "None yet. Download a free speech model."}
-						</span>
-						<span className="nt-fold-action">{more ? "Done" : hearingNow === undefined && !hearsHere ? "Set up" : "Change"}</span>
-					</button>
-					{more && (
-						<>
-							{hearsHere ? (
-								<div className="group-row use-for-nested">
-									<span className="group-row-text">
-										<span className="group-row-title">Transcribes with</span>
-									</span>
-									<span className="flex shrink-0 items-center gap-1">
-										<Picker
-											value={hearHere ? ON_THIS_MAC : currentId(options.stt)}
-											choices={[{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }, ...shortChoices(options.stt)]}
-											placeholder="Automatic"
-											label="Transcription on calls from this Mac"
-											onChange={(id) => {
-												if (id === ON_THIS_MAC) return setHearOnThisMac(true);
-												setHearOnThisMac(false);
-												setVoice("stt", pickModel(id));
-											}}
-										/>
-									</span>
-								</div>
-							) : (
-								<JobRow title="Transcribes with" detail="" job={options.stt} nested>
-									<Picker
-										value={currentId(options.stt)}
-										choices={shortChoices(options.stt)}
-										placeholder="Automatic"
-										label="Transcription model"
-										onChange={(id) => setVoice("stt", pickModel(id))}
-									/>
-								</JobRow>
-							)}
-							<DeskModels onInstalledChanged={onChanged} />
-							{options.stt.options.some((one) => one.providerId === ON_THE_DESK) && (
-								<ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />
-							)}
-						</>
-					)}
 				</div>
 			</section>
 			<section>
-				<LiveCalls
-					front={frontOf(voice)}
-					logins={[...new Set([...options.tts.options.map((one) => one.providerId), ...connected])].filter((id) => FRONT_LOGINS.includes(id))}
-					write={(next) => write({ voice: frontPatch(voice, next) })}
-				>
-							<JobRow
-								title="Voice"
-								detail={
-									speakingNow === undefined
-										? "Talk to the desk"
-										: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}`
-								}
-								job={speaking}
-							>
-								<Picker
-									value={currentVoiceId(speaking)}
-									choices={allVoices(speaking)}
-									placeholder="Automatic"
-									label="Voice"
-									onChange={pickVoice}
-								/>
-							</JobRow>
-							<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
-								<Picker
-									value={currentId(options.dispatcher)}
-									choices={shortChoices(options.dispatcher)}
-									placeholder="Automatic"
-									label="Model for the call assistant"
-									onChange={(id) => {
-										const next = pickModel(id);
-										setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
-									}}
-								/>
-								{effortsOf(options.dispatcher).length > 0 && (
-									<Picker
-										value={options.dispatcher.selected?.effort ?? AUTOMATIC}
-										choices={effortChoices(options.dispatcher)}
-										placeholder="Default thinking"
-										label="Call assistant thinking"
-										onChange={(id) => {
-											const selected = options.dispatcher.selected;
-											if (selected === undefined) return;
-											setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
-										}}
-									/>
-								)}
-							</JobRow>
-				</LiveCalls>
+				<Calls options={options} voice={voice} write={write} pickModel={pickModel} onChanged={onChanged} />
 				{refusal !== null && <Refusal message={refusal} />}
 			</section>
 		</>
 	);
 }
 
-/** A front's picker id: the provider and the login it runs on, `grok|xai`. */
-function frontId(provider: string, login: string): string {
-	return `${provider}|${login}`;
-}
-
 /**
- * Who answers a live call, to the desk or to a teammate, picked as one model
- * from a list grouped by the provider it comes from. Grok Voice, the default,
- * and GPT Realtime are realtime models that talk with the person and run the
- * teammate's lookups themselves, and GPT-Live is the same agent with its
- * reasoning delegated to a backend model, all handing heavy work to the teammate. Each is listed once for every connected
- * login or key that can run it, since that decides who pays, or once with nothing connected so it
- * can be found. Legacy voice is the transcribe, route
- * and speak pipeline, and its own rows show only under it; the desk also
- * falls back on it by itself when the chosen front has nothing connected.
+ * How calls run, to the desk or to a teammate, and the rows that choice
+ * has. A live model (Grok Voice, GPT-Live, GPT Realtime) hears, talks and
+ * runs the teammate's lookups itself in one stream, so it has only its
+ * voice; it is listed once for every connected login or key that runs it,
+ * since that decides who pays, and never for a provider that is not
+ * connected. Turn by turn is the teammate answering on its own model while
+ * the desk transcribes and speaks, so it has Transcription and Speech. The
+ * call assistant answers calls to the desk either way.
  */
-function LiveCalls({
-	front,
-	logins,
+function Calls({
+	options,
+	voice,
 	write,
-	children,
+	pickModel,
+	onChanged,
 }: {
-	front: FrontSetting;
-	/** The connected logins and keys that can run a front. */
-	logins: string[];
-	write(next: Parameters<typeof frontPatch>[1]): void;
-	/** Legacy voice's own rows: the voice it speaks in and the call assistant. */
-	children: ReactNode;
+	options: CapabilityOptions;
+	voice: unknown;
+	write(patch: Record<string, unknown>): void;
+	pickModel(id: string): Stored | null;
+	/** The options are stale: ask for them again. */
+	onChanged(): void;
 }) {
-	const chosen = FRONTS.find((one) => one.id === front.provider);
-	const usable = chosen?.logins.filter((one) => logins.includes(one.id)) ?? [];
-	const login = usable.find((one) => one.id === front.credential) ?? usable[0];
-	const voice = chosen === undefined ? undefined : (front.voices[chosen.id] ?? chosen.voices[0]);
-	const choices = [
-		...FRONTS.flatMap((one): PickerChoice[] => {
-			const connected = one.logins.filter((via) => logins.includes(via.id));
-			// Listed with nothing connected too, so it can be found; picking it does nothing until it is.
-			if (connected.length === 0) return [{ id: frontId(one.id, ""), name: one.name, detail: one.connect, group: one.group }];
-			return connected.map((via) => ({ id: frontId(one.id, via.id), name: one.name, detail: via.detail, group: one.group }));
-		}),
-		{ id: LEGACY, name: "Legacy voice", detail: "Hears you, thinks, then speaks, one step at a time", group: "Hotline" },
-		{ id: OFF, name: "Off", detail: "No calls, to the desk or a teammate", group: "Hotline" },
-	];
-	const off = front.provider === OFF;
-	const value = off ? OFF : chosen === undefined ? LEGACY : login === undefined ? "" : frontId(chosen.id, login.id);
+	const live = options.live ?? [];
+	const front = frontOf(voice);
+	const kind = callKind(front);
+	const rows = callRows(kind);
+	const chosen = chosenLive(live, front);
+	const setVoice = (job: "stt" | "tts" | "dispatcher", choice: Stored | null) => write({ voice: voicePatch(voice, job, choice) });
+	const words = CALL_WORDS[kind];
+	const detail = kind === "live" && chosen === undefined ? "Not connected. Connect its provider above, or choose another." : words.detail;
 	return (
 		<>
-			<h3 className="group-title">Live calls</h3>
+			<h3 className="group-title">Calls</h3>
 			<div className="grouped use-for">
 				<div className="group-row">
 					<span className="group-row-text">
 						<span className="group-row-title">Model</span>
-						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-							{off
-								? "Calls are off."
-								: chosen === undefined
-								? "Calls hear you, think, then speak, one step at a time."
-								: login === undefined
-									? `${chosen.connect}. Until then, calls use Legacy voice.`
-									: `Talks with you as your teammate, looks things up, and does real work on your teammate’s own model. ${login.detail}.`}
-						</span>
+						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>{detail}</span>
 					</span>
 					<Picker
-						value={value}
-						choices={choices}
-						placeholder={off ? "Off" : chosen === undefined ? "Legacy voice" : chosen.name}
-						label="Model for live calls"
-						onChange={(id) => {
-							if (id === LEGACY || id === OFF) return write({ provider: id });
-							const at = id.indexOf("|");
-							if (at === id.length - 1) return;
-							write({ provider: id.slice(0, at), credential: id.slice(at + 1) });
-						}}
+						value={callModelId(live, front)}
+						choices={callModelChoices(live, front)}
+						placeholder="Turn by turn"
+						label="Model for calls"
+						onChange={(id) => write({ voice: frontPatch(voice, callModelPick(id)) })}
 					/>
 				</div>
-				{chosen === undefined && !off && children}
-				{chosen !== undefined && (
-					<div className="group-row use-for-nested">
+				{rows.includes("Voice") && chosen !== undefined && (
+					<div className="group-row">
 						<span className="group-row-text">
 							<span className="group-row-title">Voice</span>
+							<span className="group-row-detail">{`${voiceLabel(front.voices[chosen.front] ?? chosen.voices[0] ?? "")} on ${chosen.providerName}`}</span>
 						</span>
 						<Picker
-							value={voice ?? ""}
-							choices={chosen.voices.map((id) => ({ id, name: voiceName(id) ?? id }))}
+							value={front.voices[chosen.front] ?? chosen.voices[0] ?? ""}
+							choices={chosen.voices.map((id) => ({ id, name: voiceLabel(id) }))}
 							placeholder="Voice"
 							label={`Voice for ${chosen.name}`}
-							onChange={(id) => write({ provider: chosen.id, ...(login !== undefined ? { credential: login.id } : {}), voice: { provider: chosen.id, voice: id } })}
+							onChange={(id) => write({ voice: frontPatch(voice, { provider: chosen.front, credential: chosen.credential, voice: { provider: chosen.front, voice: id } }) })}
 						/>
 					</div>
 				)}
+				{rows.includes("Transcription") && <Transcription options={options} voice={voice} write={write} pickModel={pickModel} onChanged={onChanged} />}
+				{rows.includes("Speech") && (
+					<JobRow title="Speech" detail={speechLine(options.tts)} tag={whereTag(options.tts, options.deviceName)} job={options.tts}>
+						<Picker
+							value={currentVoiceId(options.tts)}
+							choices={speechChoices(options.tts)}
+							placeholder="Automatic"
+							label="Speech"
+							onChange={(id) => {
+								if (id === AUTOMATIC) return setVoice("tts", null);
+								const { providerId, modelId, voiceId } = splitVoiceId(id);
+								setVoice("tts", stored(providerId, modelId, voiceId));
+							}}
+						/>
+					</JobRow>
+				)}
+				{rows.includes("Call assistant") && (
+					<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
+						<Picker
+							value={currentId(options.dispatcher)}
+							choices={shortChoices(options.dispatcher)}
+							placeholder="Automatic"
+							label="Model for the call assistant"
+							onChange={(id) => {
+								const next = pickModel(id);
+								setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
+							}}
+						/>
+						{effortsOf(options.dispatcher).length > 0 && (
+							<Picker
+								value={options.dispatcher.selected?.effort ?? AUTOMATIC}
+								choices={effortChoices(options.dispatcher)}
+								placeholder="Default thinking"
+								label="Call assistant thinking"
+								onChange={(id) => {
+									const selected = options.dispatcher.selected;
+									if (selected === undefined) return;
+									setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
+								}}
+							/>
+						)}
+					</JobRow>
+				)}
 			</div>
+			{words.hint !== undefined && <p className="group-hint">{words.hint}</p>}
+		</>
+	);
+}
+
+/**
+ * Turn by turn's Transcription: the model that turns what is said into
+ * words, which only Turn by turn uses, with the desk's own free models
+ * folded under it to download. This Mac's own recognizer is offered too
+ * where the window has one (macOS's speech recognition, so only ever on a
+ * Mac), for calls placed from this window.
+ */
+function Transcription({
+	options,
+	voice,
+	write,
+	pickModel,
+	onChanged,
+}: {
+	options: CapabilityOptions;
+	voice: unknown;
+	write(patch: Record<string, unknown>): void;
+	pickModel(id: string): Stored | null;
+	onChanged(): void;
+}) {
+	const [open, setOpen] = useState(false);
+	const hearsHere = useSpeechOnThisMac();
+	const hearHere = useHearOnThisMac() && hearsHere;
+	const job = options.stt;
+	const choices: PickerChoice[] = [...(hearsHere ? [{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }] : []), ...shortChoices(job)];
+	const onDesk = job.options.find((one) => one.providerId === ON_THE_DESK);
+	return (
+		<>
+			<JobRow
+				title="Transcription"
+				detail={hearHere ? "Apple speech recognition · free" : transcriptionLine(job)}
+				tag={hearHere ? "on this Mac" : whereTag(job, options.deviceName)}
+				job={job}
+				ownChoice={hearsHere}
+			>
+				<Picker
+					value={hearHere ? ON_THIS_MAC : currentId(job)}
+					choices={choices}
+					placeholder="Automatic"
+					label="Transcription"
+					onChange={(id) => {
+						if (id === ON_THIS_MAC) return setHearOnThisMac(true);
+						setHearOnThisMac(false);
+						write({ voice: voicePatch(voice, "stt", pickModel(id)) });
+					}}
+				/>
+			</JobRow>
+			<Fold
+				title="Models on the desk"
+				value={onDesk === undefined ? "Download one, free" : onDesk.models.map((one) => one.label ?? one.id).join(", ")}
+				action={onDesk === undefined ? "Set up" : "Change"}
+				open={open}
+				onToggle={() => setOpen((was) => !was)}
+			>
+				<DeskModels onInstalledChanged={onChanged} />
+				{onDesk !== undefined && <ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />}
+			</Fold>
 		</>
 	);
 }
@@ -360,53 +320,6 @@ function withOff(choices: PickerChoice[]): PickerChoice[] {
 	return [...choices.filter((choice) => choice.id !== IMAGES_OFF_CHOICE.id), IMAGES_OFF_CHOICE];
 }
 
-/** Voices read as names: "eve" is Eve. */
-function voiceName(voice: string | undefined): string | undefined {
-	return voice === undefined ? undefined : voice.charAt(0).toUpperCase() + voice.slice(1);
-}
-
-const VOICE_SEPARATOR = "\u001f";
-
-function voiceId(providerId: string, modelId: string, voiceId: string): string {
-	return [providerId, modelId, voiceId].join(VOICE_SEPARATOR);
-}
-
-function splitVoiceId(id: string): { providerId: string; modelId: string; voiceId: string } {
-	const [providerId = "", modelId = "", voiceId = ""] = id.split(VOICE_SEPARATOR);
-	return { providerId, modelId, voiceId };
-}
-
-/**
- * Every voice of every connected speaking model, under its provider, and
- * under the model too where a provider has several: "OpenRouter · Grok Voice TTS 1.0".
- */
-function allVoices(job: CapabilityJob): PickerChoice[] {
-	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: "Automatic" }];
-	for (const provider of job.options) {
-		for (const model of provider.models) {
-			const group = provider.models.length > 1 ? `${provider.providerName} · ${model.label ?? shortModel(model.id)}` : provider.providerName;
-			for (const voice of model.voices ?? []) {
-				choices.push({ id: voiceId(provider.providerId, model.id, voice), name: voiceName(voice) ?? voice, group });
-			}
-		}
-	}
-	return choices;
-}
-
-function currentVoiceId(job: CapabilityJob): string {
-	const selected = job.selected;
-	if (selected === undefined) return AUTOMATIC;
-	const provider = job.options.find((one) => one.providerId === selected.providerId);
-	const model = provider?.models.find((one) => one.id === selected.modelId) ?? provider?.models[0];
-	const voice = selected.voice ?? model?.voices?.[0];
-	return model === undefined || voice === undefined ? AUTOMATIC : voiceId(selected.providerId, model.id, voice);
-}
-
-/**
- * A job's row: its name and what it is for, then its pickers, or the
- * sentence that says what to connect. `always` stays when there is nothing
- * to pick, so what is under the row can still be opened.
- */
 /**
  * The words the desk's own models listen for besides teammates' names:
  * names and product words a small model would otherwise spell as the
@@ -445,41 +358,45 @@ function ListenFor({ saved, onSave }: { saved: string[]; onSave(words: string[])
 	);
 }
 
+/**
+ * A job's row: its name and what it is for, then its pickers, or the
+ * sentence that says what to connect.
+ */
 function JobRow({
 	title,
 	detail,
+	tag,
 	job,
-	nested = false,
+	ownChoice = false,
 	wrap = false,
-	always,
 	children,
 }: {
 	title: string;
 	detail: string;
+	/** A word or two beside the title: where the model runs ("on this Mac"). */
+	tag?: string | undefined;
 	job: CapabilityJob;
-	nested?: boolean;
+	/** The picker offers a choice of its own besides the job's providers (this Mac's recognizer). */
+	ownChoice?: boolean;
 	/** The detail is a sentence to read whole, not a value to clip. */
 	wrap?: boolean;
-	always?: React.ReactNode;
 	children: React.ReactNode;
 }) {
-	const nothing = job.options.length === 0;
+	const nothing = job.options.length === 0 && !ownChoice;
 	return (
-		<div className={nested ? "group-row use-for-nested" : "group-row"}>
+		<div className="group-row">
 			<span className="group-row-text">
-				<span className="group-row-title">{title}</span>
+				<span className="group-row-title">
+					{title}
+					{tag !== undefined && !nothing && <span className="use-for-tag">{tag}</span>}
+				</span>
 				{(nothing ? (job.unavailable ?? detail) : detail) !== "" && (
 					<span className="group-row-detail" style={nothing || wrap ? { whiteSpace: "normal" } : undefined}>
 						{nothing ? (job.unavailable ?? detail) : detail}
 					</span>
 				)}
 			</span>
-			{(!nothing || always !== undefined) && (
-				<span className="flex shrink-0 items-center gap-1">
-					{!nothing && children}
-					{always}
-				</span>
-			)}
+			{!nothing && <span className="flex shrink-0 items-center gap-1">{children}</span>}
 		</div>
 	);
 }

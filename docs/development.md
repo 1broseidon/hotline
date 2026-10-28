@@ -90,7 +90,7 @@ crates/hotline-voice/src/     calls and voice engines; the room is reached throu
   call_room.rs               the core's callbacks, with temporary operations labelled by removal slice
   lib.rs, call.rs, input.rs   call ownership, lifecycle and bounded input
   duplex.rs, front*.rs        live sound, the front's conversation and its leased tools
-  dispatcher.rs              the legacy desk assistant and its metering
+  dispatcher.rs              the desk's call assistant and its metering
   turn.rs, synthesis.rs       turns, streamed replies and spoken clips
   record.rs, replies.rs       the call's record and spoken-reply counts
   speech.rs                  the Speech seam: a clip heard, a reply spoken, and the errors either gives
@@ -620,8 +620,14 @@ the last run.
 Hotline Agent's picker is not hand-written. `crates/hotline-core/models.json` is
 a snapshot of [models.dev](https://models.dev), the catalogue opencode and
 pi draw theirs from, cut down to the providers `models::WIRING` names and
-the models a coding agent can use: ones that call tools, answer in text
-only, and are not deprecated. The core reads it at start with
+the models a coding agent can use: chat models that call tools, answer in
+text only, and are not deprecated. Beside each provider's `models` it keeps
+`kinds`, what each of that provider's other models is for (`image`,
+`speech`, `transcription`, `video`, `embedding`, `realtime`, `reranking`),
+from models.dev's `type`, absent meaning chat unless the model answers in no
+text at all. A live listing often returns those models beside the chat ones
+without saying what they are, and `models::kind` looks them up there. The
+core reads it at start with
 `include_str!`; a test refuses a snapshot whose providers are not exactly
 the wired ones. A model's `reasoning_options` becomes `efforts`: only the
 `effort` type is read (a `toggle` or `budget_tokens` option is ignored),
@@ -658,8 +664,8 @@ before the next sync. Still mirror `CHATGPT_MODELS` from the Codex model list
 when you sync: it is what a picker offers before anyone signs in.
 
 Ollama Local is the other exception: its catalogue row has no fixed models.
-Rig discovers the installed ids from the chosen server on connection and
-refresh. Ollama Cloud has a bundled models.dev list as a fallback, replaced
+Hotline reads the installed ids and their capabilities from the chosen
+server's `/api/tags` on connection and refresh. Ollama Cloud has a bundled models.dev list as a fallback, replaced
 by discovery once available. `providers.rs` contains the connection work
 Rig does not supply (OpenRouter PKCE and URL validation); `providers/xai.rs`
 adds Grok's device sign-in and a refresh wrapper around Rig's HTTP client.

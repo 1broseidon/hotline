@@ -10,7 +10,7 @@ and their ledger.
 
 A call is a thread. Live voice handles conversation and lookups; `work_on_it`
 starts or steers one clone using the teammate's own model, driver and grants.
-Legacy feeds that same thread directly. Neither interrupts the home chat.
+Turn by turn feeds that same thread directly. Neither interrupts the home chat.
 Results posted or sent from the thread reach chat; merely writing a file does
 not attach it (task-253). Hang-up detaches speech, the in-flight reply finishes
 in chat, and one closing note follows after 30 seconds and an idle queue.
@@ -20,8 +20,8 @@ Cards are announced at a break. Finalized spoken yes/no can answer core-owned
 session collaboration approvals and informational questions; opaque driver
 approvals and actions requiring the desk stay there. A short transport drop
 holds the call for 20 seconds for the same authenticated device. Live provider
-recovery carries context; a failed live call explains itself and offers Legacy
-only as an explicit choice. A TTS clip fallback below is not a change of call mode.
+recovery carries context; a failed live call explains itself and offers Turn
+by turn only as an explicit choice. A TTS clip fallback below is not a change of call mode.
 
 The [scenario evidence and device pass](design/voice-scenario-pass.md) separates
 scripted proof from the pending Linux, desk and phone checks.
@@ -109,14 +109,17 @@ window starts the call with `inputMode: "text"` only when the desk's
 says this Mac can hear, and `speech_permit` is granted; it then never opens
 the webview's microphone. Otherwise the call is the audio call it always
 was, and a desk that answers a text call without `text/plain` in its input
-is hung up with a message to update it. Recognition stays open during playback
-so the person can interrupt; hold and hang-up cancel it. Voice processing requests echo cancellation, but
-physical speaker isolation still needs the device scenario pass. A `thinking` that
-says `listening` is listened through: the call's phase is `listening` while
-the teammate works. Legacy receives one soft waiting clip from the core if
-its own speech has not begun after 1.8 seconds; there is no local repeating
-chime. Recognition stays open through playback for interruption, with voice
-processing and echo cancellation enabled. What the desk begins to say while the person is
+is hung up with a message to update it. A Turn by turn call does not listen
+while a reply plays: recognition (or, on an audio call, the turn detector) is
+let go when playback starts and taken up again when it ends, so the desk's
+own reply, loud in the microphone, can never be taken for the person and cut
+it off. A tap on the call (Cut in) interrupts it. Hold and hang-up cancel
+recognition too. A live model hears all the time, so talking over it
+interrupts, with its own echo handling. A `thinking` that says `listening`
+is listened through: the call's phase is `listening` while the teammate
+works. Turn by turn receives one soft waiting clip from the core if its own
+speech has not begun after 1.8 seconds; there is no local repeating chime.
+What the desk begins to say while the person is
 talking does not play over them: it waits until their turn ends, and goes if
 they said something (the desk stops it on taking their words) or plays if it
 was only noise. Clips that arrive after the person's words are sent and before
@@ -127,8 +130,8 @@ once the meter has heard a voice, less any words recognized more than half
 a second before that onset, which were the room's. When the detector ends
 the turn, the window stops the session for its complete final text and
 sends it once with `voice.text` under the next sequence number; an empty
-final sends nothing. Settings › Providers › Use for describes Hearing as
-"On this Mac when you call from here" while this Mac can hear.
+final sends nothing. Settings › Providers › Calls offers it as On this Mac
+under Transcription while this Mac can hear.
 
 ## Three ways to talk
 
@@ -383,14 +386,11 @@ small pieces the model never emits, and Parakeet heard "Parakeek".
 
 ### In Settings
 
-In the window the models are rows in Settings › Providers › Use for ›
-Transcription (`ui/src/components/DeskModels.tsx`), a fold under Voice that
-opens even when nothing can speak yet. Folded, it says what hears you now;
-while nothing can, it reads "None yet. Download a free speech model." with
-Set up. Open, it holds Transcribes with and the models, under one title,
-Free and private local models. The call assistant is a row of its own below
-the fold, whose line says it is only for calls to the desk, since a teammate
-answers its own calls. A row is the model's name with its tag after a dot
+In the window the models are rows in Settings › Providers › Calls, in the
+Models on the desk fold under Transcription (`ui/src/components/DeskModels.tsx`),
+shown while calls are Turn by turn, which is what uses them. Folded, it
+names the installed models, or reads "Download one, free" with Set up. A
+row is the model's name with its tag after a dot
 (Parakeet English · fast), from the catalogue, and its Download button names
 the size; while it downloads the row shows how much has arrived over a bar
 and offers Cancel, and once installed it shows its size on the desk and
@@ -443,6 +443,7 @@ what the picker shows when a provider cannot be asked what else it offers.
 | `xai` API key | `grok-voice-transcribe-2.0` | native `/v1/tts`, voice `eve`, WAV |
 | explicit `xai-subscription` login | `grok-voice-transcribe-2.0` | native `/v1/tts`, voice `eve`, WAV |
 | a custom `openai-compatible` connection | its first model named `whisper` or `transcribe` | its first model named `tts` or `speech`, voice `alloy`, MP3 |
+| `ollama` (Ollama Local) | nothing | only the model and voice the owner chose, PCM wrapped as WAV |
 
 The OpenAI, Groq, OpenRouter, Mistral and custom rows share one adapter: a
 multipart `POST {base}/audio/transcriptions` with `model` and `file` and
@@ -476,7 +477,8 @@ when the completion frame omits text, without dispatching interim recognition.
 
 ### What the picker offers
 
-Settings › Providers › Use for lists every speech model the owner's connected
+Settings › Providers › Calls lists, under Transcription and Speech, every
+speech model the owner's connected
 providers offer, not just the defaults, after the desk's own installed models
 under On the desk. `capabilities.options` asks each
 built-in provider for its model list and sorts it into hearing and speaking
@@ -499,6 +501,23 @@ empty for want of a network. Starting a call never asks: it resolves from
 settings, the defaults and the cache. A model picked without a voice speaks in
 its own first voice.
 
+A connected Ollama server (`ollama`, the Ollama Local connection, at the
+base URL it was connected with) speaks once the owner has pulled a speech
+model into it, such as `phonon`, and chosen one of its voices. It is asked
+every time the picker is, never answered for from the cache: `GET /api/tags`
+for the models whose `capabilities` include `speech`, then `POST /api/show`
+for each one's `voices`, `default` first. Those are exactly the models the
+chat picker leaves out, because both read the capabilities through one
+function (`hotline_support::model_kind`). The picker reads a voice named
+`default` as the model's own name ("Phonon"), not "Default". A server that cannot be asked, or
+has no speech model, or a model that lists no voices, offers nothing, and
+Ollama is left out of the speaking options; the copy written to the cache is
+read only for the voice of a model chosen without one. Speech goes through
+the OpenAI-shaped adapter to `POST {server}/v1/audio/speech` with no key,
+asking for `pcm` (16-bit mono at 24 kHz), because Ollama's WAV is streamed
+with no lengths in its header. Ollama speaks only on the machine it runs on
+under macOS for now.
+
 Not covered: Mistral's voice, which answers with base64 inside JSON. A custom
 connection counts only if it lists a speech model or the owner names one.
 xAI subscription logins use their own explicit speech choice, independently
@@ -512,7 +531,11 @@ speak. Hearing goes first to a model installed on the desk, the most accurate
 one, because it costs nothing, nothing said leaves the machine, and
 installing it was the owner's own act; the order among paid keys is
 unchanged. Subscription speech is selected explicitly and has no paid
-fallback.
+fallback. Ollama speech is selected explicitly too, and is never automatic or
+an unnamed fallback: whether it can speak is a fact of the moment that
+starting a call does not ask, and pulling a model is not choosing it. A saved
+Ollama voice whose model or server is gone fails when it speaks, as any
+provider's does, and the fallback voice says the reply if there is one.
 `settings.voice` overrides any of it:
 
 ```json
@@ -531,7 +554,7 @@ the same error. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
 `dispatcher` names the chat model that routes what was said on a call to the
-desk; Settings › Providers › Use for calls it the call assistant. On a call to
+desk; Settings › Providers › Calls calls it the call assistant. On a call to
 a teammate it only says again, to be heard, a reply the teammate wrote
 without a spoken version ([A reply written only to be
 read](#a-reply-written-only-to-be-read)). Without that setting the
@@ -555,7 +578,7 @@ while a desk text call also needs the dispatcher.
 
 ## One brain, two outputs
 
-A Legacy call feeds utterances to the teammate's call thread. A live voice
+A Turn by turn call feeds utterances to the teammate's call thread. A live voice
 answers conversation and read-only lookups itself, and uses `work_on_it` for
 writes, changes and commands. Work runs on one clone on the call thread,
 using the teammate's model, harness and grants. Further instructions steer
@@ -595,7 +618,7 @@ The reply is read twice from one stream:
   each sentence said as soon as it is whole, cleaned for speech as below, and
   nothing after it. It holds back the end of a chunk that could be the start
   of a tag, so no part of a tag is ever said, and it never reads out a fenced
-  code block or a table. Legacy streams its own untagged prose opening too,
+  code block or a table. Turn by turn streams its own untagged prose opening too,
   without waiting for the whole reply or a rewrite. Live work can hold its
   untagged reply for a spoken rewrite before giving it to the live model.
 
@@ -641,7 +664,7 @@ version of its own, opening with a continuation ("Also", "Additionally",
 for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
 diagnostic: nothing shown or said changes.
 
-On a Legacy turn, the teammate's own first sentence is said as it streams,
+On a Turn by turn call, the teammate's own first sentence is said as it streams,
 including prose before a tool. The prompt asks for that sentence before tools,
 with no stock filler. If no speech has begun after 1.8 seconds, the core sends
 one soft sound on the normal clip wire, on desk and phone. The reply stays
@@ -685,7 +708,7 @@ words as written. The two pairs of tags are the only markup the agent is asked
 for.
 
 The latency of a call to a teammate is the teammate's: its first word waits on
-its model's first sentence. Legacy streams that sentence without a rewrite. A desk call keeps its router:
+its model's first sentence. Turn by turn streams that sentence without a rewrite. A desk call keeps its router:
 the call assistant answers what was said on the desk, hands work to teammates
 with `session.prompt`, and narrates their replies, as below.
 
@@ -708,14 +731,14 @@ A teammate may have its own voice (`Persona.voice`: provider, model and
 voice), picked on its card from the voices of whatever calls speak with: the
 voice front when the desk runs one (`voice.status` reports it as `front`:
 `grok`, `openai` or `gpt-live`, its model, the desk's voice for it and all its
-voices), else Legacy voice's speaking model. A direct call to that teammate
+voices), else Turn by turn's Speech model. A direct call to that teammate
 speaks in it while calls still run on that front, or that provider and model;
 otherwise, or if the provider refuses the voice, the call uses the desk's
 voice. Desk calls always use the desk's voice.
 
 ### A reply written only to be read
 
-Legacy streams an untagged prose opening, up to three sentences and before
+Turn by turn streams an untagged prose opening, up to three sentences and before
 code or tables, without asking another model to rewrite it. Tagged spoken
 versions stream in full, including an explicitly requested longer overview.
 
@@ -848,7 +871,7 @@ they do not hold a runtime worker.
 Prices in the ledger module are rounded up, since they are a guard and not an
 invoice: speech to text per minute and text to speech per 1,000 characters by
 provider, one high price for a provider not in the table, and zero for the
-desk's own model (`local`). Speech is priced from what is sent (seconds of
+desk's own model (`local`) and an Ollama server (`ollama`). Speech is priced from what is sent (seconds of
 audio, characters of text) and no provider reports usage back, so its
 reservation is its charge and is never settled.
 
@@ -908,27 +931,58 @@ network. `tests/local_speech.rs` serves small fake archives on localhost, and
 runs a real model only with `--ignored` and `HOTLINE_TEST_SPEECH_MODEL`
 naming a directory holding one.
 
-## The voice front setting
+## The call model setting
 
-`voice.front` in the room's settings is `{ "provider": "grok" | "openai" |
+A call runs on a **live** model, which hears, talks and uses tools in one
+stream, or **Turn by turn**, where the teammate answers on its own model and
+the desk transcribes what is said and speaks the reply. `voice.front` in the
+room's settings is that choice: `{ "provider": "grok" | "openai" |
 "gpt-live", "credential": "xai" | "xai-subscription" | "openai" |
 "openai-codex", "voices": { "grok": "eve", "openai": "marin", "gpt-live":
-"cove" } }`, a voice kept per provider so switching back finds it. Absent, or with no provider, means Grok Voice on the first
-connected xAI login or key: the voice front is the default for calls to the
+"cove" } }` for a live model, a voice kept per model so switching back finds
+it. Absent, or with no provider, means Grok Voice on the first
+connected xAI login or key: a live model is the default for calls to the
 desk and to a teammate. `openai` is GPT Realtime (`gpt-realtime-2.1`) on an
-OpenAI API key; a ChatGPT sign-in does not run it. Settings > Use for > Live
-calls picks one Model from a list grouped by provider, each front once per
-connected login or key with who pays beneath it, and lists a front with
-nothing connected so it can be found. `{ "provider": "legacy" }`, Legacy
-voice there, keeps the transcribe, route and speak pipeline, and a provider
-the build has no adapter for is read as Legacy voice too. `{ "provider":
-"off" }`, Off there (last in the list, never the default), offers no calls at
+OpenAI API key; a ChatGPT sign-in does not run it.
+
+Settings › Providers › Calls › Model has two groups. **Live** lists
+`capabilities.options.live`: the realtime models the desk can open on what
+is connected (`speech::live_models`, which asks `resolve_front` of each
+model on each login or key that runs it, so nothing is listed a call could
+not run on, and a provider that is not connected is never listed), each
+once per login or key with what it runs through beside it. Where models.dev
+knows a live model's kind, the classifier agrees it is realtime (a test
+checks), and realtime models the desk has no adapter for (Gemini Live) are
+not offered. A live model chosen earlier whose provider has since gone stays
+in the list as Not connected. **Turn by turn** is one entry,
+`{ "provider": "turn-by-turn" }`. Desks up to 0.43 wrote `"legacy"` for the
+same choice, and phones of that time still do, so it reads as Turn by turn,
+with its `stt` and `tts` picks unchanged; so does a model the build has no
+adapter for. Off comes last, under No calls.
+
+The rows follow the choice. A live model shows Voice (its voices, "Eve on
+Grok subscription") and the Call assistant; it hears and speaks itself, so
+there is no Transcription or Speech row, and the hint beneath reads "Talk
+over it to interrupt." Turn by turn shows Transcription (transcription
+models, plus this Mac's own recognizer where the window has one, and the
+Models on the desk fold), Speech (each speaking model's voices, "Phonon ·
+Zoey") and the Call assistant, with "Tap to interrupt." beneath. Each of
+Transcription and Speech says what runs it and its price from the voice
+ledger (`ledger::stt_cost`, `ledger::tts_cost`: "Parakeet · free", "Phonon
+through Ollama · free", "Groq · $0.001 a minute"), and carries a small tag
+when the model runs on the desk's own machine (`onDevice`: the desk's own
+models, an Ollama on loopback). The tag names the machine as the desk does,
+`capabilities.options.deviceName`: "on this Mac" on macOS, "on this
+computer" elsewhere. Transcription lives only here, so with a live model
+chosen what was last picked for it still serves dictation, unchanged.
+
+`{ "provider": "off" }` offers no calls at
 all: `voice.status` reports `available` and `directAvailable` false with
 `unavailable: "Calls are off in Settings"` and no capabilities, so no client
 draws a call key, and `voice.call_start` to the desk or a teammate is refused
 with the same words. It is a provider value rather than a separate flag so the
 picker's one choice is the setting's one key; a desk older than it reads the
-unknown provider as Legacy voice and keeps calling, which is the only way an
+unknown provider as Turn by turn and keeps calling, which is the only way an
 older desk differs.
 
 Both fronts run on one driver, `hotline-voice`'s `realtime/socket.rs`, since xAI's
@@ -966,20 +1020,19 @@ and the adapter switches to it between replies (or after 30 s of a reply)
 and hangs up the old one; a replacement that cannot be placed is tried again
 a minute later. A call the server no longer knows or a failed peer asks the
 call runtime to reconnect with its transcript. A replacement that fails
-ends the live call with a persistent reason, never as Legacy. GPT-Live costs
-nothing against the Voice budget. Legacy voice's settings appear under
-Legacy; Transcription remains under Use for because dictation uses it.
+ends the live call with a persistent reason, never as Turn by turn. GPT-Live
+costs nothing against the Voice budget.
 
 A call resolves the selected front from the vault at start. The core follows
 Settings when `mode` is omitted, requires live for `mode: "front"`, and accepts
-Legacy only when selected or explicitly requested with `mode: "pipeline"`.
+Turn by turn only when selected or explicitly requested with `mode: "pipeline"`.
 A missing login or budget refuses the live call. `voice.status.liveSelected`
 reports selection separately from readiness; a client must not interpret
 missing `voiceFront` capability or a missing `front` reply as permission to
-switch to Legacy. The window streams 16 kHz PCM in 40 ms frames, plays
+switch to Turn by turn. The window streams 16 kHz PCM in 40 ms frames, plays
 `frontAudio` at `outputRate`, and answers `frontStop` with `voice.front_barge`.
 A live failure ends with `state.liveError`, retained in the snapshot, and the
-window offers **Call with Legacy voice** on the same thread. Older clients
+window offers **Call turn by turn** on the same thread. Older clients
 cannot bypass the selected mode by omitting it. Companion clients need to
 handle `liveSelected` and `liveError` and expose that explicit choice.
 

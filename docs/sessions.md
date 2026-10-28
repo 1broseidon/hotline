@@ -321,8 +321,8 @@ background subagents finish and it has said what they found. While nothing
 else is open, that turn reads as done. The reply is chat, not narration; the
 phone and a call hear it then, as they would at a turn's end; and the
 session's `awaitingSubagents` is true while `state` stays `thinking`. So the
-window shows no Working mark, the work card says Done, the composer has no
-Interrupt key, and the desktop toast for a finished turn fires. Everything
+window shows no work card, its peek says Done, nothing offers Stop, and the
+desktop toast for a finished turn fires. Everything
 that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 
@@ -430,7 +430,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
@@ -679,10 +679,13 @@ Both use Rig's native Z.ai client, including streaming and tools. See the
 [Coding Plan guide](https://docs.z.ai/devpack/overview).
 
 Ollama Local connects to an HTTP or HTTPS server URL (default
-`http://localhost:11434`) without a key. Connection first reads `/api/tags`
-through Rig, so custom installed model ids enter the picker unchanged, even
-when absent from models.dev. Ollama Cloud uses the same Rig client at
-`https://ollama.com` with its API key. Its discovered models replace the
+`http://localhost:11434`) without a key. Connection first reads `/api/tags`,
+so custom installed model ids enter the picker unchanged, even when absent
+from models.dev. Hotline reads that list itself rather than through Rig's
+lister, which drops each model's `capabilities`: a speech model such as
+`phonon` (`["speech"]`) or an embedding model is left out of the chat picker,
+and a server too old to list capabilities offers every model. Ollama Cloud
+is read the same way at `https://ollama.com` with its API key. Its discovered models replace the
 bundled cloud list; a failed refresh keeps the last successful list. Both
 connections offer Refresh in Settings → Providers. Pull local models with
 Ollama itself; cloud models exposed by a local server after `ollama signin`
@@ -745,9 +748,27 @@ a model the account lists as policy-disabled is simply not offered.
 Provider model discovery is also available through **Refresh** for OpenAI
 API, Anthropic API, OpenRouter, Gemini, Groq, DeepSeek, Mistral, xAI and
 ChatGPT. It uses the configured provider's Rig client where Rig has a
-lister. Rig lists neither xAI nor ChatGPT, so Hotline reads those itself.
-xAI's list comes from `/v1/language-models`, with the key or the Grok
-subscription's refreshed bearer, and keeps only models that answer in text.
+lister. Rig lists neither xAI nor ChatGPT, so Hotline reads those itself,
+and it reads OpenRouter's `/models` itself because Rig's lister drops
+`architecture.output_modalities`, the only field that tells its image models
+from its chat ones. xAI's list comes from `/v1/language-models`, with the
+key or the Grok subscription's refreshed bearer.
+
+Every listed model, from every provider and from a custom server, gets
+exactly one kind (`models::kind`), and the chat picker keeps only chat
+models. The kind is what the provider's own listing says: Ollama's
+`capabilities` (`speech`, `embedding`, `image`, else `completion` is chat),
+OpenRouter's and xAI's output modalities (text alone is chat; a picture,
+video or speech without text is that kind; text beside a picture decides
+nothing, since OpenRouter's own router lists both), or an OpenAI-shaped
+`type` (`embedding`, `image` and the rest; Mistral's `base` decides
+nothing). Failing that, the snapshot's `kinds` for that provider and id (so
+OpenAI's `gpt-image-1` and Groq's `whisper-large-v3` leave the chat picker
+though their listings say nothing), and failing that chat, as before, so
+no model nobody describes disappears. A list cached before this rule keeps
+its models until the next Refresh. The Images, Voice and Transcription
+pickers read their own lists, of their own kind (see
+[voice.md](voice.md#what-the-picker-offers)).
 ChatGPT's comes from the endpoint the Codex CLI reads,
 `https://chatgpt.com/backend-api/codex/models`, and keeps only the models
 Codex shows. That backend leaves out models newer than the `client_version`
@@ -1105,8 +1126,9 @@ it: the orphan fold leaves a card that delivers alone. `human.answer` reads
 it off the tape, supersedes it with the outcome and the note, and hands the
 teammate a `delivery` with `cause: {kind: "answer", actionId, status,
 about}` and the note as its `text`, behind the turn in flight or on a turn
-of its own. The agent hears "The person answered your request (…)" or
-"The person declined your request (…)", then the note fenced, word for word.
+of its own. The agent hears "The person answered yes to your request (…) (marked it done)." or
+"The person answered no to your request (…) (declined it).", then the note fenced, word for word,
+so a yes/no question tapped without a note still says which.
 One lock settles a card once, however many answers race for it.
 
 A card that delivers lives two hours (`ASK_HOURS`) unless the teammate

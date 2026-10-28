@@ -235,6 +235,8 @@ pub(crate) fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        #[cfg(target_os = "macos")]
+        lights::seat_shown(&window);
     }
 }
 
@@ -482,6 +484,8 @@ fn start() -> Result<(), String> {
                     if matches!(payload.event(), PageLoadEvent::Finished) {
                         shown.call_once(|| {
                             let _ = window.show();
+                            #[cfg(target_os = "macos")]
+                            lights::seat_shown(&window);
                         });
                     }
                 })

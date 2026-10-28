@@ -1,11 +1,11 @@
 //! Native Rig listing with bounded connection metadata and fixed provider wiring.
 
-use crate::models::Client;
+use crate::models::{self, Client, ModelKind, Said};
 use bytes::Bytes;
 use rig::http_client::{self, HttpClientExt, LazyBody, MultipartForm, StreamingResponse};
 use rig::model::ModelList;
 use rig::providers::openai::{OpenAIConfig, wire};
-use rig::providers::{anthropic, gemini, ollama};
+use rig::providers::{anthropic, gemini};
 use serde::{Deserialize, Serialize};
 use std::sync::{
     Arc,
@@ -194,8 +194,9 @@ impl HttpClientExt for DiscoveryHttp {
 }
 
 /// A client's listing, bounded and checked: `listing` is the client's
-/// `list_models()`.
+/// `list_models()`. Rig keeps only a listing's `type` of what a model is for.
 pub(crate) async fn collect(
+    provider_id: &str,
     listing: impl Future<Output = Result<ModelList, rig::ProviderError>>,
 ) -> Result<Vec<ListedModel>, String> {
     let listed = tokio::time::timeout(Duration::from_secs(30), listing).await
@@ -204,21 +205,32 @@ pub(crate) async fn collect(
     if listed.len() > MAX_MODELS {
         return Err("The provider returned too many models.".into());
     }
-    let mut models: Vec<_> = listed
-        .data
-        .into_iter()
-        .filter(|model| !matches!(model.r#type.as_deref(), Some("embedding" | "embeddings")))
-        .map(|model| ListedModel {
-            id: model.id,
-            name: model.name,
-            context_limit: model.context_length.map(u64::from),
-            output_limit: model.max_output_tokens.map(u64::from),
-        })
-        .collect();
-    validate(&models)?;
-    models.sort_by(|a, b| a.id.cmp(&b.id));
-    models.dedup_by(|a, b| a.id == b.id);
-    Ok(models)
+    finish(
+        provider_id,
+        listed
+            .data
+            .into_iter()
+            .map(|model| {
+                let said = model.r#type.map_or(Said::Nothing, Said::Type);
+                let model = ListedModel {
+                    id: model.id,
+                    name: model.name,
+                    context_limit: model.context_length.map(u64::from),
+                    output_limit: model.max_output_tokens.map(u64::from),
+                };
+                (model, said)
+            })
+            .collect(),
+    )
+}
+
+/// The models.dev id a client is wired under, which the snapshot's kinds
+/// are keyed by.
+fn wired_id(client: Client) -> &'static str {
+    crate::models::WIRING
+        .iter()
+        .find(|wiring| wiring.client == client)
+        .map_or("", |wiring| wiring.id)
 }
 
 pub(crate) async fn api_models(provider: Client, key: &str) -> Result<Vec<ListedModel>, String> {
@@ -238,7 +250,7 @@ async fn api_models_at(
                 Some(base_url) => config.with_base_url(base_url),
                 None => config,
             };
-            collect(config.connect(http).list_models()).await
+            collect(wired_id(provider), config.connect(http).list_models()).await
         }
         Client::Gemini => {
             let config = gemini::GeminiConfig::new(key);
@@ -246,11 +258,13 @@ async fn api_models_at(
                 Some(base_url) => config.with_base_url(base_url),
                 None => config,
             };
-            collect(config.connect(http).list_models()).await
+            collect(wired_id(provider), config.connect(http).list_models()).await
         }
-        Client::OpenAi | Client::OpenRouter | Client::Groq | Client::DeepSeek | Client::Mistral => {
+        Client::OpenRouter => {
+            openrouter_models_at(base_url.unwrap_or(OPENROUTER_URL), key, http).await
+        }
+        Client::OpenAi | Client::Groq | Client::DeepSeek | Client::Mistral => {
             let dialect = match provider {
-                Client::OpenRouter => &wire::OPENROUTER,
                 Client::Groq => &wire::GROQ,
                 Client::DeepSeek => &wire::DEEPSEEK,
                 Client::Mistral => &wire::MISTRAL,
@@ -261,18 +275,132 @@ async fn api_models_at(
                 Some(base_url) => config.with_base_url(base_url),
                 None => config,
             };
-            collect(config.connect(http).list_models()).await
+            collect(wired_id(provider), config.connect(http).list_models()).await
         }
         _ => Err("This provider does not support native model discovery.".into()),
     }
 }
 
-pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<ListedModel>, String> {
-    let client = ollama::OllamaConfig::new()
-        .with_base_url(base_url)
-        .with_api_key(key)
-        .connect(DiscoveryHttp::new()?);
-    collect(client.list_models()).await
+const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1";
+
+/// OpenRouter's catalogue, read here rather than by Rig's lister, which
+/// drops `architecture.output_modalities`: the default list holds image
+/// models beside the chat ones, and only that field tells them apart.
+async fn openrouter_models_at(
+    base_url: &str,
+    key: &str,
+    http: DiscoveryHttp,
+) -> Result<Vec<ListedModel>, String> {
+    let request = http::Request::get(format!("{}/models", base_url.trim_end_matches('/')))
+        .header(http::header::AUTHORIZATION, format!("Bearer {key}"))
+        .body(Bytes::new())
+        .map_err(|_| failed())?;
+    let body = fetch(http.send::<Bytes, Vec<u8>>(request)).await?;
+    openrouter_listing(&body)
+}
+
+#[derive(Deserialize)]
+struct OpenRouterListing {
+    data: Vec<OpenRouterModel>,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterModel {
+    id: String,
+    name: Option<String>,
+    context_length: Option<u64>,
+    top_provider: Option<OpenRouterTop>,
+    architecture: Option<OpenRouterArchitecture>,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterTop {
+    max_completion_tokens: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterArchitecture {
+    output_modalities: Option<Vec<String>>,
+}
+
+fn openrouter_listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
+    let listed: OpenRouterListing = serde_json::from_slice(body).map_err(|_| failed())?;
+    finish(
+        "openrouter",
+        listed
+            .data
+            .into_iter()
+            .map(|model| {
+                let said = model
+                    .architecture
+                    .and_then(|architecture| architecture.output_modalities)
+                    .map_or(Said::Nothing, Said::OutputModalities);
+                let model = ListedModel {
+                    id: model.id,
+                    name: model.name,
+                    context_limit: model.context_length,
+                    output_limit: model.top_provider.and_then(|top| top.max_completion_tokens),
+                };
+                (model, said)
+            })
+            .collect(),
+    )
+}
+
+/// An Ollama server's installed models from `GET /api/tags`, read here
+/// rather than by Rig's lister, which drops `capabilities`: a speech model
+/// pulled beside the chat ones is told apart only by that field. A server
+/// too old to say is taken at its word that every model chats. `provider_id`
+/// is `ollama` or `ollama-cloud`; the key is sent only when there is one.
+pub(crate) async fn ollama_models(
+    provider_id: &str,
+    base_url: &str,
+    key: &str,
+) -> Result<Vec<ListedModel>, String> {
+    let mut request = http::Request::get(format!("{}/api/tags", base_url.trim_end_matches('/')));
+    if !key.is_empty() {
+        request = request.header(http::header::AUTHORIZATION, format!("Bearer {key}"));
+    }
+    let request = request.body(Bytes::new()).map_err(|_| failed())?;
+    let body = fetch(DiscoveryHttp::new()?.send::<Bytes, Vec<u8>>(request)).await?;
+    ollama_listing(provider_id, &body)
+}
+
+#[derive(Deserialize)]
+struct OllamaTags {
+    models: Vec<OllamaTag>,
+}
+
+#[derive(Deserialize)]
+struct OllamaTag {
+    /// The tag as the server displays it (`qwen3:4b`).
+    name: String,
+    /// The identifier a request addresses.
+    model: String,
+    capabilities: Option<Vec<String>>,
+}
+
+fn ollama_listing(provider_id: &str, body: &[u8]) -> Result<Vec<ListedModel>, String> {
+    let listed: OllamaTags = serde_json::from_slice(body).map_err(|_| failed())?;
+    finish(
+        provider_id,
+        listed
+            .models
+            .into_iter()
+            .map(|tag| {
+                let said = tag
+                    .capabilities
+                    .map_or(Said::Nothing, Said::OllamaCapabilities);
+                let model = ListedModel {
+                    id: tag.model,
+                    name: Some(tag.name),
+                    context_limit: None,
+                    output_limit: None,
+                };
+                (model, said)
+            })
+            .collect(),
+    )
 }
 
 pub(crate) fn failed() -> String {
@@ -290,8 +418,19 @@ pub(crate) async fn fetch(
     response.into_body().await.map_err(|_| failed())
 }
 
-/// Checks a hand-read listing the way [`collect`] checks Rig's.
-pub(crate) fn finish(mut models: Vec<ListedModel>) -> Result<Vec<ListedModel>, String> {
+/// A listing as the chat picker offers it: each model given its one kind by
+/// [`models::kind`], from what the listing said of it, and only the chat
+/// ones kept, then checked, sorted and each id once. The speaking and
+/// transcribing pickers read their own lists (`hotline_voice::speech`).
+pub(crate) fn finish(
+    provider_id: &str,
+    listed: Vec<(ListedModel, Said)>,
+) -> Result<Vec<ListedModel>, String> {
+    let mut models: Vec<ListedModel> = listed
+        .into_iter()
+        .filter(|(model, said)| models::kind(provider_id, &model.id, said) == ModelKind::Chat)
+        .map(|(model, _)| model)
+        .collect();
     validate(&models)?;
     models.sort_by(|a, b| a.id.cmp(&b.id));
     models.dedup_by(|a, b| a.id == b.id);
@@ -329,24 +468,26 @@ struct XaiModel {
     output_modalities: Option<Vec<String>>,
 }
 
-/// Models that answer in text. A listing without modalities keeps them all.
+/// xAI's chat models, by the outputs each lists. A listing without
+/// modalities keeps them all.
 pub(crate) fn xai_listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
     let listed: XaiListing = serde_json::from_slice(body).map_err(|_| failed())?;
     finish(
+        "xai",
         listed
             .models
             .into_iter()
-            .filter(|model| {
-                model
+            .map(|model| {
+                let said = model
                     .output_modalities
-                    .as_ref()
-                    .is_none_or(|out| out.iter().any(|kind| kind == "text"))
-            })
-            .map(|model| ListedModel {
-                id: model.id,
-                name: None,
-                context_limit: None,
-                output_limit: None,
+                    .map_or(Said::Nothing, Said::OutputModalities);
+                let model = ListedModel {
+                    id: model.id,
+                    name: None,
+                    context_limit: None,
+                    output_limit: None,
+                };
+                (model, said)
             })
             .collect(),
     )
@@ -419,6 +560,104 @@ mod tests {
             "grok-4.7"
         );
         assert!(xai_listing(b"not json").is_err());
+    }
+
+    #[tokio::test]
+    async fn ollama_lists_only_the_models_its_capabilities_call_chat() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let requests = seen.clone();
+        let app = Router::new().route(
+            "/proxy/api/tags",
+            get(move |headers: HeaderMap| {
+                requests.lock().unwrap().push(
+                    headers
+                        .get("authorization")
+                        .map(|value| value.to_str().unwrap().to_string()),
+                );
+                async {
+                    json!({"models": [
+                        {"name": "phonon:latest", "model": "phonon:latest", "capabilities": ["speech"]},
+                        {"name": "llama3.1:8b", "model": "llama3.1:8b", "capabilities": ["completion", "tools"]},
+                        {"name": "nomic-embed-text:latest", "model": "nomic-embed-text:latest", "capabilities": ["embedding"]},
+                        {"name": "old:latest", "model": "old:latest"},
+                    ]})
+                    .to_string()
+                }
+            }),
+        );
+        let (url, _server) = serve(app).await;
+        let models = ollama_models("ollama", &format!("{url}/proxy/"), "")
+            .await
+            .unwrap();
+        assert_eq!(
+            models,
+            [
+                ListedModel {
+                    id: "llama3.1:8b".into(),
+                    name: Some("llama3.1:8b".into()),
+                    context_limit: None,
+                    output_limit: None,
+                },
+                ListedModel {
+                    id: "old:latest".into(),
+                    name: Some("old:latest".into()),
+                    context_limit: None,
+                    output_limit: None,
+                },
+            ]
+        );
+        ollama_models("ollama-cloud", &format!("{url}/proxy"), "cloud-key")
+            .await
+            .unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [None, Some("Bearer cloud-key".into())]
+        );
+        assert!(ollama_listing("ollama", b"not json").is_err());
+    }
+
+    #[test]
+    fn openrouter_lists_only_the_models_its_outputs_and_the_snapshot_call_chat() {
+        let body = json!({"data": [
+            {"id": "anthropic/claude-x", "architecture": {"output_modalities": ["text"]}},
+            {"id": "openrouter/auto", "architecture": {"output_modalities": ["text", "image"]}},
+            {"id": "openai/gpt-5-image", "architecture": {"output_modalities": ["image", "text"]}},
+            {"id": "black-forest-labs/flux-new", "architecture": {"output_modalities": ["image"]}},
+            {"id": "no-architecture"},
+        ]});
+        let ids: Vec<_> = openrouter_listing(body.to_string().as_bytes())
+            .unwrap()
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
+        assert_eq!(
+            ids,
+            ["anthropic/claude-x", "no-architecture", "openrouter/auto"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_listing_that_names_no_kind_is_sorted_by_the_snapshot() {
+        let app = Router::new().route(
+            "/models",
+            get(|| async {
+                json!({"data": [
+                    {"id": "gpt-brand-new"},
+                    {"id": "gpt-image-1"},
+                    {"id": "text-embedding-3-small"},
+                    {"id": "served-embedder", "type": "embedding"},
+                ]})
+                .to_string()
+            }),
+        );
+        let (url, _server) = serve(app).await;
+        let ids: Vec<_> = api_models_at(Client::OpenAi, "key", Some(&url))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
+        assert_eq!(ids, ["gpt-brand-new"]);
     }
 
     #[tokio::test]

@@ -27,9 +27,9 @@ const CHUNK_LIMIT: usize = 32 * 1024;
 /// A paid front is charged for its minutes as they pass, so a spent budget
 /// ends the call within one of them.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
-const LIVE_BUDGET: &str = "The Voice budget is spent. Raise it in Settings or choose Legacy voice.";
+const LIVE_BUDGET: &str = "The Voice budget is spent. Raise it in Settings or choose Turn by turn.";
 const LIVE_UNAVAILABLE: &str =
-    "Live voice is unavailable. You can try again or choose Legacy voice.";
+    "Live voice is unavailable. You can try again or choose Turn by turn.";
 
 /// A front call's side of the sound. Held by the call, dropped with it.
 pub(super) struct Front {
@@ -296,7 +296,7 @@ impl Calls {
             .map_err(|_| "The front is no longer on the call.".to_string())
     }
 
-    /// A failed live call ends visibly. Only a new explicit choice starts Legacy.
+    /// A failed live call ends visibly. Only a new explicit choice starts Turn by turn.
     pub(super) fn fail_front(&self, id: &str, reason: String) {
         self.end_front(
             id,
@@ -307,7 +307,9 @@ impl Calls {
     }
 
     fn end_front(&self, id: &str, reason: String, notice: &str, audio: &[u8]) {
-        eprintln!("[voice] call {id}: live failed, awaiting explicit Legacy choice: {reason}");
+        eprintln!(
+            "[voice] call {id}: live failed, awaiting an explicit choice of turn by turn: {reason}"
+        );
         if self
             .change(id, |call| {
                 if call.live_error.is_some() {

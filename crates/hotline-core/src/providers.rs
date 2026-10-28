@@ -50,7 +50,7 @@ pub(crate) fn ollama_client(base_url: &str, key: &str) -> Result<ollama::Ollama,
 }
 
 pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<String>, String> {
-    Ok(discovery::ollama_models(base_url, key)
+    Ok(discovery::ollama_models("ollama", base_url, key)
         .await?
         .into_iter()
         .map(|model| model.id)
@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ollama_discovery_uses_rig_and_sends_only_the_selected_key() {
+    async fn ollama_discovery_sends_only_the_selected_key() {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let requests = seen.clone();
         let (url, _server) = serve(Router::new().route(

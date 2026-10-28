@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 describe("the composer's right edge without a call key", () => {
-	async function composer(props: { onCall?: () => void; draft?: string } = {}) {
+	async function composer(props: { onCall?: () => void; draft?: string; state?: "ready" | "thinking"; stopOnCard?: boolean } = {}) {
 		const { Composer } = await import("../src/components/Composer");
 		await act(async () =>
 			root.render(<Composer personaId="ada" name="Ada" state="ready" replyQuote={null} onSend={() => {}} onCancel={() => {}} onClearReply={() => {}} {...props} />),
@@ -46,5 +46,12 @@ describe("the composer's right edge without a call key", () => {
 	test("the call key stays the last key where calls are available", async () => {
 		await composer({ onCall: () => {} });
 		expect(keys().slice(-2)).toEqual(["Dictate", "Call Ada"]);
+	});
+
+	test("while a turn runs the pill has Stop, unless the work card above carries it", async () => {
+		await composer({ state: "thinking" });
+		expect(keys()).toContain("Interrupt");
+		await composer({ state: "thinking", stopOnCard: true });
+		expect(keys()).not.toContain("Interrupt");
 	});
 });

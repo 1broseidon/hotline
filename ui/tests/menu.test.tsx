@@ -63,8 +63,8 @@ describe("the conversation's band", () => {
 		expect(source).toContain('className="control btn-icon band-face"');
 		expect(source).toMatch(/label=\{state === "thinking" \? `\$\{persona.name\}, working` : persona.name\}/);
 		expect(source).not.toContain("<MoreIcon");
-		// The menu opens on who it is: a heading with the face, the name and the goal.
-		expect(source).toMatch(/kind: "heading",\s*text: persona.name,\s*\.\.\.\(persona.goal \? \{ detail: persona.goal \} : \{\}\)/);
+		// The menu opens on who it is: a card with the face, the name and the goal, goal or not.
+		expect(source).toMatch(/kind: "heading",\s*card: true,\s*text: persona.name,\s*\.\.\.\(persona.goal \? \{ detail: persona.goal \} : \{\}\)/);
 		// The name leaves the band's left while the rail names it.
 		expect(source).toMatch(/\{!railOpen && ourCall === null && \(/);
 		expect(source).not.toMatch(/title=\{`Teammate \(\$\{chordKeys/);
@@ -90,5 +90,28 @@ describe("the conversation's band", () => {
 		const card = document.querySelector(".menu-card")!;
 		expect(card.querySelector(".menu-card-name")?.textContent).toBe("Goldie");
 		expect(card.querySelector(".menu-card-detail")?.textContent).toBe("Help me with whatever I bring you.");
+	});
+
+	test("a card heading with no detail is still a card: the name beside the face, no empty line under it", async () => {
+		const { MenuButton } = await import("../src/ui/Menu");
+		await act(async () => {
+			root.render(
+				<MenuButton
+					className="control"
+					label="Flight Risk"
+					entries={[
+						{ kind: "heading", card: true, text: "Flight Risk", icon: <span className="face" /> },
+						{ kind: "item", id: "settings", text: "Settings", onSelect: () => {} },
+					]}
+				>
+					F
+				</MenuButton>,
+			);
+		});
+		await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+		const card = document.querySelector(".menu-card")!;
+		expect(card.querySelector(".face")).not.toBeNull();
+		expect(card.querySelector(".menu-card-name")?.textContent).toBe("Flight Risk");
+		expect(card.querySelector(".menu-card-detail")).toBeNull();
 	});
 });

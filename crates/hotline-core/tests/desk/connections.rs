@@ -1,5 +1,121 @@
 use super::*;
 
+/// A connected Ollama with a speech model pulled is offered for speaking over
+/// the same wire as Settings, with the voices it lists, and a voice chosen
+/// there is what a text call would speak with, at no cost. Each picker lists
+/// only its own kind: the speech model is never a chat model, the embedding
+/// model is neither, and nothing on the server draws or transcribes.
+#[tokio::test(flavor = "multi_thread")]
+async fn ollama_local_offers_each_model_only_to_the_picker_of_its_kind() {
+    use axum::{
+        Router,
+        routing::{get, post},
+    };
+    let app = Router::new()
+        .route(
+            "/api/tags",
+            get(|| async {
+                json!({"models": [
+                    {"name": "llama3.1:8b", "model": "llama3.1:8b", "capabilities": ["completion", "tools"]},
+                    {"name": "phonon:latest", "model": "phonon:latest", "capabilities": ["speech"]},
+                    {"name": "nomic-embed-text:latest", "model": "nomic-embed-text:latest", "capabilities": ["embedding"]},
+                ]})
+                .to_string()
+            }),
+        )
+        .route(
+            "/api/show",
+            post(|| async {
+                json!({"capabilities": ["speech"], "voices": ["Alfie", "default", "Zoey"]})
+                    .to_string()
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (_root, port) = open("ollama-speech").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let connected = client
+        .call("credential.connect_local", json!({"baseUrl": url}))
+        .await;
+    assert_eq!(connected["ok"], true, "{connected}");
+    let providers = client.call("providers.list", json!({})).await;
+    let ollama = providers["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "ollama")
+        .unwrap()
+        .clone();
+    assert_eq!(ollama["does"], json!(["chat", "voice"]), "{ollama}");
+
+    let options = client.call("capabilities.options", json!({})).await;
+    let tts = &options["result"]["tts"];
+    assert_eq!(
+        tts["options"],
+        json!([{"providerId": "ollama", "providerName": "Ollama", "onDevice": true, "cost": "free", "models": [
+            {"id": "phonon:latest", "label": "phonon", "voices": ["default", "Alfie", "Zoey"]}
+        ]}]),
+        "{options}"
+    );
+    // Ollama runs no live model, so Calls offers none; it names the desk's
+    // machine for its own platform.
+    assert!(options["result"].get("live").is_none(), "{options}");
+    assert_eq!(
+        options["result"]["deviceName"],
+        if cfg!(target_os = "macos") {
+            "this Mac"
+        } else {
+            "this computer"
+        },
+    );
+    assert!(tts.get("automatic").is_none(), "{tts}");
+    assert!(tts.get("unavailable").is_none(), "{tts}");
+    assert_eq!(options["result"]["stt"]["options"], json!([]), "{options}");
+    assert_eq!(
+        options["result"]["images"]["options"],
+        json!([]),
+        "{options}"
+    );
+    let chat = |list: &Value| -> Vec<String> {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let models = client.call("models.list", json!({})).await;
+    assert_eq!(chat(&models["result"]), ["ollama/llama3.1:8b"], "{models}");
+    let refreshed = client
+        .call("credential.refresh_models", json!({"providerId": "ollama"}))
+        .await;
+    assert_eq!(chat(&refreshed["result"]), ["llama3.1:8b"], "{refreshed}");
+
+    let chose = client
+        .call(
+            "settings.update",
+            json!({"patch": {"voice": {"tts": {"provider": "ollama", "model": "phonon:latest", "voice": "Zoey"}}}}),
+        )
+        .await;
+    assert_eq!(chose["ok"], true, "{chose}");
+    let options = client.call("capabilities.options", json!({})).await;
+    assert_eq!(
+        options["result"]["tts"]["selected"],
+        json!({"providerId": "ollama", "providerName": "Ollama", "modelId": "phonon:latest", "voice": "Zoey"})
+    );
+    let status = client
+        .call("voice.status", json!({"inputMode": "text"}))
+        .await;
+    assert_eq!(
+        status["result"]["tts"],
+        json!({"providerId": "ollama", "modelId": "phonon:latest", "voice": "Zoey"}),
+        "{status}"
+    );
+    server.abort();
+}
+
 /// Local discovery, filtering and a streamed Rig turn use the same wire as
 /// Settings and the conversation. No installed Ollama or cloud account needed.
 #[tokio::test(flavor = "multi_thread")]

@@ -30,6 +30,46 @@ export function sideOf(block: Block): Side {
  * bubble that will still grow, cut the way the desk will write it and under
  * the ids it will use, so the written lines replace them in place.
  */
+/**
+ * A reply said on a call keeps what was heard on its first bubble, and the
+ * bubbles after it (`id-2`, `id-3`…) are the rest of its written version.
+ * When both versions are the same words, the heard copy repeats bubbles
+ * already on screen, so it is dropped. In the call's own thread, a reply
+ * whose versions differ is one row: what was heard, with the whole written
+ * version folded under it rather than split across the rows that follow.
+ */
+export function heardOnce(events: TranscriptEvent[], call: boolean): TranscriptEvent[] {
+	const byId = new Map(events.map((event) => [event.id, event]));
+	const folded = new Set<string>();
+	const replaced = new Map<string, TranscriptEvent>();
+	for (const event of events) {
+		if (event.kind !== "agent" || event.spoken === undefined || event.spoken.trim() === "") continue;
+		const parts = [event.text];
+		const rest: string[] = [];
+		for (let index = 1; ; index += 1) {
+			const next = byId.get(bubbleId(event.id, index));
+			if (next?.kind !== "agent") break;
+			parts.push(next.text);
+			rest.push(next.id);
+		}
+		const written = parts.join("\n\n");
+		if (sameWords(event.spoken, written)) {
+			const { spoken: _heard, ...shown } = event;
+			replaced.set(event.id, shown);
+		} else if (call && rest.length > 0) {
+			replaced.set(event.id, { ...event, text: written });
+			for (const id of rest) folded.add(id);
+		}
+	}
+	if (replaced.size === 0) return events;
+	return events.flatMap((event) => (folded.has(event.id) ? [] : [replaced.get(event.id) ?? event]));
+}
+
+function sameWords(a: string, b: string): boolean {
+	const words = (text: string) => text.replace(/\s+/g, " ").trim();
+	return words(a) === words(b);
+}
+
 /** The written events as rows: runs of thoughts and tool calls fold into one block of steps. */
 export function toBlocks(events: TranscriptEvent[]): Block[] {
 	const blocks: Block[] = [];

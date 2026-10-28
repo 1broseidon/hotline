@@ -107,7 +107,7 @@ export function Conversation({
 	paneOpen?: boolean;
 	/** The rail is out and names the teammate in its selected row; closed, the band names it beside its face. */
 	railOpen?: boolean;
-	/** The work card, docked under the composer when the window is too narrow for it to float. */
+	/** The peek: a turn of work as a glance, standing up out of the composer over the conversation. */
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
@@ -262,10 +262,12 @@ export function Conversation({
 				<Transcript
 					personaId={personaId}
 					name={persona.name}
+					goal={persona.goal}
 					people={people}
 					events={shown}
 					streaming={streaming}
 					live={state === "thinking"}
+					onStop={cancel}
 					workingCalls={entry.workingCalls}
 					cornered={cornered}
 					focus={focus}
@@ -287,6 +289,8 @@ export function Conversation({
 					</div>
 				)}
 				<Composer
+					{...(dock !== undefined ? { above: <div className="work-dock">{dock}</div> } : {})}
+					stopOnCard
 					onDraftChange={setDraftHasContent}
 					personaId={personaId}
 					name={persona.name}
@@ -314,7 +318,6 @@ export function Conversation({
 							}
 						: {})}
 				/>
-				{dock !== undefined && <div className="work-dock">{dock}</div>}
 			</div>
 		</section>
 	);
@@ -374,6 +377,7 @@ const ConversationBand = memo(function ConversationBand({
 	const more: MenuEntry[] = [
 		{
 			kind: "heading",
+			card: true,
 			text: persona.name,
 			...(persona.goal ? { detail: persona.goal } : {}),
 			icon: <Avatar id={persona.id} name={persona.name} size={28} hash={persona.avatar?.hash} />,

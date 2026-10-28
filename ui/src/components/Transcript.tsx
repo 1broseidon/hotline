@@ -6,6 +6,7 @@ import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon,
 import { dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
 import { activityOf } from "../activity";
+import { glance } from "../glance";
 import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
@@ -16,12 +17,14 @@ import {
 	deliveryLine,
 	deliveryMissed,
 	foldReactions,
+	heardOnce,
 	peerLine,
 	quotedLine,
 	retryForNotice,
 	type Run,
 	type Side,
 	sideOf,
+	stepRuns,
 	superseded,
 	toBlocks,
 	withStreaming,
@@ -85,6 +88,7 @@ export function Transcript({
 	personaId,
 	name,
 	avatarHash,
+	goal,
 	people,
 	events,
 	streaming,
@@ -102,6 +106,7 @@ export function Transcript({
 	onOpenWork,
 	workOpen,
 	onProviders,
+	onStop,
 	thread,
 	more = false,
 	onEarlier,
@@ -112,6 +117,8 @@ export function Transcript({
 	name: string;
 	/** The teammate's picture, when it has one. */
 	avatarHash?: string | undefined;
+	/** What the teammate is for: said under its name before anything else is. */
+	goal?: string | undefined;
 	/** Every teammate by id, for the colleagues a line names. */
 	people?: ReadonlyMap<string, Person> | undefined;
 	events: TranscriptEvent[];
@@ -154,6 +161,8 @@ export function Transcript({
 	workOpen?: string | null | undefined;
 	/** Opens Settings › Providers, from a card saying no provider is connected. */
 	onProviders?(): void;
+	/** Stop on the work card while a turn runs, in the composer's place (Composer's `stopOnCard`). */
+	onStop?(): void;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -194,7 +203,7 @@ export function Transcript({
 	}, [events]);
 	const answered = useMemo(() => superseded(events), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(events), [events]);
+	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call")), [events, thread?.kind]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -327,7 +336,15 @@ export function Transcript({
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const queued = hidden.size > 0;
-	const currentActivity = useMemo(() => live || queued ? activityOf(events, streaming, queued) : null, [live, queued, events, streaming]);
+	const currentActivity = useMemo(() => {
+		if (!live && !queued) return null;
+		const now = activityOf(events, streaming, queued);
+		// At work with its tools, the card says what in a few words ("Running cargo test"), as the peek's last line does.
+		if (!["read", "search", "edit", "execute", "doing"].includes(now.phase)) return now;
+		const run = stepRuns(events, streaming).at(-1);
+		const said = run === undefined ? undefined : glance(run.items, true).at(-1)?.text;
+		return said === undefined ? now : { ...now, word: said };
+	}, [live, queued, events, streaming]);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(currentActivity)));
 
 	// A thread is said once: as its answer when one came back, else as its
@@ -366,7 +383,7 @@ export function Transcript({
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
 				<Avatar id={personaId} name={name} size={48} hash={avatarHash} />
 				<p className="text-lg font-semibold">{name}</p>
-				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
+				<p className="max-w-[360px] text-center text-md text-ink-2">{goal?.trim() ? goal.trim() : "Nothing said yet. Say hello below."}</p>
 			</div>
 		);
 	}
@@ -405,7 +422,7 @@ export function Transcript({
 					};
 					return (
 						<div key={id} data-event-id={id} className="tape-row">
-							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
+							{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
 							{block.kind === "scheduled" ? (
 								<ScheduledGroup name={block.name} runs={block.runs} />
 							) : block.kind === "calls" ? (
@@ -459,17 +476,23 @@ export function Transcript({
 		{activity !== null && (
 			<div className="ambient">
 				<div className="mx-auto w-full max-w-[46rem] px-6">
-					<button
-						type="button"
-						className="ambient-mark"
-						data-sleeping={sleeping || undefined}
-						aria-expanded={onOpenWork !== undefined ? workOpen === null : workShown}
-						title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
-						onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
-					>
-						<Glyph phase={activity.phase} />
-						{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
-					</button>
+					<div className="ambient-card" data-sleeping={sleeping || undefined}>
+						<button
+							type="button"
+							className="ambient-mark"
+							aria-expanded={onOpenWork !== undefined ? workOpen === null : workShown}
+							title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
+							onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
+						>
+							<Glyph phase={activity.phase} />
+							{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
+						</button>
+						{onStop !== undefined && !sleeping && (
+							<button type="button" className="ambient-stop" title="Interrupt (Esc)" onClick={onStop}>
+								Stop
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 		)}
@@ -580,14 +603,14 @@ const Row = memo(function Row({
 		case "user":
 			if (thread.kind === "call") return <>
                 <p className="said-name text-right">You</p>
-                <UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
+                <UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
             </>;
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
 			) : speakers !== undefined ? (
 				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
-				<UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
+				<UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		case "agent":

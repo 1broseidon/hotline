@@ -13,6 +13,7 @@
 //! authenticator.
 
 use super::discovery::{self, DiscoveryHttp, ListedModel};
+use crate::models::{self, ModelKind, Said};
 use bytes::Bytes;
 use rig::http_client::HttpClientExt;
 use rig::providers::chatgpt::auth::AuthContext;
@@ -136,10 +137,11 @@ async fn fetch_models(session: &Session) -> Result<(Vec<ListedModel>, Endpoints)
     let mut endpoints = Endpoints::new();
     let mut models = Vec::new();
     for entry in listed.data {
-        if matches!(
-            entry.capabilities.and_then(|caps| caps.kind).as_deref(),
-            Some("embedding" | "embeddings")
-        ) {
+        let said = entry
+            .capabilities
+            .and_then(|caps| caps.kind)
+            .map_or(Said::Nothing, Said::Type);
+        if models::kind("github-copilot", &entry.id, &said) != ModelKind::Chat {
             continue;
         }
         if let Some(offered) = entry

@@ -427,12 +427,20 @@ roster carries each teammate's slot as `pin`.
 how a person writes it, and a `settings.update` patch that names it is
 refused. The core writes it too, by one rule: a desk with exactly one
 teammate and no lead makes that one lead, after `persona.create` and
-`mobile.persona_create`, after `persona.delete`, and when the desk opens. So
+`mobile.persona_create`, after the person approves a lead's `add_teammate`
+card, after `persona.delete`, and when the desk opens. So
 a desk's first teammate leads, and a desk from before the lead with one
 teammate opens with that one leading. Deleting the lead clears it; with two
 or more left nobody is picked. A stored id that names someone no longer on
 the team reads as no lead. The roster carries it as `lead` on that
 teammate's row.
+
+The lead's own session is the one teammate offered `add_teammate`. It
+raises an ordinary `human_action` card (`question: true`, action id
+`new-teammate:<uuid>`) and nothing more; `human.answer` with `done` on that
+card writes the teammate the card showed, the same record `persona.create`
+writes for a draft naming only a name and goal, and `declined` writes
+nothing. No command or field was added for it.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
@@ -449,8 +457,8 @@ Only changing whether a computer is enabled reattaches the teammate; limit,
 image and mount edits apply on the next container creation, not a restart of
 an existing container. Secret-grant edits are handed to a running computer.
 
-`capabilities.options` feeds Settings > Providers > Use for and Settings >
-Budgets, and reads the same connections `images.status` and `voice.status`
+`capabilities.options` feeds Settings > Providers > Use for and Calls, and
+Settings > Budgets, and reads the same connections `images.status` and `voice.status`
 resolve from. Its `spending` is `CapabilitySpending`
 `{budgets: SpendingBudget[], unavailable?}`: always the `chat`, `voice` and
 `images` budgets in that order, each
@@ -464,7 +472,13 @@ images from the image tally (`spending.json`);
 `unavailable` is set when either cannot be read. The `stt` and `tts` options are every speech model each
 connected provider offers, as the provider lists them (cached for a day; the
 provider's default when it cannot be asked), with voices on each speaking
-model and the default model first; see `docs/voice.md`. The command may wait on
+model and the default model first, and each provider says whether it runs on
+the desk's own machine (`onDevice`) and what it costs as the voice ledger
+counts it (`cost`: `free`, or a price). `live` is the live models calls can
+run on, `{front, credential, modelId, name, providerName, voices}`, one per
+connected login or key that runs each, absent when none is; `deviceName` is
+what Settings calls the desk's machine, `this Mac` on macOS, else `this
+computer`; see `docs/voice.md`. The command may wait on
 those lists for up to five seconds; starting a call does not. Voice reads
 `settings.spending` when the owner has set it. A room that never set it but
 kept an early version's `settings.voice.dayUsd` and `monthUsd` has those as
@@ -616,7 +630,9 @@ metadata. Unknown optional limits and capabilities are omitted. Each row's `enab
 saved filter. An unwired provider is an error.
 
 `credential.refresh_models` uses the active connection and Rig's native
-listing client, then answers with `models.catalog`. An absent connection or
+listing client (Hotline's own reader for OpenRouter, Ollama, xAI and
+ChatGPT), keeps only the models whose kind is chat, then answers with
+`models.catalog`. An absent connection or
 unsupported discovery method is an error. Failed discovery preserves the
 last successful list; manual IDs remain separate. Refresh never updates
 selected models or enabled-model filters. `providers.list` exposes
@@ -1456,7 +1472,7 @@ No extra speech credential is created.
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
 | `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
 | `voice.interrupt` | `{callId}` | void |
-| `voice.input_state` | `{callId, speaking}`; Legacy capture onset/drop, before a finalized utterance | void |
+| `voice.input_state` | `{callId, speaking}`; Turn by turn capture onset/drop, before a finalized utterance | void |
 | `voice.front_audio` | `{callId,seq,data}` | void; front calls only, PCM16 mono at the negotiated `inputRate`; see [voice-calls.md](voice-calls.md) |
 | `voice.front_barge` | `{callId,playedMs}` | void; front calls only |
 | `voice.hold` | `{callId,hold}` | void |

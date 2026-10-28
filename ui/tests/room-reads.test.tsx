@@ -201,3 +201,26 @@ test("a Hotline Agent teammate with no account left keeps the picker, so it can 
 	await act(async () => button!.click());
 	expect(document.body.textContent).toContain("Agents");
 });
+
+test("a resting harness teammate's strip keeps the pretty name and effort its last live session named, never the model id", async () => {
+	const live = entry("resting", "harness", "claude-sonnet-5-5");
+	live.session = {
+		...live.session,
+		state: "ready",
+		currentModelId: "claude-sonnet-5-5",
+		models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5" }],
+		configs: [{ id: "effort", name: "Effort", category: "effort", currentId: "high", options: [{ id: "medium", name: "Medium" }, { id: "high", name: "High" }] }],
+	};
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="live" entry={live} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	expect(container.querySelector("button.model-picker")?.textContent).toContain("Sonnet 5.5 · High");
+
+	await act(async () => { root.render(<SessionPickers key="resting" entry={entry("resting", "harness", "claude-sonnet-5-5")} models={[]} onSaid={noop} />); });
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const resting = container.textContent ?? "";
+	expect(resting).toContain("Sonnet 5.5 · High");
+	expect(resting).not.toContain("claude-sonnet-5-5");
+});

@@ -189,5 +189,9 @@ mod tests {
         }
         assert!(!super::super::CONTRACT.contains("under 40 words"));
         assert!(super::super::CONTRACT.contains("omit written"));
+        // Short by default, with no word count: a recap names its main points
+        // and offers more, so the call is never read the whole list.
+        assert!(super::super::CONTRACT.contains("a sentence or three"));
+        assert!(super::super::CONTRACT.contains("offer more instead of going through every item"));
     }
 }

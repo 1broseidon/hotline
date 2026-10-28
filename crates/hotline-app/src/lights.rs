@@ -9,7 +9,9 @@
 //! which it does with every teammate opened. So the desk seats them itself:
 //! when the window is shown, when its title changes, and when it is resized,
 //! refocused, rescaled or rethemed, the moments AppKit lays its title bar
-//! out again.
+//! out again. A window shown for the first time is laid out by AppKit as it
+//! first draws, after the show returns, so a show seats them again a beat
+//! later, once that layout has had its turn.
 
 #[cfg(target_os = "macos")]
 use objc2::msg_send;
@@ -37,6 +39,22 @@ pub fn seat(window: &tauri::WebviewWindow) {
         // never destroyed, while the app runs), and AppKit is only touched
         // here, on the main thread.
         unsafe { seat_on_main(ns_window as *mut AnyObject) }
+    });
+}
+
+/// How long after a show AppKit's first layout of the title bar is done.
+#[cfg(target_os = "macos")]
+const AFTER_SHOW: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Seats the lights for a window just shown: now, and again once AppKit has
+/// laid out its title bar for the first draw, which would put them back.
+#[cfg(target_os = "macos")]
+pub fn seat_shown(window: &tauri::WebviewWindow) {
+    seat(window);
+    let window = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(AFTER_SHOW);
+        seat(&window);
     });
 }
 

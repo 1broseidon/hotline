@@ -370,6 +370,8 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
                         efforts: None,
                     })
                     .collect(),
+                on_device: false,
+                cost: None,
             })
         })
         .collect()
@@ -691,6 +693,21 @@ mod tests {
             assert_eq!(row.models[0], row.draws, "{}", row.name);
             assert!(row.models.contains(&row.also.unwrap()), "{}", row.name);
             assert!(row.models.iter().all(|id| known(id).is_some()));
+        }
+    }
+
+    /// The Images picker lists only image models: none the chat picker
+    /// offers, and each the snapshot sorts is sorted as an image model.
+    #[test]
+    fn the_images_picker_lists_only_image_models() {
+        for row in ROWS {
+            let entry = &crate::models::catalog().providers[row.provider_id];
+            for id in row.models {
+                assert!(!entry.models.contains_key(*id), "{id} is a chat model");
+                if let Some(kind) = entry.kinds.get(*id) {
+                    assert_eq!(*kind, crate::models::ModelKind::Image, "{id}");
+                }
+            }
         }
     }
 

@@ -35,11 +35,16 @@ import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
+import { shownState } from "../activity";
 import { Composer } from "./Composer";
 import { Transcript, type ThreadRef } from "./Transcript";
+import { WorkPage } from "./Work";
 
-/** What the right-hand pane shows: the list, or one thread open in it. */
-export type DockState = { open: ThreadRef | null };
+/**
+ * What the right-hand pane shows: the list, one thread open in it, or a
+ * teammate's turn of work (`work`), opened from the peek at the line pressed.
+ */
+export type DockState = { open: ThreadRef | null; work?: { personaId: string; blockId: string | null; stepId?: string } };
 
 /**
  * The right-hand pane: this teammate's threads as a list, like the team on the
@@ -95,13 +100,25 @@ export function Dock({
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
 	const at = state.open;
+	/* A turn's work, for the teammate it belongs to; another teammate open shows its list. */
+	const work = state.work !== undefined && entry !== null && entry.persona.id === state.work.personaId ? state.work : undefined;
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
-			<aside ref={root} className="dock" aria-label="Threads">
-				{at === null && <DockBand onClose={onClose} />}
-				{at === null ? (
+			<aside ref={root} className="dock" aria-label={work !== undefined ? "Work" : "Threads"}>
+				{work !== undefined && entry !== null ? (
+					<WorkPage
+						key={`${work.blockId ?? "now"}:${work.stepId ?? ""}`}
+						personaId={work.personaId}
+						blockId={work.blockId}
+						stepId={work.stepId}
+						name={entry.persona.name}
+						live={shownState(entry.session) === "thinking"}
+						onClose={onClose}
+					/>
+				) : at === null && <DockBand onClose={onClose} />}
+				{work !== undefined ? null : at === null ? (
 					<ThreadList
 						teammate={teammate}
 						rows={rows}

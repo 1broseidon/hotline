@@ -75,9 +75,11 @@ pub(crate) fn client(base_url: &str, key: Option<&str>, route: Route) -> Result<
 pub(crate) async fn discover(base_url: &str, key: Option<&str>) -> Result<Vec<String>, String> {
     let base_url = server_url(base_url)?;
     let client = config(&base_url, key).connect(super::discovery::DiscoveryHttp::new()?);
-    Ok(super::discovery::collect(client.list_models())
-        .await?
-        .into_iter()
-        .map(|model| model.id)
-        .collect())
+    Ok(
+        super::discovery::collect("openai-compatible", client.list_models())
+            .await?
+            .into_iter()
+            .map(|model| model.id)
+            .collect(),
+    )
 }

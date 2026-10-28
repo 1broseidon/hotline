@@ -37,9 +37,9 @@ export function Permission({
 	return (
 		<div className={`card mt-3 ${chosen === undefined ? "card-live" : ""}`}>
 			<p className="eyebrow mb-1">{chosen === undefined ? "Asking permission" : "Asked permission"}</p>
-			<p className="selectable" style={{ whiteSpace: "pre-wrap" }}>{event.title}</p>
+			<p className="selectable font-mono text-md" style={{ whiteSpace: "pre-wrap" }}>{event.title}</p>
 			{chosen !== undefined ? (
-				<p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink-3">
+				<p className="instrument mt-1.5 flex items-center gap-1.5">
 					{event.decision !== "expired" && <CheckIcon className="text-ink-4" />}
 					{chosen}
 				</p>
@@ -124,8 +124,8 @@ export function HumanAction({
 
 	return (
 		<div className="card card-live mt-3">
-			<p className="eyebrow mb-1">Needs you</p>
-			<p className="selectable">{event.reason}</p>
+			<p className="eyebrow mb-1.5 text-accent">Needs you</p>
+			<p className="selectable text-lg font-medium">{event.reason}</p>
 			{onOpenScreen !== undefined && !event.question && (
 				<p className="mt-1.5 text-sm text-ink-3">
 					The screen is yours until you press Done. What you type there goes to the desktop, not to the teammate.

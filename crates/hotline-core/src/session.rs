@@ -461,6 +461,9 @@ struct Session {
     /// when it started, so these ride on its next line; a session that starts
     /// later reads them from the tape.
     pending_posts: Mutex<Vec<String>>,
+    /// The person's name as this session's agent was last told it: by its
+    /// preamble, then by the one line after each change.
+    told_name: Mutex<Option<String>>,
     /// The user lines the driver has taken and not yet shown it read.
     ///
     /// A line is `sent` when it is written and `read` once the agent has

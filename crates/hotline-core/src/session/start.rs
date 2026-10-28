@@ -146,6 +146,7 @@ impl Room {
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_posts: Mutex::new(Vec::new()),
+            told_name: Mutex::new(agent.told_name.clone()),
             unread: Mutex::new(Vec::new()),
             voice_origin: Mutex::new(None),
             dispatched_deliveries: Mutex::new(HashSet::default()),

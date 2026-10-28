@@ -21,14 +21,17 @@ export function Favicon({ site, size = 16 }: { site: string; size?: number }) {
 }
 
 /** A few sites' icons, overlapping like a hand of cards: the pages read so far, and how many more. */
-export function Favicons({ sites, most = 3, size = 16 }: { sites: string[]; most?: number; size?: number }) {
+export function Favicons({ sites, most = 3, size = 16, total }: { sites: string[]; most?: number; size?: number; total?: number }) {
 	if (sites.length === 0) return null;
+	const shown = sites.slice(0, most);
+	// "+N" counts what the icons stand for: the pages, when `total` says how many, so it agrees with the pane's count.
+	const more = (total ?? sites.length) - shown.length;
 	return (
 		<span className="favicons">
-			{sites.slice(0, most).map((site) => (
+			{shown.map((site) => (
 				<Favicon key={site} site={site} size={size} />
 			))}
-			{sites.length > most && <span className="favicons-more">+{sites.length - most}</span>}
+			{more > 0 && <span className="favicons-more">+{more}</span>}
 		</span>
 	);
 }

@@ -45,7 +45,7 @@ export const Steps = memo(function Steps({
 					aria-expanded={inPane ? paneOpen === true : open}
 					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
 				>
-					<Favicons sites={sites} size={16} />
+					<Favicons sites={sites} size={16} total={summary.sources} />
 					<span className="truncate">{words.said}</span>
 					{words.failed !== null && <span className="shrink-0 text-danger">· {words.failed}</span>}
 					{open ? <ChevronDownIcon /> : <ChevronRightIcon />}

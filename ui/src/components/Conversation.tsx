@@ -1,6 +1,6 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
-import { processLabel, shownState } from "../activity";
+import { type Activity, processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -19,6 +19,7 @@ import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { Starters, untouched } from "./Starters";
+import { AskCard, askLine, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
 /**
@@ -105,7 +106,7 @@ export function Conversation({
 	threadOpen: ThreadId | undefined;
 	/** The threads pane is beside the conversation, listing what the band's side-thread chips would. */
 	paneOpen?: boolean;
-	/** The rail is out and names the teammate in its selected row; closed, the band names it beside its face. */
+	/** The rail is out with names and names the teammate in its selected row; closed or faces only, the band names it. */
 	railOpen?: boolean;
 	/** The peek: a turn of work as a glance, standing up out of the composer over the conversation. */
 	dock?: ReactNode;
@@ -131,6 +132,18 @@ export function Conversation({
 	/* A refusal the core handed up: a chapter that would not open, a message
 	 * that would not send. The band is the one place with room for a sentence. */
 	const [refused, setRefused] = useState<string | null>(null);
+	/* The mark at work, carried in the composer's bottom row rather than on a card of its own. */
+	const [mark, setMark] = useState<{ activity: Activity; sleeping: boolean } | null>(null);
+	/* The cards waiting on the person, answered from the composer: which is open there, or none.
+	 * With nothing left waiting it closes, and does not open by itself for the next one. */
+	const asks = useMemo(() => openAsks(events), [events]);
+	const [askAt, setAskAt] = useState<number | null>(null);
+	const anyAsk = asks.length > 0;
+	useEffect(() => {
+		if (!anyAsk) setAskAt(null);
+	}, [anyAsk]);
+	const askIndex = askAt === null || asks.length === 0 ? 0 : Math.min(askAt, asks.length - 1);
+	const asking = askAt !== null && asks.length > 0 ? asks[askIndex]! : null;
 
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
@@ -227,6 +240,22 @@ export function Conversation({
 		() => (screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen)),
 		[screen, personaId, persona.name],
 	);
+	const askPanel =
+		asking === null ? null : (
+			<div className="composer-ask">
+				{asks.length > 1 && (
+					<div className="composer-ask-head">
+						<span>
+							{askIndex + 1} of {asks.length}
+						</span>
+						<button type="button" className="composer-ask-next" onClick={() => setAskAt((at) => ((at ?? 0) + 1) % asks.length)}>
+							Next
+						</button>
+					</div>
+				)}
+				<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} onOpenScreen={openScreen} />
+			</div>
+		);
 	// Stable across renders, so the transcript's rows can skip a render while a reply streams.
 	const retryMessage = useCallback(
 		(message: Extract<TranscriptEvent, { kind: "user" }>) => {
@@ -267,7 +296,7 @@ export function Conversation({
 					events={shown}
 					streaming={streaming}
 					live={state === "thinking"}
-					onStop={cancel}
+					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					cornered={cornered}
 					focus={focus}
@@ -289,8 +318,29 @@ export function Conversation({
 					</div>
 				)}
 				<Composer
-					{...(dock !== undefined ? { above: <div className="work-dock">{dock}</div> } : {})}
-					stopOnCard
+					{...(asking !== null
+						? { above: askPanel }
+						: dock !== undefined
+							? { above: <div className="work-dock">{dock}</div> }
+							: {})}
+					{...(asks.length > 0
+						? {
+								work: {
+									activity: { phase: "blocked" as const, word: asks.length === 1 ? `Needs you · ${askLine(asks[0]!)}` : `${asks.length} things need you` },
+									sleeping: false,
+									open: asking !== null,
+									onToggle: () => setAskAt((at) => (at === null ? 0 : null)),
+								},
+							}
+						: mark !== null
+							? {
+									work: {
+										...mark,
+										open: workOpen === null,
+										onToggle: () => onOpenWork(null),
+									},
+								}
+							: {})}
 					onDraftChange={setDraftHasContent}
 					personaId={personaId}
 					name={persona.name}
@@ -400,7 +450,8 @@ const ConversationBand = memo(function ConversationBand({
 				{ourCall !== null && <CallFace call={ourCall} persona={persona} />}
 				<Band>
 					{/* The rail's selected row names who this is; the band's left is the
-					 * window's to drag. With the rail closed the name comes back here. */}
+					 * window's to drag. With the rail closed or down to faces, the name
+					 * comes back here. */}
 					{!railOpen && ourCall === null && (
 						<span className="min-w-0 shrink truncate pl-1 text-lg font-semibold text-ink">{persona.name}</span>
 					)}

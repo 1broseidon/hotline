@@ -8,6 +8,24 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-10-28
+
+### Changed
+
+- While a teammate works, the composer is two rows, as on the phone: what you
+  write on top, and under it the plus, what the teammate is doing in a few
+  words, Stop and the voice keys. Pressing what it is doing grows the turn's
+  steps up inside the composer. The card behind the composer is gone.
+- A card waiting on you shows as an amber "Needs you" in the same row and
+  opens in the composer to be answered there, full width, one at a time with
+  Next when there are several.
+- The work pane reads as a trail: each step a plain heading ("Used Linear",
+  "Ran a command") over a quiet line of what ran, its time from the start of
+  the turn at the right, joined down the left; opened, a step shows its
+  Command and its Output (or Error) as separate blocks, JSON laid out.
+- With the team rail down to faces, the conversation's top bar names the
+  teammate, as it does with the rail closed.
+
 ## [0.44.0] - 2026-10-27
 
 ### Added

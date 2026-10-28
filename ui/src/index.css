@@ -1770,6 +1770,149 @@
 	.step-edit-same {
 		color: var(--ink-3);
 	}
+	/* The pane's trail (Trail.tsx): one line down the left joining the steps'
+	 * dots, each step a plain heading over a quiet line of what ran, its time
+	 * at the right; opened, what ran and what came back as labelled blocks. */
+	.trail {
+		position: relative;
+		margin: 0;
+		padding: 4px 0 8px;
+		list-style: none;
+	}
+	.trail-step {
+		position: relative;
+	}
+	/* The line joining each dot to the next. */
+	.trail-step:not(:last-child)::before {
+		content: "";
+		position: absolute;
+		top: 22px;
+		bottom: -6px;
+		left: 15px;
+		width: 1.5px;
+		background: var(--line);
+	}
+	.trail-head {
+		position: relative;
+		display: flex;
+		width: 100%;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 8px 10px 8px 11px;
+		border-radius: var(--radius-control);
+		text-align: left;
+	}
+	.trail-head:hover:not(:disabled) {
+		background: var(--fill-hover);
+	}
+	.trail-head[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
+	.trail-dot {
+		position: relative;
+		z-index: 1;
+		flex-shrink: 0;
+		width: 10px;
+		height: 10px;
+		margin-top: 5px;
+		border-radius: 50%;
+		background: var(--ink-4);
+		box-shadow: 0 0 0 3px var(--canvas);
+	}
+	.trail-step[data-status="in_progress"] .trail-dot,
+	.trail-step[data-status="pending"] .trail-dot {
+		background: var(--accent);
+	}
+	.trail-step[data-status="failed"] .trail-dot {
+		background: var(--danger);
+	}
+	.trail-step[data-thought] .trail-dot {
+		background: transparent;
+		box-shadow:
+			inset 0 0 0 1.5px var(--ink-4),
+			0 0 0 3px var(--canvas);
+	}
+	.trail-words {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.trail-said {
+		font-size: 14.5px;
+		line-height: 1.35;
+		font-weight: 500;
+		color: var(--ink);
+	}
+	.trail-step[data-thought] .trail-said {
+		color: var(--ink-2);
+		font-weight: 400;
+	}
+	.trail-ran {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-3);
+	}
+	.trail-when {
+		flex-shrink: 0;
+		margin-top: 2px;
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	.trail-step[data-status="failed"] .trail-when {
+		color: var(--danger);
+	}
+	.trail-step[data-status="in_progress"] .trail-when {
+		color: var(--accent);
+	}
+	.trail-chevron {
+		flex-shrink: 0;
+		margin-top: 3px;
+		color: var(--ink-3);
+	}
+	/* Opened: the command and its output, each in its own labelled block. */
+	.trail-detail {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin: 2px 10px 10px 33px;
+	}
+	.trail-label {
+		margin: 0 0 6px;
+		font-size: var(--text-xs);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--ink-3);
+	}
+	.trail-code,
+	.trail-detail .step-out {
+		margin: 0 !important;
+		max-height: 280px;
+		overflow: auto;
+		padding: 10px 12px;
+		border-radius: 10px;
+		background: var(--well);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: 1.6;
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.trail-thought {
+		margin: 0;
+		font-size: var(--text-sm);
+		line-height: 1.55;
+		color: var(--ink-2);
+		white-space: pre-wrap;
+	}
 	.steps {
 		margin: 4px 0;
 		border-left: 2px solid var(--line);
@@ -1976,6 +2119,120 @@
 	}
 	.composer-attach {
 		color: var(--ink-3);
+	}
+	/* While a turn runs the composer is two rows, as on the phone: what you
+	 * write on top, and under it the plus, what the teammate is doing (a
+	 * press grows its steps up inside the pill), Stop and the voice keys.
+	 * The steps, open, are the pill's first row. */
+	.composer[data-work] {
+		flex-wrap: wrap;
+		row-gap: 2px;
+		align-items: center;
+	}
+	.composer[data-work] > .composer-body {
+		order: -1;
+		flex-basis: 100%;
+		padding: 2px 8px 0;
+	}
+	.composer[data-work] > .work-dock {
+		position: static;
+		order: -2;
+		flex-basis: 100%;
+		overflow: visible;
+		padding: 0;
+		margin: 0 0 4px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	/* A card waiting on the person, opened in the composer to answer there:
+	 * the pill's first row, the card at its full width, a tall one scrolling. */
+	.composer[data-work] > .composer-ask {
+		order: -2;
+		flex-basis: 100%;
+		max-height: min(55vh, 520px);
+		overflow-y: auto;
+		margin: 0 0 4px;
+		padding: 6px 4px 8px;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.composer-ask > :not(.composer-ask-head) {
+		max-width: none;
+		width: 100%;
+		margin-top: 0;
+	}
+	.composer-ask-head {
+		display: flex;
+		align-items: center;
+		padding: 0 6px 6px;
+		color: var(--ink-3);
+		font-size: var(--text-sm);
+	}
+	.composer-ask-next {
+		margin-left: auto;
+		padding: 2px 8px;
+		border-radius: var(--radius-control);
+		color: var(--accent);
+		font-weight: 600;
+	}
+	.composer-ask-next:hover {
+		background: var(--fill-hover);
+	}
+	.composer[data-work] .work-float.work-docked {
+		width: 100%;
+		padding-bottom: 0;
+		border-radius: 0;
+		background: transparent;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+		box-shadow: none;
+		animation: none;
+	}
+	.composer-work {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		height: 30px;
+		align-items: center;
+		gap: 8px;
+		margin: 0 4px;
+		padding: 0 10px 0 8px;
+		border-radius: 15px;
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+		transition: background var(--dur-press) var(--ease-out), opacity var(--dur-open) var(--ease-out);
+	}
+	.composer-work:hover,
+	.composer-work[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
+	.composer-work .glyph {
+		width: 22px;
+		height: 15.7px;
+		color: var(--accent);
+	}
+	.composer-work[data-blocked] .glyph {
+		color: var(--warn);
+	}
+	.composer-work[data-blocked] {
+		color: var(--warn);
+	}
+	.composer-work[data-sleeping] {
+		opacity: 0.5;
+	}
+	.composer-work-word {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.composer-work-chevron {
+		margin-left: auto;
+		flex-shrink: 0;
+		color: var(--ink-3);
+		transform: rotate(180deg);
+		transition: transform var(--dur-press) var(--ease-out);
+	}
+	.composer-work[aria-expanded="true"] .composer-work-chevron {
+		transform: none;
 	}
 	.composer-attach:hover {
 		background: var(--fill-hover);

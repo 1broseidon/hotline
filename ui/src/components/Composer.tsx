@@ -3,7 +3,9 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
-import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
+import { ArrowUpIcon, ChevronDownIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
+import type { Activity } from "../activity";
+import { Glyph } from "../ui/Glyph";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -68,6 +70,7 @@ export function Composer({
 	corner,
 	above,
 	stopOnCard = false,
+	work,
 	focused = false,
 	embedded = false,
 }: {
@@ -90,6 +93,12 @@ export function Composer({
 	above?: ReactNode;
 	/** Stop is on the work card above while a turn runs (Transcript's `onStop`), so the pill has none. */
 	stopOnCard?: boolean;
+	/**
+	 * What the teammate is doing, as the composer's bottom row while a turn
+	 * runs: the mark and a few words, between the plus and the keys. A press
+	 * grows the turn's steps (`above`) up inside the pill, and folds them.
+	 */
+	work?: { activity: Activity; sleeping: boolean; open: boolean; onToggle(): void } | undefined;
 	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
 	focused?: boolean;
 	/**
@@ -359,11 +368,27 @@ export function Composer({
 		<div className="relative shrink-0 px-6 pb-4">
 			<div className="relative mx-auto w-full max-w-[46rem]">
 				{corner !== undefined && <div className="composer-corner">{corner}</div>}
-				{above}
-				<div className="composer">
+				{work === undefined && above}
+				<div className="composer" data-work={work !== undefined || undefined}>
+					{work !== undefined && work.open && above}
 					<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
 						<PlusIcon />
 					</button>
+					{work !== undefined && (
+						<button
+							type="button"
+							className="composer-work"
+							data-sleeping={work.sleeping || undefined}
+							data-blocked={work.activity.phase === "blocked" || undefined}
+							aria-expanded={work.open}
+							title={work.open ? "Hide the steps" : "Show the steps"}
+							onClick={work.onToggle}
+						>
+							<Glyph phase={work.activity.phase} />
+							<span className="composer-work-word">{work.activity.word || "Working"}</span>
+							<ChevronDownIcon className="composer-work-chevron" />
+						</button>
+					)}
 					<div className="composer-body">
 						{sendingSince !== null && (
 							<p className="composer-sending" role="status">

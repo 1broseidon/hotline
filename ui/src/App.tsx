@@ -636,7 +636,8 @@ export function App() {
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
 							paneOpen={dock !== null}
-							railOpen={railShown}
+							// Faces only, the rail no longer names who this is: the band does.
+							railOpen={railShown && !faces}
 							{...(workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{inspector && (

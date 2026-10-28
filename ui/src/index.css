@@ -1444,30 +1444,35 @@
 	.said-name + .said-name {
 		margin-left: 12px;
 	}
-	/* Them, at work: the mark and its word on a card tucked behind the
-	 * composer's top, a little narrower than it, Stop at its right as the
-	 * phone's activity bar has it (the pill has none meanwhile). The card runs
-	 * on under the composer, which paints over it, so only its top shows. It
-	 * is not a message; it is in the room while the reply is on its way and
-	 * gone when it lands. A press opens the peek above it. */
+	/* A thread's teammate at work: the composer's activity row as a pill of
+	 * its own, floating at the foot of the thread under the last line, the
+	 * mark in its colour, its words, and Stop. It is not a message; it is in
+	 * the room while the reply is on its way and gone when it lands. */
 	.ambient {
 		position: absolute;
 		inset: auto 0 0 0;
 		z-index: 0;
 		pointer-events: none;
-		clip-path: inset(-160px -80px -40px -80px);
+		/* It rises from the thread's foot, never from below it. */
+		clip-path: inset(-160px -80px 0 -80px);
 	}
 	.ambient-card {
 		display: flex;
+		width: fit-content;
+		max-width: 100%;
+		height: 32px;
 		align-items: center;
-		gap: 8px;
-		margin: 0 18px -22px;
-		padding: 5px 6px 27px 10px;
-		border-radius: 14px 14px 0 0;
-		background: var(--raised);
+		gap: 6px;
+		margin: 0 0 12px;
+		padding: 0 4px 0 6px;
+		border-radius: 16px;
+		background: color-mix(in oklab, var(--pop) 88%, transparent);
+		-webkit-backdrop-filter: blur(14px);
+		backdrop-filter: blur(14px);
 		box-shadow:
 			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
+			0 0 0 var(--hairline) var(--line),
+			0 6px 18px oklch(0% 0 0 / 0.22);
 		pointer-events: auto;
 		/* The transcript makes room first (its 200ms padding ease), then the
 		 * card rises into it, slow out of sleep; the glyph's first blink
@@ -1485,13 +1490,19 @@
 		flex: 1;
 		align-items: center;
 		gap: 8px;
-		padding: 2px 4px 2px 0;
-		border-radius: var(--radius-control);
-		color: var(--ink-3);
+		height: 26px;
+		padding: 0 10px 0 4px;
+		border-radius: 13px;
+		color: var(--ink-2);
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.ambient-mark:hover {
+		background: var(--fill-hover);
 	}
 	.ambient-card .glyph {
 		width: 22px;
 		height: 15.7px;
+		color: var(--accent);
 	}
 	.ambient-stop {
 		flex-shrink: 0;

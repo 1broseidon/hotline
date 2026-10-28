@@ -105,7 +105,7 @@ export function Conversation({
 	threadOpen: ThreadId | undefined;
 	/** The threads pane is beside the conversation, listing what the band's side-thread chips would. */
 	paneOpen?: boolean;
-	/** The rail is out and names the teammate in its selected row; closed, the band names it beside its face. */
+	/** The rail is out with names and names the teammate in its selected row; closed or faces only, the band names it. */
 	railOpen?: boolean;
 	/** The peek: a turn of work as a glance, standing up out of the composer over the conversation. */
 	dock?: ReactNode;
@@ -400,7 +400,8 @@ const ConversationBand = memo(function ConversationBand({
 				{ourCall !== null && <CallFace call={ourCall} persona={persona} />}
 				<Band>
 					{/* The rail's selected row names who this is; the band's left is the
-					 * window's to drag. With the rail closed the name comes back here. */}
+					 * window's to drag. With the rail closed or down to faces, the name
+					 * comes back here. */}
 					{!railOpen && ourCall === null && (
 						<span className="min-w-0 shrink truncate pl-1 text-lg font-semibold text-ink">{persona.name}</span>
 					)}

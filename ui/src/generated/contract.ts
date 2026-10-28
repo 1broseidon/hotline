@@ -302,7 +302,13 @@ metadataKnown: boolean, contextLimit: number | null, outputLimit: number | null,
 /**
  * A successful file mutation reported by the work's own tool.
  */
-export type ChangedFile = { path: string, created: boolean, };
+export type ChangedFile = { path: string, created: boolean, 
+/**
+ * Lines the change put in and took out, as a diff counts them, when
+ * the tool showed both versions of the file. Absent when it did not,
+ * and on changes written before 0.45.
+ */
+added?: number, removed?: number, };
 
 /**
  * What ended a chapter.
@@ -2114,7 +2120,19 @@ scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text:
  * description when it gave one, else the desk's words for the tool.
  * Absent on steps written before 0.44.
  */
-said?: StepSaid, } | { "kind": "permission", 
+said?: StepSaid, 
+/**
+ * When the step finished, in ms, beside `ts` when it started: how
+ * long it took. Absent while it runs, and on steps written before
+ * 0.45.
+ */
+endedTs?: number, 
+/**
+ * The web pages a step read or found: a fetch's page, a web
+ * search's results, each as the step's own output names it. Absent
+ * on every other step, and on steps written before 0.45.
+ */
+sources?: Array<WebSource>, } | { "kind": "permission", 
 /**
  * The call that raised this card in the home chat.
  */
@@ -2496,6 +2514,17 @@ export type WebSearchProviderStatus = { provider: WebSearchProvider, name: strin
  * no keys tries them.
  */
 export type WebSearchStatus = { providers: Array<WebSearchProviderStatus>, };
+
+/**
+ * A web page a step read, or a search turned up, as the step's output
+ * named it: its address, and its title when the output gave one. Never
+ * fetched again to fill a gap.
+ */
+export type WebSource = { url: string, title?: string, 
+/**
+ * A search's result, which the step listed but did not read.
+ */
+found?: boolean, };
 
 /**
  * Where a fresh room stands on its way to a first turn, as the welcome

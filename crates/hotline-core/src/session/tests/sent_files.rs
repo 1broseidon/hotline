@@ -396,6 +396,8 @@ async fn automatic_call_files_keep_the_call_lease_reach_and_work_boundary() {
     let changed = crate::contract::ChangedFile {
         path: "report.pdf".into(),
         created: false,
+        added: None,
+        removed: None,
     };
     room.post_call_files("ada", &first, std::slice::from_ref(&changed), &lease)
         .await;
@@ -432,6 +434,8 @@ async fn automatic_call_files_keep_the_call_lease_reach_and_work_boundary() {
         &[crate::contract::ChangedFile {
             path: path.display().to_string(),
             created: true,
+            added: None,
+            removed: None,
         }],
         &lease,
     )

@@ -188,6 +188,11 @@ fn workspace_prepares_and_commits_atomic_mutations() {
             replace_all: None,
         })
         .unwrap();
+    let changed = edit.changed_file();
+    assert_eq!(
+        (changed.created, changed.added, changed.removed),
+        (false, Some(1), Some(1))
+    );
     workspace.commit_mutation(edit).unwrap();
     assert_eq!(
         fs::read_to_string(directory.path().join("notes.txt")).unwrap(),
@@ -201,6 +206,11 @@ fn workspace_prepares_and_commits_atomic_mutations() {
             overwrite: None,
         })
         .unwrap();
+    let changed = write.changed_file();
+    assert_eq!(
+        (changed.created, changed.added, changed.removed),
+        (true, Some(1), Some(0))
+    );
     let wrote = workspace.commit_mutation(write).unwrap();
     assert_eq!(
         fs::read_to_string(directory.path().join("new.txt")).unwrap(),

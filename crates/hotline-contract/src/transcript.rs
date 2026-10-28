@@ -107,6 +107,16 @@ pub enum TranscriptEvent {
         /// Absent on steps written before 0.44.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         said: Option<StepSaid>,
+        /// When the step finished, in ms, beside `ts` when it started: how
+        /// long it took. Absent while it runs, and on steps written before
+        /// 0.45.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ended_ts: Option<i64>,
+        /// The web pages a step read or found: a fetch's page, a web
+        /// search's results, each as the step's own output names it. Absent
+        /// on every other step, and on steps written before 0.45.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sources: Option<Vec<WebSource>>,
     },
     Permission {
         /// The call that raised this card in the home chat.
@@ -533,10 +543,33 @@ pub struct Attachment {
 /// A successful file mutation reported by the work's own tool.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct ChangedFile {
     pub path: String,
     pub created: bool,
+    /// Lines the change put in and took out, as a diff counts them, when
+    /// the tool showed both versions of the file. Absent when it did not,
+    /// and on changes written before 0.45.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<u32>,
+}
+
+/// A web page a step read, or a search turned up, as the step's output
+/// named it: its address, and its title when the output gave one. Never
+/// fetched again to fill a gap.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct WebSource {
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// A search's result, which the step listed but did not read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub found: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

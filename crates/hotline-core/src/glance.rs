@@ -9,7 +9,7 @@
 //! other step from the kinds every ACP agent reports, a connected service's
 //! name, or the program a command runs.
 
-use crate::contract::StepSaid;
+use crate::contract::{StepSaid, WebSource};
 
 /// How one of Hotline's own tools is said: once, `{n}` times, and while it
 /// runs. Steps in a row with the same group are one line of a glance.
@@ -497,9 +497,14 @@ pub fn step_said(title: &str, kind: &str, description: Option<&str>) -> StepSaid
     // title says nothing more. A title that carries what was read, edited or
     // run ("read docs/design.md") says more than the label, and an ACP kind
     // ("read", "execute") is a kind, not one of these tools.
-    let named = title
+    // A title that names the tool before what it was given
+    // ("mcp__hotline__web_search: goldfish care", "web_search goldfish care")
+    // is that tool.
+    let first = title.split([':', ' ']).next().unwrap_or_default();
+    let named = first
         .strip_prefix("mcp__hotline__")
-        .or_else(|| kind.strip_prefix("mcp__hotline__"));
+        .or_else(|| kind.strip_prefix("mcp__hotline__"))
+        .or_else(|| (first == kind && !GENERIC_KINDS.contains(&kind)).then_some(kind));
     let bare = named.unwrap_or(
         if title.contains(char::is_whitespace) || GENERIC_KINDS.contains(&kind) {
             title
@@ -554,11 +559,25 @@ pub fn step_said(title: &str, kind: &str, description: Option<&str>) -> StepSaid
             "Searched {n} times",
             "Searching",
         ),
-        "fetch" => said(
-            "fetch",
-            "Read a web page",
-            "Read {n} web pages",
-            "Reading a web page",
+        "fetch" => match url_in(title).as_deref().and_then(site_of) {
+            Some(site) => said(
+                "fetch",
+                format!("Read {site}"),
+                "Read {n} web pages",
+                format!("Reading {site}"),
+            ),
+            None => said(
+                "fetch",
+                "Read a web page",
+                "Read {n} web pages",
+                "Reading a web page",
+            ),
+        },
+        "web" => said(
+            "web",
+            "Searched the web",
+            "Searched the web {n} times",
+            "Searching the web",
         ),
         "think" => said(
             "think",
@@ -604,12 +623,112 @@ pub fn step_said(title: &str, kind: &str, description: Option<&str>) -> StepSaid
     }
 }
 
+/// The most results of one search a step keeps as its sources.
+const MOST_FOUND: usize = 10;
+
+/// The longest page title a source keeps.
+const SOURCE_TITLE_CHARS: usize = 160;
+
+/// The first web address in a step's title: the page a fetch reads.
+fn url_in(title: &str) -> Option<String> {
+    title
+        .split_whitespace()
+        .map(|word| word.trim_matches(['`', '"', '\'', '(', ')', '<', '>']))
+        .find(|word| word.starts_with("https://") || word.starts_with("http://"))
+        .filter(|word| url::Url::parse(word).is_ok_and(|url| url.host_str().is_some()))
+        .map(str::to_string)
+}
+
+/// A site as a person names it: "nextjs.org", without the "www.".
+pub fn site_of(url: &str) -> Option<String> {
+    let host = url::Url::parse(url).ok()?.host_str()?.to_ascii_lowercase();
+    Some(host.strip_prefix("www.").unwrap_or(&host).to_string())
+}
+
+/// The web pages a finished step read or found, as its own output names
+/// them; nothing for any other step. A fetch is the page in its title, with
+/// the page's title when the tool writes it first (`web_fetch` does, then a
+/// blank line); a search is the results its output lists, each `N. title`
+/// over its address (Hotline's `web_search`) or `title (address)` (Claude's).
+/// A "title" that is only the site's name is no title.
+pub fn sources_of(title: &str, kind: &str, output: &str) -> Vec<WebSource> {
+    let shown = |url: &str, name: &str| {
+        let name = name.trim();
+        let site = site_of(url).unwrap_or_default();
+        (!name.is_empty() && !name.eq_ignore_ascii_case(&site) && !name.contains("://"))
+            .then(|| name.chars().take(SOURCE_TITLE_CHARS).collect::<String>())
+    };
+    let first = title.split([':', ' ']).next().unwrap_or_default();
+    let searched = group_of(kind, title) == "web"
+        || [first, kind]
+            .iter()
+            .any(|name| name.trim_start_matches("mcp__hotline__") == "web_search");
+    if searched {
+        let mut found: Vec<WebSource> = Vec::new();
+        let mut lines = output.lines().peekable();
+        while let Some(line) = lines.next() {
+            let line = line.trim();
+            let hit = if let Some((number, name)) = line.split_once(". ")
+                && number.chars().all(|c| c.is_ascii_digit())
+                && !number.is_empty()
+                && let Some(next) = lines.peek()
+                && let Some(url) = url_in(next.trim()).filter(|url| url == next.trim())
+            {
+                lines.next();
+                Some((url, name.to_string()))
+            } else if let Some(open) = line.rfind(" (http")
+                && line.ends_with(')')
+                && let Some(url) = url_in(&line[open + 2..line.len() - 1])
+            {
+                Some((url, line[..open].to_string()))
+            } else {
+                None
+            };
+            if let Some((url, name)) = hit
+                && !found.iter().any(|known| known.url == url)
+            {
+                found.push(WebSource {
+                    title: shown(&url, &name),
+                    url,
+                    found: true,
+                });
+            }
+            if found.len() == MOST_FOUND {
+                break;
+            }
+        }
+        return found;
+    }
+    if group_of(kind, title) != "fetch" {
+        return Vec::new();
+    }
+    let Some(url) = url_in(title) else {
+        return Vec::new();
+    };
+    let named = title.starts_with("web_fetch")
+        && output
+            .lines()
+            .nth(1)
+            .is_some_and(|line| line.trim().is_empty());
+    let page = named
+        .then(|| output.lines().next())
+        .flatten()
+        .and_then(|line| shown(&url, line));
+    vec![WebSource {
+        url,
+        title: page,
+        found: false,
+    }]
+}
+
 /// The kind of step, from the ACP kind or what the title gives away.
 fn group_of(kind: &str, title: &str) -> &'static str {
     match kind.to_ascii_lowercase().as_str() {
         "read" => "read",
         "edit" | "write" | "delete" | "move" => "edit",
         "search" | "grep" | "glob" => "search",
+        // Claude's web search is a fetch whose title is the query.
+        "fetch" if title.starts_with("Search ") && url_in(title).is_none() => "web",
         "fetch" => "fetch",
         "think" => "think",
         "execute" | "exec" | "bash" | "terminal" => "execute",
@@ -625,6 +744,7 @@ fn many_of(kind: &str, title: &str) -> &'static str {
         "edit" => "Edited {n} files",
         "search" => "Searched {n} times",
         "fetch" => "Read {n} web pages",
+        "web" => "Searched the web {n} times",
         "execute" => "Ran {n} commands",
         _ => "{n} steps",
     }
@@ -855,8 +975,9 @@ mod tests {
         );
         assert_eq!(
             one("web_fetch: https://github.com/kyutai-labs/moshi/", "fetch"),
-            "Read a web page"
+            "Read github.com"
         );
+        assert_eq!(one("Fetch a page", "fetch"), "Read a web page");
         assert_eq!(
             one("mcp__claude_ai_Prism__linear__list_issues", "other"),
             "Used Linear"
@@ -867,9 +988,107 @@ mod tests {
             "Used the board {n} times"
         );
         assert_eq!(one("ToolSearch", "other"), "Looked up its tools");
+        // A web search however it was called, and a fetch by the site it read.
+        assert_eq!(
+            one("Search \"Safari 18 file input upload\"", "fetch"),
+            "Searched the web"
+        );
+        assert_eq!(
+            one("mcp__hotline__web_search: goldfish care", "search"),
+            "Searched the web"
+        );
+        assert_eq!(
+            one("web_search goldfish memory lifespan", "web_search"),
+            "Searched the web"
+        );
+        let fetch = step_said("Fetch https://www.nextjs.org/blog/next-15-4", "fetch", None);
+        assert_eq!(fetch.one, "Read nextjs.org");
+        assert_eq!(fetch.doing, "Reading nextjs.org");
+        assert_eq!(fetch.many, "Read {n} web pages");
         assert_eq!(
             step_said("cargo test", "execute", None).doing,
             "Running cargo test"
+        );
+    }
+}
+
+#[cfg(test)]
+mod sources {
+    use super::sources_of;
+    use crate::contract::WebSource;
+
+    fn page(url: &str, title: Option<&str>, found: bool) -> WebSource {
+        WebSource {
+            url: url.into(),
+            title: title.map(str::to_string),
+            found,
+        }
+    }
+
+    #[test]
+    fn a_fetched_page_is_its_address_and_the_title_its_tool_wrote_first() {
+        assert_eq!(
+            sources_of(
+                "web_fetch: https://en.wikipedia.org/wiki/SSX_Tricky",
+                "fetch",
+                "SSX Tricky - Wikipedia\n\n[Jump to content](#bodyContent)\n",
+            ),
+            vec![page(
+                "https://en.wikipedia.org/wiki/SSX_Tricky",
+                Some("SSX Tricky - Wikipedia"),
+                false
+            )]
+        );
+        // Claude's fetch answers with its own summary, which is not the page's title.
+        assert_eq!(
+            sources_of(
+                "Fetch https://www.onorca.dev/docs/mobile",
+                "fetch",
+                "# Orca Relay: What the Documentation Actually Says\n\nBased on…",
+            ),
+            vec![page("https://www.onorca.dev/docs/mobile", None, false)]
+        );
+        // A step that is not the web names no pages, whatever its output says.
+        assert_eq!(
+            sources_of("cat links.txt", "execute", "Docs (https://a.dev/x)"),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn a_web_search_names_the_results_its_output_lists() {
+        let hotline = "1. How should I care for my goldfish? - RSPCA\n   https://kb.rspca.org.au/goldfish\n   Goldfish are social…\n\n2. Keeping Fish as Pets\n   https://www.rspca.org.uk/fish\n   Goldfish were…\n";
+        assert_eq!(
+            sources_of("mcp__hotline__web_search: goldfish care", "search", hotline),
+            vec![
+                page(
+                    "https://kb.rspca.org.au/goldfish",
+                    Some("How should I care for my goldfish? - RSPCA"),
+                    true
+                ),
+                page(
+                    "https://www.rspca.org.uk/fish",
+                    Some("Keeping Fish as Pets"),
+                    true
+                ),
+            ]
+        );
+        let claude = "apps.apple.com (https://apps.apple.com/us/app/orca-ide/id6766130217)\nMobile companion (https://www.onorca.dev/docs/mobile)\nBased on the search results, here's what I found (with notes)\n";
+        assert_eq!(
+            sources_of("Search \"Orca app relay\"", "fetch", claude),
+            vec![
+                // A site's name is not a page title.
+                page(
+                    "https://apps.apple.com/us/app/orca-ide/id6766130217",
+                    None,
+                    true
+                ),
+                page(
+                    "https://www.onorca.dev/docs/mobile",
+                    Some("Mobile companion"),
+                    true
+                ),
+            ]
         );
     }
 }
@@ -917,5 +1136,50 @@ mod written {
             }
         ));
         assert_eq!(said_of(&written[2]).as_deref(), Some("Run the core tests"));
+    }
+
+    #[test]
+    fn a_finished_step_records_when_it_ended_and_the_page_it_read() {
+        let written = crate::session::events_of_updates(vec![
+            Update::ToolCall {
+                call_id: "f1".into(),
+                title: "web_fetch: https://nextjs.org/blog/next-15-4".into(),
+                kind: "fetch".into(),
+            },
+            Update::ToolResult {
+                call_id: "f1".into(),
+                ok: true,
+                output: "Next.js 15.4 | Next.js\n\nTurbopack builds are stable.".into(),
+                images: Vec::new(),
+            },
+        ]);
+        let TranscriptEvent::Tool {
+            ended_ts: None,
+            sources: None,
+            ..
+        } = &written[0][0]
+        else {
+            panic!(
+                "a running step has no end and no pages yet: {:?}",
+                written[0]
+            );
+        };
+        let TranscriptEvent::Tool {
+            ts,
+            ended_ts: Some(ended),
+            sources: Some(sources),
+            ..
+        } = &written[1][0]
+        else {
+            panic!(
+                "a finished fetch records its end and its page: {:?}",
+                written[1]
+            );
+        };
+        assert!(ended >= ts);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].url, "https://nextjs.org/blog/next-15-4");
+        assert_eq!(sources[0].title.as_deref(), Some("Next.js 15.4 | Next.js"));
+        assert!(!sources[0].found);
     }
 }

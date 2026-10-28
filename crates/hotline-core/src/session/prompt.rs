@@ -684,10 +684,21 @@ pub(super) fn event_of(
             } else {
                 ToolStatus::Failed
             };
+            let sources = crate::glance::sources_of(&pending.title, &pending.kind, &output);
             let output = ToolOutput::Text {
                 text: clip(&output, TOOL_OUTPUT_CHARS),
             };
-            let mut events = vec![pending.event(&call_id, status, Some(output))];
+            let mut event = pending.event(&call_id, status, Some(output));
+            if let TranscriptEvent::Tool {
+                ended_ts,
+                sources: found,
+                ..
+            } = &mut event
+            {
+                *ended_ts = Some(now_ms());
+                *found = (!sources.is_empty()).then_some(sources);
+            }
+            let mut events = vec![event];
             if crate::computer::is_computer_tool(&pending.kind, &pending.title) {
                 for image in images {
                     events.push(TranscriptEvent::ComputerFrame {
@@ -733,7 +744,8 @@ pub(super) fn event_of(
 
 /// A tool call the agent has made and not yet heard back about. The tape event
 /// is written again by id when it does, so the call's own timestamp and title
-/// have to outlive the call.
+/// have to outlive the call; the finished line adds when it ended and the web
+/// pages its output names.
 pub(super) struct PendingTool {
     ts: i64,
     title: String,
@@ -765,6 +777,8 @@ impl PendingTool {
                 &self.kind,
                 self.words.as_deref(),
             )),
+            ended_ts: None,
+            sources: None,
         }
     }
 }

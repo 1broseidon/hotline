@@ -1358,6 +1358,8 @@ mod receipts {
             files: None,
             output: None,
             said: None,
+            ended_ts: None,
+            sources: None,
         }
     }
 

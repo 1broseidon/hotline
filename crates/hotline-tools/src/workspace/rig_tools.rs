@@ -318,10 +318,7 @@ impl Tool for WriteFile {
         let workspace = self.workspace.clone();
         tokio::task::spawn_blocking(move || {
             let mutation = workspace.prepare_write(args)?;
-            let file = hotline_contract::ChangedFile {
-                path: mutation.requested.clone(),
-                created: mutation.before.is_none(),
-            };
+            let file = mutation.changed_file();
             let message = workspace.commit_mutation(mutation)?;
             Ok(json!({"message": message, "file": file}))
         })
@@ -392,10 +389,7 @@ impl Tool for EditFile {
         let workspace = self.workspace.clone();
         tokio::task::spawn_blocking(move || {
             let mutation = workspace.prepare_edit(args)?;
-            let file = hotline_contract::ChangedFile {
-                path: mutation.requested.clone(),
-                created: mutation.before.is_none(),
-            };
+            let file = mutation.changed_file();
             let message = workspace.commit_mutation(mutation)?;
             Ok(json!({"message": message, "file": file}))
         })

@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A finished step records when it ended, the web pages it read or found (a
+  fetch's page and its title when the tool gave one, a web search's results)
+  and, for each file it changed, the lines added and removed.
+
 ## [0.44.1] - 2026-10-28
 
 ### Changed

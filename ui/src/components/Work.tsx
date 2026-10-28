@@ -1,4 +1,4 @@
-import { type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { processLabel } from "../activity";
 import { chordKeys } from "../chords";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
@@ -288,7 +288,17 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 				{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 				<span className="truncate">{heading}</span>
 			</h2>
-			{detail !== undefined && <span className="instrument min-w-0 truncate pr-1">{detail}</span>}
+			{detail !== undefined && (
+				<span className="instrument min-w-0 truncate pr-1">
+					{/* A failure in the run's counts is the one part in red. */}
+					{detail.split(" · ").map((part, at) => (
+						<Fragment key={part}>
+							{at > 0 && " · "}
+							<span className={/^\d+ failed$/.test(part) ? "text-danger" : undefined}>{part}</span>
+						</Fragment>
+					))}
+				</span>
+			)}
 			{actions}
 			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 				<CloseIcon />

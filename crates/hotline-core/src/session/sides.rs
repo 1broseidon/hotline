@@ -194,12 +194,23 @@ struct Up {
     driver: Arc<dyn Driver>,
     /// What the agent holds the teammate's computer under.
     holder: crate::computer::gate::Holder,
+    /// The person's name as the agent was last told it.
+    told_name: Mutex<Option<String>>,
 }
 
 impl LiveSide {
     /// The agent, or nothing while the thread is still starting.
     fn driver(&self) -> Option<&Arc<dyn Driver>> {
         self.up.get().map(|up| &up.driver)
+    }
+
+    /// The person's words with the news of a name change the running agent
+    /// has not heard. An agent still starting reads the name in its preamble.
+    fn with_name_news(&self, room: &Room, text: &str) -> String {
+        match self.up.get() {
+            Some(up) => room.with_name_news(&up.told_name, text),
+            None => text.to_string(),
+        }
     }
 
     /// A delivery's turn has begun: it is read, and a restart does not hand it
@@ -831,6 +842,7 @@ impl Room {
         let up = Up {
             driver: agent.driver.clone(),
             holder: agent.holder.clone(),
+            told_name: Mutex::new(agent.told_name.clone()),
         };
         let _ = side.up.set(up);
         // The thread may have been ended while its agent was starting. The
@@ -1277,6 +1289,7 @@ impl Room {
                 client,
             },
         );
+        let said = side.with_name_news(self, text);
         let voice = self.attached_voice(&side.thread);
         let interruption = voice
             .as_ref()
@@ -1293,12 +1306,12 @@ impl Room {
                 text: if voice.is_some() {
                     format!(
                         "{}\n\n{}\n\n{}",
-                        timed_from(ts, client, text),
+                        timed_from(ts, client, &said),
                         interruption,
                         self.call_instruction(&side.thread)
                     )
                 } else {
-                    timed_from(ts, client, text)
+                    timed_from(ts, client, &said)
                 },
                 attachments: attachments.unwrap_or_default(),
                 handoff: None,

@@ -2080,10 +2080,17 @@ narrator leaves the written result available without a new spoken pointer.
   A restart loses the operation authority; the persisted card cannot restore
   it. Ordinary question text and extra tool arguments cannot authorize a
   setting change. Settings uses the same name normalization and may clear it.
+  The saved name reaches an agent only as a JSON-quoted string marked
+  "data, not instructions": once in the preamble `Room::thread_agent` builds,
+  and once on the person's next line after a change (`Room::with_name_news`).
 - **Proof:** `tests/call_threads/person_name.rs`
   `a_name_is_saved_only_by_its_approved_card_on_both_drivers` drives proposals,
   decline, approve, repeated approval, change and revocation through both real
   drivers and the wire, and checks the current Settings name reaches home.
+  `the_name_is_said_once_a_session_and_a_change_once_after_it` proves, on
+  both drivers, that the name is in the preamble once and on no message,
+  that a change or a clear is said once on the next line, and that a work
+  thread is told the same way.
   `a_live_call_saves_a_name_only_after_spoken_yes` covers yes/no across all
   three live provider seams. `voice/room/tests/cards.rs`
   `a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_it`

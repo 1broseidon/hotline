@@ -88,6 +88,9 @@ pub(super) struct ThreadAgent {
     /// The saved session id the agent reopened, when it did. Nothing else
     /// about the thread's own memory is promised by the harness.
     pub resumed: Option<String>,
+    /// The person's name as the preamble said it, so a later change is told
+    /// once on the next line rather than the name on every line.
+    pub told_name: Option<String>,
     armed: bool,
 }
 
@@ -383,6 +386,7 @@ impl Room {
             return Err("The teammate asking in this pair is no longer available.".to_string());
         }
         let stored = self.stored_secrets();
+        let told_name = self.person_name();
         let build = |view: &Persona, transcript: Option<String>| {
             let mut preamble = preamble_of(
                 thread.kind,
@@ -396,6 +400,10 @@ impl Room {
                     note: note.clone(),
                 },
             );
+            if let Some(name) = &told_name {
+                preamble.push_str("\n\n");
+                preamble.push_str(&super::person_name::name_sentence(name));
+            }
             if self.lead_call(&view.id, &thread) {
                 preamble.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use message_teammate, intent handoff, with the person's words unchanged and say who has it. Do not stop or reassign another teammate's work.");
             }
@@ -459,6 +467,7 @@ impl Room {
             holder: driving.holder().clone(),
             watches,
             resumed,
+            told_name,
             armed: true,
         })
     }

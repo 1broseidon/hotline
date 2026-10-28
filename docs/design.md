@@ -1204,8 +1204,11 @@ and informational `ask_question` cards under the requesting session's live
 lease. `set_person_name` adds one core-owned operation: the proposed name
 and lease are bound to its card before publication, and only approval writes
 `personName`. Settings → General also reads and writes it as **Your name**.
-The home agent receives the current name with each prompt; live voice reads
-it when the call opens and hears the name card's answer during the call.
+Every thread's agent, on either driver, is told the name once, in the
+preamble it starts on, as information it rarely needs to say rather than a
+prompt to open replies with; a change while it runs rides once on the
+person's next line in that thread. Live voice reads it when the call opens
+and hears the name card's answer during the call.
 An informational answer never grants an operation. Existing action
 cards, passkeys and opaque driver approvals stay at the desk: their words
 cannot establish that an action is safe for voice. This includes credentials,

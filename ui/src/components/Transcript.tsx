@@ -210,7 +210,7 @@ export function Transcript({
 	}, [events]);
 	const answered = useMemo(() => superseded(events), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
-	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call")), [events, thread?.kind]);
+	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call"), thread?.kind === "call"), [events, thread?.kind]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 	/* A row is skipped while its props are the same, so the thread it is
 	 * handed is made once, not once per render. */
@@ -426,6 +426,9 @@ export function Transcript({
 					</button>
 				)}
 				{blocks.map((block, index) => {
+					// A running turn's steps are the composer's to show, and the
+					// pane's; its caption comes once the turn has ended.
+					if (block.kind === "steps" && block.open === true && live && onOpenWork !== undefined) return null;
 					const previous = blocks[index - 1];
 					const stamp =
 						!isChapter(block) &&
@@ -449,7 +452,7 @@ export function Transcript({
 								<Steps
 									id={block.id}
 									items={block.items}
-									live={live && index === blocks.length - 1}
+									live={live && block.open === true}
 									shown={workShown}
 									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 								/>

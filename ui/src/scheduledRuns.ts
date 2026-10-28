@@ -9,15 +9,16 @@ export type ScheduledEvent = Extract<TranscriptEvent, { kind: "user" }> & { sche
 export type CallLink = Extract<TranscriptEvent, { kind: "link" }> & { threadKind: "call" };
 
 /**
- * Either one event, or a run of the machinery between two messages —
- * thoughts and tool calls — folded into one block so a transcript of forty
- * tool calls still reads as a conversation. A job that fired again and again
+ * Either one event, or a turn's machinery — its thoughts and tool calls —
+ * folded into one block under its last bubble, so a transcript of forty tool
+ * calls still reads as a conversation. A turn still running has its block
+ * last and `open`. A job that fired again and again
  * with nothing between is one block too, oldest run first, sitting where the
  * newest run sits.
  */
 export type Block =
 	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
-	| { kind: "steps"; id: string; ts: number; items: Step[] }
+	| { kind: "steps"; id: string; ts: number; items: Step[]; open?: boolean }
 	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
 	| { kind: "calls"; id: string; ts: number; calls: CallLink[] };
 

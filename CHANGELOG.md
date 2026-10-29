@@ -47,6 +47,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   them on this desk, and a choice made then is kept on the teammate and put
   on its next session, dropped only if the agent no longer offers it. Only
   an agent never run on this desk is shown by its name alone.
+- A harness teammate's runtime mode (Claude Code's Manual, Accept edits,
+  Plan, Auto, Bypass permissions; Codex's) can be chosen in its pane at any
+  time, running or not. The desk asks each agent for its modes out of band,
+  opening a session with no prompt, when it has not seen them here, and a
+  mode chosen at rest is set on the next session before its first turn.
+- The model, mode and effort a teammate was given are the ones it keeps:
+  what the agent reports never replaces them, and fills only a model the
+  teammate has none of. A running teammate still shows what its session
+  actually runs.
 - Any model's effort can be chosen at any time on Claude Code and Codex.
   The desk reads each one's models with every model's own effort levels
   when it reads the plan, from the same CLI and with no model asked, so a

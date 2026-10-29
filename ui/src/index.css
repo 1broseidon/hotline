@@ -3978,13 +3978,11 @@
 	.scroll-thumb-held {
 		background: var(--thumb-hover);
 	}
-	/* A pane's page reads from under its title, at a reading width, rather
-	 * than floating in the middle of a wide window. */
 	.pane-column {
 		width: 100%;
-		max-width: 600px;
-		margin: 0;
-		padding: 16px 24px 40px 16px;
+		max-width: 560px;
+		margin: 0 auto;
+		padding: 16px 24px 40px;
 	}
 	.inspector {
 		width: 320px;

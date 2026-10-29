@@ -239,3 +239,42 @@ test("opening the model picker asks the core to read the teammate's plan again",
 	const asked = core().sent.filter((frame) => frame["cmd"] === "plan.refresh");
 	expect(asked.map((frame) => frame["params"])).toEqual([{ personaId: "planned" }]);
 });
+
+test("a resting harness teammate's menu lists the models and effort its agent last offered, and effort chosen at rest is set and shown", async () => {
+	// The roster row as the core draws a teammate that is not running: its
+	// agent's last offer, the teammate's own choices current.
+	const resting = entry("rested", "harness", "sonnet");
+	const offered = (effort: string): RosterEntry => ({
+		...resting,
+		session: {
+			...resting.session,
+			models: [{ id: "opus", name: "Opus 5.5" }, { id: "sonnet", name: "Sonnet 5.5" }],
+			currentModelId: "sonnet",
+			configs: [{ id: "reasoning", name: "Effort", category: "effort", currentId: effort, options: [{ id: "low", name: "Low" }, { id: "medium", name: "Medium" }, { id: "high", name: "High" }] }],
+		},
+	});
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="rested" entry={offered("high")} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const pill = () => container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill().textContent).toContain("Sonnet 5.5 · High");
+
+	await act(async () => pill().click());
+	const main = document.querySelector<HTMLElement>(".model-menu-main")!;
+	const rows = [...main.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+	expect(rows.map((row) => row.textContent)).toEqual(["Opus 5.5", "Sonnet 5.5High"]);
+	const current = main.querySelector<HTMLElement>('[aria-checked="true"]')!;
+	expect(current.getAttribute("aria-haspopup")).toBe("menu");
+	await act(async () => current.click());
+	const levels = document.querySelector<HTMLElement>('[role="menu"][aria-label="Effort"]')!;
+	expect([...levels.querySelectorAll('[role="menuitemradio"]')].map((one) => one.textContent)).toEqual(["Low", "Medium", "High"]);
+	await act(async () => [...levels.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((one) => one.textContent === "Low")!.click());
+	const asked = core().sent.filter((frame) => frame["cmd"] === "session.set_config");
+	expect(asked.map((frame) => frame["params"])).toEqual([{ personaId: "rested", configId: "reasoning", value: "low" }]);
+
+	// The core answers by drawing the row again with the choice current.
+	await act(async () => { root.render(<SessionPickers key="rested" entry={offered("low")} models={[]} onSaid={noop} />); });
+	expect(pill().textContent).toContain("Sonnet 5.5 · Low");
+});

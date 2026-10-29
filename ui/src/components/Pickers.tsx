@@ -103,6 +103,11 @@ export function SessionPickers({
 		// The live session's list, else the one the agent last reported here.
 		choices: backend.id === persona.backendId && session.models.length > 0 ? session.models : (backend.models ?? []),
 	}));
+	// Before the agents are read, the teammate's own still lists what its
+	// session offers, live or as its agent last offered it.
+	if (!hotline && !agents.some((agent) => agent.id === persona.backendId)) {
+		agents.push({ id: persona.backendId, name: harnessName ?? persona.backendId, choices: session.models });
+	}
 
 	// The model's pretty name, from any list the window holds, and the effort
 	// a live session runs at. What a live session names is remembered, so a

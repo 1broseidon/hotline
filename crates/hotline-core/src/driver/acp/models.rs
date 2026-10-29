@@ -11,7 +11,12 @@
 //! prompt is ever sent, so the look spends nothing. An agent that answers the
 //! session with "sign in first" is remembered as needing it, until a session
 //! of its opens.
+//!
+//! Beside each offer is the harness's catalogue, when its login's plan read
+//! lists its models ([`super::catalog`]): every model with its own effort
+//! levels, which fill what the offer does not say.
 
+use super::catalog::Catalog;
 use super::session::Disposition;
 #[cfg(unix)]
 use super::{GROUPS, lock};
@@ -62,6 +67,12 @@ struct Seen {
     mode_label: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     configs: Vec<SessionConfig>,
+    /// Every model with its levels, as the harness's own tools last listed
+    /// them out of band, and when ([`super::catalog`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    catalog: Option<Catalog>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    catalog_at: Option<i64>,
 }
 
 impl Seen {
@@ -75,6 +86,14 @@ impl Seen {
             mode_label: self.mode_label.clone(),
             configs: self.configs.clone(),
         }
+    }
+
+    /// The offer with each model's levels, the catalogue filling what no
+    /// session reported.
+    fn offered(&self) -> BackendOffer {
+        let mut offer = self.offer();
+        super::catalog::fill(&mut offer, self.catalog.as_ref());
+        offer
     }
 
     /// Takes a new offer. An empty part is not a part: an agent that names
@@ -129,22 +148,44 @@ fn write(root: &Path, seen: &BTreeMap<String, Seen>) {
     }
 }
 
-/// The list each agent last reported, by backend id. An agent that never
-/// has is absent.
+/// The list each agent last reported, or its catalogue listed, by backend
+/// id, each model with its levels. An agent that has neither is absent.
 pub fn cached(root: &Path) -> BTreeMap<String, Vec<ConfigChoice>> {
     read(root)
         .into_iter()
-        .filter(|(_, seen)| !seen.models.is_empty())
-        .map(|(id, seen)| (id, seen.models))
+        .map(|(id, seen)| (id, seen.offered().models))
+        .filter(|(_, models)| !models.is_empty())
         .collect()
 }
 
-/// What this agent last offered here, or nothing when it never has.
+/// What this agent last offered here, each model with its levels, or
+/// nothing when it never has and no catalogue of it has been read.
 pub fn offer(root: &Path, backend_id: &str) -> Option<BackendOffer> {
     read(root)
         .get(backend_id)
-        .map(Seen::offer)
+        .map(Seen::offered)
         .filter(|offer| !offer.is_empty())
+}
+
+/// Keeps the agent's catalogue, read now; the offer it had stays. A read
+/// that listed nothing keeps the catalogue it had and still counts as a
+/// read, so a harness that does not list its models is not started again
+/// each time the picker opens. Whether the catalogue kept has changed.
+pub fn take_catalog(root: &Path, backend_id: &str, catalog: Option<Catalog>) -> bool {
+    let mut seen = read(root);
+    let entry = seen.entry(backend_id.to_string()).or_default();
+    let changed = catalog.is_some() && catalog != entry.catalog;
+    if changed {
+        entry.catalog = catalog;
+    }
+    entry.catalog_at = Some(now_ms());
+    write(root, &seen);
+    changed
+}
+
+/// When the agent's models were last read out of band, if they ever were.
+pub fn catalog_at(root: &Path, backend_id: &str) -> Option<i64> {
+    read(root).get(backend_id).and_then(|seen| seen.catalog_at)
 }
 
 /// The agents that last asked to be signed in, by backend id.
@@ -432,8 +473,58 @@ mod tests {
         let written = std::fs::read(paths::acp_models_path(root.path())).unwrap();
         let read_back: BTreeMap<String, Seen> = serde_json::from_slice(&written).unwrap();
         assert_eq!(read_back["claude-acp"].offer(), offer);
-        assert_eq!(offer_of(root.path()), Some(offer));
+        // Offered, the model it opened on has the levels it reported.
+        let mut with_levels = offer;
+        with_levels.models[0].efforts = Some(vec![choice("low"), choice("high")]);
+        with_levels.models[0].default_effort = Some("high".into());
+        assert_eq!(offer_of(root.path()), Some(with_levels));
         assert_eq!(super::offer(root.path(), "codex-acp"), None);
+    }
+
+    /// A catalogue read out of band is kept on disk beside the offer, so an
+    /// agent never run here offers its models with their levels; a read
+    /// that lists nothing keeps it and still counts as a read; and a
+    /// session's offer, taken later, keeps it too.
+    #[test]
+    fn a_catalogue_is_kept_beside_the_offer_and_fills_an_agent_never_run_here() {
+        let root = tempfile::tempdir().unwrap();
+        let mut opus = choice("opus");
+        opus.efforts = Some(vec![choice("default"), choice("max")]);
+        opus.default_effort = Some("default".into());
+        let catalog = Catalog {
+            models: vec![opus.clone()],
+            default_model: Some("opus".into()),
+            effort_id: "effort".into(),
+            effort_name: "Effort".into(),
+            ..Catalog::default()
+        };
+        assert_eq!(catalog_at(root.path(), "claude-acp"), None);
+        assert!(take_catalog(
+            root.path(),
+            "claude-acp",
+            Some(catalog.clone())
+        ));
+        assert!(catalog_at(root.path(), "claude-acp").is_some());
+        let listed = offer_of(root.path()).expect("the catalogue's offer");
+        assert_eq!(listed.models, vec![opus.clone()]);
+        assert_eq!(listed.current_model_id.as_deref(), Some("opus"));
+        assert_eq!(listed.configs[0].id, "effort");
+        assert_eq!(cached(root.path())["claude-acp"], vec![opus.clone()]);
+        // The same list again changes nothing; none at all keeps it.
+        assert!(!take_catalog(root.path(), "claude-acp", Some(catalog)));
+        assert!(!take_catalog(root.path(), "claude-acp", None));
+        assert!(!take_catalog(root.path(), "codex-acp", None));
+        assert!(catalog_at(root.path(), "codex-acp").is_some());
+        assert_eq!(super::offer(root.path(), "codex-acp"), None);
+        // A session's report keeps it, and is first for its own model.
+        remember(
+            root.path(),
+            "claude-acp",
+            &offered(&[choice("opus"), choice("sonnet")]),
+        );
+        let listed = offer_of(root.path()).unwrap();
+        assert_eq!(listed.models[0], opus);
+        assert_eq!(listed.models[1].efforts, None);
     }
 
     fn offer_of(root: &Path) -> Option<BackendOffer> {

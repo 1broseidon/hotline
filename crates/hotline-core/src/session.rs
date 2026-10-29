@@ -303,16 +303,13 @@ pub trait Agents: Send + Sync {
     /// One answer, with no tools and no conversation.
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String>;
 
-    /// The plan of the login a backend runs on, read out of band, with no
-    /// teammate's session and no model asked (`driver/acp/plan.rs`). `None`
-    /// when the backend's plan is not one the desk reads, the login has no
-    /// plan, or it could not be read.
-    async fn read_plan(
-        &self,
-        _backend_id: &str,
-        _how: PlanRead,
-    ) -> Option<crate::contract::PlanUsage> {
-        None
+    /// The plan of the login a backend runs on, and its harness's models
+    /// with their effort levels, read out of band, with no teammate's
+    /// session and no model asked (`driver/acp/plan.rs`). Each is missing
+    /// when the backend's is not one the desk reads, the login has no plan,
+    /// or it could not be read.
+    async fn read_login(&self, _backend_id: &str, _how: PlanRead) -> acp::plan::LoginReading {
+        acp::plan::LoginReading::default()
     }
 }
 
@@ -345,19 +342,18 @@ struct DeskAgents {
 
 #[async_trait]
 impl Agents for DeskAgents {
-    async fn read_plan(
-        &self,
-        backend_id: &str,
-        how: PlanRead,
-    ) -> Option<crate::contract::PlanUsage> {
+    async fn read_login(&self, backend_id: &str, how: PlanRead) -> acp::plan::LoginReading {
         // A test's room never starts a real harness's CLI or reaches its
         // service; the readers are tested on their own.
         if cfg!(test) {
-            return None;
+            return acp::plan::LoginReading::default();
         }
         match how {
             PlanRead::Now => acp::plan::read(&self.root, backend_id).await,
-            PlanRead::AfterTurn => acp::plan::read_after_turn(&self.root, backend_id).await,
+            PlanRead::AfterTurn => acp::plan::LoginReading {
+                plan: acp::plan::read_after_turn(&self.root, backend_id).await,
+                catalog: None,
+            },
         }
     }
 

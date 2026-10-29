@@ -670,3 +670,152 @@ async fn a_resting_teammates_roster_row_carries_its_agents_offer() {
     assert_eq!(hotline["configs"], json!([]), "{hotline}");
     assert!(hotline.get("currentModelId").is_none(), "{hotline}");
 }
+
+/// Codex's models as `model/list` lists them out of band, before any
+/// session of Codex has opened here: each with its own levels.
+fn codex_catalog() -> crate::driver::acp::catalog::Catalog {
+    let level = |id: &str| ConfigChoice {
+        id: id.to_string(),
+        name: id.to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+    };
+    let model = |id: &str, levels: &[&str], default: &str| ConfigChoice {
+        efforts: Some(levels.iter().map(|id| level(id)).collect()),
+        default_effort: Some(default.to_string()),
+        ..level(id)
+    };
+    crate::driver::acp::catalog::Catalog {
+        models: vec![
+            model("gpt-6.1-sol", &["low", "medium", "xhigh"], "low"),
+            model("gpt-6-luna", &["medium", "max"], "medium"),
+        ],
+        default_model: Some("gpt-6.1-sol".to_string()),
+        effort_id: "reasoning_effort".to_string(),
+        effort_name: "Reasoning effort".to_string(),
+        ..Default::default()
+    }
+}
+
+/// What the desk offers for an agent known only by its catalogue.
+fn catalogued_offer() -> crate::contract::BackendOffer {
+    let mut offer = crate::contract::BackendOffer::default();
+    crate::driver::acp::catalog::fill(&mut offer, Some(&codex_catalog()));
+    offer
+}
+
+fn levels(model: &Value) -> Vec<&str> {
+    model["efforts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|level| level["id"].as_str().unwrap())
+        .collect()
+}
+
+/// A teammate on an agent that has never run here offers the agent's
+/// models, each with its levels, once its catalogue has been read, and its
+/// effort is shown and set at rest: a model not in use is chosen with one of
+/// its own levels as the menu does it, the model and then the effort, and
+/// both are kept for the next session; a level the model does not have is
+/// refused.
+#[tokio::test]
+async fn a_resting_teammate_on_a_never_run_agent_chooses_any_models_effort() {
+    let (_root, log, port) = door_with(
+        "catalogued",
+        Arc::new(Quiet::new().offering("codex-acp", catalogued_offer())),
+    );
+    let mut socket = desk(port).await;
+    let cy = create_on(&mut socket, 1, "Cy", "codex-acp").await;
+    let id = cy["id"].as_str().unwrap();
+    let persona = || room::roster(&log).into_iter().next().unwrap();
+
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    let row = &snapshot["snapshot"][0]["session"];
+    assert_eq!(row["currentModelId"], "gpt-6.1-sol", "{row}");
+    assert_eq!(levels(&row["models"][0]), ["low", "medium", "xhigh"]);
+    assert_eq!(levels(&row["models"][1]), ["medium", "max"]);
+    assert_eq!(row["models"][1]["defaultEffort"], "medium");
+    assert_eq!(row["configs"][0]["id"], "reasoning_effort");
+    assert_eq!(row["configs"][0]["currentId"], "low", "the pill's effort");
+
+    let model = command(
+        &mut socket,
+        3,
+        "session.set_model",
+        json!({ "personaId": id, "modelId": "gpt-6-luna" }),
+    )
+    .await;
+    let effort = &model["result"]["configs"][0];
+    assert_eq!(effort["currentId"], "medium", "{model}");
+    let refused = command(
+        &mut socket,
+        4,
+        "session.set_config",
+        json!({ "personaId": id, "configId": effort["id"], "value": "xhigh" }),
+    )
+    .await;
+    assert_eq!(refused["ok"], false, "luna has no xhigh: {refused}");
+    let set = command(
+        &mut socket,
+        5,
+        "session.set_config",
+        json!({ "personaId": id, "configId": effort["id"], "value": "max" }),
+    )
+    .await;
+    assert_eq!(set["result"]["currentModelId"], "gpt-6-luna", "{set}");
+    assert_eq!(set["result"]["configs"][0]["currentId"], "max");
+    assert_eq!(persona().model_id.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(persona().effort_id.as_deref(), Some("max"));
+
+    // Back on a model without that level, the model's own default shows.
+    let back = command(
+        &mut socket,
+        6,
+        "session.set_model",
+        json!({ "personaId": id, "modelId": "gpt-6.1-sol" }),
+    )
+    .await;
+    assert_eq!(back["result"]["configs"][0]["currentId"], "low", "{back}");
+}
+
+/// A teammate whose session is up shows the levels its session reports for
+/// the model in use, over the catalogue's, and the catalogue's for every
+/// other model.
+#[tokio::test]
+async fn a_live_sessions_report_wins_for_its_model_and_the_catalogue_fills_the_rest() {
+    let quiet = Arc::new(Quiet::new().offering("codex-acp", catalogued_offer()));
+    let (_root, _log, port) = door_with("catalogued-live", quiet.clone());
+    let mut socket = desk(port).await;
+    let cy = create_on(&mut socket, 1, "Cy", "codex-acp").await;
+    let id = cy["id"].as_str().unwrap();
+    let mut live = idle(id);
+    live.session_id = Some("s-1".to_string());
+    live.models = catalogued_offer()
+        .models
+        .into_iter()
+        .map(|model| ConfigChoice {
+            efforts: None,
+            default_effort: None,
+            ..model
+        })
+        .collect();
+    live.current_model_id = Some("gpt-6.1-sol".to_string());
+    let mut reported = catalogued_offer().configs.remove(0);
+    reported.options.truncate(2);
+    reported.current_id = Some("medium".to_string());
+    live.configs = vec![reported];
+    quiet.set_info(live);
+
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    let row = &snapshot["snapshot"][0]["session"];
+    assert_eq!(levels(&row["models"][0]), ["low", "medium"], "{row}");
+    assert_eq!(row["models"][0]["defaultEffort"], "medium");
+    assert_eq!(levels(&row["models"][1]), ["medium", "max"]);
+    assert_eq!(row["configs"][0]["currentId"], "medium");
+}

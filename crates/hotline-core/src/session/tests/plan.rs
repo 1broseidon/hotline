@@ -252,3 +252,85 @@ async fn a_teammate_not_running_is_told_of_its_logins_reading() {
     assert!(!told.contains("cy"), "another login's teammate is not told");
     assert_eq!(room.plan_of("claude-acp"), Some(reading(now)));
 }
+
+/// Claude Code's models as its `initialize` lists them: Opus with levels.
+fn claude_catalog() -> crate::driver::acp::catalog::Catalog {
+    let level = |id: &str| ConfigChoice {
+        id: id.into(),
+        name: id.into(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+    };
+    crate::driver::acp::catalog::Catalog {
+        models: vec![ConfigChoice {
+            efforts: Some(vec![level("default"), level("max")]),
+            default_effort: Some("default".into()),
+            ..level("opus")
+        }],
+        default_model: Some("opus".into()),
+        effort_id: "effort".into(),
+        effort_name: "Effort".into(),
+        ..Default::default()
+    }
+}
+
+/// The read of a login that lists its harness's models keeps them per
+/// agent, where the roster finds them for a teammate not running, tells
+/// that teammate to be drawn again, and keeps them for the desk's next
+/// start; a picker opening while the list and the plan are fresh reads
+/// nothing, and one opening on a fresh plan with an old list reads again.
+#[tokio::test]
+async fn a_logins_read_keeps_its_models_for_teammates_at_rest_and_after_a_reopen() {
+    let log = scratch("plan-catalog");
+    let root = log.root().to_path_buf();
+    enrol_logins(&log);
+    let fake = Fake::new(Scripted::new(saying("a", "ok")));
+    let room = logins_room(log, fake.clone());
+    let mut infos = room.subscribe_info();
+    *lock(&fake.driver.plan) = Some(reading(now_ms()));
+    *lock(&fake.driver.catalog) = Some(claude_catalog());
+    room.refresh_plan("ada").unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut told = std::collections::HashSet::new();
+    while !told.contains("bea") {
+        let info = tokio::time::timeout_at(deadline, infos.recv())
+            .await
+            .expect("the teammates at rest are told")
+            .unwrap();
+        told.insert(info.persona_id);
+    }
+    let offer = crate::driver::acp::models::offer(&root, "claude-acp").expect("the models");
+    assert_eq!(offer.models, claude_catalog().models);
+    assert_eq!(offer.configs[0].current_id.as_deref(), Some("default"));
+    assert_eq!(crate::driver::acp::models::offer(&root, "codex-acp"), None);
+
+    let reads = fake.driver.plan_reads.load(Ordering::SeqCst);
+    room.refresh_plan("bea").unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(fake.driver.plan_reads.load(Ordering::SeqCst), reads);
+    // Ten minutes on, the plan still fresh: the list is read again.
+    let file = crate::paths::acp_models_path(&root);
+    let mut kept: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    kept["claude-acp"]["catalogAt"] = json!(now_ms() - 10 * 60_000);
+    std::fs::write(&file, serde_json::to_vec(&kept).unwrap()).unwrap();
+    room.refresh_plan("bea").unwrap();
+    until("the old list is read again", || {
+        fake.driver.plan_reads.load(Ordering::SeqCst) > reads
+    })
+    .await;
+
+    drop(room);
+    let reopened = logins_room(
+        Log::open(&root),
+        Fake::new(Scripted::new(saying("b", "ok"))),
+    );
+    assert_eq!(
+        crate::driver::acp::models::offer(&root, "claude-acp").map(|offer| offer.models),
+        Some(claude_catalog().models)
+    );
+    drop(reopened);
+}

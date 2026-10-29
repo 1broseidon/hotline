@@ -2383,21 +2383,27 @@ and when the picker opens and it is two minutes old (`session/plan.rs`). Two
 reads of one login at once are one. No read sends a prompt or calls a model,
 and nothing a teammate runs is touched. Readings are kept in
 `cache/plan-usage.json`: windows, percentages, resets, the plan's name and a
-count of banked resets, never an account id, an email or a credential.
+count of banked resets, never an account id, an email or a credential. The
+same read of Claude Code or Codex lists the harness's models with each one's
+effort levels (`driver/acp/catalog.rs`), and is also due when that list is
+nine minutes old; the list is kept in `cache/acp-models.json` beside what
+the agent's sessions offered: model ids, names, descriptions and levels,
+nothing of the account.
 
 - **Claude Code** (`driver/acp/plan/claude_cli.rs`): the `claude` found on the
   desk's PATH is started in stream-JSON mode in an empty folder
   (`cache/plan-read/claude-acp`), with the environment the desk gives Claude
   Code teammates, `--no-session-persistence`, hooks off, no MCP servers
   (`--strict-mcp-config`, claude.ai's servers off). It is sent two control
-  requests, `initialize` and `get_usage` with `skip_behaviors`, never a user
-  message; its stdin is then closed, and a child still running after two
+  requests, `initialize` (whose answer lists the models) and `get_usage` with
+  `skip_behaviors`, never a user message; its stdin is then closed, and a child still running after two
   seconds, or one that has not answered in fifteen, is killed with its
   process group by the id it was spawned with. The CLI reads its own login
   and asks claude.ai's usage endpoint itself.
 - **Codex** (`driver/acp/plan/codex_server.rs`): `codex app-server`, started
   the same way (`cache/plan-read/codex-acp`), is sent `initialize`,
-  `initialized` and `account/rateLimits/read`, and ended the same way. When it
+  `initialized`, `account/rateLimits/read` and `model/list` (a page at a
+  time, twenty at most), and ended the same way. When it
   cannot be started or does not answer, the reading is the last one in
   Codex's own session logs (`driver/acp/plan/codex_log.rs`), which are also
   read after every turn.
@@ -2424,7 +2430,7 @@ count of banked resets, never an account id, an email or a credential.
 | --- | --- |
 | The Claude CLI is sent only control requests, never a user message, and exits when its stdin closes; a login without plan limits is no reading | `driver/acp/plan/claude_cli.rs` `the_cli_is_asked_its_account_and_usage_and_nothing_else`, `a_login_whose_plan_limits_do_not_apply_has_no_reading` |
 | A CLI that never answers is killed, its group with it, when its time is up | `driver/acp/plan/claude_cli.rs` `a_cli_that_never_answers_is_killed_when_its_time_is_up` |
-| `codex app-server` is greeted and asked only its rate limits; one that cannot be reached leaves the reading to Codex's logs | `driver/acp/plan/codex_server.rs` `the_app_server_is_greeted_then_asked_its_rate_limits`; `driver/acp/plan.rs` `codex_is_read_from_its_app_server_and_from_its_logs_when_that_cannot_be_reached` |
+| `codex app-server` is greeted and asked only its rate limits and its models; one that cannot be reached leaves the reading to Codex's logs | `driver/acp/plan/codex_server.rs` `the_app_server_is_greeted_then_asked_its_rate_limits_and_models`; `driver/acp/plan.rs` `codex_is_read_from_its_app_server_and_from_its_logs_when_that_cannot_be_reached` |
 | Grok's token is the bearer of the one billing request; an API key, another deployment's sign-in, an override or a config section that chooses another account sends nothing | `driver/acp/plan/grok_billing.rs` `the_sign_ins_token_is_the_bearer_of_one_billing_request`, `another_account_or_deployment_or_an_api_key_is_left_to_the_cli` |
 | No error says the token, whatever the endpoint answers or the file holds | `driver/acp/plan/grok_billing.rs` `a_failed_request_never_says_the_token` |
 | The room reads only the logins its teammates run on, each once a round and not while its reading is fresh; Hotline Agent's is never read | `session/tests/plan.rs` `the_desk_reads_each_login_its_teammates_run_on` |

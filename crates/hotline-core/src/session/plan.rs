@@ -16,14 +16,25 @@
 //! session starts and the kept reading is a quarter of an hour old, and
 //! when the picker opens and it is two minutes old. Two reads of one login
 //! at once are one: the second leaves it to the first.
+//!
+//! The same read lists the harness's models with each one's effort levels
+//! ([`crate::driver::acp::catalog`]), so a read is also due when that list
+//! is nine minutes old, and what it lists is kept with what the agent's
+//! sessions offered (`cache/acp-models.json`).
 
 use super::*;
 use crate::contract::PlanUsage;
-use crate::driver::acp::plan::{merged, readable};
+use crate::driver::acp::catalog::Catalog;
+use crate::driver::acp::models;
+use crate::driver::acp::plan::{catalogued, merged, readable};
 use std::io::Write as _;
 
 /// How old a reading may be before opening the picker reads it again.
 pub(super) const REFRESH_AFTER_MS: i64 = 2 * 60_000;
+
+/// How old a harness's list of models may be before the next read of its
+/// login lists them again: the picker opening, or the ten-minute round.
+const CATALOG_READ_AFTER_MS: i64 = 9 * 60_000;
 
 /// How old a reading may be before a session starting reads it again.
 const START_READ_AFTER_MS: i64 = 15 * 60_000;
@@ -288,20 +299,53 @@ impl Room {
         });
     }
 
-    /// Reads a login, unless the reading kept is younger than `fresh_for`
-    /// or the login is being read already, and takes what it gives.
+    /// Reads a login, unless both the reading kept is younger than
+    /// `fresh_for` and its harness's models were listed in the last nine
+    /// minutes, or the login is being read already, and takes what it gives.
     async fn read_login(&self, backend_id: &str, fresh_for: i64, how: PlanRead) {
+        let now = now_ms();
         let fresh = self
             .plan_of(backend_id)
-            .is_some_and(|plan| now_ms() - plan.at < fresh_for);
-        if fresh || self.closing() {
+            .is_some_and(|plan| now - plan.at < fresh_for);
+        let listed = how == PlanRead::AfterTurn
+            || !catalogued(backend_id)
+            || models::catalog_at(self.log.root(), backend_id)
+                .is_some_and(|at| now - at < CATALOG_READ_AFTER_MS);
+        if (fresh && listed) || self.closing() {
             return;
         }
         let Some(_reading) = Reading::begin(&self.plans, backend_id) else {
             return;
         };
-        if let Some(reading) = self.agents.read_plan(backend_id, how).await {
-            self.take_plan(backend_id, reading);
+        let read = self.agents.read_login(backend_id, how).await;
+        if let Some(plan) = read.plan {
+            self.take_plan(backend_id, plan);
+        }
+        if how == PlanRead::Now && catalogued(backend_id) {
+            self.take_catalog(backend_id, read.catalog);
+        }
+    }
+
+    /// A harness's models with their levels, read out of band: kept beside
+    /// what its sessions offered, and every teammate on it drawn again, so a
+    /// model's effort can be chosen before any session of it has run.
+    fn take_catalog(&self, backend_id: &str, catalog: Option<Catalog>) {
+        if !models::take_catalog(self.log.root(), backend_id, catalog) {
+            return;
+        }
+        self.redraw_resting(backend_id);
+        let sessions: Vec<Arc<Session>> = lock(&self.sessions)
+            .values()
+            .filter(|session| session.backend_id == backend_id)
+            .cloned()
+            .collect();
+        for session in sessions {
+            let _lifecycle = lock(&self.lifecycle);
+            if !session.capability.is_current() || !self.current_session(&session) {
+                continue;
+            }
+            let info = lock(&session.info).clone();
+            let _ = self.info_changes.send(info);
         }
     }
 }

@@ -28,6 +28,7 @@
 //! all is its own configuration and not Hotline's — see [`containment_notice`].
 
 mod auth;
+pub(crate) mod catalog;
 mod install;
 mod live;
 pub mod models;

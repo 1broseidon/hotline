@@ -92,6 +92,8 @@ pub(crate) struct Scripted {
     pub(super) plan: Arc<Mutex<Option<crate::contract::PlanUsage>>>,
     pub(super) plan_reads: Arc<std::sync::atomic::AtomicUsize>,
     pub(super) plan_logins: Arc<Mutex<Vec<(String, PlanRead)>>>,
+    /// The models with their levels the same read answers.
+    pub(super) catalog: Arc<Mutex<Option<crate::driver::acp::catalog::Catalog>>>,
 }
 
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
@@ -126,6 +128,7 @@ impl Scripted {
             plan: Arc::new(Mutex::new(None)),
             plan_reads: Arc::default(),
             plan_logins: Arc::default(),
+            catalog: Arc::default(),
         }
     }
 
@@ -478,16 +481,19 @@ impl Agents for Fake {
         self.answer.clone()
     }
 
-    async fn read_plan(
+    async fn read_login(
         &self,
         backend_id: &str,
         how: PlanRead,
-    ) -> Option<crate::contract::PlanUsage> {
+    ) -> crate::driver::acp::plan::LoginReading {
         self.driver
             .plan_reads
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         lock(&self.driver.plan_logins).push((backend_id.to_string(), how));
-        lock(&self.driver.plan).clone()
+        crate::driver::acp::plan::LoginReading {
+            plan: lock(&self.driver.plan).clone(),
+            catalog: lock(&self.driver.catalog).clone(),
+        }
     }
 }
 

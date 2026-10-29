@@ -7,6 +7,7 @@ use crate::contract::{
     HumanActionStatus, PasskeyAskStatus, Persona, RosterEntry, SessionInfo, SessionState,
     ToolStatus, TranscriptEvent,
 };
+use crate::driver::acp::catalog;
 use crate::log::{Log, StreamId};
 use crate::room;
 use crate::store::previews::live::{Live, State};
@@ -402,17 +403,28 @@ fn roster_entry(
 /// teammate's own choices as the current ones, each only while the agent
 /// still offers it, the way the next session will open. So the menu lists
 /// them before the teammate runs, and a choice made then is shown at once.
-/// A session that is up says its own. Hotline Agent's choices are the desk's,
-/// which the window reads from the room.
+/// Its effort picker is its own model's levels, from the agent's catalogue
+/// when no session reported them. A session that is up says its own, each
+/// other model with the levels the agent offers for it. Hotline Agent's
+/// choices are the desk's, which the window reads from the room.
 pub(super) fn offered(
     room: &Arc<dyn RoomHandle>,
     persona: &Persona,
     mut info: SessionInfo,
 ) -> SessionInfo {
-    if info.session_id.is_some() || persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
+    if persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
         return info;
     }
     let offer = room.backend_offer(&persona.backend_id).unwrap_or_default();
+    if info.session_id.is_some() {
+        catalog::with_levels(
+            &mut info.models,
+            info.current_model_id.as_deref().unwrap_or_default(),
+            &info.configs,
+            &offer.models,
+        );
+        return info;
+    }
     // The teammate's choice where the list has it, or where there is no list.
     let chosen = |choice: Option<&String>, list: &[crate::contract::ConfigChoice]| {
         choice
@@ -448,6 +460,12 @@ pub(super) fn offered(
             config.current_id = Some(value.clone());
         }
     }
+    catalog::fit_effort(
+        &mut info.configs,
+        &info.models,
+        info.current_model_id.as_deref(),
+        persona.effort_id.as_ref(),
+    );
     info
 }
 

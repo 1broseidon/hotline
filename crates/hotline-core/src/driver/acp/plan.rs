@@ -1,18 +1,20 @@
 //! An account's plan limits: how much of each window (the 5-hour one, the
-//! week, a model's own) its login has used, and when each resets.
+//! week, a model's own) its login has used, and when each resets; and, from
+//! the same process, the harness's models with their effort levels
+//! ([`super::catalog`]).
 //!
 //! A plan is the login's, not a teammate's, so it is read out of band, the
 //! way each harness's own tools read it, with no teammate's session in the
 //! way and no model asked:
 //!
 //! - Claude Code: the `claude` CLI in stream-JSON mode, asked `initialize`
-//!   and `get_usage` and ended ([`claude_cli`]).
-//! - Codex: `codex app-server`, asked `account/rateLimits/read` and ended
-//!   ([`codex_server`]); when it cannot be reached, the last reading in
-//!   Codex's own session logs ([`codex_log`]), which is also read after
-//!   every turn, for nothing.
+//!   (which lists the models) and `get_usage` and ended ([`claude_cli`]).
+//! - Codex: `codex app-server`, asked `account/rateLimits/read` and
+//!   `model/list` and ended ([`codex_server`]); when it cannot be reached,
+//!   the last reading in Codex's own session logs ([`codex_log`]), which is
+//!   also read after every turn, for nothing.
 //! - Grok Build: xAI's billing endpoint, with the Grok CLI's sign-in
-//!   ([`grok_billing`]).
+//!   ([`grok_billing`]); no models.
 //!
 //! Claude Code's adapter also reports one window at a time after a reply,
 //! under `_meta["_claude/rateLimit"]` (the SDK's `rate_limit_event`):
@@ -26,6 +28,7 @@ pub(crate) mod codex_log;
 pub(crate) mod codex_server;
 pub(crate) mod grok_billing;
 
+use super::catalog::Catalog;
 use super::registry;
 use crate::contract::{PlanStatus, PlanUsage, PlanWindow};
 use hotline_support::paths;
@@ -52,28 +55,45 @@ pub(crate) fn readable(backend_id: &str) -> bool {
     matches!(backend_id, CLAUDE_CODE | CODEX | GROK_BUILD)
 }
 
-/// The plan of the login a backend runs on, read now and out of band, with
-/// the environment the desk gives that backend's teammates. `None` when the
-/// backend's plan is not one the desk reads, the login has no plan (an API
-/// key), or it could not be read.
-pub(crate) async fn read(root: &Path, backend_id: &str) -> Option<PlanUsage> {
+/// Whether the same read lists the backend's models with their levels.
+pub(crate) fn catalogued(backend_id: &str) -> bool {
+    matches!(backend_id, CLAUDE_CODE | CODEX)
+}
+
+/// What one out-of-band read of a login gave: its plan, and the harness's
+/// models with their levels. Either may be missing.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LoginReading {
+    pub plan: Option<PlanUsage>,
+    pub catalog: Option<Catalog>,
+}
+
+/// The plan of the login a backend runs on, and its harness's models, read
+/// now and out of band, with the environment the desk gives that backend's
+/// teammates: one process for both. The plan is `None` when the backend's
+/// plan is not one the desk reads, the login has no plan (an API key), or
+/// it could not be read.
+pub(crate) async fn read(root: &Path, backend_id: &str) -> LoginReading {
     if !readable(backend_id) {
-        return None;
+        return LoginReading::default();
     }
     let env = launch_env(root, backend_id);
     let scratch = paths::plan_read_dir(root, backend_id);
     let now = crate::session::now_ms();
     match backend_id {
-        CLAUDE_CODE => {
-            let binary = registry::which("claude")?;
-            claude_cli::read(&binary, &env, &scratch, READ_BOUND, now).await
-        }
+        CLAUDE_CODE => match registry::which("claude") {
+            Some(binary) => claude_cli::read(&binary, &env, &scratch, READ_BOUND, now).await,
+            None => LoginReading::default(),
+        },
         CODEX => read_codex(registry::which("codex"), &env, &scratch, READ_BOUND, now).await,
         GROK_BUILD => {
             let lookup = |name: &str| variable(&env, name);
-            grok_billing::read(&lookup, now).await
+            LoginReading {
+                plan: grok_billing::read(&lookup, now).await,
+                catalog: None,
+            }
         }
-        _ => None,
+        _ => LoginReading::default(),
     }
 }
 
@@ -95,13 +115,16 @@ async fn read_codex(
     scratch: &Path,
     bound: Duration,
     now: i64,
-) -> Option<PlanUsage> {
-    if let Some(binary) = binary
-        && let Ok(reading) = codex_server::read(&binary, env, scratch, bound, now).await
-    {
-        return reading;
-    }
-    read_codex_log(env, now).await
+) -> LoginReading {
+    let (plan, catalog) = match binary {
+        Some(binary) => codex_server::read(&binary, env, scratch, bound, now).await,
+        None => (Err(codex_server::Unreached), None),
+    };
+    let plan = match plan {
+        Ok(reading) => reading,
+        Err(codex_server::Unreached) => read_codex_log(env, now).await,
+    };
+    LoginReading { plan, catalog }
 }
 
 async fn read_codex_log(env: &[(String, String)], now: i64) -> Option<PlanUsage> {
@@ -534,20 +557,24 @@ mod tests {
         let missing = folder.join("no-codex-here");
         let plan = read_codex(Some(missing), &env, &scratch, Duration::from_secs(5), 1)
             .await
+            .plan
             .expect("the logs' reading");
         assert_eq!(plan.windows[0].used_percent, Some(7.0));
         assert_eq!(plan.plan.as_deref(), Some("ChatGPT Plus"));
         assert_eq!(
             read_codex(None, &env, &scratch, Duration::from_secs(5), 1).await,
-            Some(plan)
+            LoginReading {
+                plan: Some(plan),
+                catalog: None
+            }
         );
-        // A codex that answers: its reading.
+        // A codex that answers: its reading, and its models.
         let codex = codex_server::tests::fake_codex(&folder, codex_server::tests::LIMITS);
-        let plan = read_codex(Some(codex), &env, &scratch, Duration::from_secs(5), 1)
-            .await
-            .expect("the app-server's reading");
+        let read = read_codex(Some(codex), &env, &scratch, Duration::from_secs(5), 1).await;
+        let plan = read.plan.expect("the app-server's reading");
         assert_eq!(plan.windows[0].kind, "five_hour");
         assert_eq!(plan.windows[0].used_percent, Some(81.0));
+        assert_eq!(read.catalog.expect("the models").models.len(), 2);
         let _ = std::fs::remove_dir_all(folder);
     }
 }

@@ -45,6 +45,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   them on this desk, and a choice made then is kept on the teammate and put
   on its next session, dropped only if the agent no longer offers it. Only
   an agent never run on this desk is shown by its name alone.
+- Any model's effort can be chosen at any time on Claude Code and Codex.
+  The desk reads each one's models with every model's own effort levels
+  when it reads the plan, from the same CLI and with no model asked, so a
+  teammate shows its model and effort before its first turn, even on an
+  agent never run here. Every model in the menu with levels opens them
+  beside it, and a level of a model not in use sets the model with it,
+  running or not. Grok Build still offers only what its session reports.
 - The plan under the model is read the way each agent's own tools read it,
   outside any teammate's conversation and with no model asked: Claude Code
   through its CLI, Codex through its app-server, and Grok Build from xAI's

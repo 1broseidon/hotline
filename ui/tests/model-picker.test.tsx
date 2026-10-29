@@ -302,7 +302,7 @@ test("on a harness, the head is the agent and its models are a model change; Hot
 				agents={onClaude}
 				effort={null}
 				label="Model"
-				plan={{ at: 0, windows: [{ kind: "five_hour", usedPercent: 8, status: "allowed" }] }}
+				plan={{ at: 0, plan: "Max", windows: [{ kind: "five_hour", usedPercent: 8, resetsAt: Date.now() + 3 * 3_600_000, windowMinutes: 300, status: "allowed" }] }}
 				onModel={(id) => {
 					calls.push(`model:${id}`);
 				}}
@@ -316,10 +316,16 @@ test("on a harness, the head is the agent and its models are a model change; Hot
 	const button = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
 	expect(button.textContent).toBe("Opus");
 	await open();
-	// A harness that reports a plan is on a subscription.
+	// A harness that reports a plan is on a subscription, named when the plan says.
 	expect(mainMenu().querySelector(".model-head-name")?.textContent).toBe("Claude Code");
-	expect(mainMenu().querySelector(".model-head-kind")?.textContent).toBe("subscription");
+	expect(mainMenu().querySelector(".model-head-kind")?.textContent).toBe("Max subscription");
 	expect(mainMenu().querySelectorAll(".plan-row").length).toBe(2);
+	// Two of five hours gone: the tick at 40%, and the line says its runway.
+	const fiveHour = mainMenu().querySelector<HTMLElement>(".plan-row")!;
+	expect(Number.parseFloat(fiveHour.querySelector<HTMLElement>(".plan-tick")!.style.left)).toBeCloseTo(40, 0);
+	expect(fiveHour.title).toContain("Runway: lasts past the reset");
+	// The weekly line, not yet read, has no tick.
+	expect(mainMenu().querySelectorAll(".plan-tick").length).toBe(1);
 	expect(mainModels().map((model) => model.textContent)).toEqual(["Opus", "Sonnet"]);
 	await act(async () => changeAgent().click());
 	// Claude Code, in use, is not listed again under Change agent.

@@ -1,7 +1,7 @@
 import { type CSSProperties, Fragment, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
-import { nearLimit, resetShort, resetText, shownWindows, windowName, windowUse } from "../plan";
+import { nearLimit, paceTick, planAccount, resetShort, shownWindows, windowHover, windowName } from "../plan";
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon, SwapIcon } from "../icons";
 import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import { wire } from "../wire";
@@ -224,13 +224,14 @@ export function ModelPicker({
 	const models: ConfigChoice[] = listed.length > 0 ? listed : modelId !== "" ? [{ id: modelId, name: modelName }] : [];
 	const inUse = current?.id ?? (listed.length === 0 && modelId !== "" ? modelId : null);
 	// The head is the agent and its account. Hotline Agent is the account it
-	// runs on; a harness is itself, on a subscription when it reports a plan.
+	// runs on; a harness is itself, on a subscription when it reports a plan,
+	// named when the plan says its name ("Max subscription").
 	const head = onHotline
 		? { mark: currentRow?.mark ?? mark, name: currentRow?.name ?? "Hotline Agent", kind: currentRow?.detail ?? "" }
 		: {
 				mark: harnessMark(backendId),
 				name: agents.find((agent) => agent.id === backendId)?.name ?? fallbackName ?? "Agent",
-				kind: plan !== undefined && plan.windows.length > 0 ? "subscription" : "",
+				kind: planAccount(plan),
 			};
 	const close = useCallback(() => setOpen(false), []);
 	// A model under the agent in use is a model change; under another agent,
@@ -821,27 +822,31 @@ function Panels({
 	);
 }
 
-/** The plan under the head: a line per window, its name, a thin bar, the use and when it resets. */
+/**
+ * The plan under the head: a line per window, its name, a thin bar, the use
+ * and when it resets. A tick on the bar marks where use would be if spread
+ * evenly over the window so far; the line's hover says its runway.
+ */
 function PlanRows({ plan }: { plan: PlanUsage }) {
 	const windows = shownWindows(plan);
 	if (windows.length === 0) return null;
+	const now = Date.now();
 	return (
 		<div className="plan-rows" title={`Plan usage as of ${new Date(plan.at).toLocaleString()}`}>
-			{windows.map((window) => (
-				<div
-					key={window.kind}
-					className="plan-row"
-					data-status={window.status}
-					title={window.resetsAt !== undefined ? `${windowName(window)}: ${windowUse(window)}, ${resetText(window.resetsAt)}` : undefined}
-				>
-					<span className="plan-name">{windowName(window)}</span>
-					<span className="plan-bar" aria-hidden="true">
-						<span style={{ width: `${Math.min(100, window.status === "limited" ? 100 : (window.usedPercent ?? 0))}%` }} />
-					</span>
-					<span className="plan-use">{window.status === "limited" ? "100%" : window.usedPercent !== undefined ? `${Math.round(window.usedPercent)}%` : "–"}</span>
-					<span className="plan-reset">{window.resetsAt !== undefined ? resetShort(window.resetsAt) : ""}</span>
-				</div>
-			))}
+			{windows.map((window) => {
+				const tick = paceTick(window, now);
+				return (
+					<div key={window.kind} className="plan-row" data-status={window.status} title={windowHover(window, now)}>
+						<span className="plan-name">{windowName(window)}</span>
+						<span className="plan-bar" aria-hidden="true">
+							<span className="plan-fill" style={{ width: `${Math.min(100, window.status === "limited" ? 100 : (window.usedPercent ?? 0))}%` }} />
+							{tick !== undefined && <span className="plan-tick" style={{ left: `${tick}%` }} />}
+						</span>
+						<span className="plan-use">{window.status === "limited" ? "100%" : window.usedPercent !== undefined ? `${Math.round(window.usedPercent)}%` : "–"}</span>
+						<span className="plan-reset">{window.resetsAt !== undefined ? resetShort(window.resetsAt, now) : ""}</span>
+					</div>
+				);
+			})}
 		</div>
 	);
 }

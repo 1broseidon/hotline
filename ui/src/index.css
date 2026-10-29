@@ -948,20 +948,30 @@
 		color: var(--ink-2);
 	}
 	.plan-bar {
+		position: relative;
 		height: 3px;
 		border-radius: 2px;
 		background: var(--line);
-		overflow: hidden;
 	}
-	.plan-bar > span {
+	.plan-fill {
 		display: block;
 		height: 100%;
 		border-radius: 2px;
 		background: var(--ink-3);
 	}
-	.plan-row[data-status="warning"] .plan-bar > span,
-	.plan-row[data-status="limited"] .plan-bar > span {
+	.plan-row[data-status="warning"] .plan-fill,
+	.plan-row[data-status="limited"] .plan-fill {
 		background: var(--warn);
+	}
+	/* Where use would be if spread evenly over the window so far: fill past
+	 * it is going faster than the window allows. */
+	.plan-tick {
+		position: absolute;
+		top: -2px;
+		bottom: -2px;
+		width: 1px;
+		margin-left: -0.5px;
+		background: var(--ink-2);
 	}
 	.plan-use {
 		text-align: right;

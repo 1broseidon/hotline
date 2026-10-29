@@ -505,8 +505,18 @@ impl ChildAgent {
     ) {
         lock(&self.live.tools).clear();
         self.live.forget_subagents();
-        let disposition = Disposition::of(modes.as_ref(), configs.as_deref());
+        let mut disposition = Disposition::of(modes.as_ref(), configs.as_deref());
+        super::modes::add(&self.backend_id, &mut disposition.modes);
         super::models::remember(&self.root, &self.backend_id, &disposition.offer());
+        // A mode the launch says, which the session cannot: Cursor's Run
+        // Everything is its Agent mode started with --force. A session
+        // reopened in another of its modes says that one.
+        if let Some(launched) =
+            super::modes::launched_in(&self.backend_id, lock(&self.launch).as_ref())
+            && disposition.current_mode_id.as_deref() == Some(super::modes::CURSOR_AGENT)
+        {
+            disposition.current_mode_id = Some(launched.to_string());
+        }
         let mut session = lock(&self.live.session);
         session.id = Some(id.clone());
         session.model_config = disposition.model_config;
@@ -543,10 +553,14 @@ impl ChildAgent {
         let (mode, model) = {
             let session = lock(&self.live.session);
             let info = &session.info;
+            // A mode the agent is launched in is not one its session is
+            // asked for (Cursor's Run Everything is its Agent, started with
+            // --force); a session launched in one is already in it.
             let mode = persona
                 .mode_id
                 .clone()
-                .filter(|id| Some(id) != info.current_mode_id.as_ref());
+                .filter(|id| Some(id) != info.current_mode_id.as_ref())
+                .filter(|id| !super::modes::relaunches(&self.backend_id, id));
             let model = persona
                 .model_id
                 .as_deref()

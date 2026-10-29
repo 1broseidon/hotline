@@ -1221,3 +1221,61 @@ async fn fast_mode_is_the_teammates_choice_on_the_models_that_have_it() {
         "{moved}"
     );
 }
+
+/// Cursor's Run Everything is a launch, not a session mode: a live Cursor
+/// teammate moving into it is kept in it and started again, never asked to
+/// set it on its session; moving back out starts it again too.
+#[tokio::test]
+async fn a_live_cursor_teammate_moving_into_run_everything_is_started_again() {
+    use crate::driver::acp::modes::RUN_EVERYTHING;
+    let mode = |id: &str| ConfigChoice {
+        id: id.to_string(),
+        name: id.to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+        fast: None,
+    };
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("cursor-run-everything", quiet.clone());
+    let mut socket = desk(port).await;
+    let bob = create_on(&mut socket, 1, "Bob", "cursor").await;
+    let bob = bob["id"].as_str().unwrap();
+    let mut live = idle(bob);
+    live.state = SessionState::Ready;
+    live.session_id = Some("s-1".to_string());
+    live.modes = vec![
+        mode("agent"),
+        mode("plan"),
+        mode("ask"),
+        mode(RUN_EVERYTHING),
+    ];
+    live.current_mode_id = Some("agent".to_string());
+    quiet.set_info(live.clone());
+
+    command(
+        &mut socket,
+        2,
+        "session.set_mode",
+        json!({ "personaId": bob, "modeId": RUN_EVERYTHING }),
+    )
+    .await;
+    let kept = room::roster(&log).into_iter().next().unwrap();
+    assert_eq!(kept.mode_id.as_deref(), Some(RUN_EVERYTHING));
+    assert_eq!(quiet.reattached(), [bob.to_string()]);
+
+    live.current_mode_id = Some(RUN_EVERYTHING.to_string());
+    quiet.set_info(live);
+    command(
+        &mut socket,
+        3,
+        "session.set_mode",
+        json!({ "personaId": bob, "modeId": "plan" }),
+    )
+    .await;
+    assert_eq!(quiet.reattached(), [bob.to_string(), bob.to_string()]);
+    let kept = room::roster(&log).into_iter().next().unwrap();
+    assert_eq!(kept.mode_id.as_deref(), Some("plan"));
+}

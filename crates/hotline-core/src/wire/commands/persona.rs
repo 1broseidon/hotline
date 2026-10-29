@@ -366,6 +366,27 @@ pub(super) async fn set_mode(
     }
     let offered = room.info(persona_id);
     let resting = offered.modes.is_empty();
+    // A mode the agent is launched in (Cursor's Run Everything): a live
+    // teammate moving into it or out of it starts its session again, in it.
+    let backend_id = living(log, persona_id)?.backend_id;
+    let relaunch = !resting
+        && [Some(mode_id), offered.current_mode_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|mode| crate::driver::acp::modes::relaunches(&backend_id, mode))
+        && offered.current_mode_id.as_deref() != Some(mode_id);
+    if relaunch {
+        if !offered.modes.iter().any(|mode| mode.id == mode_id) {
+            return Err(format!("{mode_id} is not a mode this teammate offers."));
+        }
+        {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            update_persona(log, room, persona_id, &json!({ "modeId": mode_id }))?;
+        }
+        room.reattach(persona_id).await?;
+        return Ok(room.info(persona_id));
+    }
     let info = if resting {
         offered
     } else {

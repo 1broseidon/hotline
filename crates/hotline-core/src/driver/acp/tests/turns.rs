@@ -245,7 +245,8 @@ async fn a_turn_becomes_updates_in_the_order_the_agent_sent_them() {
             .iter()
             .map(|mode| mode.id.as_str())
             .collect::<Vec<_>>(),
-        ["ask", "agent"]
+        // Cursor's Run Everything beside the modes its session lists.
+        ["ask", "agent", crate::driver::acp::modes::RUN_EVERYTHING]
     );
     assert_eq!(info.current_mode_id.as_deref(), Some("ask"));
     assert_eq!(heard.opened.lock().unwrap().as_slice(), ["session/new"]);

@@ -370,7 +370,12 @@ pub async fn look_if_due(root: &Path, backend_id: &str) -> bool {
         return false;
     };
     let bound = if before { LOOK_BOUND } else { FIRST_LOOK_BOUND };
-    let looked = look(root, backend_id, &launch, bound).await;
+    let looked = look(root, backend_id, &launch, bound)
+        .await
+        .map(|mut offer| {
+            super::modes::add(backend_id, &mut offer.modes);
+            offer
+        });
     keep_look(root, backend_id, looked)
 }
 

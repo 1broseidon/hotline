@@ -32,6 +32,7 @@ pub(crate) mod catalog;
 mod install;
 mod live;
 pub mod models;
+pub mod modes;
 mod oauth_proxy;
 pub(crate) mod plan;
 pub mod registry;
@@ -574,7 +575,11 @@ impl Driver for ChildAgent {
         // again behind it, for the next.
         registry::refresh_in_background(&self.root);
         registry::install(&self.root, &self.backend_id).await?;
-        let launch = registry::launch(&self.root, &self.backend_id)?;
+        let launch = modes::launch_for(
+            &self.backend_id,
+            persona.mode_id.as_deref(),
+            registry::launch(&self.root, &self.backend_id)?,
+        );
         *lock(&self.launch) = Some(launch.clone());
         *lock(&self.persona) = Some(persona.clone());
         let bound = if registry::started_before(&self.root, &launch) {

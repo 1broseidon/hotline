@@ -224,3 +224,17 @@ test("a resting harness teammate's strip keeps the pretty name and effort its la
 	expect(resting).toContain("Sonnet 5.5 · High");
 	expect(resting).not.toContain("claude-sonnet-5-5");
 });
+
+test("opening the model picker asks the core to read the teammate's plan again", async () => {
+	const live = entry("planned", "harness", "claude-sonnet-5-5");
+	live.session = { ...live.session, state: "ready", currentModelId: "claude-sonnet-5-5", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5" }] };
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="planned" entry={live} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	expect(core().count("plan.refresh")).toBe(0);
+	await act(async () => container.querySelector<HTMLButtonElement>("button.model-picker")!.click());
+	const asked = core().sent.filter((frame) => frame["cmd"] === "plan.refresh");
+	expect(asked.map((frame) => frame["params"])).toEqual([{ personaId: "planned" }]);
+});

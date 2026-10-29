@@ -134,7 +134,12 @@ export function SessionPickers({
 					backendId={persona.backendId}
 					agents={agents}
 					onAgent={setBackend}
-					onOpen={() => refreshRoomRead("backends.list")}
+					onOpen={() => {
+						refreshRoomRead("backends.list");
+						// The plan under the model is the account's reading; the
+						// core reads it again only when it is a few minutes old.
+						void wire.command("plan.refresh", { personaId }).catch(() => {});
+					}}
 					{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
 					{...(known !== null ? { knownName: known.name } : {})}
 					effort={shownEffort}

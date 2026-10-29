@@ -34,6 +34,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   models the rest are under More models. Change agent, with a hint of the
   others, opens the accounts and agents the menu used to list, and Add an
   account.
+- The plan under the model is read the way each agent's own tools read it,
+  outside any teammate's conversation and with no model asked: Claude Code
+  through its CLI, Codex through its app-server, and Grok Build from xAI's
+  billing with the Grok CLI's own sign-in. Each login is read when the desk
+  starts, every ten minutes while it runs, and when the menu opens on a
+  reading two minutes old, running teammate or not. The head names the plan
+  ("Max subscription", "ChatGPT Pro subscription"), each line's bar has a
+  tick where use would be if spread evenly over the window, and its hover
+  says the runway ("Runway: runs out ~Fri 3pm", "Runway: lasts past the
+  reset"). Claude Code is no longer asked `/usage` in a teammate's session.
 
 ## [0.44.1] - 2026-10-28
 

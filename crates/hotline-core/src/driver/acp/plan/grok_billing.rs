@@ -97,19 +97,23 @@ fn set(env: &(dyn Fn(&str) -> Option<String> + Sync), name: &str) -> Option<Stri
     env(name).filter(|value| !value.trim().is_empty())
 }
 
-/// The sign-in's token, `None` for a login the desk does not read for.
-fn credential(env: &(dyn Fn(&str) -> Option<String> + Sync)) -> Result<Option<Token>, String> {
-    if set(env, "XAI_API_KEY").is_some() || OVERRIDES.iter().any(|name| set(env, name).is_some()) {
-        return Ok(None);
-    }
-    let home = set(env, "GROK_HOME")
+/// The Grok home: `GROK_HOME`, else `.grok` in the user's home.
+pub(crate) fn grok_home(env: &(dyn Fn(&str) -> Option<String> + Sync)) -> Option<PathBuf> {
+    set(env, "GROK_HOME")
         .map(|home| PathBuf::from(home.trim()))
         .or_else(|| {
             set(env, "HOME")
                 .or_else(|| set(env, "USERPROFILE"))
                 .map(|home| Path::new(&home).join(".grok"))
         })
-        .ok_or("there is no home folder to find the Grok sign-in in")?;
+}
+
+/// The sign-in's token, `None` for a login the desk does not read for.
+fn credential(env: &(dyn Fn(&str) -> Option<String> + Sync)) -> Result<Option<Token>, String> {
+    if set(env, "XAI_API_KEY").is_some() || OVERRIDES.iter().any(|name| set(env, name).is_some()) {
+        return Ok(None);
+    }
+    let home = grok_home(env).ok_or("there is no home folder to find the Grok sign-in in")?;
     for config in [
         home.join("config.toml"),
         home.join("managed_config.toml"),

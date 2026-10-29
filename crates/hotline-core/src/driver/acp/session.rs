@@ -500,7 +500,8 @@ impl ChildAgent {
         session.dedicated_modes = disposition.dedicated_modes;
         session.info.session_id = Some(id.0.to_string());
         session.info.context_restored = restored;
-        session.info.models = disposition.models;
+        session.info.models =
+            super::models::with_catalogue(&self.root, &self.backend_id, disposition.models);
         session.info.current_model_id = disposition.current_model_id.unwrap_or_default();
         session.info.model_label = disposition.model_label;
         session.info.modes = disposition.modes;

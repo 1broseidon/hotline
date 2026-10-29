@@ -14,7 +14,8 @@
 //!   the last reading in Codex's own session logs ([`codex_log`]), which is
 //!   also read after every turn, for nothing.
 //! - Grok Build: xAI's billing endpoint, with the Grok CLI's sign-in
-//!   ([`grok_billing`]); no models.
+//!   ([`grok_billing`]); its models from the list the CLI keeps on disk
+//!   ([`grok_models`]).
 //!
 //! Claude Code's adapter also reports one window at a time after a reply,
 //! under `_meta["_claude/rateLimit"]` (the SDK's `rate_limit_event`):
@@ -27,6 +28,7 @@ pub(crate) mod claude_cli;
 pub(crate) mod codex_log;
 pub(crate) mod codex_server;
 pub(crate) mod grok_billing;
+pub(crate) mod grok_models;
 
 use super::catalog::Catalog;
 use super::registry;
@@ -57,7 +59,7 @@ pub(crate) fn readable(backend_id: &str) -> bool {
 
 /// Whether the same read lists the backend's models with their levels.
 pub(crate) fn catalogued(backend_id: &str) -> bool {
-    matches!(backend_id, CLAUDE_CODE | CODEX)
+    matches!(backend_id, CLAUDE_CODE | CODEX | GROK_BUILD)
 }
 
 /// What one out-of-band read of a login gave: its plan, and the harness's
@@ -90,7 +92,7 @@ pub(crate) async fn read(root: &Path, backend_id: &str) -> LoginReading {
             let lookup = |name: &str| variable(&env, name);
             LoginReading {
                 plan: grok_billing::read(&lookup, now).await,
-                catalog: None,
+                catalog: grok_models::read(&lookup),
             }
         }
         _ => LoginReading::default(),

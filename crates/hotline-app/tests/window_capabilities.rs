@@ -166,7 +166,8 @@ fn viewer_capability_is_an_exact_local_only_allowlist() {
     );
 
     let main: Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
-    assert_eq!(main["windows"], json!(["main"]));
+    // A teammate's chat in a window of its own is the main page, on the same desk.
+    assert_eq!(main["windows"], json!(["main", "chat-*"]));
     assert!(
         main["permissions"]
             .as_array()

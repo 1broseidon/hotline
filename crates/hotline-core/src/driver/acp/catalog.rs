@@ -6,15 +6,16 @@
 //! turn, nor the effort of any model but the one in use. The plan readers
 //! already start each harness's CLI without a turn (`plan/`); the same
 //! process answers this too: Claude Code's `initialize` lists its models
-//! with their levels, and `codex app-server` answers `model/list`. Grok
-//! Build's levels are set by a field of `session/set_model` Hotline does not
-//! send, so it has no catalogue here.
+//! with their levels, and `codex app-server` answers `model/list`. The Grok
+//! CLI keeps its list on disk.
 //!
 //! A catalogue names each model by the id its ACP session takes, so a model
 //! chosen from it is one `session.set_model` can set. What a session itself
 //! reports stays first: the models it lists, and the levels of the model it
-//! is on. The catalogue fills the rest, and the whole list when no session
-//! of the agent has opened on this desk.
+//! is on. The catalogue fills the rest: the levels of every other model, the
+//! models the session did not list (a Grok session that opens while its
+//! sign-in renews lists only the CLI's two fallback models), and the whole
+//! list when no session of the agent has opened on this desk.
 
 use crate::contract::{BackendOffer, ConfigChoice, SessionConfig, SessionConfigCategory};
 use std::collections::BTreeMap;
@@ -43,6 +44,11 @@ impl Catalog {
         let id = self.aliases.get(id).map_or(id, String::as_str);
         self.models.iter().find(|model| model.id == id)
     }
+
+    /// The catalogue's id for a model a session names, when it lists it.
+    fn id_of(&self, id: &str) -> Option<&str> {
+        self.model(id).map(|model| model.id.as_str())
+    }
 }
 
 /// The effort picker among a session's settings.
@@ -53,19 +59,18 @@ pub(crate) fn effort_config(configs: &[SessionConfig]) -> Option<&SessionConfig>
 }
 
 /// An agent's offer with each model's levels: the model it opened on has
-/// the levels its session reported, every other one the catalogue's. An
-/// offer with no models takes the catalogue's whole list, and one with no
-/// effort picker is given the harness's, so a teammate at rest on a model
-/// with levels can be set to one.
+/// the levels its session reported, every other one the catalogue's. The
+/// list is the catalogue's, in its order, with any model only the session
+/// named after it; an offer with no models takes the catalogue's whole list,
+/// and one with no effort picker is given the harness's, so a teammate at
+/// rest on a model with levels can be set to one.
 pub(crate) fn fill(offer: &mut BackendOffer, catalog: Option<&Catalog>) {
     let reported = effort_config(&offer.configs).cloned();
-    if let Some(catalog) = catalog
-        && offer.models.is_empty()
-    {
-        offer.models.clone_from(&catalog.models);
-        if offer.current_model_id.is_none() {
+    if let Some(catalog) = catalog {
+        if offer.models.is_empty() && offer.current_model_id.is_none() {
             offer.current_model_id.clone_from(&catalog.default_model);
         }
+        offer.models = merged(std::mem::take(&mut offer.models), catalog);
     }
     for model in &mut offer.models {
         if let Some(config) = &reported
@@ -97,6 +102,23 @@ pub(crate) fn fill(offer: &mut BackendOffer, catalog: Option<&Catalog>) {
                 .unwrap_or_default(),
         });
     }
+}
+
+/// A session's list with the catalogue's: the catalogue's models in its
+/// order, each one the session also lists in the session's own words, then
+/// any only the session lists.
+pub(crate) fn merged(session: Vec<ConfigChoice>, catalog: &Catalog) -> Vec<ConfigChoice> {
+    let mut models = catalog.models.clone();
+    for model in session {
+        match models
+            .iter_mut()
+            .find(|listed| Some(listed.id.as_str()) == catalog.id_of(&model.id))
+        {
+            Some(listed) => *listed = model,
+            None => models.push(model),
+        }
+    }
+    models
 }
 
 /// A live session's models with the levels of each it does not report: its
@@ -256,6 +278,29 @@ mod tests {
         assert_eq!(offer.models[2].efforts, Some(Vec::new()));
         assert_eq!(offer.models[3].efforts, None);
         assert_eq!(offer.configs.len(), 1, "the reported picker stays the one");
+    }
+
+    /// A session that listed fewer models than the harness has (a Grok
+    /// session opened while its sign-in renewed lists only two fallback
+    /// ones) does not hide the rest: the list is the catalogue's, in its
+    /// order, and the session's model stays the one it opened on.
+    #[test]
+    fn a_short_session_list_does_not_hide_the_catalogues_models() {
+        let mut offer = BackendOffer {
+            models: vec![choice("opus", None)],
+            current_model_id: Some("opus".into()),
+            configs: vec![effort("high", &["low", "high"])],
+            ..BackendOffer::default()
+        };
+        fill(&mut offer, Some(&catalog()));
+        let listed: Vec<&str> = offer.models.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(listed, ["default", "opus", "claude-haiku-4-5"]);
+        assert_eq!(offer.current_model_id.as_deref(), Some("opus"));
+        assert_eq!(ids(offer.models[1].efforts.as_ref()), ["low", "high"]);
+        assert_eq!(
+            ids(offer.models[0].efforts.as_ref()),
+            ["default", "low", "high", "max"]
+        );
     }
 
     #[test]

@@ -202,6 +202,24 @@ pub fn take_catalog(root: &Path, backend_id: &str, catalog: Option<Catalog>) -> 
     changed
 }
 
+/// The models a session of this agent opened with, and any its catalogue
+/// lists that the session did not ([`super::catalog::merged`]): a Grok
+/// session opened while its CLI renews its sign-in lists only two fallback
+/// models. A session that lists none has none.
+pub fn with_catalogue(
+    root: &Path,
+    backend_id: &str,
+    models: Vec<ConfigChoice>,
+) -> Vec<ConfigChoice> {
+    match read(root)
+        .get(backend_id)
+        .and_then(|seen| seen.catalog.as_ref())
+    {
+        Some(catalog) if !models.is_empty() => super::catalog::merged(models, catalog),
+        _ => models,
+    }
+}
+
 /// When the agent's models were last read out of band, if they ever were.
 pub fn catalog_at(root: &Path, backend_id: &str) -> Option<i64> {
     read(root).get(backend_id).and_then(|seen| seen.catalog_at)
@@ -594,6 +612,44 @@ mod tests {
         let listed = offer_of(root.path()).unwrap();
         assert_eq!(listed.models[0], opus);
         assert_eq!(listed.models[1].efforts, None);
+    }
+
+    /// A Grok session opened while its CLI renews its sign-in lists only its
+    /// two fallback models; the session's list gains the catalogue's others,
+    /// so the teammate's own model is still asked for. A session that lists
+    /// none, or an agent with no catalogue, is left as it is.
+    #[test]
+    fn a_sessions_short_list_gains_the_catalogues_models() {
+        let root = tempfile::tempdir().unwrap();
+        let fallback = vec![choice("grok-4.6"), choice("grok-4.5")];
+        assert_eq!(
+            with_catalogue(root.path(), "grok-build", fallback.clone()),
+            fallback
+        );
+        take_catalog(
+            root.path(),
+            "grok-build",
+            Some(Catalog {
+                models: vec![
+                    choice("grok-4.7"),
+                    choice("grok-4.7-build-fast"),
+                    choice("grok-4.6"),
+                    choice("grok-4.5"),
+                ],
+                effort_id: "reasoning_effort".into(),
+                effort_name: "Reasoning Effort".into(),
+                ..Catalog::default()
+            }),
+        );
+        let listed: Vec<String> = with_catalogue(root.path(), "grok-build", fallback)
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
+        assert_eq!(
+            listed,
+            ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"]
+        );
+        assert_eq!(with_catalogue(root.path(), "grok-build", Vec::new()), []);
     }
 
     fn offer_of(root: &Path) -> Option<BackendOffer> {

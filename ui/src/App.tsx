@@ -113,20 +113,26 @@ export function App() {
 	/* A narrow window keeps the pane and shows the rail as faces only, open
 	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
-	const mainRef = useRef<HTMLElement>(null);
 	const dockWidthRef = useRef(dockWidth);
 	dockWidthRef.current = dockWidth;
 	const measured = useRef<() => void>(() => {});
-	useLayoutEffect(() => {
-		const el = mainRef.current;
+	/* The conversation's column is measured wherever it stands now: the
+	 * welcome takes its place in an empty room and a first teammate brings it
+	 * back as a new element, so the watch moves with it. Watching the one
+	 * that left read its width as nothing, and the pane lay over a wide
+	 * window from then on (task-308). A column not laid out says nothing. */
+	const watching = useRef<ResizeObserver | null>(null);
+	const mainRef = useCallback((el: HTMLElement | null) => {
+		watching.current?.disconnect();
+		watching.current = null;
 		if (el === null) return;
 		const measure = () => {
+			if (!el.isConnected || el.clientWidth === 0) return;
 			setPaneOverlays(dockOverlays(el.clientWidth, dockWidthRef.current));
 		};
 		measured.current = measure;
-		const observer = new ResizeObserver(measure);
-		observer.observe(el);
-		return () => observer.disconnect();
+		watching.current = new ResizeObserver(measure);
+		watching.current.observe(el);
 	}, []);
 	// The pane's own width is the other half of the sum.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the measure reads the width through dockWidthRef; this re-runs it.

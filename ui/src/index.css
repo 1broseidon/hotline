@@ -3671,11 +3671,12 @@
 			animation: none;
 		}
 	}
+	/* Above a pane laid over the conversation (30), whose band makes room for them. */
 	.chrome-controls {
 		position: fixed;
 		top: 0;
 		right: 0;
-		z-index: 30;
+		z-index: 31;
 		display: flex;
 		height: 40px;
 	}

@@ -374,6 +374,12 @@ pub trait Driver: Send + Sync {
         None
     }
 
+    /// Whether [`Self::read_plan`] costs so little that the plan is read
+    /// again after every turn: a file the agent itself keeps, not a request.
+    fn plan_after_turn(&self) -> bool {
+        false
+    }
+
     /// Answers a permission the agent is waiting on, and says whether there
     /// was still anything behind that request. `false` is a card whose turn
     /// ended, whose session stopped, or that was answered already.

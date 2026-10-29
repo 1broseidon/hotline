@@ -926,6 +926,10 @@ impl Driver for ChildAgent {
         self.read_plan_now().await
     }
 
+    fn plan_after_turn(&self) -> bool {
+        self.plan_after_turn_now()
+    }
+
     fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
         Some(self.live.subscribe_info())
     }

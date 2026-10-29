@@ -11,13 +11,20 @@
 //! a line is being steered in, not while the agent works on something it
 //! took up by itself. It holds the operation gate a prompt takes, so a
 //! prompt that arrives meanwhile waits for it rather than sharing its words.
+//!
+//! Codex's plan is in its own session logs ([`codex_log`]), read from the
+//! file and never from the agent.
 
+use super::plan::codex_log;
 use super::plan::usage_markdown::{self, USAGE_COMMAND};
 use super::*;
 use crate::contract::PlanUsage;
 
 /// The backend id of Claude Code, whose adapter answers `/usage` itself.
 pub(super) const CLAUDE_CODE: &str = "claude-acp";
+
+/// The backend id of Codex, which writes its limits into its session logs.
+pub(super) const CODEX: &str = "codex-acp";
 
 /// How long `/usage` has to answer. It is a local read, so a second or two
 /// is usual; this bounds how long a prompt can wait behind it.
@@ -33,8 +40,27 @@ impl ChildAgent {
     pub(super) async fn read_plan_now(&self) -> Option<PlanUsage> {
         match self.backend_id.as_str() {
             CLAUDE_CODE => self.ask_usage().await,
+            CODEX => {
+                let env = lock(&self.launch)
+                    .as_ref()
+                    .map(|launch| launch.env.clone())
+                    .unwrap_or_default();
+                let home = codex_log::codex_home(&env)?;
+                tokio::task::spawn_blocking(move || {
+                    codex_log::read(&home, crate::session::now_ms())
+                })
+                .await
+                .ok()
+                .flatten()
+            }
             _ => None,
         }
+    }
+
+    /// Whether the plan is worth reading after every turn: Codex's is a
+    /// file it has just written, so reading it costs nothing.
+    pub(super) fn plan_after_turn_now(&self) -> bool {
+        self.backend_id == CODEX
     }
 
     /// Says `/usage` between turns and reads the answer, or does nothing

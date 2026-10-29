@@ -200,3 +200,37 @@ async fn an_agent_that_is_not_claude_code_is_never_sent_usage() {
     assert_eq!(driver.read_plan().await, None);
     assert!(lock(&prompted).is_empty());
 }
+
+/// A Codex teammate's plan is read from the session logs of the Codex home
+/// it was launched with, and is read again after every turn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_codex_teammates_plan_is_read_from_its_logs() {
+    let held = room("plan-codex");
+    let home = scratch("plan-codex-home");
+    let day = home.join("sessions/2026/10/29");
+    std::fs::create_dir_all(&day).unwrap();
+    std::fs::write(
+        day.join("rollout-2026-10-29T08-00-00-a.jsonl"),
+        r#"{"timestamp":"2026-10-29T08:00:01.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":2.0,"window_minutes":10080,"resets_at":1793774976},"secondary":null}}}"#,
+    )
+    .unwrap();
+    let driver = ChildAgent::new(
+        scratch("plan-codex"),
+        "codex-acp".to_string(),
+        "briefing".to_string(),
+        TeammateTools::new(&held, "ada"),
+    );
+    *lock(&driver.launch) = Some(registry::Launch {
+        command: "codex-acp".to_string(),
+        args: Vec::new(),
+        env: vec![(
+            "CODEX_HOME".to_string(),
+            home.to_string_lossy().into_owned(),
+        )],
+    });
+    assert!(driver.plan_after_turn());
+    let plan = driver.read_plan().await.expect("a reading");
+    assert_eq!(plan.windows.len(), 1);
+    assert_eq!(plan.windows[0].kind, "seven_day");
+    assert_eq!(plan.windows[0].resets_at, Some(1_793_774_976_000));
+}

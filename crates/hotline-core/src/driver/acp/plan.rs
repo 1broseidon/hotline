@@ -5,8 +5,10 @@
 //! resets and whether the account may use it.
 //!
 //! A reading can also be had without a turn: Claude Code answers `/usage`
-//! itself, with no model call ([`usage_markdown`]).
+//! itself, with no model call ([`usage_markdown`]), and Codex writes its
+//! limits into its own session logs ([`codex_log`]).
 
+pub(crate) mod codex_log;
 pub(crate) mod usage_markdown;
 
 use crate::contract::{PlanStatus, PlanUsage, PlanWindow};

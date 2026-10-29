@@ -120,7 +120,12 @@ for a in "$@"; do
 done
 printf '%s' "$a" > "${STATE}.image"
 echo stopped > "$STATE"; exit 0 ;;
-  start) echo running > "$STATE"; exit 0 ;;
+  start)
+if [ -f "${STATE}.startfail" ]; then
+  echo "Error: the runtime refused to start the container" >&2
+  exit 1
+fi
+echo running > "$STATE"; exit 0 ;;
   stop) echo stopped > "$STATE"; exit 0 ;;
   rm) echo absent > "$STATE"; exit 0 ;;
   *) echo "unknown: $cmd" >&2; exit 1 ;;

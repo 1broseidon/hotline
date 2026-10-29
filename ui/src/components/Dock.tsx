@@ -1,7 +1,7 @@
 import { startCall } from "../voice/call";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
-import { chordKeys } from "../chords";
+import { PaneClose } from "../ui/PaneClose";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
 import {
@@ -171,9 +171,7 @@ function DockBand({ onClose }: { onClose(): void }) {
 	return (
 		<Band>
 			<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Threads</h2>
-			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-				<CloseIcon />
-			</button>
+			<PaneClose onClose={onClose} />
 		</Band>
 	);
 }
@@ -553,9 +551,7 @@ function ThreadView({
 						}}
 					/>
 				)}
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<PaneClose onClose={onClose} />
 			</Band>
 			{from !== "" && opener === undefined && <p className="dock-note selectable">{from}</p>}
 			{withoutWords(job?.without) !== "" && <p className="dock-note selectable">{withoutWords(job?.without)}</p>}

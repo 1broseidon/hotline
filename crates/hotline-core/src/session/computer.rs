@@ -108,7 +108,7 @@ impl Room {
         }
     }
 
-    fn set_computer_setup(&self, persona_id: &str, setup: ComputerSetup) {
+    pub(super) fn set_computer_setup(&self, persona_id: &str, setup: ComputerSetup) {
         let mut setups = lock(&self.computer_setups);
         match setups.get(persona_id) {
             Some(watching) => {
@@ -592,12 +592,37 @@ impl Room {
         }
         let session = lock(&self.sessions).get(persona_id).cloned();
         match session {
-            None => self.start(persona_id).await.map(|_| ()),
-            Some(session) if lock(&session.turns).running => Err(format!(
-                "{} is mid-turn; start its computer when the turn ends.",
-                persona.name
+            None => {
+                self.start(persona_id).await?;
+            }
+            Some(session) if lock(&session.turns).running => {
+                return Err(format!(
+                    "{} is mid-turn; start its computer when the turn ends.",
+                    persona.name
+                ));
+            }
+            Some(_) => self.reattach(persona_id).await?,
+        }
+        // A session goes ahead without a computer that cannot start; the key
+        // that asked for the computer says why rather than nothing.
+        if lock(&self.sessions)
+            .get(persona_id)
+            .is_some_and(|session| session.computer)
+        {
+            return Ok(());
+        }
+        let setup = lock(&self.computer_setups)
+            .get(persona_id)
+            .map(|setup| setup.borrow().clone());
+        match setup {
+            Some(ComputerSetup::Failed(reason)) => Err(format!(
+                "{}'s computer could not start: {}.",
+                persona.name,
+                reason.trim().trim_end_matches('.')
             )),
-            Some(_) => self.reattach(persona_id).await,
+            // Still downloading: it joins the session when it lands.
+            Some(ComputerSetup::Downloading { .. } | ComputerSetup::Ready) => Ok(()),
+            None => Err(format!("{}'s computer did not start.", persona.name)),
         }
     }
 

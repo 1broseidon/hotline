@@ -1035,6 +1035,21 @@ async fn starting_a_computer_from_the_pane_brings_it_up_with_its_session() {
     assert!(again.computer);
 }
 
+/// A computer that cannot come up is not a silent Start: the session goes
+/// ahead without it, as any start does, and the key says why.
+#[tokio::test]
+async fn starting_a_computer_that_cannot_come_up_says_why() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-start-fails", Some("0.11.0"), TWO_RELEASES, true).await;
+    std::fs::write(root.join("state.startfail"), "").unwrap();
+    let said = room.computer_start("ada").await.expect_err("it says why");
+    assert!(said.contains("computer could not start"), "{said}");
+    assert!(
+        room.session("ada").is_ok_and(|session| !session.computer),
+        "the teammate answers without it"
+    );
+}
+
 /// A fresh computer is created on the newest published release: the desk
 /// asks once before creating, and a computer already on it is offered
 /// nothing. A pinned image is used as written and the endpoint never hears

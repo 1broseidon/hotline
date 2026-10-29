@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FolderGrant, Persona, ScheduledJob, SessionInfo } from "../generated/contract";
-import { chordKeys } from "../chords";
+import { PaneClose } from "../ui/PaneClose";
 import { CloseIcon, FolderIcon, PlusIcon, RevealIcon, TrashIcon } from "../icons";
 import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
@@ -181,9 +181,7 @@ export function Teammate({
 		<aside className="inspector" aria-label={`${persona.name}'s settings`}>
 			<Band>
 				<h2 className="eyebrow min-w-0 flex-1 truncate pl-1">Teammate</h2>
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<PaneClose onClose={onClose} />
 			</Band>
 			<Scroll>
 				<div className="flex flex-col gap-5 px-4 pb-4 pt-2">

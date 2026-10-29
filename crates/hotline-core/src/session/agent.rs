@@ -25,8 +25,8 @@
 //! caller as opener and its history oriented to the target answering it.
 
 use super::computer::{
-    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, computer_failed_note, computer_unavailable,
-    with_note, without_computer,
+    COMPUTER_DOWNLOADING, ComputerAtStart, ComputerSetup, Driving, computer_failed_note,
+    computer_unavailable, with_note, without_computer,
 };
 use super::prompt::said;
 use super::{Room, chapters, now_ms};
@@ -314,6 +314,9 @@ impl Room {
                 ComputerAtStart::Unavailable(reason) => {
                     lease.check()?;
                     eprintln!("{}", computer_unavailable(&view.name, &reason));
+                    // Kept where the pane's Start, and the teammate's own
+                    // computer_status, can say why.
+                    self.set_computer_setup(&view.id, ComputerSetup::Failed(reason.clone()));
                     computer_note = Some(computer_failed_note(&reason));
                     view = without_computer(view);
                     Vec::new()

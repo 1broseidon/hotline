@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { chordKeys } from "../chords";
-import { CloseIcon } from "../icons";
+import { PaneClose } from "./PaneClose";
 
 /**
  * A picture over the whole window: a diagram, a picture a teammate sent, a
@@ -67,9 +66,7 @@ export function ViewerBar({ title, onClose, children }: { title: string; onClose
 		<div className="viewer-bar">
 			<span className="viewer-title">{title}</span>
 			{children !== undefined && <span className="viewer-actions">{children}</span>}
-			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-				<CloseIcon />
-			</button>
+			<PaneClose onClose={onClose} />
 		</div>
 	);
 }

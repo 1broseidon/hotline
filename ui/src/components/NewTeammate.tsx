@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BackendChoice, ConfigChoice, FolderGrant, PersonaDraft } from "../generated/contract";
-import { chordKeys } from "../chords";
-import { CloseIcon } from "../icons";
+import { PaneClose } from "../ui/PaneClose";
 import { useActiveDesk, useDesks } from "../desks";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
@@ -64,9 +63,7 @@ export function NewTeammate({
 						}}
 					/>
 				)}
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<PaneClose onClose={onClose} />
 			</Band>
 			<Scroll>
 				<NewTeammateForm className="pane-column" models={models} onCreated={onCreated} onCancel={onClose} onProviders={onProviders} />

@@ -1,8 +1,8 @@
 import { Fragment, type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { processLabel } from "../activity";
-import { chordKeys } from "../chords";
+import { PaneClose } from "../ui/PaneClose";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
-import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from "../icons";
+import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon, } from "../icons";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
@@ -264,9 +264,7 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 				</span>
 			)}
 			{actions}
-			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-				<CloseIcon />
-			</button>
+			<PaneClose onClose={onClose} />
 		</Band>
 	);
 });

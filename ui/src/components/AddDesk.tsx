@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { chordKeys } from "../chords";
-import { CloseIcon } from "../icons";
+import { PaneClose } from "../ui/PaneClose";
 import { setActiveDesk } from "../desks";
 import { pairDeskByLink, pairDeskOverSsh } from "../native";
 import { keepPairedRelay } from "./RemoteSection";
@@ -64,9 +63,7 @@ export function AddDesk({ onClose }: { onClose(): void }) {
 		<div className="pane">
 			<Band>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Add a server</h2>
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<PaneClose onClose={onClose} />
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">

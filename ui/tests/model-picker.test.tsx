@@ -474,3 +474,66 @@ test("an agent that wants its sign-in says Sign in on its row, opens no stale li
 	expect(document.querySelector('[role="menu"][aria-label="Cursor"]')).toBeNull();
 	expect(moves).toEqual(["cursor:own"]);
 });
+
+test("with the teammate it is one pill and one menu: the face ends the pill, the menu is who, what it runs on, then its actions", async () => {
+	const done: string[] = [];
+	const calls = await picker({
+		plan: { at: 0, plan: "Max", windows: [{ kind: "five_hour", usedPercent: 91, status: "warning" }] },
+		teammate: {
+			name: "Goldie",
+			goal: "Help me with whatever I bring you.",
+			working: true,
+			face: (size) => <span className="face" data-size={size} />,
+			actions: [
+				{ kind: "item", id: "teammate", text: "Settings", shortcut: "⌘I", checked: true, onSelect: () => done.push("settings") },
+				{ kind: "item", id: "chapter", text: "New chapter", disabled: true, onSelect: () => done.push("chapter") },
+				{ kind: "item", id: "side-list", text: "Threads", onSelect: () => done.push("threads") },
+				{ kind: "rule" },
+				{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: () => done.push("remove") },
+			],
+		},
+	});
+	const pill = container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill.getAttribute("aria-label")).toBe("Goldie, working: Claude Haiku · Medium");
+	expect(pill.querySelector('.model-pill-face .face[data-size="24"]')).not.toBeNull();
+	expect(pill.querySelector(".model-pill-beat")).not.toBeNull();
+	expect(pill.querySelector(".plan-dot")).not.toBeNull();
+	expect(pill.querySelector(".model-pill-chevron")).toBeNull();
+
+	await act(async () => pill.click());
+	const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Goldie"]')!;
+	expect(menu.querySelector(".model-who .menu-card-name")?.textContent).toBe("Goldie");
+	expect(menu.querySelector(".model-who .menu-card-detail")?.textContent).toBe("Help me with whatever I bring you.");
+	expect(menu.querySelector(".model-head-name")?.textContent).toBe("Anthropic · Work");
+	// Models, Change agent, then the actions, a rule above them and above Remove.
+	const items = [...menu.querySelectorAll<HTMLElement>("[data-row]")];
+	expect(items.map((one) => one.textContent)).toEqual(["Claude HaikuMedium", "Claude Opus", "Change agentAPI", "Settings⌘I", "New chapter", "Threads", "Remove"]);
+	expect(menu.querySelectorAll("hr.menu-rule").length).toBe(2);
+	expect(items[3]!.querySelector(".model-check svg")).not.toBeNull();
+	expect(items[4]!.getAttribute("aria-disabled")).toBe("true");
+	expect(items[6]!.classList.contains("model-danger")).toBe(true);
+
+	// The keyboard walks on into the actions: a disabled one does nothing, Enter on one closes and does it.
+	const press = async (key: string) => act(async () => menu.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })));
+	for (let at = 0; at < 5; at++) await press("ArrowDown");
+	expect(items[4]!.dataset["active"]).toBe("true");
+	await press("Enter");
+	expect(done).toEqual([]);
+	await press("ArrowDown");
+	await press("Enter");
+	expect(done).toEqual(["threads"]);
+	expect(document.querySelector('[role="menu"]')).toBeNull();
+
+	await act(async () => pill.click());
+	await act(async () => document.querySelector<HTMLElement>(".model-danger")!.click());
+	expect(done).toEqual(["threads", "remove"]);
+	expect(calls).toEqual([]);
+});
+
+test("a compact pill is the model's mark and the face, the model in its label", async () => {
+	await picker({ compact: true, teammate: { name: "Goldie", goal: "", working: false, face: () => <span className="face" />, actions: [] } });
+	const pill = container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill.querySelector(".model-pill-label")).toBeNull();
+	expect(pill.getAttribute("aria-label")).toBe("Goldie: Claude Haiku · Medium");
+	expect(pill.querySelector(".model-pill-beat")).toBeNull();
+});

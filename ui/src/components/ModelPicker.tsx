@@ -1,9 +1,10 @@
-import { type CSSProperties, Fragment, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type KeyboardEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
 import { nearLimit, paceTick, planAccount, resetShort, shownWindows, windowHover, windowName } from "../plan";
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon, SwapIcon } from "../icons";
 import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
+import type { MenuEntry } from "../ui/Menu";
 import { wire } from "../wire";
 import { accountName, plainModel } from "../accounts";
 
@@ -48,8 +49,27 @@ type Effort = { value: string; choices: ConfigChoice[] };
 /** The panels that open beside the menu: the effort, every model, or the other agents. */
 type Flyout = "effort" | "more" | "agents";
 
-/** A row of the menu itself: one of this agent's models, More models, or Change agent. */
-type MainRow = { kind: "model"; choice: ConfigChoice } | { kind: "more" } | { kind: "agents" };
+/** One of the teammate's own actions, under what it runs on. */
+type Action = Extract<MenuEntry, { kind: "item" }>;
+
+/**
+ * The teammate the button is the menu of: its face ends the button, beating
+ * while it works, and heads the menu over its own actions (Settings, New
+ * chapter, Threads, Remove), each a rule apart as the entries say.
+ */
+export type MenuTeammate = {
+	name: string;
+	goal: string;
+	face(size: number): ReactNode;
+	working: boolean;
+	actions: MenuEntry[];
+};
+
+/**
+ * A row of the menu itself: one of this agent's models, More models, Change
+ * agent, or one of the teammate's actions (`rule`: a rule stands above it).
+ */
+type MainRow = { kind: "model"; choice: ConfigChoice } | { kind: "more" } | { kind: "agents" } | { kind: "action"; action: Action; rule: boolean };
 
 const KIND: Record<CredentialKind, string> = { oauth: "subscription", api_key: "API key", local: "this Mac" };
 
@@ -119,16 +139,19 @@ function shownModels(models: ConfigChoice[], inUse: string | null): ConfigChoice
 }
 
 /**
- * A teammate's model, account and effort in one pull-down (task-285).
+ * A teammate's model, account and effort in one pull-down (task-285), and
+ * with `teammate` the teammate's own menu too: one pill, one menu.
  *
- * The button names the model, with its maker's mark, and the effort after a
- * dot; the account is in the tooltip and the menu's head, never the button.
- * The head names the agent and its account, then the plan, then this
- * agent's models, one click each; the one in use has its effort, which opens
- * the levels the model has. Change agent opens every other account and
- * agent: an account opens its models, a model opens its efforts. Picking a
- * model keeps the effort when the model has it, else the model's default;
- * picking an effort sets both.
+ * The pill names the model, with its maker's mark, and the effort after a
+ * dot, then the amber dot when a plan nears its limit and the teammate's
+ * face; the account is in the tooltip and the menu, never the pill. A
+ * `compact` pill is the mark and the face. The menu says who the teammate
+ * is, then what it runs on: the agent and its plan, the plan's lines, this
+ * agent's models, one click each, the one in use with its effort, which
+ * opens the levels the model has; Change agent opens every other account
+ * and agent: an account opens its models, a model opens its efforts. Then
+ * the teammate's own actions. Picking a model keeps the effort when the
+ * model has it, else the model's default; picking an effort sets both.
  */
 export function ModelPicker({
 	choices,
@@ -145,9 +168,15 @@ export function ModelPicker({
 	knownName,
 	onOpen,
 	plan,
+	teammate,
+	compact = false,
 }: {
 	/** The account's plan limits, as the agent last reported them. */
 	plan?: PlanUsage | undefined;
+	/** Whose menu this is as well: the face, the name and goal, and its actions. */
+	teammate?: MenuTeammate | undefined;
+	/** A narrow band: the pill is the mark and the face. */
+	compact?: boolean;
 	/** Each time the menu opens, so lists the desk fills in later can be read again. */
 	onOpen?: (() => void) | undefined;
 	/** What the button says before a harness has named its model: the harness. */
@@ -252,27 +281,38 @@ export function ModelPicker({
 			<button
 				ref={button}
 				type="button"
-				className="control picker model-picker"
-				aria-label={`${label}: ${modelName}${effortName === null ? "" : ` · ${effortName}`}`}
+				className="control model-pill"
+				data-compact={compact ? "true" : undefined}
+				aria-label={`${teammate === undefined ? label : `${teammate.name}${teammate.working ? ", working" : ""}`}: ${modelName}${effortName === null ? "" : ` · ${effortName}`}`}
 				aria-haspopup="menu"
 				aria-expanded={open}
-				title={open ? undefined : [modelName, accountLine, effortName].filter((one) => one !== null).join(" · ")}
+				title={open ? undefined : [teammate?.name ?? null, modelName, accountLine, effortName].filter((one) => one !== null).join(" · ")}
 				onClick={() => {
 					if (!open) onOpen?.();
 					setOpen((was) => !was);
 				}}
 			>
 				<Mark id={mark} />
-				<span className="picker-label">
-					{modelName}
-					{effortName !== null && <span className="text-ink-3"> · {effortName}</span>}
-				</span>
+				{!compact && (
+					<span className="model-pill-label">
+						{modelName}
+						{effortName !== null && <span className="text-ink-3"> · {effortName}</span>}
+					</span>
+				)}
 				{nearLimit(plan) && <span className="plan-dot" aria-label="Near the plan's limit" />}
-				<ChevronDownIcon className="picker-chevron" />
+				{teammate !== undefined ? (
+					<span className="model-pill-face">
+						{teammate.face(24)}
+						{teammate.working && <span aria-hidden="true" className="model-pill-beat beat" />}
+					</span>
+				) : (
+					<ChevronDownIcon className="model-pill-chevron" />
+				)}
 			</button>
 			{open && button.current && (
 				<Panels
 					anchor={button.current}
+					teammate={teammate}
 					head={head}
 					plan={plan}
 					models={models}
@@ -316,6 +356,7 @@ export function ModelPicker({
 
 function Panels({
 	anchor,
+	teammate,
 	head,
 	plan,
 	models,
@@ -331,6 +372,7 @@ function Panels({
 	onClose,
 }: {
 	anchor: HTMLElement;
+	teammate: MenuTeammate | undefined;
 	head: { mark: string | null; name: string; kind: string };
 	plan: PlanUsage | undefined;
 	/** This agent's models, every one; the menu shows the first few. */
@@ -402,10 +444,21 @@ function Panels({
 	const levels = effort !== null && effort.choices.length > 1 ? effort.choices : [];
 	const shown = shownModels(models, inUse);
 	const changes = others.length > 0 || onAddAccount !== undefined;
+	// The teammate's actions, under a rule, and a rule wherever the entries put one.
+	const actions: MainRow[] = [];
+	let ruled = true;
+	for (const entry of teammate?.actions ?? []) {
+		if (entry.kind === "rule") ruled = true;
+		else if (entry.kind === "item") {
+			actions.push({ kind: "action", action: entry, rule: ruled });
+			ruled = false;
+		}
+	}
 	const rows: MainRow[] = [
 		...shown.map((choice) => ({ kind: "model" as const, choice })),
 		...(models.length > shown.length ? [{ kind: "more" as const }] : []),
 		...(changes ? [{ kind: "agents" as const }] : []),
+		...actions,
 	];
 	const firstAgent = others.findIndex((row) => sectionOf(row) === "agents");
 	// Change agent's list: every other account and agent, then Add an account.
@@ -455,6 +508,7 @@ function Panels({
 		if (row === undefined) return null;
 		if (row.kind === "more") return "more";
 		if (row.kind === "agents") return "agents";
+		if (row.kind === "action") return null;
 		return row.choice.id === inUse && levels.length > 0 ? "effort" : null;
 	};
 	const back = () => {
@@ -526,6 +580,7 @@ function Panels({
 				showFlyout(kind, element);
 				setLevel(1);
 			} else if (row?.kind === "model" && enter) onModel(row.choice.id);
+			else if (row?.kind === "action" && enter) act(row.action);
 		} else if (level === 1) {
 			if (flyout?.kind === "effort") {
 				const value = levels[sideActive];
@@ -561,17 +616,37 @@ function Panels({
 		return { top: Math.max(8, Math.min(top - 4, window.innerHeight - 160)), left, width };
 	};
 	const lit = (here: 0 | 1 | 2 | 3, at: number, current: number) => (level === here && current === at ? "true" : undefined);
+	// An action closes the menu first, as any menu's item does.
+	const act = (action: Action) => {
+		if (action.disabled) return;
+		onClose();
+		action.onSelect();
+	};
 
 	return createPortal(
 		// biome-ignore lint/a11y/noStaticElementInteractions: the panels share one keyboard handler; each panel is a menu
 		<div onKeyDown={onKey}>
-			<div ref={main} role="menu" tabIndex={-1} aria-label="Model" className="menu model-menu model-menu-main" style={mainStyle}>
-				<div className="model-head">
-					<Mark id={head.mark} size={16} />
-					<div className="min-w-0 flex-1">
-						<div className="model-head-name">{head.name}</div>
-						{head.kind !== "" && <div className="model-head-kind">{head.kind}</div>}
+			<div
+				ref={main}
+				role="menu"
+				tabIndex={-1}
+				aria-label={teammate?.name ?? "Model"}
+				className={`menu model-menu model-menu-main${teammate !== undefined ? " model-menu-teammate" : ""}`}
+				style={mainStyle}
+			>
+				{teammate !== undefined && (
+					<div className="menu-heading menu-card model-who" role="presentation">
+						{teammate.face(30)}
+						<span className="menu-card-text">
+							<span className="menu-card-name">{teammate.name}</span>
+							{teammate.goal !== "" && <span className="menu-card-detail">{teammate.goal}</span>}
+						</span>
 					</div>
+				)}
+				<div className="model-head">
+					<Mark id={head.mark} size={14} />
+					<span className="model-head-name">{head.name}</span>
+					{head.kind !== "" && <span className="model-head-kind">{head.kind}</span>}
 				</div>
 				{plan !== undefined && plan.windows.length > 0 && <PlanRows plan={plan} />}
 				{rows.map((row, at) => {
@@ -610,11 +685,41 @@ function Panels({
 							</button>
 						);
 					}
+					if (row.kind === "action") {
+						const { action } = row;
+						return (
+							<Fragment key={`action:${action.id}`}>
+								{row.rule && <hr className="menu-rule" />}
+								<button
+									type="button"
+									role="menuitem"
+									data-row={at}
+									data-active={lit(0, at, active)}
+									aria-disabled={action.disabled ? "true" : undefined}
+									tabIndex={-1}
+									className={`menu-item model-row${action.danger ? " model-danger" : ""}`}
+									onMouseEnter={() => {
+										setActive(at);
+										setLevel(0);
+										hideFlyout();
+									}}
+									onClick={() => act(action)}
+								>
+									<span className="menu-item-check model-check">{action.checked && <CheckIcon />}</span>
+									<span className="menu-item-text">
+										{action.text}
+										{action.detail !== undefined && <span className="menu-item-detail">{action.detail}</span>}
+									</span>
+									{action.shortcut !== undefined && <span className="menu-shortcut">{action.shortcut}</span>}
+								</button>
+							</Fragment>
+						);
+					}
 					const agents = row.kind === "agents";
 					const hint = agents ? changeHint(others) : "";
 					return (
 						<Fragment key={row.kind}>
-							{agents && <hr className="menu-rule" />}
+							{agents && teammate === undefined && <hr className="menu-rule" />}
 							<button
 								type="button"
 								role="menuitem"

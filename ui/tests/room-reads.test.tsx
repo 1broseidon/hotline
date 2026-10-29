@@ -196,7 +196,7 @@ test("a Hotline Agent teammate with no account left keeps the picker, so it can 
 		root.render(<SessionPickers key="no-accounts" entry={entry("no-accounts")} models={[]} onSaid={noop} />);
 	});
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-	const button = container.querySelector<HTMLButtonElement>("button.model-picker");
+	const button = container.querySelector<HTMLButtonElement>("button.model-pill");
 	expect(button).not.toBeNull();
 	await act(async () => button!.click());
 	await act(async () => document.querySelector<HTMLButtonElement>(".model-change")!.click());
@@ -217,7 +217,7 @@ test("a resting harness teammate's strip keeps the pretty name and effort its la
 		root.render(<SessionPickers key="live" entry={live} models={[]} onSaid={noop} />);
 	});
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-	expect(container.querySelector("button.model-picker")?.textContent).toContain("Sonnet 5.5 · High");
+	expect(container.querySelector("button.model-pill")?.textContent).toContain("Sonnet 5.5 · High");
 
 	await act(async () => { root.render(<SessionPickers key="resting" entry={entry("resting", "harness", "claude-sonnet-5-5")} models={[]} onSaid={noop} />); });
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
@@ -235,7 +235,7 @@ test("opening the model picker asks the core to read the teammate's plan again",
 	});
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 	expect(core().count("plan.refresh")).toBe(0);
-	await act(async () => container.querySelector<HTMLButtonElement>("button.model-picker")!.click());
+	await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
 	const asked = core().sent.filter((frame) => frame["cmd"] === "plan.refresh");
 	expect(asked.map((frame) => frame["params"])).toEqual([{ personaId: "planned" }]);
 });

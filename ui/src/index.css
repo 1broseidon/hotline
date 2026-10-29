@@ -887,13 +887,63 @@
 	.mark-none {
 		visibility: hidden;
 	}
-	/* The model picker (ModelPicker.tsx): a head naming the agent and its
-	 * account, the plan, then the agent's models, the one in use checked with
-	 * its effort; Change agent opens every other account and agent beside. */
-	/* The button carries the maker's mark and the effort besides the model. */
-	.picker.model-picker {
-		max-width: 300px;
+	/* The model picker (ModelPicker.tsx), which is the teammate's menu too:
+	 * who it is, the agent and its plan, the agent's models, the one in use
+	 * checked with its effort, Change agent opening every other account and
+	 * agent beside, then the teammate's actions. */
+	/* One pill in the band's corner: the maker's mark, the model and its
+	 * effort, the plan's dot, the teammate's face at the end. A raised
+	 * plane with a hairline, larger than a control, so it reads as the one
+	 * key it is. Narrow, it is the mark and the face. */
+	.model-pill {
+		min-width: 0;
+		max-width: 340px;
+		height: 32px;
+		flex-shrink: 1;
+		gap: 7px;
+		padding: 0 4px 0 11px;
+		border-radius: 999px;
+		background: var(--raised);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		color: var(--ink);
+	}
+	.model-pill:not(:has(.model-pill-face)) {
+		padding-right: 8px;
+	}
+	.model-pill[data-compact="true"] {
 		gap: 6px;
+		padding-left: 9px;
+	}
+	.model-pill:hover:not(:disabled),
+	.model-pill[aria-expanded="true"] {
+		background: var(--pop);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+	}
+	.model-pill-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.model-pill-chevron {
+		flex-shrink: 0;
+		color: var(--ink-3);
+	}
+	.model-pill-face {
+		position: relative;
+		display: inline-flex;
+		flex-shrink: 0;
+		margin-left: 1px;
+	}
+	/* The teammate at work: a mint dot on the face's corner, beating. */
+	.model-pill-beat {
+		position: absolute;
+		right: -1px;
+		bottom: -1px;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: 0 0 0 2px var(--raised);
 	}
 	.model-menu {
 		max-width: 360px;
@@ -904,25 +954,49 @@
 	.model-menu-main {
 		width: 272px;
 	}
+	.model-menu-main.model-menu-teammate {
+		width: 300px;
+	}
+	.model-who {
+		gap: 12px;
+		padding-top: 6px;
+	}
+	/* The agent and its plan, on one line over the plan's lines. */
 	.model-head {
 		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 7px 8px 7px 6px;
+		min-width: 0;
+		align-items: baseline;
+		gap: 6px;
+		padding: 7px 8px 5px 6px;
+	}
+	.model-head .mark {
+		align-self: center;
+		margin-right: 2px;
 	}
 	.model-head-name {
+		flex-shrink: 0;
+		max-width: 60%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: var(--text-read);
-		line-height: 20px;
-		font-weight: 600;
+		font-size: var(--text-md);
+		font-weight: 500;
 		color: var(--ink);
 	}
 	.model-head-kind {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
+	}
+	.model-head-kind::before {
+		content: "· ";
+	}
+	/* Remove: the one action said in red, until it is the lit row. */
+	.model-danger:not([data-active="true"]) {
+		color: var(--danger);
 	}
 	/* The account's plan under the head: one quiet line per window, its
 	 * name, a hairline bar, the use and the reset in the instrument face.
@@ -5749,21 +5823,6 @@
 }
 
 @layer components {
-	/* The teammate's face as the band's menu key, and who it is atop its menu. */
-	.band-face {
-		position: relative;
-		padding: 0;
-	}
-	.band-face-beat {
-		position: absolute;
-		right: 1px;
-		bottom: 1px;
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--accent);
-		box-shadow: 0 0 0 2px var(--canvas);
-	}
 	/* Who a menu is about: the face and name centred on each other, a line
 	 * under the name when there is one, and a hairline inset as the menu's
 	 * rules are, the face on the items' leading edge. */

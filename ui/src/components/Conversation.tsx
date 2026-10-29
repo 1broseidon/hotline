@@ -426,16 +426,10 @@ const ConversationBand = memo(function ConversationBand({
 		});
 	}
 
-	// Four words, as the board's label rule asks (decision ui.tooltip-length):
-	// the rest lives where it is used, not in this menu.
-	const more: MenuEntry[] = [
-		{
-			kind: "heading",
-			card: true,
-			text: persona.name,
-			...(persona.goal ? { detail: persona.goal } : {}),
-			icon: <Avatar id={persona.id} name={persona.name} size={28} hash={persona.avatar?.hash} />,
-		},
+	// The teammate's own actions, under who it is and what it runs on in the
+	// pill's menu. Four words, as the board's label rule asks (decision
+	// ui.tooltip-length): the rest lives where it is used, not in this menu.
+	const actions: MenuEntry[] = [
 		...folded,
 		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: startChapter },
@@ -443,6 +437,13 @@ const ConversationBand = memo(function ConversationBand({
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];
+	const teammate = {
+		name: persona.name,
+		goal: persona.goal,
+		face: (size: number) => <Avatar id={persona.id} name={persona.name} size={size} hash={persona.avatar?.hash} />,
+		working: state === "thinking",
+		actions,
+	};
 
 	// The call on the line, when it is to this teammate: its face then leads the call card.
 	const liveCall = useCall();
@@ -463,8 +464,7 @@ const ConversationBand = memo(function ConversationBand({
 	
 					<span className="min-w-0 flex-1" />
 	
-					<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} onAddAccount={onProviders} />
-	
+
 					{/* Side threads still live: a chip each. They are conversations of
 					 * their own rather than this turn's work, so they stay in the band
 					 * when the subagents sit at the composer. They leave the band when
@@ -539,17 +539,19 @@ const ConversationBand = memo(function ConversationBand({
 							<ComputerIcon />
 						</button>
 					)}
-					{/* The teammate's face is its menu: who it is, Settings, New chapter,
-					 * Threads, Remove. It beats while the teammate works. */}
-					<MenuButton
-						className="control btn-icon band-face"
-						label={state === "thinking" ? `${persona.name}, working` : persona.name}
-						title={persona.name}
-						entries={more}
-					>
-						<Avatar id={persona.id} name={persona.name} size={24} hash={persona.avatar?.hash} />
-						{state === "thinking" && <span aria-hidden="true" className="band-face-beat beat" />}
-					</MenuButton>
+					{/* One pill in the corner: the model, its effort and the teammate's
+					 * face, which beats while it works. Its menu is who the teammate
+					 * is, what it runs on, and its actions: Settings, New chapter,
+					 * Threads, Remove. */}
+					<SessionPickers
+						key={persona.id}
+						entry={entry}
+						models={models}
+						onSaid={onSaid}
+						onAddAccount={onProviders}
+						teammate={teammate}
+						compact={narrow}
+					/>
 				</Band>
 				{callBar}
 			</div>

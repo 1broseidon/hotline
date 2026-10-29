@@ -57,14 +57,16 @@ describe("a dropdown's tooltip", () => {
 });
 
 describe("the conversation's band", () => {
-	test("its face is the teammate's menu, headed by who it is; the name stands in the band only with the rail closed", async () => {
+	test("one pill is the model and the teammate's menu, with its face; the name stands in the band only with the rail closed", async () => {
 		const source = await Bun.file(new URL("../src/components/Conversation.tsx", import.meta.url)).text();
-		// The "…" is the face, labelled by the teammate, working or not.
-		expect(source).toContain('className="control btn-icon band-face"');
-		expect(source).toMatch(/label=\{state === "thinking" \? `\$\{persona.name\}, working` : persona.name\}/);
+		// No face of its own any more: the pill carries it and the teammate's actions.
+		expect(source).not.toContain("band-face");
+		expect(source).toMatch(/<SessionPickers[^>]*teammate=\{teammate\}/s);
+		expect(source).toMatch(/working: state === "thinking"/);
 		expect(source).not.toContain("<MoreIcon");
-		// The menu opens on who it is: a card with the face, the name and the goal, goal or not.
-		expect(source).toMatch(/kind: "heading",\s*card: true,\s*text: persona.name,\s*\.\.\.\(persona.goal \? \{ detail: persona.goal \} : \{\}\)/);
+		// Every action the face menu had, its shortcut and Remove under a rule.
+		for (const id of ['id: "teammate"', 'id: "chapter"', 'id: "side-list"', 'id: "delete"']) expect(source).toContain(id);
+		expect(source).toContain('shortcut: chordGlyph("teammate")');
 		// The name leaves the band's left while the rail names it.
 		expect(source).toMatch(/\{!railOpen && ourCall === null && \(/);
 		expect(source).not.toMatch(/title=\{`Teammate \(\$\{chordKeys/);

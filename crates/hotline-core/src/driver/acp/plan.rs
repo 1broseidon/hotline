@@ -11,6 +11,8 @@
 //!   ([`codex_server`]); when it cannot be reached, the last reading in
 //!   Codex's own session logs ([`codex_log`]), which is also read after
 //!   every turn, for nothing.
+//! - Grok Build: xAI's billing endpoint, with the Grok CLI's sign-in
+//!   ([`grok_billing`]).
 //!
 //! Claude Code's adapter also reports one window at a time after a reply,
 //! under `_meta["_claude/rateLimit"]` (the SDK's `rate_limit_event`):
@@ -22,6 +24,7 @@ mod child;
 pub(crate) mod claude_cli;
 pub(crate) mod codex_log;
 pub(crate) mod codex_server;
+pub(crate) mod grok_billing;
 
 use super::registry;
 use crate::contract::{PlanStatus, PlanUsage, PlanWindow};
@@ -34,6 +37,8 @@ use std::time::Duration;
 pub(crate) const CLAUDE_CODE: &str = "claude-acp";
 /// The backend id of Codex.
 pub(crate) const CODEX: &str = "codex-acp";
+/// The backend id of Grok Build.
+pub(crate) const GROK_BUILD: &str = "grok-build";
 
 pub(crate) const FIVE_HOUR_MINUTES: i64 = 5 * 60;
 pub(crate) const WEEK_MINUTES: i64 = 7 * 24 * 60;
@@ -44,7 +49,7 @@ const READ_BOUND: Duration = Duration::from_secs(15);
 
 /// Whether the desk reads this backend's plan out of band.
 pub(crate) fn readable(backend_id: &str) -> bool {
-    matches!(backend_id, CLAUDE_CODE | CODEX)
+    matches!(backend_id, CLAUDE_CODE | CODEX | GROK_BUILD)
 }
 
 /// The plan of the login a backend runs on, read now and out of band, with
@@ -64,6 +69,10 @@ pub(crate) async fn read(root: &Path, backend_id: &str) -> Option<PlanUsage> {
             claude_cli::read(&binary, &env, &scratch, READ_BOUND, now).await
         }
         CODEX => read_codex(registry::which("codex"), &env, &scratch, READ_BOUND, now).await,
+        GROK_BUILD => {
+            let lookup = |name: &str| variable(&env, name);
+            grok_billing::read(&lookup, now).await
+        }
         _ => None,
     }
 }
@@ -108,6 +117,16 @@ fn launch_env(root: &Path, backend_id: &str) -> Vec<(String, String)> {
     registry::launch(root, backend_id)
         .map(|launch| launch.env)
         .unwrap_or_default()
+}
+
+/// A variable as a teammate on the backend would have it: its launch
+/// environment over the desk's.
+fn variable(env: &[(String, String)], name: &str) -> Option<String> {
+    env.iter()
+        .rev()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.clone())
+        .or_else(|| std::env::var(name).ok())
 }
 
 /// A plan's name as its service gives it, as a person reads it: `max` and

@@ -42,6 +42,10 @@ pub(super) struct Live {
     /// `session/load` replays the whole history; nothing is written while it
     /// does, or every restart would duplicate the conversation onto the tape.
     pub(super) replaying: AtomicBool,
+    /// Set while the plan is being read with `/usage` (see `probe`): what
+    /// the agent says then is its answer, kept here, and nothing it says
+    /// reaches a turn, an activity or the tape.
+    pub(super) probe: Mutex<Option<String>>,
     /// Whether this connection has been told what kind of room it is in.
     /// Per-connection, so a restarted backend hears it again and a resumed one
     /// does not hear it twice in the same conversation.

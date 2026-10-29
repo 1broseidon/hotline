@@ -366,6 +366,14 @@ pub trait Driver: Send + Sync {
         Err("This agent does not offer that setting.".to_string())
     }
 
+    /// The account's plan usage, read now and without a turn: nothing goes
+    /// on the tape and no model is asked. `None` when the agent has no way
+    /// to say it, when it cannot now (a turn is running), or when it gave no
+    /// limits — which is no reading, never an empty one.
+    async fn read_plan(&self) -> Option<crate::contract::PlanUsage> {
+        None
+    }
+
     /// Answers a permission the agent is waiting on, and says whether there
     /// was still anything behind that request. `false` is a card whose turn
     /// ended, whose session stopped, or that was answered already.

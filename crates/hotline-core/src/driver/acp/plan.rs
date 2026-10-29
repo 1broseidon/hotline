@@ -2,8 +2,12 @@
 //! sends one window at a time with its usage update after a reply, under
 //! `_meta["_claude/rateLimit"]` (the SDK's `rate_limit_event`): the window
 //! (`five_hour`, `seven_day`, a model's own), how much of it is used, when it
-//! resets and whether the account may use it. Each window is kept until the
-//! same window is reported again, so the plan reads whole across replies.
+//! resets and whether the account may use it.
+//!
+//! A reading can also be had without a turn: Claude Code answers `/usage`
+//! itself, with no model call ([`usage_markdown`]).
+
+pub(crate) mod usage_markdown;
 
 use crate::contract::{PlanStatus, PlanUsage, PlanWindow};
 use serde_json::{Map, Value};
@@ -54,6 +58,18 @@ pub(super) fn with_window(was: Option<PlanUsage>, window: PlanWindow, at: i64) -
     }
     windows.sort_by_key(|one| order(&one.kind));
     PlanUsage { windows, at }
+}
+
+/// How a window stands when the agent gave only how much of it is used:
+/// limited once it is all used, near the limit from 80%.
+pub(crate) fn status_of(used_percent: f64) -> PlanStatus {
+    if used_percent >= 100.0 {
+        PlanStatus::Limited
+    } else if used_percent >= 80.0 {
+        PlanStatus::Warning
+    } else {
+        PlanStatus::Allowed
+    }
 }
 
 /// The 5-hour window first, then the weekly one, then a model's own.
@@ -123,5 +139,11 @@ mod tests {
             [("five_hour", Some(10.0)), ("seven_day", Some(45.0))]
         );
         assert_eq!(plan.at, 3);
+    }
+    #[test]
+    fn a_window_is_near_its_limit_from_80_percent_and_limited_when_all_used() {
+        assert_eq!(status_of(79.9), PlanStatus::Allowed);
+        assert_eq!(status_of(80.0), PlanStatus::Warning);
+        assert_eq!(status_of(100.0), PlanStatus::Limited);
     }
 }

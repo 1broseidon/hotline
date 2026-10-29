@@ -772,7 +772,7 @@ async fn a_resting_teammate_on_a_never_run_agent_chooses_any_models_effort() {
     assert_eq!(persona().model_id.as_deref(), Some("gpt-6-luna"));
     assert_eq!(persona().effort_id.as_deref(), Some("max"));
 
-    // Back on a model without that level, the model's own default shows.
+    // Back on a model without that level, the highest it has below it.
     let back = command(
         &mut socket,
         6,
@@ -780,7 +780,7 @@ async fn a_resting_teammate_on_a_never_run_agent_chooses_any_models_effort() {
         json!({ "personaId": id, "modelId": "gpt-6.1-sol" }),
     )
     .await;
-    assert_eq!(back["result"]["configs"][0]["currentId"], "low", "{back}");
+    assert_eq!(back["result"]["configs"][0]["currentId"], "xhigh", "{back}");
 }
 
 /// A teammate whose session is up shows the levels its session reports for
@@ -818,4 +818,305 @@ async fn a_live_sessions_report_wins_for_its_model_and_the_catalogue_fills_the_r
     assert_eq!(row["models"][0]["defaultEffort"], "medium");
     assert_eq!(levels(&row["models"][1]), ["medium", "max"]);
     assert_eq!(row["configs"][0]["currentId"], "medium");
+}
+
+/// Claude Code's models as its `initialize` lists them out of band: Opus
+/// with six levels, Auto first; Sonnet without Xhigh; Haiku with none.
+fn claude_catalog() -> crate::driver::acp::catalog::Catalog {
+    let level = |id: &str| ConfigChoice {
+        id: id.to_string(),
+        name: id.to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+    };
+    let model = |id: &str, levels: &[&str]| ConfigChoice {
+        efforts: Some(levels.iter().map(|id| level(id)).collect()),
+        default_effort: levels.first().map(|id| (*id).to_string()),
+        ..level(id)
+    };
+    crate::driver::acp::catalog::Catalog {
+        models: vec![
+            model(
+                "opus",
+                &["default", "low", "medium", "high", "xhigh", "max"],
+            ),
+            model("sonnet", &["default", "low", "medium", "high", "max"]),
+            model("haiku", &[]),
+        ],
+        default_model: Some("opus".to_string()),
+        effort_id: "effort".to_string(),
+        effort_name: "Effort".to_string(),
+        ..Default::default()
+    }
+}
+
+fn claude_catalogued() -> crate::contract::BackendOffer {
+    let mut offer = crate::contract::BackendOffer::default();
+    crate::driver::acp::catalog::fill(&mut offer, Some(&claude_catalog()));
+    offer
+}
+
+/// The effort a teammate's answer says it runs at.
+fn effort_of(answer: &Value) -> Value {
+    answer["result"]["configs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|config| config["category"] == "effort")
+        .map_or(Value::Null, |config| config["currentId"].clone())
+}
+
+fn desk_effort(log: &Log, key: &str) -> Option<String> {
+    room::settings(log)
+        .get("effortByModel")
+        .and_then(|memory| memory.get(key))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// A teammate at rest switching models lands on an effort by the rules:
+/// its own last for the model, else the desk's from any teammate, else the
+/// one it runs at clamped down to what the model has, never up. Every level
+/// chosen, on a tab or by a switch, is remembered on the teammate and the
+/// desk, and both are still there when the desk opens again.
+#[tokio::test]
+async fn a_model_switch_lands_on_the_remembered_effort_and_remembers_it() {
+    let (root, log, port) = door_with(
+        "effort-memory",
+        Arc::new(Quiet::new().offering("claude-acp", claude_catalogued())),
+    );
+    let mut socket = desk(port).await;
+    let bob = create_on(&mut socket, 1, "Bob", "claude-acp").await;
+    let cy = create_on(&mut socket, 2, "Cy", "claude-acp").await;
+    let (bob, cy) = (bob["id"].as_str().unwrap(), cy["id"].as_str().unwrap());
+    let persona = |log: &Log, id: &str| {
+        room::roster(log)
+            .into_iter()
+            .find(|persona| persona.id == id)
+            .unwrap()
+    };
+    let set_model = |id: &str, model: &str| json!({ "personaId": id, "modelId": model });
+    let set_effort =
+        |id: &str, level: &str| json!({ "personaId": id, "configId": "effort", "value": level });
+
+    // A tab: Xhigh on Opus, remembered for Opus on Bob and on the desk.
+    let tab = command(
+        &mut socket,
+        3,
+        "session.set_config",
+        set_effort(bob, "xhigh"),
+    )
+    .await;
+    assert_eq!(effort_of(&tab), "xhigh", "{tab}");
+    assert_eq!(
+        persona(&log, bob)
+            .effort_by_model
+            .get("claude-acp/opus")
+            .map(String::as_str),
+        Some("xhigh")
+    );
+    assert_eq!(
+        desk_effort(&log, "claude-acp/opus").as_deref(),
+        Some("xhigh")
+    );
+
+    // Sonnet has no Xhigh: the switch steps down to High, never up to Max,
+    // and remembers it.
+    let sonnet = command(
+        &mut socket,
+        4,
+        "session.set_model",
+        set_model(bob, "sonnet"),
+    )
+    .await;
+    assert_eq!(effort_of(&sonnet), "high", "{sonnet}");
+    assert_eq!(persona(&log, bob).effort_id.as_deref(), Some("high"));
+    assert_eq!(
+        desk_effort(&log, "claude-acp/sonnet").as_deref(),
+        Some("high")
+    );
+    command(&mut socket, 5, "session.set_config", set_effort(bob, "low")).await;
+    assert_eq!(
+        desk_effort(&log, "claude-acp/sonnet").as_deref(),
+        Some("low")
+    );
+
+    // Back on Opus: Bob's own Xhigh for it.
+    let opus = command(&mut socket, 6, "session.set_model", set_model(bob, "opus")).await;
+    assert_eq!(effort_of(&opus), "xhigh", "{opus}");
+
+    // Cy has never run Sonnet: the desk's last for it, Bob's Low.
+    let cy_sonnet = command(&mut socket, 7, "session.set_model", set_model(cy, "sonnet")).await;
+    assert_eq!(effort_of(&cy_sonnet), "low", "{cy_sonnet}");
+    assert_eq!(
+        persona(&log, cy)
+            .effort_by_model
+            .get("claude-acp/sonnet")
+            .map(String::as_str),
+        Some("low")
+    );
+
+    // Haiku has no levels: nothing to land on, nothing remembered, and the
+    // teammate's effort is left for the next model.
+    let haiku = command(&mut socket, 8, "session.set_model", set_model(cy, "haiku")).await;
+    assert_eq!(effort_of(&haiku), Value::Null, "{haiku}");
+    assert!(
+        !persona(&log, cy)
+            .effort_by_model
+            .contains_key("claude-acp/haiku")
+    );
+    assert_eq!(persona(&log, cy).effort_id.as_deref(), Some("low"));
+    drop(socket);
+
+    // The desk opens again: both memories are where they were.
+    let log = Log::open(&root);
+    let door = Door::bind(
+        log.clone(),
+        "desk-token".to_string(),
+        Arc::new(Quiet::new().offering("claude-acp", claude_catalogued())),
+        Parts::default(),
+    )
+    .unwrap();
+    let port = door.port();
+    tokio::spawn(door.run());
+    let mut socket = desk(port).await;
+    assert_eq!(
+        persona(&log, bob)
+            .effort_by_model
+            .get("claude-acp/opus")
+            .map(String::as_str),
+        Some("xhigh")
+    );
+    let dee = create_on(&mut socket, 9, "Dee", "claude-acp").await;
+    let dee = dee["id"].as_str().unwrap();
+    let carried = command(
+        &mut socket,
+        10,
+        "session.set_model",
+        set_model(dee, "sonnet"),
+    )
+    .await;
+    assert_eq!(
+        effort_of(&carried),
+        "low",
+        "the desk's, after reopening: {carried}"
+    );
+}
+
+/// A teammate whose session is up is switched model first, then effort, on
+/// the session: the effort the rules land on, set only when the session is
+/// not already on it. A model whose levels only its session says is placed
+/// on what the session reports once the model is set.
+#[tokio::test]
+async fn a_live_switch_sets_the_model_then_the_landed_effort() {
+    let mut offer = claude_catalogued();
+    offer.models.push(ConfigChoice {
+        id: "mystery".to_string(),
+        name: "Mystery".to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+    });
+    let level = |id: &str| ConfigChoice {
+        id: id.to_string(),
+        name: id.to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+    };
+    let picker = |current: &str, levels: &[&str]| crate::contract::SessionConfig {
+        id: "effort".to_string(),
+        name: "Effort".to_string(),
+        category: Some(crate::contract::SessionConfigCategory::Effort),
+        current_id: Some(current.to_string()),
+        options: levels.iter().map(|id| level(id)).collect(),
+    };
+    let quiet = Arc::new(
+        Quiet::new()
+            .offering("claude-acp", offer.clone())
+            .reporting(
+                "sonnet",
+                picker("default", &["default", "low", "medium", "high", "max"]),
+            )
+            .reporting("mystery", picker("low", &["low", "medium"])),
+    );
+    let (_root, log, port) = door_with("effort-live", quiet.clone());
+    let mut socket = desk(port).await;
+    let bob = create_on(&mut socket, 1, "Bob", "claude-acp").await;
+    let bob = bob["id"].as_str().unwrap();
+    let mut live = idle(bob);
+    live.state = SessionState::Ready;
+    live.session_id = Some("s-1".to_string());
+    live.models = offer.models.clone();
+    live.current_model_id = Some("opus".to_string());
+    live.configs = vec![picker(
+        "xhigh",
+        &["default", "low", "medium", "high", "xhigh", "max"],
+    )];
+    quiet.set_info(live);
+
+    let sonnet = command(
+        &mut socket,
+        2,
+        "session.set_model",
+        json!({ "personaId": bob, "modelId": "sonnet" }),
+    )
+    .await;
+    assert_eq!(effort_of(&sonnet), "high", "{sonnet}");
+    assert_eq!(
+        quiet.calls(),
+        ["set_model sonnet", "set_config effort high"]
+    );
+    let bob_now = room::roster(&log).into_iter().next().unwrap();
+    assert_eq!(bob_now.model_id.as_deref(), Some("sonnet"));
+    assert_eq!(bob_now.effort_id.as_deref(), Some("high"));
+    assert_eq!(
+        desk_effort(&log, "claude-acp/sonnet").as_deref(),
+        Some("high")
+    );
+
+    // Mystery's levels come from its session: High clamps to Medium.
+    let mystery = command(
+        &mut socket,
+        3,
+        "session.set_model",
+        json!({ "personaId": bob, "modelId": "mystery" }),
+    )
+    .await;
+    assert_eq!(effort_of(&mystery), "medium", "{mystery}");
+    assert_eq!(
+        quiet.calls()[2..],
+        ["set_model mystery", "set_config effort medium"]
+    );
+    let bob_now = room::roster(&log).into_iter().next().unwrap();
+    assert_eq!(bob_now.effort_id.as_deref(), Some("medium"));
+    assert_eq!(
+        bob_now
+            .effort_by_model
+            .get("claude-acp/mystery")
+            .map(String::as_str),
+        Some("medium")
+    );
+
+    // A tab on a live session goes to it and is remembered.
+    let tab = command(
+        &mut socket,
+        4,
+        "session.set_config",
+        json!({ "personaId": bob, "configId": "effort", "value": "low" }),
+    )
+    .await;
+    assert_eq!(effort_of(&tab), "low", "{tab}");
+    assert_eq!(quiet.calls()[4..], ["set_config effort low"]);
+    assert_eq!(
+        desk_effort(&log, "claude-acp/mystery").as_deref(),
+        Some("low")
+    );
 }

@@ -99,6 +99,12 @@ pub struct Persona {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     #[ts(as = "Option<std::collections::BTreeMap<String, String>>", optional)]
     pub config_choices: std::collections::BTreeMap<String, String>,
+    /// The effort last chosen for each model this teammate has run on, by
+    /// `backend/model`: what a switch back to that model lands on. Kept
+    /// across moves between agents, since the key names the agent.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[ts(as = "Option<std::collections::BTreeMap<String, String>>", optional)]
+    pub effort_by_model: std::collections::BTreeMap<String, String>,
     /// A configured fallback harness for a desk that cannot run this
     /// teammate's current one — the matching ladder's middle rung, between
     /// "exactly what it runs now" and the room's default. Absent means no

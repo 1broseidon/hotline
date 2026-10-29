@@ -4,12 +4,15 @@ use super::persona::{living, update_persona};
 use super::settings::update_settings;
 use crate::contract::{Persona, SessionConfigCategory, SessionInfo, SessionState};
 use crate::driver::HOTLINE_BACKEND_ID;
+use crate::driver::acp::catalog;
 use crate::log::Log;
 use crate::room;
 use crate::wire::RoomHandle;
 use crate::wire::roster::offered_info;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
+
+mod effort;
 
 /// Where a fresh room stands, from what it already knows. A live credential
 /// is a way to run Hotline Agent; a startable harness is a way to run only once
@@ -66,6 +69,12 @@ pub(super) fn welcome(
 /// already running. Writing first means an idle teammate keeps the choice,
 /// and a live switch that fails still lands on the next start. A teammate at
 /// rest answers with what it offers, the new model current.
+///
+/// The effort moves with the model, by the rules in [`effort`]: written on
+/// the teammate with the model and remembered for both, and set on a live
+/// session after the model. A model whose levels are not known until a
+/// session on it reports them is placed once the live switch answers; at
+/// rest it keeps the teammate's effort, as before.
 pub(super) async fn set_model(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -88,10 +97,22 @@ pub(super) async fn set_model(
         return Err("A model needs an id.".to_string());
     }
 
+    let before = offered_info(log, room, persona_id);
+    let place = Placing::new(log, &persona, &before, model_id);
+    let landed = levels_of(&persona, &before, model_id)
+        .and_then(|(levels, default)| place.land(&levels, default.as_deref()));
     {
         let gate = room.policy_update_lock();
         let _held = gate.lock().await;
-        update_persona(log, room, persona_id, &json!({ "modelId": model_id }))?;
+        let mut patch = match &landed {
+            Some(level) => effort_patch(log, persona_id, &place.key, level)?,
+            None => json!({}),
+        };
+        patch["modelId"] = json!(model_id);
+        update_persona(log, room, persona_id, &patch)?;
+    }
+    if let Some(level) = &landed {
+        remember_on_desk(log, &place.key, level)?;
     }
     // The persisted choice counts as a use, so lastModelId is the id
     // just written rather than whatever a live session happens to report.
@@ -100,9 +121,159 @@ pub(super) async fn set_model(
     }
 
     if room.info(persona_id).state != SessionState::Idle {
-        return room.set_model(persona_id, model_id).await;
+        let info = room.set_model(persona_id, model_id).await?;
+        let Some(config) = catalog::effort_config(&info.configs).cloned() else {
+            return Ok(info);
+        };
+        let levels: Vec<String> = config.options.iter().map(|one| one.id.clone()).collect();
+        // The session's own levels are the last word: a model the desk
+        // could not place, or placed on a level its session does not have,
+        // is placed again on what the session reports.
+        let level = if let Some(level) = landed.filter(|level| levels.contains(level)) {
+            level
+        } else {
+            let Some(level) = place.land(&levels, config.current_id.as_deref()) else {
+                return Ok(info);
+            };
+            keep_effort(log, room, persona_id, &place.key, &level).await?;
+            level
+        };
+        if config.current_id.as_deref() == Some(level.as_str()) {
+            return Ok(info);
+        }
+        return room.set_config(persona_id, &config.id, &level).await;
     }
     Ok(offered_info(log, room, persona_id))
+}
+
+/// What a model switch places the new model's effort by: the teammate's and
+/// the desk's memories for that model and the effort it runs at now.
+struct Placing {
+    key: String,
+    teammate: Option<String>,
+    desk: Option<String>,
+    current: Option<String>,
+    current_levels: Vec<String>,
+}
+
+impl Placing {
+    fn new(log: &Log, persona: &Persona, before: &SessionInfo, model_id: &str) -> Self {
+        let key = effort::key(&persona.backend_id, model_id);
+        let desk = room::settings(log)
+            .get(effort::DESK_SETTING)
+            .and_then(|memory| memory.get(&key))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        // The effort as the session or the teammate's offer draws it; a
+        // Hotline Agent teammate at rest has no picker drawn, so its own.
+        let (current, current_levels) = match catalog::effort_config(&before.configs) {
+            Some(config) => (
+                config.current_id.clone().or(persona.effort_id.clone()),
+                config.options.iter().map(|one| one.id.clone()).collect(),
+            ),
+            None if persona.backend_id == HOTLINE_BACKEND_ID => {
+                let model = before
+                    .current_model_id
+                    .clone()
+                    .or(persona.model_id.clone())
+                    .unwrap_or_default();
+                (
+                    persona
+                        .effort_id
+                        .clone()
+                        .or_else(|| crate::models::default_effort(&model)),
+                    crate::models::efforts(&model),
+                )
+            }
+            None => (persona.effort_id.clone(), Vec::new()),
+        };
+        Self {
+            teammate: persona.effort_by_model.get(&key).cloned(),
+            key,
+            desk,
+            current,
+            current_levels,
+        }
+    }
+
+    fn land(&self, levels: &[String], default: Option<&str>) -> Option<String> {
+        effort::land(&effort::Switch {
+            levels,
+            default,
+            teammate: self.teammate.as_deref(),
+            desk: self.desk.as_deref(),
+            current: self.current.as_deref(),
+            current_levels: &self.current_levels,
+        })
+    }
+}
+
+/// A model's levels and default as the desk knows them before switching:
+/// Hotline Agent's from the catalogue, a harness's as its offer lists them.
+/// None when a harness has not said, which only a session on it can.
+fn levels_of(
+    persona: &Persona,
+    before: &SessionInfo,
+    model_id: &str,
+) -> Option<(Vec<String>, Option<String>)> {
+    if persona.backend_id == HOTLINE_BACKEND_ID {
+        return Some((
+            crate::models::efforts(model_id),
+            crate::models::default_effort(model_id),
+        ));
+    }
+    let model = before.models.iter().find(|model| model.id == model_id)?;
+    let levels = model.efforts.as_ref()?;
+    Some((
+        levels.iter().map(|level| level.id.clone()).collect(),
+        model.default_effort.clone(),
+    ))
+}
+
+/// An effort a switch landed on once the session said the model's levels:
+/// the teammate's effort, remembered on it and on the desk for the model.
+async fn keep_effort(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona_id: &str,
+    key: &str,
+    level: &str,
+) -> Result<(), String> {
+    {
+        let gate = room.policy_update_lock();
+        let _held = gate.lock().await;
+        update_persona(
+            log,
+            room,
+            persona_id,
+            &effort_patch(log, persona_id, key, level)?,
+        )?;
+    }
+    remember_on_desk(log, key, level)
+}
+
+/// The teammate's effort set to `level`, remembered for the model `key`
+/// names. Read under the policy lock, so no other write is lost.
+fn effort_patch(log: &Log, persona_id: &str, key: &str, level: &str) -> Result<Value, String> {
+    let mut patch = json!({ "effortId": level });
+    if let Some(memory) = effort::remembered(living(log, persona_id)?.effort_by_model, key, level) {
+        patch["effortByModel"] = json!(memory);
+    }
+    Ok(patch)
+}
+
+/// The desk's last effort for a model, across teammates.
+fn remember_on_desk(log: &Log, key: &str, level: &str) -> Result<(), String> {
+    let memory: std::collections::BTreeMap<String, String> = room::settings(log)
+        .get(effort::DESK_SETTING)
+        .and_then(|memory| serde_json::from_value(memory.clone()).ok())
+        .unwrap_or_default();
+    let Some(memory) = effort::remembered(memory, key, level) else {
+        return Ok(());
+    };
+    let mut patch = Map::new();
+    patch.insert(effort::DESK_SETTING.into(), json!(memory));
+    update_settings(log, patch).map(|_| ())
 }
 
 /// How long a switch of agent waits for a busy teammate to finish its turn
@@ -225,25 +396,33 @@ pub(super) async fn set_config(
         .info(persona_id)
         .current_model_id
         .or(persona.model_id.clone());
-    if let Some(model_id) = model_id
+    if let Some(model_id) = &model_id
         && !value.is_empty()
     {
-        let listed = crate::models::efforts(&model_id);
+        let listed = crate::models::efforts(model_id);
         if !listed.iter().any(|id| id == value) {
-            let label = crate::models::label_of(&model_id).unwrap_or(model_id);
+            let label = crate::models::label_of(model_id).unwrap_or(model_id.clone());
             return Err(format!("{value} is not an effort {label} offers."));
         }
     }
 
-    let effort = if value.is_empty() {
-        Value::Null
-    } else {
-        json!(value)
-    };
+    // A level chosen is remembered for the model, on the teammate and the
+    // desk; going back to the default is no choice to remember.
+    let key = model_id
+        .as_deref()
+        .filter(|_| !value.is_empty())
+        .map(|model_id| effort::key(HOTLINE_BACKEND_ID, model_id));
     {
         let gate = room.policy_update_lock();
         let _held = gate.lock().await;
-        update_persona(log, room, persona_id, &json!({ "effortId": effort }))?;
+        let patch = match &key {
+            Some(key) => effort_patch(log, persona_id, key, value)?,
+            None => json!({ "effortId": (!value.is_empty()).then_some(value) }),
+        };
+        update_persona(log, room, persona_id, &patch)?;
+    }
+    if let Some(key) = &key {
+        remember_on_desk(log, key, value)?;
     }
 
     if room.info(persona_id).state != SessionState::Idle {
@@ -283,10 +462,19 @@ async fn set_harness_config(
     });
     // A harness may offer its model as a config, which is no setting of the
     // teammate's: a live session's answer names the model, remembered below.
+    // An effort chosen is remembered for the model it is on, on the
+    // teammate and the desk.
+    let key = offered
+        .current_model_id
+        .as_deref()
+        .filter(|model| effort && !value.is_empty() && !model.is_empty())
+        .map(|model| effort::key(&persona.backend_id, model));
     if config.is_some() || effort || !running {
         let gate = room.policy_update_lock();
         let _held = gate.lock().await;
-        let patch = if effort {
+        let patch = if let Some(key) = &key {
+            effort_patch(log, &persona.id, key, value)?
+        } else if effort {
             json!({ "effortId": (!value.is_empty()).then_some(value) })
         } else {
             let mut choices = living(log, &persona.id)?.config_choices;
@@ -298,6 +486,9 @@ async fn set_harness_config(
             json!({ "configChoices": choices })
         };
         update_persona(log, room, &persona.id, &patch)?;
+    }
+    if let Some(key) = &key {
+        remember_on_desk(log, key, value)?;
     }
     if running {
         let info = room.set_config(&persona.id, config_id, value).await?;

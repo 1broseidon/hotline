@@ -599,6 +599,24 @@ truth, and the live switch is a courtesy to the turn already running. A
 Hotline Agent id the desk's `models.list` does not name is refused; an ACP
 teammate accepts any non-empty id, and the harness validates when live.
 
+The effort moves with the model, chosen by the core so every client lands
+the same way. For a new model with levels, in order: the teammate's own
+last effort for it (`effortByModel` on the persona); else the desk's last
+for it from any teammate (the `effortByModel` setting); else the current
+effort, when the new model offers it; else the highest level the new model
+offers that is not above the current one, placed by the current model's own
+order of levels or, failing that, by low < medium < high < xhigh < max <
+ultra, never a step up; else the new model's default. Auto (an agent's
+level named `default`) carries over only to a model that offers it and is
+never ranked, so a model without it lands on its default. The landed level
+is written as `effortId` with the model; on a live session the model is set
+and then the effort, unless the session already reports it. A harness model
+whose levels the desk does not know is placed once its session reports
+them; at rest it keeps the teammate's `effortId`. A model without levels
+changes nothing. Both memories are keyed `backend/model` (`claude-acp/opus`),
+and each level chosen, by `session.set_config` or by a switch, is written to
+both.
+
 `session.set_config` is the same shape for a setting that is not the
 model or the mode. For a Hotline Agent teammate with `configId` `"effort"`,
 it writes `effortId` (or `null` when `value` is empty) first and
@@ -618,8 +636,11 @@ nothing sent. The stored `effortId` always wins over the default, and a
 model switch to one that does not list the stored level falls back to the
 new model's default.
 
-`effortId` on the persona is the stored effort, optional like `modeId`.
-An ACP teammate does not store one: the harness owns its config ids.
+`effortId` on the persona is the stored effort, optional like `modeId`,
+for Hotline Agent and for a harness's effort picker alike; a harness's other
+settings are `configChoices`, by its own config ids. `effortByModel` on the
+persona and the room setting of the same name map `backend/model` to the
+last level chosen for that model, the teammate's own and the desk's.
 
 `models.catalog` lists a provider's discovered models when available, with
 manual additions and bundled metadata matched by exact provider/model ID.

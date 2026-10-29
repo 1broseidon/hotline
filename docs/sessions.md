@@ -811,9 +811,12 @@ sentence pointing at Settings → Agents. This agent does not offer modes.
 
 A model that lists efforts offers an Effort picker. The value lives on
 the persona as `effortId` and is sent on every request through Rig's
-`additional_params`. A model switch keeps the effort only if the new
-model lists it; otherwise it clears. Which clients carry an effort, and
-what is sent:
+`additional_params`. A model switch made through `session.set_model` lands
+on an effort the wire chooses (the teammate's or the desk's last for that
+model, else the current one where offered, else one step down, never up;
+see `docs/wire.md`) and sets it after the model. A switch the driver makes
+on its own keeps the effort only if the new model lists it; otherwise it
+clears. Which clients carry an effort, and what is sent:
 
 | client | body |
 | --- | --- |

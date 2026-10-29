@@ -72,6 +72,7 @@ fn persona(id: &str, cwd: &str) -> Persona {
         mode_id: None,
         effort_id: None,
         config_choices: std::collections::BTreeMap::new(),
+        effort_by_model: std::collections::BTreeMap::new(),
         harness_override: None,
         hop_notice: None,
         mcp_policy: McpPolicy {

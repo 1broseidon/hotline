@@ -1097,6 +1097,12 @@ effortId?: string,
  */
 configChoices?: { [key in string]: string }, 
 /**
+ * The effort last chosen for each model this teammate has run on, by
+ * `backend/model`: what a switch back to that model lands on. Kept
+ * across moves between agents, since the key names the agent.
+ */
+effortByModel?: { [key in string]: string }, 
+/**
  * A configured fallback harness for a desk that cannot run this
  * teammate's current one — the matching ladder's middle rung, between
  * "exactly what it runs now" and the room's default. Absent means no

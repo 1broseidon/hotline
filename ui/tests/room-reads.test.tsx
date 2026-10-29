@@ -55,6 +55,8 @@ class FakeCore {
 				"capabilities.options": { tts: { options: [] } },
 				"computer.status": { state: "absent" },
 				"skills.list": [], "teammate.tools": null,
+				// A model set at rest answers with the row, its effort picker on the new model.
+				"session.set_model": { configs: [{ id: "reasoning_effort", name: "Reasoning effort", category: "effort", currentId: "medium", options: [] }] },
 			};
 			const reply = { id: frame["id"], ok: true, result: answers[String(frame["cmd"])] ?? null };
 			if (this.hold && frame["cmd"] === "models.efforts") this.waiting.push(reply);
@@ -277,4 +279,40 @@ test("a resting harness teammate's menu lists the models and effort its agent la
 	// The core answers by drawing the row again with the choice current.
 	await act(async () => { root.render(<SessionPickers key="rested" entry={offered("low")} models={[]} onSaid={noop} />); });
 	expect(pill().textContent).toContain("Sonnet 5.5 · Low");
+});
+
+test("a resting teammate on an agent never run here shows the models and levels the desk read out of band, and a level of another model sets the model then the level", async () => {
+	// The row as the core draws it from Codex's catalogue alone: each model
+	// with its levels, the effort picker on the teammate's model.
+	const resting = entry("fresh", "codex-acp");
+	const levels = (ids: string[]) => ids.map((id) => ({ id, name: id[0]!.toUpperCase() + id.slice(1) }));
+	resting.session = {
+		...resting.session,
+		models: [
+			{ id: "gpt-6.1-sol", name: "6.1 Sol", efforts: levels(["low", "medium", "xhigh"]), defaultEffort: "low" },
+			{ id: "gpt-6-luna", name: "6 Luna", efforts: levels(["medium", "max"]), defaultEffort: "medium" },
+		],
+		currentModelId: "gpt-6.1-sol",
+		configs: [{ id: "reasoning_effort", name: "Reasoning effort", category: "effort", currentId: "low", options: levels(["low", "medium", "xhigh"]) }],
+	};
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="fresh" entry={resting} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const pill = container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill.textContent).toContain("6.1 Sol · Low");
+
+	await act(async () => pill.click());
+	const rows = [...document.querySelectorAll<HTMLElement>('.model-menu-main [role="menuitemradio"]')];
+	expect(rows.map((row) => row.getAttribute("aria-haspopup"))).toEqual(["menu", "menu"]);
+	await act(async () => rows[1]!.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
+	const luna = document.querySelector<HTMLElement>('[role="menu"][aria-label="6 Luna effort"]')!;
+	await act(async () => [...luna.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((one) => one.textContent === "Max")!.click());
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const asked = core().sent.filter((frame) => frame["cmd"] === "session.set_model" || frame["cmd"] === "session.set_config");
+	expect(asked.map((frame) => [frame["cmd"], frame["params"]])).toEqual([
+		["session.set_model", { personaId: "fresh", modelId: "gpt-6-luna" }],
+		["session.set_config", { personaId: "fresh", configId: "reasoning_effort", value: "max" }],
+	]);
 });

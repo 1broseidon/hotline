@@ -537,3 +537,104 @@ test("a compact pill is the model's mark and the face, the model in its label", 
 	expect(pill.getAttribute("aria-label")).toBe("Goldie: Claude Haiku · Medium");
 	expect(pill.querySelector(".model-pill-beat")).toBeNull();
 });
+
+const levels = (ids: string[]): ConfigChoice[] => ids.map((id) => ({ id, name: id[0]!.toUpperCase() + id.slice(1) }));
+// Codex's models as the desk read them out of band, each with its own levels.
+const codexModels: ConfigChoice[] = [
+	{ id: "sol", name: "6.1 Sol", efforts: levels(["low", "medium", "xhigh"]), defaultEffort: "low" },
+	{ id: "luna", name: "6 Luna", efforts: levels(["medium", "max"]), defaultEffort: "medium" },
+	{ id: "mini", name: "Mini", efforts: [] },
+];
+
+async function codexPicker(value: string) {
+	const calls: string[] = [];
+	await picker({
+		choices: [],
+		backendId: "codex-acp",
+		modelId: "sol",
+		agents: [{ id: "codex-acp", name: "Codex", choices: codexModels }],
+		onAgent: () => {},
+		effort: { value, choices: levels(["low", "medium", "xhigh"]) },
+		onModel: (id) => {
+			calls.push(`model:${id}`);
+		},
+		onEffort: (level) => {
+			calls.push(`effort:${level}`);
+		},
+		onModelEffort: (id, level) => {
+			calls.push(`model+effort:${id}:${level}`);
+		},
+	});
+	return calls;
+}
+
+const levelsMenu = (label: string) => document.querySelector<HTMLElement>(`[role="menu"][aria-label="${label}"]`);
+const levelRows = (label: string) => [...(levelsMenu(label)?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])];
+
+test("every model with levels opens them beside it, another model's at the teammate's level where it has it, and a level sets the model with it", async () => {
+	const calls = await codexPicker("medium");
+	await open();
+	const [sol, luna, mini] = mainModels();
+	expect([sol, luna, mini].map((row) => row!.getAttribute("aria-haspopup"))).toEqual(["menu", "menu", null]);
+	await hover(luna!);
+	expect(luna!.getAttribute("aria-expanded")).toBe("true");
+	expect(levelRows("6 Luna effort").map((row) => row.textContent)).toEqual(["Medium", "Max"]);
+	expect(levelRows("6 Luna effort").map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+	await hover(mini!);
+	expect(levelsMenu("6 Luna effort")).toBeNull();
+	await hover(luna!);
+	await act(async () => levelRows("6 Luna effort")[1]!.click());
+	expect(calls).toEqual(["model+effort:luna:max"]);
+	expect(document.querySelector('[role="menu"]')).toBeNull();
+});
+
+test("a model without the teammate's level opens at its own default, and clicking the row picks the model alone", async () => {
+	const calls = await codexPicker("xhigh");
+	await open();
+	const luna = mainModels()[1]!;
+	await hover(luna);
+	expect(levelRows("6 Luna effort").map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+	await act(async () => luna.click());
+	expect(calls).toEqual(["model:luna"]);
+});
+
+test("→ opens the lit model's levels, on the one it would run at, and Enter on a model not in use picks it", async () => {
+	const calls = await codexPicker("medium");
+	await open();
+	await press("ArrowDown");
+	await press("ArrowDown");
+	expect(mainModels()[1]!.dataset["active"]).toBe("true");
+	await press("ArrowRight");
+	expect(levelsMenu("6 Luna effort")?.querySelector('[data-active="true"]')?.textContent).toBe("Medium");
+	await press("ArrowDown");
+	await press("Enter");
+	expect(calls).toEqual(["model+effort:luna:max"]);
+	await open();
+	await press("ArrowDown");
+	await press("ArrowDown");
+	await press("Enter");
+	expect(calls).toEqual(["model+effort:luna:max", "model:luna"]);
+});
+
+test("a model under More models opens its levels too", async () => {
+	const many: ConfigChoice[] = Array.from({ length: 10 }, (_, at) => ({ id: `m${at}`, name: `Model ${at}`, efforts: levels(["low", "high"]), defaultEffort: "high" }));
+	const calls: string[] = [];
+	await picker({
+		choices: [],
+		backendId: "claude-acp",
+		modelId: "m0",
+		agents: [{ id: "claude-acp", name: "Claude Code", choices: many }],
+		onAgent: () => {},
+		effort: { value: "low", choices: levels(["low", "high"]) },
+		onModelEffort: (id, level) => {
+			calls.push(`model+effort:${id}:${level}`);
+		},
+	});
+	await open();
+	await hover(mainMenu().querySelector<HTMLButtonElement>(".model-more")!);
+	const all = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Claude Code models"] [role="menuitemradio"]')];
+	await hover(all[9]!);
+	expect(levelRows("Model 9 effort").map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+	await act(async () => levelRows("Model 9 effort")[1]!.click());
+	expect(calls).toEqual(["model+effort:m9:high"]);
+});

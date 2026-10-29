@@ -1,4 +1,4 @@
-import { type CSSProperties, Fragment, type KeyboardEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
 import { nearLimit, paceTick, planAccount, resetShort, shownWindows, windowHover, windowName } from "../plan";
@@ -147,11 +147,14 @@ function shownModels(models: ConfigChoice[], inUse: string | null): ConfigChoice
  * face; the account is in the tooltip and the menu, never the pill. A
  * `compact` pill is the mark and the face. The menu says who the teammate
  * is, then what it runs on: the agent and its plan, the plan's lines, this
- * agent's models, one click each, the one in use with its effort, which
- * opens the levels the model has; Change agent opens every other account
- * and agent: an account opens its models, a model opens its efforts. Then
- * the teammate's own actions. Picking a model keeps the effort when the
- * model has it, else the model's default; picking an effort sets both.
+ * agent's models, one click each, the one in use with its effort; each
+ * model with levels opens them beside it (the one in use at its effort,
+ * another at the teammate's effort when it has it, else its default), and
+ * picking a level of a model not in use sets the model and the level
+ * together. Change agent opens every other account and agent: an account
+ * opens its models, a model opens its efforts. Then the teammate's own
+ * actions. Picking a model keeps the effort when the model has it, else the
+ * model's default; picking an effort sets both.
  */
 export function ModelPicker({
 	choices,
@@ -163,6 +166,7 @@ export function ModelPicker({
 	onModel,
 	onAgent,
 	onEffort,
+	onModelEffort,
 	onAddAccount,
 	fallbackName,
 	knownName,
@@ -197,6 +201,8 @@ export function ModelPicker({
 	label: string;
 	onModel(modelId: string): Promise<void> | void;
 	onEffort(value: string): Promise<void> | void;
+	/** One of this agent's models not in use, at one of its own levels; else the model, then the effort. */
+	onModelEffort?: ((modelId: string, value: string) => Promise<void> | void) | undefined;
 	/** Settings › Providers, where accounts are added. */
 	onAddAccount?: (() => void) | undefined;
 }) {
@@ -328,6 +334,17 @@ export function ModelPicker({
 						close();
 						if (value !== effort?.value) void onEffort(value);
 					}}
+					onModelEffort={(id, value) => {
+						close();
+						void (async () => {
+							if (onModelEffort !== undefined) {
+								await onModelEffort(id, value);
+								return;
+							}
+							await onModel(id);
+							await onEffort(value);
+						})();
+					}}
 					onPick={(row, id) => {
 						close();
 						void pick(row, id);
@@ -366,6 +383,7 @@ function Panels({
 	modelId,
 	onModel,
 	onEffort,
+	onModelEffort,
 	onPick,
 	onPickEffort,
 	onAddAccount,
@@ -384,6 +402,7 @@ function Panels({
 	modelId: string;
 	onModel(id: string): void;
 	onEffort(value: string): void;
+	onModelEffort(id: string, value: string): void;
 	onPick(row: AccountRow, id: string): void;
 	onPickEffort(row: AccountRow, id: string, value: string): void;
 	onAddAccount?: () => void;
@@ -396,7 +415,9 @@ function Panels({
 	const [mainStyle, setMainStyle] = useState<CSSProperties>({ visibility: "hidden" });
 	// The open flyout beside the menu, the account open beside Change agent's
 	// list, the model open beside that, and where each panel sits.
-	const [flyout, setFlyout] = useState<{ kind: Flyout; top: number } | null>(null);
+	// An effort flyout names its model; More models may open one model's levels beside it.
+	const [flyout, setFlyout] = useState<{ kind: Flyout; top: number; model?: string } | null>(null);
+	const [moreModel, setMoreModel] = useState<{ id: string; top: number } | null>(null);
 	const [account, setAccount] = useState<{ key: string; top: number } | null>(null);
 	const [model, setModel] = useState<{ id: string; top: number } | null>(null);
 	const [efforts, setEfforts] = useState<Record<string, Efforts>>({});
@@ -442,6 +463,26 @@ function Panels({
 	}, [anchor, onClose]);
 
 	const levels = effort !== null && effort.choices.length > 1 ? effort.choices : [];
+	// A model's levels: the one in use has the session's, another its own,
+	// as its agent lists them. A single level is nothing to choose.
+	const levelsOf = (id: string | undefined): ConfigChoice[] => {
+		if (id === undefined) return [];
+		if (id === inUse) return levels;
+		const own = models.find((choice) => choice.id === id)?.efforts ?? [];
+		return own.length > 1 ? own : [];
+	};
+	// The level checked for a model: the one in use, else the teammate's
+	// effort where the model has it, else the model's own default.
+	const levelOf = (id: string): string | undefined => {
+		if (id === inUse) return effort?.value;
+		if (effort !== null && levelsOf(id).some((one) => one.id === effort.value)) return effort.value;
+		return models.find((choice) => choice.id === id)?.defaultEffort ?? undefined;
+	};
+	const pickLevel = (id: string, value: string) => (id === inUse ? onEffort(value) : onModelEffort(id, value));
+	// The levels of the model in use are its Effort; another's are named for it.
+	const levelsLabel = (id: string) => (id === inUse ? "Effort" : `${models.find((one) => one.id === id)?.name ?? id} effort`);
+	const flyLevels = flyout?.kind === "effort" ? levelsOf(flyout.model) : [];
+	const moreLevels = flyout?.kind === "more" ? levelsOf(moreModel?.id) : [];
 	const shown = shownModels(models, inUse);
 	const changes = others.length > 0 || onAddAccount !== undefined;
 	// The teammate's actions, under a rule, and a rule wherever the entries put one.
@@ -463,24 +504,41 @@ function Panels({
 	const firstAgent = others.findIndex((row) => sectionOf(row) === "agents");
 	// Change agent's list: every other account and agent, then Add an account.
 	const agentList: (AccountRow | "add")[] = [...others, ...(onAddAccount !== undefined ? ["add" as const] : [])];
-	const sideCount = flyout?.kind === "effort" ? levels.length : flyout?.kind === "more" ? models.length : agentList.length;
+	const sideCount = flyout?.kind === "effort" ? flyLevels.length : flyout?.kind === "more" ? models.length : agentList.length;
 
 	const opens = (row: AccountRow) => row.unavailable === undefined && row.choices.length > 0;
 	const openRow = others.find((row) => row.key === account?.key);
 	const openModel = openRow?.choices.find((choice) => choice.id === model?.id);
 
-	const showFlyout = (kind: Flyout, element: HTMLElement) => {
-		if (flyout?.kind === kind) return;
-		setFlyout({ kind, top: element.getBoundingClientRect().top });
+	const showFlyout = (kind: Flyout, element: HTMLElement, modelId?: string) => {
+		if (flyout?.kind === kind && flyout.model === modelId) return;
+		setFlyout({ kind, top: element.getBoundingClientRect().top, ...(modelId !== undefined ? { model: modelId } : {}) });
 		setAccount(null);
 		setModel(null);
-		const at = kind === "effort" ? levels.findIndex((one) => one.id === effort?.value) : kind === "more" ? models.findIndex((one) => one.id === inUse) : 0;
+		setMoreModel(null);
+		const at =
+			kind === "effort"
+				? levelsOf(modelId).findIndex((one) => one.id === levelOf(modelId ?? ""))
+				: kind === "more"
+					? models.findIndex((one) => one.id === inUse)
+					: 0;
 		setSideActive(Math.max(0, at));
 	};
 	const hideFlyout = () => {
 		setFlyout(null);
 		setAccount(null);
 		setModel(null);
+		setMoreModel(null);
+	};
+	// A row of More models with levels opens them beside the list.
+	const showMoreModel = (choice: ConfigChoice, element: HTMLElement) => {
+		if (levelsOf(choice.id).length === 0) {
+			setMoreModel(null);
+			return;
+		}
+		if (moreModel?.id === choice.id) return;
+		setMoreModel({ id: choice.id, top: element.getBoundingClientRect().top });
+		setSubActive(Math.max(0, levelsOf(choice.id).findIndex((one) => one.id === levelOf(choice.id))));
 	};
 	const showAccount = (row: AccountRow, element: HTMLElement) => {
 		// An agent that is not ready does not open: its row says why. One
@@ -509,12 +567,14 @@ function Panels({
 		if (row.kind === "more") return "more";
 		if (row.kind === "agents") return "agents";
 		if (row.kind === "action") return null;
-		return row.choice.id === inUse && levels.length > 0 ? "effort" : null;
+		return levelsOf(row.choice.id).length > 0 ? "effort" : null;
 	};
 	const back = () => {
 		if (level === 3) setModel(null);
-		else if (level === 2) setAccount(null);
-		else hideFlyout();
+		else if (level === 2) {
+			setAccount(null);
+			setMoreModel(null);
+		} else hideFlyout();
 		setLevel((was) => Math.max(0, was - 1) as 0 | 1 | 2);
 	};
 	// Change agent's row, picked: an account or agent with models opens
@@ -549,7 +609,15 @@ function Panels({
 			return;
 		}
 		const list =
-			level === 0 ? rows.length : level === 1 ? sideCount : level === 2 ? (openRow?.choices.length ?? 0) : (efforts[model?.id ?? ""]?.choices.length ?? 0);
+			level === 0
+				? rows.length
+				: level === 1
+					? sideCount
+					: level === 2
+						? flyout?.kind === "more"
+							? moreLevels.length
+							: (openRow?.choices.length ?? 0)
+						: (efforts[model?.id ?? ""]?.choices.length ?? 0);
 		const step = (value: number, by: number) => (list === 0 ? 0 : (value + by + list) % list);
 		if (key === "ArrowDown" || key === "ArrowUp") {
 			event.preventDefault();
@@ -576,21 +644,31 @@ function Panels({
 			const row = rows[active];
 			const kind = flyoutOf(row);
 			const element = main.current?.querySelector<HTMLElement>(`[data-row="${active}"]`);
-			if (kind !== null && element) {
-				showFlyout(kind, element);
+			const modelRow = row?.kind === "model" ? row.choice.id : undefined;
+			// Enter on a model not in use picks it; → opens its levels.
+			const opens = kind !== null && (!enter || modelRow === undefined || modelRow === inUse);
+			if (opens && element) {
+				showFlyout(kind, element, modelRow);
 				setLevel(1);
-			} else if (row?.kind === "model" && enter) onModel(row.choice.id);
+			} else if (modelRow !== undefined && enter) onModel(modelRow);
 			else if (row?.kind === "action" && enter) act(row.action);
 		} else if (level === 1) {
 			if (flyout?.kind === "effort") {
-				const value = levels[sideActive];
-				if (value && enter) onEffort(value.id);
+				const value = flyLevels[sideActive];
+				if (value && enter && flyout.model !== undefined) pickLevel(flyout.model, value.id);
 			} else if (flyout?.kind === "more") {
 				const choice = models[sideActive];
-				if (choice && enter) onModel(choice.id);
+				const element = side.current?.querySelector<HTMLElement>(`[data-row="${sideActive}"]`);
+				if (choice && !enter && element && levelsOf(choice.id).length > 0) {
+					showMoreModel(choice, element);
+					setLevel(2);
+				} else if (choice && enter) onModel(choice.id);
 			} else {
 				chooseAgent(agentList[sideActive], side.current?.querySelector<HTMLElement>(`[data-row="${sideActive}"]`) ?? null, enter);
 			}
+		} else if (level === 2 && flyout?.kind === "more") {
+			const value = moreLevels[subActive];
+			if (value && enter && moreModel !== null) pickLevel(moreModel.id, value.id);
 		} else if (level === 2) {
 			const choice = openRow?.choices[subActive];
 			if (!choice || !openRow) return;
@@ -653,7 +731,8 @@ function Panels({
 					if (row.kind === "model") {
 						const { choice } = row;
 						const used = choice.id === inUse;
-						const opensEffort = used && levels.length > 0;
+						const opensEffort = levelsOf(choice.id).length > 0;
+						const effortOpen = opensEffort && flyout?.kind === "effort" && flyout.model === choice.id;
 						return (
 							<button
 								key={choice.id}
@@ -661,20 +740,20 @@ function Panels({
 								role="menuitemradio"
 								aria-checked={used}
 								aria-haspopup={opensEffort ? "menu" : undefined}
-								aria-expanded={opensEffort ? flyout?.kind === "effort" : undefined}
+								aria-expanded={opensEffort ? effortOpen : undefined}
 								data-row={at}
 								data-current={used ? "true" : undefined}
-								data-active={lit(0, at, active) ?? (opensEffort && flyout?.kind === "effort" ? "true" : undefined)}
+								data-active={lit(0, at, active) ?? (effortOpen ? "true" : undefined)}
 								tabIndex={-1}
 								className="menu-item model-row"
 								onMouseEnter={(event) => {
 									setActive(at);
 									setLevel(0);
-									if (opensEffort) showFlyout("effort", event.currentTarget);
+									if (opensEffort) showFlyout("effort", event.currentTarget, choice.id);
 									else hideFlyout();
 								}}
 								onClick={(event) => {
-									if (opensEffort) showFlyout("effort", event.currentTarget);
+									if (used && opensEffort) showFlyout("effort", event.currentTarget, choice.id);
 									else onModel(choice.id);
 								}}
 							>
@@ -745,55 +824,67 @@ function Panels({
 					);
 				})}
 			</div>
-			{flyout?.kind === "effort" && (
-				<div ref={side} role="menu" tabIndex={-1} aria-label="Effort" className="menu model-menu" style={beside(main.current, flyout.top, 160)}>
-					<div className="menu-heading">Effort</div>
-					{levels.map((one, at) => (
-						<button
-							key={one.id}
-							type="button"
-							role="menuitemradio"
-							aria-checked={one.id === effort?.value}
-							data-row={at}
-							data-active={lit(1, at, sideActive)}
-							tabIndex={-1}
-							className="menu-item model-row"
-							onMouseEnter={() => {
-								setSideActive(at);
-								setLevel(1);
-							}}
-							onClick={() => onEffort(one.id)}
-						>
-							<span className="menu-item-check model-check">{one.id === effort?.value && <CheckIcon />}</span>
-							<span className="menu-item-text">{one.name}</span>
-						</button>
-					))}
-				</div>
+			{flyout?.kind === "effort" && flyout.model !== undefined && (
+				<Levels
+					panel={side}
+					label={levelsLabel(flyout.model)}
+					levels={flyLevels}
+					checked={levelOf(flyout.model)}
+					active={level === 1 ? sideActive : -1}
+					style={beside(main.current, flyout.top, 160)}
+					onHover={(at) => {
+						setSideActive(at);
+						setLevel(1);
+					}}
+					onPick={(value) => pickLevel(flyout.model ?? "", value)}
+				/>
 			)}
 			{flyout?.kind === "more" && (
 				<div ref={side} role="menu" tabIndex={-1} aria-label={`${head.name} models`} className="menu model-menu" style={beside(main.current, flyout.top, 248)}>
 					<div className="menu-heading">{head.name}</div>
-					{models.map((choice, at) => (
-						<button
-							key={choice.id}
-							type="button"
-							role="menuitemradio"
-							aria-checked={choice.id === inUse}
-							data-row={at}
-							data-active={lit(1, at, sideActive)}
-							tabIndex={-1}
-							className="menu-item model-row"
-							onMouseEnter={() => {
-								setSideActive(at);
-								setLevel(1);
-							}}
-							onClick={() => onModel(choice.id)}
-						>
-							<span className="menu-item-check model-check">{choice.id === inUse && <CheckIcon />}</span>
-							<span className="menu-item-text">{choice.name}</span>
-						</button>
-					))}
+					{models.map((choice, at) => {
+						const opensEffort = levelsOf(choice.id).length > 0;
+						return (
+							<button
+								key={choice.id}
+								type="button"
+								role="menuitemradio"
+								aria-checked={choice.id === inUse}
+								aria-haspopup={opensEffort ? "menu" : undefined}
+								aria-expanded={opensEffort ? moreModel?.id === choice.id : undefined}
+								data-row={at}
+								data-active={lit(1, at, sideActive) ?? (moreModel?.id === choice.id ? "true" : undefined)}
+								tabIndex={-1}
+								className="menu-item model-row"
+								onMouseEnter={(event) => {
+									setSideActive(at);
+									setLevel(1);
+									showMoreModel(choice, event.currentTarget);
+								}}
+								onClick={() => onModel(choice.id)}
+							>
+								<span className="menu-item-check model-check">{choice.id === inUse && <CheckIcon />}</span>
+								<span className="menu-item-text">{choice.name}</span>
+								{opensEffort && <ChevronRightIcon className="model-row-more" />}
+							</button>
+						);
+					})}
 				</div>
+			)}
+			{flyout?.kind === "more" && moreModel !== null && (
+				<Levels
+					panel={sub}
+					label={levelsLabel(moreModel.id)}
+					levels={moreLevels}
+					checked={levelOf(moreModel.id)}
+					active={level === 2 ? subActive : -1}
+					style={beside(side.current, moreModel.top, 160)}
+					onHover={(at) => {
+						setSubActive(at);
+						setLevel(2);
+					}}
+					onPick={(value) => pickLevel(moreModel.id, value)}
+				/>
 			)}
 			{flyout?.kind === "agents" && (
 				<div ref={side} role="menu" tabIndex={-1} aria-label="Change agent" className="menu model-menu model-menu-agents" style={beside(main.current, flyout.top, 280)}>
@@ -924,6 +1015,52 @@ function Panels({
 			)}
 		</div>,
 		document.body,
+	);
+}
+
+/** A model's effort levels, beside the row that opened them, the one it runs at checked. */
+function Levels({
+	panel,
+	label,
+	levels,
+	checked,
+	active,
+	style,
+	onHover,
+	onPick,
+}: {
+	panel: RefObject<HTMLDivElement | null>;
+	label: string;
+	levels: ConfigChoice[];
+	checked: string | undefined;
+	/** The row the keyboard is on, or -1. */
+	active: number;
+	style: CSSProperties;
+	onHover(at: number): void;
+	onPick(value: string): void;
+}) {
+	return (
+		<div ref={panel} role="menu" tabIndex={-1} aria-label={label} className="menu model-menu" style={style}>
+			<div className="menu-heading">Effort</div>
+			{levels.map((one, at) => (
+				<button
+					key={one.id}
+					type="button"
+					role="menuitemradio"
+					aria-checked={one.id === checked}
+					data-row={at}
+					data-active={at === active ? "true" : undefined}
+					tabIndex={-1}
+					className="menu-item model-row"
+					title={one.description ?? undefined}
+					onMouseEnter={() => onHover(at)}
+					onClick={() => onPick(one.id)}
+				>
+					<span className="menu-item-check model-check">{one.id === checked && <CheckIcon />}</span>
+					<span className="menu-item-text">{one.name}</span>
+				</button>
+			))}
+		</div>
 	);
 }
 

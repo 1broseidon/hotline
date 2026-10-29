@@ -17,9 +17,11 @@ const HOTLINE_AGENT = "hotline";
  * whether or not a session is up, and offer the same choices: a harness
  * teammate at rest has what its agent last offered on this desk, filled in
  * by the core, with its own choices current, so nothing goes missing
- * because the agent is not running. Only an agent that has never reported
- * here is sparse: the pill names the harness. Mode is not here: it is the
- * teammate's own and lives in the inspector.
+ * because the agent is not running. Each model carries its own levels, so
+ * any model's effort can be chosen, with the model, at any time. Only an
+ * agent that has never reported here, and whose models the desk has not
+ * read out of band, is sparse: the pill names the harness. Mode is not
+ * here: it is the teammate's own and lives in the inspector.
  *
  * A refusal from the core is handed up, not shown: the strip has no room
  * for a sentence, and the conversation says it under its band. Keyed by
@@ -87,6 +89,18 @@ export function SessionPickers({
 	const setConfig = async (configId: string, value: string) => {
 		onSaid(null);
 		await wire.command("session.set_config", { personaId, configId, value }).catch((error: Error) => onSaid(error.message));
+	};
+	// Another model at one of its own levels: the model, then the level on
+	// the effort picker the model's answer names, running or not.
+	const setModelEffort = async (modelId: string, value: string) => {
+		onSaid(null);
+		try {
+			const info = await wire.command("session.set_model", { personaId, modelId });
+			const picker = info.configs.find((config) => config.category === "effort");
+			await wire.command("session.set_config", { personaId, configId: picker?.id ?? effort?.id ?? "effort", value });
+		} catch (error) {
+			onSaid((error as Error).message);
+		}
 	};
 
 	const setBackend = async (backendId: string, modelId: string | undefined) => {
@@ -172,6 +186,7 @@ export function SessionPickers({
 				plan={session.planUsage}
 				onModel={setModel}
 				onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
+				onModelEffort={setModelEffort}
 				onAddAccount={onAddAccount}
 				teammate={teammate}
 				compact={compact}

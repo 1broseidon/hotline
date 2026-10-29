@@ -173,6 +173,13 @@ export const ChevronRightIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/* Change agent: one arrow out, one back. */
+export const SwapIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M3 5.5h9.5M10.25 3.25l2.25 2.25-2.25 2.25M13 10.5H3.5M5.75 8.25L3.5 10.5l2.25 2.25" />
+	</Icon>
+);
+
 export const CheckIcon = ({ className }: IconProps) => (
 	<Icon className={className} strokeWidth={1.75}>
 		<path d="M3.25 8.5l3 3 6.5-7" />

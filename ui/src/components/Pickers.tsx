@@ -118,7 +118,7 @@ export function SessionPickers({
 	if (backends !== undefined || (hotline && modelChoices.length > 0)) {
 		const effort = configs.find((config) => config.category === "effort");
 		// A resting harness offers no effort to change: the strip names the
-		// one it last ran at, a single level, so no slider stands for it.
+		// one it last ran at, a single level, so nothing opens for it.
 		const shownEffort =
 			effort !== undefined
 				? { value: effort.currentId ?? "", choices: effort.options }

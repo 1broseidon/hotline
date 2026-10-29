@@ -199,7 +199,8 @@ test("a Hotline Agent teammate with no account left keeps the picker, so it can 
 	const button = container.querySelector<HTMLButtonElement>("button.model-picker");
 	expect(button).not.toBeNull();
 	await act(async () => button!.click());
-	expect(document.body.textContent).toContain("Agents");
+	await act(async () => document.querySelector<HTMLButtonElement>(".model-change")!.click());
+	expect(document.querySelector('[role="menu"][aria-label="Change agent"]')?.textContent).toContain("Agents");
 });
 
 test("a resting harness teammate's strip keeps the pretty name and effort its last live session named, never the model id", async () => {

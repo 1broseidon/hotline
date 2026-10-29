@@ -4,6 +4,7 @@ import type { Attachment, FileChunk } from "../generated/contract";
 import type { Sent } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { wire } from "../wire";
+import { ViewerBar } from "../ui/Viewer";
 import { MarkdownDocument } from "./Markdown";
 
 /** The most of a markdown file read whole to render it; past it, it reads as text a page at a time. */
@@ -35,18 +36,14 @@ export function SentPreview({ sent, actions, onClose }: { sent: Sent; actions: R
 	}, [onClose]);
 	return createPortal(
 		<div className="viewer" role="dialog" aria-modal="true" aria-label={file.name}>
-			<div className="viewer-bar bg-canvas text-ink">
-				<span className="mr-auto truncate">{file.name}</span>
-				<span className="flex gap-1.5">
-					{renders && !unreadable && (
-						<button type="button" className="control btn btn-sm" aria-pressed={source} onClick={() => setSource((was) => !was)}>
-							{source ? "Rendered" : "Source"}
-						</button>
-					)}
-					{actions}
-				</span>
-				<button type="button" className="control btn btn-sm" onClick={onClose}>Close</button>
-			</div>
+			<ViewerBar title={file.name} onClose={onClose}>
+				{renders && !unreadable && (
+					<button type="button" className="control btn btn-sm" aria-pressed={source} onClick={() => setSource((was) => !was)}>
+						{source ? "Rendered" : "Source"}
+					</button>
+				)}
+				{actions}
+			</ViewerBar>
 			{rendered ? <DocumentPage sent={sent} onUnreadable={giveUp} /> : <TextPages sent={sent} />}
 		</div>, document.body,
 	);

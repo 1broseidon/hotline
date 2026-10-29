@@ -221,6 +221,7 @@ export function Teammate({
 								<textarea
 									ref={goalField}
 									aria-label="Goal"
+									title="Saved as AGENTS.md"
 									className="profile-goal"
 									data-clipped={goalClipped || undefined}
 									rows={1}

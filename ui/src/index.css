@@ -690,6 +690,12 @@
 	.pane-column .group-title {
 		margin: 0 0 8px 16px;
 	}
+	/* A group of one setting is a row, not a card: the card is for rows that
+	 * belong together. */
+	.pane-column .grouped:has(> .group-row:only-child) {
+		background: none;
+		box-shadow: none;
+	}
 	.pane-column .use-for-nested {
 		padding-left: 32px;
 	}
@@ -3227,11 +3233,12 @@
 		flex-wrap: wrap;
 		gap: 6px;
 	}
-	.nt-submit {
-		height: 38px;
-		min-width: 150px;
-		border-radius: 999px;
-		font-weight: 600;
+	/* The form's own keys: the system's buttons, a step taller as a form's footer is. */
+	.nt-submit,
+	.nt-submit ~ .control,
+	.control:has(~ .nt-submit) {
+		height: 30px;
+		padding: 0 14px;
 	}
 	/* A provider Hotline Agent can run on now, under its row in the agent picker. */
 	.provider-chip {
@@ -3971,11 +3978,13 @@
 	.scroll-thumb-held {
 		background: var(--thumb-hover);
 	}
+	/* A pane's page reads from under its title, at a reading width, rather
+	 * than floating in the middle of a wide window. */
 	.pane-column {
 		width: 100%;
-		max-width: 560px;
-		margin: 0 auto;
-		padding: 16px 24px 40px;
+		max-width: 600px;
+		margin: 0;
+		padding: 16px 24px 40px 16px;
 	}
 	.inspector {
 		width: 320px;
@@ -4657,11 +4666,38 @@
 		flex-direction: column;
 		background: oklch(0% 0 0 / 0.78);
 	}
+	/* A pane's band over the viewer: what it is, its actions, close. */
 	.viewer-bar {
 		display: flex;
-		justify-content: flex-end;
+		height: 40px;
+		flex-shrink: 0;
+		align-items: center;
 		gap: 6px;
-		padding: 10px 12px;
+		padding: 0 8px 0 16px;
+		background: var(--canvas);
+		color: var(--ink);
+		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
+	}
+	/* Over the whole window: the traffic lights keep their corner. */
+	html[data-platform="macos"]:not([data-fullscreen]) .viewer-bar {
+		padding-left: 80px;
+	}
+	.viewer-title {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: 600;
+	}
+	.viewer-actions {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+	}
+	.viewer-actions .sent-actions {
+		margin-left: 0;
 	}
 	.viewer-stage {
 		flex: 1;
@@ -5700,7 +5736,7 @@
 		background: var(--line);
 	}
 	.settings-dock-version {
-		border-radius: 4px;
+		border-radius: 15px 4px 4px 15px;
 		font-size: 12px;
 		font-variant-numeric: tabular-nums;
 	}

@@ -258,7 +258,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 							)}
 						</div>
 						<p className="group-hint">
-							Kept in your keychain. Give one to a teammate's computer in its pane.
+							Kept in your keychain. Allow one for a teammate's computer in that teammate's settings.
 						</p>
 					</section>
 					{refusal !== null && <Refusal {...refusal} />}

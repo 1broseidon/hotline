@@ -239,6 +239,8 @@ export function RemoteSection() {
 		await moveDeskToRelay(deskId);
 		setRelays(await wire.command("remote.relays", {}));
 	});
+	// The address it was told to listen on is no longer one of this computer's.
+	const hostGone = status?.enabled === true && host !== "all" && !status.addresses.includes(host);
 	return <>
 		<section aria-label="Remote access">
 			<h3 className="group-title">Connection</h3>
@@ -246,7 +248,10 @@ export function RemoteSection() {
 				<label className="group-row group-row-choice">
 					<span className="group-row-text">
 						<span className="group-row-title">Remote access</span>
-						<span className="group-row-detail">{status?.enabled ? "On · Linked phones can reach this desk." : "Off"}</span>
+						{/* On is the setting; whether phones can reach the desk is the address it listens on, said apart. */}
+						<span className={hostGone ? "group-row-detail text-warn-ink" : "group-row-detail"}>
+							{!status?.enabled ? "Off" : hostGone ? `On · ${host} is unavailable` : "On · Linked phones can reach this desk"}
+						</span>
 					</span>
 					<input type="checkbox" role="switch" className="switch" aria-label="Remote access" checked={status?.enabled ?? false} disabled={busy || !status} onChange={(e) => void configure(e.target.checked)} />
 				</label>

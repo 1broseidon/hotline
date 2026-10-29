@@ -270,13 +270,13 @@ export function NewTeammateForm({
 					<p className="hint">
 						{simple
 							? "Its job, in your own words. It reads this every time it starts."
-							: "Its job description, written into its folder as AGENTS.md. It reads it every time it starts."}
+							: "What this teammate does. You can change it later."}
 					</p>
 				</div>
 			</section>
 
 			<section className="nt-folds">
-				<Fold title="Thinks with" value={thinks} open={open === "thinks"} onToggle={() => fold("thinks")}>
+				<Fold title="Agent" value={thinks} open={open === "thinks"} onToggle={() => fold("thinks")}>
 					{backends.length > 0 && !simple && (
 						<div>
 							<p className="label" id="new-backend">

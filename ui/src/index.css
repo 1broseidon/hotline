@@ -796,7 +796,8 @@
 		width: 13px;
 		height: 13px;
 		border-radius: 50%;
-		background: var(--ink);
+		background: var(--knob);
+		box-shadow: var(--knob-shadow);
 		transition: transform var(--dur-open) var(--ease-out);
 	}
 	.switch:checked,
@@ -2385,15 +2386,17 @@
 		height: 5px;
 		gap: 2px;
 	}
+	/* A segment is a mark, not a line: ink, quietly, so it reads on either
+	 * theme's pane (a hairline's colour all but vanished on white). */
 	.shape-bar > span {
 		min-width: 3px;
 		border-radius: 2px;
-		background: var(--line-strong);
+		background: color-mix(in oklab, var(--ink-4) 60%, transparent);
 		transition: background var(--dur-press) var(--ease-out);
 	}
 	.shape-bar > span[data-tone="think"] {
 		background: none;
-		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink-4) 55%, transparent);
 	}
 	.shape-bar > span[data-tone="web"] {
 		background: color-mix(in oklab, var(--accent), transparent 45%);

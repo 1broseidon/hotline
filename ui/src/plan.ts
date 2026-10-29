@@ -7,14 +7,30 @@ import type { PlanUsage, PlanWindow } from "./generated/contract";
  */
 
 const NAMES: Record<string, string> = {
-	five_hour: "5-hour",
+	five_hour: "5h",
 	seven_day: "Weekly",
-	seven_day_opus: "Weekly · Opus",
-	seven_day_sonnet: "Weekly · Sonnet",
-	overage: "Extra usage",
+	seven_day_opus: "Opus",
+	seven_day_sonnet: "Sonnet",
+	overage: "Extra",
 };
 
-/** A window as a person names it: "5-hour", "Weekly · Opus". */
+/** The windows worth a line: the 5-hour and the weekly, and a model's own only once it nears its limit. */
+export function shownWindows(plan: PlanUsage): PlanWindow[] {
+	return plan.windows.filter((window) => window.kind === "five_hour" || window.kind === "seven_day" || window.status !== "allowed" || (window.usedPercent ?? 0) >= 80);
+}
+
+/** When it resets, as short as a line has room for: "9pm" today, "Fri" this week, "Nov 4" after. */
+export function resetShort(resetsAt: number, now: number = Date.now()): string {
+	const at = new Date(resetsAt);
+	if (resetsAt <= now) return "now";
+	if (new Date(now).toDateString() === at.toDateString()) {
+		return at.toLocaleTimeString(undefined, { hour: "numeric", minute: at.getMinutes() === 0 ? undefined : "2-digit" }).replace(/\s/g, "").toLowerCase();
+	}
+	if (resetsAt - now < 6 * 86_400_000) return at.toLocaleDateString(undefined, { weekday: "short" });
+	return at.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** A window as a line labels it: "5h", "Weekly", "Opus". */
 export function windowName(window: PlanWindow): string {
 	return NAMES[window.kind] ?? window.kind.replace(/_/g, " ");
 }

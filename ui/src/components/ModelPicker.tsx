@@ -1,7 +1,7 @@
 import { type CSSProperties, Fragment, type KeyboardEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
-import { nearLimit, resetText, windowName, windowUse } from "../plan";
+import { nearLimit, resetShort, resetText, shownWindows, windowName, windowUse } from "../plan";
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon } from "../icons";
 import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import { wire } from "../wire";
@@ -701,19 +701,25 @@ function EffortSlider({ effort, onEffort }: { effort: { value: string; choices: 
 	);
 }
 
-/** The plan's windows under the model: how much of each is used, a bar, and when it resets. */
+/** The plan under the model: a line per window, its name, a thin bar, the use and when it resets. */
 function PlanRows({ plan }: { plan: PlanUsage }) {
+	const windows = shownWindows(plan);
+	if (windows.length === 0) return null;
 	return (
-		<div className="plan-rows" title={`As of ${new Date(plan.at).toLocaleString()}`}>
-			<div className="menu-heading plan-heading">Plan</div>
-			{plan.windows.map((window) => (
-				<div key={window.kind} className="plan-row" data-status={window.status}>
+		<div className="plan-rows" title={`Plan usage as of ${new Date(plan.at).toLocaleString()}`}>
+			{windows.map((window) => (
+				<div
+					key={window.kind}
+					className="plan-row"
+					data-status={window.status}
+					title={window.resetsAt !== undefined ? `${windowName(window)}: ${windowUse(window)}, ${resetText(window.resetsAt)}` : undefined}
+				>
 					<span className="plan-name">{windowName(window)}</span>
 					<span className="plan-bar" aria-hidden="true">
 						<span style={{ width: `${Math.min(100, window.status === "limited" ? 100 : (window.usedPercent ?? 0))}%` }} />
 					</span>
-					<span className="plan-use">{windowUse(window)}</span>
-					{window.resetsAt !== undefined && <span className="plan-reset">{resetText(window.resetsAt)}</span>}
+					<span className="plan-use">{window.status === "limited" ? "100%" : window.usedPercent !== undefined ? `${Math.round(window.usedPercent)}%` : "–"}</span>
+					<span className="plan-reset">{window.resetsAt !== undefined ? resetShort(window.resetsAt) : ""}</span>
 				</div>
 			))}
 		</div>

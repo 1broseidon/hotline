@@ -83,7 +83,8 @@ test("the button names model and effort, the account only in its tooltip", async
 
 const open = async () => act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
 const mainMenu = () => document.querySelector<HTMLElement>('[role="menu"][aria-label="Model"]')!;
-const mainModels = () => [...mainMenu().querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+const mainModels = () => [...mainMenu().querySelectorAll<HTMLButtonElement>('.model-row[role="menuitemradio"]')];
+const tabs = () => [...mainMenu().querySelectorAll<HTMLButtonElement>('fieldset[aria-label="Effort"] [role="menuitemradio"]')];
 const changeAgent = () => mainMenu().querySelector<HTMLButtonElement>(".model-change")!;
 const agentRows = () => [...document.querySelectorAll<HTMLElement>('[role="menu"][aria-label="Change agent"] .model-account')];
 const names = (rows: HTMLElement[]) => rows.map((row) => row.querySelector(".menu-item-text")?.textContent);
@@ -99,36 +100,42 @@ test("the head names the agent's account, and its models are the menu: the one i
 	const models = mainModels();
 	expect(models.map((model) => model.querySelector(".menu-item-text")?.textContent)).toEqual(["Claude Haiku", "Claude Opus"]);
 	expect(models.map((model) => model.getAttribute("aria-checked"))).toEqual(["true", "false"]);
-	expect(models[0]!.querySelector(".model-row-detail")?.textContent).toBe("Medium");
-	expect(models[0]!.getAttribute("aria-haspopup")).toBe("menu");
-	expect(models[1]!.getAttribute("aria-haspopup")).toBeNull();
-	expect(models[1]!.querySelector(".model-row-detail")).toBeNull();
+	// The effort is the tabs over the models; no row opens levels beside it.
+	expect(tabs().map((tab) => [tab.textContent, tab.getAttribute("aria-checked")])).toEqual([
+		["Low", "false"],
+		["Med", "true"],
+		["High", "false"],
+		["Max", "false"],
+	]);
+	expect(models.map((model) => model.getAttribute("aria-haspopup"))).toEqual([null, null]);
+	expect(models.some((model) => model.querySelector(".model-row-more") !== null)).toBe(false);
 	// No slider, and no API or Agents headings: the others wait under Change agent.
 	expect(menu.querySelector('[role="slider"]')).toBeNull();
 	expect(menu.querySelectorAll(".menu-heading").length).toBe(0);
 	expect(changeAgent().querySelector(".model-change-hint")?.textContent).toBe("API");
 });
 
-test("choosing another of the agent's models changes the model and closes the menu", async () => {
+test("choosing another of the agent's models changes the model and keeps the menu open", async () => {
 	const calls = await picker();
 	await open();
 	await act(async () => mainModels()[1]!.click());
 	expect(calls).toEqual(["model:anthropic#work/claude-opus"]);
-	expect(document.querySelector('[role="menu"]')).toBeNull();
+	expect(mainMenu()).not.toBeNull();
+	// The model in use, chosen again, is nothing to do.
+	await act(async () => mainModels()[1]!.click());
+	expect(calls).toEqual(["model:anthropic#work/claude-opus"]);
 });
 
-test("the model in use opens its effort levels beside it, the one in use checked, and a level sets the effort alone", async () => {
+test("a tab sets the effort and keeps the menu open, the tab chosen at once", async () => {
 	const calls = await picker();
 	await open();
-	const inUse = mainModels()[0]!;
-	await hover(inUse);
-	expect(inUse.getAttribute("aria-expanded")).toBe("true");
-	const levels = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Effort"] [role="menuitemradio"]')];
-	expect(levels.map((level) => level.textContent)).toEqual(["Low", "Medium", "High", "Max"]);
-	expect(levels.map((level) => level.getAttribute("aria-checked"))).toEqual(["false", "true", "false", "false"]);
-	await act(async () => levels[2]!.click());
+	await act(async () => tabs()[2]!.click());
 	expect(calls).toEqual(["effort:high"]);
-	expect(document.querySelector('[role="menu"]')).toBeNull();
+	expect(mainMenu()).not.toBeNull();
+	expect(tabs().map((tab) => tab.getAttribute("aria-checked"))).toEqual(["false", "false", "true", "false"]);
+	// The tab in use, chosen again, sends nothing.
+	await act(async () => tabs()[2]!.click());
+	expect(calls).toEqual(["effort:high"]);
 });
 
 test("Change agent opens every other account, and picking one of its models sets that account's model", async () => {
@@ -160,33 +167,38 @@ test("Add an account, under Change agent, goes to Settings › Providers", async
 	expect(calls).toEqual(["add"]);
 });
 
-test("a plain id runs on the account listing it plainly, and a model with one effort shows it but opens nothing", async () => {
+test("a plain id runs on the account listing it plainly, and a model with one effort or none has no tabs", async () => {
 	await picker({ modelId: "openai/gpt-6", effort: { value: "high", choices: [{ id: "high", name: "High" }] } });
 	await open();
 	expect(mainMenu().querySelector(".model-head-name")?.textContent).toBe("OpenAI");
 	expect(mainMenu().querySelector(".model-head-kind")?.textContent).toBe("API key");
 	const [gpt] = mainModels();
 	expect(gpt!.getAttribute("aria-checked")).toBe("true");
-	expect(gpt!.querySelector(".model-row-detail")?.textContent).toBe("High");
-	expect(gpt!.getAttribute("aria-haspopup")).toBeNull();
-	await hover(gpt!);
-	expect(document.querySelector('[role="menu"][aria-label="Effort"]')).toBeNull();
+	expect(tabs()).toEqual([]);
+	await picker({ modelId: "openai/gpt-6", effort: null });
+	expect(tabs()).toEqual([]);
 });
 
-test("the keyboard walks the menu: → opens the effort and Change agent, ← and Escape close them, Enter picks", async () => {
+test("the keyboard walks the menu: ← and → walk the tabs, → opens Change agent, ← and Escape close it, Enter picks and stays", async () => {
 	const calls = await picker();
 	await open();
-	// The first arrow lights the model in use; → opens its efforts, on the one in use.
+	// The first arrow lights the model in use; up is the effort row, on the tab in use.
 	await press("ArrowDown");
 	expect(mainModels()[0]!.dataset["active"]).toBe("true");
+	await press("ArrowUp");
+	expect(tabs()[1]!.dataset["active"]).toBe("true");
 	await press("ArrowRight");
-	const effort = () => document.querySelector('[role="menu"][aria-label="Effort"]');
-	expect(effort()).not.toBeNull();
-	expect(effort()!.querySelector('[data-active="true"]')?.textContent).toBe("Medium");
-	await press("ArrowLeft");
-	expect(effort()).toBeNull();
-	// Down past Claude Opus to Change agent; → opens the list, → again an account's models.
+	expect(tabs()[2]!.dataset["active"]).toBe("true");
+	await press("Enter");
+	expect(calls).toEqual(["effort:high"]);
+	expect(mainMenu()).not.toBeNull();
+	// Down to Claude Opus: Enter switches to it and the menu stays.
 	await press("ArrowDown");
+	await press("ArrowDown");
+	await press("Enter");
+	expect(calls).toEqual(["effort:high", "model:anthropic#work/claude-opus"]);
+	expect(mainMenu()).not.toBeNull();
+	// On to Change agent; → opens the list, → again an account's models.
 	await press("ArrowDown");
 	expect(changeAgent().dataset["active"]).toBe("true");
 	await press("ArrowRight");
@@ -198,13 +210,7 @@ test("the keyboard walks the menu: → opens the effort and Change agent, ← an
 	expect(document.querySelector('[role="menu"][aria-label="Anthropic · Personal"]')).toBeNull();
 	await press("Escape");
 	expect(document.querySelector('[role="menu"][aria-label="Change agent"]')).toBeNull();
-	// Back up to the effort, down a level, Enter sets it.
-	await press("ArrowUp");
-	await press("ArrowUp");
-	await press("Enter");
-	await press("ArrowDown");
-	await press("Enter");
-	expect(calls).toEqual(["effort:high"]);
+	await press("Escape");
 	expect(document.querySelector('[role="menu"]')).toBeNull();
 });
 
@@ -222,6 +228,7 @@ test("an agent with many models shows the first eight, the one in use among them
 	expect(all[10]!.getAttribute("aria-checked")).toBe("true");
 	await act(async () => all[11]!.click());
 	expect(calls).toEqual(["model:anthropic#work/m11"]);
+	expect(mainMenu()).not.toBeNull();
 });
 
 const agents = [
@@ -326,7 +333,6 @@ test("on a harness, the head is the agent and its models are a model change; Hot
 	// Claude Code, in use, is not listed again under Change agent.
 	expect(names(agentRows())).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Codex", "Cursor"]);
 	await act(async () => mainModels()[1]!.click());
-	await open();
 	await act(async () => changeAgent().click());
 	await act(async () => agentRows()[0]!.click());
 	const haiku = document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
@@ -501,9 +507,10 @@ test("with the teammate it is one pill and one menu: the face ends the pill, the
 	expect(menu.querySelector(".model-who .menu-card-name")?.textContent).toBe("Goldie");
 	expect(menu.querySelector(".model-who .menu-card-detail")?.textContent).toBe("Help me with whatever I bring you.");
 	expect(menu.querySelector(".model-head-name")?.textContent).toBe("Anthropic · Work");
-	// Models, Change agent, then the actions, a rule above them and above Remove.
-	const items = [...menu.querySelectorAll<HTMLElement>("[data-row]")];
-	expect(items.map((one) => one.textContent)).toEqual(["Claude HaikuMedium", "Claude Opus", "Change agentAPI", "Settings⌘I", "New chapter", "Threads", "Remove"]);
+	// The effort tabs, models, Change agent, then the actions, a rule above them and above Remove.
+	const items = [...menu.querySelectorAll<HTMLElement>("[data-row]")].slice(1);
+	expect(menu.querySelector("[data-row]")?.getAttribute("aria-label")).toBe("Effort");
+	expect(items.map((one) => one.textContent)).toEqual(["Claude Haiku", "Claude Opus", "Change agentAPI", "Settings⌘I", "New chapter", "Threads", "Remove"]);
 	expect(menu.querySelectorAll("hr.menu-rule").length).toBe(2);
 	expect(items[3]!.querySelector(".model-check svg")).not.toBeNull();
 	expect(items[4]!.getAttribute("aria-disabled")).toBe("true");
@@ -534,103 +541,96 @@ test("a compact pill is the model's mark and the face, the model in its label", 
 	expect(pill.querySelector(".model-pill-beat")).toBeNull();
 });
 
-const levels = (ids: string[]): ConfigChoice[] => ids.map((id) => ({ id, name: id[0]!.toUpperCase() + id.slice(1) }));
-// Codex's models as the desk read them out of band, each with its own levels.
-const codexModels: ConfigChoice[] = [
-	{ id: "sol", name: "6.1 Sol", efforts: levels(["low", "medium", "xhigh"]), defaultEffort: "low" },
-	{ id: "luna", name: "6 Luna", efforts: levels(["medium", "max"]), defaultEffort: "medium" },
-	{ id: "mini", name: "Mini", efforts: [] },
+const levels = (ids: string[]): ConfigChoice[] => ids.map((id) => ({ id, name: id === "default" ? "Default" : id[0]!.toUpperCase() + id.slice(1) }));
+// Claude Code's models as the desk read them out of band, each with its own levels.
+const claudeModels: ConfigChoice[] = [
+	{ id: "opus", name: "Opus 5.5", efforts: levels(["default", "low", "medium", "high", "xhigh", "max"]), defaultEffort: "default" },
+	{ id: "sonnet", name: "Sonnet 4.6", efforts: levels(["default", "low", "medium", "high", "max"]), defaultEffort: "default" },
+	{ id: "haiku", name: "Haiku 4.5", efforts: [] },
 ];
 
-async function codexPicker(value: string) {
-	const calls: string[] = [];
-	await picker({
-		choices: [],
-		backendId: "codex-acp",
-		modelId: "sol",
-		agents: [{ id: "codex-acp", name: "Codex", choices: codexModels }],
-		onAgent: () => {},
-		effort: { value, choices: levels(["low", "medium", "xhigh"]) },
-		onModel: (id) => {
-			calls.push(`model:${id}`);
-		},
-		onEffort: (level) => {
-			calls.push(`effort:${level}`);
-		},
-		onModelEffort: (id, level) => {
-			calls.push(`model+effort:${id}:${level}`);
-		},
-	});
-	return calls;
-}
-
-const levelsMenu = (label: string) => document.querySelector<HTMLElement>(`[role="menu"][aria-label="${label}"]`);
-const levelRows = (label: string) => [...(levelsMenu(label)?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])];
-
-test("every model with levels opens them beside it, another model's at the teammate's level where it has it, and a level sets the model with it", async () => {
-	const calls = await codexPicker("medium");
-	await open();
-	const [sol, luna, mini] = mainModels();
-	expect([sol, luna, mini].map((row) => row!.getAttribute("aria-haspopup"))).toEqual(["menu", "menu", null]);
-	await hover(luna!);
-	expect(luna!.getAttribute("aria-expanded")).toBe("true");
-	expect(levelRows("6 Luna effort").map((row) => row.textContent)).toEqual(["Medium", "Max"]);
-	expect(levelRows("6 Luna effort").map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false"]);
-	await hover(mini!);
-	expect(levelsMenu("6 Luna effort")).toBeNull();
-	await hover(luna!);
-	await act(async () => levelRows("6 Luna effort")[1]!.click());
-	expect(calls).toEqual(["model+effort:luna:max"]);
-	expect(document.querySelector('[role="menu"]')).toBeNull();
-});
-
-test("a model without the teammate's level opens at its own default, and clicking the row picks the model alone", async () => {
-	const calls = await codexPicker("xhigh");
-	await open();
-	const luna = mainModels()[1]!;
-	await hover(luna);
-	expect(levelRows("6 Luna effort").map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false"]);
-	await act(async () => luna.click());
-	expect(calls).toEqual(["model:luna"]);
-});
-
-test("→ opens the lit model's levels, on the one it would run at, and Enter on a model not in use picks it", async () => {
-	const calls = await codexPicker("medium");
-	await open();
-	await press("ArrowDown");
-	await press("ArrowDown");
-	expect(mainModels()[1]!.dataset["active"]).toBe("true");
-	await press("ArrowRight");
-	expect(levelsMenu("6 Luna effort")?.querySelector('[data-active="true"]')?.textContent).toBe("Medium");
-	await press("ArrowDown");
-	await press("Enter");
-	expect(calls).toEqual(["model+effort:luna:max"]);
-	await open();
-	await press("ArrowDown");
-	await press("ArrowDown");
-	await press("Enter");
-	expect(calls).toEqual(["model+effort:luna:max", "model:luna"]);
-});
-
-test("a model under More models opens its levels too", async () => {
-	const many: ConfigChoice[] = Array.from({ length: 10 }, (_, at) => ({ id: `m${at}`, name: `Model ${at}`, efforts: levels(["low", "high"]), defaultEffort: "high" }));
+/** A Claude Code teammate on Opus at `value`; `answer` is what the desk says a switch landed on. */
+async function claudePicker(value: string, answer: () => Promise<string | null>, landsOn?: (id: string) => string | undefined) {
 	const calls: string[] = [];
 	await picker({
 		choices: [],
 		backendId: "claude-acp",
-		modelId: "m0",
-		agents: [{ id: "claude-acp", name: "Claude Code", choices: many }],
+		modelId: "opus",
+		agents: [{ id: "claude-acp", name: "Claude Code", choices: claudeModels }],
 		onAgent: () => {},
-		effort: { value: "low", choices: levels(["low", "high"]) },
-		onModelEffort: (id, level) => {
-			calls.push(`model+effort:${id}:${level}`);
+		effort: { value, choices: claudeModels[0]!.efforts! },
+		onModel: (id) => {
+			calls.push(`model:${id}`);
+			return answer();
 		},
+		onEffort: (level) => {
+			calls.push(`effort:${level}`);
+		},
+		landsOn,
 	});
+	return calls;
+}
+
+test("the tabs are the model in use's levels: Default is Auto, which Claude decides, and Medium is Med", async () => {
+	await claudePicker("xhigh", async () => null);
 	await open();
-	await hover(mainMenu().querySelector<HTMLButtonElement>(".model-more")!);
-	const all = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Claude Code models"] [role="menuitemradio"]')];
-	await hover(all[9]!);
-	expect(levelRows("Model 9 effort").map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false"]);
-	await act(async () => levelRows("Model 9 effort")[1]!.click());
-	expect(calls).toEqual(["model+effort:m9:high"]);
+	expect(tabs().map((tab) => tab.textContent)).toEqual(["Auto", "Low", "Med", "High", "Xhigh", "Max"]);
+	expect(tabs()[0]!.title).toBe("Claude decides");
+	expect(tabs()[2]!.title).toBe("Medium");
+	expect(tabs()[4]!.getAttribute("aria-checked")).toBe("true");
+	const { tabLabel } = await import("../src/components/ModelPicker");
+	expect(tabLabel({ id: "default", name: "Default" }, "codex-acp")).toEqual({ label: "Auto", title: "The agent decides" });
+	expect(tabLabel({ id: "ultra", name: "Ultra" }, "codex-acp")).toEqual({ label: "Ultra" });
+});
+
+test("switching model keeps the menu open and shows the new model's tabs at once, dimmed with its check beating until the desk answers", async () => {
+	let answer: (effort: string | null) => void = () => {};
+	const calls = await claudePicker(
+		"xhigh",
+		() =>
+			new Promise((resolve) => {
+				answer = resolve;
+			}),
+		(id) => (id === "sonnet" ? "high" : undefined),
+	);
+	await open();
+	await act(async () => mainModels()[1]!.click());
+	expect(calls).toEqual(["model:sonnet"]);
+	expect(mainMenu()).not.toBeNull();
+	const [opus, sonnet] = mainModels();
+	expect([opus!.getAttribute("aria-checked"), sonnet!.getAttribute("aria-checked")]).toEqual(["false", "true"]);
+	expect(sonnet!.getAttribute("aria-busy")).toBe("true");
+	expect(sonnet!.querySelector(".model-check")?.classList.contains("beat")).toBe(true);
+	// Sonnet's levels, no Xhigh, at the level it is likely to land on, dimmed.
+	expect(tabs().map((tab) => tab.textContent)).toEqual(["Auto", "Low", "Med", "High", "Max"]);
+	expect(tabs().find((tab) => tab.getAttribute("aria-checked") === "true")?.textContent).toBe("High");
+	const group = mainMenu().querySelector<HTMLElement>('fieldset[aria-label="Effort"]')!;
+	expect(group.dataset["busy"]).toBe("true");
+	// A tab while the switch waits does nothing.
+	await act(async () => tabs()[1]!.click());
+	expect(calls).toEqual(["model:sonnet"]);
+
+	// The desk answers: the effort it landed on is the one selected, not dimmed.
+	await act(async () => answer("medium"));
+	expect(group.dataset["busy"]).toBeUndefined();
+	expect(mainModels()[1]!.getAttribute("aria-busy")).toBeNull();
+	expect(tabs().find((tab) => tab.getAttribute("aria-checked") === "true")?.textContent).toBe("Med");
+});
+
+test("a switch to a model without levels shows no tabs, and a refused switch goes back", async () => {
+	let refuse: (error: Error) => void = () => {};
+	await claudePicker(
+		"high",
+		() =>
+			new Promise((_, reject) => {
+				refuse = reject;
+			}),
+	);
+	await open();
+	await act(async () => mainModels()[2]!.click());
+	expect(tabs()).toEqual([]);
+	expect(mainModels()[2]!.getAttribute("aria-checked")).toBe("true");
+	await act(async () => refuse(new Error("no")));
+	expect(mainModels()[0]!.getAttribute("aria-checked")).toBe("true");
+	expect(tabs().length).toBe(6);
 });

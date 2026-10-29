@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import { plainModel } from "../accounts";
 import type { ConfigChoice, SessionConfig } from "../generated/contract";
+import { landsOn } from "../effortLanding";
 import { lastKnown, rememberKnown } from "../lastKnown";
 import { refreshRoomRead, useRoomRead } from "../roomReads";
-import { useRoomSettings } from "../room";
+import { useRawSetting, useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { type MenuTeammate, ModelPicker } from "./ModelPicker";
 import { wire, type RosterEntry } from "../wire";
@@ -18,7 +19,8 @@ const HOTLINE_AGENT = "hotline";
  * teammate at rest has what its agent last offered on this desk, filled in
  * by the core, with its own choices current, so nothing goes missing
  * because the agent is not running. Each model carries its own levels, so
- * any model's effort can be chosen, with the model, at any time. Only an
+ * a switch shows the new model's effort tabs at once, at the effort the
+ * core lands it on. Only an
  * agent that has never reported here, and whose models the desk has not
  * read out of band, is sparse: the pill names the harness. Mode is not
  * here: it is the teammate's own and lives in the inspector.
@@ -82,25 +84,38 @@ export function SessionPickers({
 						},
 					]
 				: [];
-	const setModel = async (modelId: string) => {
+	// A model switch lands on an effort the core chooses, the teammate's or
+	// the desk's last for the model, else the nearest level not above the
+	// current one, set after the model: the answer says which.
+	const setModel = async (modelId: string): Promise<string | null> => {
 		onSaid(null);
-		await wire.command("session.set_model", { personaId, modelId }).catch((error: Error) => onSaid(error.message));
+		try {
+			const info = await wire.command("session.set_model", { personaId, modelId });
+			return info.configs.find((config) => config.category === "effort")?.currentId ?? null;
+		} catch (error) {
+			onSaid((error as Error).message);
+			throw error;
+		}
 	};
 	const setConfig = async (configId: string, value: string) => {
 		onSaid(null);
 		await wire.command("session.set_config", { personaId, configId, value }).catch((error: Error) => onSaid(error.message));
 	};
-	// Another model at one of its own levels: the model, then the level on
-	// the effort picker the model's answer names, running or not.
-	const setModelEffort = async (modelId: string, value: string) => {
-		onSaid(null);
-		try {
-			const info = await wire.command("session.set_model", { personaId, modelId });
-			const picker = info.configs.find((config) => config.category === "effort");
-			await wire.command("session.set_config", { personaId, configId: picker?.id ?? effort?.id ?? "effort", value });
-		} catch (error) {
-			onSaid((error as Error).message);
-		}
+	// What a switch will land on, by the core's rules, shown dimmed until
+	// its answer says.
+	const deskEfforts = useRawSetting("effortByModel");
+	const predict = (modelId: string): string | undefined => {
+		const key = `${persona.backendId}/${modelId}`;
+		const model = agents.find((agent) => agent.id === persona.backendId)?.choices.find((choice) => choice.id === modelId);
+		const desk = typeof deskEfforts === "object" && deskEfforts !== null ? (deskEfforts as Record<string, unknown>)[key] : undefined;
+		return landsOn({
+			levels: (model?.efforts ?? []).map((level) => level.id),
+			default: model?.defaultEffort ?? undefined,
+			teammate: persona.effortByModel?.[key],
+			desk: typeof desk === "string" ? desk : undefined,
+			current: effort?.currentId ?? undefined,
+			currentLevels: (effort?.options ?? []).map((level) => level.id),
+		});
 	};
 
 	const setBackend = async (backendId: string, modelId: string | undefined) => {
@@ -175,8 +190,8 @@ export function SessionPickers({
 				onAgent={setBackend}
 				onOpen={() => {
 					refreshRoomRead("backends.list");
-					// The plan under the model is the account's reading; the
-					// core reads it again only when it is a few minutes old.
+					// The plan named beside the agent is the account's reading;
+					// the core reads it again only when it is a few minutes old.
 					void wire.command("plan.refresh", { personaId }).catch(() => {});
 				}}
 				{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
@@ -186,7 +201,7 @@ export function SessionPickers({
 				plan={session.planUsage}
 				onModel={setModel}
 				onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
-				onModelEffort={setModelEffort}
+				landsOn={predict}
 				onAddAccount={onAddAccount}
 				teammate={teammate}
 				compact={compact}

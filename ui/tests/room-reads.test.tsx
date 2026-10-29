@@ -265,23 +265,24 @@ test("a resting harness teammate's menu lists the models and effort its agent la
 
 	await act(async () => pill().click());
 	const main = document.querySelector<HTMLElement>(".model-menu-main")!;
-	const rows = [...main.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
-	expect(rows.map((row) => row.textContent)).toEqual(["Opus 5.5", "Sonnet 5.5High"]);
-	const current = main.querySelector<HTMLElement>('[aria-checked="true"]')!;
-	expect(current.getAttribute("aria-haspopup")).toBe("menu");
-	await act(async () => current.click());
-	const levels = document.querySelector<HTMLElement>('[role="menu"][aria-label="Effort"]')!;
-	expect([...levels.querySelectorAll('[role="menuitemradio"]')].map((one) => one.textContent)).toEqual(["Low", "Medium", "High"]);
-	await act(async () => [...levels.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((one) => one.textContent === "Low")!.click());
+	const rows = [...main.querySelectorAll<HTMLElement>('.model-row[role="menuitemradio"]')];
+	expect(rows.map((row) => [row.textContent, row.getAttribute("aria-checked")])).toEqual([
+		["Opus 5.5", "false"],
+		["Sonnet 5.5", "true"],
+	]);
+	const tabs = () => [...main.querySelectorAll<HTMLElement>('[aria-label="Effort"] [role="menuitemradio"]')];
+	expect(tabs().map((one) => one.textContent)).toEqual(["Low", "Med", "High"]);
+	await act(async () => tabs()[0]!.click());
 	const asked = core().sent.filter((frame) => frame["cmd"] === "session.set_config");
 	expect(asked.map((frame) => frame["params"])).toEqual([{ personaId: "rested", configId: "reasoning", value: "low" }]);
+	expect(document.querySelector(".model-menu-main")).not.toBeNull();
 
 	// The core answers by drawing the row again with the choice current.
 	await act(async () => { root.render(<SessionPickers key="rested" entry={offered("low")} models={[]} onSaid={noop} />); });
 	expect(pill().textContent).toContain("Sonnet 5.5 · Low");
 });
 
-test("a resting teammate on an agent never run here shows the models and levels the desk read out of band, and a level of another model sets the model then the level", async () => {
+test("a resting teammate on an agent never run here shows the models and levels the desk read out of band, and a model switch shows the new model's tabs at the effort the core landed on", async () => {
 	// The row as the core draws it from Codex's catalogue alone: each model
 	// with its levels, the effort picker on the teammate's model.
 	const resting = entry("fresh", "codex-acp");
@@ -304,15 +305,19 @@ test("a resting teammate on an agent never run here shows the models and levels 
 	expect(pill.textContent).toContain("6.1 Sol · Low");
 
 	await act(async () => pill.click());
-	const rows = [...document.querySelectorAll<HTMLElement>('.model-menu-main [role="menuitemradio"]')];
-	expect(rows.map((row) => row.getAttribute("aria-haspopup"))).toEqual(["menu", "menu"]);
-	await act(async () => rows[1]!.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
-	const luna = document.querySelector<HTMLElement>('[role="menu"][aria-label="6 Luna effort"]')!;
-	await act(async () => [...luna.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((one) => one.textContent === "Max")!.click());
+	const main = document.querySelector<HTMLElement>(".model-menu-main")!;
+	const tabs = () => [...main.querySelectorAll<HTMLElement>('[aria-label="Effort"] [role="menuitemradio"]')];
+	expect(tabs().map((one) => one.textContent)).toEqual(["Low", "Med", "Xhigh"]);
+	const rows = [...main.querySelectorAll<HTMLElement>('.model-row[role="menuitemradio"]')];
+	expect(rows.map((row) => row.getAttribute("aria-haspopup"))).toEqual([null, null]);
+	await act(async () => rows[1]!.click());
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	// The core chooses the effort: one command, and the menu shows Luna's tabs at its answer.
 	const asked = core().sent.filter((frame) => frame["cmd"] === "session.set_model" || frame["cmd"] === "session.set_config");
-	expect(asked.map((frame) => [frame["cmd"], frame["params"]])).toEqual([
-		["session.set_model", { personaId: "fresh", modelId: "gpt-6-luna" }],
-		["session.set_config", { personaId: "fresh", configId: "reasoning_effort", value: "max" }],
+	expect(asked.map((frame) => [frame["cmd"], frame["params"]])).toEqual([["session.set_model", { personaId: "fresh", modelId: "gpt-6-luna" }]]);
+	expect(document.querySelector(".model-menu-main")).not.toBeNull();
+	expect(tabs().map((one) => [one.textContent, one.getAttribute("aria-checked")])).toEqual([
+		["Med", "true"],
+		["Max", "false"],
 	]);
 });

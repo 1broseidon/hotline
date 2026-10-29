@@ -888,8 +888,8 @@
 		visibility: hidden;
 	}
 	/* The model picker (ModelPicker.tsx), which is the teammate's menu too:
-	 * who it is, the agent and its plan's name, the agent's models, the one
-	 * in use checked with its effort, Change agent opening every other
+	 * who it is, the agent and its plan's name, the effort tabs, the agent's
+	 * models, the one in use checked, Change agent opening every other
 	 * account and agent beside, then the teammate's actions. */
 	/* One pill in the band's corner: the maker's mark, the model and its
 	 * effort, the teammate's face at the end. A raised
@@ -961,8 +961,8 @@
 		gap: 12px;
 		padding-top: 6px;
 	}
-	/* The agent and its plan, on one line: over the models in the menu,
-	 * over the plan's lines on the gauge's card. */
+	/* The agent and its plan, on one line: over the effort tabs in the
+	 * menu, over the plan's lines on the gauge's card. */
 	.model-head {
 		display: flex;
 		min-width: 0;
@@ -1093,6 +1093,42 @@
 		width: 300px;
 		max-width: 300px;
 		padding-bottom: 6px;
+	}
+	/* The effort of the model in use, one row of equal tabs under the agent.
+	 * Dimmed while a model switch waits on the agent. */
+	.segmented.effort-tabs {
+		display: flex;
+		min-width: 0;
+		margin: 1px 6px 6px;
+		border: 0;
+	}
+	.effort-tab {
+		flex: 1 1 0;
+		min-width: 0;
+		justify-content: center;
+		padding: 0 2px;
+		white-space: nowrap;
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	.effort-tab:hover:not([aria-checked="true"]),
+	.effort-tab[data-active="true"]:not([aria-checked="true"]) {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.effort-tab[aria-checked="true"] {
+		background: var(--pop);
+		color: var(--ink);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	.effort-tab[data-active="true"][aria-checked="true"] {
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong);
+	}
+	.effort-tabs[data-busy="true"] {
+		opacity: 0.5;
 	}
 	/* The model in use: a mint check, its row faintly lit at rest. */
 	.model-row[data-current="true"]:not([data-active="true"]) {

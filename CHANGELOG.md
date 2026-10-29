@@ -27,17 +27,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   "timeout"); a line opens to its Command and Output or Error. Thinking is no
   longer a line of its own: it is read with the step it led to.
 - The model menu leads with the agent's own models. Its head names the agent
-  and its account ("Claude Code, subscription"; for Hotline Agent the
-  account it runs on), then the agent's models, one click
-  each, with a check on the one in use. That row says its effort and opens
-  the levels the model has, in place of the effort slider; past eight
-  models the rest are under More models. Change agent, with a hint of the
-  others, opens the accounts and agents the menu used to list, and Add an
-  account.
+  and its account ("Claude Code · Max subscription"; for Hotline Agent the
+  account it runs on), then the effort of the model in use as one row of
+  tabs (Auto, Low, Med, High, Xhigh, Max; Auto is the agent's own choice),
+  then the agent's models, one click each, with a check on the one in use;
+  past eight models the rest are under More models. Choosing a tab or a
+  model keeps the menu open: a new model's tabs show at once, dimmed with
+  its check beating while a running teammate switches. Change agent, with a
+  hint of the others, opens the accounts and agents the menu used to list,
+  and Add an account.
 - The model menu and the teammate's menu are one: a pill in the band's
   corner names the model and its effort, with the teammate's face at its
   end, beating while it works. Its menu says who the teammate is, then what
-  it runs on (the agent and its plan, the agent's models, effort, Change
+  it runs on (the agent and its plan, effort, the agent's models, Change
   agent), then Settings, New chapter, Threads and Remove. A narrow window
   shows the model's mark and the face.
 - A teammate on Claude Code, Codex, Cursor or another agent offers its
@@ -49,17 +51,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   The desk reads each one's models with every model's own effort levels
   when it reads the plan, from the same CLI and with no model asked, so a
   teammate shows its model and effort before its first turn, even on an
-  agent never run here. Every model in the menu with levels opens them
-  beside it, and a level of a model not in use sets the model with it,
-  running or not. Grok Build still offers only what its session reports.
+  agent never run here. Grok Build still offers only what its session
+  reports.
+- A model switch keeps the effort you would expect: the one last chosen for
+  that model by the teammate, else by anyone on the desk, else the current
+  effort where the new model has it, else the nearest level below it, never
+  above; Auto carries over only to a model that has it. The desk chooses, so
+  the phone switches the same way, and every effort chosen is remembered for
+  its model.
 - A teammate's plan is read the way each agent's own tools read it,
   outside any teammate's conversation and with no model asked: Claude Code
   through its CLI, Codex through its app-server, and Grok Build from xAI's
   billing with the Grok CLI's own sign-in. Each login is read when the desk
   starts, every ten minutes while it runs, and when the menu or the gauge
-  opens on a reading two minutes old, running teammate or not. The menu's
-  head names the plan ("Max subscription", "ChatGPT Pro subscription").
-  Claude Code is no longer asked `/usage` in a teammate's session.
+  opens on a reading two minutes old, running teammate or not. Claude Code
+  is no longer asked `/usage` in a teammate's session.
 - The plan is a small gauge in the band, beside the teammate's computer,
   while its login has a reading: the outer ring the week, the inner the
   five hours, each filled as far round as it is used, all amber near a

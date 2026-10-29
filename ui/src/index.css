@@ -888,11 +888,11 @@
 		visibility: hidden;
 	}
 	/* The model picker (ModelPicker.tsx), which is the teammate's menu too:
-	 * who it is, the agent and its plan, the agent's models, the one in use
-	 * checked with its effort, Change agent opening every other account and
-	 * agent beside, then the teammate's actions. */
+	 * who it is, the agent and its plan's name, the agent's models, the one
+	 * in use checked with its effort, Change agent opening every other
+	 * account and agent beside, then the teammate's actions. */
 	/* One pill in the band's corner: the maker's mark, the model and its
-	 * effort, the plan's dot, the teammate's face at the end. A raised
+	 * effort, the teammate's face at the end. A raised
 	 * plane with a hairline, larger than a control, so it reads as the one
 	 * key it is. Narrow, it is the mark and the face. */
 	.model-pill {
@@ -961,7 +961,8 @@
 		gap: 12px;
 		padding-top: 6px;
 	}
-	/* The agent and its plan, on one line over the plan's lines. */
+	/* The agent and its plan, on one line: over the models in the menu,
+	 * over the plan's lines on the gauge's card. */
 	.model-head {
 		display: flex;
 		min-width: 0;
@@ -998,9 +999,9 @@
 	.model-danger:not([data-active="true"]) {
 		color: var(--danger);
 	}
-	/* The account's plan under the head: one quiet line per window, its
-	 * name, a hairline bar, the use and the reset in the instrument face.
-	 * Amber once near the limit. */
+	/* The account's plan on the gauge's card: one quiet line per window,
+	 * its name, a hairline bar, the use and the reset in the instrument
+	 * face. Amber once near the limit. */
 	.plan-rows {
 		display: flex;
 		flex-direction: column;
@@ -1057,12 +1058,41 @@
 	.plan-reset {
 		color: var(--ink-4);
 	}
-	.plan-dot {
-		width: 6px;
-		height: 6px;
-		flex-shrink: 0;
-		border-radius: 50%;
-		background: var(--warn);
+	/* Under each line on the gauge's card, its reset and runway, quieter than the line. */
+	.plan-window + .plan-window {
+		margin-top: 4px;
+	}
+	.plan-runway {
+		font-size: var(--text-xs);
+		line-height: 16px;
+		color: var(--ink-3);
+	}
+	/* The plan's gauge in the band: a dial, weekly outside and 5-hour
+	 * inside, each an arc from twelve o'clock over a faint track. Amber,
+	 * both arcs, near a limit. Its card is the menu's surface. */
+	.plan-gauge-track,
+	.plan-gauge-arc {
+		fill: none;
+		stroke-width: 2;
+	}
+	.plan-gauge-track {
+		stroke: var(--line-strong);
+	}
+	.plan-gauge-arc {
+		stroke: var(--ink-2);
+		stroke-linecap: round;
+	}
+	.plan-gauge:hover .plan-gauge-arc,
+	.plan-gauge[aria-expanded="true"] .plan-gauge-arc {
+		stroke: var(--ink);
+	}
+	.plan-gauge[data-near="true"] .plan-gauge-arc {
+		stroke: var(--warn);
+	}
+	.plan-card {
+		width: 300px;
+		max-width: 300px;
+		padding-bottom: 6px;
 	}
 	/* The model in use: a mint check, its row faintly lit at rest. */
 	.model-row[data-current="true"]:not([data-active="true"]) {

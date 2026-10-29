@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { elapsedShare, nearLimit, paceTick, planAccount, resetShort, resetText, runsOutAt, runwayText, shownWindows, windowHover, windowName, windowUse } from "../src/plan";
+import { elapsedShare, gaugeLabel, gaugeWindows, nearLimit, paceTick, planAccount, resetShort, resetText, runsOutAt, runwayText, shownWindows, windowName, windowNote, windowUse } from "../src/plan";
 import type { PlanWindow } from "../src/generated/contract";
 
 describe("a plan's limits", () => {
@@ -9,6 +9,22 @@ describe("a plan's limits", () => {
 		expect(windowUse({ kind: "seven_day", usedPercent: 61.4, status: "allowed" })).toBe("61%");
 		expect(windowUse({ kind: "seven_day", status: "warning" })).toBe("near the limit");
 		expect(windowUse({ kind: "five_hour", usedPercent: 100, status: "limited" })).toBe("limit reached");
+	});
+
+	test("the band gauge's outer ring is the weekly window, else the longest, and its inner the 5-hour", () => {
+		const five: PlanWindow = { kind: "five_hour", usedPercent: 9, status: "allowed", windowMinutes: 300 };
+		const week: PlanWindow = { kind: "seven_day", usedPercent: 39, status: "allowed", windowMinutes: 10_080 };
+		const opus: PlanWindow = { kind: "seven_day_opus", usedPercent: 85, status: "allowed", windowMinutes: 10_080 };
+		const month: PlanWindow = { kind: "monthly", usedPercent: 12, status: "allowed", windowMinutes: 43_200 };
+		const kinds = (windows: PlanWindow[]) => gaugeWindows({ at: 1, windows }).map((window) => window.kind);
+		expect(kinds([five, opus, week])).toEqual(["seven_day", "five_hour"]);
+		expect(kinds([month, five])).toEqual(["monthly", "five_hour"]);
+		expect(kinds([five])).toEqual(["five_hour"]);
+		expect(kinds([week])).toEqual(["seven_day"]);
+		expect(kinds([{ kind: "overage", usedPercent: 3, status: "allowed" }])).toEqual([]);
+		expect(gaugeWindows(undefined)).toEqual([]);
+		expect(gaugeLabel(gaugeWindows({ at: 1, windows: [five, week] }))).toBe("Plan usage: 5h 9%, weekly 39%");
+		expect(gaugeLabel([{ kind: "five_hour", status: "limited" }])).toBe("Plan usage: 5h limit reached");
 	});
 
 	test("near the limit is a warning, a refusal, or 80% used of any window", () => {
@@ -115,11 +131,9 @@ describe("a window's runway", () => {
 		expect(runwayText({ ...fiveHour, usedPercent: 100, status: "limited" }, now)).toBe("Runway: used up until the reset");
 	});
 
-	test("the line's hover says the use, the reset and the runway, and no runway without the window's length", () => {
-		expect(windowHover(week(30, 84 * hour), now)).toMatch(/^Weekly: 30%, resets Mon .+\. Runway: lasts past the reset$/);
-		const scoped: PlanWindow = { ...week(30, 84 * hour), kind: "seven_day_fable", label: "Weekly · Fable" };
-		expect(windowHover(scoped, now)).toMatch(/^Weekly · Fable: 30%/);
-		expect(windowHover({ kind: "five_hour", usedPercent: 20, resetsAt: now + hour, status: "allowed" }, now)).not.toContain("Runway");
-		expect(windowHover({ kind: "five_hour", usedPercent: 20, status: "allowed" }, now)).toBeUndefined();
+	test("the note under a line on the gauge's card says the reset and the runway, and no runway without the window's length", () => {
+		expect(windowNote(week(30, 84 * hour), now)).toMatch(/^Resets Mon .+ · Runway: lasts past the reset$/);
+		expect(windowNote({ kind: "five_hour", usedPercent: 20, resetsAt: now + hour, status: "allowed" }, now)).not.toContain("Runway");
+		expect(windowNote({ kind: "five_hour", usedPercent: 20, status: "allowed" }, now)).toBeUndefined();
 	});
 });

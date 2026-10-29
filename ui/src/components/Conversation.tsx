@@ -12,12 +12,15 @@ import { dmOf, sameThread, useThread } from "../tape";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
+import { harnessMark } from "../ui/Mark";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
+import { useRoomRead } from "../roomReads";
 import { wire, type RosterEntry } from "../wire";
 import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
+import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
 import { AskCard, askLine, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
@@ -412,6 +415,14 @@ const ConversationBand = memo(function ConversationBand({
 	);
 	const scheduleDetail = next === null ? "Paused" : `Next ${nextText(next.nextAt)}`;
 
+	// The plan gauge's card names the agent the login is for; opening it
+	// asks for a fresh reading, which the core takes only when it is old.
+	const backends = useRoomRead("backends.list", "", true);
+	const agentName = backends?.find((one) => one.id === persona.backendId)?.name ?? (persona.backendId === "hotline" ? "Hotline Agent" : persona.backendId);
+	const refreshPlan = useCallback(() => {
+		void wire.command("plan.refresh", { personaId }).catch(() => {});
+	}, [personaId]);
+
 	/* A narrow band keeps the name and its keys; the schedule line folds into
 	 * the More menu, one press further away, rather than a band that clips it. */
 	const narrow = useNarrow();
@@ -514,6 +525,14 @@ const ConversationBand = memo(function ConversationBand({
 						</button>
 					)}
 	
+					{/* The plan's gauge, while the teammate's login has a reading:
+					 * weekly outside, 5-hour inside, its card the plan's lines. */}
+					<PlanGauge
+						plan={session.planUsage}
+						agent={agentName}
+						mark={harnessMark(persona.backendId)}
+						onOpen={refreshPlan}
+					/>
 					{/* A computer on its way fills in where its button will be; the
 					 * conversation carries on around it. */}
 					{pulling !== null ? (

@@ -319,13 +319,8 @@ test("on a harness, the head is the agent and its models are a model change; Hot
 	// A harness that reports a plan is on a subscription, named when the plan says.
 	expect(mainMenu().querySelector(".model-head-name")?.textContent).toBe("Claude Code");
 	expect(mainMenu().querySelector(".model-head-kind")?.textContent).toBe("Max subscription");
-	expect(mainMenu().querySelectorAll(".plan-row").length).toBe(2);
-	// Two of five hours gone: the tick at 40%, and the line says its runway.
-	const fiveHour = mainMenu().querySelector<HTMLElement>(".plan-row")!;
-	expect(Number.parseFloat(fiveHour.querySelector<HTMLElement>(".plan-tick")!.style.left)).toBeCloseTo(40, 0);
-	expect(fiveHour.title).toContain("Runway: lasts past the reset");
-	// The weekly line, not yet read, has no tick.
-	expect(mainMenu().querySelectorAll(".plan-tick").length).toBe(1);
+	// The plan's lines are the band gauge's, not the menu's.
+	expect(mainMenu().querySelectorAll(".plan-row").length).toBe(0);
 	expect(mainModels().map((model) => model.textContent)).toEqual(["Opus", "Sonnet"]);
 	await act(async () => changeAgent().click());
 	// Claude Code, in use, is not listed again under Change agent.
@@ -497,7 +492,8 @@ test("with the teammate it is one pill and one menu: the face ends the pill, the
 	expect(pill.getAttribute("aria-label")).toBe("Goldie, working: Claude Haiku · Medium");
 	expect(pill.querySelector('.model-pill-face .face[data-size="24"]')).not.toBeNull();
 	expect(pill.querySelector(".model-pill-beat")).not.toBeNull();
-	expect(pill.querySelector(".plan-dot")).not.toBeNull();
+	// Near the limit is the band gauge's to say, not the pill's.
+	expect(pill.querySelector(".plan-dot")).toBeNull();
 	expect(pill.querySelector(".model-pill-chevron")).toBeNull();
 
 	await act(async () => pill.click());

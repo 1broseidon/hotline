@@ -1,7 +1,7 @@
 import { type CSSProperties, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
-import { nearLimit, paceTick, planAccount, resetShort, shownWindows, windowHover, windowName } from "../plan";
+import { planAccount } from "../plan";
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon, SwapIcon } from "../icons";
 import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import type { MenuEntry } from "../ui/Menu";
@@ -143,11 +143,10 @@ function shownModels(models: ConfigChoice[], inUse: string | null): ConfigChoice
  * with `teammate` the teammate's own menu too: one pill, one menu.
  *
  * The pill names the model, with its maker's mark, and the effort after a
- * dot, then the amber dot when a plan nears its limit and the teammate's
- * face; the account is in the tooltip and the menu, never the pill. A
- * `compact` pill is the mark and the face. The menu says who the teammate
- * is, then what it runs on: the agent and its plan, the plan's lines, this
- * agent's models, one click each, the one in use with its effort; each
+ * dot, then the teammate's face; the account is in the tooltip and the
+ * menu, never the pill, and the plan is the band's gauge. A `compact` pill
+ * is the mark and the face. The menu says who the teammate is, then what
+ * it runs on: the agent and its plan's name, this agent's models, one click each, the one in use with its effort; each
  * model with levels opens them beside it (the one in use at its effort,
  * another at the teammate's effort when it has it, else its default), and
  * picking a level of a model not in use sets the model and the level
@@ -175,7 +174,7 @@ export function ModelPicker({
 	teammate,
 	compact = false,
 }: {
-	/** The account's plan limits, as the agent last reported them. */
+	/** The account's plan, for the plan's name beside the agent. */
 	plan?: PlanUsage | undefined;
 	/** Whose menu this is as well: the face, the name and goal, and its actions. */
 	teammate?: MenuTeammate | undefined;
@@ -305,7 +304,6 @@ export function ModelPicker({
 						{effortName !== null && <span className="text-ink-3"> · {effortName}</span>}
 					</span>
 				)}
-				{nearLimit(plan) && <span className="plan-dot" aria-label="Near the plan's limit" />}
 				{teammate !== undefined ? (
 					<span className="model-pill-face">
 						{teammate.face(24)}
@@ -320,7 +318,6 @@ export function ModelPicker({
 					anchor={button.current}
 					teammate={teammate}
 					head={head}
-					plan={plan}
 					models={models}
 					inUse={inUse}
 					effort={effort}
@@ -375,7 +372,6 @@ function Panels({
 	anchor,
 	teammate,
 	head,
-	plan,
 	models,
 	inUse,
 	effort,
@@ -392,7 +388,6 @@ function Panels({
 	anchor: HTMLElement;
 	teammate: MenuTeammate | undefined;
 	head: { mark: string | null; name: string; kind: string };
-	plan: PlanUsage | undefined;
 	/** This agent's models, every one; the menu shows the first few. */
 	models: ConfigChoice[];
 	inUse: string | null;
@@ -726,7 +721,6 @@ function Panels({
 					<span className="model-head-name">{head.name}</span>
 					{head.kind !== "" && <span className="model-head-kind">{head.kind}</span>}
 				</div>
-				{plan !== undefined && plan.windows.length > 0 && <PlanRows plan={plan} />}
 				{rows.map((row, at) => {
 					if (row.kind === "model") {
 						const { choice } = row;
@@ -1060,35 +1054,6 @@ function Levels({
 					<span className="menu-item-text">{one.name}</span>
 				</button>
 			))}
-		</div>
-	);
-}
-
-/**
- * The plan under the head: a line per window, its name, a thin bar, the use
- * and when it resets. A tick on the bar marks where use would be if spread
- * evenly over the window so far; the line's hover says its runway.
- */
-function PlanRows({ plan }: { plan: PlanUsage }) {
-	const windows = shownWindows(plan);
-	if (windows.length === 0) return null;
-	const now = Date.now();
-	return (
-		<div className="plan-rows" title={`Plan usage as of ${new Date(plan.at).toLocaleString()}`}>
-			{windows.map((window) => {
-				const tick = paceTick(window, now);
-				return (
-					<div key={window.kind} className="plan-row" data-status={window.status} title={windowHover(window, now)}>
-						<span className="plan-name">{windowName(window)}</span>
-						<span className="plan-bar" aria-hidden="true">
-							<span className="plan-fill" style={{ width: `${Math.min(100, window.status === "limited" ? 100 : (window.usedPercent ?? 0))}%` }} />
-							{tick !== undefined && <span className="plan-tick" style={{ left: `${tick}%` }} />}
-						</span>
-						<span className="plan-use">{window.status === "limited" ? "100%" : window.usedPercent !== undefined ? `${Math.round(window.usedPercent)}%` : "–"}</span>
-						<span className="plan-reset">{window.resetsAt !== undefined ? resetShort(window.resetsAt, now) : ""}</span>
-					</div>
-				);
-			})}
 		</div>
 	);
 }

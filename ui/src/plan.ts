@@ -4,7 +4,7 @@ import type { PlanUsage, PlanWindow } from "./generated/contract";
  * A login's plan limits as the desk last read them (out of band, or Claude
  * Code after a reply): a line per window, said the way the plan's own page
  * says it, how fast it is going, and whether any is near enough its limit
- * to mark the picker.
+ * to turn the band's gauge amber.
  */
 
 const NAMES: Record<string, string> = {
@@ -49,11 +49,6 @@ export function resetShort(resetsAt: number, now: number = Date.now()): string {
 /** A window as a line labels it: "5h", "Weekly", "Opus", a model's own by its name ("Fable"). */
 export function windowName(window: PlanWindow): string {
 	return NAMES[window.kind] ?? window.label?.split(" · ").pop() ?? window.kind.replace(/_/g, " ");
-}
-
-/** A window as a sentence names it: "Weekly · Fable" for a model's own. */
-function windowTitle(window: PlanWindow): string {
-	return window.label ?? windowName(window);
 }
 
 /** How far into the window now is, 0 to 1, when the window says its length and reset. */
@@ -107,11 +102,15 @@ function aboutWhen(at: number, now: number): string {
 	return sameDay ? time : `${rounded.toLocaleDateString(undefined, { weekday: "short" })} ${time}`;
 }
 
-/** The line's hover: "5h: 38%, resets 9pm. Runway: lasts past the reset". */
-export function windowHover(window: PlanWindow, now: number = Date.now()): string | undefined {
+/**
+ * What the gauge's card says under a line, the line's name and use being on
+ * it already: "Resets Mon 9am · Runway: lasts past the reset".
+ */
+export function windowNote(window: PlanWindow, now: number = Date.now()): string | undefined {
 	if (window.resetsAt === undefined) return undefined;
+	const reset = resetText(window.resetsAt, now);
 	const runway = runwayText(window, now);
-	return `${windowTitle(window)}: ${windowUse(window)}, ${resetText(window.resetsAt, now)}${runway === undefined ? "" : `. ${runway}`}`;
+	return [`${reset[0]!.toUpperCase()}${reset.slice(1)}`, runway].filter((part) => part !== undefined).join(" · ");
 }
 
 /** The head's account line: "Max subscription", or "subscription" when the plan did not say its name. */
@@ -127,10 +126,10 @@ export function windowUse(window: PlanWindow): string {
 	return window.status === "warning" ? "near the limit" : "in use";
 }
 
-/** "resets 9pm", "resets Fri 9pm", "resets Nov 4": as near as the reset is. */
+/** "resets 9pm", "resets Fri 9pm", "resets Nov 4": as near as the reset is, the time as the line says it. */
 export function resetText(resetsAt: number, now: number = Date.now()): string {
 	const at = new Date(resetsAt);
-	const time = at.toLocaleTimeString(undefined, { hour: "numeric", minute: at.getMinutes() === 0 ? undefined : "2-digit" }).replace(/:00(?=\s)/, "");
+	const time = at.toLocaleTimeString(undefined, { hour: "numeric", minute: at.getMinutes() === 0 ? undefined : "2-digit" }).replace(/\s/g, "").toLowerCase();
 	const days = (resetsAt - now) / 86_400_000;
 	if (days < 0) return "reset";
 	if (new Date(now).toDateString() === at.toDateString()) return `resets ${time}`;
@@ -141,4 +140,33 @@ export function resetText(resetsAt: number, now: number = Date.now()): string {
 /** Near the limit: one window warned, refused, or past 80% used. */
 export function nearLimit(plan: PlanUsage | undefined): boolean {
 	return plan?.windows.some((window) => window.status !== "allowed" || (window.usedPercent ?? 0) >= 80) ?? false;
+}
+
+/** How much of a window is used, 0 to 100, for a bar or a ring: a refused one is full. */
+export function usedShare(window: PlanWindow): number {
+	return Math.min(100, Math.max(0, window.status === "limited" ? 100 : (window.usedPercent ?? 0)));
+}
+
+/**
+ * The band gauge's rings: the outer the weekly window (or, without one, the
+ * longest the login has: monthly, else the longest by its length), the
+ * inner the 5-hour. A login with one of them has one ring, the outer.
+ */
+export function gaugeWindows(plan: PlanUsage | undefined): PlanWindow[] {
+	if (plan === undefined) return [];
+	const five = plan.windows.find((window) => window.kind === "five_hour");
+	const longer = plan.windows.filter((window) => window.kind !== "five_hour" && window.kind !== "overage" && window.kind !== "period");
+	const longest = [...longer].filter((window) => window.windowMinutes !== undefined).sort((a, b) => (b.windowMinutes ?? 0) - (a.windowMinutes ?? 0))[0];
+	const outer = longer.find((window) => window.kind === "seven_day") ?? longer.find((window) => window.kind === "monthly") ?? longest;
+	if (outer === undefined) return five === undefined ? [] : [five];
+	return five === undefined ? [outer] : [outer, five];
+}
+
+/** The gauge's name for a screen reader: "Plan usage: 5h 9%, weekly 39%", the inner ring first. */
+export function gaugeLabel(rings: PlanWindow[]): string {
+	const said = [...rings].reverse().map((window) => {
+		const name = windowName(window);
+		return `${MAIN.has(window.kind) ? name.toLowerCase() : name} ${windowUse(window)}`;
+	});
+	return `Plan usage: ${said.join(", ")}`;
 }

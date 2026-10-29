@@ -28,18 +28,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   longer a line of its own: it is read with the step it led to.
 - The model menu leads with the agent's own models. Its head names the agent
   and its account ("Claude Code, subscription"; for Hotline Agent the
-  account it runs on), then the plan, then the agent's models, one click
+  account it runs on), then the agent's models, one click
   each, with a check on the one in use. That row says its effort and opens
   the levels the model has, in place of the effort slider; past eight
   models the rest are under More models. Change agent, with a hint of the
   others, opens the accounts and agents the menu used to list, and Add an
   account.
 - The model menu and the teammate's menu are one: a pill in the band's
-  corner names the model and its effort, with the amber dot near a plan's
-  limit and the teammate's face at its end, beating while it works. Its menu
-  says who the teammate is, then what it runs on (the agent and its plan,
-  the agent's models, effort, Change agent), then Settings, New chapter,
-  Threads and Remove. A narrow window shows the model's mark and the face.
+  corner names the model and its effort, with the teammate's face at its
+  end, beating while it works. Its menu says who the teammate is, then what
+  it runs on (the agent and its plan, the agent's models, effort, Change
+  agent), then Settings, New chapter, Threads and Remove. A narrow window
+  shows the model's mark and the face.
 - A teammate on Claude Code, Codex, Cursor or another agent offers its
   models, effort and modes when it is not running, as its agent last offered
   them on this desk, and a choice made then is kept on the teammate and put
@@ -52,16 +52,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   agent never run here. Every model in the menu with levels opens them
   beside it, and a level of a model not in use sets the model with it,
   running or not. Grok Build still offers only what its session reports.
-- The plan under the model is read the way each agent's own tools read it,
+- A teammate's plan is read the way each agent's own tools read it,
   outside any teammate's conversation and with no model asked: Claude Code
   through its CLI, Codex through its app-server, and Grok Build from xAI's
   billing with the Grok CLI's own sign-in. Each login is read when the desk
-  starts, every ten minutes while it runs, and when the menu opens on a
-  reading two minutes old, running teammate or not. The head names the plan
-  ("Max subscription", "ChatGPT Pro subscription"), each line's bar has a
-  tick where use would be if spread evenly over the window, and its hover
-  says the runway ("Runway: runs out ~Fri 3pm", "Runway: lasts past the
-  reset"). Claude Code is no longer asked `/usage` in a teammate's session.
+  starts, every ten minutes while it runs, and when the menu or the gauge
+  opens on a reading two minutes old, running teammate or not. The menu's
+  head names the plan ("Max subscription", "ChatGPT Pro subscription").
+  Claude Code is no longer asked `/usage` in a teammate's session.
+- The plan is a small gauge in the band, beside the teammate's computer,
+  while its login has a reading: the outer ring the week, the inner the
+  five hours, each filled as far round as it is used, all amber near a
+  limit. Hovered, focused or clicked it shows the plan ("Claude Code · Max
+  subscription"), a line per window whose bar has a tick where use would be
+  if spread evenly over the window, and under each when it resets and its
+  runway ("Runway: runs out ~Fri 3pm", "Runway: lasts past the reset").
 
 ## [0.44.1] - 2026-10-28
 

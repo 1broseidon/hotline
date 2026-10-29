@@ -5736,7 +5736,7 @@
 		background: var(--line);
 	}
 	.settings-dock-version {
-		border-radius: 15px 4px 4px 15px;
+		border-radius: 4px;
 		font-size: 12px;
 		font-variant-numeric: tabular-nums;
 	}

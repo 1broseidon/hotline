@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { appVersion, watchUpdates } from "../native";
 import { chordKeys } from "../chords";
-import { KeyboardIcon } from "../icons";
+import { ArrowLeftIcon, KeyboardIcon } from "../icons";
 import { useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -68,11 +68,13 @@ const FOOTER_SECTIONS: SettingsSection[] = ["shortcuts", "about"];
 export function SettingsRail({
 	section,
 	onSection,
+	onBack,
 	onDesk,
 	width,
 }: {
 	section: SettingsSection;
 	onSection(section: SettingsSection): void;
+	onBack(): void;
 	/** Show another desk's settings: the window moves there, as it does for a teammate (BRO-178). */
 	onDesk?: ((deskId: string) => void) | undefined;
 	/** The rail's dragged width: settings' menu stands where the rail does. */
@@ -110,23 +112,25 @@ export function SettingsRail({
 					</button>
 				))}
 			</div>
-			<SettingsDock section={section} onSection={onSection} />
+			<SettingsDock section={section} onSection={onSection} onBack={onBack} />
 		</nav>
 	);
 }
 
 /**
  * The settings rail's dock, where the team's dock stands and in its
- * material: the version (it opens About, and carries a dot when an update
- * is ready) and the shortcuts. The way back to the team is the band's back
- * key, as every pane's is. It does not scroll with the sections above it.
+ * material: the way back to the team at the start, the version in the
+ * middle (it opens About, and carries a dot when an update is ready), and
+ * the shortcuts at the end. It does not scroll with the sections above it.
  */
 function SettingsDock({
 	section,
 	onSection,
+	onBack,
 }: {
 	section: SettingsSection;
 	onSection(section: SettingsSection): void;
+	onBack(): void;
 }) {
 	const [updateReady, setUpdateReady] = useState(false);
 	useEffect(() => watchUpdates((status) => setUpdateReady(status.available !== null), () => {}), []);
@@ -135,6 +139,15 @@ function SettingsDock({
 	const shortcutsChord = chordKeys("shortcuts");
 	return (
 		<footer className="rail-dock settings-dock">
+			<button
+				type="button"
+				className="settings-dock-back"
+				title={`Back (${chordKeys("close")})`}
+				aria-label="Back to the team"
+				onClick={onBack}
+			>
+				<ArrowLeftIcon />
+			</button>
 			<button
 				type="button"
 				className="settings-dock-version"

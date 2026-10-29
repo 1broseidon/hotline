@@ -34,31 +34,33 @@ afterEach(async () => {
 
 async function mount(section: SettingsSection) {
 	await act(async () => {
-		root.render(<SettingsRail section={section} onSection={(one) => opened.push(one)} />);
+		root.render(<SettingsRail section={section} onSection={(one) => opened.push(one)} onBack={() => opened.push("back")} />);
 	});
 }
 function buttons() { return [...container.querySelectorAll("button")]; }
 
 describe("settings rail", () => {
-	test("the list has no About or Shortcuts; the dock opens About by the version, and the shortcuts", async () => {
+	test("the list has no About or Shortcuts; the dock goes back, opens About by the version, and the shortcuts", async () => {
 		await mount("general");
 		const names = buttons().map((node) => node.textContent);
 		expect(names).not.toContain("Keyboard shortcuts");
 		expect(names).not.toContain("About Hotline");
 		const dock = container.querySelector("footer.settings-dock")!;
-		const [about, shortcuts] = [...dock.querySelectorAll("button")] as HTMLButtonElement[];
-		// One pill, two keys: the version and the shortcuts' key. The way back is the pane's band, as every pane's is.
-		expect(dock.querySelectorAll("button").length).toBe(2);
+		const [back, about, shortcuts] = [...dock.querySelectorAll("button")] as HTMLButtonElement[];
+		// One pill, three keys: back, the version, the shortcuts' key.
+		expect(back!.getAttribute("aria-label")).toBe("Back to the team");
 		expect(about!.getAttribute("aria-label")).toBe("About Hotline, version 0.39.0");
 		expect(about!.textContent).toBe("0.39.0");
 		expect(shortcuts!.getAttribute("aria-label")).toBe("Keyboard shortcuts");
-		expect(container.querySelectorAll('button[aria-label="Back to the team"]').length).toBe(0);
+		// The head no longer carries the way back: the dock is the only one.
+		expect(container.querySelectorAll('button[aria-label="Back to the team"]').length).toBe(1);
 		// Tab order: the list, then the dock.
 		const order = buttons();
-		expect(order.indexOf(about!)).toBeGreaterThan(order.findIndex((node) => node.textContent === "Import"));
+		expect(order.indexOf(back!)).toBeGreaterThan(order.findIndex((node) => node.textContent === "Import"));
+		await act(async () => { back!.click(); });
 		await act(async () => { about!.click(); });
 		await act(async () => { shortcuts!.click(); });
-		expect(opened).toEqual(["about", "shortcuts"]);
+		expect(opened).toEqual(["back", "about", "shortcuts"]);
 	});
 
 	test("the open footer item carries aria-current", async () => {

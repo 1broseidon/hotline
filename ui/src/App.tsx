@@ -538,6 +538,7 @@ export function App() {
 					<SettingsRail
 						section={settingsSection}
 						onSection={setSettingsSection}
+						onBack={closePane}
 						onDesk={(deskId) => openOnDesk(deskId, { pane: "settings", section: settingsSection })}
 						width={settingsWidth}
 					/>
@@ -585,7 +586,7 @@ export function App() {
 				<div className="relative flex min-h-0 min-w-0 flex-1">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
-						<Settings section={settingsSection} onSection={setSettingsSection} onBack={closePane} onAddDesk={() => togglePane("add-desk")} />
+						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
 					</Suspense>
 				) : pane === "add-desk" ? (
 					<AddDesk onClose={closePane} />

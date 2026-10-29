@@ -14,9 +14,18 @@ const NAMES: Record<string, string> = {
 	overage: "Extra",
 };
 
-/** The windows worth a line: the 5-hour and the weekly, and a model's own only once it nears its limit. */
+/**
+ * The windows worth a line: the 5-hour when reported, the weekly always (a
+ * dash until the agent first reports it, as it reports one window at a time),
+ * and a model's own only once it nears its limit.
+ */
 export function shownWindows(plan: PlanUsage): PlanWindow[] {
-	return plan.windows.filter((window) => window.kind === "five_hour" || window.kind === "seven_day" || window.status !== "allowed" || (window.usedPercent ?? 0) >= 80);
+	const shown = plan.windows.filter((window) => window.kind === "five_hour" || window.kind === "seven_day" || window.status !== "allowed" || (window.usedPercent ?? 0) >= 80);
+	if (!shown.some((window) => window.kind === "seven_day")) {
+		const at = shown.findIndex((window) => window.kind !== "five_hour");
+		shown.splice(at === -1 ? shown.length : at, 0, { kind: "seven_day", status: "allowed" });
+	}
+	return shown;
 }
 
 /** When it resets, as short as a line has room for: "9pm" today, "Fri" this week, "Nov 4" after. */

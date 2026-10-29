@@ -43,4 +43,12 @@ describe("a plan's limits", () => {
 		expect(resetShort(new Date(2026, 9, 31, 21, 0).getTime(), now)).toBe("Sat");
 		expect(resetShort(new Date(2026, 10, 12, 9, 0).getTime(), now)).toBe("Nov 12");
 	});
+
+	test("the weekly line is always there, a dash until it is first reported", () => {
+		const plan = { at: 1, windows: [{ kind: "five_hour", usedPercent: 12, status: "allowed" as const }] };
+		expect(shownWindows(plan)).toEqual([
+			{ kind: "five_hour", usedPercent: 12, status: "allowed" },
+			{ kind: "seven_day", status: "allowed" },
+		]);
+	});
 });

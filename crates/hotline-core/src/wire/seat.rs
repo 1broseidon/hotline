@@ -119,6 +119,7 @@ impl Seat {
                     | Command::ModelsEfforts { .. }
                     | Command::ComputerCapacity { .. }
                     | Command::ComputerStatus { .. }
+                    | Command::ComputerStart { .. }
                     | Command::ComputerStop { .. }
                     // Proof the link is alive, and a card for a link already
                     // in a conversation the phone reads.

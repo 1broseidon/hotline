@@ -1008,6 +1008,33 @@ async fn restarting_a_resting_teammates_computer_stops_it_for_the_next_start() {
     assert!(room.session("ada").is_err(), "nothing was started");
 }
 
+/// Play on the pane's desktop row: a teammate at rest starts with its
+/// computer, and a running one whose computer was stopped from the pane has
+/// it started again by the session attaching to it.
+#[tokio::test]
+async fn starting_a_computer_from_the_pane_brings_it_up_with_its_session() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-start", Some("0.11.0"), TWO_RELEASES, true).await;
+    room.computer_start("ada").await.unwrap();
+    let session = room.session("ada").expect("the teammate started");
+    assert!(session.computer, "with its computer");
+
+    room.computer_stop("ada").await.unwrap();
+    std::fs::write(root.join("argv.log"), "").unwrap();
+    room.computer_start("ada").await.unwrap();
+    let commands = runtime_commands(&root);
+    assert!(
+        commands.iter().any(|line| line.starts_with("start ")),
+        "the stopped computer is started again: {commands:?}"
+    );
+    let again = room.session("ada").expect("still running");
+    assert!(
+        !Arc::ptr_eq(&again, &session),
+        "the session attached afresh"
+    );
+    assert!(again.computer);
+}
+
 /// A fresh computer is created on the newest published release: the desk
 /// asks once before creating, and a computer already on it is offered
 /// nothing. A pinned image is used as written and the endpoint never hears

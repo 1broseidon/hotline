@@ -1159,6 +1159,10 @@ impl RoomHandle for Desk {
         self.room.computer_status(persona_id).await
     }
 
+    async fn computer_start(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_start(persona_id).await
+    }
+
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
         self.room.computer_stop(persona_id).await
     }

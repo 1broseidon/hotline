@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { type Capacity, CPU_STEP, MEMORY_STEP_MB, capacityNote, cpuCeiling, cpuLabel, memoryCeilingMb, memoryLabel, memoryMb, memorySpelling, snap } from "../../computer-limits";
 import type { ComputerMount, ComputerStatus, PersonaComputer } from "../../generated/contract";
-import { CloseIcon, PlusIcon } from "../../icons";
+import { CloseIcon, PlayIcon, PlusIcon, StopIcon } from "../../icons";
 import { COMPUTER_STATUS_EVERY_MS } from "../../computer";
 import { wire } from "../../wire";
 import { CookieLends } from "../CookieLends";
@@ -76,6 +76,8 @@ export function ComputerRows({
 	const [importing, setImporting] = useState(false);
 	const [importsVersion, setImportsVersion] = useState(0);
 	const [acting, setActing] = useState(false);
+	// What the desktop row's key has asked for, until the status says it.
+	const [asked, setAsked] = useState<"start" | "stop" | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [updateTold, setUpdateTold] = useState(false);
 	const [checking, setChecking] = useState(false);
@@ -181,17 +183,21 @@ export function ComputerRows({
 
 	const setMounts = (next: ComputerMount[]) => onChange(next.length === 0 ? without(current, "mounts") : { ...current, mounts: next });
 
-	const act = async (cmd: "computer.stop" | "computer.remove" | "computer.update" | "computer.restart") => {
+	const act = async (cmd: "computer.start" | "computer.stop" | "computer.remove" | "computer.update" | "computer.restart") => {
 		if (acting) return;
 		setActing(true);
 		setRefusal(null);
+		setAsked(cmd === "computer.start" ? "start" : cmd === "computer.stop" ? "stop" : null);
 		try {
 			await wire.command(cmd, { personaId });
 			setStatus(await wire.command("computer.status", { personaId }));
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
+			// A refusal says itself where the row opens to.
+			setOpenDesktop(true);
 		} finally {
 			setActing(false);
+			setAsked(null);
 		}
 	};
 
@@ -222,6 +228,19 @@ export function ComputerRows({
 
 	const state = status?.state ?? "absent";
 	const words = STATE_WORDS[state];
+	// The desktop row's key: Stop while it runs, Start while the grant is on
+	// and it does not, each saying it at once while the desk works on it.
+	const shown = asked === "start" ? "starting…" : asked === "stop" ? "stopping…" : words.value;
+	const desktopKey =
+		state === "running" ? (
+			<button type="button" className="control btn-icon" title="Stop" aria-label="Stop the computer" disabled={acting} onClick={() => void act("computer.stop")}>
+				<StopIcon />
+			</button>
+		) : enabled ? (
+			<button type="button" className="control btn-icon" title="Start" aria-label="Start the computer" disabled={acting || disabled} onClick={() => void act("computer.start")}>
+				<PlayIcon />
+			</button>
+		) : null;
 	const onEnter = (commit: () => void) => (event: KeyboardEvent<HTMLInputElement>) => {
 		if (event.key !== "Enter") return;
 		event.preventDefault();
@@ -233,7 +252,7 @@ export function ComputerRows({
 			<SwitchRow title="A computer of its own" about={COMPUTER_ABOUT} checked={current.enabled} disabled={disabled} onChange={(on) => onChange({ ...current, enabled: on })} />
 			{(current.enabled || state !== "absent") && (
 				<>
-					<FoldRow title="Desktop" value={words.value} open={openDesktop} onToggle={() => setOpenDesktop((was) => !was)} />
+					<FoldRow title="Desktop" value={shown} open={openDesktop} onToggle={() => setOpenDesktop((was) => !was)} action={desktopKey} />
 					{openDesktop && (
 						<>
 							<div className={NESTED}>
@@ -245,11 +264,6 @@ export function ComputerRows({
 										{refusal ?? words.action}
 									</span>
 								</span>
-								{state === "running" && (
-									<button type="button" className="control btn-quiet btn-sm" disabled={acting} onClick={() => void act("computer.stop")}>
-										Stop
-									</button>
-								)}
 								{state === "stopped" && (
 									<button type="button" className="control btn-quiet btn-sm" disabled={acting} onClick={() => void act("computer.remove")}>
 										Remove

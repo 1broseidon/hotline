@@ -739,6 +739,10 @@ pub(crate) async fn run(
                 .await
                 .map(|status| json!(status))
         }
+        Command::ComputerStart { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_start(&persona_id).await.map(|()| Value::Null)
+        }
         Command::ComputerStop { persona_id } => {
             living(log, &persona_id)?;
             room.computer_stop(&persona_id).await.map(|()| Value::Null)

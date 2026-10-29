@@ -99,9 +99,12 @@ fn the_desk_seat_may_do_everything_the_room_can_do() {
 }
 
 #[test]
-fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_or_remake_it() {
+fn the_phone_seat_may_watch_start_and_stop_a_computer_but_not_remove_or_remake_it() {
     let persona_id = "ada".to_string();
     assert!(Seat::Phone.permits(&Command::ComputerStatus {
+        persona_id: persona_id.clone()
+    }));
+    assert!(Seat::Phone.permits(&Command::ComputerStart {
         persona_id: persona_id.clone()
     }));
     assert!(Seat::Phone.permits(&Command::ComputerStop {

@@ -661,6 +661,27 @@
 	.group-row-choice {
 		cursor: default;
 	}
+	/* A fold with a key of its own (the desktop's Start or Stop): the text
+	 * and the chevron open it, each the row's full height, the key between. */
+	.fold-row-acted {
+		gap: 4px;
+		padding-block: 0;
+	}
+	.fold-row-open {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		align-self: stretch;
+		align-items: center;
+		gap: 12px;
+		padding-block: 8px;
+	}
+	.fold-row-chevron {
+		display: flex;
+		align-self: stretch;
+		align-items: center;
+		padding-left: 4px;
+	}
 	/* The add row at the head of a list the room keeps (Providers, Tools):
 	 * the one place in a pane that is accent, because adding is the one
 	 * thing a list with nothing in it is for. */

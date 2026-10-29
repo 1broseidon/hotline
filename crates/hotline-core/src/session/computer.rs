@@ -576,6 +576,31 @@ impl Room {
         self.computers.check_releases(now_ms()).await
     }
 
+    /// Brings a teammate's computer up from its pane. A computer serves its
+    /// teammate's session, which is what makes and grants it: a teammate at
+    /// rest starts, computer and all, and a running one whose computer was
+    /// stopped from the pane is attached to it again, which starts it. Mid
+    /// turn the session is left alone: the turn's tools are its own.
+    pub async fn computer_start(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let persona = self.persona(persona_id)?;
+        if !persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return Err(format!("{} has no computer turned on.", persona.name));
+        }
+        let session = lock(&self.sessions).get(persona_id).cloned();
+        match session {
+            None => self.start(persona_id).await.map(|_| ()),
+            Some(session) if lock(&session.turns).running => Err(format!(
+                "{} is mid-turn; start its computer when the turn ends.",
+                persona.name
+            )),
+            Some(_) => self.reattach(persona_id).await,
+        }
+    }
+
     pub async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
         self.computers
             .stop(

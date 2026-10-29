@@ -788,6 +788,11 @@ pub enum Command {
     /// A peek: never wakes the container.
     #[serde(rename = "computer.status")]
     ComputerStatus { persona_id: String },
+    /// Brings the computer up from the teammate's pane, with the session it
+    /// serves: a teammate at rest starts, and a running one whose computer was
+    /// stopped is attached to it again between turns.
+    #[serde(rename = "computer.start")]
+    ComputerStart { persona_id: String },
     #[serde(rename = "computer.stop")]
     ComputerStop { persona_id: String },
     #[serde(rename = "computer.remove")]

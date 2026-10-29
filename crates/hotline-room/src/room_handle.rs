@@ -507,6 +507,11 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         persona_id: &str,
     ) -> Result<hotline_contract::ComputerStatus, String>;
+    /// Brings a teammate's computer up with its session. A room with no
+    /// computers under it has nothing to start.
+    async fn computer_start(&self, _persona_id: &str) -> Result<(), String> {
+        Err("This room has no computers to start.".to_string())
+    }
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_update(&self, persona_id: &str) -> Result<(), String>;

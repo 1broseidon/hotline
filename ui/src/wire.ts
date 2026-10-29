@@ -273,6 +273,7 @@ type Results = {
 	"computer.releases": ComputerReleases;
 	"computer.releases.check": ComputerReleases;
 	"computer.status": ComputerStatus;
+	"computer.start": null;
 	"computer.stop": null;
 	"computer.remove": null;
 	"computer.update": null;

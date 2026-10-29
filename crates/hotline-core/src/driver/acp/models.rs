@@ -156,11 +156,32 @@ enum Missed {
     Failed(String),
 }
 
+/// What each agent offered, its levels tidied as the desk shows them
+/// ([`crate::models::tidy_efforts`]): a file kept before they were holds a
+/// harness's own order and names.
 fn read(root: &Path) -> BTreeMap<String, Seen> {
-    std::fs::read(paths::acp_models_path(root))
+    let mut seen: BTreeMap<String, Seen> = std::fs::read(paths::acp_models_path(root))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for one in seen.values_mut() {
+        let models = one.models.iter_mut().chain(
+            one.catalog
+                .iter_mut()
+                .flat_map(|catalog| catalog.models.iter_mut()),
+        );
+        for model in models {
+            if let Some(levels) = model.efforts.take() {
+                model.efforts = Some(crate::models::tidy_efforts(levels));
+            }
+        }
+        for config in &mut one.configs {
+            if config.category == Some(crate::contract::SessionConfigCategory::Effort) {
+                config.options = crate::models::tidy_efforts(std::mem::take(&mut config.options));
+            }
+        }
+    }
+    seen
 }
 
 fn write(root: &Path, seen: &BTreeMap<String, Seen>) {
@@ -504,10 +525,11 @@ fn now_ms() -> i64 {
 mod tests {
     use super::*;
 
+    /// A model, mode or level; a level by the desk's name, as a read keeps it.
     fn choice(id: &str) -> ConfigChoice {
         ConfigChoice {
             id: id.into(),
-            name: id.into(),
+            name: crate::models::effort_label(id),
             description: None,
             group: None,
             account: None,

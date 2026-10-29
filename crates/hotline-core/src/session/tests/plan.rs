@@ -255,9 +255,10 @@ async fn a_teammate_not_running_is_told_of_its_logins_reading() {
 
 /// Claude Code's models as its `initialize` lists them: Opus with levels.
 fn claude_catalog() -> crate::driver::acp::catalog::Catalog {
+    // Levels by the desk's names, as a read keeps them.
     let level = |id: &str| ConfigChoice {
         id: id.into(),
-        name: id.into(),
+        name: crate::models::effort_label(id),
         description: None,
         group: None,
         account: None,

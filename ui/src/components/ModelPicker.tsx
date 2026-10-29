@@ -2,7 +2,7 @@ import { type CSSProperties, Fragment, type KeyboardEvent, type ReactNode, useCa
 import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
 import { planAccount } from "../plan";
-import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon, SwapIcon } from "../icons";
+import { ChevronDownIcon, ChevronRightIcon, CheckIcon, FastIcon, PlusIcon, SwapIcon } from "../icons";
 import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import type { MenuEntry } from "../ui/Menu";
 import { accountName, plainModel } from "../accounts";
@@ -42,6 +42,12 @@ const SHOWN_MODELS = 8;
 
 type Effort = { value: string; choices: ConfigChoice[] };
 
+/**
+ * Fast mode, where the model offers it: whether it is on, a few words on
+ * what it costs, and why the agent cannot turn it on now, when it says.
+ */
+export type Fast = { on: boolean; hint: string; note?: string | undefined };
+
 /** The panels that open beside the menu: every model, or the other agents. */
 type Flyout = "more" | "agents";
 
@@ -71,6 +77,7 @@ export type MenuTeammate = {
  */
 type MainRow =
 	| { kind: "efforts" }
+	| { kind: "fast" }
 	| { kind: "model"; choice: ConfigChoice }
 	| { kind: "more" }
 	| { kind: "agents" }
@@ -179,10 +186,12 @@ export function ModelPicker({
 	backendId = "hotline",
 	agents = [],
 	effort,
+	fast = null,
 	label,
 	onModel,
 	onAgent,
 	onEffort,
+	onFast,
 	landsOn,
 	onAddAccount,
 	fallbackName,
@@ -215,6 +224,10 @@ export function ModelPicker({
 	onAgent?: ((backendId: string, modelId: string | undefined) => Promise<void> | void) | undefined;
 	/** The current model's efforts and the one in use; none when it has no levels. */
 	effort: Effort | null;
+	/** Fast mode, when the model in use offers it. */
+	fast?: Fast | null;
+	/** Turns fast mode on or off. */
+	onFast?: ((on: boolean) => Promise<void> | void) | undefined;
 	label: string;
 	/** Switches the model; answers with the effort the switch landed on, when it says. */
 	onModel(modelId: string): Promise<string | null | undefined | void> | void;
@@ -230,6 +243,8 @@ export function ModelPicker({
 	// and the effort it answered with. A tab chosen, the same way.
 	const [switching, setSwitching] = useState<{ id: string; answered: boolean; effort: string | null } | null>(null);
 	const [chosen, setChosen] = useState<{ value: string; answered: boolean } | null>(null);
+	// Fast mode flipped, until the teammate's row says it.
+	const [flipped, setFlipped] = useState<{ on: boolean; answered: boolean } | null>(null);
 	const onHotline = backendId === "hotline";
 	const accounts = accountRows(choices);
 	// The agents people know by name stand on their own, ready or not, in
@@ -317,6 +332,31 @@ export function ModelPicker({
 		return () => clearTimeout(late);
 	}, [chosen, effort?.value]);
 
+	useEffect(() => {
+		if (flipped === null) return;
+		if (flipped.on === fast?.on) {
+			setFlipped(null);
+			return;
+		}
+		if (!flipped.answered) return;
+		const late = setTimeout(() => setFlipped(null), HELD_MS);
+		return () => clearTimeout(late);
+	}, [flipped, fast?.on]);
+	// The toggle, while the model in use, or the one being switched to, is
+	// not known to lack fast mode.
+	const fastOn = flipped?.on ?? fast?.on ?? false;
+	const toward = switching === null ? undefined : models.find((choice) => choice.id === switching.id);
+	const fastShown = fast !== null && onFast !== undefined && toward?.fast !== false ? { ...fast, on: fastOn } : null;
+	const flip = () => {
+		if (fastShown === null) return;
+		const on = !fastShown.on;
+		setFlipped({ on, answered: false });
+		void Promise.resolve(onFast?.(on)).then(
+			() => setFlipped((was) => (was?.on === on ? { on, answered: true } : was)),
+			() => setFlipped((was) => (was?.on === on ? null : was)),
+		);
+	};
+
 	const switchTo = (id: string) => {
 		if (id === (switching?.id ?? inUse)) return;
 		setChosen(null);
@@ -370,10 +410,10 @@ export function ModelPicker({
 				type="button"
 				className="control model-pill"
 				data-compact={compact ? "true" : undefined}
-				aria-label={`${teammate === undefined ? label : `${teammate.name}${teammate.working ? ", working" : ""}`}: ${modelName}${effortName === null ? "" : ` · ${effortName}`}`}
+				aria-label={`${teammate === undefined ? label : `${teammate.name}${teammate.working ? ", working" : ""}`}: ${modelName}${effortName === null ? "" : ` · ${effortName}`}${fastShown?.on ? ", fast" : ""}`}
 				aria-haspopup="menu"
 				aria-expanded={open}
-				title={open ? undefined : [teammate?.name ?? null, modelName, accountLine, effortName].filter((one) => one !== null).join(" · ")}
+				title={open ? undefined : [teammate?.name ?? null, modelName, accountLine, effortName, fastShown?.on ? "Fast" : null].filter((one) => one !== null).join(" · ")}
 				onClick={() => {
 					if (!open) onOpen?.();
 					setOpen((was) => !was);
@@ -386,6 +426,7 @@ export function ModelPicker({
 						{effortName !== null && <span className="text-ink-3"> · {effortName}</span>}
 					</span>
 				)}
+				{fastShown?.on && <FastIcon className="model-pill-fast" />}
 				{teammate !== undefined ? (
 					<span className="model-pill-face">
 						{teammate.face(24)}
@@ -405,6 +446,8 @@ export function ModelPicker({
 					checked={switching?.id ?? inUse}
 					beating={switching !== null && !switching.answered ? switching.id : null}
 					tabs={tabs}
+					fast={fastShown}
+					onFast={flip}
 					others={elsewhere}
 					modelId={modelId}
 					onModel={switchTo}
@@ -440,6 +483,8 @@ function Panels({
 	checked,
 	beating,
 	tabs,
+	fast,
+	onFast,
 	others,
 	modelId,
 	onModel,
@@ -459,6 +504,9 @@ function Panels({
 	/** The model a switch is waiting on, its check beating. */
 	beating: string | null;
 	tabs: Tabs | null;
+	/** Fast mode's toggle, under the tabs, when the model offers it. */
+	fast: Fast | null;
+	onFast(): void;
 	/** Every other account and agent, for Change agent. */
 	others: AccountRow[];
 	modelId: string;
@@ -532,6 +580,7 @@ function Panels({
 	}
 	const rows: MainRow[] = [
 		...(tabs !== null ? [{ kind: "efforts" as const }] : []),
+		...(fast !== null ? [{ kind: "fast" as const }] : []),
 		...shown.map((choice) => ({ kind: "model" as const, choice })),
 		...(models.length > shown.length ? [{ kind: "more" as const }] : []),
 		...(changes ? [{ kind: "agents" as const }] : []),
@@ -653,7 +702,8 @@ function Panels({
 			} else if (kind !== null && element) {
 				showFlyout(kind, element);
 				setLevel(1);
-			} else if (row?.kind === "model" && enter) onModel(row.choice.id);
+			} else if (row?.kind === "fast" && enter) onFast();
+			else if (row?.kind === "model" && enter) onModel(row.choice.id);
 			else if (row?.kind === "action" && enter) act(row.action);
 		} else if (level === 1) {
 			if (flyout?.kind === "more") {
@@ -770,6 +820,32 @@ function Panels({
 									);
 								})}
 							</fieldset>
+						);
+					}
+					if (row.kind === "fast" && fast !== null) {
+						return (
+							<button
+								key="fast"
+								type="button"
+								role="menuitemcheckbox"
+								aria-checked={fast.on}
+								data-row={at}
+								data-active={lit(0, at, active)}
+								tabIndex={-1}
+								className="menu-item model-row model-fast"
+								title={fast.note}
+								onMouseEnter={() => {
+									setActive(at);
+									setLevel(0);
+									hideFlyout();
+								}}
+								onClick={onFast}
+							>
+								<FastIcon className="menu-item-check model-fast-icon" />
+								<span className="menu-item-text">Fast</span>
+								<span className="model-fast-hint">{fast.note !== undefined && !fast.on ? "Unavailable" : fast.hint}</span>
+								<span aria-hidden="true" className="switch" data-on={fast.on ? "true" : undefined} />
+							</button>
 						);
 					}
 					if (row.kind === "model") {

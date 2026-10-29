@@ -122,28 +122,65 @@ pub(super) async fn set_model(
 
     if room.info(persona_id).state != SessionState::Idle {
         let info = room.set_model(persona_id, model_id).await?;
-        let Some(config) = catalog::effort_config(&info.configs).cloned() else {
-            return Ok(info);
-        };
-        let levels: Vec<String> = config.options.iter().map(|one| one.id.clone()).collect();
-        // The session's own levels are the last word: a model the desk
-        // could not place, or placed on a level its session does not have,
-        // is placed again on what the session reports.
-        let level = if let Some(level) = landed.filter(|level| levels.contains(level)) {
-            level
-        } else {
-            let Some(level) = place.land(&levels, config.current_id.as_deref()) else {
-                return Ok(info);
-            };
-            keep_effort(log, room, persona_id, &place.key, &level).await?;
-            level
-        };
-        if config.current_id.as_deref() == Some(level.as_str()) {
-            return Ok(info);
-        }
-        return room.set_config(persona_id, &config.id, &level).await;
+        let info = land_live_effort(log, room, persona_id, &place, landed, info).await?;
+        return keep_fast(room, &persona, info).await;
     }
     Ok(offered_info(log, room, persona_id))
+}
+
+/// A live session's effort once its model has moved. The session's own
+/// levels are the last word: a model the desk could not place, or placed
+/// on a level its session does not have, is placed again on what the
+/// session reports.
+async fn land_live_effort(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona_id: &str,
+    place: &Placing,
+    landed: Option<String>,
+    info: SessionInfo,
+) -> Result<SessionInfo, String> {
+    let Some(config) = catalog::effort_config(&info.configs).cloned() else {
+        return Ok(info);
+    };
+    let levels: Vec<String> = config.options.iter().map(|one| one.id.clone()).collect();
+    let level = if let Some(level) = landed.filter(|level| levels.contains(level)) {
+        level
+    } else {
+        let Some(level) = place.land(&levels, config.current_id.as_deref()) else {
+            return Ok(info);
+        };
+        keep_effort(log, room, persona_id, &place.key, &level).await?;
+        level
+    };
+    if config.current_id.as_deref() == Some(level.as_str()) {
+        return Ok(info);
+    }
+    room.set_config(persona_id, &config.id, &level).await
+}
+
+/// A live session's fast mode once its model has moved: the teammate's
+/// choice, where the new model offers fast mode. An adapter drops the
+/// toggle on a model without it and brings it back off.
+async fn keep_fast(
+    room: &Arc<dyn RoomHandle>,
+    persona: &Persona,
+    info: SessionInfo,
+) -> Result<SessionInfo, String> {
+    let Some((config_id, value)) = info
+        .configs
+        .iter()
+        .filter(|config| config.category == Some(SessionConfigCategory::Fast))
+        .find_map(|config| {
+            let chosen = persona.config_choices.get(&config.id)?;
+            (config.current_id.as_ref() != Some(chosen)
+                && config.options.iter().any(|option| option.id == *chosen))
+            .then(|| (config.id.clone(), chosen.clone()))
+        })
+    else {
+        return Ok(info);
+    };
+    room.set_config(&persona.id, &config_id, &value).await
 }
 
 /// What a model switch places the new model's effort by: the teammate's and

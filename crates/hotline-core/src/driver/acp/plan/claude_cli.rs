@@ -273,6 +273,8 @@ pub(crate) fn catalog(initialized: &Value) -> Option<Catalog> {
             account: None,
             efforts: Some(efforts),
             default_effort: has_levels.then(|| DEFAULT.to_string()),
+            // Only the models that can run fast say so.
+            fast: Some(model.get("supportsFastMode").and_then(Value::as_bool) == Some(true)),
         });
     }
     if catalog.models.is_empty() {
@@ -298,6 +300,7 @@ fn effort_level(id: &str, name: &str) -> ConfigChoice {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     }
 }
 
@@ -514,7 +517,7 @@ mod tests {
     }
 
     /// What `initialize` says of the models, as Claude Code 2.x answers it.
-    const MODELS: &str = r#"{"account":{"subscriptionType":"Claude Max"},"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","description":"Opus 5.5 · Best for everyday, complex tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},{"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5","description":"For complex work and everyday tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},{"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fastest for quick answers"},{"value":"claude-sonnet-4-6","resolvedModel":"claude-sonnet-4-6","displayName":"Sonnet 4.6","description":"Efficient for routine tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","max"]}]}"#;
+    const MODELS: &str = r#"{"account":{"subscriptionType":"Claude Max"},"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","description":"Opus 5.5 · Best for everyday, complex tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},{"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5","description":"For complex work and everyday tasks","supportsEffort":true,"supportsFastMode":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},{"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fastest for quick answers"},{"value":"claude-sonnet-4-6","resolvedModel":"claude-sonnet-4-6","displayName":"Sonnet 4.6","description":"Efficient for routine tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","max"]}]}"#;
 
     /// The same `initialize` names the models, each with the levels the ACP
     /// adapter's effort picker offers for it and by the id it takes, so one
@@ -578,6 +581,9 @@ mod tests {
         );
         assert_eq!(catalog.models[0].description.as_deref(), Some("Opus 5.5"));
         assert_eq!(catalog.models[1].efforts.as_ref().unwrap()[4].id, "xhigh");
+        // Only a model that says it can run fast can.
+        let fast: Vec<Option<bool>> = catalog.models.iter().map(|model| model.fast).collect();
+        assert_eq!(fast, [Some(false), Some(true), Some(false), Some(false)]);
         assert_eq!(catalog.default_model.as_deref(), Some("default"));
         // The resolved id of a model finds it under the id the adapter takes.
         assert_eq!(

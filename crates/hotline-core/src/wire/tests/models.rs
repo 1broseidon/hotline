@@ -453,6 +453,7 @@ fn claude_offer() -> crate::contract::BackendOffer {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     };
     crate::contract::BackendOffer {
         models: vec![choice("opus", "Opus 5.5"), choice("sonnet", "Sonnet 5.5")],
@@ -471,6 +472,7 @@ fn claude_offer() -> crate::contract::BackendOffer {
                 choice("medium", "Medium"),
                 choice("high", "High"),
             ],
+            note: None,
         }],
     }
 }
@@ -682,10 +684,12 @@ fn codex_catalog() -> crate::driver::acp::catalog::Catalog {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     };
     let model = |id: &str, levels: &[&str], default: &str| ConfigChoice {
         efforts: Some(levels.iter().map(|id| level(id)).collect()),
         default_effort: Some(default.to_string()),
+        fast: None,
         ..level(id)
     };
     crate::driver::acp::catalog::Catalog {
@@ -801,6 +805,7 @@ async fn a_live_sessions_report_wins_for_its_model_and_the_catalogue_fills_the_r
         .map(|model| ConfigChoice {
             efforts: None,
             default_effort: None,
+            fast: None,
             ..model
         })
         .collect();
@@ -831,10 +836,12 @@ fn claude_catalog() -> crate::driver::acp::catalog::Catalog {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     };
     let model = |id: &str, levels: &[&str]| ConfigChoice {
         efforts: Some(levels.iter().map(|id| level(id)).collect()),
         default_effort: levels.first().map(|id| (*id).to_string()),
+        fast: None,
         ..level(id)
     };
     crate::driver::acp::catalog::Catalog {
@@ -1021,6 +1028,7 @@ async fn a_live_switch_sets_the_model_then_the_landed_effort() {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     });
     let level = |id: &str| ConfigChoice {
         id: id.to_string(),
@@ -1030,6 +1038,7 @@ async fn a_live_switch_sets_the_model_then_the_landed_effort() {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     };
     let picker = |current: &str, levels: &[&str]| crate::contract::SessionConfig {
         id: "effort".to_string(),
@@ -1037,6 +1046,7 @@ async fn a_live_switch_sets_the_model_then_the_landed_effort() {
         category: Some(crate::contract::SessionConfigCategory::Effort),
         current_id: Some(current.to_string()),
         options: levels.iter().map(|id| level(id)).collect(),
+        note: None,
     };
     let quiet = Arc::new(
         Quiet::new()
@@ -1118,5 +1128,96 @@ async fn a_live_switch_sets_the_model_then_the_landed_effort() {
     assert_eq!(
         desk_effort(&log, "claude-acp/mystery").as_deref(),
         Some("low")
+    );
+}
+
+/// Claude Code's fast mode toggle, as its adapter offers it to a client
+/// without boolean settings.
+fn fast_toggle(current: &str) -> crate::contract::SessionConfig {
+    let value = |id: &str| ConfigChoice {
+        id: id.to_string(),
+        name: id.to_string(),
+        description: None,
+        group: None,
+        account: None,
+        efforts: None,
+        default_effort: None,
+        fast: None,
+    };
+    crate::contract::SessionConfig {
+        id: "fast".to_string(),
+        name: "Fast mode".to_string(),
+        category: Some(crate::contract::SessionConfigCategory::Fast),
+        current_id: Some(current.to_string()),
+        options: vec![value("on"), value("off")],
+        note: None,
+    }
+}
+
+/// The fast toggle the answer draws, if any.
+fn fast_of(answer: &Value) -> Option<Value> {
+    answer["result"]["configs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|config| config["category"] == "fast")
+        .map(|config| config["currentId"].clone())
+}
+
+/// Fast mode is the teammate's choice: kept on the teammate, drawn at rest
+/// only on a model that can run fast, and put back on a live session when
+/// its model moves to one that can, the adapter having brought it back off.
+#[tokio::test]
+async fn fast_mode_is_the_teammates_choice_on_the_models_that_have_it() {
+    let mut catalog = claude_catalog();
+    catalog.models[0].fast = Some(true);
+    catalog.models[1].fast = Some(false);
+    let mut offer = crate::contract::BackendOffer::default();
+    crate::driver::acp::catalog::fill(&mut offer, Some(&catalog));
+    offer.configs.push(fast_toggle("off"));
+    let quiet = Arc::new(
+        Quiet::new()
+            .offering("claude-acp", offer.clone())
+            .reporting("opus", fast_toggle("off")),
+    );
+    let (_root, log, port) = door_with("fast-mode", quiet.clone());
+    let mut socket = desk(port).await;
+    let bob = create_on(&mut socket, 1, "Bob", "claude-acp").await;
+    let bob = bob["id"].as_str().unwrap();
+    let set_model = |model: &str| json!({ "personaId": bob, "modelId": model });
+
+    let on = command(
+        &mut socket,
+        2,
+        "session.set_config",
+        json!({ "personaId": bob, "configId": "fast", "value": "on" }),
+    )
+    .await;
+    assert_eq!(fast_of(&on), Some(json!("on")), "{on}");
+    let bob_now = || room::roster(&log).into_iter().next().unwrap();
+    assert_eq!(
+        bob_now().config_choices.get("fast").map(String::as_str),
+        Some("on")
+    );
+
+    // Sonnet cannot run fast: no toggle at rest, and the choice stays.
+    let sonnet = command(&mut socket, 3, "session.set_model", set_model("sonnet")).await;
+    assert_eq!(fast_of(&sonnet), None, "{sonnet}");
+    let opus = command(&mut socket, 4, "session.set_model", set_model("opus")).await;
+    assert_eq!(fast_of(&opus), Some(json!("on")), "{opus}");
+
+    // Live on Sonnet, moved to Opus: the adapter offers it off, the
+    // teammate's On is put back.
+    let mut live = idle(bob);
+    live.state = SessionState::Ready;
+    live.session_id = Some("s-1".to_string());
+    live.models = offer.models.clone();
+    live.current_model_id = Some("sonnet".to_string());
+    quiet.set_info(live);
+    let moved = command(&mut socket, 5, "session.set_model", set_model("opus")).await;
+    assert_eq!(
+        quiet.calls(),
+        ["set_model opus", "set_config fast on"],
+        "{moved}"
     );
 }

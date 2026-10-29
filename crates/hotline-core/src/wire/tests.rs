@@ -702,6 +702,7 @@ impl RoomHandle for Quiet {
                     category: None,
                     current_id: Some(value.to_string()),
                     options: Vec::new(),
+                    note: None,
                 }];
             }
         }
@@ -856,6 +857,7 @@ impl RoomHandle for Quiet {
                 account: None,
                 efforts: None,
                 default_effort: None,
+                fast: None,
             },
             ConfigChoice {
                 id: "openai/gpt".to_string(),
@@ -865,6 +867,7 @@ impl RoomHandle for Quiet {
                 account: None,
                 efforts: None,
                 default_effort: None,
+                fast: None,
             },
         ]
     }

@@ -643,6 +643,7 @@ mod tests {
             category: None,
             current_id: Some("high".to_string()),
             options: Vec::new(),
+            note: None,
         }];
         let view = clone_of(ada, &home, &[]);
         assert_eq!(view.model_id.as_deref(), Some("vendor/live"));

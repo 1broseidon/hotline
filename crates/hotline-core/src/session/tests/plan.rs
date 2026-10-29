@@ -263,11 +263,13 @@ fn claude_catalog() -> crate::driver::acp::catalog::Catalog {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     };
     crate::driver::acp::catalog::Catalog {
         models: vec![ConfigChoice {
             efforts: Some(vec![level("default"), level("max")]),
             default_effort: Some("default".into()),
+            fast: None,
             ..level("opus")
         }],
         default_model: Some("opus".into()),

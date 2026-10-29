@@ -79,6 +79,56 @@ fn disposition_separates_runtime_mode_from_effort_and_hides_other_configs() {
     assert_eq!(dedicated.configs[0].id, "reasoning");
 }
 
+/// Fast mode, as Claude Code's (`fast`) and Codex's (`fast-mode`) adapters
+/// offer it, is kept as the fast toggle, with the reason it cannot be had
+/// when the adapter gives one; another on/off model setting stays out.
+#[test]
+fn disposition_keeps_fast_mode_and_its_reason() {
+    let fast = |id: &str, current: &str| {
+        select_config(
+            id,
+            "Fast mode",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            current,
+            &[("on", "On"), ("off", "Off")],
+        )
+    };
+    let configs = vec![
+        fast("fast", "off").description(Some(
+            "Faster responses on supported models — requires extra usage to be enabled for this account"
+                .to_string(),
+        )),
+        select_config(
+            "thinking",
+            "Thinking",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            "on",
+            &[("on", "On"), ("off", "Off")],
+        ),
+    ];
+    let claude = Disposition::of(None, Some(&configs));
+    assert_eq!(claude.configs.len(), 1);
+    let toggle = &claude.configs[0];
+    assert_eq!(toggle.id, "fast");
+    assert_eq!(
+        toggle.category,
+        Some(crate::contract::SessionConfigCategory::Fast)
+    );
+    assert_eq!(toggle.current_id.as_deref(), Some("off"));
+    assert_eq!(
+        toggle.note.as_deref(),
+        Some("Requires extra usage to be enabled for this account")
+    );
+
+    let codex = Disposition::of(
+        None,
+        Some(&[fast("fast-mode", "on").description(Some("Fast mode".to_string()))]),
+    );
+    assert_eq!(codex.configs[0].id, "fast-mode");
+    assert_eq!(codex.configs[0].current_id.as_deref(), Some("on"));
+    assert_eq!(codex.configs[0].note, None);
+}
+
 #[tokio::test]
 async fn config_notifications_update_model_and_effort_without_replacing_mode() {
     let live = Live::default();

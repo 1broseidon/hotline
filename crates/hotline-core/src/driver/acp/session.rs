@@ -916,6 +916,7 @@ impl Disposition {
                     account: None,
                     efforts: None,
                     default_effort: None,
+                    fast: None,
                 })
                 .collect();
             disposition.current_mode_id = Some(state.current_mode_id.0.to_string());
@@ -945,10 +946,24 @@ impl Disposition {
                         category: Some(crate::contract::SessionConfigCategory::Effort),
                         current_id: Some(select.current_value.0.to_string()),
                         options: picker,
+                        note: None,
                     });
                 }
-                // Hotline has no stable UI contract for model sub-options or
-                // arbitrary ACP settings. They remain harness-owned.
+                Some(acp::SessionConfigOptionCategory::ModelConfig)
+                    if is_fast_toggle(&option.id.0, &picker) =>
+                {
+                    disposition.configs.push(crate::contract::SessionConfig {
+                        id: option.id.0.to_string(),
+                        name: option.name.clone(),
+                        category: Some(crate::contract::SessionConfigCategory::Fast),
+                        current_id: Some(select.current_value.0.to_string()),
+                        options: picker,
+                        note: option.description.as_deref().and_then(fast_note),
+                    });
+                }
+                // Hotline has no stable UI contract for other model
+                // sub-options or arbitrary ACP settings. They remain
+                // harness-owned.
                 Some(
                     acp::SessionConfigOptionCategory::Mode
                     | acp::SessionConfigOptionCategory::ModelConfig
@@ -999,6 +1014,27 @@ pub(super) fn apply_configs_to_session(
     session.info.configs = disposition.configs;
 }
 
+/// A model setting that is fast mode, as both adapters offer it to a client
+/// without boolean settings: Claude Code's `fast` and Codex's `fast-mode`,
+/// a select of `on` and `off`.
+fn is_fast_toggle(id: &str, picker: &[crate::contract::ConfigChoice]) -> bool {
+    let mut values: Vec<&str> = picker.iter().map(|choice| choice.id.as_str()).collect();
+    values.sort_unstable();
+    id.to_ascii_lowercase().contains("fast") && values == ["off", "on"]
+}
+
+/// Why fast mode cannot be had, from the setting's description: Claude
+/// Code's adapter adds the reason after a dash while the account, plan or
+/// model cannot use it ("Faster responses on supported models — requires
+/// extra usage to be enabled for this account").
+fn fast_note(description: &str) -> Option<String> {
+    let (_, reason) = description.split_once(" — ")?;
+    let reason = reason.trim();
+    let mut letters = reason.chars();
+    let first = letters.next()?;
+    Some(first.to_uppercase().chain(letters).collect())
+}
+
 fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigChoice> {
     let options = match &select.options {
         acp::SessionConfigSelectOptions::Ungrouped(options) => options.clone(),
@@ -1018,6 +1054,7 @@ fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigC
             account: None,
             efforts: None,
             default_effort: None,
+            fast: None,
         })
         .collect()
 }

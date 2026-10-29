@@ -6,7 +6,7 @@ import { lastKnown, rememberKnown } from "../lastKnown";
 import { refreshRoomRead, useRoomRead } from "../roomReads";
 import { useRawSetting, useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
-import { type MenuTeammate, ModelPicker } from "./ModelPicker";
+import { type Fast, type MenuTeammate, ModelPicker } from "./ModelPicker";
 import { wire, type RosterEntry } from "../wire";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
@@ -169,7 +169,17 @@ export function SessionPickers({
 			: known?.effort != null
 				? { value: known.effort, choices: [{ id: known.effort, name: known.effort }] }
 				: null;
-	const others = configs.filter((config) => config.category !== "effort");
+	// Fast mode is the menu's toggle, not a picker of its own.
+	const fastConfig = configs.find((config) => config.category === "fast");
+	const fast: Fast | null =
+		fastConfig === undefined
+			? null
+			: {
+					on: fastConfig.currentId === "on",
+					hint: fastHint(persona.backendId),
+					...(fastConfig.note !== undefined ? { note: fastConfig.note } : {}),
+				};
+	const others = configs.filter((config) => config.category !== "effort" && config.category !== "fast");
 	return (
 		<>
 			{others.map((config) => (
@@ -201,6 +211,8 @@ export function SessionPickers({
 				plan={session.planUsage}
 				onModel={setModel}
 				onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
+				fast={fast}
+				onFast={(on) => setConfig(fastConfig?.id ?? "fast", on ? "on" : "off")}
 				landsOn={predict}
 				onAddAccount={onAddAccount}
 				teammate={teammate}
@@ -208,6 +220,16 @@ export function SessionPickers({
 			/>
 		</>
 	);
+}
+
+/**
+ * What fast mode costs, in the menu's few words: Claude Code bills it to
+ * extra usage only, never the plan; Codex spends the plan faster.
+ */
+function fastHint(backendId: string): string {
+	if (backendId === "claude-acp") return "Extra usage only";
+	if (backendId === "codex-acp") return "Uses more of plan";
+	return "Costs more";
 }
 
 function hotlineModel(

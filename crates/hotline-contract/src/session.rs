@@ -179,6 +179,9 @@ pub enum SessionState {
 pub enum SessionConfigCategory {
     /// A model's reasoning or thought level.
     Effort,
+    /// Fast mode, on or off: the model served faster, for more of the plan
+    /// or of paid usage, on the models that offer it.
+    Fast,
 }
 
 /// The idle effort picker's reply for one catalogue model: the levels it
@@ -207,6 +210,9 @@ pub struct SessionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_id: Option<String>,
     pub options: Vec<ConfigChoice>,
+    /// Why the agent cannot turn this on now, in its words, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// What the agent behind a session can be asked to do.
@@ -255,6 +261,10 @@ pub struct ConfigChoice {
     /// The level of `efforts` a session on this model starts at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_effort: Option<String>,
+    /// Whether a harness model can run in fast mode, as its harness lists
+    /// it out of band. Absent where that is not known here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast: Option<bool>,
 }
 
 /// Which of the person's accounts serves a model choice: a credential, by

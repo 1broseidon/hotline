@@ -61,6 +61,7 @@ pub(super) fn effort_config(model_id: &str, current: Option<&str>) -> Vec<Sessio
         category: Some(crate::contract::SessionConfigCategory::Effort),
         current_id: current.map(str::to_string),
         options,
+        note: None,
     }]
 }
 

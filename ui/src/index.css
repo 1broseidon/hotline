@@ -754,9 +754,11 @@
 		opacity: 0.5;
 	}
 
+	/* A checkbox drawn as a switch; a span with data-on draws one inside a menu row. */
 	.switch {
 		appearance: none;
 		position: relative;
+		display: inline-block;
 		flex-shrink: 0;
 		width: 26px;
 		height: 16px;
@@ -776,10 +778,12 @@
 		background: var(--ink);
 		transition: transform var(--dur-open) var(--ease-out);
 	}
-	.switch:checked {
+	.switch:checked,
+	.switch[data-on="true"] {
 		background: var(--accent);
 	}
-	.switch:checked::after {
+	.switch:checked::after,
+	.switch[data-on="true"]::after {
 		background: var(--on-accent);
 		transform: translateX(10px);
 	}
@@ -927,6 +931,14 @@
 	.model-pill-chevron {
 		flex-shrink: 0;
 		color: var(--ink-3);
+	}
+	/* Fast mode on: a bolt after the effort. */
+	.model-pill-fast {
+		flex-shrink: 0;
+		width: 13px;
+		height: 13px;
+		margin-left: -2px;
+		color: var(--ink-2);
 	}
 	.model-pill-face {
 		position: relative;
@@ -1139,6 +1151,33 @@
 	}
 	.menu-item[data-active="true"] .model-check {
 		color: inherit;
+	}
+	/* Fast mode: the bolt where a model's check stands, what it costs, its switch. */
+	.model-fast-icon {
+		color: var(--ink-3);
+	}
+	.model-fast[aria-checked="true"] .model-fast-icon {
+		color: var(--accent);
+	}
+	.model-fast-hint {
+		flex-shrink: 0;
+		font-size: var(--text-xs);
+		color: var(--ink-3);
+	}
+	.menu-item[data-active="true"] .model-fast-icon,
+	.menu-item[data-active="true"] .model-fast-hint {
+		color: inherit;
+		opacity: 0.8;
+	}
+	/* On a lit row, which is the accent, the switch turns over to keep its shape. */
+	.menu-item[data-active="true"] .switch {
+		background: color-mix(in oklch, var(--on-accent) 30%, transparent);
+	}
+	.menu-item[data-active="true"] .switch[data-on="true"] {
+		background: var(--on-accent);
+	}
+	.menu-item[data-active="true"] .switch[data-on="true"]::after {
+		background: var(--accent);
 	}
 	/* An agent that wants its own sign-in: the row is the key, said in the accent. */
 	.model-row-signin {

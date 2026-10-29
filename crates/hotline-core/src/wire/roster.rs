@@ -466,6 +466,11 @@ pub(super) fn offered(
         info.current_model_id.as_deref(),
         persona.effort_id.as_ref(),
     );
+    catalog::fit_fast(
+        &mut info.configs,
+        &info.models,
+        info.current_model_id.as_deref(),
+    );
     info
 }
 

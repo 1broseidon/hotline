@@ -73,6 +73,11 @@ pub(crate) fn fill(offer: &mut BackendOffer, catalog: Option<&Catalog>) {
         offer.models = merged(std::mem::take(&mut offer.models), catalog);
     }
     for model in &mut offer.models {
+        if model.fast.is_none() {
+            model.fast = catalog
+                .and_then(|catalog| catalog.model(&model.id))
+                .and_then(|listed| listed.fast);
+        }
         if let Some(config) = &reported
             && offer.current_model_id.as_ref() == Some(&model.id)
         {
@@ -100,6 +105,7 @@ pub(crate) fn fill(offer: &mut BackendOffer, catalog: Option<&Catalog>) {
             options: current
                 .and_then(|model| model.efforts.clone())
                 .unwrap_or_default(),
+            note: None,
         });
     }
 }
@@ -131,6 +137,12 @@ pub(crate) fn with_levels(
 ) {
     let reported = effort_config(configs);
     for model in models {
+        if model.fast.is_none() {
+            model.fast = offered
+                .iter()
+                .find(|one| one.id == model.id)
+                .and_then(|listed| listed.fast);
+        }
         if model.id == current_model_id {
             model.efforts = Some(
                 reported
@@ -144,6 +156,21 @@ pub(crate) fn with_levels(
             model.efforts.clone_from(&listed.efforts);
             model.default_effort.clone_from(&listed.default_effort);
         }
+    }
+}
+
+/// A teammate at rest on a model known not to run fast has no fast toggle:
+/// the agent offered it on the model its look opened on.
+pub(crate) fn fit_fast(
+    configs: &mut Vec<SessionConfig>,
+    models: &[ConfigChoice],
+    model_id: Option<&str>,
+) {
+    let slow = model_id
+        .and_then(|id| models.iter().find(|model| model.id == id))
+        .is_some_and(|model| model.fast == Some(false));
+    if slow {
+        configs.retain(|config| config.category != Some(SessionConfigCategory::Fast));
     }
 }
 
@@ -200,6 +227,7 @@ mod tests {
             account: None,
             efforts: levels.map(|levels| levels.iter().map(|id| level(id)).collect()),
             default_effort: levels.and_then(|levels| levels.first().map(|id| (*id).to_string())),
+            fast: None,
         }
     }
 
@@ -210,6 +238,7 @@ mod tests {
             category: Some(SessionConfigCategory::Effort),
             current_id: Some(current.into()),
             options: levels.iter().map(|id| level(id)).collect(),
+            note: None,
         }
     }
 

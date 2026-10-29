@@ -509,7 +509,12 @@ efforts?: Array<ConfigChoice>,
 /**
  * The level of `efforts` a session on this model starts at.
  */
-defaultEffort?: string, };
+defaultEffort?: string, 
+/**
+ * Whether a harness model can run in fast mode, as its harness lists
+ * it out of band. Absent where that is not known here.
+ */
+fast?: boolean, };
 
 /**
  * One browser profile's cookies brought over to a teammate's computer, as
@@ -1682,12 +1687,16 @@ export type SessionConfig = { id: string, name: string,
  * The small set of generic selectors Hotline may place in the conversation
  * header. Unknown ACP selectors stay out of the UI.
  */
-category?: SessionConfigCategory, currentId?: string, options: Array<ConfigChoice>, };
+category?: SessionConfigCategory, currentId?: string, options: Array<ConfigChoice>, 
+/**
+ * Why the agent cannot turn this on now, in its words, when it says.
+ */
+note?: string, };
 
 /**
  * One picker the agent offers beyond the model and the mode.
  */
-export type SessionConfigCategory = "effort";
+export type SessionConfigCategory = "effort" | "fast";
 
 /**
  * Capabilities and options a live session reported, used to drive the UI.

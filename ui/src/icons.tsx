@@ -180,6 +180,13 @@ export const SwapIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/** Fast mode: a bolt. */
+export const FastIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M9 1.75L3.75 9h4l-.75 5.25L12.25 7h-4L9 1.75z" />
+	</Icon>
+);
+
 export const CheckIcon = ({ className }: IconProps) => (
 	<Icon className={className} strokeWidth={1.75}>
 		<path d="M3.25 8.5l3 3 6.5-7" />

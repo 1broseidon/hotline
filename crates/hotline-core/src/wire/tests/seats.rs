@@ -579,6 +579,7 @@ fn only_a_config_the_session_calls_effort_is_a_phones_to_set() {
             category: Some(SessionConfigCategory::Effort),
             current_id: Some("high".to_string()),
             options: Vec::new(),
+            note: None,
         },
         SessionConfig {
             id: "approval".to_string(),
@@ -586,6 +587,7 @@ fn only_a_config_the_session_calls_effort_is_a_phones_to_set() {
             category: None,
             current_id: Some("ask".to_string()),
             options: Vec::new(),
+            note: None,
         },
     ];
     room.set_info(info);

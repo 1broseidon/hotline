@@ -591,6 +591,7 @@ pub fn choices(
                 account: None,
                 efforts: None,
                 default_effort: None,
+                fast: None,
             })
             .collect::<Vec<_>>()
         })
@@ -617,6 +618,7 @@ pub fn choices(
                     account: None,
                     efforts: None,
                     default_effort: None,
+                    fast: None,
                 }),
         );
     }
@@ -792,6 +794,7 @@ pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
             account: None,
             efforts: None,
             default_effort: None,
+            fast: None,
         })
         .collect()
 }

@@ -24,6 +24,7 @@ fn choice(id: &str) -> ConfigChoice {
         account: None,
         efforts: None,
         default_effort: None,
+        fast: None,
     }
 }
 

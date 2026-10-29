@@ -84,6 +84,7 @@ pub(crate) fn catalog(cache: &Value) -> Option<Catalog> {
                     account: None,
                     efforts: None,
                     default_effort: None,
+                    fast: None,
                 })
             })
             .collect();
@@ -100,6 +101,7 @@ pub(crate) fn catalog(cache: &Value) -> Option<Catalog> {
             account: None,
             efforts: Some(efforts),
             default_effort,
+            fast: None,
         });
     }
     (!catalog.models.is_empty()).then_some(catalog)

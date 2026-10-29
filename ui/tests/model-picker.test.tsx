@@ -634,3 +634,63 @@ test("a switch to a model without levels shows no tabs, and a refused switch goe
 	expect(mainModels()[0]!.getAttribute("aria-checked")).toBe("true");
 	expect(tabs().length).toBe(6);
 });
+
+test("fast mode is a toggle under the tabs: it flips at once, the pill wears a bolt, and a model without it has none", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const calls: string[] = [];
+	const onClaude = agents.map((agent) =>
+		agent.id === "claude-acp"
+			? { ...agent, choices: [{ id: "opus", name: "Opus", fast: true }, { id: "sonnet", name: "Sonnet", fast: false }] }
+			: agent,
+	);
+	const render = (fast: { on: boolean; hint: string; note?: string } | null) =>
+		act(async () => {
+			root.render(
+				<ModelPicker
+					choices={choices}
+					modelId="opus"
+					backendId="claude-acp"
+					agents={onClaude}
+					effort={{ value: "high", choices: efforts }}
+					fast={fast}
+					label="Model"
+					onModel={(id) => {
+						calls.push(`model:${id}`);
+						return new Promise(() => {});
+					}}
+					onAgent={() => {}}
+					onEffort={() => {}}
+					onFast={(on) => {
+						calls.push(`fast:${on}`);
+					}}
+				/>,
+			);
+		});
+	await render({ on: false, hint: "Extra usage only" });
+	const button = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+	expect(button.querySelector(".model-pill-fast")).toBeNull();
+	await open();
+	const toggle = () => mainMenu().querySelector<HTMLButtonElement>('[role="menuitemcheckbox"]');
+	expect(toggle()?.textContent).toBe("FastExtra usage only");
+	expect(toggle()?.getAttribute("aria-checked")).toBe("false");
+	await act(async () => toggle()!.click());
+	expect(calls).toEqual(["fast:true"]);
+	// On at once, the menu open, the pill's bolt beside the effort.
+	expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+	expect(button.querySelector(".model-pill-fast")).not.toBeNull();
+	expect(button.getAttribute("aria-label")).toContain(", fast");
+	// Switching to a model that cannot run fast takes the toggle away.
+	await act(async () => mainModels()[1]!.click());
+	expect(toggle()).toBeNull();
+	await act(async () => root.unmount());
+	root = (await import("react-dom/client")).createRoot(container);
+
+	// The agent says why it cannot: the row says Unavailable, the reason on hover.
+	await render({ on: false, hint: "Extra usage only", note: "Requires extra usage to be enabled for this account" });
+	await open();
+	expect(toggle()?.querySelector(".model-fast-hint")?.textContent).toBe("Unavailable");
+	expect(toggle()?.title).toBe("Requires extra usage to be enabled for this account");
+	// No toggle when the model offers no fast mode.
+	await render(null);
+	expect(toggle()).toBeNull();
+});

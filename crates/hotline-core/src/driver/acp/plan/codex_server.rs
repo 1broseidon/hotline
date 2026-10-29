@@ -169,6 +169,7 @@ pub(crate) fn catalog(listed: &[Value]) -> Option<Catalog> {
                     account: None,
                     efforts: None,
                     default_effort: None,
+                    fast: None,
                 })
             })
             .collect();
@@ -194,6 +195,13 @@ pub(crate) fn catalog(listed: &[Value]) -> Option<Catalog> {
             account: None,
             efforts: Some(efforts),
             default_effort,
+            // A model that can run fast lists the tier beside its own.
+            fast: Some(
+                model
+                    .get("additionalSpeedTiers")
+                    .and_then(Value::as_array)
+                    .is_some_and(|tiers| tiers.iter().any(|tier| tier.as_str() == Some("fast"))),
+            ),
         });
     }
     (!catalog.models.is_empty()).then_some(catalog)
@@ -363,7 +371,7 @@ pub(crate) mod tests {
     }
 
     /// `model/list`'s two pages, as codex 0.164 answers them.
-    const MODELS_FIRST: &str = r#"{"data":[{"id":"gpt-6.1-sol","model":"gpt-6.1-sol","displayName":"GPT-6.1-Sol","description":"Latest workhorse model.","hidden":false,"isDefault":true,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast"},{"reasoningEffort":"medium","description":"Balanced"},{"reasoningEffort":"xhigh","description":"Deepest"}]},{"id":"gpt-hidden","model":"gpt-hidden","displayName":"GPT-Hidden","description":"","hidden":true,"isDefault":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[]}],"nextCursor":"page-2"}"#;
+    const MODELS_FIRST: &str = r#"{"data":[{"id":"gpt-6.1-sol","model":"gpt-6.1-sol","displayName":"GPT-6.1-Sol","description":"Latest workhorse model.","hidden":false,"isDefault":true,"additionalSpeedTiers":["fast"],"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast"},{"reasoningEffort":"medium","description":"Balanced"},{"reasoningEffort":"xhigh","description":"Deepest"}]},{"id":"gpt-hidden","model":"gpt-hidden","displayName":"GPT-Hidden","description":"","hidden":true,"isDefault":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[]}],"nextCursor":"page-2"}"#;
     const MODELS_SECOND: &str = r#"{"data":[{"id":"gpt-6.1-terra","model":"gpt-6.1-terra-2026","displayName":"GPT-6.1 Terra","description":"Balanced.","hidden":false,"isDefault":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"Balanced"},{"reasoningEffort":"max","description":"Most"}]}],"nextCursor":null}"#;
 
     pub(crate) const LIMITS: &str = r#"{"rateLimits":{"limitId":"codex","planType":"pro","primary":{"usedPercent":2.0,"windowDurationMins":10080,"resetsAt":1793774976},"secondary":{"usedPercent":81.0,"windowDurationMins":300,"resetsAt":1793700000},"rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex","planType":"pro","primary":{"usedPercent":2.0,"windowDurationMins":10080,"resetsAt":1793774976},"secondary":{"usedPercent":81.0,"windowDurationMins":300,"resetsAt":1793700000}},"codex_fable":{"limitId":"codex_fable","primary":{"usedPercent":99.0}}},"rateLimitResetCredits":{"availableCount":2,"credits":[{"id":"a","status":"available","expiresAt":1794000000,"grantedAt":1,"resetType":"codexRateLimits"},{"id":"b","status":"redeemed","expiresAt":1793000000,"grantedAt":1,"resetType":"codexRateLimits"},{"id":"c","status":"available","expiresAt":1795000000,"grantedAt":1,"resetType":"codexRateLimits"}]}}"#;
@@ -463,6 +471,9 @@ pub(crate) mod tests {
             Some("Fast")
         );
         assert_eq!(catalog.default_model.as_deref(), Some("gpt-6.1-sol"));
+        // A model that lists the fast tier can run fast.
+        let fast: Vec<Option<bool>> = catalog.models.iter().map(|model| model.fast).collect();
+        assert_eq!(fast, [Some(true), Some(false)]);
         assert_eq!(
             catalog
                 .aliases

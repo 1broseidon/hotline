@@ -42,6 +42,10 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 /// How old a list may be before the agent is looked at again.
 const FRESH_MS: i64 = 24 * 60 * 60 * 1000;
+/// What an offer kept holds, raised when it starts to hold more: an offer
+/// kept before is looked at again rather than waiting out its day. 1: fast
+/// mode.
+const SHAPE: u32 = 1;
 /// How long one look may take from spawn to the session's answer.
 const LOOK_BOUND: Duration = Duration::from_secs(60);
 /// The first look at an agent may be fetching its adapter package.
@@ -92,6 +96,9 @@ struct Seen {
     /// modes is not started again for them more than once a day.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     looked_at: Option<i64>,
+    /// The [`SHAPE`] of the offer kept: 0 in a file from before it was.
+    #[serde(default)]
+    shape: u32,
 }
 
 impl Seen {
@@ -270,6 +277,7 @@ pub fn remember(root: &Path, backend_id: &str, offer: &BackendOffer) {
         return;
     }
     now_seen.at = now;
+    now_seen.shape = SHAPE;
     seen.insert(backend_id.to_string(), now_seen);
     write(root, &seen);
 }
@@ -278,7 +286,8 @@ pub fn remember(root: &Path, backend_id: &str, offer: &BackendOffer) {
 /// it has never offered modes here and was not looked at in the last day.
 fn due(was: Option<&Seen>, now: i64) -> bool {
     was.is_none_or(|was| {
-        now - was.at >= FRESH_MS
+        was.shape < SHAPE
+            || now - was.at >= FRESH_MS
             || (was.modes.is_empty() && was.looked_at.is_none_or(|at| now - at >= FRESH_MS))
     })
 }
@@ -361,6 +370,7 @@ fn keep_look(root: &Path, backend_id: &str, looked: Result<BackendOffer, Missed>
     entry.looked_at = Some(now);
     entry.sign_in = sign_in;
     entry.take(&offer);
+    entry.shape = SHAPE;
     let changed = was != (entry.offer(), entry.sign_in);
     write(root, &seen);
     changed
@@ -503,6 +513,7 @@ mod tests {
             account: None,
             efforts: None,
             default_effort: None,
+            fast: None,
         }
     }
 
@@ -540,6 +551,7 @@ mod tests {
             category: Some(crate::contract::SessionConfigCategory::Effort),
             current_id: Some("high".into()),
             options: vec![choice("low"), choice("high")],
+            note: None,
         };
         let offer = BackendOffer {
             models: vec![choice("opus"), choice("sonnet")],
@@ -789,6 +801,7 @@ mod tests {
         let listed = Seen {
             at: now - hour,
             models: vec![choice("opus")],
+            shape: SHAPE,
             ..Seen::default()
         };
         assert!(due(Some(&listed), now), "a fresh list with no modes");
@@ -802,6 +815,12 @@ mod tests {
             ..listed
         };
         assert!(!due(Some(&with_modes), now));
+        // An offer kept before it held all it holds now is looked at again.
+        let older = Seen {
+            shape: SHAPE - 1,
+            ..with_modes.clone()
+        };
+        assert!(due(Some(&older), now), "kept before fast mode was");
         let stale = Seen {
             at: now - FRESH_MS,
             ..with_modes

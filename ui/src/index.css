@@ -917,7 +917,7 @@
 	}
 	.plan-row {
 		display: grid;
-		grid-template-columns: 3.4em 1fr 2.8em 3.2em;
+		grid-template-columns: 3.4em 1fr 2.8em 4.4em;
 		align-items: center;
 		column-gap: 8px;
 		height: 18px;

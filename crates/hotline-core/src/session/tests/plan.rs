@@ -31,16 +31,23 @@ fn reading(at: i64) -> PlanUsage {
                 kind: "five_hour".into(),
                 used_percent: Some(38.0),
                 resets_at: Some(at + 3_600_000),
+                window_minutes: None,
+                label: None,
                 status: PlanStatus::Allowed,
             },
             PlanWindow {
                 kind: "seven_day".into(),
                 used_percent: Some(61.0),
                 resets_at: Some(at + 86_400_000),
+                window_minutes: None,
+                label: None,
                 status: PlanStatus::Allowed,
             },
         ],
         at,
+        plan: None,
+        banked: None,
+        banked_expires_at: None,
     }
 }
 
@@ -120,12 +127,17 @@ async fn a_report_after_a_reply_joins_the_logins_reading() {
         kind: "seven_day_opus".into(),
         used_percent: Some(85.0),
         resets_at: None,
+        window_minutes: None,
+        label: None,
         status: PlanStatus::Warning,
     };
     let reported = DriverInfo {
         plan_usage: Some(PlanUsage {
             windows: vec![opus.clone()],
             at: now,
+            plan: None,
+            banked: None,
+            banked_expires_at: None,
         }),
         ..fake.driver.reported()
     };

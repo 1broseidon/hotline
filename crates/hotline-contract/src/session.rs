@@ -75,6 +75,21 @@ pub struct PlanUsage {
     pub windows: Vec<PlanWindow>,
     /// When the agent last reported, in milliseconds since the epoch.
     pub at: i64,
+    /// The plan's name, as the agent's account says it: "Max", "Pro",
+    /// "ChatGPT Pro". Absent when the reading did not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plan: Option<String>,
+    /// How many banked resets the account holds (Codex's reset credits),
+    /// when it said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub banked: Option<u32>,
+    /// When the first of those resets expires, in milliseconds since the
+    /// epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub banked_expires_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -82,7 +97,8 @@ pub struct PlanUsage {
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct PlanWindow {
     /// The agent's name for the window: `five_hour`, `seven_day`,
-    /// `seven_day_opus`, `seven_day_sonnet`, `overage`.
+    /// `seven_day_opus`, `seven_day_sonnet`, a model's own
+    /// `seven_day_<model>`, `monthly`.
     pub kind: String,
     /// How much of it is used, 0 to 100, when the agent said.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,6 +106,14 @@ pub struct PlanWindow {
     /// When it resets, in milliseconds since the epoch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resets_at: Option<i64>,
+    /// How long the window is, in minutes: 300 for the 5-hour one, 10080
+    /// for a week. With `resets_at` it says how far into the window now is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_minutes: Option<i64>,
+    /// What to call the window when its kind does not say it: a model's
+    /// own weekly window, "Weekly · Fable".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     /// Whether the account may use it: allowed, nearing the limit, or limited.
     pub status: PlanStatus,
 }

@@ -13,7 +13,7 @@
 //! The newest such event, in the newest log that has one, is the account's
 //! reading as of when Codex wrote it. Reading it costs nothing but the file.
 
-use super::{order, status_of};
+use super::{codex_plan, kind_of_minutes, order, status_of};
 use crate::contract::{PlanUsage, PlanWindow};
 use serde_json::Value;
 use std::io::{Read, Seek, SeekFrom};
@@ -144,32 +144,37 @@ fn reading_of(line: &str, now: i64) -> Option<PlanUsage> {
     }
     windows.sort_by_key(|one| order(&one.kind));
     windows.dedup_by(|a, b| a.kind == b.kind);
+    let plan = limits
+        .get("plan_type")
+        .and_then(Value::as_str)
+        .and_then(codex_plan);
     let at = event
         .get("timestamp")
         .and_then(Value::as_str)
         .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
         .map_or(now, |at| at.timestamp_millis());
-    Some(PlanUsage { windows, at })
+    Some(PlanUsage {
+        windows,
+        at,
+        plan,
+        banked: None,
+        banked_expires_at: None,
+    })
 }
 
 fn window_of(limit: &Value) -> Option<PlanWindow> {
     let used = limit.get("used_percent")?.as_f64()?.clamp(0.0, 100.0);
-    let minutes = limit.get("window_minutes").and_then(Value::as_i64);
-    let kind = match minutes {
-        Some(300) => "five_hour".to_string(),
-        Some(10_080) => "seven_day".to_string(),
-        Some(minutes) if minutes % 60 == 0 => format!("{}h", minutes / 60),
-        Some(minutes) => format!("{minutes}m"),
-        None => return None,
-    };
+    let minutes = limit.get("window_minutes").and_then(Value::as_i64)?;
     Some(PlanWindow {
-        kind,
+        kind: kind_of_minutes(minutes),
         used_percent: Some(used),
         // Unix seconds, as Codex writes it.
         resets_at: limit
             .get("resets_at")
             .and_then(Value::as_f64)
             .map(|seconds| (seconds * 1000.0) as i64),
+        window_minutes: Some(minutes),
+        label: None,
         status: status_of(used),
     })
 }
@@ -252,16 +257,21 @@ mod tests {
                     kind: "five_hour".into(),
                     used_percent: Some(81.0),
                     resets_at: Some(1_793_700_000_000),
+                    window_minutes: Some(300),
+                    label: None,
                     status: PlanStatus::Warning,
                 },
                 PlanWindow {
                     kind: "seven_day".into(),
                     used_percent: Some(2.0),
                     resets_at: Some(1_793_774_976_000),
+                    window_minutes: Some(10_080),
+                    label: None,
                     status: PlanStatus::Allowed,
                 },
             ]
         );
+        assert_eq!(plan.plan.as_deref(), Some("ChatGPT Pro"));
         let _ = std::fs::remove_dir_all(home);
     }
 

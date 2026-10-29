@@ -1210,12 +1210,28 @@ export type PlanUsage = { windows: Array<PlanWindow>,
 /**
  * When the agent last reported, in milliseconds since the epoch.
  */
-at: number, };
+at: number, 
+/**
+ * The plan's name, as the agent's account says it: "Max", "Pro",
+ * "ChatGPT Pro". Absent when the reading did not say.
+ */
+plan?: string, 
+/**
+ * How many banked resets the account holds (Codex's reset credits),
+ * when it said.
+ */
+banked?: number, 
+/**
+ * When the first of those resets expires, in milliseconds since the
+ * epoch.
+ */
+bankedExpiresAt?: number, };
 
 export type PlanWindow = { 
 /**
  * The agent's name for the window: `five_hour`, `seven_day`,
- * `seven_day_opus`, `seven_day_sonnet`, `overage`.
+ * `seven_day_opus`, `seven_day_sonnet`, a model's own
+ * `seven_day_<model>`, `monthly`.
  */
 kind: string, 
 /**
@@ -1226,6 +1242,16 @@ usedPercent?: number,
  * When it resets, in milliseconds since the epoch.
  */
 resetsAt?: number, 
+/**
+ * How long the window is, in minutes: 300 for the 5-hour one, 10080
+ * for a week. With `resets_at` it says how far into the window now is.
+ */
+windowMinutes?: number, 
+/**
+ * What to call the window when its kind does not say it: a model's
+ * own weekly window, "Weekly · Fable".
+ */
+label?: string, 
 /**
  * Whether the account may use it: allowed, nearing the limit, or limited.
  */

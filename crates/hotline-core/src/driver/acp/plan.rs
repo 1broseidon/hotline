@@ -15,6 +15,55 @@ pub(crate) mod usage_markdown;
 use crate::contract::{PlanStatus, PlanUsage, PlanWindow};
 use serde_json::{Map, Value};
 
+pub(crate) const FIVE_HOUR_MINUTES: i64 = 5 * 60;
+pub(crate) const WEEK_MINUTES: i64 = 7 * 24 * 60;
+
+/// A plan's name as its service gives it, as a person reads it: `max` and
+/// "Claude Max" are "Max", `team_premium` is "Team Premium".
+pub(crate) fn plan_name(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let raw = raw
+        .strip_prefix("Claude ")
+        .or_else(|| raw.strip_prefix("claude_"))
+        .unwrap_or(raw);
+    let words: Vec<String> = raw
+        .split(['_', '-', ' '])
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            if word.chars().any(char::is_uppercase) {
+                return word.to_string();
+            }
+            let mut letters = word.chars();
+            letters.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(letters).collect()
+            })
+        })
+        .collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// Codex's plan type as the plan is sold: `pro` → "ChatGPT Pro".
+pub(crate) fn codex_plan(plan_type: &str) -> Option<String> {
+    let name = plan_name(plan_type)?;
+    Some(if name.starts_with("ChatGPT") {
+        name
+    } else {
+        format!("ChatGPT {name}")
+    })
+}
+
+/// A window's kind by its length: the 5-hour one, the week, a month, or
+/// its length itself.
+pub(crate) fn kind_of_minutes(minutes: i64) -> String {
+    match minutes {
+        FIVE_HOUR_MINUTES => "five_hour".to_string(),
+        WEEK_MINUTES => "seven_day".to_string(),
+        minutes if minutes >= 28 * 24 * 60 => "monthly".to_string(),
+        minutes if minutes % 60 == 0 => format!("{}h", minutes / 60),
+        minutes => format!("{minutes}m"),
+    }
+}
+
 /// The meta key Claude Code's adapter reports its plan under.
 const CLAUDE_RATE_LIMIT: &str = "_claude/rateLimit";
 
@@ -44,23 +93,37 @@ pub(super) fn reported_window(meta: Option<&Map<String, Value>>) -> Option<PlanW
         .get("resetsAt")
         .and_then(Value::as_f64)
         .map(|seconds| (seconds * 1000.0) as i64);
+    let window_minutes = match kind.as_str() {
+        "five_hour" => Some(FIVE_HOUR_MINUTES),
+        kind if kind.starts_with("seven_day") => Some(WEEK_MINUTES),
+        _ => None,
+    };
     Some(PlanWindow {
         kind,
         used_percent,
         resets_at,
+        window_minutes,
+        label: None,
         status,
     })
 }
 
 /// The plan with a newly reported window in its place, the others kept.
 pub(super) fn with_window(was: Option<PlanUsage>, window: PlanWindow, at: i64) -> PlanUsage {
-    let mut windows = was.map(|plan| plan.windows).unwrap_or_default();
-    match windows.iter_mut().find(|one| one.kind == window.kind) {
+    let mut plan = was.unwrap_or(PlanUsage {
+        windows: Vec::new(),
+        at,
+        plan: None,
+        banked: None,
+        banked_expires_at: None,
+    });
+    match plan.windows.iter_mut().find(|one| one.kind == window.kind) {
         Some(one) => *one = window,
-        None => windows.push(window),
+        None => plan.windows.push(window),
     }
-    windows.sort_by_key(|one| order(&one.kind));
-    PlanUsage { windows, at }
+    plan.windows.sort_by_key(|one| order(&one.kind));
+    plan.at = at;
+    plan
 }
 
 /// An account's reading with a newer one merged in, window by window: a
@@ -68,7 +131,9 @@ pub(super) fn with_window(was: Option<PlanUsage>, window: PlanWindow, at: i64) -
 /// the later, and a window only one of them has is kept either way. A later
 /// reading of the same window in the same period never relaxes its status,
 /// because use only grows until the window resets: a reading worked out from
-/// a percentage does not undo a warning the agent itself gave.
+/// a percentage does not undo a warning the agent itself gave. What a window
+/// or the plan says only in one reading (its length, its label, the plan's
+/// name, banked resets) is kept from whichever said it, the later first.
 pub(crate) fn merged(was: Option<&PlanUsage>, reading: PlanUsage) -> PlanUsage {
     let Some(was) = was else {
         return reading;
@@ -76,16 +141,32 @@ pub(crate) fn merged(was: Option<&PlanUsage>, reading: PlanUsage) -> PlanUsage {
     let newer = reading.at >= was.at;
     let at = was.at.max(reading.at);
     let mut plan = was.clone();
+    let (name, banked, banked_expires_at) =
+        (reading.plan, reading.banked, reading.banked_expires_at);
+    if newer {
+        plan.plan = name.or(plan.plan);
+        if banked.is_some() {
+            plan.banked = banked;
+            plan.banked_expires_at = banked_expires_at;
+        }
+    } else {
+        plan.plan = plan.plan.or(name);
+        if plan.banked.is_none() {
+            plan.banked = banked;
+            plan.banked_expires_at = banked_expires_at;
+        }
+    }
     for mut window in reading.windows {
         match plan.windows.iter().find(|one| one.kind == window.kind) {
             Some(_) if !newer => continue,
-            Some(kept)
-                if same_period(kept, &window)
-                    && severity(kept.status) > severity(window.status) =>
-            {
-                window.status = kept.status;
+            Some(kept) => {
+                if same_period(kept, &window) && severity(kept.status) > severity(window.status) {
+                    window.status = kept.status;
+                }
+                window.window_minutes = window.window_minutes.or(kept.window_minutes);
+                window.label = window.label.take().or_else(|| kept.label.clone());
             }
-            _ => {}
+            None => {}
         }
         plan = with_window(Some(plan), window, at);
     }
@@ -94,8 +175,8 @@ pub(crate) fn merged(was: Option<&PlanUsage>, reading: PlanUsage) -> PlanUsage {
 }
 
 /// Whether two readings of a window are of the same period: they reset
-/// together. `/usage` says the reset to the minute, the per-reply report to
-/// the second.
+/// together, to within a minute and a half, as two ways of reading it may
+/// round it differently.
 fn same_period(a: &PlanWindow, b: &PlanWindow) -> bool {
     match (a.resets_at, b.resets_at) {
         (Some(a), Some(b)) => (a - b).abs() <= 90_000,
@@ -123,14 +204,16 @@ pub(crate) fn status_of(used_percent: f64) -> PlanStatus {
     }
 }
 
-/// The 5-hour window first, then the weekly one, then a model's own.
-fn order(kind: &str) -> u8 {
+/// The 5-hour window first, then the weekly one, the monthly one, then a
+/// model's own.
+pub(crate) fn order(kind: &str) -> u8 {
     match kind {
         "five_hour" => 0,
         "seven_day" => 1,
-        "seven_day_opus" => 2,
-        "seven_day_sonnet" => 3,
-        _ => 4,
+        "monthly" => 2,
+        "seven_day_opus" => 3,
+        "seven_day_sonnet" => 4,
+        _ => 5,
     }
 }
 
@@ -146,6 +229,27 @@ mod tests {
             .clone()
     }
 
+    fn window(kind: &str, used: f64) -> PlanWindow {
+        PlanWindow {
+            kind: kind.into(),
+            used_percent: Some(used),
+            resets_at: None,
+            window_minutes: None,
+            label: None,
+            status: status_of(used),
+        }
+    }
+
+    fn usage(windows: Vec<PlanWindow>, at: i64) -> PlanUsage {
+        PlanUsage {
+            windows,
+            at,
+            plan: None,
+            banked: None,
+            banked_expires_at: None,
+        }
+    }
+
     #[test]
     fn a_reported_window_reads_its_use_as_a_percentage_and_its_reset_in_milliseconds() {
         let window = reported_window(Some(&meta(json!({
@@ -159,6 +263,10 @@ mod tests {
         assert_eq!(window.status, PlanStatus::Warning);
         assert!((window.used_percent.unwrap() - 82.0).abs() < 1e-9);
         assert_eq!(window.resets_at, Some(1_793_774_976_000));
+        assert_eq!(window.window_minutes, Some(WEEK_MINUTES));
+        let five_hour = reported_window(Some(&meta(json!({ "status": "allowed" })))).unwrap();
+        assert_eq!(five_hour.kind, "five_hour");
+        assert_eq!(five_hour.window_minutes, Some(FIVE_HOUR_MINUTES));
     }
 
     #[test]
@@ -173,12 +281,6 @@ mod tests {
 
     #[test]
     fn each_window_is_kept_until_it_is_reported_again_and_they_read_shortest_first() {
-        let window = |kind: &str, used: f64| PlanWindow {
-            kind: kind.into(),
-            used_percent: Some(used),
-            resets_at: None,
-            status: PlanStatus::Allowed,
-        };
         let plan = with_window(None, window("seven_day", 40.0), 1);
         let plan = with_window(Some(plan), window("five_hour", 10.0), 2);
         let plan = with_window(Some(plan), window("seven_day", 45.0), 3);
@@ -191,30 +293,22 @@ mod tests {
         );
         assert_eq!(plan.at, 3);
     }
+
     #[test]
     fn a_later_reading_replaces_its_windows_and_an_earlier_one_only_adds_what_is_missing() {
-        let window = |kind: &str, used: f64| PlanWindow {
-            kind: kind.into(),
-            used_percent: Some(used),
-            resets_at: None,
-            status: status_of(used),
-        };
-        let kept = PlanUsage {
-            windows: vec![window("five_hour", 30.0), window("seven_day", 50.0)],
-            at: 10,
-        };
-        let later = PlanUsage {
-            windows: vec![window("five_hour", 35.0)],
-            at: 20,
-        };
+        let kept = usage(
+            vec![window("five_hour", 30.0), window("seven_day", 50.0)],
+            10,
+        );
+        let later = usage(vec![window("five_hour", 35.0)], 20);
         let plan = merged(Some(&kept), later);
         assert_eq!(plan.at, 20);
         assert_eq!(plan.windows[0].used_percent, Some(35.0));
         assert_eq!(plan.windows[1].used_percent, Some(50.0));
-        let earlier = PlanUsage {
-            windows: vec![window("five_hour", 5.0), window("seven_day_opus", 12.0)],
-            at: 5,
-        };
+        let earlier = usage(
+            vec![window("five_hour", 5.0), window("seven_day_opus", 12.0)],
+            5,
+        );
         let plan = merged(Some(&plan), earlier);
         assert_eq!(plan.at, 20);
         assert_eq!(
@@ -231,24 +325,44 @@ mod tests {
     }
 
     #[test]
+    fn the_plans_name_a_windows_length_and_label_and_banked_resets_outlive_a_reading_without_them()
+    {
+        let mut scoped = window("seven_day_fable", 20.0);
+        scoped.label = Some("Weekly · Fable".into());
+        scoped.window_minutes = Some(WEEK_MINUTES);
+        let mut out_of_band = usage(vec![window("five_hour", 30.0), scoped], 10);
+        out_of_band.plan = Some("Max".into());
+        out_of_band.banked = Some(1);
+        out_of_band.banked_expires_at = Some(99);
+        // A report after a reply says neither the plan nor the label.
+        let reply = usage(vec![window("seven_day_fable", 25.0)], 20);
+        let plan = merged(Some(&out_of_band), reply);
+        assert_eq!(plan.plan.as_deref(), Some("Max"));
+        assert_eq!((plan.banked, plan.banked_expires_at), (Some(1), Some(99)));
+        let fable = plan
+            .windows
+            .iter()
+            .find(|one| one.kind == "seven_day_fable")
+            .unwrap();
+        assert_eq!(fable.used_percent, Some(25.0));
+        assert_eq!(fable.label.as_deref(), Some("Weekly · Fable"));
+        assert_eq!(fable.window_minutes, Some(WEEK_MINUTES));
+        // A later reading that names the plan names it anew.
+        let mut renamed = usage(Vec::new(), 30);
+        renamed.plan = Some("Pro".into());
+        assert_eq!(merged(Some(&plan), renamed).plan.as_deref(), Some("Pro"));
+    }
+
+    #[test]
     fn a_warning_stands_through_a_later_reading_of_the_same_period_and_not_past_its_reset() {
-        let warned = PlanUsage {
-            windows: vec![PlanWindow {
-                kind: "seven_day".into(),
-                used_percent: Some(76.0),
-                resets_at: Some(1_793_774_976_000),
-                status: PlanStatus::Warning,
-            }],
-            at: 10,
-        };
-        let read = |resets_at: i64| PlanUsage {
-            windows: vec![PlanWindow {
-                kind: "seven_day".into(),
-                used_percent: Some(77.0),
-                resets_at: Some(resets_at),
-                status: status_of(77.0),
-            }],
-            at: 20,
+        let mut warned = window("seven_day", 76.0);
+        warned.resets_at = Some(1_793_774_976_000);
+        warned.status = PlanStatus::Warning;
+        let warned = usage(vec![warned], 10);
+        let read = |resets_at: i64| {
+            let mut later = window("seven_day", 77.0);
+            later.resets_at = Some(resets_at);
+            usage(vec![later], 20)
         };
         // The same reset, to the minute.
         let plan = merged(Some(&warned), read(1_793_774_940_000));
@@ -264,5 +378,19 @@ mod tests {
         assert_eq!(status_of(79.9), PlanStatus::Allowed);
         assert_eq!(status_of(80.0), PlanStatus::Warning);
         assert_eq!(status_of(100.0), PlanStatus::Limited);
+    }
+
+    #[test]
+    fn a_plan_reads_as_it_is_sold_and_a_window_by_its_length() {
+        assert_eq!(plan_name("max").as_deref(), Some("Max"));
+        assert_eq!(plan_name("Claude Max").as_deref(), Some("Max"));
+        assert_eq!(plan_name("team_premium").as_deref(), Some("Team Premium"));
+        assert_eq!(plan_name("  ").as_deref(), None);
+        assert_eq!(codex_plan("pro").as_deref(), Some("ChatGPT Pro"));
+        assert_eq!(kind_of_minutes(300), "five_hour");
+        assert_eq!(kind_of_minutes(10_080), "seven_day");
+        assert_eq!(kind_of_minutes(43_200), "monthly");
+        assert_eq!(kind_of_minutes(120), "2h");
+        assert_eq!(kind_of_minutes(90), "90m");
     }
 }

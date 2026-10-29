@@ -48,7 +48,13 @@ pub(crate) fn parse(text: &str, now: i64) -> Option<PlanUsage> {
         return None;
     }
     windows.sort_by_key(|one| order(&one.kind));
-    Some(PlanUsage { windows, at: now })
+    Some(PlanUsage {
+        windows,
+        at: now,
+        plan: None,
+        banked: None,
+        banked_expires_at: None,
+    })
 }
 
 /// One `**label** — **38%** · Resets …` line.
@@ -66,6 +72,8 @@ fn limit_line(line: &str, now: i64) -> Option<PlanWindow> {
         kind: kind_of(&unescape(label)),
         used_percent: Some(used),
         resets_at,
+        window_minutes: None,
+        label: None,
         status: status_of(used),
     })
 }

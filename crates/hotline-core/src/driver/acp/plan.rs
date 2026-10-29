@@ -7,8 +7,10 @@
 //!
 //! - Claude Code: the `claude` CLI in stream-JSON mode, asked `initialize`
 //!   and `get_usage` and ended ([`claude_cli`]).
-//! - Codex: the last reading in Codex's own session logs ([`codex_log`]),
-//!   which is also read after every turn, for nothing.
+//! - Codex: `codex app-server`, asked `account/rateLimits/read` and ended
+//!   ([`codex_server`]); when it cannot be reached, the last reading in
+//!   Codex's own session logs ([`codex_log`]), which is also read after
+//!   every turn, for nothing.
 //!
 //! Claude Code's adapter also reports one window at a time after a reply,
 //! under `_meta["_claude/rateLimit"]` (the SDK's `rate_limit_event`):
@@ -19,12 +21,13 @@
 mod child;
 pub(crate) mod claude_cli;
 pub(crate) mod codex_log;
+pub(crate) mod codex_server;
 
 use super::registry;
 use crate::contract::{PlanStatus, PlanUsage, PlanWindow};
 use hotline_support::paths;
 use serde_json::{Map, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The backend id of Claude Code.
@@ -34,6 +37,7 @@ pub(crate) const CODEX: &str = "codex-acp";
 
 pub(crate) const FIVE_HOUR_MINUTES: i64 = 5 * 60;
 pub(crate) const WEEK_MINUTES: i64 = 7 * 24 * 60;
+pub(crate) const MONTH_MINUTES: i64 = 30 * 24 * 60;
 
 /// How long a CLI started to read a plan has to answer before it is killed.
 const READ_BOUND: Duration = Duration::from_secs(15);
@@ -59,7 +63,7 @@ pub(crate) async fn read(root: &Path, backend_id: &str) -> Option<PlanUsage> {
             let binary = registry::which("claude")?;
             claude_cli::read(&binary, &env, &scratch, READ_BOUND, now).await
         }
-        CODEX => read_codex_log(&env, now).await,
+        CODEX => read_codex(registry::which("codex"), &env, &scratch, READ_BOUND, now).await,
         _ => None,
     }
 }
@@ -71,6 +75,24 @@ pub(crate) async fn read_after_turn(root: &Path, backend_id: &str) -> Option<Pla
         return None;
     }
     read_codex_log(&launch_env(root, backend_id), crate::session::now_ms()).await
+}
+
+/// Codex's app-server, or its logs when the app-server cannot be reached.
+/// An app-server that answers with no limits is no reading: the logs may
+/// hold an older login's.
+async fn read_codex(
+    binary: Option<PathBuf>,
+    env: &[(String, String)],
+    scratch: &Path,
+    bound: Duration,
+    now: i64,
+) -> Option<PlanUsage> {
+    if let Some(binary) = binary
+        && let Ok(reading) = codex_server::read(&binary, env, scratch, bound, now).await
+    {
+        return reading;
+    }
+    read_codex_log(env, now).await
 }
 
 async fn read_codex_log(env: &[(String, String)], now: i64) -> Option<PlanUsage> {
@@ -462,5 +484,51 @@ mod tests {
         assert_eq!(kind_of_minutes(43_200), "monthly");
         assert_eq!(kind_of_minutes(120), "2h");
         assert_eq!(kind_of_minutes(90), "90m");
+    }
+
+    /// Codex's app-server, when it cannot be started, leaves the reading to
+    /// Codex's own logs; one that answers is the reading, logs or not.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_is_read_from_its_app_server_and_from_its_logs_when_that_cannot_be_reached() {
+        let folder = std::env::temp_dir().join(format!(
+            "hotline-plan-codex-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        let home = folder.join("codex-home");
+        let day = home.join("sessions/2026/10/29");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::write(
+            day.join("rollout-2026-10-29T08-00-00-a.jsonl"),
+            r#"{"timestamp":"2026-10-29T08:00:01.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":7.0,"window_minutes":10080,"resets_at":1793774976},"secondary":null,"plan_type":"plus"}}}"#,
+        )
+        .unwrap();
+        let env = vec![(
+            "CODEX_HOME".to_string(),
+            home.to_string_lossy().into_owned(),
+        )];
+        let scratch = folder.join("scratch");
+        // No codex to start: the logs.
+        let missing = folder.join("no-codex-here");
+        let plan = read_codex(Some(missing), &env, &scratch, Duration::from_secs(5), 1)
+            .await
+            .expect("the logs' reading");
+        assert_eq!(plan.windows[0].used_percent, Some(7.0));
+        assert_eq!(plan.plan.as_deref(), Some("ChatGPT Plus"));
+        assert_eq!(
+            read_codex(None, &env, &scratch, Duration::from_secs(5), 1).await,
+            Some(plan)
+        );
+        // A codex that answers: its reading.
+        let codex = codex_server::tests::fake_codex(&folder, codex_server::tests::LIMITS);
+        let plan = read_codex(Some(codex), &env, &scratch, Duration::from_secs(5), 1)
+            .await
+            .expect("the app-server's reading");
+        assert_eq!(plan.windows[0].kind, "five_hour");
+        assert_eq!(plan.windows[0].used_percent, Some(81.0));
+        let _ = std::fs::remove_dir_all(folder);
     }
 }

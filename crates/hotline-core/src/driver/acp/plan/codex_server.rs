@@ -193,7 +193,7 @@ pub(crate) fn catalog(listed: &[Value]) -> Option<Catalog> {
             description: text("description").map(str::to_string),
             group: None,
             account: None,
-            efforts: Some(efforts),
+            efforts: Some(crate::models::tidy_efforts(efforts)),
             default_effort,
             // A model that can run fast lists the tier beside its own.
             fast: Some(
@@ -452,7 +452,7 @@ pub(crate) mod tests {
                 (
                     "gpt-6.1-sol",
                     "6.1 Sol",
-                    vec!["Low", "Medium", "Xhigh"],
+                    vec!["Low", "Medium", "Extra high"],
                     Some("low")
                 ),
                 (

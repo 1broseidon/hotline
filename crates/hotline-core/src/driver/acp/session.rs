@@ -940,6 +940,7 @@ impl Disposition {
                     disposition.mode_label = Some(option.name.clone());
                 }
                 Some(acp::SessionConfigOptionCategory::ThoughtLevel) => {
+                    let picker = crate::models::tidy_efforts(picker);
                     disposition.configs.push(crate::contract::SessionConfig {
                         id: option.id.0.to_string(),
                         name: option.name.clone(),

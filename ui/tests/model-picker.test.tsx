@@ -694,3 +694,19 @@ test("fast mode is a toggle under the tabs: it flips at once, the pill wears a b
 	await render(null);
 	expect(toggle()).toBeNull();
 });
+
+test("the pill says Extra high as Xhigh, and its tab says it short with the whole name on hover", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const levels: ConfigChoice[] = [
+		{ id: "low", name: "Low" },
+		{ id: "medium", name: "Medium" },
+		{ id: "xhigh", name: "Extra high" },
+	];
+	await act(async () => {
+		root.render(<ModelPicker choices={choices} modelId="grok-4.7" backendId="grok-build" effort={{ value: "xhigh", choices: levels }} label="Model" onModel={() => {}} onEffort={() => {}} />);
+	});
+	expect(container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.textContent).toBe("grok-4.7 · Xhigh");
+	await open();
+	expect(tabs().map((tab) => tab.textContent)).toEqual(["Low", "Med", "Xhigh"]);
+	expect(tabs()[2]!.title).toBe("Extra high");
+});

@@ -150,11 +150,15 @@ function shownModels(models: ConfigChoice[], inUse: string | null): ConfigChoice
 	return shown;
 }
 
+/** The pill's word for a level whose name is long: the desk names levels alike for every agent. */
+const PILL_SHORT: Record<string, string> = { "Extra high": "Xhigh" };
+/** A tab's word for a level, narrower still. */
+const TAB_SHORT: Record<string, string> = { ...PILL_SHORT, Medium: "Med", Minimal: "Min" };
+
 /** A level as its tab says it: Auto for the agent's own choice, Med for Medium. */
 export function tabLabel(level: ConfigChoice, backendId: string): { label: string; title?: string } {
 	if (isAuto(level)) return { label: "Auto", title: backendId === "claude-acp" ? "Claude decides" : "The agent decides" };
-	const short: Record<string, string> = { Medium: "Med", "Extra high": "Xhigh", Minimal: "Min" };
-	const label = short[level.name] ?? level.name;
+	const label = TAB_SHORT[level.name] ?? level.name;
 	return label === level.name ? { label } : { label, title: level.name };
 }
 
@@ -286,9 +290,10 @@ export function ModelPicker({
 	// A model on an account that is gone still has its name from another account serving it.
 	const sameModel = choices.find((choice) => plainModel(choice.id) === plainModel(modelId));
 	const modelName = current?.name ?? sameModel?.name ?? knownName ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
-	// The pill says the level as its tab does: Auto for the agent's own choice.
+	// The pill says the level as its tab does, but whole where it fits:
+	// Auto for the agent's own choice, Xhigh for Extra high, Medium as is.
 	const effortChoice = effort?.choices.find((choice) => choice.id === effort.value);
-	const effortName = effortChoice === undefined ? null : isAuto(effortChoice) ? "Auto" : effortChoice.name;
+	const effortName = effortChoice === undefined ? null : isAuto(effortChoice) ? "Auto" : (PILL_SHORT[effortChoice.name] ?? effortChoice.name);
 	const rowLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` · ${currentRow.detail}`}`;
 	// An agent that has not named its model yet is already the button's name.
 	const accountLine = rowLine === modelName ? null : rowLine;

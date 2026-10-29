@@ -20,9 +20,7 @@ pub(super) const DESK_SETTING: &str = "effortByModel";
 /// Effort levels by how much they think, for levels two models' own lists
 /// cannot place against each other. A level not here is placed only by a
 /// list that holds it.
-const LADDER: [&str; 8] = [
-    "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
-];
+const LADDER: [&str; 8] = crate::models::EFFORT_LADDER;
 
 /// A model as both memories name it: the agent and the model, since two
 /// agents may share a model id that means different things to each.

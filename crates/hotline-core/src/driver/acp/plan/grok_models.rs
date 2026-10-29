@@ -99,7 +99,7 @@ pub(crate) fn catalog(cache: &Value) -> Option<Catalog> {
             description: text("description").map(str::to_string),
             group: None,
             account: None,
-            efforts: Some(efforts),
+            efforts: Some(crate::models::tidy_efforts(efforts)),
             default_effort,
             fast: None,
         });
@@ -145,8 +145,9 @@ mod tests {
             .iter()
             .map(|one| one.id.as_str())
             .collect();
-        assert_eq!(levels, ["xhigh", "high", "low"]);
-        assert_eq!(latest.efforts.as_ref().unwrap()[1].name, "HIGH");
+        // Grok lists its levels most first: the desk's are least first, by its names.
+        assert_eq!(levels, ["low", "high", "xhigh"]);
+        assert_eq!(latest.efforts.as_ref().unwrap()[2].name, "Extra high");
         assert_eq!(latest.default_effort.as_deref(), Some("high"));
         // No level marked default: the model's own setting, when it lists it.
         assert_eq!(catalog.models[1].default_effort.as_deref(), Some("medium"));

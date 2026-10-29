@@ -44,8 +44,8 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 const FRESH_MS: i64 = 24 * 60 * 60 * 1000;
 /// What an offer kept holds, raised when it starts to hold more: an offer
 /// kept before is looked at again rather than waiting out its day. 1: fast
-/// mode.
-const SHAPE: u32 = 1;
+/// mode; 2: effort levels least first, by the desk's names.
+const SHAPE: u32 = 2;
 /// How long one look may take from spawn to the session's answer.
 const LOOK_BOUND: Duration = Duration::from_secs(60);
 /// The first look at an agent may be fetching its adapter package.

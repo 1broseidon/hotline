@@ -271,7 +271,7 @@ pub(crate) fn catalog(initialized: &Value) -> Option<Catalog> {
             description: description.map(str::to_string),
             group: None,
             account: None,
-            efforts: Some(efforts),
+            efforts: Some(crate::models::tidy_efforts(efforts)),
             default_effort: has_levels.then(|| DEFAULT.to_string()),
             // Only the models that can run fast say so.
             fast: Some(model.get("supportsFastMode").and_then(Value::as_bool) == Some(true)),
@@ -559,7 +559,7 @@ mod tests {
                 )
             })
             .collect();
-        let every = vec!["Default", "Low", "Medium", "High", "Xhigh", "Max"];
+        let every = vec!["Default", "Low", "Medium", "High", "Extra high", "Max"];
         assert_eq!(
             listed,
             [

@@ -11,10 +11,11 @@
 //! and put on the `SessionInfo` of every live session on that backend,
 //! including one that starts later.
 //!
-//! A login is read when a teammate's session starts and the kept reading
-//! is a quarter of an hour old, and when the picker opens and it is two
-//! minutes old. Two reads of one login at once are one: the second leaves
-//! it to the first.
+//! A login is read when the desk starts (each one some teammate runs on, a
+//! few seconds apart), every ten minutes while it runs, when a teammate's
+//! session starts and the kept reading is a quarter of an hour old, and
+//! when the picker opens and it is two minutes old. Two reads of one login
+//! at once are one: the second leaves it to the first.
 
 use super::*;
 use crate::contract::PlanUsage;
@@ -22,10 +23,29 @@ use crate::driver::acp::plan::{merged, readable};
 use std::io::Write as _;
 
 /// How old a reading may be before opening the picker reads it again.
-const REFRESH_AFTER_MS: i64 = 2 * 60_000;
+pub(super) const REFRESH_AFTER_MS: i64 = 2 * 60_000;
 
 /// How old a reading may be before a session starting reads it again.
 const START_READ_AFTER_MS: i64 = 15 * 60_000;
+
+/// How often the desk reads every login some teammate runs on, and how old
+/// a reading may be before that read takes it again.
+const WATCH_EVERY: Duration = Duration::from_mins(10);
+const WATCH_READ_AFTER_MS: i64 = 9 * 60_000;
+
+/// How long after the desk starts its logins are first read, and how far
+/// apart, so a start does not begin by starting every harness's CLI at once.
+const WATCH_FIRST: Duration = if cfg!(test) {
+    // A test's room reads its logins when the test says (`read_logins`).
+    Duration::from_hours(1)
+} else {
+    Duration::from_secs(10)
+};
+const WATCH_STAGGER: Duration = if cfg!(test) {
+    Duration::ZERO
+} else {
+    Duration::from_secs(5)
+};
 
 /// How long after a session starts its plan is read, so the line that
 /// started it reaches the agent first.
@@ -89,6 +109,43 @@ fn save(root: &Path, readings: &HashMap<String, PlanUsage>) -> std::io::Result<(
     temporary.as_file().sync_all()?;
     temporary.persist(&path).map_err(|error| error.error)?;
     Ok(())
+}
+
+/// Reads every login some teammate runs on: once soon after the desk
+/// starts, then every ten minutes, each only when its reading is older than
+/// the round. Ends with the room.
+pub(super) fn watch(room: Weak<Room>) {
+    tokio::spawn(async move {
+        tokio::time::sleep(WATCH_FIRST).await;
+        let mut fresh_for = REFRESH_AFTER_MS;
+        while read_logins(&room, fresh_for).await {
+            fresh_for = WATCH_READ_AFTER_MS;
+            tokio::time::sleep(WATCH_EVERY).await;
+        }
+    });
+}
+
+/// One round of [`watch`]: each login some teammate runs on, a few seconds
+/// apart, read when its reading is older than `fresh_for`. `false` once the
+/// room is gone or closing.
+pub(super) async fn read_logins(room: &Weak<Room>, fresh_for: i64) -> bool {
+    let backends = match room.upgrade() {
+        Some(room) => room.plan_backends(),
+        None => return false,
+    };
+    for (at, backend_id) in backends.into_iter().enumerate() {
+        if at > 0 {
+            tokio::time::sleep(WATCH_STAGGER).await;
+        }
+        let Some(room) = room.upgrade() else {
+            return false;
+        };
+        if room.closing() {
+            return false;
+        }
+        room.read_login(&backend_id, fresh_for, PlanRead::Now).await;
+    }
+    true
 }
 
 impl Room {
@@ -171,6 +228,18 @@ impl Room {
             0,
             PlanRead::AfterTurn,
         );
+    }
+
+    /// The logins some teammate runs on whose plan the desk reads.
+    fn plan_backends(&self) -> Vec<String> {
+        let mut backends: Vec<String> = room::roster(&self.log)
+            .into_iter()
+            .map(|persona| persona.backend_id)
+            .filter(|backend_id| readable(backend_id))
+            .collect();
+        backends.sort();
+        backends.dedup();
+        backends
     }
 
     /// [`Self::read_login`] in the background, after `delay`.

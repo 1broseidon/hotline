@@ -119,6 +119,42 @@ async fn a_logins_reading_shows_on_its_teammates_and_survives_a_reopen() {
     assert_eq!(fake.driver.plan_reads.load(Ordering::SeqCst), 0);
 }
 
+/// When the desk starts it reads each login some teammate runs on, once,
+/// and not one whose reading is fresh; Hotline Agent's is never read.
+#[tokio::test]
+async fn the_desk_reads_each_login_its_teammates_run_on() {
+    let log = scratch("plan-watch");
+    enrol_logins(&log);
+    let fake = Fake::new(Scripted::new(saying("a", "ok")));
+    let room = logins_room(log, fake.clone());
+    let now = now_ms();
+    *lock(&fake.driver.plan) = Some(reading(now));
+    assert!(
+        crate::session::plan::read_logins(
+            &Arc::downgrade(&room),
+            crate::session::plan::REFRESH_AFTER_MS
+        )
+        .await
+    );
+    assert_eq!(reads_of(&fake, "claude-acp"), 1);
+    assert_eq!(reads_of(&fake, "codex-acp"), 1);
+    assert_eq!(reads_of(&fake, "hotline"), 0);
+    assert_eq!(room.plan_of("claude-acp"), Some(reading(now)));
+    // A round soon after finds both fresh.
+    assert!(
+        crate::session::plan::read_logins(
+            &Arc::downgrade(&room),
+            crate::session::plan::REFRESH_AFTER_MS
+        )
+        .await
+    );
+    assert_eq!(fake.driver.plan_reads.load(Ordering::SeqCst), 2);
+    // A gone room ends the rounds.
+    let gone = Arc::downgrade(&room);
+    drop(room);
+    assert!(!crate::session::plan::read_logins(&gone, 0).await);
+}
+
 /// What an agent reports after a reply is merged into the login's reading,
 /// so a later per-reply window joins the windows read out of band, and the
 /// plan's name stays.

@@ -915,6 +915,7 @@ impl Room {
         });
         follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));
         sweep_idle_chapters(Arc::downgrade(&room));
+        plan::watch(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
         room
     }

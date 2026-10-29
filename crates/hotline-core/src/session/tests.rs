@@ -87,9 +87,11 @@ pub(crate) struct Scripted {
     start_gate: Option<Arc<Semaphore>>,
     /// Why every start is refused, for a harness that cannot come up.
     start_error: Option<String>,
-    /// What reading the account's plan answers, and how often it was read.
-    plan: Arc<Mutex<Option<crate::contract::PlanUsage>>>,
-    plan_reads: Arc<std::sync::atomic::AtomicUsize>,
+    /// What reading a login's plan answers, how often it was read, and
+    /// which logins, in order. The room reads it through [`Fake`].
+    pub(super) plan: Arc<Mutex<Option<crate::contract::PlanUsage>>>,
+    pub(super) plan_reads: Arc<std::sync::atomic::AtomicUsize>,
+    pub(super) plan_logins: Arc<Mutex<Vec<(String, PlanRead)>>>,
 }
 
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
@@ -123,6 +125,7 @@ impl Scripted {
             start_error: None,
             plan: Arc::new(Mutex::new(None)),
             plan_reads: Arc::default(),
+            plan_logins: Arc::default(),
         }
     }
 
@@ -303,12 +306,6 @@ impl Driver for Scripted {
         lock(&self.unprompted).take()
     }
 
-    async fn read_plan(&self) -> Option<crate::contract::PlanUsage> {
-        self.plan_reads
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        lock(&self.plan).clone()
-    }
-
     /// A card is answerable exactly once, the way a live request is.
     fn answer_permission(&self, request_id: &str, _option_id: &str) -> bool {
         let mut waiting = lock(&self.waiting);
@@ -477,6 +474,18 @@ impl Agents for Fake {
             self.hold_note.notified().await;
         }
         self.answer.clone()
+    }
+
+    async fn read_plan(
+        &self,
+        backend_id: &str,
+        how: PlanRead,
+    ) -> Option<crate::contract::PlanUsage> {
+        self.driver
+            .plan_reads
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        lock(&self.driver.plan_logins).push((backend_id.to_string(), how));
+        lock(&self.driver.plan).clone()
     }
 }
 

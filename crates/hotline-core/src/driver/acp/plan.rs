@@ -1,22 +1,92 @@
-//! An account's plan limits as its agent reports them. Claude Code's adapter
-//! sends one window at a time with its usage update after a reply, under
-//! `_meta["_claude/rateLimit"]` (the SDK's `rate_limit_event`): the window
-//! (`five_hour`, `seven_day`, a model's own), how much of it is used, when it
-//! resets and whether the account may use it.
+//! An account's plan limits: how much of each window (the 5-hour one, the
+//! week, a model's own) its login has used, and when each resets.
 //!
-//! A reading can also be had without a turn: Claude Code answers `/usage`
-//! itself, with no model call ([`usage_markdown`]), and Codex writes its
-//! limits into its own session logs ([`codex_log`]). The room keeps one
-//! reading per account and merges each new one into it ([`merged`]).
+//! A plan is the login's, not a teammate's, so it is read out of band, the
+//! way each harness's own tools read it, with no teammate's session in the
+//! way and no model asked:
+//!
+//! - Claude Code: the `claude` CLI in stream-JSON mode, asked `initialize`
+//!   and `get_usage` and ended ([`claude_cli`]).
+//! - Codex: the last reading in Codex's own session logs ([`codex_log`]),
+//!   which is also read after every turn, for nothing.
+//!
+//! Claude Code's adapter also reports one window at a time after a reply,
+//! under `_meta["_claude/rateLimit"]` (the SDK's `rate_limit_event`):
+//! the window, how much of it is used, when it resets and whether the
+//! account may use it. The room keeps one reading per login and merges each
+//! new one into it ([`merged`]).
 
+mod child;
+pub(crate) mod claude_cli;
 pub(crate) mod codex_log;
-pub(crate) mod usage_markdown;
 
+use super::registry;
 use crate::contract::{PlanStatus, PlanUsage, PlanWindow};
+use hotline_support::paths;
 use serde_json::{Map, Value};
+use std::path::Path;
+use std::time::Duration;
+
+/// The backend id of Claude Code.
+pub(crate) const CLAUDE_CODE: &str = "claude-acp";
+/// The backend id of Codex.
+pub(crate) const CODEX: &str = "codex-acp";
 
 pub(crate) const FIVE_HOUR_MINUTES: i64 = 5 * 60;
 pub(crate) const WEEK_MINUTES: i64 = 7 * 24 * 60;
+
+/// How long a CLI started to read a plan has to answer before it is killed.
+const READ_BOUND: Duration = Duration::from_secs(15);
+
+/// Whether the desk reads this backend's plan out of band.
+pub(crate) fn readable(backend_id: &str) -> bool {
+    matches!(backend_id, CLAUDE_CODE | CODEX)
+}
+
+/// The plan of the login a backend runs on, read now and out of band, with
+/// the environment the desk gives that backend's teammates. `None` when the
+/// backend's plan is not one the desk reads, the login has no plan (an API
+/// key), or it could not be read.
+pub(crate) async fn read(root: &Path, backend_id: &str) -> Option<PlanUsage> {
+    if !readable(backend_id) {
+        return None;
+    }
+    let env = launch_env(root, backend_id);
+    let scratch = paths::plan_read_dir(root, backend_id);
+    let now = crate::session::now_ms();
+    match backend_id {
+        CLAUDE_CODE => {
+            let binary = registry::which("claude")?;
+            claude_cli::read(&binary, &env, &scratch, READ_BOUND, now).await
+        }
+        CODEX => read_codex_log(&env, now).await,
+        _ => None,
+    }
+}
+
+/// The plan as the backend's own files say it after a turn, for nothing:
+/// Codex's session logs. Every other backend is read only out of band.
+pub(crate) async fn read_after_turn(root: &Path, backend_id: &str) -> Option<PlanUsage> {
+    if backend_id != CODEX {
+        return None;
+    }
+    read_codex_log(&launch_env(root, backend_id), crate::session::now_ms()).await
+}
+
+async fn read_codex_log(env: &[(String, String)], now: i64) -> Option<PlanUsage> {
+    let home = codex_log::codex_home(env)?;
+    tokio::task::spawn_blocking(move || codex_log::read(&home, now))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// The environment the backend's catalogue entry adds to its teammates'.
+fn launch_env(root: &Path, backend_id: &str) -> Vec<(String, String)> {
+    registry::launch(root, backend_id)
+        .map(|launch| launch.env)
+        .unwrap_or_default()
+}
 
 /// A plan's name as its service gives it, as a person reads it: `max` and
 /// "Claude Max" are "Max", `team_premium` is "Team Premium".

@@ -124,9 +124,9 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
-    /// Reads the teammate's account plan again when its reading is stale
-    /// and the teammate idle (`Room::refresh_plan`). A desk that keeps no
-    /// readings does nothing.
+    /// Reads the plan of the teammate's login again when its reading is
+    /// stale (`Room::refresh_plan`). A desk that keeps no readings does
+    /// nothing.
     fn plan_refresh(&self, _persona_id: &str) -> Result<(), String> {
         Ok(())
     }

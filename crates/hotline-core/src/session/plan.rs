@@ -2,24 +2,27 @@
 //! kept across restarts and shown on every teammate that runs on it.
 //!
 //! A plan belongs to the login, not to the teammate, and a desk has one
-//! login per harness, so a reading is kept by backend id. Every way a
-//! reading arrives — Claude Code's report after a reply, `/usage` said
-//! between turns, Codex's own logs — is merged into the one kept
+//! login per harness, so a reading is kept by backend id and read by
+//! backend, out of band, with no teammate's session in the way
+//! ([`crate::driver::acp::plan`]). Every way a reading arrives — the read
+//! out of band, Claude Code's report after a reply, Codex's own logs after a
+//! turn — is merged into the one kept
 //! ([`crate::driver::acp::plan::merged`]), written to the data directory,
 //! and put on the `SessionInfo` of every live session on that backend,
 //! including one that starts later.
 //!
-//! A reading is taken when a teammate's session starts and the kept one is
-//! missing or a quarter of an hour old, when the picker opens and it is a
-//! few minutes old, and, where it costs nothing, after every turn.
+//! A login is read when a teammate's session starts and the kept reading
+//! is a quarter of an hour old, and when the picker opens and it is two
+//! minutes old. Two reads of one login at once are one: the second leaves
+//! it to the first.
 
 use super::*;
 use crate::contract::PlanUsage;
-use crate::driver::acp::plan::merged;
+use crate::driver::acp::plan::{merged, readable};
 use std::io::Write as _;
 
 /// How old a reading may be before opening the picker reads it again.
-const REFRESH_AFTER_MS: i64 = 3 * 60_000;
+const REFRESH_AFTER_MS: i64 = 2 * 60_000;
 
 /// How old a reading may be before a session starting reads it again.
 const START_READ_AFTER_MS: i64 = 15 * 60_000;
@@ -32,7 +35,7 @@ const START_READ_DELAY: Duration = if cfg!(test) {
     Duration::from_secs(3)
 };
 
-/// The room's readings, and the accounts being read now.
+/// The room's readings, and the logins being read now.
 #[derive(Default)]
 pub(super) struct Plans {
     readings: Mutex<HashMap<String, PlanUsage>>,
@@ -53,7 +56,7 @@ impl Plans {
     }
 }
 
-/// An account being read: one read at a time per account.
+/// A login being read: one read at a time per login.
 struct Reading<'a> {
     plans: &'a Plans,
     backend_id: String,
@@ -139,74 +142,73 @@ impl Room {
         }
     }
 
-    /// The picker opened on this teammate: its account is read again when
-    /// the reading kept is a few minutes old and the teammate is idle, and
-    /// otherwise left as it is, already on the teammate's session. A
-    /// teammate that is not running has nothing to read with.
+    /// The picker opened on this teammate: its login is read again when
+    /// the reading kept is two minutes old, whether or not the teammate is
+    /// running, and otherwise left as it is, already on its sessions.
     pub fn refresh_plan(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
-        let session = lock(&self.sessions).get(persona_id).cloned();
-        if let Some(session) = session {
-            self.read_plan(&session, Duration::ZERO, REFRESH_AFTER_MS, true);
-        }
+        let backend_id = self.persona(persona_id)?.backend_id;
+        self.read_login_later(backend_id, Duration::ZERO, REFRESH_AFTER_MS, PlanRead::Now);
         Ok(())
     }
 
-    /// A session has started: it shows its account's reading, and the
-    /// account is read when it has none or one a quarter of an hour old.
+    /// A session has started: it shows its login's reading, and the login
+    /// is read when it has none or one a quarter of an hour old.
     pub(super) fn read_plan_on_start(self: &Arc<Self>, session: &Arc<Session>) {
-        self.read_plan(session, START_READ_DELAY, START_READ_AFTER_MS, true);
+        self.read_login_later(
+            session.backend_id.clone(),
+            START_READ_DELAY,
+            START_READ_AFTER_MS,
+            PlanRead::Now,
+        );
     }
 
-    /// A turn has ended: an account whose reading costs nothing is read
-    /// again, the turn having just used some of it.
+    /// A turn has ended: a login whose harness has just written its plan
+    /// down is read from there, for nothing.
     pub(super) fn read_plan_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
-        if session.driver.plan_after_turn() {
-            self.read_plan(session, Duration::ZERO, 0, false);
-        }
+        self.read_login_later(
+            session.backend_id.clone(),
+            Duration::ZERO,
+            0,
+            PlanRead::AfterTurn,
+        );
     }
 
-    /// Reads the account through this session's agent, in the background,
-    /// one read at a time per account, unless the reading kept is younger
-    /// than `fresh_for` or, when the read asks the agent, the teammate is
-    /// busy.
-    fn read_plan(
+    /// [`Self::read_login`] in the background, after `delay`.
+    fn read_login_later(
         self: &Arc<Self>,
-        session: &Arc<Session>,
+        backend_id: String,
         delay: Duration,
         fresh_for: i64,
-        when_idle: bool,
+        how: PlanRead,
     ) {
+        if !readable(&backend_id) {
+            return;
+        }
         let room = Arc::downgrade(self);
-        let session = Arc::downgrade(session);
         tokio::spawn(async move {
             if !delay.is_zero() {
                 tokio::time::sleep(delay).await;
             }
-            let (Some(room), Some(session)) = (room.upgrade(), session.upgrade()) else {
-                return;
-            };
-            let backend_id = session.backend_id.clone();
-            let fresh = room
-                .plan_of(&backend_id)
-                .is_some_and(|plan| now_ms() - plan.at < fresh_for);
-            if fresh || room.closing() || (when_idle && !room.plan_idle(&session)) {
-                return;
-            }
-            let Some(_reading) = Reading::begin(&room.plans, &backend_id) else {
-                return;
-            };
-            if let Some(reading) = session.driver.read_plan().await {
-                room.take_plan(&backend_id, reading);
+            if let Some(room) = room.upgrade() {
+                room.read_login(&backend_id, fresh_for, how).await;
             }
         });
     }
 
-    /// Whether the teammate is between turns with nothing queued, so asking
-    /// its agent takes nothing from anybody.
-    fn plan_idle(&self, session: &Arc<Session>) -> bool {
-        session.capability.is_current()
-            && self.current_session(session)
-            && !lock(&session.turns).running
-            && lock(&session.info).state == SessionState::Ready
+    /// Reads a login, unless the reading kept is younger than `fresh_for`
+    /// or the login is being read already, and takes what it gives.
+    async fn read_login(&self, backend_id: &str, fresh_for: i64, how: PlanRead) {
+        let fresh = self
+            .plan_of(backend_id)
+            .is_some_and(|plan| now_ms() - plan.at < fresh_for);
+        if fresh || self.closing() {
+            return;
+        }
+        let Some(_reading) = Reading::begin(&self.plans, backend_id) else {
+            return;
+        };
+        if let Some(reading) = self.agents.read_plan(backend_id, how).await {
+            self.take_plan(backend_id, reading);
+        }
     }
 }

@@ -607,10 +607,10 @@ pub enum Command {
         config_id: String,
         value: String,
     },
-    /// The model picker opened on this teammate: its account's plan is read
-    /// again when the reading kept is a few minutes old and the teammate is
-    /// idle, and otherwise left as it is. Answers at once; the reading
-    /// arrives on the teammate's `SessionInfo.planUsage`.
+    /// The model picker opened on this teammate: its login's plan is read
+    /// again, out of band, when the reading kept is two minutes old, and
+    /// otherwise left as it is. Answers at once; the reading arrives on the
+    /// `SessionInfo.planUsage` of every teammate on that login.
     #[serde(rename = "plan.refresh")]
     PlanRefresh { persona_id: String },
     /// Answers a permission card the agent is waiting behind. Refused when

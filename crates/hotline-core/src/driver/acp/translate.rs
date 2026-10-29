@@ -21,33 +21,7 @@ pub(super) async fn receive(live: &Arc<Live>, notification: RawSessionUpdate) {
         Some(scribe) => {
             translate_in(&Pen::child(live, &notification.session_id, &scribe), update).await;
         }
-        None if probed(live, &update) => {}
         None => between_turns(live, update).await,
-    }
-}
-
-/// Takes what the agent says while the plan is being read: its answer is
-/// kept for the reading, and anything else it says then is dropped, so the
-/// reading never opens an activity or reaches the tape. What is not speech
-/// (a picker changing, a usage report) goes on as it would.
-fn probed(live: &Live, update: &SessionUpdate) -> bool {
-    let mut probe = lock(&live.probe);
-    let Some(answer) = probe.as_mut() else {
-        return false;
-    };
-    match update {
-        SessionUpdate::AgentMessageChunk(chunk) => {
-            if let ContentBlock::Text(text) = &chunk.content {
-                answer.push_str(&text.text);
-            }
-            true
-        }
-        SessionUpdate::AgentThoughtChunk(_)
-        | SessionUpdate::ToolCall(_)
-        | SessionUpdate::ToolCallUpdate(_)
-        | SessionUpdate::Plan(_)
-        | SessionUpdate::UserMessageChunk(_) => true,
-        _ => false,
     }
 }
 

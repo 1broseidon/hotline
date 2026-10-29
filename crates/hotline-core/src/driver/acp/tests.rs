@@ -1,6 +1,5 @@
 mod config;
 mod oauth_proxy;
-mod plan;
 mod session_new;
 mod steering;
 mod turns;

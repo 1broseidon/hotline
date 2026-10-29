@@ -33,7 +33,6 @@ mod live;
 pub mod models;
 mod oauth_proxy;
 pub(crate) mod plan;
-mod probe;
 pub mod registry;
 mod session;
 mod translate;
@@ -920,14 +919,6 @@ impl Driver for ChildAgent {
             return false;
         };
         waiting.send(Some(option_id.to_string())).is_ok()
-    }
-
-    async fn read_plan(&self) -> Option<crate::contract::PlanUsage> {
-        self.read_plan_now().await
-    }
-
-    fn plan_after_turn(&self) -> bool {
-        self.plan_after_turn_now()
     }
 
     fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {

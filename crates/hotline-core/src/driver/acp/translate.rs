@@ -311,12 +311,14 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
         }
         // The account's plan, when the agent says how much of it is used: the
         // account's, so a subagent's report counts as much as the conversation's.
+        // Only the window just reported is published, as of now: the room
+        // keeps the account's whole reading and merges this into it, and a
+        // window kept here from an earlier reply would read as new.
         SessionUpdate::UsageUpdate(usage) => {
             if let Some(window) = super::plan::reported_window(usage.meta.as_ref()) {
                 let mut session = lock(&live.session);
-                let was = session.info.plan_usage.take();
                 session.info.plan_usage = Some(super::plan::with_window(
-                    was,
+                    None,
                     window,
                     crate::session::now_ms(),
                 ));

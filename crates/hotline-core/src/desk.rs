@@ -427,6 +427,10 @@ impl RoomHandle for Desk {
         self.room.process_stop(persona_id, id)
     }
 
+    fn plan_refresh(&self, persona_id: &str) -> Result<(), String> {
+        self.room.refresh_plan(persona_id)
+    }
+
     fn process_output(
         &self,
         persona_id: &str,

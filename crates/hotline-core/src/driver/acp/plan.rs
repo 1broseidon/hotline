@@ -6,7 +6,8 @@
 //!
 //! A reading can also be had without a turn: Claude Code answers `/usage`
 //! itself, with no model call ([`usage_markdown`]), and Codex writes its
-//! limits into its own session logs ([`codex_log`]).
+//! limits into its own session logs ([`codex_log`]). The room keeps one
+//! reading per account and merges each new one into it ([`merged`]).
 
 pub(crate) mod codex_log;
 pub(crate) mod usage_markdown;
@@ -60,6 +61,54 @@ pub(super) fn with_window(was: Option<PlanUsage>, window: PlanWindow, at: i64) -
     }
     windows.sort_by_key(|one| order(&one.kind));
     PlanUsage { windows, at }
+}
+
+/// An account's reading with a newer one merged in, window by window: a
+/// window the new reading has replaces the one kept when the new reading is
+/// the later, and a window only one of them has is kept either way. A later
+/// reading of the same window in the same period never relaxes its status,
+/// because use only grows until the window resets: a reading worked out from
+/// a percentage does not undo a warning the agent itself gave.
+pub(crate) fn merged(was: Option<&PlanUsage>, reading: PlanUsage) -> PlanUsage {
+    let Some(was) = was else {
+        return reading;
+    };
+    let newer = reading.at >= was.at;
+    let at = was.at.max(reading.at);
+    let mut plan = was.clone();
+    for mut window in reading.windows {
+        match plan.windows.iter().find(|one| one.kind == window.kind) {
+            Some(_) if !newer => continue,
+            Some(kept)
+                if same_period(kept, &window)
+                    && severity(kept.status) > severity(window.status) =>
+            {
+                window.status = kept.status;
+            }
+            _ => {}
+        }
+        plan = with_window(Some(plan), window, at);
+    }
+    plan.at = at;
+    plan
+}
+
+/// Whether two readings of a window are of the same period: they reset
+/// together. `/usage` says the reset to the minute, the per-reply report to
+/// the second.
+fn same_period(a: &PlanWindow, b: &PlanWindow) -> bool {
+    match (a.resets_at, b.resets_at) {
+        (Some(a), Some(b)) => (a - b).abs() <= 90_000,
+        _ => false,
+    }
+}
+
+fn severity(status: PlanStatus) -> u8 {
+    match status {
+        PlanStatus::Allowed => 0,
+        PlanStatus::Warning => 1,
+        PlanStatus::Limited => 2,
+    }
 }
 
 /// How a window stands when the agent gave only how much of it is used:
@@ -142,6 +191,74 @@ mod tests {
         );
         assert_eq!(plan.at, 3);
     }
+    #[test]
+    fn a_later_reading_replaces_its_windows_and_an_earlier_one_only_adds_what_is_missing() {
+        let window = |kind: &str, used: f64| PlanWindow {
+            kind: kind.into(),
+            used_percent: Some(used),
+            resets_at: None,
+            status: status_of(used),
+        };
+        let kept = PlanUsage {
+            windows: vec![window("five_hour", 30.0), window("seven_day", 50.0)],
+            at: 10,
+        };
+        let later = PlanUsage {
+            windows: vec![window("five_hour", 35.0)],
+            at: 20,
+        };
+        let plan = merged(Some(&kept), later);
+        assert_eq!(plan.at, 20);
+        assert_eq!(plan.windows[0].used_percent, Some(35.0));
+        assert_eq!(plan.windows[1].used_percent, Some(50.0));
+        let earlier = PlanUsage {
+            windows: vec![window("five_hour", 5.0), window("seven_day_opus", 12.0)],
+            at: 5,
+        };
+        let plan = merged(Some(&plan), earlier);
+        assert_eq!(plan.at, 20);
+        assert_eq!(
+            plan.windows
+                .iter()
+                .map(|one| (one.kind.as_str(), one.used_percent))
+                .collect::<Vec<_>>(),
+            [
+                ("five_hour", Some(35.0)),
+                ("seven_day", Some(50.0)),
+                ("seven_day_opus", Some(12.0))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_warning_stands_through_a_later_reading_of_the_same_period_and_not_past_its_reset() {
+        let warned = PlanUsage {
+            windows: vec![PlanWindow {
+                kind: "seven_day".into(),
+                used_percent: Some(76.0),
+                resets_at: Some(1_793_774_976_000),
+                status: PlanStatus::Warning,
+            }],
+            at: 10,
+        };
+        let read = |resets_at: i64| PlanUsage {
+            windows: vec![PlanWindow {
+                kind: "seven_day".into(),
+                used_percent: Some(77.0),
+                resets_at: Some(resets_at),
+                status: status_of(77.0),
+            }],
+            at: 20,
+        };
+        // The same reset, to the minute.
+        let plan = merged(Some(&warned), read(1_793_774_940_000));
+        assert_eq!(plan.windows[0].status, PlanStatus::Warning);
+        assert_eq!(plan.windows[0].used_percent, Some(77.0));
+        // A week on, a new period.
+        let plan = merged(Some(&warned), read(1_794_379_740_000));
+        assert_eq!(plan.windows[0].status, PlanStatus::Allowed);
+    }
+
     #[test]
     fn a_window_is_near_its_limit_from_80_percent_and_limited_when_all_used() {
         assert_eq!(status_of(79.9), PlanStatus::Allowed);

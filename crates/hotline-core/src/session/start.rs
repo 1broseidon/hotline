@@ -134,9 +134,12 @@ impl Room {
         info.mode_label = reported.mode_label;
         info.configs = reported.configs;
         info.capabilities = reported.capabilities;
-        if reported.plan_usage.is_some() {
-            info.plan_usage = reported.plan_usage;
+        // The account's reading, kept by the room across teammates and
+        // restarts, with whatever the agent reported as it started.
+        if let Some(reading) = reported.plan_usage {
+            self.take_plan(&persona.backend_id, reading);
         }
+        info.plan_usage = self.plan_of(&persona.backend_id);
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
             computer: has_computer,
@@ -181,6 +184,7 @@ impl Room {
         if let Some(processes) = session.driver.processes() {
             self.watch_processes(&session, &processes);
         }
+        self.read_plan_on_start(&session);
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
         self.begin_chapter(&persona.id, &persona.backend_id);

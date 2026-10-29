@@ -163,6 +163,7 @@ impl Occupant for Session {
         let session = self;
         room.send_glance(session, held.from_voice);
         room.turn_ended(session);
+        room.read_plan_after_turn(session);
         if driven.asked {
             // A permission the turn left open is a button nobody is
             // behind. A `request_human` wait is not: the tool is still

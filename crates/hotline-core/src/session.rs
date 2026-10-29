@@ -54,6 +54,7 @@ pub(crate) mod new_teammate;
 mod pacing;
 mod peers;
 mod person_name;
+mod plan;
 mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
@@ -724,6 +725,9 @@ pub struct Room {
     /// Set once the desk is stopping for a restart: new work is refused while
     /// the turns already running drain (see `stopping`).
     closing: std::sync::atomic::AtomicBool,
+    /// How much of each harness login's plan is used, by backend id
+    /// (`session/plan.rs`).
+    plans: plan::Plans,
 }
 
 impl Room {
@@ -800,6 +804,7 @@ impl Room {
                 None
             }
         };
+        let plans = plan::Plans::load(log.root());
         let room = Arc::new(Self {
             spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
             #[cfg(test)]
@@ -855,6 +860,7 @@ impl Room {
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
+            plans,
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();

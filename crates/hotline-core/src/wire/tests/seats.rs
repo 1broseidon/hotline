@@ -488,6 +488,14 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
         persona_id: persona_id.clone(),
         model_id: "anthropic/claude".to_string(),
     }));
+    // Opening the picker reads the plan, wherever the picker is.
+    let refresh = Command::PlanRefresh {
+        persona_id: persona_id.clone(),
+    };
+    assert!(Seat::Phone.permits(&refresh));
+    assert!(Seat::Owner.permits(&refresh));
+    assert!(Seat::Desk.permits(&refresh));
+    assert!(!Seat::Link.permits(&refresh));
     assert!(Seat::Phone.permits(&Command::SessionSetConfig {
         persona_id: persona_id.clone(),
         config_id: "effort".to_string(),

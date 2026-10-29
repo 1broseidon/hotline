@@ -607,6 +607,12 @@ pub enum Command {
         config_id: String,
         value: String,
     },
+    /// The model picker opened on this teammate: its account's plan is read
+    /// again when the reading kept is a few minutes old and the teammate is
+    /// idle, and otherwise left as it is. Answers at once; the reading
+    /// arrives on the teammate's `SessionInfo.planUsage`.
+    #[serde(rename = "plan.refresh")]
+    PlanRefresh { persona_id: String },
     /// Answers a permission card the agent is waiting behind. Refused when
     /// nothing is waiting any more — the turn ended, the session stopped, or
     /// somebody else answered first — so a stale card cannot silently let an

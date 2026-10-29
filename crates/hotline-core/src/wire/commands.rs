@@ -449,6 +449,7 @@ pub(crate) async fn run(
         } => set_config(log, room, &persona_id, &config_id, &value)
             .await
             .map(|info| json!(info)),
+        Command::PlanRefresh { persona_id } => room.plan_refresh(&persona_id).map(|()| Value::Null),
         Command::SessionAnswerPermission {
             persona_id,
             request_id,

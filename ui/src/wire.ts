@@ -200,6 +200,8 @@ type Results = {
 	"mobile.persona_computer": Persona;
 	"session.cancel": null;
 	"process.stop": null;
+	/** Answers at once; the reading arrives on the teammate's `session.planUsage`. */
+	"plan.refresh": null;
 	"process.output": ProcessOutput;
 	"session.set_model": SessionInfo;
 	"session.set_mode": SessionInfo;

@@ -157,6 +157,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `session.cancel` | `{personaId}` | none |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
+| `plan.refresh` | `{personaId}` | none, at once; the model picker opened on that teammate. Its account's plan (one reading per harness login, kept across restarts) is read again when the reading is over three minutes old and the teammate is idle: Claude Code by `/usage` between turns, which it answers itself with no model call and which never reaches the tape; Codex from its own session logs. The reading arrives on `SessionInfo.planUsage` of every teammate on that login. A teammate not running, or an agent with no way to say its plan, does nothing |
 | `session.set_config` | `{personaId, configId, value}` | `SessionInfo`. A companion phone may set only a config the live session reports as an effort; any other is refused with "Change that on your desktop." |
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none; `collab:` request ids are room-owned collaboration cards |
 | `agent.auth.start` | `{personaId, methodId}` | `{id}`; starts signing a harness teammate's agent in, by one of the methods its session offers. The attempt is this socket's: another socket naming its id is refused, and it ends when this socket closes |

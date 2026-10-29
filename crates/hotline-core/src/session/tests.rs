@@ -29,6 +29,7 @@ mod chapters;
 mod chat;
 #[cfg(unix)]
 mod computer;
+mod plan;
 mod posting;
 mod preamble;
 mod reading;
@@ -86,6 +87,9 @@ pub(crate) struct Scripted {
     start_gate: Option<Arc<Semaphore>>,
     /// Why every start is refused, for a harness that cannot come up.
     start_error: Option<String>,
+    /// What reading the account's plan answers, and how often it was read.
+    plan: Arc<Mutex<Option<crate::contract::PlanUsage>>>,
+    plan_reads: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
@@ -117,6 +121,8 @@ impl Scripted {
             retried: Arc::new(Mutex::new(Vec::new())),
             start_gate: None,
             start_error: None,
+            plan: Arc::new(Mutex::new(None)),
+            plan_reads: Arc::default(),
         }
     }
 
@@ -295,6 +301,12 @@ impl Driver for Scripted {
 
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
         lock(&self.unprompted).take()
+    }
+
+    async fn read_plan(&self) -> Option<crate::contract::PlanUsage> {
+        self.plan_reads
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        lock(&self.plan).clone()
     }
 
     /// A card is answerable exactly once, the way a live request is.

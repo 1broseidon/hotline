@@ -164,6 +164,10 @@ impl Room {
             info.current_mode_id.clone_from(&reported.current_mode_id);
             info.mode_label.clone_from(&reported.mode_label);
             info.configs.clone_from(&reported.configs);
+            // A reading stands until the agent reports again.
+            if reported.plan_usage.is_some() {
+                info.plan_usage.clone_from(&reported.plan_usage);
+            }
             info.clone()
         };
         let _ = self.info_changes.send(info.clone());

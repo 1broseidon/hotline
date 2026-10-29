@@ -1,6 +1,7 @@
 import { type CSSProperties, Fragment, type KeyboardEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ChoiceAccount, ConfigChoice, CredentialKind } from "../generated/contract";
+import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
+import { nearLimit, resetText, windowName, windowUse } from "../plan";
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, PlusIcon } from "../icons";
 import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
 import { wire } from "../wire";
@@ -111,7 +112,10 @@ export function ModelPicker({
 	fallbackName,
 	knownName,
 	onOpen,
+	plan,
 }: {
+	/** The account's plan limits, as the agent last reported them. */
+	plan?: PlanUsage | undefined;
 	/** Each time the menu opens, so lists the desk fills in later can be read again. */
 	onOpen?: (() => void) | undefined;
 	/** What the button says before a harness has named its model: the harness. */
@@ -221,6 +225,7 @@ export function ModelPicker({
 					{modelName}
 					{effortName !== null && <span className="text-ink-3"> · {effortName}</span>}
 				</span>
+				{nearLimit(plan) && <span className="plan-dot" aria-label="Near the plan's limit" />}
 				<ChevronDownIcon className="picker-chevron" />
 			</button>
 			{open && button.current && (
@@ -233,6 +238,7 @@ export function ModelPicker({
 					accountLine={accountLine}
 					currentRow={currentRow?.key ?? null}
 					effort={effort}
+					plan={plan}
 					onModel={(row, id) => {
 						close();
 						void pick(row, id);
@@ -269,6 +275,7 @@ function Panels({
 	accountLine,
 	currentRow,
 	effort,
+	plan,
 	onModel,
 	onModelEffort,
 	onEffort,
@@ -283,6 +290,7 @@ function Panels({
 	accountLine: string | null;
 	currentRow: string | null;
 	effort: { value: string; choices: ConfigChoice[] } | null;
+	plan: PlanUsage | undefined;
 	onModel(row: AccountRow, id: string): void;
 	onModelEffort(row: AccountRow, id: string, value: string): void;
 	onEffort(value: string): void;
@@ -480,6 +488,7 @@ function Panels({
 						</div>
 					)}
 					{effort !== null && effort.choices.length > 1 && <EffortSlider effort={effort} onEffort={onEffort} />}
+					{plan !== undefined && plan.windows.length > 0 && <PlanRows plan={plan} />}
 				</div>
 				<hr className="menu-rule" />
 				{/* The pinned row is the head's key, never a row again below. */}
@@ -688,6 +697,25 @@ function EffortSlider({ effort, onEffort }: { effort: { value: string; choices: 
 					</button>
 				))}
 			</div>
+		</div>
+	);
+}
+
+/** The plan's windows under the model: how much of each is used, a bar, and when it resets. */
+function PlanRows({ plan }: { plan: PlanUsage }) {
+	return (
+		<div className="plan-rows" title={`As of ${new Date(plan.at).toLocaleString()}`}>
+			<div className="menu-heading plan-heading">Plan</div>
+			{plan.windows.map((window) => (
+				<div key={window.kind} className="plan-row" data-status={window.status}>
+					<span className="plan-name">{windowName(window)}</span>
+					<span className="plan-bar" aria-hidden="true">
+						<span style={{ width: `${Math.min(100, window.status === "limited" ? 100 : (window.usedPercent ?? 0))}%` }} />
+					</span>
+					<span className="plan-use">{windowUse(window)}</span>
+					{window.resetsAt !== undefined && <span className="plan-reset">{resetText(window.resetsAt)}</span>}
+				</div>
+			))}
 		</div>
 	);
 }

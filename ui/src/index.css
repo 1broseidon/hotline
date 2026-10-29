@@ -905,6 +905,64 @@
 	.model-head {
 		padding: 4px 4px 6px;
 	}
+	/* The account's plan under the model: a line per window, a thin bar, its
+	 * use and its reset in the instrument face. Amber once near the limit. */
+	.plan-rows {
+		margin-top: 6px;
+		padding: 2px 4px 0;
+	}
+	.plan-heading {
+		padding-left: 0;
+	}
+	.plan-row {
+		display: grid;
+		grid-template-columns: 7.5em 1fr auto;
+		align-items: center;
+		column-gap: 8px;
+		row-gap: 1px;
+		padding: 3px 0;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	.plan-bar {
+		height: 4px;
+		border-radius: 2px;
+		background: var(--line);
+		overflow: hidden;
+	}
+	.plan-bar > span {
+		display: block;
+		height: 100%;
+		border-radius: 2px;
+		background: var(--ink-3);
+	}
+	.plan-row[data-status="warning"] .plan-bar > span,
+	.plan-row[data-status="limited"] .plan-bar > span {
+		background: var(--warn);
+	}
+	.plan-use,
+	.plan-reset {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+		text-align: right;
+	}
+	.plan-row[data-status="warning"] .plan-use,
+	.plan-row[data-status="limited"] .plan-use {
+		color: var(--warn-ink);
+	}
+	.plan-reset {
+		grid-column: 2 / 4;
+		text-align: left;
+	}
+	.plan-dot {
+		width: 6px;
+		height: 6px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--warn);
+	}
 	.model-head-plain {
 		padding: 4px 4px 0;
 	}

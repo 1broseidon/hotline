@@ -66,6 +66,7 @@ fn idle(persona_id: &str) -> SessionInfo {
         error: None,
         awaiting_subagents: false,
         processes: Vec::new(),
+        plan_usage: None,
     }
 }
 

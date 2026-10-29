@@ -134,6 +134,9 @@ impl Room {
         info.mode_label = reported.mode_label;
         info.configs = reported.configs;
         info.capabilities = reported.capabilities;
+        if reported.plan_usage.is_some() {
+            info.plan_usage = reported.plan_usage;
+        }
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
             computer: has_computer,

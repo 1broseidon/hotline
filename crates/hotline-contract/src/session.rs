@@ -57,6 +57,50 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<SessionProcess>>", optional)]
     pub processes: Vec<SessionProcess>,
+    /// How much of the account's plan is used, as the agent last reported
+    /// it after a reply. Absent until it reports, and for an agent that never
+    /// does; a reading is as of `at`, not live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plan_usage: Option<PlanUsage>,
+}
+
+/// An account's plan limits as its agent reported them: one line per window
+/// (the 5-hour limit, the weekly one, a model's own), each with how much of
+/// it is used and when it resets.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct PlanUsage {
+    pub windows: Vec<PlanWindow>,
+    /// When the agent last reported, in milliseconds since the epoch.
+    pub at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct PlanWindow {
+    /// The agent's name for the window: `five_hour`, `seven_day`,
+    /// `seven_day_opus`, `seven_day_sonnet`, `overage`.
+    pub kind: String,
+    /// How much of it is used, 0 to 100, when the agent said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_percent: Option<f64>,
+    /// When it resets, in milliseconds since the epoch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<i64>,
+    /// Whether the account may use it: allowed, nearing the limit, or limited.
+    pub status: PlanStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum PlanStatus {
+    Allowed,
+    Warning,
+    Limited,
 }
 
 /// One command a session holds running, as the desk's chip shows it.

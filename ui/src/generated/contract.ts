@@ -1199,6 +1199,38 @@ export type PersonaVoice = { providerId: string, modelId: string, voice: string,
 
 export type PlanEntry = { content: string, status: string, priority?: string, };
 
+export type PlanStatus = "allowed" | "warning" | "limited";
+
+/**
+ * An account's plan limits as its agent reported them: one line per window
+ * (the 5-hour limit, the weekly one, a model's own), each with how much of
+ * it is used and when it resets.
+ */
+export type PlanUsage = { windows: Array<PlanWindow>, 
+/**
+ * When the agent last reported, in milliseconds since the epoch.
+ */
+at: number, };
+
+export type PlanWindow = { 
+/**
+ * The agent's name for the window: `five_hour`, `seven_day`,
+ * `seven_day_opus`, `seven_day_sonnet`, `overage`.
+ */
+kind: string, 
+/**
+ * How much of it is used, 0 to 100, when the agent said.
+ */
+usedPercent?: number, 
+/**
+ * When it resets, in milliseconds since the epoch.
+ */
+resetsAt?: number, 
+/**
+ * Whether the account may use it: allowed, nearing the limit, or limited.
+ */
+status: PlanStatus, };
+
 /**
  * Inherit everything, inherit nothing, or name what is inherited. `Some` is
  * read only in the `some` mode; the list is kept in the other two so that
@@ -1614,7 +1646,13 @@ awaitingSubagents?: boolean,
  * a server, a watcher. They do not change `state`: a teammate with a
  * server up and nothing to do reads idle.
  */
-processes?: Array<SessionProcess>, };
+processes?: Array<SessionProcess>, 
+/**
+ * How much of the account's plan is used, as the agent last reported
+ * it after a reply. Absent until it reports, and for an agent that never
+ * does; a reading is as of `at`, not live.
+ */
+planUsage?: PlanUsage, };
 
 /**
  * One command a session holds running, as the desk's chip shows it.

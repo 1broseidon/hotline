@@ -283,6 +283,21 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             drop(session);
             live.publish_info();
         }
+        // The account's plan, when the agent says how much of it is used: the
+        // account's, so a subagent's report counts as much as the conversation's.
+        SessionUpdate::UsageUpdate(usage) => {
+            if let Some(window) = super::plan::reported_window(usage.meta.as_ref()) {
+                let mut session = lock(&live.session);
+                let was = session.info.plan_usage.take();
+                session.info.plan_usage = Some(super::plan::with_window(
+                    was,
+                    window,
+                    crate::session::now_ms(),
+                ));
+                drop(session);
+                live.publish_info();
+            }
+        }
         _ => {}
     }
 }

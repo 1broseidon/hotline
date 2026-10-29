@@ -63,6 +63,8 @@ pub struct DriverInfo {
     /// offered. The session copies this onto `SessionInfo.configs`.
     pub configs: Vec<SessionConfig>,
     pub capabilities: SessionCapabilities,
+    /// The account's plan limits as the agent last reported them.
+    pub plan_usage: Option<crate::contract::PlanUsage>,
 }
 
 /// Whether the agent is speaking or thinking. The same distinction names a

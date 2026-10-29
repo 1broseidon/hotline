@@ -139,6 +139,7 @@ export function SessionPickers({
 					{...(known !== null ? { knownName: known.name } : {})}
 					effort={shownEffort}
 					label={session.modelLabel ?? "Model"}
+					plan={session.planUsage}
 					onModel={setModel}
 					onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
 					onAddAccount={onAddAccount}

@@ -34,6 +34,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   models the rest are under More models. Change agent, with a hint of the
   others, opens the accounts and agents the menu used to list, and Add an
   account.
+- The model menu and the teammate's menu are one: a pill in the band's
+  corner names the model and its effort, with the amber dot near a plan's
+  limit and the teammate's face at its end, beating while it works. Its menu
+  says who the teammate is, then what it runs on (the agent and its plan,
+  the agent's models, effort, Change agent), then Settings, New chapter,
+  Threads and Remove. A narrow window shows the model's mark and the face.
+- A teammate on Claude Code, Codex, Cursor or another agent offers its
+  models, effort and modes when it is not running, as its agent last offered
+  them on this desk, and a choice made then is kept on the teammate and put
+  on its next session, dropped only if the agent no longer offers it. Only
+  an agent never run on this desk is shown by its name alone.
 - The plan under the model is read the way each agent's own tools read it,
   outside any teammate's conversation and with no model asked: Claude Code
   through its CLI, Codex through its app-server, and Grok Build from xAI's

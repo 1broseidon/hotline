@@ -401,8 +401,8 @@ async fn session_start_writes_last_model_id_from_the_sessions_info() {
 }
 
 /// A harness picks its own model and only says so once running, so what a
-/// start reports is written to the teammate: the band can name it before
-/// the child is started again. The room's last model is Hotline Agent's alone.
+/// start reports is written to a teammate that has none: the band can name
+/// it before the child is started again. The room's last model is Hotline Agent's alone.
 #[tokio::test]
 async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
     let (_root, log, port) = door("start-acp-model");
@@ -446,6 +446,60 @@ async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
         room::settings(&log).get("lastModelId").is_none(),
         "a harness's model is the teammate's, not the room's last"
     );
+}
+
+/// The teammate's own choices win over what its harness reports: a start
+/// reporting another model leaves the model, mode and effort the teammate
+/// has as they are, for its next session to be set to again.
+#[tokio::test]
+async fn session_start_keeps_the_model_mode_and_effort_an_acp_teammate_has() {
+    let (_root, log, port) = door("start-acp-keeps");
+    let mut socket = desk(port).await;
+    let draft = PersonaDraft {
+        name: "Bob".to_string(),
+        goal: None,
+        team: None,
+        backend_id: Some("cursor".to_string()),
+        cwd: None,
+        reach: None,
+        folders: None,
+        model_id: Some("composer-1".to_string()),
+        effort_id: Some("high".to_string()),
+        computer: None,
+        background_work: None,
+    };
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "persona.create", "params": { "draft": draft } }),
+    )
+    .await;
+    let id = answered(&mut socket, 1).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "session.set_mode", "params": { "personaId": id, "modeId": "plan" } }),
+    )
+    .await;
+    let mode = answered(&mut socket, 2).await;
+    assert_eq!(mode["ok"], true, "{mode}");
+
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "session.start", "params": { "personaId": id } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 3).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["result"]["currentModelId"], "anthropic/claude");
+    let bob = room::roster(&log)
+        .into_iter()
+        .find(|persona| persona.id == id)
+        .unwrap();
+    assert_eq!(bob.model_id.as_deref(), Some("composer-1"));
+    assert_eq!(bob.mode_id.as_deref(), Some("plan"));
+    assert_eq!(bob.effort_id.as_deref(), Some("high"));
 }
 
 /// A patch that changes what a teammate can use restarts it; a patch of

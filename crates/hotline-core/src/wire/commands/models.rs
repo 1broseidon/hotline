@@ -492,7 +492,8 @@ async fn set_harness_config(
     }
     if running {
         let info = room.set_config(&persona.id, config_id, value).await?;
-        remember_model(log, room, persona).await?;
+        // A setting chosen can move the model; what it moved to is chosen too.
+        keep_reported_model(log, room, persona, true).await?;
         return Ok(info);
     }
     Ok(offered_info(log, room, &persona.id))
@@ -504,13 +505,26 @@ async fn set_harness_config(
 /// and prompt both come through.
 /// What a live session reports it runs on is remembered once the session
 /// is up: for Hotline Agent as the room's last model, for a harness on the
-/// teammate itself, so the band can name the model before the child is
-/// started again. A harness picks its own default and only says so once
-/// running; without this the teammate at rest has no model at all.
+/// teammate itself only when it has none, so the band can name the model
+/// before the child is started again. A harness picks its own default and
+/// only says so once running; without this the teammate at rest has no
+/// model at all. A model the teammate has is its choice, which a report
+/// never replaces: its next session is set to it again (docs/sessions.md).
 pub(in crate::wire) async fn remember_model(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     persona: &Persona,
+) -> Result<(), String> {
+    keep_reported_model(log, room, persona, false).await
+}
+
+/// [`remember_model`], or with `chosen` the session's model as the answer
+/// to a person's choice, kept on the teammate over the one it had.
+async fn keep_reported_model(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona: &Persona,
+    chosen: bool,
 ) -> Result<(), String> {
     // Every prompt comes through here, and nearly every one has nothing new to
     // remember. The answer is read again under the lock before anything is
@@ -518,7 +532,9 @@ pub(in crate::wire) async fn remember_model(
     if room
         .info(&persona.id)
         .current_model_id
-        .is_none_or(|model_id| model_id.is_empty() || already_remembered(log, persona, &model_id))
+        .is_none_or(|model_id| {
+            model_id.is_empty() || already_remembered(log, persona, &model_id, chosen)
+        })
     {
         return Ok(());
     }
@@ -533,21 +549,23 @@ pub(in crate::wire) async fn remember_model(
     if persona.backend_id == HOTLINE_BACKEND_ID {
         return write_last_model(log, &model_id);
     }
-    if persona.model_id.as_deref() == Some(model_id.as_str()) {
+    if already_remembered(log, &living(log, &persona.id)?, &model_id, chosen) {
         return Ok(());
     }
     update_persona(log, room, &persona.id, &json!({ "modelId": model_id })).map(|_| ())
 }
 
-/// Whether `model_id` is already where [`remember_model`] would put it.
-fn already_remembered(log: &Log, persona: &Persona, model_id: &str) -> bool {
+/// Whether there is nothing for [`keep_reported_model`] to write: `model_id`
+/// is already where it would go, or a harness teammate has a model of its
+/// own and this is a report, not an answer to a choice.
+fn already_remembered(log: &Log, persona: &Persona, model_id: &str, chosen: bool) -> bool {
     if persona.backend_id == HOTLINE_BACKEND_ID {
         room::settings(log)
             .get("lastModelId")
             .and_then(Value::as_str)
             == Some(model_id)
     } else {
-        persona.model_id.as_deref() == Some(model_id)
+        persona.model_id.as_deref() == Some(model_id) || (!chosen && persona.model_id.is_some())
     }
 }
 

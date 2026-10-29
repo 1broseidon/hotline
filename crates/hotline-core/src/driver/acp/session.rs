@@ -509,36 +509,65 @@ impl ChildAgent {
         session.info.configs = disposition.configs;
     }
 
-    /// Puts the teammate's own model, mode, effort and other settings back on.
+    /// Puts the teammate's own model, mode, effort and other settings back on,
+    /// before the session takes its first prompt.
     ///
     /// These are session-scoped for every agent Hotline drives, so a teammate that
     /// is not asked again arrives on whatever the harness defaults to — which
     /// is a teammate quietly losing its disposition on every restart. A choice
     /// the agent no longer offers is not sent, and a refusal is not fatal: the
     /// session is up either way, on the agent's own default, and the picker
-    /// shows what the agent actually settled on. Effort goes last, since
-    /// a model's change can change the levels it has.
+    /// shows what the agent actually settled on. Either is logged, and the
+    /// teammate keeps its choice for the next session (docs/sessions.md).
+    /// Effort goes last, since a model's change can change the levels it has.
     pub(super) async fn adopt_disposition(&self, persona: &Persona) {
         let (mode, model) = {
             let session = lock(&self.live.session);
             let info = &session.info;
+            let mode = persona
+                .mode_id
+                .clone()
+                .filter(|id| Some(id) != info.current_mode_id.as_ref());
+            let model = persona
+                .model_id
+                .clone()
+                .filter(|id| *id != info.current_model_id);
+            let offered = |id: &String, list: &[crate::contract::ConfigChoice], what: &str| {
+                let offered = list.is_empty() || list.iter().any(|one| one.id == *id);
+                if !offered {
+                    eprintln!(
+                        "[acp] {}'s {what} {id} is not one {} offers now; it opens on the agent's own",
+                        persona.id, self.backend_id
+                    );
+                }
+                offered
+            };
             (
-                persona.mode_id.clone().filter(|id| {
-                    Some(id) != info.current_mode_id.as_ref()
-                        && (info.modes.is_empty() || info.modes.iter().any(|mode| mode.id == *id))
-                }),
-                persona.model_id.clone().filter(|id| {
-                    *id != info.current_model_id
-                        && (info.models.is_empty()
-                            || info.models.iter().any(|model| model.id == *id))
-                }),
+                mode.filter(|id| offered(id, &info.modes, "mode")),
+                model.filter(|id| offered(id, &info.models, "model")),
             )
         };
         if let Some(mode) = mode {
-            let _ = self.set_mode(&mode).await;
+            match self.set_mode(&mode).await {
+                Ok(info) if info.current_mode_id.as_ref() != Some(&mode) => eprintln!(
+                    "[acp] {} asked for mode {mode} and runs in {:?}",
+                    persona.id, info.current_mode_id
+                ),
+                Ok(_) => {}
+                Err(error) => eprintln!("[acp] {}'s mode {mode} was refused: {error}", persona.id),
+            }
         }
         if let Some(model) = model {
-            let _ = self.set_model(&model).await;
+            match self.set_model(&model).await {
+                Ok(info) if info.current_model_id != model => eprintln!(
+                    "[acp] {} asked for model {model} and runs on {}",
+                    persona.id, info.current_model_id
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!("[acp] {}'s model {model} was refused: {error}", persona.id);
+                }
+            }
         }
         for (config_id, value) in self.settings_to_put_back(persona) {
             let _ = self.set_config(&config_id, &value).await;

@@ -275,7 +275,8 @@ fn agent_that_records_settings(
         let configs = Arc::new(Mutex::new(("opus".to_string(), "medium".to_string())));
         let set_configs = configs.clone();
         let set_asked = asked.clone();
-        let mode_asked = asked;
+        let mode_asked = asked.clone();
+        let prompt_asked = asked;
         let running = agent_client_protocol::Agent
             .builder()
             .name("recording")
@@ -353,6 +354,16 @@ fn agent_that_records_settings(
                             .unwrap()
                             .push(format!("mode = {}", request.mode_id.0));
                         responder.respond(acp::SetSessionModeResponse::new())
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |_request: acp::PromptRequest, responder: Responder<PromptResponse>, _cx| {
+                    let asked = prompt_asked.clone();
+                    async move {
+                        asked.lock().unwrap().push("prompt".to_string());
+                        responder.respond(PromptResponse::new(StopReason::EndTurn))
                     }
                 },
                 agent_client_protocol::on_receive_request!(),
@@ -454,4 +465,30 @@ async fn a_start_with_no_choices_or_the_agents_own_sends_nothing() {
         "{:?}",
         asked.lock().unwrap()
     );
+}
+
+/// A mode chosen while the teammate rested reaches its next session as
+/// `session/set_mode`, answered before the first prompt is sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mode_chosen_at_rest_is_set_before_the_first_prompt() {
+    let held = room("rest-mode-room");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let agent = agent_that_records_settings(asked.clone());
+    let driver = ChildAgent::new(
+        scratch("rest-mode"),
+        "claude-acp".to_string(),
+        "you are Ada".to_string(),
+        TeammateTools::new(&held, "rest-mode"),
+    );
+    tokio::spawn(agent);
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "rest-mode".to_string();
+    ada.backend_id = "claude-acp".to_string();
+    ada.mode_id = Some("plan".to_string());
+    driver.handshake(&ada, client_transport()).await.unwrap();
+    let mut updates = driver
+        .prompt("hello".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+    assert_eq!(turn_end(&mut updates).await, "end_turn");
+    assert_eq!(*asked.lock().unwrap(), ["mode = plan", "prompt"]);
 }

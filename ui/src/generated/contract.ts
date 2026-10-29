@@ -101,6 +101,23 @@ export type BackendChoice = { id: string, name: string, description: string, una
 signIn?: boolean, };
 
 /**
+ * What a harness offered the last time a session of it opened on this
+ * desk, or the daily look asked it: its models, modes and effort pickers,
+ * each with the value it opened on. The desk keeps one per agent, so a
+ * teammate that is not running offers the same choices its next session
+ * will, with its own as the current ones.
+ */
+export type BackendOffer = { models: Array<ConfigChoice>, 
+/**
+ * The model a session opens on before anyone chooses.
+ */
+currentModelId?: string, modelLabel?: string, modes: Array<ConfigChoice>, currentModeId?: string, modeLabel?: string, 
+/**
+ * Each with the value a session opens on as `currentId`.
+ */
+configs: Array<SessionConfig>, };
+
+/**
  * One profile within a host browser. Only profiles that have a cookie store
  * on disk are listed.
  */
@@ -1055,11 +1072,19 @@ reach?: Reach,
  */
 folders?: Array<FolderGrant>, modelId?: string, modeId?: string, 
 /**
- * The effort a Hotline Agent teammate runs at, when its model offers one.
- * Absent means the model's default. An ACP teammate does not store this:
- * the harness owns its config ids.
+ * The effort the teammate runs at, when its model offers one: Hotline
+ * Agent's, or a harness's effort picker, whatever that picker is called.
+ * Absent means the model's default. A harness that no longer offers it
+ * at the next start keeps its own.
  */
 effortId?: string, 
+/**
+ * The harness's other settings as the person chose them, by the
+ * harness's own config id: put back on each session that opens, and
+ * dropped by any that no longer offers the value. Effort is not here;
+ * it is `effortId`.
+ */
+configChoices?: { [key in string]: string }, 
 /**
  * A configured fallback harness for a desk that cannot run this
  * teammate's current one — the matching ladder's middle rung, between

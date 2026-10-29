@@ -492,7 +492,7 @@ impl ChildAgent {
         lock(&self.live.tools).clear();
         self.live.forget_subagents();
         let disposition = Disposition::of(modes.as_ref(), configs.as_deref());
-        super::models::remember(&self.root, &self.backend_id, &disposition.models);
+        super::models::remember(&self.root, &self.backend_id, &disposition.offer());
         let mut session = lock(&self.live.session);
         session.id = Some(id.clone());
         session.model_config = disposition.model_config;
@@ -509,25 +509,29 @@ impl ChildAgent {
         session.info.configs = disposition.configs;
     }
 
-    /// Puts the teammate's own model and mode back on.
+    /// Puts the teammate's own model, mode, effort and other settings back on.
     ///
     /// These are session-scoped for every agent Hotline drives, so a teammate that
     /// is not asked again arrives on whatever the harness defaults to — which
-    /// is a teammate quietly losing its disposition on every restart. A
-    /// refusal is not fatal: the session is up either way, and the picker will
-    /// show what the agent actually settled on.
+    /// is a teammate quietly losing its disposition on every restart. A choice
+    /// the agent no longer offers is not sent, and a refusal is not fatal: the
+    /// session is up either way, on the agent's own default, and the picker
+    /// shows what the agent actually settled on. Effort goes last, since
+    /// a model's change can change the levels it has.
     pub(super) async fn adopt_disposition(&self, persona: &Persona) {
         let (mode, model) = {
             let session = lock(&self.live.session);
+            let info = &session.info;
             (
-                persona
-                    .mode_id
-                    .clone()
-                    .filter(|id| Some(id) != session.info.current_mode_id.as_ref()),
-                persona
-                    .model_id
-                    .clone()
-                    .filter(|id| *id != session.info.current_model_id),
+                persona.mode_id.clone().filter(|id| {
+                    Some(id) != info.current_mode_id.as_ref()
+                        && (info.modes.is_empty() || info.modes.iter().any(|mode| mode.id == *id))
+                }),
+                persona.model_id.clone().filter(|id| {
+                    *id != info.current_model_id
+                        && (info.models.is_empty()
+                            || info.models.iter().any(|model| model.id == *id))
+                }),
             )
         };
         if let Some(mode) = mode {
@@ -536,6 +540,40 @@ impl ChildAgent {
         if let Some(model) = model {
             let _ = self.set_model(&model).await;
         }
+        for (config_id, value) in self.settings_to_put_back(persona) {
+            let _ = self.set_config(&config_id, &value).await;
+        }
+    }
+
+    /// The teammate's effort and other settings its session opened without,
+    /// each one the agent still offers.
+    fn settings_to_put_back(&self, persona: &Persona) -> Vec<(String, String)> {
+        let session = lock(&self.live.session);
+        let configs = &session.info.configs;
+        let effort = persona.effort_id.as_ref().and_then(|value| {
+            configs
+                .iter()
+                .find(|config| {
+                    config.category == Some(crate::contract::SessionConfigCategory::Effort)
+                })
+                .map(|config| (config.id.clone(), value.clone()))
+        });
+        effort
+            .into_iter()
+            .chain(
+                persona
+                    .config_choices
+                    .iter()
+                    .map(|(id, value)| (id.clone(), value.clone())),
+            )
+            .filter(|(id, value)| {
+                configs.iter().any(|config| {
+                    config.id == *id
+                        && config.current_id.as_ref() != Some(value)
+                        && config.options.iter().any(|option| option.id == *value)
+                })
+            })
+            .collect()
     }
 
     /// Sets one config option and takes the agent's whole answer back, since
@@ -815,9 +853,17 @@ pub(super) struct Disposition {
 }
 
 impl Disposition {
-    /// The agent's model picker, empty when it offers none.
-    pub(super) fn models(self) -> Vec<crate::contract::ConfigChoice> {
-        self.models
+    /// What the agent offers, each picker with the value it opened on.
+    pub(super) fn offer(&self) -> crate::contract::BackendOffer {
+        crate::contract::BackendOffer {
+            models: self.models.clone(),
+            current_model_id: self.current_model_id.clone(),
+            model_label: self.model_label.clone(),
+            modes: self.modes.clone(),
+            current_mode_id: self.current_mode_id.clone(),
+            mode_label: self.mode_label.clone(),
+            configs: self.configs.clone(),
+        }
     }
 
     pub(super) fn of(

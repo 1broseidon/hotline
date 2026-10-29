@@ -1,5 +1,7 @@
-//! The models each agent last reported on this desk, so the picker can list
-//! an agent's models before a teammate runs on it.
+//! What each agent last offered on this desk — its models, and its modes and
+//! effort with the value each opened on — so the picker can list an agent's
+//! choices before a teammate runs on it, and a teammate at rest shows the
+//! ones its next session will have.
 //!
 //! A teammate's session records what its agent reports as it opens. When the
 //! desk starts, and when the picker asks, each agent people know by name and
@@ -14,7 +16,7 @@ use super::session::Disposition;
 #[cfg(unix)]
 use super::{GROUPS, lock};
 use super::{end_group, registry};
-use crate::contract::ConfigChoice;
+use crate::contract::{BackendOffer, ConfigChoice, SessionConfig};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{InitializeRequest, NewSessionRequest};
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -46,6 +48,60 @@ struct Seen {
     /// The agent asked to be signed in before it would open a session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     sign_in: bool,
+    /// The rest of the offer: the model it opened on, its modes and its
+    /// effort pickers. Absent in a file from before they were kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    current_model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    modes: Vec<ConfigChoice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    current_mode_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    configs: Vec<SessionConfig>,
+}
+
+impl Seen {
+    fn offer(&self) -> BackendOffer {
+        BackendOffer {
+            models: self.models.clone(),
+            current_model_id: self.current_model_id.clone(),
+            model_label: self.model_label.clone(),
+            modes: self.modes.clone(),
+            current_mode_id: self.current_mode_id.clone(),
+            mode_label: self.mode_label.clone(),
+            configs: self.configs.clone(),
+        }
+    }
+
+    /// Takes a new offer. An empty part is not a part: an agent that names
+    /// no models, modes or settings this time keeps the ones it had.
+    fn take(&mut self, offer: &BackendOffer) {
+        if !offer.models.is_empty() {
+            self.models.clone_from(&offer.models);
+            if offer.current_model_id.is_some() {
+                self.current_model_id.clone_from(&offer.current_model_id);
+            }
+            if offer.model_label.is_some() {
+                self.model_label.clone_from(&offer.model_label);
+            }
+        }
+        if !offer.modes.is_empty() {
+            self.modes.clone_from(&offer.modes);
+            if offer.current_mode_id.is_some() {
+                self.current_mode_id.clone_from(&offer.current_mode_id);
+            }
+            if offer.mode_label.is_some() {
+                self.mode_label.clone_from(&offer.mode_label);
+            }
+        }
+        if !offer.configs.is_empty() {
+            self.configs.clone_from(&offer.configs);
+        }
+    }
 }
 
 /// How a look ended without a list.
@@ -83,6 +139,14 @@ pub fn cached(root: &Path) -> BTreeMap<String, Vec<ConfigChoice>> {
         .collect()
 }
 
+/// What this agent last offered here, or nothing when it never has.
+pub fn offer(root: &Path, backend_id: &str) -> Option<BackendOffer> {
+    read(root)
+        .get(backend_id)
+        .map(Seen::offer)
+        .filter(|offer| !offer.is_empty())
+}
+
 /// The agents that last asked to be signed in, by backend id.
 pub fn needing_sign_in(root: &Path) -> std::collections::BTreeSet<String> {
     read(root)
@@ -104,37 +168,31 @@ pub fn mark_sign_in(root: &Path, backend_id: &str) {
     write(root, &seen);
 }
 
-/// Records what an agent reported as a session opened, which also says it is
-/// signed in. An empty list is not a list: an agent that names no models
-/// keeps the one it had.
-pub fn remember(root: &Path, backend_id: &str, models: &[ConfigChoice]) {
+/// Records what an agent offered as a session opened, which also says it is
+/// signed in. An empty part is not a part: an agent that names no models
+/// keeps the ones it had, and the same for its modes and settings.
+pub fn remember(root: &Path, backend_id: &str, offer: &BackendOffer) {
     let mut seen = read(root);
     let now = now_ms();
     let was = seen.get(backend_id).cloned().unwrap_or_default();
-    if models.is_empty() {
-        if was.sign_in {
-            seen.insert(
-                backend_id.to_string(),
-                Seen {
-                    sign_in: false,
-                    ..was
-                },
-            );
+    let mut now_seen = Seen {
+        sign_in: false,
+        ..was.clone()
+    };
+    now_seen.take(offer);
+    if offer.models.is_empty() {
+        // Not a list, so not a reading: the day's look still comes.
+        if was.sign_in || now_seen.offer() != was.offer() {
+            seen.insert(backend_id.to_string(), now_seen);
             write(root, &seen);
         }
         return;
     }
-    if !was.sign_in && was.models == models && now - was.at < FRESH_MS / 2 {
+    if !was.sign_in && was.offer() == now_seen.offer() && now - was.at < FRESH_MS / 2 {
         return;
     }
-    seen.insert(
-        backend_id.to_string(),
-        Seen {
-            at: now,
-            models: models.to_vec(),
-            sign_in: false,
-        },
-    );
+    now_seen.at = now;
+    seen.insert(backend_id.to_string(), now_seen);
     write(root, &seen);
 }
 
@@ -166,22 +224,20 @@ pub fn refresh_in_background(root: &Path) {
                 continue;
             }
             let bound = if before { LOOK_BOUND } else { FIRST_LOOK_BOUND };
-            let (models, sign_in) = match look(&root, &backend.id, &launch, bound).await {
-                Ok(models) => (models, false),
-                Err(Missed::SignIn) => (Vec::new(), true),
+            let (offer, sign_in) = match look(&root, &backend.id, &launch, bound).await {
+                Ok(offer) => (offer, false),
+                Err(Missed::SignIn) => (BackendOffer::default(), true),
                 Err(Missed::Failed(error)) => {
                     eprintln!("[acp] a look at {}'s models failed: {error}", backend.id);
-                    (Vec::new(), false)
+                    (BackendOffer::default(), false)
                 }
             };
-            // A failed look waits a day like a good one; the list it had stays.
+            // A failed look waits a day like a good one; the offer it had stays.
             let mut seen = read(&root);
             let entry = seen.entry(backend.id.clone()).or_default();
             entry.at = now_ms();
             entry.sign_in = sign_in;
-            if !models.is_empty() {
-                entry.models = models;
-            }
+            entry.take(&offer);
             write(&root, &seen);
         }
         LOOKING.store(false, Ordering::SeqCst);
@@ -199,13 +255,13 @@ fn plain_id(id: &str) -> bool {
 }
 
 /// One look: spawn, `initialize` offering nothing, `session/new` in the
-/// agent's empty folder with no servers, read the model picker, end.
+/// agent's empty folder with no servers, read its pickers, end.
 async fn look(
     root: &Path,
     backend_id: &str,
     launch: &registry::Launch,
     bound: Duration,
-) -> Result<Vec<ConfigChoice>, Missed> {
+) -> Result<BackendOffer, Missed> {
     let folder = paths::acp_look_dir(root, backend_id);
     std::fs::create_dir_all(&folder).map_err(|error| Missed::Failed(error.to_string()))?;
     let mut command = tokio::process::Command::new(&launch.command);
@@ -253,14 +309,14 @@ async fn look(
 }
 
 /// The conversation of a look, over any pipe: offer no capabilities, open a
-/// session naming no servers, read its model picker.
+/// session naming no servers, read its pickers.
 async fn ask(
     transport: ByteStreams<
         impl futures_util::AsyncWrite + Send + 'static,
         impl futures_util::AsyncRead + Send + 'static,
     >,
     folder: std::path::PathBuf,
-) -> Result<Vec<ConfigChoice>, Missed> {
+) -> Result<BackendOffer, Missed> {
     let (ready, started) = oneshot::channel();
     let (done, finished) = oneshot::channel::<()>();
     let task = tokio::spawn(Client.builder().name("Hotline").connect_with(
@@ -294,7 +350,7 @@ async fn ask(
                     Missed::Failed(error.to_string())
                 }
             })?;
-        Ok(Disposition::of(opened.modes.as_ref(), opened.config_options.as_deref()).models())
+        Ok(Disposition::of(opened.modes.as_ref(), opened.config_options.as_deref()).offer())
     }
     .await;
     let _ = done.send(());
@@ -320,6 +376,13 @@ mod tests {
         }
     }
 
+    fn offered(models: &[ConfigChoice]) -> BackendOffer {
+        BackendOffer {
+            models: models.to_vec(),
+            ..BackendOffer::default()
+        }
+    }
+
     #[test]
     fn an_agents_reported_models_are_kept_and_an_empty_report_keeps_them() {
         let root = tempfile::tempdir().unwrap();
@@ -327,12 +390,52 @@ mod tests {
         remember(
             root.path(),
             "claude-acp",
-            &[choice("opus"), choice("sonnet")],
+            &offered(&[choice("opus"), choice("sonnet")]),
         );
-        remember(root.path(), "claude-acp", &[]);
+        remember(root.path(), "claude-acp", &offered(&[]));
         let cached = cached(root.path());
         assert_eq!(cached["claude-acp"], vec![choice("opus"), choice("sonnet")]);
         assert!(!cached.contains_key("codex-acp"));
+    }
+
+    /// The whole offer is kept, effort and modes with the value each opened
+    /// on, read back from the file as the desk reads it after a restart; a
+    /// later session that names no settings keeps them.
+    #[test]
+    fn an_agents_whole_offer_is_kept_on_disk_and_a_bare_report_keeps_its_parts() {
+        let root = tempfile::tempdir().unwrap();
+        let effort = SessionConfig {
+            id: "reasoning".into(),
+            name: "Effort".into(),
+            category: Some(crate::contract::SessionConfigCategory::Effort),
+            current_id: Some("high".into()),
+            options: vec![choice("low"), choice("high")],
+        };
+        let offer = BackendOffer {
+            models: vec![choice("opus"), choice("sonnet")],
+            current_model_id: Some("opus".into()),
+            model_label: Some("Model".into()),
+            modes: vec![choice("default"), choice("plan")],
+            current_mode_id: Some("default".into()),
+            mode_label: Some("Mode".into()),
+            configs: vec![effort],
+        };
+        assert_eq!(offer_of(root.path()), None);
+        remember(root.path(), "claude-acp", &offer);
+        remember(
+            root.path(),
+            "claude-acp",
+            &offered(&[choice("opus"), choice("sonnet")]),
+        );
+        let written = std::fs::read(paths::acp_models_path(root.path())).unwrap();
+        let read_back: BTreeMap<String, Seen> = serde_json::from_slice(&written).unwrap();
+        assert_eq!(read_back["claude-acp"].offer(), offer);
+        assert_eq!(offer_of(root.path()), Some(offer));
+        assert_eq!(super::offer(root.path(), "codex-acp"), None);
+    }
+
+    fn offer_of(root: &Path) -> Option<BackendOffer> {
+        super::offer(root, "claude-acp")
     }
 
     /// The look offers the agent nothing, names no servers, reads the model
@@ -406,16 +509,21 @@ mod tests {
                 )),
         );
         let folder = tempfile::tempdir().unwrap();
-        let models = ask(
+        let offer = ask(
             ByteStreams::new(client_writer.compat_write(), client_reader.compat()),
             folder.path().to_path_buf(),
         )
         .await
         .unwrap_or_else(|_| panic!("the look failed"));
         assert_eq!(
-            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            offer
+                .models
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
             ["opus", "sonnet"]
         );
+        assert_eq!(offer.current_model_id.as_deref(), Some("opus"));
         assert_eq!(
             *heard.lock().unwrap(),
             ["initialize fs=false false", "session/new servers=0"]
@@ -466,16 +574,16 @@ mod tests {
         assert!(matches!(looked, Err(Missed::SignIn)));
 
         let root = tempfile::tempdir().unwrap();
-        remember(root.path(), "cursor", &[choice("auto")]);
+        remember(root.path(), "cursor", &offered(&[choice("auto")]));
         mark_sign_in(root.path(), "cursor");
         assert!(needing_sign_in(root.path()).contains("cursor"));
         // Re-signed in: the list it had stays the whole time.
         assert_eq!(cached(root.path())["cursor"], vec![choice("auto")]);
-        remember(root.path(), "cursor", &[choice("auto")]);
+        remember(root.path(), "cursor", &offered(&[choice("auto")]));
         assert!(needing_sign_in(root.path()).is_empty());
         // A session that names no models still says it signed in.
         mark_sign_in(root.path(), "grok-build");
-        remember(root.path(), "grok-build", &[]);
+        remember(root.path(), "grok-build", &offered(&[]));
         assert!(needing_sign_in(root.path()).is_empty());
     }
 

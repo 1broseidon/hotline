@@ -148,6 +148,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
         model_id: None,
         mode_id: None,
         effort_id: None,
+        config_choices: std::collections::BTreeMap::new(),
         harness_override: None,
         hop_notice: None,
         mcp_policy: McpPolicy {

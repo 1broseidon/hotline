@@ -342,6 +342,40 @@ pub struct BackendChoice {
     pub sign_in: Option<bool>,
 }
 
+/// What a harness offered the last time a session of it opened on this
+/// desk, or the daily look asked it: its models, modes and effort pickers,
+/// each with the value it opened on. The desk keeps one per agent, so a
+/// teammate that is not running offers the same choices its next session
+/// will, with its own as the current ones.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct BackendOffer {
+    #[serde(default)]
+    pub models: Vec<ConfigChoice>,
+    /// The model a session opens on before anyone chooses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_label: Option<String>,
+    #[serde(default)]
+    pub modes: Vec<ConfigChoice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_mode_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_label: Option<String>,
+    /// Each with the value a session opens on as `currentId`.
+    #[serde(default)]
+    pub configs: Vec<SessionConfig>,
+}
+
+impl BackendOffer {
+    /// Nothing to choose from: no models, modes or settings.
+    pub fn is_empty(&self) -> bool {
+        self.models.is_empty() && self.modes.is_empty() && self.configs.is_empty()
+    }
+}
+
 /// Where a fresh room stands on its way to a first turn, as the welcome
 /// pane reads it. Derived from what the room already knows — its credentials,
 /// the harnesses this machine can start, its default backend and its roster,

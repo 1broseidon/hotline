@@ -242,3 +242,216 @@ async fn setting_a_config_and_a_mode_at_once_does_not_wedge_the_driver() {
     }
     panic!("the driver stopped answering: two callers are holding each other's lock");
 }
+
+/// The pickers a scripted agent opens with: Model (Opus, current, or
+/// Sonnet), Effort (Low, Medium, current, or High), and two modes, Default
+/// (current) and Plan.
+fn offered_configs(model: &str, effort: &str) -> Vec<acp::SessionConfigOption> {
+    vec![
+        select_config(
+            "model-choice",
+            "Model",
+            acp::SessionConfigOptionCategory::Model,
+            model,
+            &[("opus", "Opus"), ("sonnet", "Sonnet")],
+        ),
+        select_config(
+            "reasoning",
+            "Effort",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            effort,
+            &[("low", "Low"), ("medium", "Medium"), ("high", "High")],
+        ),
+    ]
+}
+
+/// An agent that opens a session with [`offered_configs`] and dedicated
+/// modes, and writes down every setting and mode it is asked for.
+fn agent_that_records_settings(
+    asked: Arc<Mutex<Vec<String>>>,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let configs = Arc::new(Mutex::new(("opus".to_string(), "medium".to_string())));
+        let set_configs = configs.clone();
+        let set_asked = asked.clone();
+        let mode_asked = asked;
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("recording")
+            .on_receive_request(
+                async move |request: InitializeRequest, responder, _cx| {
+                    responder.respond(InitializeResponse::new(request.protocol_version))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |_request: NewSessionRequest,
+                      responder: Responder<NewSessionResponse>,
+                      _cx| {
+                    let configs = configs.clone();
+                    async move {
+                        let (model, effort) = configs.lock().unwrap().clone();
+                        responder.respond(
+                            NewSessionResponse::new(SessionId::new("recorded"))
+                                .modes(SessionModeState::new(
+                                    acp::SessionModeId::new("default"),
+                                    vec![
+                                        SessionMode::new(
+                                            acp::SessionModeId::new("default"),
+                                            "Default",
+                                        ),
+                                        SessionMode::new(acp::SessionModeId::new("plan"), "Plan"),
+                                    ],
+                                ))
+                                .config_options(offered_configs(&model, &effort)),
+                        )
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |request: acp::SetSessionConfigOptionRequest,
+                      responder: Responder<acp::SetSessionConfigOptionResponse>,
+                      _cx| {
+                    let configs = set_configs.clone();
+                    let asked = set_asked.clone();
+                    async move {
+                        let acp::SessionConfigOptionValue::ValueId { value } = &request.value
+                        else {
+                            panic!("a select is set by its value's id");
+                        };
+                        let value = value.0.to_string();
+                        asked
+                            .lock()
+                            .unwrap()
+                            .push(format!("{} = {value}", request.config_id.0));
+                        let (model, effort) = {
+                            let mut current = configs.lock().unwrap();
+                            match request.config_id.0.as_ref() {
+                                "model-choice" => current.0 = value,
+                                "reasoning" => current.1 = value,
+                                _ => {}
+                            }
+                            current.clone()
+                        };
+                        responder.respond(acp::SetSessionConfigOptionResponse::new(
+                            offered_configs(&model, &effort),
+                        ))
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |request: acp::SetSessionModeRequest,
+                      responder: Responder<acp::SetSessionModeResponse>,
+                      _cx| {
+                    let asked = mode_asked.clone();
+                    async move {
+                        asked
+                            .lock()
+                            .unwrap()
+                            .push(format!("mode = {}", request.mode_id.0));
+                        responder.respond(acp::SetSessionModeResponse::new())
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the recording agent ended: {error}");
+        }
+    }
+}
+
+/// What a teammate chose while it was not running is put on the session
+/// that opens next — mode, model, then effort, which a model can change —
+/// and a choice the agent no longer offers is not sent at all. What the
+/// agent offered as it opened is kept for the agent, on disk, with the
+/// values it opened on, before any of the teammate's choices.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_puts_the_teammates_choices_back_and_keeps_what_the_agent_offered() {
+    let held = room("choices-room");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let agent = agent_that_records_settings(asked.clone());
+    let root = scratch("choices");
+    let driver = ChildAgent::new(
+        root.clone(),
+        "claude-acp".to_string(),
+        "you are Ada".to_string(),
+        TeammateTools::new(&held, "choices"),
+    );
+    tokio::spawn(agent);
+
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "choices".to_string();
+    ada.backend_id = "claude-acp".to_string();
+    ada.mode_id = Some("plan".to_string());
+    ada.model_id = Some("sonnet".to_string());
+    ada.effort_id = Some("high".to_string());
+    // A setting the agent no longer offers: dropped without a word.
+    ada.config_choices =
+        std::collections::BTreeMap::from([("verbosity".to_string(), "terse".to_string())]);
+    let started = driver.handshake(&ada, client_transport()).await.unwrap();
+
+    assert_eq!(
+        *asked.lock().unwrap(),
+        ["mode = plan", "model-choice = sonnet", "reasoning = high"]
+    );
+    assert_eq!(started.current_model_id, "sonnet");
+    assert_eq!(started.current_mode_id.as_deref(), Some("plan"));
+
+    // Read from the file, as a desk opened again reads it.
+    let offer = super::super::models::offer(&root, "claude-acp").expect("the offer is kept");
+    assert_eq!(
+        offer
+            .models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["opus", "sonnet"]
+    );
+    assert_eq!(offer.current_model_id.as_deref(), Some("opus"));
+    assert_eq!(
+        offer
+            .modes
+            .iter()
+            .map(|mode| mode.id.as_str())
+            .collect::<Vec<_>>(),
+        ["default", "plan"]
+    );
+    assert_eq!(offer.current_mode_id.as_deref(), Some("default"));
+    assert_eq!(offer.configs.len(), 1);
+    assert_eq!(offer.configs[0].id, "reasoning");
+    assert_eq!(offer.configs[0].current_id.as_deref(), Some("medium"));
+}
+
+/// Nothing chosen, nothing sent: a teammate that never chose opens on the
+/// agent's own defaults, and one whose choices are already the agent's sends
+/// nothing either.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_with_no_choices_or_the_agents_own_sends_nothing() {
+    let held = room("no-choices-room");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let agent = agent_that_records_settings(asked.clone());
+    let driver = ChildAgent::new(
+        scratch("no-choices"),
+        "claude-acp".to_string(),
+        "you are Ada".to_string(),
+        TeammateTools::new(&held, "no-choices"),
+    );
+    tokio::spawn(agent);
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "no-choices".to_string();
+    ada.backend_id = "claude-acp".to_string();
+    ada.model_id = Some("opus".to_string());
+    ada.effort_id = Some("medium".to_string());
+    ada.mode_id = Some("gone".to_string());
+    driver.handshake(&ada, client_transport()).await.unwrap();
+    assert!(
+        asked.lock().unwrap().is_empty(),
+        "{:?}",
+        asked.lock().unwrap()
+    );
+}

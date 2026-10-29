@@ -150,7 +150,7 @@ pub(super) async fn read_logins(room: &Weak<Room>, fresh_for: i64) -> bool {
 
 impl Room {
     /// The account's reading as the room keeps it.
-    pub(super) fn plan_of(&self, backend_id: &str) -> Option<PlanUsage> {
+    pub fn plan_of(&self, backend_id: &str) -> Option<PlanUsage> {
         lock(&self.plans.readings).get(backend_id).cloned()
     }
 
@@ -175,8 +175,25 @@ impl Room {
         self.show_plan(backend_id, &plan);
     }
 
-    /// Puts the account's reading on every live session that runs on it.
+    /// Puts the account's reading on every teammate that runs on it: each
+    /// live session, and the roster row of each teammate not running now.
     fn show_plan(&self, backend_id: &str, plan: &PlanUsage) {
+        let resting: Vec<String> = {
+            let running = lock(&self.sessions);
+            room::roster(&self.log)
+                .into_iter()
+                .filter(|persona| {
+                    persona.backend_id == backend_id && !running.contains_key(&persona.id)
+                })
+                .map(|persona| persona.id)
+                .collect()
+        };
+        // The roster takes the reading from the login when it draws them.
+        for persona_id in resting {
+            let _ = self
+                .info_changes
+                .send(crate::session::idle_info(&persona_id));
+        }
         let sessions: Vec<Arc<Session>> = lock(&self.sessions)
             .values()
             .filter(|session| session.backend_id == backend_id)

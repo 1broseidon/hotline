@@ -549,6 +549,10 @@ impl RoomHandle for Desk {
         self.room.drawing(persona_id)
     }
 
+    fn plan_of(&self, backend_id: &str) -> Option<crate::contract::PlanUsage> {
+        self.room.plan_of(backend_id)
+    }
+
     fn subagents(&self, persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
         self.room.subagents(persona_id)
     }

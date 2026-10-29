@@ -226,3 +226,29 @@ async fn a_turn_ending_reads_only_what_the_harness_wrote() {
     })
     .await;
 }
+
+/// A reading of a login reaches the teammates on it that are not running
+/// too: each is told to be drawn again, and the roster takes the reading
+/// from the login when it draws them.
+#[tokio::test]
+async fn a_teammate_not_running_is_told_of_its_logins_reading() {
+    let log = scratch("plan-resting");
+    enrol_logins(&log);
+    let fake = Fake::new(Scripted::new(saying("a", "ok")));
+    let room = logins_room(log, fake.clone());
+    let mut infos = room.subscribe_info();
+    let now = now_ms();
+    *lock(&fake.driver.plan) = Some(reading(now));
+    room.refresh_plan("bea").unwrap();
+    let mut told = std::collections::HashSet::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !(told.contains("ada") && told.contains("bea")) {
+        let info = tokio::time::timeout_at(deadline, infos.recv())
+            .await
+            .expect("both teammates on the login are told")
+            .unwrap();
+        told.insert(info.persona_id);
+    }
+    assert!(!told.contains("cy"), "another login's teammate is not told");
+    assert_eq!(room.plan_of("claude-acp"), Some(reading(now)));
+}

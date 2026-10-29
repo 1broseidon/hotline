@@ -370,7 +370,11 @@ fn roster_entry(
         .clone();
     let preview = state.preview.clone();
     let latest = preview.as_ref().map(|preview| preview.at);
-    let session = room.info(&persona.id);
+    let mut session = room.info(&persona.id);
+    // The plan is the login's: a teammate not running shows it too.
+    if session.plan_usage.is_none() {
+        session.plan_usage = room.plan_of(&persona.backend_id);
+    }
     json!(RosterEntry {
         activity: (session.state == SessionState::Thinking)
             .then(|| state.activity.clone().map(|(_, title)| title))

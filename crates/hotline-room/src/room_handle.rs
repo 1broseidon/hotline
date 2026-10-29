@@ -222,6 +222,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         false
     }
 
+    /// The plan reading of a harness login, for the roster rows of every
+    /// teammate on it, running or not.
+    fn plan_of(&self, _backend_id: &str) -> Option<hotline_contract::PlanUsage> {
+        None
+    }
+
     /// The subagents this teammate has running, for the roster row.
     fn subagents(&self, _persona_id: &str) -> Vec<hotline_contract::RunningSubagent> {
         Vec::new()

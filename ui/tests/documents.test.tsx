@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MarkdownDocument } from "../src/components/Markdown";
-import { isMarkdown } from "../src/components/SentPreview";
+// Rendering needs the shell's platform and motion preference, not a live desk.
+Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
+const { MarkdownDocument } = await import("../src/components/Markdown");
+const { isMarkdown } = await import("../src/components/SentPreview");
 
 describe("a markdown file opens as a document", () => {
 	test("a markdown file is known by its type or its name's ending, and a text file is not one", () => {

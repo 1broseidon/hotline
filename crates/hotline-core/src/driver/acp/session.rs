@@ -884,6 +884,8 @@ impl Disposition {
                     description: mode.description.clone(),
                     group: None,
                     account: None,
+                    efforts: None,
+                    default_effort: None,
                 })
                 .collect();
             disposition.current_mode_id = Some(state.current_mode_id.0.to_string());
@@ -984,6 +986,8 @@ fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigC
             description: option.description,
             group: None,
             account: None,
+            efforts: None,
+            default_effort: None,
         })
         .collect()
 }

@@ -373,6 +373,8 @@ mod tests {
             description: None,
             group: None,
             account: None,
+            efforts: None,
+            default_effort: None,
         }
     }
 

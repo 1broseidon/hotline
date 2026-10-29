@@ -451,6 +451,8 @@ fn claude_offer() -> crate::contract::BackendOffer {
         description: None,
         group: None,
         account: None,
+        efforts: None,
+        default_effort: None,
     };
     crate::contract::BackendOffer {
         models: vec![choice("opus", "Opus 5.5"), choice("sonnet", "Sonnet 5.5")],

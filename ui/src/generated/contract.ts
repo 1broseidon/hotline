@@ -498,7 +498,18 @@ group?: string,
  * account, each id naming its account (`provider#account/model`); with
  * one, the id is the plain `provider/model` it always was.
  */
-account?: ChoiceAccount, };
+account?: ChoiceAccount, 
+/**
+ * A harness model's own effort levels, as its harness lists them out
+ * of band or its session reports them for the model in use, so a
+ * model not in use can be chosen with its effort. Absent where the
+ * levels are not known here, and for anything that is not a model.
+ */
+efforts?: Array<ConfigChoice>, 
+/**
+ * The level of `efforts` a session on this model starts at.
+ */
+defaultEffort?: string, };
 
 /**
  * One browser profile's cookies brought over to a teammate's computer, as

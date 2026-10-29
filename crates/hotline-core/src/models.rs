@@ -589,6 +589,8 @@ pub fn choices(
                 description: Some(wiring.id.to_string()),
                 group: Some(entry.name.clone()),
                 account: None,
+                efforts: None,
+                default_effort: None,
             })
             .collect::<Vec<_>>()
         })
@@ -613,6 +615,8 @@ pub fn choices(
                     description: Some(name.clone()),
                     group: Some(name.clone()),
                     account: None,
+                    efforts: None,
+                    default_effort: None,
                 }),
         );
     }
@@ -786,6 +790,8 @@ pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
             description: None,
             group: None,
             account: None,
+            efforts: None,
+            default_effort: None,
         })
         .collect()
 }

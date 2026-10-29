@@ -801,6 +801,8 @@ impl RoomHandle for Quiet {
                 description: None,
                 group: None,
                 account: None,
+                efforts: None,
+                default_effort: None,
             },
             ConfigChoice {
                 id: "openai/gpt".to_string(),
@@ -808,6 +810,8 @@ impl RoomHandle for Quiet {
                 description: None,
                 group: None,
                 account: None,
+                efforts: None,
+                default_effort: None,
             },
         ]
     }

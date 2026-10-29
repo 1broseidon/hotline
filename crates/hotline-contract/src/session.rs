@@ -230,6 +230,7 @@ pub struct SessionCapabilities {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct ConfigChoice {
     pub id: String,
@@ -245,6 +246,15 @@ pub struct ConfigChoice {
     /// one, the id is the plain `provider/model` it always was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<ChoiceAccount>,
+    /// A harness model's own effort levels, as its harness lists them out
+    /// of band or its session reports them for the model in use, so a
+    /// model not in use can be chosen with its effort. Absent where the
+    /// levels are not known here, and for anything that is not a model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub efforts: Option<Vec<ConfigChoice>>,
+    /// The level of `efforts` a session on this model starts at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
 }
 
 /// Which of the person's accounts serves a model choice: a credential, by

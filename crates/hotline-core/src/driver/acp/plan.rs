@@ -99,6 +99,26 @@ pub(crate) async fn read(root: &Path, backend_id: &str) -> LoginReading {
     }
 }
 
+/// The plan a harness names as its session opens, with no windows: the
+/// plan's name beside the agent in the menu. Google Antigravity says its
+/// tier on every session it opens (`_meta.antigravity.tier.name`, "Google
+/// AI Pro"); its quota is read nowhere yet.
+pub(crate) fn named_plan(meta: Option<&Map<String, Value>>, now: i64) -> Option<PlanUsage> {
+    let name = meta?
+        .get("antigravity")?
+        .get("tier")?
+        .get("name")?
+        .as_str()?
+        .trim();
+    (!name.is_empty()).then(|| PlanUsage {
+        windows: Vec::new(),
+        at: now,
+        plan: Some(name.to_string()),
+        banked: None,
+        banked_expires_at: None,
+    })
+}
+
 /// The plan as the backend's own files say it after a turn, for nothing:
 /// Codex's session logs. Every other backend is read only out of band.
 pub(crate) async fn read_after_turn(root: &Path, backend_id: &str) -> Option<PlanUsage> {
@@ -356,6 +376,30 @@ pub(crate) fn order(kind: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn antigravitys_tier_is_the_plans_name_and_nothing_else_is() {
+        let meta = |value: Value| value.as_object().cloned();
+        let named = named_plan(
+            meta(serde_json::json!({"antigravity": {"tier": {
+                "name": "Google AI Pro", "id": "g1-pro-tier", "upgradeUri": "https://antigravity.google/g1-upgrade"
+            }}}))
+            .as_ref(),
+            7,
+        )
+        .expect("a plan");
+        assert_eq!(named.plan.as_deref(), Some("Google AI Pro"));
+        assert_eq!(named.at, 7);
+        assert!(named.windows.is_empty(), "no quota is read");
+        assert_eq!(named_plan(None, 7), None);
+        assert_eq!(
+            named_plan(
+                meta(serde_json::json!({"antigravity": {"tier": true}})).as_ref(),
+                7
+            ),
+            None
+        );
+    }
     use serde_json::json;
 
     fn meta(info: Value) -> Map<String, Value> {

@@ -1152,6 +1152,36 @@
 	.menu-item[data-active="true"] .model-check {
 		color: inherit;
 	}
+	/* Context: a small segmented pair at the row's end, the size in use raised as a tab is. */
+	fieldset.model-context {
+		min-inline-size: 0;
+		margin: 0;
+		border: 0;
+	}
+	.model-context-sizes {
+		height: 22px;
+		flex-shrink: 0;
+	}
+	.model-context-sizes .segment {
+		padding: 0 8px;
+		font-size: var(--text-xs);
+	}
+	.model-context-sizes .segment:hover:not([aria-checked="true"]) {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.model-context-sizes .segment[aria-checked="true"] {
+		background: var(--pop);
+		color: var(--ink);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	/* On a lit row the sizes keep the menu's ink, not the accent's. */
+	.menu-item[data-active="true"].model-context {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
 	/* Fast mode: the bolt where a model's check stands, what it costs, its switch. */
 	.model-fast-icon {
 		color: var(--ink-3);

@@ -30,7 +30,7 @@ use super::session::Disposition;
 use super::{end_group, lock, registry};
 use crate::contract::{BackendOffer, ConfigChoice, SessionConfig};
 use agent_client_protocol::schema::ProtocolVersion;
-use agent_client_protocol::schema::v1::{InitializeRequest, NewSessionRequest};
+use agent_client_protocol::schema::v1::{ClientCapabilities, InitializeRequest, NewSessionRequest};
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
 use hotline_support::paths;
 use std::collections::BTreeMap;
@@ -44,8 +44,9 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 const FRESH_MS: i64 = 24 * 60 * 60 * 1000;
 /// What an offer kept holds, raised when it starts to hold more: an offer
 /// kept before is looked at again rather than waiting out its day. 1: fast
-/// mode; 2: effort levels least first, by the desk's names.
-const SHAPE: u32 = 2;
+/// mode; 2: effort levels least first, by the desk's names; 3: Cursor's
+/// base models, with context and fast as settings of their own.
+const SHAPE: u32 = 3;
 /// How long one look may take from spawn to the session's answer.
 const LOOK_BOUND: Duration = Duration::from_secs(60);
 /// The first look at an agent may be fetching its adapter package.
@@ -360,6 +361,7 @@ pub async fn look_if_due(root: &Path, backend_id: &str) -> bool {
     let Ok(launch) = registry::launch(root, backend_id) else {
         return false;
     };
+    let launch = registry::for_a_look(root, backend_id, launch);
     let before = registry::started_before(root, &launch);
     if !before && !registry::named(backend_id) {
         return false;
@@ -491,7 +493,11 @@ async fn ask(
             .await
             .map_err(|_| Missed::Failed("the connection ended before it opened".to_string()))?;
         connection
-            .send_request(InitializeRequest::new(ProtocolVersion::V1))
+            .send_request(
+                InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
+                    ClientCapabilities::new().meta(super::session::client_meta()),
+                ),
+            )
             .block_task()
             .await
             .map_err(|error| Missed::Failed(error.to_string()))?;

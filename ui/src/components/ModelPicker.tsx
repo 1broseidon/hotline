@@ -78,6 +78,7 @@ export type MenuTeammate = {
 type MainRow =
 	| { kind: "efforts" }
 	| { kind: "fast" }
+	| { kind: "context" }
 	| { kind: "model"; choice: ConfigChoice }
 	| { kind: "more" }
 	| { kind: "agents" }
@@ -191,11 +192,13 @@ export function ModelPicker({
 	agents = [],
 	effort,
 	fast = null,
+	context = null,
 	label,
 	onModel,
 	onAgent,
 	onEffort,
 	onFast,
+	onContext,
 	landsOn,
 	onAddAccount,
 	fallbackName,
@@ -232,6 +235,9 @@ export function ModelPicker({
 	fast?: Fast | null;
 	/** Turns fast mode on or off. */
 	onFast?: ((on: boolean) => Promise<void> | void) | undefined;
+	/** The context the model may hold, when the agent offers a choice of it. */
+	context?: Effort | null;
+	onContext?: ((value: string) => Promise<void> | void) | undefined;
 	label: string;
 	/** Switches the model; answers with the effort the switch landed on, when it says. */
 	onModel(modelId: string): Promise<string | null | undefined | void> | void;
@@ -247,8 +253,9 @@ export function ModelPicker({
 	// and the effort it answered with. A tab chosen, the same way.
 	const [switching, setSwitching] = useState<{ id: string; answered: boolean; effort: string | null } | null>(null);
 	const [chosen, setChosen] = useState<{ value: string; answered: boolean } | null>(null);
-	// Fast mode flipped, until the teammate's row says it.
+	// Fast mode flipped, and a context chosen, until the teammate's row says it.
 	const [flipped, setFlipped] = useState<{ on: boolean; answered: boolean } | null>(null);
+	const [sized, setSized] = useState<{ value: string; answered: boolean } | null>(null);
 	const onHotline = backendId === "hotline";
 	const accounts = accountRows(choices);
 	// The agents people know by name stand on their own, ready or not, in
@@ -362,6 +369,31 @@ export function ModelPicker({
 		);
 	};
 
+	useEffect(() => {
+		if (sized === null) return;
+		if (sized.value === context?.value) {
+			setSized(null);
+			return;
+		}
+		if (!sized.answered) return;
+		const late = setTimeout(() => setSized(null), HELD_MS);
+		return () => clearTimeout(late);
+	}, [sized, context?.value]);
+	// The context row, while no model switch is on its way: a new model
+	// brings its own sizes.
+	const contextShown =
+		context !== null && onContext !== undefined && context.choices.length > 1 && switching === null
+			? { value: sized?.value ?? context.value, choices: context.choices }
+			: null;
+	const size = (value: string) => {
+		if (contextShown === null || value === contextShown.value) return;
+		setSized({ value, answered: false });
+		void Promise.resolve(onContext?.(value)).then(
+			() => setSized((was) => (was?.value === value ? { value, answered: true } : was)),
+			() => setSized((was) => (was?.value === value ? null : was)),
+		);
+	};
+
 	const switchTo = (id: string) => {
 		if (id === (switching?.id ?? inUse)) return;
 		setChosen(null);
@@ -453,6 +485,8 @@ export function ModelPicker({
 					tabs={tabs}
 					fast={fastShown}
 					onFast={flip}
+					context={contextShown}
+					onContext={size}
 					others={elsewhere}
 					modelId={modelId}
 					onModel={switchTo}
@@ -490,6 +524,8 @@ function Panels({
 	tabs,
 	fast,
 	onFast,
+	context,
+	onContext,
 	others,
 	modelId,
 	onModel,
@@ -512,6 +548,9 @@ function Panels({
 	/** Fast mode's toggle, under the tabs, when the model offers it. */
 	fast: Fast | null;
 	onFast(): void;
+	/** The context sizes the model offers, under fast mode. */
+	context: Effort | null;
+	onContext(value: string): void;
 	/** Every other account and agent, for Change agent. */
 	others: AccountRow[];
 	modelId: string;
@@ -586,6 +625,7 @@ function Panels({
 	const rows: MainRow[] = [
 		...(tabs !== null ? [{ kind: "efforts" as const }] : []),
 		...(fast !== null ? [{ kind: "fast" as const }] : []),
+		...(context !== null ? [{ kind: "context" as const }] : []),
 		...shown.map((choice) => ({ kind: "model" as const, choice })),
 		...(models.length > shown.length ? [{ kind: "more" as const }] : []),
 		...(changes ? [{ kind: "agents" as const }] : []),
@@ -708,6 +748,12 @@ function Panels({
 				showFlyout(kind, element);
 				setLevel(1);
 			} else if (row?.kind === "fast" && enter) onFast();
+			else if (row?.kind === "context" && enter && context !== null) {
+				// Enter moves to the next size.
+				const at = context.choices.findIndex((one) => one.id === context.value);
+				const next = context.choices[(at + 1) % context.choices.length];
+				if (next) onContext(next.id);
+			}
 			else if (row?.kind === "model" && enter) onModel(row.choice.id);
 			else if (row?.kind === "action" && enter) act(row.action);
 		} else if (level === 1) {
@@ -851,6 +897,40 @@ function Panels({
 								<span className="model-fast-hint">{fast.note !== undefined && !fast.on ? "Unavailable" : fast.hint}</span>
 								<span aria-hidden="true" className="switch" data-on={fast.on ? "true" : undefined} />
 							</button>
+						);
+					}
+					if (row.kind === "context" && context !== null) {
+						return (
+							<fieldset
+								key="context"
+								aria-label="Context"
+								data-row={at}
+								data-active={lit(0, at, active)}
+								className="menu-item model-row model-context"
+								onMouseEnter={() => {
+									setActive(at);
+									setLevel(0);
+									hideFlyout();
+								}}
+							>
+								<span className="menu-item-check" />
+								<span className="menu-item-text">Context</span>
+								<span className="segmented model-context-sizes">
+									{context.choices.map((one) => (
+										<button
+											key={one.id}
+											type="button"
+											role="menuitemradio"
+											aria-checked={one.id === context.value}
+											tabIndex={-1}
+											className="segment"
+											onClick={() => onContext(one.id)}
+										>
+											{one.name}
+										</button>
+									))}
+								</span>
+							</fieldset>
 						);
 					}
 					if (row.kind === "model") {

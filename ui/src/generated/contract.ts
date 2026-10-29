@@ -1696,7 +1696,7 @@ note?: string, };
 /**
  * One picker the agent offers beyond the model and the mode.
  */
-export type SessionConfigCategory = "effort" | "fast";
+export type SessionConfigCategory = "effort" | "fast" | "context";
 
 /**
  * Capabilities and options a live session reported, used to drive the UI.

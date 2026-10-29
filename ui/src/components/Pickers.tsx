@@ -171,15 +171,20 @@ export function SessionPickers({
 				: null;
 	// Fast mode is the menu's toggle, not a picker of its own.
 	const fastConfig = configs.find((config) => config.category === "fast");
+	// Claude Code and Codex say on and off; Cursor says true and false.
+	const fastOn = fastConfig?.options.find((option) => option.id === "on" || option.id === "true")?.id ?? "on";
+	const fastOff = fastConfig?.options.find((option) => option.id === "off" || option.id === "false")?.id ?? "off";
 	const fast: Fast | null =
 		fastConfig === undefined
 			? null
 			: {
-					on: fastConfig.currentId === "on",
+					on: fastConfig.currentId === fastOn,
 					hint: fastHint(persona.backendId),
 					...(fastConfig.note !== undefined ? { note: fastConfig.note } : {}),
 				};
-	const others = configs.filter((config) => config.category !== "effort" && config.category !== "fast");
+	// So is the context the model may hold, where the agent offers a choice (Cursor's 300K or 1M).
+	const contextConfig = configs.find((config) => config.category === "context");
+	const others = configs.filter((config) => config.category === undefined || config.category === null);
 	return (
 		<>
 			{others.map((config) => (
@@ -212,7 +217,9 @@ export function SessionPickers({
 				onModel={setModel}
 				onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
 				fast={fast}
-				onFast={(on) => setConfig(fastConfig?.id ?? "fast", on ? "on" : "off")}
+				onFast={(on) => setConfig(fastConfig?.id ?? "fast", on ? fastOn : fastOff)}
+				context={contextConfig === undefined ? null : { value: contextConfig.currentId ?? "", choices: contextConfig.options }}
+				onContext={(value) => setConfig(contextConfig?.id ?? "context", value)}
 				landsOn={predict}
 				onAddAccount={onAddAccount}
 				teammate={teammate}

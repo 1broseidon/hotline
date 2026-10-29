@@ -159,28 +159,35 @@ async fn land_live_effort(
     room.set_config(persona_id, &config.id, &level).await
 }
 
-/// A live session's fast mode once its model has moved: the teammate's
-/// choice, where the new model offers fast mode. An adapter drops the
-/// toggle on a model without it and brings it back off.
+/// A live session's fast mode and context once its model has moved: the
+/// teammate's choices, where the new model offers them. An adapter drops a
+/// model's settings on a model without them and brings them back at the
+/// model's own.
 async fn keep_fast(
     room: &Arc<dyn RoomHandle>,
     persona: &Persona,
-    info: SessionInfo,
+    mut info: SessionInfo,
 ) -> Result<SessionInfo, String> {
-    let Some((config_id, value)) = info
+    let put_back: Vec<(String, String)> = info
         .configs
         .iter()
-        .filter(|config| config.category == Some(SessionConfigCategory::Fast))
-        .find_map(|config| {
+        .filter(|config| {
+            matches!(
+                config.category,
+                Some(SessionConfigCategory::Fast | SessionConfigCategory::Context)
+            )
+        })
+        .filter_map(|config| {
             let chosen = persona.config_choices.get(&config.id)?;
             (config.current_id.as_ref() != Some(chosen)
                 && config.options.iter().any(|option| option.id == *chosen))
             .then(|| (config.id.clone(), chosen.clone()))
         })
-    else {
-        return Ok(info);
-    };
-    room.set_config(&persona.id, &config_id, &value).await
+        .collect();
+    for (config_id, value) in put_back {
+        info = room.set_config(&persona.id, &config_id, &value).await?;
+    }
+    Ok(info)
 }
 
 /// What a model switch places the new model's effort by: the teammate's and

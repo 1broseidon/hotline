@@ -81,6 +81,8 @@ describe("a plan's limits", () => {
 	test("the head names the plan when the reading says it", () => {
 		expect(planAccount(undefined)).toBe("");
 		expect(planAccount({ at: 1, windows: [] })).toBe("");
+		// A plan the agent names with no windows read: its name alone.
+		expect(planAccount({ at: 1, windows: [], plan: "Google AI Pro" })).toBe("Google AI Pro");
 		expect(planAccount({ at: 1, windows: [{ kind: "five_hour", status: "allowed" }] })).toBe("subscription");
 		expect(planAccount({ at: 1, plan: "Max", windows: [{ kind: "five_hour", status: "allowed" }] })).toBe("Max subscription");
 		expect(planAccount({ at: 1, plan: "ChatGPT Pro", windows: [{ kind: "seven_day", status: "allowed" }] })).toBe("ChatGPT Pro subscription");

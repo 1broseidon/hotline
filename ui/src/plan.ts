@@ -113,9 +113,11 @@ export function windowNote(window: PlanWindow, now: number = Date.now()): string
 	return [`${reset[0]!.toUpperCase()}${reset.slice(1)}`, runway].filter((part) => part !== undefined).join(" · ");
 }
 
-/** The head's account line: "Max subscription", or "subscription" when the plan did not say its name. */
+/** The head's account line: "Max subscription", "subscription" when the plan did not say its name, or a plan only named, by its name. */
 export function planAccount(plan: PlanUsage | undefined): string {
-	if (plan === undefined || plan.windows.length === 0) return "";
+	if (plan === undefined) return "";
+	// A plan the agent only names, with no windows read (Antigravity's "Google AI Pro"), by its name alone.
+	if (plan.windows.length === 0) return plan.plan ?? "";
 	return plan.plan === undefined ? "subscription" : `${plan.plan} subscription`;
 }
 

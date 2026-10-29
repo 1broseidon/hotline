@@ -182,6 +182,8 @@ pub enum SessionConfigCategory {
     /// Fast mode, on or off: the model served faster, for more of the plan
     /// or of paid usage, on the models that offer it.
     Fast,
+    /// How much context the model may hold (Cursor's 300K or 1M).
+    Context,
 }
 
 /// The idle effort picker's reply for one catalogue model: the levels it

@@ -110,6 +110,18 @@ pub(crate) fn fill(offer: &mut BackendOffer, catalog: Option<&Catalog>) {
     }
 }
 
+/// A model id as `list` names it: itself, or, for an id that names a
+/// variant (Cursor's `claude-opus-5-5[context=300k,effort=medium]`, kept
+/// from before Hotline asked for its base models), the base model when the
+/// list has that and not the variant.
+pub(crate) fn listed_as<'a>(id: &'a str, list: &[ConfigChoice]) -> &'a str {
+    let listed = |one: &str| list.iter().any(|model| model.id == one);
+    match id.split_once('[') {
+        Some((base, _)) if !listed(id) && listed(base) => base,
+        _ => id,
+    }
+}
+
 /// A session's list with the catalogue's: the catalogue's models in its
 /// order, each one the session also lists in the session's own words, then
 /// any only the session lists.
@@ -329,6 +341,26 @@ mod tests {
         assert_eq!(
             ids(offer.models[0].efforts.as_ref()),
             ["default", "low", "high", "max"]
+        );
+    }
+
+    #[test]
+    fn a_variant_kept_from_before_is_its_base_model_when_only_that_is_listed() {
+        let list = vec![choice("claude-opus-5-5", None), choice("default", None)];
+        assert_eq!(
+            listed_as("claude-opus-5-5[context=300k,effort=medium]", &list),
+            "claude-opus-5-5"
+        );
+        assert_eq!(listed_as("default", &list), "default");
+        // A variant the list has, or a base it does not, stays as it is.
+        let variants = vec![choice("gpt-5.5[reasoning=medium]", None)];
+        assert_eq!(
+            listed_as("gpt-5.5[reasoning=medium]", &variants),
+            "gpt-5.5[reasoning=medium]"
+        );
+        assert_eq!(
+            listed_as("grok-4.7[fast=true]", &list),
+            "grok-4.7[fast=true]"
         );
     }
 

@@ -710,3 +710,35 @@ test("the pill says Extra high as Xhigh, and its tab says it short with the whol
 	expect(tabs().map((tab) => tab.textContent)).toEqual(["Low", "Med", "Xhigh"]);
 	expect(tabs()[2]!.title).toBe("Extra high");
 });
+
+test("a context the agent offers sizes of is a row of its own: a size chosen is sent and shown at once", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const calls: string[] = [];
+	await act(async () => {
+		root.render(
+			<ModelPicker
+				choices={choices}
+				modelId="claude-opus-5-5"
+				backendId="cursor"
+				effort={{ value: "high", choices: efforts }}
+				context={{ value: "300k", choices: [{ id: "300k", name: "300K" }, { id: "1m", name: "1M" }] }}
+				label="Model"
+				onModel={() => {}}
+				onEffort={() => {}}
+				onContext={(value) => {
+					calls.push(`context:${value}`);
+				}}
+			/>,
+		);
+	});
+	await open();
+	const sizes = () => [...mainMenu().querySelectorAll<HTMLButtonElement>('fieldset[aria-label="Context"] [role="menuitemradio"]')];
+	expect(sizes().map((one) => one.textContent)).toEqual(["300K", "1M"]);
+	expect(sizes().map((one) => one.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+	await act(async () => sizes()[1]!.click());
+	expect(calls).toEqual(["context:1m"]);
+	expect(sizes().map((one) => one.getAttribute("aria-checked"))).toEqual(["false", "true"]);
+	// The size in use, chosen again, sends nothing.
+	await act(async () => sizes()[1]!.click());
+	expect(calls).toEqual(["context:1m"]);
+});

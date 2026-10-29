@@ -129,6 +129,68 @@ fn disposition_keeps_fast_mode_and_its_reason() {
     assert_eq!(codex.configs[0].note, None);
 }
 
+/// Cursor's parameterized picker: its context is a setting of its own, its
+/// fast mode a select of `false` and `true`, and a yes-or-no `thinking`
+/// beside its reasoning levels is no second effort picker.
+#[test]
+fn disposition_reads_cursors_context_fast_and_one_effort() {
+    let configs = vec![
+        select_config(
+            "context",
+            "Context",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            "300k",
+            &[("300k", "300K"), ("1m", "1M")],
+        ),
+        select_config(
+            "reasoning_effort",
+            "Reasoning",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            "high",
+            &[
+                ("minimal", "Minimal"),
+                ("xhigh", "Extra High"),
+                ("high", "High"),
+            ],
+        ),
+        select_config(
+            "thinking",
+            "Thinking",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            "true",
+            &[("false", "Off"), ("true", "On")],
+        ),
+        select_config(
+            "fast",
+            "Fast",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            "false",
+            &[("false", "Off"), ("true", "On")],
+        ),
+    ];
+    let cursor = Disposition::of(None, Some(&configs));
+    let kinds: Vec<(&str, Option<crate::contract::SessionConfigCategory>)> = cursor
+        .configs
+        .iter()
+        .map(|config| (config.id.as_str(), config.category))
+        .collect();
+    use crate::contract::SessionConfigCategory::{Context, Effort, Fast};
+    assert_eq!(
+        kinds,
+        [
+            ("context", Some(Context)),
+            ("reasoning_effort", Some(Effort)),
+            ("fast", Some(Fast))
+        ]
+    );
+    let levels: Vec<&str> = cursor.configs[1]
+        .options
+        .iter()
+        .map(|level| level.name.as_str())
+        .collect();
+    assert_eq!(levels, ["Minimal", "High", "Extra high"]);
+}
+
 #[tokio::test]
 async fn config_notifications_update_model_and_effort_without_replacing_mode() {
     let live = Live::default();

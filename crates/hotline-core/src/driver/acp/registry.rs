@@ -407,6 +407,42 @@ pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
     }
 }
 
+/// The launch a look at this agent's models may use: this one, or, for an
+/// agent shipped as an archive whose newest release is not fetched yet, the
+/// release fetched before it that last answered here. A release is fetched
+/// when a teammate starts on it; until then the one on disk still says what
+/// the agent offers, so a new release never leaves its models unread.
+pub fn for_a_look(root: &Path, backend_id: &str, launch: Launch) -> Launch {
+    let Some(archive) = known(root, backend_id).and_then(|backend| backend.archive) else {
+        return launch;
+    };
+    if Path::new(&launch.command).is_file() {
+        return launch;
+    }
+    let (Ok(inner), Some(releases)) = (
+        Path::new(&launch.command).strip_prefix(&archive.dir),
+        archive.dir.parent(),
+    ) else {
+        return launch;
+    };
+    let mut fetched: Vec<(std::time::SystemTime, Launch)> = std::fs::read_dir(releases)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|release| {
+            let command = release.path().join(inner);
+            let earlier = Launch {
+                command: command.to_string_lossy().into_owned(),
+                ..launch.clone()
+            };
+            let answered = command.is_file() && started_before(root, &earlier);
+            answered.then_some((release.metadata().ok()?.modified().ok()?, earlier))
+        })
+        .collect();
+    fetched.sort_by_key(|(at, _)| *at);
+    fetched.pop().map_or(launch, |(_, earlier)| earlier)
+}
+
 /// The error for a start that cannot happen. The reason is a sentence of its
 /// own, as `unavailable` is on the wire, so it is not the tail of this one.
 fn cannot_start(name: &str, reason: &str) -> String {
@@ -1168,6 +1204,45 @@ mod tests {
             assert!(backend.unavailable.is_some(), "{id}");
             assert!(launch(&root, id).is_err(), "{id}");
         }
+    }
+
+    /// A new release of an archived agent is fetched only when a teammate
+    /// starts on it. Until then a look at its models uses the release on
+    /// disk that last answered here; with none, the new one.
+    #[test]
+    fn a_look_uses_the_fetched_release_until_the_new_one_is() {
+        let root = scratch("release");
+        let here = platform().unwrap();
+        let release = |version: &str| {
+            write_catalogue(
+                &root,
+                serde_json::json!([{
+                    "id": "antigravity-acp",
+                    "distribution": {"binary": {(here.as_str()): {
+                        "archive": format!("https://example.com/agy-{version}.zip"),
+                        "cmd": "./agy_acp_server.par"
+                    }}}
+                }]),
+            );
+            launch(&root, "antigravity-acp").unwrap()
+        };
+        let old = release("1.4.3");
+        // Nothing fetched yet: the look is the new release's own.
+        assert_eq!(for_a_look(&root, "antigravity-acp", old.clone()), old);
+        let path = Path::new(&old.command);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+        mark_started(&root, &old, true);
+
+        let new = release("1.4.4");
+        assert_ne!(new, old);
+        assert_eq!(for_a_look(&root, "antigravity-acp", new.clone()), old);
+        // Fetched: the new release is the look's.
+        let path = Path::new(&new.command);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+        assert_eq!(for_a_look(&root, "antigravity-acp", new.clone()), new);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

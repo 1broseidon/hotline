@@ -435,7 +435,11 @@ pub(super) fn offered(
         info.models = offer.models;
         info.model_label = info.model_label.or(offer.model_label);
     }
-    info.current_model_id = chosen(persona.model_id.as_ref(), &info.models)
+    let model_id = persona
+        .model_id
+        .as_deref()
+        .map(|id| catalog::listed_as(id, &info.models).to_string());
+    info.current_model_id = chosen(model_id.as_ref(), &info.models)
         .or(info.current_model_id.filter(|id| !id.is_empty()))
         .or(offer.current_model_id);
     if info.modes.is_empty() {

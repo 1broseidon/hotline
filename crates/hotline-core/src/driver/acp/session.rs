@@ -259,7 +259,13 @@ impl ChildAgent {
                     .block_task()
                     .await;
                 if let Ok(response) = resumed {
-                    self.adopt(id, response.modes, response.config_options, true);
+                    self.adopt(
+                        id,
+                        response.modes,
+                        response.config_options,
+                        response.meta.as_ref(),
+                        true,
+                    );
                     return Ok(());
                 }
                 // Some agents advertise both and can only resume particular
@@ -277,7 +283,13 @@ impl ChildAgent {
                     .await;
                 self.live.replaying.store(false, Ordering::SeqCst);
                 if let Ok(response) = loaded {
-                    self.adopt(id, response.modes, response.config_options, true);
+                    self.adopt(
+                        id,
+                        response.modes,
+                        response.config_options,
+                        response.meta.as_ref(),
+                        true,
+                    );
                     return Ok(());
                 }
                 // A stale or backend-invalid checkpoint degrades to a new
@@ -298,6 +310,7 @@ impl ChildAgent {
             opened.session_id,
             opened.modes,
             opened.config_options,
+            opened.meta.as_ref(),
             false,
         );
         Ok(())
@@ -487,6 +500,7 @@ impl ChildAgent {
         id: SessionId,
         modes: Option<acp::SessionModeState>,
         configs: Option<Vec<acp::SessionConfigOption>>,
+        meta: Option<&acp::Meta>,
         restored: bool,
     ) {
         lock(&self.live.tools).clear();
@@ -508,6 +522,10 @@ impl ChildAgent {
         session.info.current_mode_id = disposition.current_mode_id;
         session.info.mode_label = disposition.mode_label;
         session.info.configs = disposition.configs;
+        // A plan the agent names as it opens, for the room to keep for its login.
+        if let Some(named) = super::plan::named_plan(meta, crate::session::now_ms()) {
+            session.info.plan_usage = Some(named);
+        }
     }
 
     /// Puts the teammate's own model, mode, effort and other settings back on,
@@ -531,7 +549,8 @@ impl ChildAgent {
                 .filter(|id| Some(id) != info.current_mode_id.as_ref());
             let model = persona
                 .model_id
-                .clone()
+                .as_deref()
+                .map(|id| super::catalog::listed_as(id, &info.models).to_string())
                 .filter(|id| *id != info.current_model_id);
             let offered = |id: &String, list: &[crate::contract::ConfigChoice], what: &str| {
                 let offered = list.is_empty() || list.iter().any(|one| one.id == *id);
@@ -798,6 +817,17 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
 }
 
 /// What Hotline says it can do when it meets an agent.
+/// What Hotline asks of every agent in `initialize`'s client `_meta`:
+/// Cursor's parameterized model picker, its base models with effort, context
+/// and fast as settings of their own, in place of one model id per variant
+/// (`claude-opus-5-5[context=300k,effort=medium,fast=false]`). An agent that
+/// does not know it ignores it.
+pub(super) fn client_meta() -> acp::Meta {
+    let mut meta = acp::Meta::new();
+    meta.insert("parameterizedModelPicker".into(), Value::Bool(true));
+    meta
+}
+
 fn initialize_request() -> RawInitialize {
     let request = InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
         // Hotline answers file reads and writes on the agent's behalf
@@ -807,7 +837,8 @@ fn initialize_request() -> RawInitialize {
             .fs(FileSystemCapabilities::new()
                 .read_text_file(true)
                 .write_text_file(true))
-            .auth(acp::AuthCapabilities::new().terminal(cfg!(unix))),
+            .auth(acp::AuthCapabilities::new().terminal(cfg!(unix)))
+            .meta(client_meta()),
     );
     let mut request = serde_json::to_value(request).unwrap_or_default();
     // Subagents shown as sessions of their own, which each become a run with
@@ -939,12 +970,31 @@ impl Disposition {
                     disposition.mode_config = Some(option.id.0.to_string());
                     disposition.mode_label = Some(option.name.clone());
                 }
+                // A yes-or-no thought setting (Cursor's `thinking`) is not
+                // a level; it stays the harness's. One effort picker each.
+                Some(acp::SessionConfigOptionCategory::ThoughtLevel)
+                    if is_switch(&picker)
+                        || disposition.configs.iter().any(|config| {
+                            config.category == Some(crate::contract::SessionConfigCategory::Effort)
+                        }) => {}
                 Some(acp::SessionConfigOptionCategory::ThoughtLevel) => {
                     let picker = crate::models::tidy_efforts(picker);
                     disposition.configs.push(crate::contract::SessionConfig {
                         id: option.id.0.to_string(),
                         name: option.name.clone(),
                         category: Some(crate::contract::SessionConfigCategory::Effort),
+                        current_id: Some(select.current_value.0.to_string()),
+                        options: picker,
+                        note: None,
+                    });
+                }
+                Some(acp::SessionConfigOptionCategory::ModelConfig)
+                    if option.id.0.eq_ignore_ascii_case("context") && picker.len() > 1 =>
+                {
+                    disposition.configs.push(crate::contract::SessionConfig {
+                        id: option.id.0.to_string(),
+                        name: option.name.clone(),
+                        category: Some(crate::contract::SessionConfigCategory::Context),
                         current_id: Some(select.current_value.0.to_string()),
                         options: picker,
                         note: None,
@@ -1015,13 +1065,19 @@ pub(super) fn apply_configs_to_session(
     session.info.configs = disposition.configs;
 }
 
-/// A model setting that is fast mode, as both adapters offer it to a client
-/// without boolean settings: Claude Code's `fast` and Codex's `fast-mode`,
-/// a select of `on` and `off`.
+/// A model setting that is fast mode, as the adapters offer it to a client
+/// without boolean settings: Claude Code's `fast` and Codex's `fast-mode`, a
+/// select of `on` and `off`; Cursor's `fast`, of `false` and `true`.
 fn is_fast_toggle(id: &str, picker: &[crate::contract::ConfigChoice]) -> bool {
+    id.to_ascii_lowercase().contains("fast") && is_switch(picker)
+}
+
+/// A select of two values that are a yes and a no: `on` and `off`, or
+/// `true` and `false`.
+fn is_switch(picker: &[crate::contract::ConfigChoice]) -> bool {
     let mut values: Vec<&str> = picker.iter().map(|choice| choice.id.as_str()).collect();
     values.sort_unstable();
-    id.to_ascii_lowercase().contains("fast") && values == ["off", "on"]
+    values == ["off", "on"] || values == ["false", "true"]
 }
 
 /// Why fast mode cannot be had, from the setting's description: Claude

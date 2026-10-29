@@ -104,6 +104,8 @@ struct Quiet {
     /// Teammates with a card waiting in a thread other than their DM.
     thread_cards: Mutex<std::collections::HashSet<String>>,
     policy_updates: Arc<tokio::sync::Mutex<()>>,
+    /// What each harness last offered, by backend id.
+    offers: Mutex<HashMap<String, crate::contract::BackendOffer>>,
 }
 
 impl Quiet {
@@ -122,7 +124,16 @@ impl Quiet {
             computer_changes: Mutex::new(Vec::new()),
             thread_cards: Mutex::default(),
             policy_updates: Arc::new(tokio::sync::Mutex::new(())),
+            offers: Mutex::default(),
         }
+    }
+
+    fn offering(self, backend_id: &str, offer: crate::contract::BackendOffer) -> Self {
+        self.offers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(backend_id.to_string(), offer);
+        self
     }
 
     fn set_info(&self, info: SessionInfo) {
@@ -460,6 +471,14 @@ impl RoomHandle for CoreHandle {
 
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
+    fn backend_offer(&self, backend_id: &str) -> Option<crate::contract::BackendOffer> {
+        self.offers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(backend_id)
+            .cloned()
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.thread_cards.lock().unwrap().contains(persona_id)
     }

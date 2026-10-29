@@ -169,6 +169,11 @@ impl Room {
             agent.keep();
             let _ = self.info_changes.send(info.clone());
         }
+        // What the agent offered as it opened is the offer now: the
+        // teammates on it that are not running show it.
+        if persona.backend_id != crate::driver::HOTLINE_BACKEND_ID {
+            self.redraw_resting(&persona.backend_id);
+        }
         if let Some(info_updates) = info_updates {
             self.watch_driver_info(&session, info_updates);
         }

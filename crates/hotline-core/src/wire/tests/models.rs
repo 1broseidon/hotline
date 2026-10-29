@@ -441,3 +441,230 @@ async fn session_set_backend_refuses_an_agent_that_is_not_ready_or_not_there() {
     assert_eq!(room::roster(&log)[0].backend_id, "hotline");
     assert_eq!(quiet.reattached(), Vec::<String>::new());
 }
+
+/// What Claude Code offered when a session of it last opened here: two
+/// models, Opus current; an effort picker, Medium current; two modes.
+fn claude_offer() -> crate::contract::BackendOffer {
+    let choice = |id: &str, name: &str| ConfigChoice {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: None,
+        group: None,
+        account: None,
+    };
+    crate::contract::BackendOffer {
+        models: vec![choice("opus", "Opus 5.5"), choice("sonnet", "Sonnet 5.5")],
+        current_model_id: Some("opus".to_string()),
+        model_label: Some("Model".to_string()),
+        modes: vec![choice("default", "Default"), choice("plan", "Plan")],
+        current_mode_id: Some("default".to_string()),
+        mode_label: Some("Mode".to_string()),
+        configs: vec![crate::contract::SessionConfig {
+            id: "reasoning".to_string(),
+            name: "Effort".to_string(),
+            category: Some(crate::contract::SessionConfigCategory::Effort),
+            current_id: Some("medium".to_string()),
+            options: vec![
+                choice("low", "Low"),
+                choice("medium", "Medium"),
+                choice("high", "High"),
+            ],
+        }],
+    }
+}
+
+async fn create_on(socket: &mut Socket, ask_id: i64, name: &str, backend_id: &str) -> Value {
+    let draft = PersonaDraft {
+        name: name.to_string(),
+        goal: None,
+        team: None,
+        backend_id: Some(backend_id.to_string()),
+        cwd: None,
+        reach: None,
+        folders: None,
+        model_id: None,
+        effort_id: None,
+        computer: None,
+        background_work: None,
+    };
+    ask(
+        socket,
+        json!({ "id": ask_id, "cmd": "persona.create", "params": { "draft": draft } }),
+    )
+    .await;
+    answered(socket, ask_id).await["result"].clone()
+}
+
+async fn command(socket: &mut Socket, ask_id: i64, cmd: &str, params: Value) -> Value {
+    ask(
+        socket,
+        json!({ "id": ask_id, "cmd": cmd, "params": params }),
+    )
+    .await;
+    answered(socket, ask_id).await
+}
+
+/// A harness teammate that is not running keeps every choice made for it —
+/// effort, model, mode, any other setting — on itself for its next session,
+/// and each answer is what it offers with the choice current: the agent's
+/// last offer, its own choices over the agent's defaults. A level the agent
+/// does not offer is refused; an empty one goes back to the agent's own.
+#[tokio::test]
+async fn a_resting_harness_teammate_keeps_what_is_chosen_and_answers_with_its_offer() {
+    let (_root, log, port) = door_with(
+        "resting-choices",
+        Arc::new(Quiet::new().offering("claude-acp", claude_offer())),
+    );
+    let mut socket = desk(port).await;
+    let bob = create_on(&mut socket, 1, "Bob", "claude-acp").await;
+    let id = bob["id"].as_str().unwrap();
+    let persona = || room::roster(&log).into_iter().next().unwrap();
+
+    let effort = command(
+        &mut socket,
+        2,
+        "session.set_config",
+        json!({ "personaId": id, "configId": "reasoning", "value": "high" }),
+    )
+    .await;
+    assert_eq!(effort["ok"], true, "{effort}");
+    let info = &effort["result"];
+    assert_eq!(info["state"], "idle");
+    assert_eq!(info["configs"][0]["currentId"], "high", "{info}");
+    assert_eq!(info["models"].as_array().unwrap().len(), 2, "{info}");
+    assert_eq!(info["currentModelId"], "opus", "the agent's own model");
+    assert_eq!(persona().effort_id.as_deref(), Some("high"));
+
+    let refused = command(
+        &mut socket,
+        3,
+        "session.set_config",
+        json!({ "personaId": id, "configId": "reasoning", "value": "extreme" }),
+    )
+    .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(persona().effort_id.as_deref(), Some("high"));
+
+    let model = command(
+        &mut socket,
+        4,
+        "session.set_model",
+        json!({ "personaId": id, "modelId": "sonnet" }),
+    )
+    .await;
+    assert_eq!(model["result"]["currentModelId"], "sonnet", "{model}");
+    assert_eq!(model["result"]["configs"][0]["currentId"], "high");
+    assert_eq!(persona().model_id.as_deref(), Some("sonnet"));
+
+    let mode = command(
+        &mut socket,
+        5,
+        "session.set_mode",
+        json!({ "personaId": id, "modeId": "plan" }),
+    )
+    .await;
+    assert_eq!(mode["result"]["currentModeId"], "plan", "{mode}");
+    assert_eq!(persona().mode_id.as_deref(), Some("plan"));
+
+    let other = command(
+        &mut socket,
+        6,
+        "session.set_config",
+        json!({ "personaId": id, "configId": "verbosity", "value": "terse" }),
+    )
+    .await;
+    assert_eq!(other["ok"], true, "{other}");
+    assert_eq!(
+        persona()
+            .config_choices
+            .get("verbosity")
+            .map(String::as_str),
+        Some("terse")
+    );
+    assert_eq!(persona().effort_id.as_deref(), Some("high"));
+
+    let cleared = command(
+        &mut socket,
+        7,
+        "session.set_config",
+        json!({ "personaId": id, "configId": "reasoning", "value": "" }),
+    )
+    .await;
+    assert_eq!(cleared["result"]["configs"][0]["currentId"], "medium");
+    assert!(persona().effort_id.is_none());
+
+    // A move to another agent leaves the old one's effort and settings behind.
+    let moved = command(
+        &mut socket,
+        8,
+        "session.set_config",
+        json!({ "personaId": id, "configId": "reasoning", "value": "low" }),
+    )
+    .await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    let to_hotline = command(
+        &mut socket,
+        9,
+        "session.set_backend",
+        json!({ "personaId": id, "backendId": "hotline" }),
+    )
+    .await;
+    assert_eq!(to_hotline["ok"], true, "{to_hotline}");
+    assert!(persona().effort_id.is_none());
+    assert!(persona().config_choices.is_empty());
+}
+
+/// The roster draws a resting harness teammate with its agent's offer and
+/// its own choices; one on an agent that has never reported here has only
+/// what it chose, and a Hotline Agent teammate is left to the desk's models.
+#[tokio::test]
+async fn a_resting_teammates_roster_row_carries_its_agents_offer() {
+    let (_root, _log, port) = door_with(
+        "resting-roster",
+        Arc::new(Quiet::new().offering("claude-acp", claude_offer())),
+    );
+    let mut socket = desk(port).await;
+    let bob = create_on(&mut socket, 1, "Bob", "claude-acp").await;
+    let cy = create_on(&mut socket, 2, "Cy", "cursor").await;
+    let ada = create(&mut socket, 3, "Ada").await;
+    command(
+        &mut socket,
+        4,
+        "session.set_config",
+        json!({ "personaId": bob["id"], "configId": "reasoning", "value": "high" }),
+    )
+    .await;
+
+    ask(&mut socket, json!({ "id": 5, "sub": { "view": "roster" } })).await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    let rows = snapshot["snapshot"].as_array().unwrap();
+    let row = |who: &Value| {
+        rows.iter()
+            .find(|row| row["persona"]["id"] == who["id"])
+            .unwrap()["session"]
+            .clone()
+    };
+    let resting = row(&bob);
+    assert_eq!(resting["state"], "idle");
+    assert_eq!(
+        resting["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Opus 5.5", "Sonnet 5.5"]
+    );
+    assert_eq!(resting["currentModelId"], "opus");
+    assert_eq!(resting["configs"][0]["category"], "effort");
+    assert_eq!(resting["configs"][0]["currentId"], "high");
+    assert_eq!(resting["modes"].as_array().unwrap().len(), 2);
+    assert_eq!(resting["currentModeId"], "default");
+
+    let never = row(&cy);
+    assert_eq!(never["models"], json!([]), "{never}");
+    assert_eq!(never["configs"], json!([]));
+    let hotline = row(&ada);
+    assert_eq!(hotline["configs"], json!([]), "{hotline}");
+    assert!(hotline.get("currentModelId").is_none(), "{hotline}");
+}

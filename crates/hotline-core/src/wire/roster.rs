@@ -370,7 +370,7 @@ fn roster_entry(
         .clone();
     let preview = state.preview.clone();
     let latest = preview.as_ref().map(|preview| preview.at);
-    let mut session = room.info(&persona.id);
+    let mut session = offered(room, &persona, room.info(&persona.id));
     // The plan is the login's: a teammate not running shows it too.
     if session.plan_usage.is_none() {
         session.plan_usage = room.plan_of(&persona.backend_id);
@@ -395,6 +395,73 @@ fn roster_entry(
         latest,
         persona,
     })
+}
+
+/// A harness teammate whose session has not opened offers what its agent
+/// offered when one last did — its models, modes and effort — with the
+/// teammate's own choices as the current ones, each only while the agent
+/// still offers it, the way the next session will open. So the menu lists
+/// them before the teammate runs, and a choice made then is shown at once.
+/// A session that is up says its own. Hotline Agent's choices are the desk's,
+/// which the window reads from the room.
+pub(super) fn offered(
+    room: &Arc<dyn RoomHandle>,
+    persona: &Persona,
+    mut info: SessionInfo,
+) -> SessionInfo {
+    if info.session_id.is_some() || persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
+        return info;
+    }
+    let offer = room.backend_offer(&persona.backend_id).unwrap_or_default();
+    // The teammate's choice where the list has it, or where there is no list.
+    let chosen = |choice: Option<&String>, list: &[crate::contract::ConfigChoice]| {
+        choice
+            .filter(|id| list.is_empty() || list.iter().any(|one| one.id == **id))
+            .cloned()
+    };
+    if info.models.is_empty() {
+        info.models = offer.models;
+        info.model_label = info.model_label.or(offer.model_label);
+    }
+    info.current_model_id = chosen(persona.model_id.as_ref(), &info.models)
+        .or(info.current_model_id.filter(|id| !id.is_empty()))
+        .or(offer.current_model_id);
+    if info.modes.is_empty() {
+        info.modes = offer.modes;
+        info.mode_label = info.mode_label.or(offer.mode_label);
+    }
+    info.current_mode_id = chosen(persona.mode_id.as_ref(), &info.modes)
+        .or(info.current_mode_id)
+        .or(offer.current_mode_id);
+    if info.configs.is_empty() {
+        info.configs = offer.configs;
+    }
+    for config in &mut info.configs {
+        let choice = if config.category == Some(crate::contract::SessionConfigCategory::Effort) {
+            persona.effort_id.as_ref()
+        } else {
+            persona.config_choices.get(&config.id)
+        };
+        if let Some(value) =
+            choice.filter(|value| config.options.iter().any(|one| one.id == **value))
+        {
+            config.current_id = Some(value.clone());
+        }
+    }
+    info
+}
+
+/// The teammate's session as [`offered`] draws it, read afresh: what a
+/// choice made while it rests answers with.
+pub(super) fn offered_info(log: &Log, room: &Arc<dyn RoomHandle>, persona_id: &str) -> SessionInfo {
+    let info = room.info(persona_id);
+    match room::roster(log)
+        .into_iter()
+        .find(|persona| persona.id == persona_id)
+    {
+        Some(persona) => offered(room, &persona, info),
+        None => info,
+    }
 }
 
 /// The title of the tool still running on this tape, if the session is

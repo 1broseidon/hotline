@@ -764,7 +764,7 @@ async fn command(
                         ..
                     },
                     Some(_),
-                ) if seat == Seat::Phone && !effort_config(room, persona_id, config_id) => {
+                ) if seat == Seat::Phone && !effort_config(log, room, persona_id, config_id) => {
                     Err("Change that on your desktop.".to_string())
                 }
                 // A page of older lines is cut for the phone the way its

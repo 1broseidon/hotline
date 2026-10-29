@@ -287,9 +287,12 @@ async fn mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_tha
     }
 }
 
+/// With a session up, a harness's setting goes to it, and is kept on the
+/// teammate as well, so the next session opens on it.
 #[tokio::test]
 async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
-    let (_root, _log, port) = door("set-config-acp");
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("set-config-acp", quiet.clone());
     let mut socket = desk(port).await;
     let draft = PersonaDraft {
         name: "Bob".to_string(),
@@ -311,6 +314,10 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
     .await;
     let created = answered(&mut socket, 1).await["result"].clone();
     let id = created["id"].as_str().unwrap();
+    let mut running = idle(id);
+    running.state = SessionState::Ready;
+    running.session_id = Some("live".to_string());
+    quiet.set_info(running);
 
     ask(
         &mut socket,
@@ -325,6 +332,7 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
     assert_eq!(answer["ok"], true, "{answer}");
     assert_eq!(answer["result"]["configs"][0]["id"], "effort");
     assert_eq!(answer["result"]["configs"][0]["currentId"], "high");
+    assert_eq!(room::roster(&log)[0].effort_id.as_deref(), Some("high"));
 }
 
 #[tokio::test]

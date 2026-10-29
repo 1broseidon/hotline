@@ -91,6 +91,7 @@ pub(crate) fn drafted_persona(
         model_id,
         mode_id: None,
         effort_id: given(draft.effort_id),
+        config_choices: std::collections::BTreeMap::new(),
         harness_override: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
@@ -349,9 +350,9 @@ fn validate_computer_memory(memory: &str, capacity: u64) -> Result<(), String> {
 }
 
 /// Switches a harness teammate's mode and keeps it, so the teammate comes
-/// back in it after a restart. A resting teammate advertises no modes, so its
-/// choice is kept unchecked and offered to the harness at its next start,
-/// which refuses one it does not have.
+/// back in it after a restart. A resting teammate's choice is kept unchecked
+/// and put on its next session when the harness offers it then; the answer
+/// is what the teammate offers, the choice current.
 pub(super) async fn set_mode(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -363,7 +364,8 @@ pub(super) async fn set_mode(
         return Err("A mode needs an id.".to_string());
     }
     let offered = room.info(persona_id);
-    let info = if offered.modes.is_empty() {
+    let resting = offered.modes.is_empty();
+    let info = if resting {
         offered
     } else {
         if !offered.modes.iter().any(|mode| mode.id == mode_id) {
@@ -375,6 +377,9 @@ pub(super) async fn set_mode(
     let _held = gate.lock().await;
     if living(log, persona_id)?.mode_id.as_deref() != Some(mode_id) {
         update_persona(log, room, persona_id, &json!({ "modeId": mode_id }))?;
+    }
+    if resting {
+        return Ok(crate::wire::roster::offered_info(log, room, persona_id));
     }
     Ok(info)
 }

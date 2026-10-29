@@ -553,6 +553,12 @@ impl RoomHandle for Desk {
         self.room.plan_of(backend_id)
     }
 
+    fn backend_offer(&self, backend_id: &str) -> Option<crate::contract::BackendOffer> {
+        (backend_id != HOTLINE_BACKEND_ID)
+            .then(|| acp::models::offer(self.log.root(), backend_id))
+            .flatten()
+    }
+
     fn subagents(&self, persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
         self.room.subagents(persona_id)
     }

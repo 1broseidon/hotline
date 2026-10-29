@@ -73,11 +73,20 @@ fn phone_frame(data_url: &str) -> Option<String> {
 
 // The phone shows a bounded recent window; full history remains on desktop.
 /// Whether this config is the one a phone may set: a model's effort, by the
-/// category the session reports rather than by the name a harness gave it.
-pub(super) fn effort_config(room: &Arc<dyn RoomHandle>, persona_id: &str, config_id: &str) -> bool {
-    room.info(persona_id).configs.iter().any(|config| {
-        config.id == config_id && config.category == Some(SessionConfigCategory::Effort)
-    })
+/// category the session reports rather than by the name a harness gave it,
+/// or for a teammate at rest the category its agent last offered it under.
+pub(super) fn effort_config(
+    log: &crate::log::Log,
+    room: &Arc<dyn RoomHandle>,
+    persona_id: &str,
+    config_id: &str,
+) -> bool {
+    super::roster::offered_info(log, room, persona_id)
+        .configs
+        .iter()
+        .any(|config| {
+            config.id == config_id && config.category == Some(SessionConfigCategory::Effort)
+        })
 }
 
 pub(super) fn phone_event(mut event: Value) -> Value {

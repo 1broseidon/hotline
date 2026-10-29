@@ -228,6 +228,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         None
     }
 
+    /// What a harness last offered on this desk — its models, modes and
+    /// effort — for the roster row of a teammate on it that is not running.
+    fn backend_offer(&self, _backend_id: &str) -> Option<hotline_contract::BackendOffer> {
+        None
+    }
+
     /// The subagents this teammate has running, for the roster row.
     fn subagents(&self, _persona_id: &str) -> Vec<hotline_contract::RunningSubagent> {
         Vec::new()

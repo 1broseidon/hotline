@@ -178,22 +178,8 @@ impl Room {
     /// Puts the account's reading on every teammate that runs on it: each
     /// live session, and the roster row of each teammate not running now.
     fn show_plan(&self, backend_id: &str, plan: &PlanUsage) {
-        let resting: Vec<String> = {
-            let running = lock(&self.sessions);
-            room::roster(&self.log)
-                .into_iter()
-                .filter(|persona| {
-                    persona.backend_id == backend_id && !running.contains_key(&persona.id)
-                })
-                .map(|persona| persona.id)
-                .collect()
-        };
         // The roster takes the reading from the login when it draws them.
-        for persona_id in resting {
-            let _ = self
-                .info_changes
-                .send(crate::session::idle_info(&persona_id));
-        }
+        self.redraw_resting(backend_id);
         let sessions: Vec<Arc<Session>> = lock(&self.sessions)
             .values()
             .filter(|session| session.backend_id == backend_id)
@@ -213,6 +199,27 @@ impl Room {
                 info.clone()
             };
             let _ = self.info_changes.send(info);
+        }
+    }
+
+    /// Has the roster draw again each teammate on this agent that is not
+    /// running, which it does with what the agent offers and its login's
+    /// plan as the room keeps them now.
+    pub(super) fn redraw_resting(&self, backend_id: &str) {
+        let resting: Vec<String> = {
+            let running = lock(&self.sessions);
+            room::roster(&self.log)
+                .into_iter()
+                .filter(|persona| {
+                    persona.backend_id == backend_id && !running.contains_key(&persona.id)
+                })
+                .map(|persona| persona.id)
+                .collect()
+        };
+        for persona_id in resting {
+            let _ = self
+                .info_changes
+                .send(crate::session::idle_info(&persona_id));
         }
     }
 

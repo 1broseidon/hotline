@@ -590,14 +590,16 @@ fn only_a_config_the_session_calls_effort_is_a_phones_to_set() {
     ];
     room.set_info(info);
     let handle: Arc<dyn RoomHandle> = room;
-    assert!(super::effort_config(&handle, "ada", "reasoning"));
-    assert!(!super::effort_config(&handle, "ada", "approval"));
+    let log = Log::open(scratch("phone-effort-config"));
+    assert!(super::effort_config(&log, &handle, "ada", "reasoning"));
+    assert!(!super::effort_config(&log, &handle, "ada", "approval"));
     assert!(!super::effort_config(
+        &log,
         &handle,
         "ada",
         "nothing-by-that-name"
     ));
-    assert!(!super::effort_config(&handle, "bob", "reasoning"));
+    assert!(!super::effort_config(&log, &handle, "bob", "reasoning"));
 }
 
 /// A frame the phone can afford travels as a small JPEG; one it cannot

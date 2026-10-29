@@ -2,11 +2,12 @@
 
 use super::persona::{living, update_persona};
 use super::settings::update_settings;
-use crate::contract::{Persona, SessionInfo, SessionState};
+use crate::contract::{Persona, SessionConfigCategory, SessionInfo, SessionState};
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::Log;
 use crate::room;
 use crate::wire::RoomHandle;
+use crate::wire::roster::offered_info;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
@@ -63,7 +64,8 @@ pub(super) fn welcome(
 /// Write the teammate's model first, then switch a live session if there is
 /// one. The persona is the truth; the live switch is a courtesy to the turn
 /// already running. Writing first means an idle teammate keeps the choice,
-/// and a live switch that fails still lands on the next start.
+/// and a live switch that fails still lands on the next start. A teammate at
+/// rest answers with what it offers, the new model current.
 pub(super) async fn set_model(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -100,7 +102,7 @@ pub(super) async fn set_model(
     if room.info(persona_id).state != SessionState::Idle {
         return room.set_model(persona_id, model_id).await;
     }
-    Ok(room.info(persona_id))
+    Ok(offered_info(log, room, persona_id))
 }
 
 /// How long a switch of agent waits for a busy teammate to finish its turn
@@ -161,10 +163,11 @@ pub(super) async fn set_backend(
         let mut moved = living(log, persona_id)?;
         moved.backend_id = backend_id.to_string();
         // A model is the new agent's when named; otherwise the agent's own.
+        // Its effort and settings are its own too: the old agent's ids mean
+        // nothing to it.
         moved.model_id = model_id.map(str::to_string);
-        if backend_id != HOTLINE_BACKEND_ID {
-            moved.effort_id = None;
-        }
+        moved.effort_id = None;
+        moved.config_choices.clear();
         moved.updated_at = chrono::Utc::now().timestamp_millis();
         room::append_persona(log, &moved)?;
         room::clear_checkpoint(log, persona_id, backend_id)?;
@@ -189,7 +192,7 @@ pub(super) async fn set_backend(
     } else {
         room.reattach(persona_id).await?;
     }
-    Ok(room.info(persona_id))
+    Ok(offered_info(log, room, persona_id))
 }
 
 /// A teammate in the middle of a turn, or of starting one.
@@ -197,9 +200,9 @@ fn busy(state: SessionState) -> bool {
     matches!(state, SessionState::Thinking | SessionState::Starting)
 }
 
-/// Write a Hotline Agent teammate's effort first, then switch a live session
-/// if there is one. An ACP teammate has no stored effort: the harness owns
-/// its config ids, and a live session is required.
+/// Write a teammate's effort first, then switch a live session if there is
+/// one. A harness's settings are kept by its own config ids, see
+/// [`set_harness_config`].
 pub(super) async fn set_config(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -209,11 +212,7 @@ pub(super) async fn set_config(
 ) -> Result<SessionInfo, String> {
     let persona = living(log, persona_id)?;
     if persona.backend_id != HOTLINE_BACKEND_ID {
-        // A harness may offer its model as a config; what it reports after
-        // the change is remembered the same way a start's report is.
-        let info = room.set_config(persona_id, config_id, value).await?;
-        remember_model(log, room, &persona).await?;
-        return Ok(info);
+        return set_harness_config(log, room, &persona, config_id, value).await;
     }
     if config_id != "effort" {
         if room.info(persona_id).state != SessionState::Idle {
@@ -251,6 +250,61 @@ pub(super) async fn set_config(
         return room.set_config(persona_id, config_id, value).await;
     }
     Ok(room.info(persona_id))
+}
+
+/// A harness teammate's setting, kept on the teammate so its next session
+/// opens on it: an effort picker as its effort, any other by the harness's
+/// own id. A value the agent does not offer, live or as it last offered, is
+/// refused; an empty one goes back to the agent's own default. With a
+/// session up the setting is put on it too, and the answer is the
+/// session's; at rest it is what the teammate offers, the choice current.
+async fn set_harness_config(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona: &Persona,
+    config_id: &str,
+    value: &str,
+) -> Result<SessionInfo, String> {
+    let live = room.info(&persona.id);
+    let offered = super::super::roster::offered(room, persona, live.clone());
+    let config = offered.configs.iter().find(|config| config.id == config_id);
+    if let Some(config) = config
+        && !value.is_empty()
+        && !config.options.iter().any(|option| option.id == value)
+    {
+        return Err(format!(
+            "{value} is not a choice of {} this agent offers.",
+            config.name
+        ));
+    }
+    let running = live.state != SessionState::Idle;
+    let effort = config.map_or(config_id == "effort", |config| {
+        config.category == Some(SessionConfigCategory::Effort)
+    });
+    // A harness may offer its model as a config, which is no setting of the
+    // teammate's: a live session's answer names the model, remembered below.
+    if config.is_some() || effort || !running {
+        let gate = room.policy_update_lock();
+        let _held = gate.lock().await;
+        let patch = if effort {
+            json!({ "effortId": (!value.is_empty()).then_some(value) })
+        } else {
+            let mut choices = living(log, &persona.id)?.config_choices;
+            if value.is_empty() {
+                choices.remove(config_id);
+            } else {
+                choices.insert(config_id.to_string(), value.to_string());
+            }
+            json!({ "configChoices": choices })
+        };
+        update_persona(log, room, &persona.id, &patch)?;
+    }
+    if running {
+        let info = room.set_config(&persona.id, config_id, value).await?;
+        remember_model(log, room, persona).await?;
+        return Ok(info);
+    }
+    Ok(offered_info(log, room, &persona.id))
 }
 
 /// The model a Hotline Agent teammate most recently ran on. The wire is the

@@ -94,6 +94,10 @@ pub(crate) struct Scripted {
     pub(super) plan_logins: Arc<Mutex<Vec<(String, PlanRead)>>>,
     /// The models with their levels the same read answers.
     pub(super) catalog: Arc<Mutex<Option<crate::driver::acp::catalog::Catalog>>>,
+    /// Each agent looked at out of band, in order, and whether a look
+    /// says its offer changed.
+    pub(super) looks: Arc<Mutex<Vec<String>>>,
+    pub(super) look_changes: Arc<std::sync::atomic::AtomicBool>,
 }
 
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
@@ -129,6 +133,8 @@ impl Scripted {
             plan_reads: Arc::default(),
             plan_logins: Arc::default(),
             catalog: Arc::default(),
+            looks: Arc::default(),
+            look_changes: Arc::default(),
         }
     }
 
@@ -494,6 +500,13 @@ impl Agents for Fake {
             plan: lock(&self.driver.plan).clone(),
             catalog: lock(&self.driver.catalog).clone(),
         }
+    }
+
+    async fn look(&self, backend_id: &str) -> bool {
+        lock(&self.driver.looks).push(backend_id.to_string());
+        self.driver
+            .look_changes
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 

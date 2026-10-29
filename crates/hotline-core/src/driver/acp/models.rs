@@ -4,23 +4,30 @@
 //! ones its next session will have.
 //!
 //! A teammate's session records what its agent reports as it opens. When the
-//! desk starts, and when the picker asks, each agent people know by name and
-//! each that has answered here before, with no list from the last day, gets a
-//! quiet look: it is started in an empty folder of its own, told Hotline
-//! offers no files, tools or servers, asked to open a session, and ended. No
-//! prompt is ever sent, so the look spends nothing. An agent that answers the
-//! session with "sign in first" is remembered as needing it, until a session
-//! of its opens.
+//! desk starts, when the picker asks for the agents, and when a teammate's
+//! menu or pane opens, each agent people know by name and each that has
+//! answered here before gets a quiet look when it is due: no list from the
+//! last day, or no modes and no look in the last day (a session that opened
+//! before modes were kept left a fresh list with none). It is started in an
+//! empty folder of its own, told Hotline offers no files, tools or servers,
+//! asked to open a session, and ended. No prompt is ever sent, so the look
+//! spends nothing. An agent that answers the session with "sign in first" is
+//! remembered as needing it, until a session of its opens.
+//!
+//! Claude Code's adapter (`claude-agent-acp`, `newSession`) starts the CLI
+//! for `session/new` and answers with its modes, models and settings; it
+//! asks for a title only on a prompt, and the CLI writes no transcript until
+//! a message is sent, so a look leaves no session behind.
 //!
 //! Beside each offer is the harness's catalogue, when its login's plan read
 //! lists its models ([`super::catalog`]): every model with its own effort
 //! levels, which fill what the offer does not say.
 
+#[cfg(unix)]
+use super::GROUPS;
 use super::catalog::Catalog;
 use super::session::Disposition;
-#[cfg(unix)]
-use super::{GROUPS, lock};
-use super::{end_group, registry};
+use super::{end_group, lock, registry};
 use crate::contract::{BackendOffer, ConfigChoice, SessionConfig};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{InitializeRequest, NewSessionRequest};
@@ -39,9 +46,17 @@ const FRESH_MS: i64 = 24 * 60 * 60 * 1000;
 const LOOK_BOUND: Duration = Duration::from_secs(60);
 /// The first look at an agent may be fetching its adapter package.
 const FIRST_LOOK_BOUND: Duration = Duration::from_mins(5);
+/// How long an agent looked at is given to leave by itself once its input
+/// has ended.
+const LEAVE_BOUND: Duration = Duration::from_secs(3);
 
-/// One look at a time across the desk, so a sweep is slow and quiet.
+/// One sweep at a time across the desk, so a sweep is slow and quiet.
 static LOOKING: AtomicBool = AtomicBool::new(false);
+
+/// The agents being looked at now: one look at an agent at a time, whether
+/// the sweep or a teammate's menu asked for it.
+static LOOKING_AT: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +88,10 @@ struct Seen {
     catalog: Option<Catalog>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     catalog_at: Option<i64>,
+    /// When the agent was last looked at out of band, so one that offers no
+    /// modes is not started again for them more than once a day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    looked_at: Option<i64>,
 }
 
 impl Seen {
@@ -237,52 +256,96 @@ pub fn remember(root: &Path, backend_id: &str, offer: &BackendOffer) {
     write(root, &seen);
 }
 
+/// Whether an agent is due a look: it has no list from the last day, or
+/// it has never offered modes here and was not looked at in the last day.
+fn due(was: Option<&Seen>, now: i64) -> bool {
+    was.is_none_or(|was| {
+        now - was.at >= FRESH_MS
+            || (was.modes.is_empty() && was.looked_at.is_none_or(|at| now - at >= FRESH_MS))
+    })
+}
+
 /// Looks at each agent people know by name and each that has answered here
-/// before, with no list from the last day, one after another, and returns at
-/// once. The desk calls it as it starts, so the picker never waits on a list.
-pub fn refresh_in_background(root: &Path) {
+/// before, when it is due, one after another, and returns at once; each
+/// agent whose offer changed is handed to `changed`, so the teammates on it
+/// that are not running are drawn again. The desk calls it as it starts, so
+/// the picker never waits on a list.
+pub fn refresh_in_background(root: &Path, changed: impl Fn(&str) + Send + 'static) {
     if LOOKING.swap(true, Ordering::SeqCst) {
         return;
     }
     let root = root.to_path_buf();
     tokio::spawn(async move {
-        let seen = read(&root);
-        let now = now_ms();
         for backend in registry::cached_backends(&root) {
-            if backend.unavailable.is_some()
-                || seen
-                    .get(&backend.id)
-                    .is_some_and(|was| now - was.at < FRESH_MS)
-                || !plain_id(&backend.id)
-            {
-                continue;
+            if backend.unavailable.is_none() && look_if_due(&root, &backend.id).await {
+                changed(&backend.id);
             }
-            let Ok(launch) = registry::launch(&root, &backend.id) else {
-                continue;
-            };
-            let before = registry::started_before(&root, &launch);
-            if !before && !registry::named(&backend.id) {
-                continue;
-            }
-            let bound = if before { LOOK_BOUND } else { FIRST_LOOK_BOUND };
-            let (offer, sign_in) = match look(&root, &backend.id, &launch, bound).await {
-                Ok(offer) => (offer, false),
-                Err(Missed::SignIn) => (BackendOffer::default(), true),
-                Err(Missed::Failed(error)) => {
-                    eprintln!("[acp] a look at {}'s models failed: {error}", backend.id);
-                    (BackendOffer::default(), false)
-                }
-            };
-            // A failed look waits a day like a good one; the offer it had stays.
-            let mut seen = read(&root);
-            let entry = seen.entry(backend.id.clone()).or_default();
-            entry.at = now_ms();
-            entry.sign_in = sign_in;
-            entry.take(&offer);
-            write(&root, &seen);
         }
         LOOKING.store(false, Ordering::SeqCst);
     });
+}
+
+/// The look at one agent under way: the next one waits for none, it skips.
+struct Looking(String);
+
+impl Looking {
+    fn begin(backend_id: &str) -> Option<Self> {
+        lock(&LOOKING_AT)
+            .insert(backend_id.to_string())
+            .then(|| Self(backend_id.to_string()))
+    }
+}
+
+impl Drop for Looking {
+    fn drop(&mut self) {
+        lock(&LOOKING_AT).remove(&self.0);
+    }
+}
+
+/// Looks at this agent when it is due ([`due`]) and is one the desk may
+/// start for it, and keeps what it offers. Whether what the desk offers for
+/// it, or its need to be signed in, changed.
+pub async fn look_if_due(root: &Path, backend_id: &str) -> bool {
+    if !plain_id(backend_id) || !due(read(root).get(backend_id), now_ms()) {
+        return false;
+    }
+    let Ok(launch) = registry::launch(root, backend_id) else {
+        return false;
+    };
+    let before = registry::started_before(root, &launch);
+    if !before && !registry::named(backend_id) {
+        return false;
+    }
+    let Some(_looking) = Looking::begin(backend_id) else {
+        return false;
+    };
+    let bound = if before { LOOK_BOUND } else { FIRST_LOOK_BOUND };
+    let looked = look(root, backend_id, &launch, bound).await;
+    keep_look(root, backend_id, looked)
+}
+
+/// Keeps what a look found. A failed look waits a day like a good one, and
+/// the offer it had stays. Whether the offer or the sign-in changed.
+fn keep_look(root: &Path, backend_id: &str, looked: Result<BackendOffer, Missed>) -> bool {
+    let (offer, sign_in) = match looked {
+        Ok(offer) => (offer, false),
+        Err(Missed::SignIn) => (BackendOffer::default(), true),
+        Err(Missed::Failed(error)) => {
+            eprintln!("[acp] a look at {backend_id}'s models failed: {error}");
+            (BackendOffer::default(), false)
+        }
+    };
+    let mut seen = read(root);
+    let entry = seen.entry(backend_id.to_string()).or_default();
+    let was = (entry.offer(), entry.sign_in);
+    let now = now_ms();
+    entry.at = now;
+    entry.looked_at = Some(now);
+    entry.sign_in = sign_in;
+    entry.take(&offer);
+    let changed = was != (entry.offer(), entry.sign_in);
+    write(root, &seen);
+    changed
 }
 
 /// An id that is safe as a folder name: the catalogue's ids are, but it is
@@ -343,6 +406,12 @@ async fn look(
         .unwrap_or_else(|_| Err(Missed::Failed("it ran out of time".to_string()))),
         _ => Err(Missed::Failed("the agent gave no pipes".to_string())),
     };
+    // The look has closed the agent's input. An agent whose input ends
+    // leaves by itself, and Claude Code then clears what it registered for
+    // its run (`~/.claude/sessions/<pid>.json`, its socket in
+    // `/tmp/cc-socks`), which a kill would leave behind; it is given a
+    // moment to. One still running after it is ended with its whole group.
+    let _ = tokio::time::timeout(LEAVE_BOUND, child.wait()).await;
     end_group(&child);
     let _ = child.start_kill();
     let _ = child.wait().await;
@@ -532,9 +601,9 @@ mod tests {
     }
 
     /// The look offers the agent nothing, names no servers, reads the model
-    /// picker its session opens with, and never prompts.
+    /// picker and the modes its session opens with, and never prompts.
     #[tokio::test]
-    async fn a_look_offers_nothing_and_reads_the_model_picker_without_a_prompt() {
+    async fn a_look_offers_nothing_and_reads_the_models_and_modes_without_a_prompt() {
         use agent_client_protocol::schema::v1 as acp;
         use std::sync::{Arc, Mutex};
         let (client_writer, agent_reader) = tokio::io::duplex(64 * 1024);
@@ -578,8 +647,22 @@ mod tests {
                             ],
                         )
                         .category(Some(acp::SessionConfigOptionCategory::Model));
+                        let modes = acp::SessionModeState::new(
+                            acp::SessionModeId::new("default"),
+                            vec![
+                                acp::SessionMode::new(
+                                    acp::SessionModeId::new("default"),
+                                    "Default",
+                                ),
+                                acp::SessionMode::new(
+                                    acp::SessionModeId::new("bypassPermissions"),
+                                    "Bypass Permissions",
+                                ),
+                            ],
+                        );
                         responder.respond(
                             acp::NewSessionResponse::new(acp::SessionId::new("look"))
+                                .modes(modes)
                                 .config_options(vec![model]),
                         )
                     },
@@ -618,9 +701,74 @@ mod tests {
         );
         assert_eq!(offer.current_model_id.as_deref(), Some("opus"));
         assert_eq!(
+            offer
+                .modes
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["default", "bypassPermissions"]
+        );
+        assert_eq!(offer.current_mode_id.as_deref(), Some("default"));
+        // Kept, the agent offers its modes to a teammate at rest on it.
+        let root = tempfile::tempdir().unwrap();
+        assert!(keep_look(root.path(), "claude-acp", Ok(offer)));
+        let kept = super::offer(root.path(), "claude-acp").expect("the offer is kept");
+        assert_eq!(kept.modes.len(), 2);
+        // Nothing but the two requests reached the agent: no prompt.
+        assert_eq!(
             *heard.lock().unwrap(),
             ["initialize fs=false false", "session/new servers=0"]
         );
+    }
+
+    /// An agent is looked at when its list is a day old, and also when it
+    /// has never offered modes here and was not looked at in the last day —
+    /// a session that opened before modes were kept left a fresh list with
+    /// none. A look that finds none waits a day like any other.
+    #[test]
+    fn an_agent_with_no_modes_is_due_a_look_once_a_day() {
+        let now = now_ms();
+        let hour = 60 * 60 * 1000;
+        assert!(due(None, now));
+        let listed = Seen {
+            at: now - hour,
+            models: vec![choice("opus")],
+            ..Seen::default()
+        };
+        assert!(due(Some(&listed), now), "a fresh list with no modes");
+        let looked = Seen {
+            looked_at: Some(now - hour),
+            ..listed.clone()
+        };
+        assert!(!due(Some(&looked), now), "looked at an hour ago");
+        let with_modes = Seen {
+            modes: vec![choice("default")],
+            ..listed
+        };
+        assert!(!due(Some(&with_modes), now));
+        let stale = Seen {
+            at: now - FRESH_MS,
+            ..with_modes
+        };
+        assert!(due(Some(&stale), now));
+
+        // A look that finds nothing new still counts, and changes nothing.
+        let root = tempfile::tempdir().unwrap();
+        remember(root.path(), "cursor", &offered(&[choice("auto")]));
+        assert!(due(read(root.path()).get("cursor"), now_ms()));
+        assert!(!keep_look(
+            root.path(),
+            "cursor",
+            Ok(offered(&[choice("auto")]))
+        ));
+        assert!(!due(read(root.path()).get("cursor"), now_ms()));
+        assert!(!keep_look(
+            root.path(),
+            "cursor",
+            Err(Missed::Failed("gone".into()))
+        ));
+        assert_eq!(cached(root.path())["cursor"], vec![choice("auto")]);
+        assert!(keep_look(root.path(), "cursor", Err(Missed::SignIn)));
     }
 
     /// An agent that refuses the session until it is signed in is marked so

@@ -99,6 +99,18 @@ pub struct Desk {
 }
 
 impl Desk {
+    /// Looks at each agent due a look, quietly, in the background
+    /// (`driver/acp/models.rs`); the teammates at rest on one whose offer
+    /// changed are drawn again with it.
+    pub(crate) fn look_at_agents(&self) {
+        let room = Arc::downgrade(&self.room);
+        acp::models::refresh_in_background(self.log.root(), move |backend_id| {
+            if let Some(room) = room.upgrade() {
+                room.redraw_resting(backend_id);
+            }
+        });
+    }
+
     /// What the vault holds for a web search provider, for a test to check
     /// that the key went to the vault and nowhere else.
     #[cfg(test)]
@@ -898,7 +910,7 @@ impl RoomHandle for Desk {
             sign_in: None,
         }];
         let root = self.log.root();
-        acp::models::refresh_in_background(root);
+        self.look_at_agents();
         let mut models = acp::models::cached(root);
         let sign_in = acp::models::needing_sign_in(root);
         for backend in acp::registry::backends(root).await {

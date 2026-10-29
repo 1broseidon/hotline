@@ -311,6 +311,14 @@ pub trait Agents: Send + Sync {
     async fn read_login(&self, _backend_id: &str, _how: PlanRead) -> acp::plan::LoginReading {
         acp::plan::LoginReading::default()
     }
+
+    /// Looks at a harness's agent out of band when it is due — a session
+    /// opened and ended with no prompt — and keeps what it offers, its modes
+    /// with its models and settings (`driver/acp/models.rs`). Whether what
+    /// the desk offers for the agent changed.
+    async fn look(&self, _backend_id: &str) -> bool {
+        false
+    }
 }
 
 /// How a login's plan is read.
@@ -355,6 +363,15 @@ impl Agents for DeskAgents {
                 catalog: None,
             },
         }
+    }
+
+    async fn look(&self, backend_id: &str) -> bool {
+        // A test's room never starts a real harness; the look is tested on
+        // its own.
+        if cfg!(test) {
+            return false;
+        }
+        acp::models::look_if_due(&self.root, backend_id).await
     }
 
     fn agent(

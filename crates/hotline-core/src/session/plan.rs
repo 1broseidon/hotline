@@ -216,7 +216,7 @@ impl Room {
     /// Has the roster draw again each teammate on this agent that is not
     /// running, which it does with what the agent offers and its login's
     /// plan as the room keeps them now.
-    pub(super) fn redraw_resting(&self, backend_id: &str) {
+    pub(crate) fn redraw_resting(&self, backend_id: &str) {
         let resting: Vec<String> = {
             let running = lock(&self.sessions);
             room::roster(&self.log)
@@ -234,13 +234,37 @@ impl Room {
         }
     }
 
-    /// The picker opened on this teammate: its login is read again when
-    /// the reading kept is two minutes old, whether or not the teammate is
-    /// running, and otherwise left as it is, already on its sessions.
+    /// The picker or the pane opened on this teammate: its login is read
+    /// again when the reading kept is two minutes old, whether or not the
+    /// teammate is running, and otherwise left as it is, already on its
+    /// sessions. Its agent is looked at when due, so a teammate at rest on
+    /// an agent whose modes the desk has not seen yet offers them.
     pub fn refresh_plan(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let backend_id = self.persona(persona_id)?.backend_id;
+        self.look_later(backend_id.clone());
         self.read_login_later(backend_id, Duration::ZERO, REFRESH_AFTER_MS, PlanRead::Now);
         Ok(())
+    }
+
+    /// A look at a harness's agent in the background ([`Agents::look`]);
+    /// when what it offers changed, the teammates at rest on it are drawn
+    /// again with it.
+    fn look_later(self: &Arc<Self>, backend_id: String) {
+        if backend_id == crate::driver::HOTLINE_BACKEND_ID {
+            return;
+        }
+        let agents = self.agents.clone();
+        let room = Arc::downgrade(self);
+        tokio::spawn(async move {
+            if !agents.look(&backend_id).await {
+                return;
+            }
+            if let Some(room) = room.upgrade()
+                && !room.closing()
+            {
+                room.redraw_resting(&backend_id);
+            }
+        });
     }
 
     /// A session has started: it shows its login's reading, and the login

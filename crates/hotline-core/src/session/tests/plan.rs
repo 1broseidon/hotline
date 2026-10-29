@@ -334,3 +334,31 @@ async fn a_logins_read_keeps_its_models_for_teammates_at_rest_and_after_a_reopen
     );
     drop(reopened);
 }
+
+/// A teammate's menu or pane opening looks at its agent, running or not,
+/// for a harness only; a look that finds a new offer has the teammates at
+/// rest on that agent drawn again, so the modes it found are offered.
+#[tokio::test]
+async fn opening_a_teammate_looks_at_its_agent_and_a_new_offer_redraws_its_resting_teammates() {
+    let log = scratch("plan-look");
+    enrol_logins(&log);
+    let fake = Fake::new(Scripted::new(saying("a", "ok")));
+    let room = logins_room(log, fake.clone());
+    let mut infos = room.subscribe_info();
+    fake.driver.look_changes.store(true, Ordering::SeqCst);
+    room.refresh_plan("ada").unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut told = std::collections::HashSet::new();
+    while !(told.contains("ada") && told.contains("bea")) {
+        let info = tokio::time::timeout_at(deadline, infos.recv())
+            .await
+            .expect("the teammates at rest are told")
+            .unwrap();
+        told.insert(info.persona_id);
+    }
+    assert!(!told.contains("cy"), "another agent's teammate is not");
+    room.refresh_plan("dot").unwrap();
+    room.refresh_plan("cy").unwrap();
+    until("codex is looked at", || lock(&fake.driver.looks).len() >= 2).await;
+    assert_eq!(*lock(&fake.driver.looks), ["claude-acp", "codex-acp"]);
+}

@@ -26,6 +26,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   fact at the right ("4 results", "212 passed", "+55 −6", "6.2s",
   "timeout"); a line opens to its Command and Output or Error. Thinking is no
   longer a line of its own: it is read with the step it led to.
+- The model menu leads with the agent's own models. Its head names the agent
+  and its account ("Claude Code, subscription"; for Hotline Agent the
+  account it runs on), then the plan, then the agent's models, one click
+  each, with a check on the one in use. That row says its effort and opens
+  the levels the model has, in place of the effort slider; past eight
+  models the rest are under More models. Change agent, with a hint of the
+  others, opens the accounts and agents the menu used to list, and Add an
+  account.
 
 ## [0.44.1] - 2026-10-28
 

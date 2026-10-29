@@ -271,7 +271,9 @@ export function ModelPicker({
 	// A model on an account that is gone still has its name from another account serving it.
 	const sameModel = choices.find((choice) => plainModel(choice.id) === plainModel(modelId));
 	const modelName = current?.name ?? sameModel?.name ?? knownName ?? (modelId.split("/").slice(1).join("/") || modelId || fallbackName || "Model");
-	const effortName = effort?.choices.find((choice) => choice.id === effort.value)?.name ?? null;
+	// The pill says the level as its tab does: Auto for the agent's own choice.
+	const effortChoice = effort?.choices.find((choice) => choice.id === effort.value);
+	const effortName = effortChoice === undefined ? null : isAuto(effortChoice) ? "Auto" : effortChoice.name;
 	const rowLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` · ${currentRow.detail}`}`;
 	// An agent that has not named its model yet is already the button's name.
 	const accountLine = rowLine === modelName ? null : rowLine;

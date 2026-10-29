@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { ChoiceAccount, ConfigChoice, CredentialKind, PlanUsage } from "../generated/contract";
 import { planAccount } from "../plan";
 import { ChevronDownIcon, ChevronRightIcon, CheckIcon, FastIcon, PlusIcon, SwapIcon } from "../icons";
-import { harnessMark, Mark, modelMark, providerMark } from "../ui/Mark";
+import { harnessMark, hostsModels, Mark, modelMark, providerMark } from "../ui/Mark";
 import type { MenuEntry } from "../ui/Menu";
 import { accountName, plainModel } from "../accounts";
 
@@ -304,7 +304,13 @@ export function ModelPicker({
 	const rowLine = currentRow === undefined ? null : `${currentRow.name}${currentRow.detail === "" ? "" : ` · ${currentRow.detail}`}`;
 	// An agent that has not named its model yet is already the button's name.
 	const accountLine = rowLine === modelName ? null : rowLine;
-	const mark = onHotline ? modelMark(modelId, modelName) : (modelMark(modelId, modelName) ?? harnessMark(backendId));
+	// A harness's model wears its maker's mark, but an agent that runs other
+	// labs' models (Cursor) wears its own: the pill says who runs the turn.
+	const mark = onHotline
+		? modelMark(modelId, modelName)
+		: hostsModels(backendId)
+			? harnessMark(backendId)
+			: (modelMark(modelId, modelName) ?? harnessMark(backendId));
 	// This agent's models; one that lists none has the model in use, once named.
 	const listed = currentRow?.choices ?? [];
 	const models: ConfigChoice[] = listed.length > 0 ? listed : modelId !== "" ? [{ id: modelId, name: modelName }] : [];

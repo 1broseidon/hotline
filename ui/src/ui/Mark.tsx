@@ -82,6 +82,15 @@ export function harnessMark(backendId: string): string | null {
 	return null;
 }
 
+/**
+ * Whether an agent serves other labs' models as its own (Cursor runs
+ * Claude, GPT, Gemini and Grok): its mark stands for whatever it runs, not
+ * the model's maker's.
+ */
+export function hostsModels(backendId: string): boolean {
+	return backendId.toLowerCase().startsWith("cursor");
+}
+
 export function Mark({ id, size = 14 }: { id: string | null; size?: number }) {
 	const mark = id === null ? undefined : MARKS[id];
 	if (mark === undefined) return <span aria-hidden="true" className="mark mark-none" style={{ width: size, height: size }} />;

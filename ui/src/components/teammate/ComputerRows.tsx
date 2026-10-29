@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { type Capacity, CPU_STEP, MEMORY_STEP_MB, capacityNote, cpuCeiling, cpuLabel, memoryCeilingMb, memoryLabel, memoryMb, memorySpelling, snap } from "../../computer-limits";
 import type { ComputerMount, ComputerStatus, PersonaComputer } from "../../generated/contract";
 import { CloseIcon, PlayIcon, PlusIcon, StopIcon } from "../../icons";
-import { COMPUTER_STATUS_EVERY_MS } from "../../computer";
+import { COMPUTER_STATUS_EVERY_MS, computerMoved } from "../../computer";
 import { wire } from "../../wire";
 import { CookieLends } from "../CookieLends";
 import { CookieImport, CookieImports } from "../CookieImport";
@@ -191,6 +191,7 @@ export function ComputerRows({
 		try {
 			await wire.command(cmd, { personaId });
 			setStatus(await wire.command("computer.status", { personaId }));
+			computerMoved(personaId);
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
 			// A refusal says itself where the row opens to.

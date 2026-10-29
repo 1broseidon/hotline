@@ -742,3 +742,21 @@ test("a context the agent offers sizes of is a row of its own: a size chosen is 
 	await act(async () => sizes()[1]!.click());
 	expect(calls).toEqual(["context:1m"]);
 });
+
+test("Cursor's pill wears Cursor's mark whatever lab's model it runs; Claude Code's wears the model's", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const pillMark = () => container.querySelector('[aria-haspopup="menu"] .mark') as HTMLElement | null;
+	const markOf = (element: HTMLElement | null) => element?.getAttribute("src") ?? element?.style.maskImage ?? "";
+	await act(async () => {
+		root.render(<ModelPicker choices={choices} modelId="claude-opus-5-5" backendId="cursor" effort={null} label="Model" onModel={() => {}} onEffort={() => {}} />);
+	});
+	const cursor = markOf(pillMark());
+	await act(async () => {
+		root.render(<ModelPicker choices={choices} modelId="claude-opus-5-5" backendId="claude-acp" effort={null} label="Model" onModel={() => {}} onEffort={() => {}} />);
+	});
+	const claude = markOf(pillMark());
+	expect(cursor).not.toBe("");
+	expect(claude).not.toBe("");
+	expect(cursor).not.toBe(claude);
+	expect(cursor.toLowerCase()).toContain("cursor");
+});

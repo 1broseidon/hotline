@@ -86,3 +86,20 @@ test("a computer whose grant is off is not started from the row, but one still r
 	await render(false);
 	expect(key("Stop the computer")).not.toBeNull();
 });
+
+test("a computer stopped from the row takes the band's key with it at once, not at the next tick", async () => {
+	const { useComputerViewer, computerMoved } = await import("../src/computer");
+	let seen: string | undefined = "unset";
+	function Band() {
+		seen = useComputerViewer("ada", true);
+		return null;
+	}
+	status = { state: "running", viewer: "http://127.0.0.1:6080/" };
+	await act(async () => root.render(<Band />));
+	expect(seen).toBe("http://127.0.0.1:6080/");
+	status = { state: "stopped" };
+	await act(async () => computerMoved("someone-else"));
+	expect(seen).toBe("http://127.0.0.1:6080/");
+	await act(async () => computerMoved("ada"));
+	expect(seen).toBeUndefined();
+});

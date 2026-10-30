@@ -795,8 +795,10 @@ pub fn release_of(image: &str) -> String {
     }
 }
 
+/// `dunce` rather than `std::fs`: on Windows the latter returns a `\\?\`
+/// verbatim path, which `docker create -v` rejects as not a valid path.
 fn abs_cwd(cwd: &str) -> String {
-    std::fs::canonicalize(cwd).map_or_else(
+    dunce::canonicalize(cwd).map_or_else(
         |_| cwd.to_string(),
         |path| path.to_string_lossy().into_owned(),
     )

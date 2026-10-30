@@ -313,13 +313,27 @@ pub(crate) fn folder_mounts(persona: &Persona) -> Vec<(&FolderGrant, String)> {
 /// The granted folders as `host:path[:ro]`, read-only unless the grant
 /// says the teammate may change it. A folder gone from this machine is left
 /// out, because the runtime would otherwise make it, as root.
+/// Whether a host path would be cut by `-v`'s `:` separators. Docker on
+/// Windows reads a drive letter's colon as part of the path, as it does for
+/// the workspace itself, so only a colon after that one splits it.
+fn splits_bind(path: &str, windows: bool) -> bool {
+    let bytes = path.as_bytes();
+    let rest = if windows && bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+    {
+        &path[2..]
+    } else {
+        path
+    };
+    rest.contains(':')
+}
+
 pub(super) fn folder_mount_args(persona: &Persona) -> Result<Vec<String>, String> {
     folder_mounts(persona)
         .into_iter()
         .map(|(folder, path)| {
             // `-v` separates its fields with `:`, so a host path holding one
             // would be read as other fields.
-            if folder.path.contains(':') {
+            if splits_bind(&folder.path, cfg!(windows)) {
                 return Err(format!(
                     "The folder {} has a colon in its path, which a computer cannot mount.",
                     folder.path
@@ -783,5 +797,19 @@ pub(super) async fn wait_healthy(port: u16) -> Result<(), String> {
             return Err("The computer did not become healthy in time.".into());
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+#[cfg(test)]
+mod splits_bind_tests {
+    use super::splits_bind;
+
+    #[test]
+    fn a_drive_letter_is_part_of_a_windows_path_and_any_other_colon_splits_it() {
+        assert!(!splits_bind(r"C:\Users\ada\project", true));
+        assert!(splits_bind(r"C:\Users\ada\a:b", true));
+        assert!(splits_bind("C:/Users/ada", false));
+        assert!(!splits_bind("/home/ada/project", false));
+        assert!(splits_bind("/home/ada/a:b", false));
     }
 }

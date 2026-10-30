@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useCommitOnLeave } from "../../commitOnLeave";
 import type { BackendChoice, ConfigChoice } from "../../generated/contract";
 import { DEFAULT_IDLE_HOURS, useModelsRevision } from "../../room";
 import { Chips } from "../../ui/Chips";
@@ -52,6 +53,12 @@ export function GeneralSection({
 }) {
 	const [name, setName] = useState(personName);
 	useEffect(() => setName(personName), [personName]);
+	const commitName = () => {
+		const next = name.trim();
+		setName(next);
+		if (next !== personName) onPersonName(next);
+	};
+	useCommitOnLeave(commitName);
 	const [hours, setHours] = useState(String(idleHours));
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
@@ -108,11 +115,7 @@ export function GeneralSection({
 							maxLength={100}
 							value={name}
 							onChange={(event) => setName(event.target.value)}
-							onBlur={() => {
-								const next = name.trim();
-								setName(next);
-								if (next !== personName) onPersonName(next);
-							}}
+							onBlur={commitName}
 							onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
 						/>
 					</div>

@@ -179,7 +179,7 @@ async fn ensure_running_on_an_absent_container_creates_with_the_hardened_args() 
             "-v",
             &format!(
                 "{}:{WORKSPACE_MOUNT}",
-                cwd.canonicalize().unwrap().display()
+                dunce::canonicalize(&cwd).unwrap().display()
             ),
             "hotline-computer:test",
         ],
@@ -278,7 +278,10 @@ fn mounts_are_existing_folders_outside_hotlines_own_paths() {
         mount("/home/agent/hotline-next", true),
         mount("/mnt/data/", false),
     ]);
-    let canonical = checkout.canonicalize().unwrap().display().to_string();
+    let canonical = dunce::canonicalize(&checkout)
+        .unwrap()
+        .display()
+        .to_string();
     assert_eq!(
         mount_args(&ada).unwrap(),
         vec![

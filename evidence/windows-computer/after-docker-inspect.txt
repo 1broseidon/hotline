@@ -1,0 +1,16 @@
+Hotline 0.45.1 on Windows 11, Docker Desktop 29.9.2, captured 2026-10-30 19:54
+state: Up 13 minutes
+bind C:\Users\<user>\Hotline\Archer -> /home/agent/workspace rw=true
+bind C:\Users\<user>\Projects\example -> /home/agent/folders/example rw=false
+
+cap-drop=[ALL] security-opt=[no-new-privileges] memory=4294967296
+--- docker create args seen by the daemon (binds)
+C:\Users\<user>\Projects\example:/home/agent/folders/example:ro
+C:\Users\<user>\Hotline\Archer:/home/agent/workspace
+hotline-home-9f234fed-c7b4-452f-96c8-92b858546c5e:/home/agent
+hotline-nix-glibc:/nix
+hotline-src-9f234fed-c7b4-452f-96c8-92b858546c5e:/home/agent/src
+
+--- folder visible inside the computer
+example
+touch: cannot touch '/home/agent/folders/example/x': Read-only file system

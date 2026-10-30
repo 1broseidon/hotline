@@ -83,6 +83,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   if spread evenly over the window, and under each when it resets and its
   runway ("Runway: runs out ~Fri 3pm", "Runway: lasts past the reset").
 
+## [0.44.2] - 2026-10-28
+
+### Fixed
+
+- Part of an earlier reply no longer repeats under every turn until Hotline
+  restarts. Words an agent was still streaming when its work was stopped, or
+  when the agent restarted, stayed drawn at the bottom of the conversation
+  with nothing to settle them; a turn's end now clears them, and a stopped
+  reply the agent began by itself keeps what it had said.
+
 ## [0.44.1] - 2026-10-28
 
 ### Changed

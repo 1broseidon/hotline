@@ -278,7 +278,10 @@ fn mounts_are_existing_folders_outside_hotlines_own_paths() {
         mount("/home/agent/hotline-next", true),
         mount("/mnt/data/", false),
     ]);
-    let canonical = dunce::canonicalize(&checkout).unwrap().display().to_string();
+    let canonical = dunce::canonicalize(&checkout)
+        .unwrap()
+        .display()
+        .to_string();
     assert_eq!(
         mount_args(&ada).unwrap(),
         vec![

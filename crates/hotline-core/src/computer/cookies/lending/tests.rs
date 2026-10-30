@@ -207,11 +207,13 @@ async fn discovery_never_launches_or_calls_the_browser_keychain_until_use() {
     let root = tempfile::tempdir().unwrap();
     let mut source = fixture(root.path(), false);
     let args = root.path().join("browser-args");
+    // The redirect makes the file before printf fills it, so the arguments
+    // are written beside it and renamed in: the file exists only when whole.
     crate::computer::fixtures::write_script(
         root.path(),
         "browser",
         &format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexec sleep 30\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}.partial'\nmv '{0}.partial' '{0}'\nexec sleep 30\n",
             args.display()
         ),
     );

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useCommitOnLeave } from "../commitOnLeave";
 import type { BudgetKind, CapabilityOptions, SpendingKind } from "../generated/contract";
 import { budgetsPatch, limitText, limitsOf, type Limits } from "../budgets";
 import { Fold, toggled } from "../ui/Fold";
@@ -110,6 +111,7 @@ function Cap({ label, value, unit, onCommit }: { label: string; value: number | 
 		setText(shown(next));
 		if (next !== value) onCommit(next);
 	};
+	useCommitOnLeave(commit);
 
 	return (
 		<label className="flex items-center gap-1 text-sm text-ink-3">

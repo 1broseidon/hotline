@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useCommitOnLeave } from "../commitOnLeave";
 import type { FolderGrant, Persona, ScheduledJob, SessionInfo } from "../generated/contract";
 import { PaneClose } from "../ui/PaneClose";
 import { CloseIcon, FolderIcon, PlusIcon, RevealIcon, TrashIcon } from "../icons";
@@ -133,6 +134,8 @@ export function Teammate({
 	const saveGoal = () => {
 		if (goal !== persona.goal) save({ goal });
 	};
+	useCommitOnLeave(saveName);
+	useCommitOnLeave(saveGoal);
 
 	const chooseCwd = async () => {
 		const dir = await chooseFolder(persona.cwd);
@@ -227,7 +230,7 @@ export function Teammate({
 								<textarea
 									ref={goalField}
 									aria-label="Goal"
-									title="Saved as AGENTS.md"
+									title={persona.backendId === "hotline" ? "Given to the teammate at the start of each session" : "Saved as AGENTS.md"}
 									className="profile-goal"
 									data-clipped={goalClipped || undefined}
 									rows={1}

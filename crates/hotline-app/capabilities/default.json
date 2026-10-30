@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window, and a teammate's chat in a window of its own: the same page, with the same desk",
   "windows": [
-    "main"
+    "main",
+    "chat-*"
   ],
   "permissions": [
     "main-commands",

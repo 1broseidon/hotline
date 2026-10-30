@@ -124,6 +124,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
+    /// Reads the plan of the teammate's login again when its reading is
+    /// stale (`Room::refresh_plan`). A desk that keeps no readings does
+    /// nothing.
+    fn plan_refresh(&self, _persona_id: &str) -> Result<(), String> {
+        Ok(())
+    }
     /// Stops one command a teammate left running (`Room::process_stop`).
     fn process_stop(&self, _persona_id: &str, _id: &str) -> Result<(), String> {
         Err("This desk runs no processes.".into())
@@ -214,6 +220,18 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Whether this teammate's picture is being drawn, for the roster row.
     fn drawing(&self, _persona_id: &str) -> bool {
         false
+    }
+
+    /// The plan reading of a harness login, for the roster rows of every
+    /// teammate on it, running or not.
+    fn plan_of(&self, _backend_id: &str) -> Option<hotline_contract::PlanUsage> {
+        None
+    }
+
+    /// What a harness last offered on this desk — its models, modes and
+    /// effort — for the roster row of a teammate on it that is not running.
+    fn backend_offer(&self, _backend_id: &str) -> Option<hotline_contract::BackendOffer> {
+        None
     }
 
     /// The subagents this teammate has running, for the roster row.
@@ -489,6 +507,11 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         persona_id: &str,
     ) -> Result<hotline_contract::ComputerStatus, String>;
+    /// Brings a teammate's computer up with its session. A room with no
+    /// computers under it has nothing to start.
+    async fn computer_start(&self, _persona_id: &str) -> Result<(), String> {
+        Err("This room has no computers to start.".to_string())
+    }
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_update(&self, persona_id: &str) -> Result<(), String>;

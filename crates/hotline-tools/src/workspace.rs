@@ -1036,6 +1036,26 @@ struct PreparedMutation {
     after: Vec<u8>,
 }
 
+impl PreparedMutation {
+    /// The change as the step records it: the file, whether it is new, and
+    /// the lines it puts in and takes out.
+    fn changed_file(&self) -> hotline_contract::ChangedFile {
+        let before = self
+            .before
+            .as_deref()
+            .map(String::from_utf8_lossy)
+            .unwrap_or_default();
+        let counted =
+            hotline_support::lines::changed_lines(&before, &String::from_utf8_lossy(&self.after));
+        hotline_contract::ChangedFile {
+            path: self.requested.clone(),
+            created: self.before.is_none(),
+            added: counted.map(|(added, _)| added),
+            removed: counted.map(|(_, removed)| removed),
+        }
+    }
+}
+
 /// The granted folders this session may open. Each was canonical when the
 /// person granted it; one whose name now resolves somewhere else (a symlink
 /// put in its place) or that is gone is left out rather than followed, and

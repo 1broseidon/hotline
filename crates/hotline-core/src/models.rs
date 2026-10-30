@@ -589,6 +589,9 @@ pub fn choices(
                 description: Some(wiring.id.to_string()),
                 group: Some(entry.name.clone()),
                 account: None,
+                efforts: None,
+                default_effort: None,
+                fast: None,
             })
             .collect::<Vec<_>>()
         })
@@ -613,6 +616,9 @@ pub fn choices(
                     description: Some(name.clone()),
                     group: Some(name.clone()),
                     account: None,
+                    efforts: None,
+                    default_effort: None,
+                    fast: None,
                 }),
         );
     }
@@ -759,8 +765,13 @@ pub fn effort_choices_with_default(model_id: &str) -> EffortChoices {
     }
 }
 
-/// The picker's label for an effort id. One function, so the driver and the
-/// idle picker cannot drift.
+/// Effort levels by how much they think, least first.
+pub const EFFORT_LADDER: [&str; 8] = [
+    "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+];
+
+/// The picker's label for an effort id. One function, so the driver, the
+/// idle picker and every harness's levels cannot drift.
 pub fn effort_label(id: &str) -> String {
     match id {
         "none" => "None",
@@ -770,10 +781,34 @@ pub fn effort_label(id: &str) -> String {
         "high" => "High",
         "xhigh" => "Extra high",
         "max" => "Max",
+        "ultra" => "Ultra",
         "default" => "Default",
         other => return other.to_string(),
     }
     .to_string()
+}
+
+/// A harness's effort levels as every picker shows them: least thinking
+/// first, the agent's own choice ("default", "auto") before all, and each
+/// level the desk knows by its one name. Grok Build lists its levels most
+/// first and calls Xhigh "Extra High"; Codex and Claude Code least first.
+/// A list with a level the desk cannot place keeps the agent's order, and
+/// such a level keeps the agent's name.
+pub fn tidy_efforts(mut levels: Vec<ConfigChoice>) -> Vec<ConfigChoice> {
+    let auto = |id: &str| id.eq_ignore_ascii_case("default") || id.eq_ignore_ascii_case("auto");
+    let rank = |id: &str| EFFORT_LADDER.iter().position(|one| *one == id);
+    for level in &mut levels {
+        if rank(&level.id).is_some() {
+            level.name = effort_label(&level.id);
+        }
+    }
+    if levels
+        .iter()
+        .all(|level| auto(&level.id) || rank(&level.id).is_some())
+    {
+        levels.sort_by_key(|level| rank(&level.id).map_or(0, |at| at + 1));
+    }
+    levels
 }
 
 /// The idle picker's choices for a model's efforts.
@@ -786,6 +821,9 @@ pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
             description: None,
             group: None,
             account: None,
+            efforts: None,
+            default_effort: None,
+            fast: None,
         })
         .collect()
 }
@@ -801,6 +839,54 @@ pub fn output_limit(model_id: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every harness's levels read alike: least first, the agent's own
+    /// choice before all, each by the desk's name. A list with a level the
+    /// desk cannot place keeps the agent's order and that level's name.
+    #[test]
+    fn effort_levels_are_least_first_by_one_name() {
+        let level = |id: &str, name: &str| ConfigChoice {
+            id: id.into(),
+            name: name.into(),
+            description: None,
+            group: None,
+            account: None,
+            efforts: None,
+            default_effort: None,
+            fast: None,
+        };
+        let shown = |levels: Vec<ConfigChoice>| {
+            tidy_efforts(levels)
+                .into_iter()
+                .map(|one| format!("{}:{}", one.id, one.name))
+                .collect::<Vec<_>>()
+        };
+        // Grok Build: most first, "Extra High".
+        assert_eq!(
+            shown(vec![
+                level("xhigh", "Extra High"),
+                level("high", "High"),
+                level("medium", "Medium"),
+                level("low", "Low"),
+            ]),
+            ["low:Low", "medium:Medium", "high:High", "xhigh:Extra high"]
+        );
+        // Claude Code: Default first, then least first, Xhigh by its name.
+        assert_eq!(
+            shown(vec![
+                level("max", "Max"),
+                level("default", "Default"),
+                level("xhigh", "Xhigh"),
+                level("low", "Low"),
+            ]),
+            ["default:Default", "low:Low", "xhigh:Extra high", "max:Max"]
+        );
+        // A level the desk does not know: the agent's order and words.
+        assert_eq!(
+            shown(vec![level("deep", "Deep think"), level("low", "LOW")]),
+            ["deep:Deep think", "low:Low"]
+        );
+    }
 
     #[test]
     fn a_model_id_names_its_account_only_when_it_has_one() {

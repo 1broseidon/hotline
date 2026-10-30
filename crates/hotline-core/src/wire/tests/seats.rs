@@ -99,9 +99,12 @@ fn the_desk_seat_may_do_everything_the_room_can_do() {
 }
 
 #[test]
-fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_or_remake_it() {
+fn the_phone_seat_may_watch_start_and_stop_a_computer_but_not_remove_or_remake_it() {
     let persona_id = "ada".to_string();
     assert!(Seat::Phone.permits(&Command::ComputerStatus {
+        persona_id: persona_id.clone()
+    }));
+    assert!(Seat::Phone.permits(&Command::ComputerStart {
         persona_id: persona_id.clone()
     }));
     assert!(Seat::Phone.permits(&Command::ComputerStop {
@@ -488,6 +491,14 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
         persona_id: persona_id.clone(),
         model_id: "anthropic/claude".to_string(),
     }));
+    // Opening the picker reads the plan, wherever the picker is.
+    let refresh = Command::PlanRefresh {
+        persona_id: persona_id.clone(),
+    };
+    assert!(Seat::Phone.permits(&refresh));
+    assert!(Seat::Owner.permits(&refresh));
+    assert!(Seat::Desk.permits(&refresh));
+    assert!(!Seat::Link.permits(&refresh));
     assert!(Seat::Phone.permits(&Command::SessionSetConfig {
         persona_id: persona_id.clone(),
         config_id: "effort".to_string(),
@@ -571,6 +582,7 @@ fn only_a_config_the_session_calls_effort_is_a_phones_to_set() {
             category: Some(SessionConfigCategory::Effort),
             current_id: Some("high".to_string()),
             options: Vec::new(),
+            note: None,
         },
         SessionConfig {
             id: "approval".to_string(),
@@ -578,18 +590,21 @@ fn only_a_config_the_session_calls_effort_is_a_phones_to_set() {
             category: None,
             current_id: Some("ask".to_string()),
             options: Vec::new(),
+            note: None,
         },
     ];
     room.set_info(info);
     let handle: Arc<dyn RoomHandle> = room;
-    assert!(super::effort_config(&handle, "ada", "reasoning"));
-    assert!(!super::effort_config(&handle, "ada", "approval"));
+    let log = Log::open(scratch("phone-effort-config"));
+    assert!(super::effort_config(&log, &handle, "ada", "reasoning"));
+    assert!(!super::effort_config(&log, &handle, "ada", "approval"));
     assert!(!super::effort_config(
+        &log,
         &handle,
         "ada",
         "nothing-by-that-name"
     ));
-    assert!(!super::effort_config(&handle, "bob", "reasoning"));
+    assert!(!super::effort_config(&log, &handle, "bob", "reasoning"));
 }
 
 /// A frame the phone can afford travels as a small JPEG; one it cannot

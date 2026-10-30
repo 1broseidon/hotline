@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BackendChoice, ConfigChoice, FolderGrant, PersonaDraft } from "../generated/contract";
-import { chordKeys } from "../chords";
-import { CloseIcon } from "../icons";
+import { PaneClose } from "../ui/PaneClose";
 import { useActiveDesk, useDesks } from "../desks";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
@@ -64,9 +63,7 @@ export function NewTeammate({
 						}}
 					/>
 				)}
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<PaneClose onClose={onClose} />
 			</Band>
 			<Scroll>
 				<NewTeammateForm className="pane-column" models={models} onCreated={onCreated} onCancel={onClose} onProviders={onProviders} />
@@ -270,13 +267,13 @@ export function NewTeammateForm({
 					<p className="hint">
 						{simple
 							? "Its job, in your own words. It reads this every time it starts."
-							: "Its job description, written into its folder as AGENTS.md. It reads it every time it starts."}
+							: "What this teammate does. You can change it later."}
 					</p>
 				</div>
 			</section>
 
 			<section className="nt-folds">
-				<Fold title="Thinks with" value={thinks} open={open === "thinks"} onToggle={() => fold("thinks")}>
+				<Fold title="Agent" value={thinks} open={open === "thinks"} onToggle={() => fold("thinks")}>
 					{backends.length > 0 && !simple && (
 						<div>
 							<p className="label" id="new-backend">

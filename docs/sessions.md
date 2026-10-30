@@ -157,6 +157,41 @@ persona the session started with, so a turn already running sees a new
 wall. A change to reach, or to anything else the driver is built from,
 also restarts the session; see [Reattaching](#reattaching).
 
+### A harness teammate's model, mode and effort
+
+What each agent offers — its models, runtime modes and effort, each with the
+value it opened on — is kept per agent in `cache/acp-models.json`, from every
+session of it that opens and from a quiet look out of band
+(`driver/acp/models.rs`): the agent is started in an empty folder of its own,
+sent `initialize` and `session/new` naming no servers, read, and ended once
+its input is closed. No prompt is sent, so a look spends nothing and writes
+no transcript. An agent is due a look when its list is a day old, or when it
+has never offered modes here and was not looked at in the last day; looks
+run as the desk starts, when the picker lists the agents, and when a
+teammate's menu or pane opens (`plan.refresh`). A look that finds a new
+offer redraws the teammates at rest on that agent. So the mode picker in the
+teammate's pane, like the model and effort in its menu, is there running or
+not, whenever the agent has offered modes here.
+
+The teammate's choice wins over what the harness reports:
+
+- Only a person's choice — `session.set_mode`, `session.set_model`,
+  `session.set_config`, an effort tab, a switch of agent — writes the
+  teammate's `modeId`, `modelId` or `effortId`. At rest the choice is kept
+  unchecked against a live session and answered with the teammate's offer.
+- A harness's report fills the teammate only where it has nothing: a
+  harness teammate with no model is given the one its session reports, so
+  its band can name it at rest. Mode and effort are never filled; at rest
+  they fall back to the agent's offer.
+- At rest, what is shown as current is the teammate's choice where the
+  agent still offers it, else the agent's default from its offer.
+- When a session opens, the teammate's mode, model, effort and other
+  settings are sent to it before its first prompt (`adopt_disposition`).
+  A choice the agent no longer offers is not sent, and a refusal is not
+  fatal; either is logged, and the teammate keeps its choice for the next
+  session. A running session shows what it actually runs, never a choice
+  it did not take.
+
 ## Hotline Agent
 
 Hotline Agent (`driver/rig.rs`) runs the model in this process. Nothing asks
@@ -811,9 +846,12 @@ sentence pointing at Settings → Agents. This agent does not offer modes.
 
 A model that lists efforts offers an Effort picker. The value lives on
 the persona as `effortId` and is sent on every request through Rig's
-`additional_params`. A model switch keeps the effort only if the new
-model lists it; otherwise it clears. Which clients carry an effort, and
-what is sent:
+`additional_params`. A model switch made through `session.set_model` lands
+on an effort the wire chooses (the teammate's or the desk's last for that
+model, else the current one where offered, else one step down, never up;
+see `docs/wire.md`) and sets it after the model. A switch the driver makes
+on its own keeps the effort only if the new model lists it; otherwise it
+clears. Which clients carry an effort, and what is sent:
 
 | client | body |
 | --- | --- |

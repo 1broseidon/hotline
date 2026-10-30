@@ -57,6 +57,74 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<SessionProcess>>", optional)]
     pub processes: Vec<SessionProcess>,
+    /// How much of the account's plan is used, as the agent last reported
+    /// it after a reply. Absent until it reports, and for an agent that never
+    /// does; a reading is as of `at`, not live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plan_usage: Option<PlanUsage>,
+}
+
+/// An account's plan limits as its agent reported them: one line per window
+/// (the 5-hour limit, the weekly one, a model's own), each with how much of
+/// it is used and when it resets.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct PlanUsage {
+    pub windows: Vec<PlanWindow>,
+    /// When the agent last reported, in milliseconds since the epoch.
+    pub at: i64,
+    /// The plan's name, as the agent's account says it: "Max", "Pro",
+    /// "ChatGPT Pro". Absent when the reading did not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plan: Option<String>,
+    /// How many banked resets the account holds (Codex's reset credits),
+    /// when it said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub banked: Option<u32>,
+    /// When the first of those resets expires, in milliseconds since the
+    /// epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub banked_expires_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct PlanWindow {
+    /// The agent's name for the window: `five_hour`, `seven_day`,
+    /// `seven_day_opus`, `seven_day_sonnet`, a model's own
+    /// `seven_day_<model>`, `monthly`.
+    pub kind: String,
+    /// How much of it is used, 0 to 100, when the agent said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_percent: Option<f64>,
+    /// When it resets, in milliseconds since the epoch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<i64>,
+    /// How long the window is, in minutes: 300 for the 5-hour one, 10080
+    /// for a week. With `resets_at` it says how far into the window now is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_minutes: Option<i64>,
+    /// What to call the window when its kind does not say it: a model's
+    /// own weekly window, "Weekly · Fable".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Whether the account may use it: allowed, nearing the limit, or limited.
+    pub status: PlanStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum PlanStatus {
+    Allowed,
+    Warning,
+    Limited,
 }
 
 /// One command a session holds running, as the desk's chip shows it.
@@ -111,6 +179,11 @@ pub enum SessionState {
 pub enum SessionConfigCategory {
     /// A model's reasoning or thought level.
     Effort,
+    /// Fast mode, on or off: the model served faster, for more of the plan
+    /// or of paid usage, on the models that offer it.
+    Fast,
+    /// How much context the model may hold (Cursor's 300K or 1M).
+    Context,
 }
 
 /// The idle effort picker's reply for one catalogue model: the levels it
@@ -139,6 +212,9 @@ pub struct SessionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_id: Option<String>,
     pub options: Vec<ConfigChoice>,
+    /// Why the agent cannot turn this on now, in its words, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// What the agent behind a session can be asked to do.
@@ -162,6 +238,7 @@ pub struct SessionCapabilities {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct ConfigChoice {
     pub id: String,
@@ -177,6 +254,19 @@ pub struct ConfigChoice {
     /// one, the id is the plain `provider/model` it always was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<ChoiceAccount>,
+    /// A harness model's own effort levels, as its harness lists them out
+    /// of band or its session reports them for the model in use, so a
+    /// model not in use can be chosen with its effort. Absent where the
+    /// levels are not known here, and for anything that is not a model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub efforts: Option<Vec<ConfigChoice>>,
+    /// The level of `efforts` a session on this model starts at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
+    /// Whether a harness model can run in fast mode, as its harness lists
+    /// it out of band. Absent where that is not known here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast: Option<bool>,
 }
 
 /// Which of the person's accounts serves a model choice: a credential, by
@@ -272,6 +362,40 @@ pub struct BackendChoice {
     /// new on this desk, or its sign-in expired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<bool>,
+}
+
+/// What a harness offered the last time a session of it opened on this
+/// desk, or the daily look asked it: its models, modes and effort pickers,
+/// each with the value it opened on. The desk keeps one per agent, so a
+/// teammate that is not running offers the same choices its next session
+/// will, with its own as the current ones.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct BackendOffer {
+    #[serde(default)]
+    pub models: Vec<ConfigChoice>,
+    /// The model a session opens on before anyone chooses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_label: Option<String>,
+    #[serde(default)]
+    pub modes: Vec<ConfigChoice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_mode_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_label: Option<String>,
+    /// Each with the value a session opens on as `currentId`.
+    #[serde(default)]
+    pub configs: Vec<SessionConfig>,
+}
+
+impl BackendOffer {
+    /// Nothing to choose from: no models, modes or settings.
+    pub fn is_empty(&self) -> bool {
+        self.models.is_empty() && self.modes.is_empty() && self.configs.is_empty()
+    }
 }
 
 /// Where a fresh room stands on its way to a first turn, as the welcome

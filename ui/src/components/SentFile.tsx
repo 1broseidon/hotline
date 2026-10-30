@@ -6,7 +6,7 @@ import { onServer, openSent, saveSent, showPath } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { Viewer } from "../ui/Viewer";
 import { wire } from "../wire";
-import { SentPreview } from "./SentPreview";
+import { SentPreview, isMarkdown } from "./SentPreview";
 
 /**
  * A file a teammate sent with `send_file`, under the words it came with.
@@ -95,7 +95,7 @@ export function SentFile({
 				<FileIcon className="shrink-0 text-ink-3" />
 				<span className="min-w-0 flex-1">
 					<span className="block truncate">{file.name}</span>
-					<span className="block text-ink-3">{what}</span>
+					<span className="instrument block">{what}</span>
 				</span>
 				{actions}
 			</div>
@@ -192,7 +192,7 @@ export function OwnFile({ file }: { file: Attachment }) {
 				<FileIcon className="shrink-0 text-ink-3" />
 				<span className="min-w-0 flex-1">
 					<span className="block truncate">{file.name}</span>
-					<span className="block text-ink-3">{what}</span>
+					<span className="instrument block">{what}</span>
 				</span>
 				{!onServer() && (
 					<button
@@ -288,6 +288,7 @@ async function bytesOf(base64: string): Promise<Uint8Array<ArrayBuffer>> {
 
 /** What kind of file a card names, from its name's ending. */
 function kindOf(file: Attachment): string {
+	if (isMarkdown(file)) return "Markdown";
 	const dot = file.name.lastIndexOf(".");
 	return dot > 0 && dot < file.name.length - 1 ? `${file.name.slice(dot + 1).toUpperCase()} file` : "File";
 }

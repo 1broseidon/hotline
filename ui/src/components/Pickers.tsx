@@ -1,21 +1,29 @@
 import { useEffect } from "react";
 import { plainModel } from "../accounts";
 import type { ConfigChoice, SessionConfig } from "../generated/contract";
+import { landsOn } from "../effortLanding";
 import { lastKnown, rememberKnown } from "../lastKnown";
 import { refreshRoomRead, useRoomRead } from "../roomReads";
-import { useRoomSettings } from "../room";
+import { useRawSetting, useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
-import { ModelPicker } from "./ModelPicker";
+import { type Fast, type MenuTeammate, ModelPicker } from "./ModelPicker";
 import { wire, type RosterEntry } from "../wire";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
 const HOTLINE_AGENT = "hotline";
 
 /**
- * The open teammate's model and effort, on the window's top strip. They
- * name what a turn would run on whether or not a session is up, so the
- * strip is never blank over a resting teammate. Mode is not here: it is
- * the teammate's own and lives in the inspector.
+ * The open teammate's model and effort, on the window's top strip, in the
+ * pill that is the teammate's menu too. They name what a turn would run on
+ * whether or not a session is up, and offer the same choices: a harness
+ * teammate at rest has what its agent last offered on this desk, filled in
+ * by the core, with its own choices current, so nothing goes missing
+ * because the agent is not running. Each model carries its own levels, so
+ * a switch shows the new model's effort tabs at once, at the effort the
+ * core lands it on. Only an
+ * agent that has never reported here, and whose models the desk has not
+ * read out of band, is sparse: the pill names the harness. Mode is not
+ * here: it is the teammate's own and lives in the inspector.
  *
  * A refusal from the core is handed up, not shown: the strip has no room
  * for a sentence, and the conversation says it under its band. Keyed by
@@ -27,12 +35,18 @@ export function SessionPickers({
 	models,
 	onSaid,
 	onAddAccount,
+	teammate,
+	compact = false,
 }: {
 	entry: RosterEntry;
 	models: ConfigChoice[];
 	onSaid(said: string | null): void;
 	/** Settings › Providers, where accounts are added. */
 	onAddAccount?: (() => void) | undefined;
+	/** The teammate whose menu the pill is too: face, name, goal and actions. */
+	teammate?: MenuTeammate | undefined;
+	/** A narrow band: the pill is the model's mark and the face. */
+	compact?: boolean;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -44,16 +58,16 @@ export function SessionPickers({
 	// session is up. For Hotline Agent that is the driver's own rule: the
 	// teammate's choice when the list still has it, else the room default,
 	// else the last model used, else the first choice — newest only on a
-	// desk that has never run a model. For a harness it is the last model a
-	// session reported, remembered on the teammate; before any ever has,
-	// the harness's own name stands where the model will.
+	// desk that has never run a model. For a harness it is the session's,
+	// which at rest the core fills with the teammate's choice or its agent's
+	// default; before the agent has ever reported here, the harness's own
+	// name stands where the model will.
 	const currentModel =
 		session.currentModelId ??
 		(hotline ? hotlineModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
 	// Every agent the teammate could run on, for the picker's Agents (task-287).
 	const backends = useRoomRead("backends.list", "", true);
 	const harnessName = backends?.find((one) => one.id === persona.backendId)?.name ?? null;
-	const restingModel = currentModel !== "" ? currentModel : harnessName;
 	const idleEfforts = useRoomRead("models.efforts", currentModel, hotline && currentModel !== "");
 	const configs: SessionConfig[] =
 		session.configs.length > 0
@@ -70,14 +84,38 @@ export function SessionPickers({
 						},
 					]
 				: [];
-	const visibleConfigs = hotline ? configs : configs.filter((config) => config.category === "effort");
-	const setModel = async (modelId: string) => {
+	// A model switch lands on an effort the core chooses, the teammate's or
+	// the desk's last for the model, else the nearest level not above the
+	// current one, set after the model: the answer says which.
+	const setModel = async (modelId: string): Promise<string | null> => {
 		onSaid(null);
-		await wire.command("session.set_model", { personaId, modelId }).catch((error: Error) => onSaid(error.message));
+		try {
+			const info = await wire.command("session.set_model", { personaId, modelId });
+			return info.configs.find((config) => config.category === "effort")?.currentId ?? null;
+		} catch (error) {
+			onSaid((error as Error).message);
+			throw error;
+		}
 	};
 	const setConfig = async (configId: string, value: string) => {
 		onSaid(null);
 		await wire.command("session.set_config", { personaId, configId, value }).catch((error: Error) => onSaid(error.message));
+	};
+	// What a switch will land on, by the core's rules, shown dimmed until
+	// its answer says.
+	const deskEfforts = useRawSetting("effortByModel");
+	const predict = (modelId: string): string | undefined => {
+		const key = `${persona.backendId}/${modelId}`;
+		const model = agents.find((agent) => agent.id === persona.backendId)?.choices.find((choice) => choice.id === modelId);
+		const desk = typeof deskEfforts === "object" && deskEfforts !== null ? (deskEfforts as Record<string, unknown>)[key] : undefined;
+		return landsOn({
+			levels: (model?.efforts ?? []).map((level) => level.id),
+			default: model?.defaultEffort ?? undefined,
+			teammate: persona.effortByModel?.[key],
+			desk: typeof desk === "string" ? desk : undefined,
+			current: effort?.currentId ?? undefined,
+			currentLevels: (effort?.options ?? []).map((level) => level.id),
+		});
 	};
 
 	const setBackend = async (backendId: string, modelId: string | undefined) => {
@@ -94,6 +132,11 @@ export function SessionPickers({
 		// The live session's list, else the one the agent last reported here.
 		choices: backend.id === persona.backendId && session.models.length > 0 ? session.models : (backend.models ?? []),
 	}));
+	// Before the agents are read, the teammate's own still lists what its
+	// session offers, live or as its agent last offered it.
+	if (!hotline && !agents.some((agent) => agent.id === persona.backendId)) {
+		agents.push({ id: persona.backendId, name: harnessName ?? persona.backendId, choices: session.models });
+	}
 
 	// The model's pretty name, from any list the window holds, and the effort
 	// a live session runs at. What a live session names is remembered, so a
@@ -112,94 +155,88 @@ export function SessionPickers({
 	const known = lastKnown(personaId, currentModel);
 
 	// Model, account, effort and agent in one pull-down: Hotline Agent's
-	// accounts, then the other agents. A Hotline Agent teammate with no
-	// account left still has it, so it can move to an installed agent or add
-	// an account; only before the agents have been read is there nothing.
-	if (backends !== undefined || (hotline && modelChoices.length > 0)) {
-		const effort = configs.find((config) => config.category === "effort");
-		// A resting harness offers no effort to change: the strip names the
-		// one it last ran at, a single level, so no slider stands for it.
-		const shownEffort =
-			effort !== undefined
-				? { value: effort.currentId ?? "", choices: effort.options }
-				: known?.effort != null
-					? { value: known.effort, choices: [{ id: known.effort, name: known.effort }] }
-					: null;
-		const others = configs.filter((config) => config.category !== "effort");
-		return (
-			<>
-				<ModelPicker
-					choices={hotline ? modelChoices : models}
-					modelId={currentModel}
-					backendId={persona.backendId}
-					agents={agents}
-					onAgent={setBackend}
-					onOpen={() => refreshRoomRead("backends.list")}
-					{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
-					{...(known !== null ? { knownName: known.name } : {})}
-					effort={shownEffort}
-					label={session.modelLabel ?? "Model"}
-					onModel={setModel}
-					onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
-					onAddAccount={onAddAccount}
-				/>
-				{others.map((config) => (
-					<Picker
-						key={config.id}
-						value={config.currentId ?? ""}
-						choices={config.options}
-						placeholder={config.name}
-						label={config.name}
-						onChange={(value) => void setConfig(config.id, value)}
-					/>
-				))}
-			</>
-		);
-	}
-
+	// accounts, then the other agents. It is always there, being the
+	// teammate's menu as well: before the agents are read it has the model
+	// alone, and a Hotline Agent teammate with no account left can still
+	// move to an installed agent or add an account.
+	const effort = configs.find((config) => config.category === "effort");
+	// A harness that has never reported its levels here offers none to
+	// change: the strip names the one it last ran at, a single level, so
+	// nothing opens for it.
+	const shownEffort =
+		effort !== undefined
+			? { value: effort.currentId ?? "", choices: effort.options }
+			: known?.effort != null
+				? { value: known.effort, choices: [{ id: known.effort, name: known.effort }] }
+				: null;
+	// Fast mode is the menu's toggle, not a picker of its own.
+	const fastConfig = configs.find((config) => config.category === "fast");
+	// Claude Code and Codex say on and off; Cursor says true and false.
+	const fastOn = fastConfig?.options.find((option) => option.id === "on" || option.id === "true")?.id ?? "on";
+	const fastOff = fastConfig?.options.find((option) => option.id === "off" || option.id === "false")?.id ?? "off";
+	const fast: Fast | null =
+		fastConfig === undefined
+			? null
+			: {
+					on: fastConfig.currentId === fastOn,
+					hint: fastHint(persona.backendId),
+					...(fastConfig.note !== undefined ? { note: fastConfig.note } : {}),
+				};
+	// So is the context the model may hold, where the agent offers a choice (Cursor's 300K or 1M).
+	const contextConfig = configs.find((config) => config.category === "context");
+	const others = configs.filter((config) => config.category === undefined || config.category === null);
 	return (
 		<>
-			{modelChoices.length > 0 ? (
-				<Picker
-					value={currentModel}
-					choices={modelChoices}
-					placeholder="Model"
-					label={session.modelLabel ?? "Model"}
-					onChange={(modelId) => {
-						onSaid(null);
-						void wire
-							.command("session.set_model", { personaId, modelId })
-							.catch((error: Error) => onSaid(error.message));
-					}}
-				/>
-			) : (
-				restingModel !== null && (
-					<span
-						className="control max-w-[220px] truncate px-2 font-medium text-ink-2"
-						title={currentModel !== "" ? "The model of the last session; the list comes once it starts" : "Starts on its own model"}
-					>
-						{known?.name ?? restingModel}
-						{known?.effort != null && <span className="text-ink-3"> · {known.effort}</span>}
-					</span>
-				)
-			)}
-			{visibleConfigs.map((config) => (
+			{others.map((config) => (
 				<Picker
 					key={config.id}
 					value={config.currentId ?? ""}
 					choices={config.options}
 					placeholder={config.name}
 					label={config.name}
-					onChange={(value) => {
-						onSaid(null);
-						void wire
-							.command("session.set_config", { personaId, configId: config.id, value })
-							.catch((error: Error) => onSaid(error.message));
-					}}
+					onChange={(value) => void setConfig(config.id, value)}
 				/>
 			))}
+			<ModelPicker
+				choices={hotline ? modelChoices : models}
+				modelId={currentModel}
+				backendId={persona.backendId}
+				agents={agents}
+				onAgent={setBackend}
+				onOpen={() => {
+					refreshRoomRead("backends.list");
+					// The plan named beside the agent is the account's reading;
+					// the core reads it again only when it is a few minutes old.
+					void wire.command("plan.refresh", { personaId }).catch(() => {});
+				}}
+				{...(!hotline && currentModel === "" && harnessName !== null ? { fallbackName: harnessName } : {})}
+				{...(known !== null ? { knownName: known.name } : {})}
+				effort={shownEffort}
+				label={session.modelLabel ?? "Model"}
+				plan={session.planUsage}
+				onModel={setModel}
+				onEffort={(value) => setConfig(effort?.id ?? "effort", value)}
+				fast={fast}
+				onFast={(on) => setConfig(fastConfig?.id ?? "fast", on ? fastOn : fastOff)}
+				context={contextConfig === undefined ? null : { value: contextConfig.currentId ?? "", choices: contextConfig.options }}
+				onContext={(value) => setConfig(contextConfig?.id ?? "context", value)}
+				landsOn={predict}
+				onAddAccount={onAddAccount}
+				teammate={teammate}
+				compact={compact}
+			/>
 		</>
 	);
+}
+
+/**
+ * What fast mode costs, in the menu's few words: Claude Code bills it to
+ * extra usage only, never the plan; Codex spends the plan faster.
+ */
+function fastHint(backendId: string): string {
+	if (backendId === "claude-acp") return "Extra usage only";
+	if (backendId === "codex-acp") return "Uses more of plan";
+	return "Costs more";
 }
 
 function hotlineModel(

@@ -29,25 +29,6 @@ const steps: Step[] = [
 	{ kind: "tool", id: "s2", ts: 3, toolCallId: "c2", title: "Read 9 threads", status: "completed" },
 ];
 
-describe("the peek", () => {
-	test("its lines say what was done in a few words, nothing to open, and a pressed line is handed on to the pane", async () => {
-		const { GlanceRows } = await import("../src/components/Work");
-		const picked: (string | null)[] = [];
-		await act(async () => root.render(<GlanceRows items={steps} running={false} onPick={(id) => picked.push(id)} />));
-		const rows = [...container.querySelectorAll<HTMLButtonElement>("button.step")];
-		expect(rows.map((row) => row.textContent)).toEqual(["Thought it through", "Search mail since Monday", "Read 9 threads"]);
-		// No chevron to aim for, and no row claims to open or close.
-		expect(container.querySelector("button.step svg")).toBeNull();
-		expect(rows.every((row) => !row.hasAttribute("aria-expanded"))).toBe(true);
-		await act(async () => {
-			rows[1]!.click();
-			rows[2]!.click();
-		});
-		expect(picked).toEqual(["s1", "s2"]);
-		expect(container.querySelector(".step-out")).toBeNull();
-	});
-});
-
 describe("the work in the pane", () => {
 	test("the line pressed in the peek arrives open, the others closed and still openable", async () => {
 		const { StepRows } = await import("../src/components/transcript/Steps");

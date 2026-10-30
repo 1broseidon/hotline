@@ -449,6 +449,7 @@ pub(crate) async fn run(
         } => set_config(log, room, &persona_id, &config_id, &value)
             .await
             .map(|info| json!(info)),
+        Command::PlanRefresh { persona_id } => room.plan_refresh(&persona_id).map(|()| Value::Null),
         Command::SessionAnswerPermission {
             persona_id,
             request_id,
@@ -737,6 +738,10 @@ pub(crate) async fn run(
             room.computer_status(&persona_id)
                 .await
                 .map(|status| json!(status))
+        }
+        Command::ComputerStart { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_start(&persona_id).await.map(|()| Value::Null)
         }
         Command::ComputerStop { persona_id } => {
             living(log, &persona_id)?;

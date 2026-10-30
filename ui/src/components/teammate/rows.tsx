@@ -88,25 +88,46 @@ export function InfoKey({ about, label, open, onToggle }: { about: string; label
 	);
 }
 
-/** A row with more under it, opened in place. */
+/**
+ * A row with more under it, opened in place. An `action` (the desktop's
+ * Start or Stop) stands before the chevron, a key of its own: the row's
+ * text and its chevron open it, the key does its one thing.
+ */
 export function FoldRow({
 	title,
 	value,
 	open,
 	onToggle,
 	mark,
+	action,
 }: {
 	title: string;
 	value?: string;
 	open: boolean;
 	onToggle(): void;
 	mark?: ReactNode;
+	action?: ReactNode;
 }) {
+	const chevron = open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />;
+	if (action !== undefined && action !== null) {
+		return (
+			<div className="group-row fold-row-acted">
+				<button type="button" className="group-row-choice fold-row-open text-left" aria-expanded={open} onClick={onToggle}>
+					<RowText title={title} {...(value !== undefined ? { value } : {})} />
+					{mark}
+				</button>
+				{action}
+				<button type="button" className="group-row-choice fold-row-chevron" tabIndex={-1} aria-hidden="true" onClick={onToggle}>
+					{chevron}
+				</button>
+			</div>
+		);
+	}
 	return (
 		<button type="button" className="group-row group-row-choice w-full text-left" aria-expanded={open} onClick={onToggle}>
 			<RowText title={title} {...(value !== undefined ? { value } : {})} />
 			{mark}
-			{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+			{chevron}
 		</button>
 	);
 }

@@ -79,6 +79,118 @@ fn disposition_separates_runtime_mode_from_effort_and_hides_other_configs() {
     assert_eq!(dedicated.configs[0].id, "reasoning");
 }
 
+/// Fast mode, as Claude Code's (`fast`) and Codex's (`fast-mode`) adapters
+/// offer it, is kept as the fast toggle, with the reason it cannot be had
+/// when the adapter gives one; another on/off model setting stays out.
+#[test]
+fn disposition_keeps_fast_mode_and_its_reason() {
+    let fast = |id: &str, current: &str| {
+        select_config(
+            id,
+            "Fast mode",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            current,
+            &[("on", "On"), ("off", "Off")],
+        )
+    };
+    let configs = vec![
+        fast("fast", "off").description(Some(
+            "Faster responses on supported models — requires extra usage to be enabled for this account"
+                .to_string(),
+        )),
+        select_config(
+            "thinking",
+            "Thinking",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            "on",
+            &[("on", "On"), ("off", "Off")],
+        ),
+    ];
+    let claude = Disposition::of(None, Some(&configs));
+    assert_eq!(claude.configs.len(), 1);
+    let toggle = &claude.configs[0];
+    assert_eq!(toggle.id, "fast");
+    assert_eq!(
+        toggle.category,
+        Some(crate::contract::SessionConfigCategory::Fast)
+    );
+    assert_eq!(toggle.current_id.as_deref(), Some("off"));
+    assert_eq!(
+        toggle.note.as_deref(),
+        Some("Requires extra usage to be enabled for this account")
+    );
+
+    let codex = Disposition::of(
+        None,
+        Some(&[fast("fast-mode", "on").description(Some("Fast mode".to_string()))]),
+    );
+    assert_eq!(codex.configs[0].id, "fast-mode");
+    assert_eq!(codex.configs[0].current_id.as_deref(), Some("on"));
+    assert_eq!(codex.configs[0].note, None);
+}
+
+/// Cursor's parameterized picker: its context is a setting of its own, its
+/// fast mode a select of `false` and `true`, and a yes-or-no `thinking`
+/// beside its reasoning levels is no second effort picker.
+#[test]
+fn disposition_reads_cursors_context_fast_and_one_effort() {
+    let configs = vec![
+        select_config(
+            "context",
+            "Context",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            "300k",
+            &[("300k", "300K"), ("1m", "1M")],
+        ),
+        select_config(
+            "reasoning_effort",
+            "Reasoning",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            "high",
+            &[
+                ("minimal", "Minimal"),
+                ("xhigh", "Extra High"),
+                ("high", "High"),
+            ],
+        ),
+        select_config(
+            "thinking",
+            "Thinking",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            "true",
+            &[("false", "Off"), ("true", "On")],
+        ),
+        select_config(
+            "fast",
+            "Fast",
+            acp::SessionConfigOptionCategory::ModelConfig,
+            "false",
+            &[("false", "Off"), ("true", "On")],
+        ),
+    ];
+    let cursor = Disposition::of(None, Some(&configs));
+    let kinds: Vec<(&str, Option<crate::contract::SessionConfigCategory>)> = cursor
+        .configs
+        .iter()
+        .map(|config| (config.id.as_str(), config.category))
+        .collect();
+    use crate::contract::SessionConfigCategory::{Context, Effort, Fast};
+    assert_eq!(
+        kinds,
+        [
+            ("context", Some(Context)),
+            ("reasoning_effort", Some(Effort)),
+            ("fast", Some(Fast))
+        ]
+    );
+    let levels: Vec<&str> = cursor.configs[1]
+        .options
+        .iter()
+        .map(|level| level.name.as_str())
+        .collect();
+    assert_eq!(levels, ["Minimal", "High", "Extra high"]);
+}
+
 #[tokio::test]
 async fn config_notifications_update_model_and_effort_without_replacing_mode() {
     let live = Live::default();
@@ -241,4 +353,254 @@ async fn setting_a_config_and_a_mode_at_once_does_not_wedge_the_driver() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("the driver stopped answering: two callers are holding each other's lock");
+}
+
+/// The pickers a scripted agent opens with: Model (Opus, current, or
+/// Sonnet), Effort (Low, Medium, current, or High), and two modes, Default
+/// (current) and Plan.
+fn offered_configs(model: &str, effort: &str) -> Vec<acp::SessionConfigOption> {
+    vec![
+        select_config(
+            "model-choice",
+            "Model",
+            acp::SessionConfigOptionCategory::Model,
+            model,
+            &[("opus", "Opus"), ("sonnet", "Sonnet")],
+        ),
+        select_config(
+            "reasoning",
+            "Effort",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            effort,
+            &[("low", "Low"), ("medium", "Medium"), ("high", "High")],
+        ),
+    ]
+}
+
+/// An agent that opens a session with [`offered_configs`] and dedicated
+/// modes, and writes down every setting and mode it is asked for.
+fn agent_that_records_settings(
+    asked: Arc<Mutex<Vec<String>>>,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let configs = Arc::new(Mutex::new(("opus".to_string(), "medium".to_string())));
+        let set_configs = configs.clone();
+        let set_asked = asked.clone();
+        let mode_asked = asked.clone();
+        let prompt_asked = asked;
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("recording")
+            .on_receive_request(
+                async move |request: InitializeRequest, responder, _cx| {
+                    responder.respond(InitializeResponse::new(request.protocol_version))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |_request: NewSessionRequest,
+                      responder: Responder<NewSessionResponse>,
+                      _cx| {
+                    let configs = configs.clone();
+                    async move {
+                        let (model, effort) = configs.lock().unwrap().clone();
+                        responder.respond(
+                            NewSessionResponse::new(SessionId::new("recorded"))
+                                .modes(SessionModeState::new(
+                                    acp::SessionModeId::new("default"),
+                                    vec![
+                                        SessionMode::new(
+                                            acp::SessionModeId::new("default"),
+                                            "Default",
+                                        ),
+                                        SessionMode::new(acp::SessionModeId::new("plan"), "Plan"),
+                                    ],
+                                ))
+                                .config_options(offered_configs(&model, &effort)),
+                        )
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |request: acp::SetSessionConfigOptionRequest,
+                      responder: Responder<acp::SetSessionConfigOptionResponse>,
+                      _cx| {
+                    let configs = set_configs.clone();
+                    let asked = set_asked.clone();
+                    async move {
+                        let acp::SessionConfigOptionValue::ValueId { value } = &request.value
+                        else {
+                            panic!("a select is set by its value's id");
+                        };
+                        let value = value.0.to_string();
+                        asked
+                            .lock()
+                            .unwrap()
+                            .push(format!("{} = {value}", request.config_id.0));
+                        let (model, effort) = {
+                            let mut current = configs.lock().unwrap();
+                            match request.config_id.0.as_ref() {
+                                "model-choice" => current.0 = value,
+                                "reasoning" => current.1 = value,
+                                _ => {}
+                            }
+                            current.clone()
+                        };
+                        responder.respond(acp::SetSessionConfigOptionResponse::new(
+                            offered_configs(&model, &effort),
+                        ))
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |request: acp::SetSessionModeRequest,
+                      responder: Responder<acp::SetSessionModeResponse>,
+                      _cx| {
+                    let asked = mode_asked.clone();
+                    async move {
+                        asked
+                            .lock()
+                            .unwrap()
+                            .push(format!("mode = {}", request.mode_id.0));
+                        responder.respond(acp::SetSessionModeResponse::new())
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                move |_request: acp::PromptRequest, responder: Responder<PromptResponse>, _cx| {
+                    let asked = prompt_asked.clone();
+                    async move {
+                        asked.lock().unwrap().push("prompt".to_string());
+                        responder.respond(PromptResponse::new(StopReason::EndTurn))
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the recording agent ended: {error}");
+        }
+    }
+}
+
+/// What a teammate chose while it was not running is put on the session
+/// that opens next — mode, model, then effort, which a model can change —
+/// and a choice the agent no longer offers is not sent at all. What the
+/// agent offered as it opened is kept for the agent, on disk, with the
+/// values it opened on, before any of the teammate's choices.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_puts_the_teammates_choices_back_and_keeps_what_the_agent_offered() {
+    let held = room("choices-room");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let agent = agent_that_records_settings(asked.clone());
+    let root = scratch("choices");
+    let driver = ChildAgent::new(
+        root.clone(),
+        "claude-acp".to_string(),
+        "you are Ada".to_string(),
+        TeammateTools::new(&held, "choices"),
+    );
+    tokio::spawn(agent);
+
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "choices".to_string();
+    ada.backend_id = "claude-acp".to_string();
+    ada.mode_id = Some("plan".to_string());
+    ada.model_id = Some("sonnet".to_string());
+    ada.effort_id = Some("high".to_string());
+    // A setting the agent no longer offers: dropped without a word.
+    ada.config_choices =
+        std::collections::BTreeMap::from([("verbosity".to_string(), "terse".to_string())]);
+    let started = driver.handshake(&ada, client_transport()).await.unwrap();
+
+    assert_eq!(
+        *asked.lock().unwrap(),
+        ["mode = plan", "model-choice = sonnet", "reasoning = high"]
+    );
+    assert_eq!(started.current_model_id, "sonnet");
+    assert_eq!(started.current_mode_id.as_deref(), Some("plan"));
+
+    // Read from the file, as a desk opened again reads it.
+    let offer = super::super::models::offer(&root, "claude-acp").expect("the offer is kept");
+    assert_eq!(
+        offer
+            .models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["opus", "sonnet"]
+    );
+    assert_eq!(offer.current_model_id.as_deref(), Some("opus"));
+    assert_eq!(
+        offer
+            .modes
+            .iter()
+            .map(|mode| mode.id.as_str())
+            .collect::<Vec<_>>(),
+        ["default", "plan"]
+    );
+    assert_eq!(offer.current_mode_id.as_deref(), Some("default"));
+    assert_eq!(offer.configs.len(), 1);
+    assert_eq!(offer.configs[0].id, "reasoning");
+    assert_eq!(offer.configs[0].current_id.as_deref(), Some("medium"));
+}
+
+/// Nothing chosen, nothing sent: a teammate that never chose opens on the
+/// agent's own defaults, and one whose choices are already the agent's sends
+/// nothing either.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_with_no_choices_or_the_agents_own_sends_nothing() {
+    let held = room("no-choices-room");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let agent = agent_that_records_settings(asked.clone());
+    let driver = ChildAgent::new(
+        scratch("no-choices"),
+        "claude-acp".to_string(),
+        "you are Ada".to_string(),
+        TeammateTools::new(&held, "no-choices"),
+    );
+    tokio::spawn(agent);
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "no-choices".to_string();
+    ada.backend_id = "claude-acp".to_string();
+    ada.model_id = Some("opus".to_string());
+    ada.effort_id = Some("medium".to_string());
+    ada.mode_id = Some("gone".to_string());
+    driver.handshake(&ada, client_transport()).await.unwrap();
+    assert!(
+        asked.lock().unwrap().is_empty(),
+        "{:?}",
+        asked.lock().unwrap()
+    );
+}
+
+/// A mode chosen while the teammate rested reaches its next session as
+/// `session/set_mode`, answered before the first prompt is sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mode_chosen_at_rest_is_set_before_the_first_prompt() {
+    let held = room("rest-mode-room");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let agent = agent_that_records_settings(asked.clone());
+    let driver = ChildAgent::new(
+        scratch("rest-mode"),
+        "claude-acp".to_string(),
+        "you are Ada".to_string(),
+        TeammateTools::new(&held, "rest-mode"),
+    );
+    tokio::spawn(agent);
+    let mut ada = persona(&scratch_cwd(), Vec::new());
+    ada.id = "rest-mode".to_string();
+    ada.backend_id = "claude-acp".to_string();
+    ada.mode_id = Some("plan".to_string());
+    driver.handshake(&ada, client_transport()).await.unwrap();
+    let mut updates = driver
+        .prompt("hello".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+    assert_eq!(turn_end(&mut updates).await, "end_turn");
+    assert_eq!(*asked.lock().unwrap(), ["mode = plan", "prompt"]);
 }

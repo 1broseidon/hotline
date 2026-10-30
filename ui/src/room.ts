@@ -88,8 +88,8 @@ function roomOf(connection: ReturnType<typeof wireFor>) {
 					const job = item.deleted ? null : jobFromEvent(item);
 					next.jobs = job ? sortJobs([...without, job]) : without;
 				}
-				// lastModelId records ordinary model use, not a changed catalogue.
-				if (changesModels(item) || (item.kind === "setting" && item.id !== "lastModelId")) {
+				// lastModelId and effortByModel record ordinary model use, not a changed catalogue.
+				if (changesModels(item) || (item.kind === "setting" && item.id !== "lastModelId" && item.id !== "effortByModel")) {
 					next.readEpoch = { ready: true };
 				}
 				if (changesModels(item)) next.modelsRevision = state.modelsRevision + 1;

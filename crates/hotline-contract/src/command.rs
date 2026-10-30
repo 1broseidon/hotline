@@ -607,6 +607,12 @@ pub enum Command {
         config_id: String,
         value: String,
     },
+    /// The model picker opened on this teammate: its login's plan is read
+    /// again, out of band, when the reading kept is two minutes old, and
+    /// otherwise left as it is. Answers at once; the reading arrives on the
+    /// `SessionInfo.planUsage` of every teammate on that login.
+    #[serde(rename = "plan.refresh")]
+    PlanRefresh { persona_id: String },
     /// Answers a permission card the agent is waiting behind. Refused when
     /// nothing is waiting any more — the turn ended, the session stopped, or
     /// somebody else answered first — so a stale card cannot silently let an
@@ -782,6 +788,11 @@ pub enum Command {
     /// A peek: never wakes the container.
     #[serde(rename = "computer.status")]
     ComputerStatus { persona_id: String },
+    /// Brings the computer up from the teammate's pane, with the session it
+    /// serves: a teammate at rest starts, and a running one whose computer was
+    /// stopped is attached to it again between turns.
+    #[serde(rename = "computer.start")]
+    ComputerStart { persona_id: String },
     #[serde(rename = "computer.stop")]
     ComputerStop { persona_id: String },
     #[serde(rename = "computer.remove")]

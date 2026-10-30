@@ -167,6 +167,12 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                 for change in changes {
                     if let Some(known) = files.iter_mut().find(|known| known.path == change.path) {
                         known.created |= change.created;
+                        // An update carries the call's whole diff again, so its
+                        // count replaces the one announced rather than adding to it.
+                        if change.added.is_some() {
+                            known.added = change.added;
+                            known.removed = change.removed;
+                        }
                     } else {
                         files.push(change);
                     }
@@ -276,6 +282,23 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             apply_configs_to_session(&mut session, &update.config_options);
             drop(session);
             live.publish_info();
+        }
+        // The account's plan, when the agent says how much of it is used: the
+        // account's, so a subagent's report counts as much as the conversation's.
+        // Only the window just reported is published, as of now: the room
+        // keeps the account's whole reading and merges this into it, and a
+        // window kept here from an earlier reply would read as new.
+        SessionUpdate::UsageUpdate(usage) => {
+            if let Some(window) = super::plan::reported_window(usage.meta.as_ref()) {
+                let mut session = lock(&live.session);
+                session.info.plan_usage = Some(super::plan::with_window(
+                    None,
+                    window,
+                    crate::session::now_ms(),
+                ));
+                drop(session);
+                live.publish_info();
+            }
         }
         _ => {}
     }
@@ -625,10 +648,18 @@ fn changed_files(
     let mut files: Vec<_> = content
         .iter()
         .filter_map(|item| match item {
-            acp::ToolCallContent::Diff(diff) => Some(crate::contract::ChangedFile {
-                path: diff.path.to_string_lossy().into_owned(),
-                created: diff.old_text.is_none(),
-            }),
+            acp::ToolCallContent::Diff(diff) => {
+                let counted = crate::lines::changed_lines(
+                    diff.old_text.as_deref().unwrap_or_default(),
+                    &diff.new_text,
+                );
+                Some(crate::contract::ChangedFile {
+                    path: diff.path.to_string_lossy().into_owned(),
+                    created: diff.old_text.is_none(),
+                    added: counted.map(|(added, _)| added),
+                    removed: counted.map(|(_, removed)| removed),
+                })
+            }
             _ => None,
         })
         .collect();
@@ -639,6 +670,8 @@ fn changed_files(
                 files.push(crate::contract::ChangedFile {
                     path,
                     created: false,
+                    added: None,
+                    removed: None,
                 });
             }
         }
@@ -662,5 +695,32 @@ mod own_words_tests {
         assert_eq!(own_words(Some(&json!({"command": "ls"}))), None);
         assert_eq!(own_words(Some(&json!({"description": "   "}))), None);
         assert_eq!(own_words(None), None);
+    }
+}
+
+#[cfg(test)]
+mod changed_files_tests {
+    use super::{acp, changed_files};
+
+    #[test]
+    fn an_edit_records_the_lines_its_diff_put_in_and_took_out() {
+        let edit = acp::ToolCallContent::Diff(
+            acp::Diff::new("src/upload/safari.ts", "a\nb2\nc\nd\n")
+                .old_text("a\nb\nc\n".to_string()),
+        );
+        let created = acp::ToolCallContent::Diff(acp::Diff::new("docs/new.md", "one\ntwo\n"));
+        let files = changed_files(acp::ToolKind::Edit, &[], &[edit, created]);
+        assert_eq!(files.len(), 2);
+        assert_eq!((files[0].added, files[0].removed), (Some(2), Some(1)));
+        assert!(!files[0].created);
+        assert_eq!((files[1].added, files[1].removed), (Some(2), Some(0)));
+        assert!(files[1].created);
+        // A location without a diff is a file changed, by an amount nobody showed.
+        let only_named = changed_files(
+            acp::ToolKind::Edit,
+            &[acp::ToolCallLocation::new("src/lib.rs")],
+            &[],
+        );
+        assert_eq!((only_named[0].added, only_named[0].removed), (None, None));
     }
 }

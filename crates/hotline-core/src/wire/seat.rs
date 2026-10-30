@@ -110,12 +110,16 @@ impl Seat {
                     | Command::SecretsCaptureAnswer(..)
                     | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }
+                    // The picker's reading of the plan, which the phone's
+                    // picker shows as the desk's does.
+                    | Command::PlanRefresh { .. }
                     | Command::SessionSetBackend { .. }
                     | Command::SessionSetConfig { .. }
                     | Command::ModelsList { .. }
                     | Command::ModelsEfforts { .. }
                     | Command::ComputerCapacity { .. }
                     | Command::ComputerStatus { .. }
+                    | Command::ComputerStart { .. }
                     | Command::ComputerStop { .. }
                     // Proof the link is alive, and a card for a link already
                     // in a conversation the phone reads.

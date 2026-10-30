@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type { DockState } from "./components/Dock";
 import type { SettingsSection } from "./components/Settings";
+import { chatWindow } from "./chatWindow";
 import { activeDeskId, allDesks, deskFilter, deskKey, LOCAL_DESK, setActiveDesk } from "./desks";
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
@@ -20,7 +21,8 @@ let arriving: { pane: Pane; inspector: boolean; section?: SettingsSection } = { 
  * the window talks to, and nothing needs switching by hand.
  */
 export function openOnDesk(deskId: string, open: { personaId?: string; pane?: Pane; inspector?: boolean; section?: SettingsSection }) {
-	if (open.personaId !== undefined) {
+	if (open.personaId !== undefined && chatWindow !== null) chatSelected = open.personaId;
+	else if (open.personaId !== undefined) {
 		try {
 			localStorage.setItem(deskKey(SELECTED_KEY, deskId), open.personaId);
 		} catch {
@@ -136,7 +138,11 @@ export function useNavigation() {
  * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
 const SELECTED_KEY = "hotline.rail.selected";
 
+/* A chat in a window of its own opens on its teammate, and what it opens after is not saved. */
+let chatSelected: string | null = chatWindow?.personaId ?? null;
+
 function loadSelected(): string | null {
+	if (chatWindow !== null) return chatSelected;
 	try {
 		const id = localStorage.getItem(deskKey(SELECTED_KEY));
 		return id !== null && id !== "" ? id : null;
@@ -146,6 +152,10 @@ function loadSelected(): string | null {
 }
 
 function saveSelected(id: string | null): void {
+	if (chatWindow !== null) {
+		chatSelected = id;
+		return;
+	}
 	try {
 		if (id === null) localStorage.removeItem(deskKey(SELECTED_KEY));
 		else localStorage.setItem(deskKey(SELECTED_KEY), id);

@@ -7,6 +7,7 @@ use crate::contract::{
     HumanActionStatus, PasskeyAskStatus, Persona, RosterEntry, SessionInfo, SessionState,
     ToolStatus, TranscriptEvent,
 };
+use crate::driver::acp::catalog;
 use crate::log::{Log, StreamId};
 use crate::room;
 use crate::store::previews::live::{Live, State};
@@ -370,7 +371,11 @@ fn roster_entry(
         .clone();
     let preview = state.preview.clone();
     let latest = preview.as_ref().map(|preview| preview.at);
-    let session = room.info(&persona.id);
+    let mut session = offered(room, &persona, room.info(&persona.id));
+    // The plan is the login's: a teammate not running shows it too.
+    if session.plan_usage.is_none() {
+        session.plan_usage = room.plan_of(&persona.backend_id);
+    }
     json!(RosterEntry {
         activity: (session.state == SessionState::Thinking)
             .then(|| state.activity.clone().map(|(_, title)| title))
@@ -391,6 +396,99 @@ fn roster_entry(
         latest,
         persona,
     })
+}
+
+/// A harness teammate whose session has not opened offers what its agent
+/// offered when one last did — its models, modes and effort — with the
+/// teammate's own choices as the current ones, each only while the agent
+/// still offers it, the way the next session will open. So the menu lists
+/// them before the teammate runs, and a choice made then is shown at once.
+/// Its effort picker is its own model's levels, from the agent's catalogue
+/// when no session reported them. A session that is up says its own, each
+/// other model with the levels the agent offers for it. Hotline Agent's
+/// choices are the desk's, which the window reads from the room.
+pub(super) fn offered(
+    room: &Arc<dyn RoomHandle>,
+    persona: &Persona,
+    mut info: SessionInfo,
+) -> SessionInfo {
+    if persona.backend_id == crate::driver::HOTLINE_BACKEND_ID {
+        return info;
+    }
+    let offer = room.backend_offer(&persona.backend_id).unwrap_or_default();
+    if info.session_id.is_some() {
+        catalog::with_levels(
+            &mut info.models,
+            info.current_model_id.as_deref().unwrap_or_default(),
+            &info.configs,
+            &offer.models,
+        );
+        return info;
+    }
+    // The teammate's choice where the list has it, or where there is no list.
+    let chosen = |choice: Option<&String>, list: &[crate::contract::ConfigChoice]| {
+        choice
+            .filter(|id| list.is_empty() || list.iter().any(|one| one.id == **id))
+            .cloned()
+    };
+    if info.models.is_empty() {
+        info.models = offer.models;
+        info.model_label = info.model_label.or(offer.model_label);
+    }
+    let model_id = persona
+        .model_id
+        .as_deref()
+        .map(|id| catalog::listed_as(id, &info.models).to_string());
+    info.current_model_id = chosen(model_id.as_ref(), &info.models)
+        .or(info.current_model_id.filter(|id| !id.is_empty()))
+        .or(offer.current_model_id);
+    if info.modes.is_empty() {
+        info.modes = offer.modes;
+        info.mode_label = info.mode_label.or(offer.mode_label);
+    }
+    info.current_mode_id = chosen(persona.mode_id.as_ref(), &info.modes)
+        .or(info.current_mode_id)
+        .or(offer.current_mode_id);
+    if info.configs.is_empty() {
+        info.configs = offer.configs;
+    }
+    for config in &mut info.configs {
+        let choice = if config.category == Some(crate::contract::SessionConfigCategory::Effort) {
+            persona.effort_id.as_ref()
+        } else {
+            persona.config_choices.get(&config.id)
+        };
+        if let Some(value) =
+            choice.filter(|value| config.options.iter().any(|one| one.id == **value))
+        {
+            config.current_id = Some(value.clone());
+        }
+    }
+    catalog::fit_effort(
+        &mut info.configs,
+        &info.models,
+        info.current_model_id.as_deref(),
+        persona.effort_id.as_ref(),
+    );
+    catalog::fit_fast(
+        &mut info.configs,
+        &info.models,
+        info.current_model_id.as_deref(),
+    );
+    info
+}
+
+/// The teammate's session as [`offered`] draws it, read afresh: what a
+/// choice made while it rests answers with.
+pub(super) fn offered_info(log: &Log, room: &Arc<dyn RoomHandle>, persona_id: &str) -> SessionInfo {
+    let info = room.info(persona_id);
+    match room::roster(log)
+        .into_iter()
+        .find(|persona| persona.id == persona_id)
+    {
+        Some(persona) => offered(room, &persona, info),
+        None => info,
+    }
 }
 
 /// The title of the tool still running on this tape, if the session is

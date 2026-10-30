@@ -161,15 +161,43 @@ export const ChevronDownIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+export const ChevronLeftIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M9.5 4.5L6 8l3.5 3.5" />
+	</Icon>
+);
+
 export const ChevronRightIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<path d="M6.5 4.5L10 8l-3.5 3.5" />
 	</Icon>
 );
 
+/* Change agent: one arrow out, one back. */
+export const SwapIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M3 5.5h9.5M10.25 3.25l2.25 2.25-2.25 2.25M13 10.5H3.5M5.75 8.25L3.5 10.5l2.25 2.25" />
+	</Icon>
+);
+
+/** Fast mode: a bolt. */
+export const FastIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M9 1.75L3.75 9h4l-.75 5.25L12.25 7h-4L9 1.75z" />
+	</Icon>
+);
+
 export const CheckIcon = ({ className }: IconProps) => (
 	<Icon className={className} strokeWidth={1.75}>
 		<path d="M3.25 8.5l3 3 6.5-7" />
+	</Icon>
+);
+
+/** A page the agent opened and read, as against one a search only found. */
+export const EyeIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M1.75 8s2.25-4.25 6.25-4.25S14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8z" />
+		<circle cx="8" cy="8" r="1.9" />
 	</Icon>
 );
 

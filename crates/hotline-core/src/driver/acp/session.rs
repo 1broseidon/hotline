@@ -259,7 +259,13 @@ impl ChildAgent {
                     .block_task()
                     .await;
                 if let Ok(response) = resumed {
-                    self.adopt(id, response.modes, response.config_options, true);
+                    self.adopt(
+                        id,
+                        response.modes,
+                        response.config_options,
+                        response.meta.as_ref(),
+                        true,
+                    );
                     return Ok(());
                 }
                 // Some agents advertise both and can only resume particular
@@ -277,7 +283,13 @@ impl ChildAgent {
                     .await;
                 self.live.replaying.store(false, Ordering::SeqCst);
                 if let Ok(response) = loaded {
-                    self.adopt(id, response.modes, response.config_options, true);
+                    self.adopt(
+                        id,
+                        response.modes,
+                        response.config_options,
+                        response.meta.as_ref(),
+                        true,
+                    );
                     return Ok(());
                 }
                 // A stale or backend-invalid checkpoint degrades to a new
@@ -298,6 +310,7 @@ impl ChildAgent {
             opened.session_id,
             opened.modes,
             opened.config_options,
+            opened.meta.as_ref(),
             false,
         );
         Ok(())
@@ -487,12 +500,23 @@ impl ChildAgent {
         id: SessionId,
         modes: Option<acp::SessionModeState>,
         configs: Option<Vec<acp::SessionConfigOption>>,
+        meta: Option<&acp::Meta>,
         restored: bool,
     ) {
         lock(&self.live.tools).clear();
         self.live.forget_subagents();
-        let disposition = Disposition::of(modes.as_ref(), configs.as_deref());
-        super::models::remember(&self.root, &self.backend_id, &disposition.models);
+        let mut disposition = Disposition::of(modes.as_ref(), configs.as_deref());
+        super::modes::add(&self.backend_id, &mut disposition.modes);
+        super::models::remember(&self.root, &self.backend_id, &disposition.offer());
+        // A mode the launch says, which the session cannot: Cursor's Run
+        // Everything is its Agent mode started with --force. A session
+        // reopened in another of its modes says that one.
+        if let Some(launched) =
+            super::modes::launched_in(&self.backend_id, lock(&self.launch).as_ref())
+            && disposition.current_mode_id.as_deref() == Some(super::modes::CURSOR_AGENT)
+        {
+            disposition.current_mode_id = Some(launched.to_string());
+        }
         let mut session = lock(&self.live.session);
         session.id = Some(id.clone());
         session.model_config = disposition.model_config;
@@ -500,42 +524,119 @@ impl ChildAgent {
         session.dedicated_modes = disposition.dedicated_modes;
         session.info.session_id = Some(id.0.to_string());
         session.info.context_restored = restored;
-        session.info.models = disposition.models;
+        session.info.models =
+            super::models::with_catalogue(&self.root, &self.backend_id, disposition.models);
         session.info.current_model_id = disposition.current_model_id.unwrap_or_default();
         session.info.model_label = disposition.model_label;
         session.info.modes = disposition.modes;
         session.info.current_mode_id = disposition.current_mode_id;
         session.info.mode_label = disposition.mode_label;
         session.info.configs = disposition.configs;
+        // A plan the agent names as it opens, for the room to keep for its login.
+        if let Some(named) = super::plan::named_plan(meta, crate::session::now_ms()) {
+            session.info.plan_usage = Some(named);
+        }
     }
 
-    /// Puts the teammate's own model and mode back on.
+    /// Puts the teammate's own model, mode, effort and other settings back on,
+    /// before the session takes its first prompt.
     ///
     /// These are session-scoped for every agent Hotline drives, so a teammate that
     /// is not asked again arrives on whatever the harness defaults to — which
-    /// is a teammate quietly losing its disposition on every restart. A
-    /// refusal is not fatal: the session is up either way, and the picker will
-    /// show what the agent actually settled on.
+    /// is a teammate quietly losing its disposition on every restart. A choice
+    /// the agent no longer offers is not sent, and a refusal is not fatal: the
+    /// session is up either way, on the agent's own default, and the picker
+    /// shows what the agent actually settled on. Either is logged, and the
+    /// teammate keeps its choice for the next session (docs/sessions.md).
+    /// Effort goes last, since a model's change can change the levels it has.
     pub(super) async fn adopt_disposition(&self, persona: &Persona) {
         let (mode, model) = {
             let session = lock(&self.live.session);
+            let info = &session.info;
+            // A mode the agent is launched in is not one its session is
+            // asked for (Cursor's Run Everything is its Agent, started with
+            // --force); a session launched in one is already in it.
+            let mode = persona
+                .mode_id
+                .clone()
+                .filter(|id| Some(id) != info.current_mode_id.as_ref())
+                .filter(|id| !super::modes::relaunches(&self.backend_id, id));
+            let model = persona
+                .model_id
+                .as_deref()
+                .map(|id| super::catalog::listed_as(id, &info.models).to_string())
+                .filter(|id| *id != info.current_model_id);
+            let offered = |id: &String, list: &[crate::contract::ConfigChoice], what: &str| {
+                let offered = list.is_empty() || list.iter().any(|one| one.id == *id);
+                if !offered {
+                    eprintln!(
+                        "[acp] {}'s {what} {id} is not one {} offers now; it opens on the agent's own",
+                        persona.id, self.backend_id
+                    );
+                }
+                offered
+            };
             (
-                persona
-                    .mode_id
-                    .clone()
-                    .filter(|id| Some(id) != session.info.current_mode_id.as_ref()),
-                persona
-                    .model_id
-                    .clone()
-                    .filter(|id| *id != session.info.current_model_id),
+                mode.filter(|id| offered(id, &info.modes, "mode")),
+                model.filter(|id| offered(id, &info.models, "model")),
             )
         };
         if let Some(mode) = mode {
-            let _ = self.set_mode(&mode).await;
+            match self.set_mode(&mode).await {
+                Ok(info) if info.current_mode_id.as_ref() != Some(&mode) => eprintln!(
+                    "[acp] {} asked for mode {mode} and runs in {:?}",
+                    persona.id, info.current_mode_id
+                ),
+                Ok(_) => {}
+                Err(error) => eprintln!("[acp] {}'s mode {mode} was refused: {error}", persona.id),
+            }
         }
         if let Some(model) = model {
-            let _ = self.set_model(&model).await;
+            match self.set_model(&model).await {
+                Ok(info) if info.current_model_id != model => eprintln!(
+                    "[acp] {} asked for model {model} and runs on {}",
+                    persona.id, info.current_model_id
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!("[acp] {}'s model {model} was refused: {error}", persona.id);
+                }
+            }
         }
+        for (config_id, value) in self.settings_to_put_back(persona) {
+            let _ = self.set_config(&config_id, &value).await;
+        }
+    }
+
+    /// The teammate's effort and other settings its session opened without,
+    /// each one the agent still offers.
+    fn settings_to_put_back(&self, persona: &Persona) -> Vec<(String, String)> {
+        let session = lock(&self.live.session);
+        let configs = &session.info.configs;
+        let effort = persona.effort_id.as_ref().and_then(|value| {
+            configs
+                .iter()
+                .find(|config| {
+                    config.category == Some(crate::contract::SessionConfigCategory::Effort)
+                })
+                .map(|config| (config.id.clone(), value.clone()))
+        });
+        effort
+            .into_iter()
+            .chain(
+                persona
+                    .config_choices
+                    .iter()
+                    .map(|(id, value)| (id.clone(), value.clone())),
+            )
+            .filter(|(id, value)| {
+                configs.iter().any(|config| {
+                    config.id == *id
+                        && config.current_id.as_ref() != Some(value)
+                        && config.options.iter().any(|option| option.id == *value)
+                })
+            })
+            .collect()
     }
 
     /// Sets one config option and takes the agent's whole answer back, since
@@ -730,6 +831,17 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
 }
 
 /// What Hotline says it can do when it meets an agent.
+/// What Hotline asks of every agent in `initialize`'s client `_meta`:
+/// Cursor's parameterized model picker, its base models with effort, context
+/// and fast as settings of their own, in place of one model id per variant
+/// (`claude-opus-5-5[context=300k,effort=medium,fast=false]`). An agent that
+/// does not know it ignores it.
+pub(super) fn client_meta() -> acp::Meta {
+    let mut meta = acp::Meta::new();
+    meta.insert("parameterizedModelPicker".into(), Value::Bool(true));
+    meta
+}
+
 fn initialize_request() -> RawInitialize {
     let request = InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
         // Hotline answers file reads and writes on the agent's behalf
@@ -739,7 +851,8 @@ fn initialize_request() -> RawInitialize {
             .fs(FileSystemCapabilities::new()
                 .read_text_file(true)
                 .write_text_file(true))
-            .auth(acp::AuthCapabilities::new().terminal(cfg!(unix))),
+            .auth(acp::AuthCapabilities::new().terminal(cfg!(unix)))
+            .meta(client_meta()),
     );
     let mut request = serde_json::to_value(request).unwrap_or_default();
     // Subagents shown as sessions of their own, which each become a run with
@@ -815,9 +928,17 @@ pub(super) struct Disposition {
 }
 
 impl Disposition {
-    /// The agent's model picker, empty when it offers none.
-    pub(super) fn models(self) -> Vec<crate::contract::ConfigChoice> {
-        self.models
+    /// What the agent offers, each picker with the value it opened on.
+    pub(super) fn offer(&self) -> crate::contract::BackendOffer {
+        crate::contract::BackendOffer {
+            models: self.models.clone(),
+            current_model_id: self.current_model_id.clone(),
+            model_label: self.model_label.clone(),
+            modes: self.modes.clone(),
+            current_mode_id: self.current_mode_id.clone(),
+            mode_label: self.mode_label.clone(),
+            configs: self.configs.clone(),
+        }
     }
 
     pub(super) fn of(
@@ -838,6 +959,9 @@ impl Disposition {
                     description: mode.description.clone(),
                     group: None,
                     account: None,
+                    efforts: None,
+                    default_effort: None,
+                    fast: None,
                 })
                 .collect();
             disposition.current_mode_id = Some(state.current_mode_id.0.to_string());
@@ -860,17 +984,51 @@ impl Disposition {
                     disposition.mode_config = Some(option.id.0.to_string());
                     disposition.mode_label = Some(option.name.clone());
                 }
+                // A yes-or-no thought setting (Cursor's `thinking`) is not
+                // a level; it stays the harness's. One effort picker each.
+                Some(acp::SessionConfigOptionCategory::ThoughtLevel)
+                    if is_switch(&picker)
+                        || disposition.configs.iter().any(|config| {
+                            config.category == Some(crate::contract::SessionConfigCategory::Effort)
+                        }) => {}
                 Some(acp::SessionConfigOptionCategory::ThoughtLevel) => {
+                    let picker = crate::models::tidy_efforts(picker);
                     disposition.configs.push(crate::contract::SessionConfig {
                         id: option.id.0.to_string(),
                         name: option.name.clone(),
                         category: Some(crate::contract::SessionConfigCategory::Effort),
                         current_id: Some(select.current_value.0.to_string()),
                         options: picker,
+                        note: None,
                     });
                 }
-                // Hotline has no stable UI contract for model sub-options or
-                // arbitrary ACP settings. They remain harness-owned.
+                Some(acp::SessionConfigOptionCategory::ModelConfig)
+                    if option.id.0.eq_ignore_ascii_case("context") && picker.len() > 1 =>
+                {
+                    disposition.configs.push(crate::contract::SessionConfig {
+                        id: option.id.0.to_string(),
+                        name: option.name.clone(),
+                        category: Some(crate::contract::SessionConfigCategory::Context),
+                        current_id: Some(select.current_value.0.to_string()),
+                        options: picker,
+                        note: None,
+                    });
+                }
+                Some(acp::SessionConfigOptionCategory::ModelConfig)
+                    if is_fast_toggle(&option.id.0, &picker) =>
+                {
+                    disposition.configs.push(crate::contract::SessionConfig {
+                        id: option.id.0.to_string(),
+                        name: option.name.clone(),
+                        category: Some(crate::contract::SessionConfigCategory::Fast),
+                        current_id: Some(select.current_value.0.to_string()),
+                        options: picker,
+                        note: option.description.as_deref().and_then(fast_note),
+                    });
+                }
+                // Hotline has no stable UI contract for other model
+                // sub-options or arbitrary ACP settings. They remain
+                // harness-owned.
                 Some(
                     acp::SessionConfigOptionCategory::Mode
                     | acp::SessionConfigOptionCategory::ModelConfig
@@ -921,6 +1079,33 @@ pub(super) fn apply_configs_to_session(
     session.info.configs = disposition.configs;
 }
 
+/// A model setting that is fast mode, as the adapters offer it to a client
+/// without boolean settings: Claude Code's `fast` and Codex's `fast-mode`, a
+/// select of `on` and `off`; Cursor's `fast`, of `false` and `true`.
+fn is_fast_toggle(id: &str, picker: &[crate::contract::ConfigChoice]) -> bool {
+    id.to_ascii_lowercase().contains("fast") && is_switch(picker)
+}
+
+/// A select of two values that are a yes and a no: `on` and `off`, or
+/// `true` and `false`.
+fn is_switch(picker: &[crate::contract::ConfigChoice]) -> bool {
+    let mut values: Vec<&str> = picker.iter().map(|choice| choice.id.as_str()).collect();
+    values.sort_unstable();
+    values == ["off", "on"] || values == ["false", "true"]
+}
+
+/// Why fast mode cannot be had, from the setting's description: Claude
+/// Code's adapter adds the reason after a dash while the account, plan or
+/// model cannot use it ("Faster responses on supported models — requires
+/// extra usage to be enabled for this account").
+fn fast_note(description: &str) -> Option<String> {
+    let (_, reason) = description.split_once(" — ")?;
+    let reason = reason.trim();
+    let mut letters = reason.chars();
+    let first = letters.next()?;
+    Some(first.to_uppercase().chain(letters).collect())
+}
+
 fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigChoice> {
     let options = match &select.options {
         acp::SessionConfigSelectOptions::Ungrouped(options) => options.clone(),
@@ -938,6 +1123,9 @@ fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigC
             description: option.description,
             group: None,
             account: None,
+            efforts: None,
+            default_effort: None,
+            fast: None,
         })
         .collect()
 }

@@ -4,6 +4,8 @@ import { REST, step, type Bubble, type Cadence } from "../../cadence";
 import type { Block } from "../../scheduledRuns";
 import { type Activity, type ActivityPhase, LANDED, RESTING } from "../../activity";
 import { LANDED_MS } from "../../ui/Glyph";
+import type { Step } from "../../scheduledRuns";
+import { type TurnSummary, summaryOf } from "../../turnFacts";
 
 /**
  * Each kind of work stays on the mark for at least DWELL_MS before the next
@@ -99,6 +101,40 @@ export function useLanding(personaId: string, activity: Activity | null): Activi
 		return () => window.clearTimeout(timer);
 	}, [phase]);
 	return activity ?? (ended ? LANDED : null);
+}
+
+/**
+ * How long the composer's row says what a turn came to (DONE_MS) once the
+ * mark has gone back to sleep, before the row leaves: "12 steps · 4 sources
+ * · 3 files · 1 failed". Only after a turn that took steps; worked out during
+ * render, as the landing is, so the row is never gone for a frame between.
+ */
+const DONE_MS = 6000;
+
+export function useDone(personaId: string, activity: Activity | null, items: Step[] | undefined): TurnSummary | null {
+	const awake = useRef(false);
+	const [holding, setHolding] = useState(false);
+	const off = activity === null;
+	const ended = off && (holding || awake.current);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what starts it again.
+	useEffect(() => {
+		awake.current = false;
+		setHolding(false);
+	}, [personaId]);
+	useEffect(() => {
+		if (!off) {
+			awake.current = true;
+			setHolding(false);
+			return;
+		}
+		if (!awake.current) return;
+		awake.current = false;
+		setHolding(true);
+		const timer = window.setTimeout(() => setHolding(false), DONE_MS);
+		return () => window.clearTimeout(timer);
+	}, [off]);
+	const summary = useMemo(() => (items === undefined ? null : summaryOf(items)), [items]);
+	return ended && summary !== null && summary.steps > 0 ? summary : null;
 }
 
 /**

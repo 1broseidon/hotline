@@ -118,7 +118,7 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    text: self.with_person_name(text),
+                    text: self.with_name_news(&session.told_name, text),
                     attachments: attachments.clone().unwrap_or_default(),
                     steer: !crate::wire::commands::from_voice(),
                     said: None,
@@ -659,12 +659,22 @@ pub(super) fn event_of(
             title,
             kind,
         } => {
-            let pending = PendingTool {
-                ts: now_ms(),
-                files: None,
-                title,
-                kind,
-                words: None,
+            // A call written again while it runs (its title or path only now
+            // known) keeps when it started, its files and the agent's own
+            // words for it: those came once and do not come again.
+            let pending = match in_flight.remove(&call_id) {
+                Some(known) => PendingTool {
+                    title,
+                    kind,
+                    ..known
+                },
+                None => PendingTool {
+                    ts: now_ms(),
+                    files: None,
+                    title,
+                    kind,
+                    words: None,
+                },
             };
             let event = pending.event(&call_id, ToolStatus::InProgress, None);
             in_flight.insert(call_id, pending);
@@ -684,10 +694,26 @@ pub(super) fn event_of(
             } else {
                 ToolStatus::Failed
             };
+            // A step that failed read nothing: its address is no source.
+            let sources = if ok {
+                crate::glance::sources_of(&pending.title, &pending.kind, &output)
+            } else {
+                Vec::new()
+            };
             let output = ToolOutput::Text {
                 text: clip(&output, TOOL_OUTPUT_CHARS),
             };
-            let mut events = vec![pending.event(&call_id, status, Some(output))];
+            let mut event = pending.event(&call_id, status, Some(output));
+            if let TranscriptEvent::Tool {
+                ended_ts,
+                sources: found,
+                ..
+            } = &mut event
+            {
+                *ended_ts = Some(now_ms());
+                *found = (!sources.is_empty()).then_some(sources);
+            }
+            let mut events = vec![event];
             if crate::computer::is_computer_tool(&pending.kind, &pending.title) {
                 for image in images {
                     events.push(TranscriptEvent::ComputerFrame {
@@ -733,7 +759,8 @@ pub(super) fn event_of(
 
 /// A tool call the agent has made and not yet heard back about. The tape event
 /// is written again by id when it does, so the call's own timestamp and title
-/// have to outlive the call.
+/// have to outlive the call; the finished line adds when it ended and the web
+/// pages its output names.
 pub(super) struct PendingTool {
     ts: i64,
     title: String,
@@ -765,6 +792,8 @@ impl PendingTool {
                 &self.kind,
                 self.words.as_deref(),
             )),
+            ended_ts: None,
+            sources: None,
         }
     }
 }

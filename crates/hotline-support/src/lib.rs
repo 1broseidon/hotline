@@ -1,7 +1,8 @@
 //! The utilities Hotline stands on that know nothing of its state: the
 //! records secrets are kept behind, the data directory's layout, the lock that
 //! keeps a second desk off it, the desk's own log file, images and their
-//! thumbnails, the fence a quoted body is wrapped in, the words a provider's
+//! thumbnails, the fence a quoted body is wrapped in, the lines an edit
+//! added and removed, the words a provider's
 //! model listing says a model is for, and the Windows job a command's
 //! processes are held in.
 //!
@@ -13,6 +14,7 @@
 pub mod credentials;
 pub mod fence;
 pub mod images;
+pub mod lines;
 pub mod log_file;
 pub mod model_kind;
 pub mod paths;

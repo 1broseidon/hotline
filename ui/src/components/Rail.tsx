@@ -2,6 +2,7 @@ import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, us
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
 import { ChevronDownIcon, ComputerIcon, LeadIcon, PersonPlusIcon } from "../icons";
+import { openChatWindow } from "../chatWindow";
 import { platform, popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
@@ -153,6 +154,7 @@ export function Rail({
 											compact={compact}
 											onSelect={() => onSelect(entry.persona.id, elsewhereId(row))}
 											onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
+											onWindow={() => void openChatWindow(row.deskId, entry.persona.id, entry.persona.name)}
 											onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
 											alone={alone(row)}
 											onLead={() => onLead(entry.persona.id, entry.lead !== true, elsewhereId(row))}
@@ -191,6 +193,7 @@ export function Rail({
 									full={pins >= MAX_PINS}
 									onSelect={() => onSelect(entry.persona.id, elsewhereId(row))}
 									onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
+									onWindow={() => void openChatWindow(row.deskId, entry.persona.id, entry.persona.name)}
 									onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
 									onPin={() => onPin(entry.persona.id, pins, elsewhereId(row))}
 									alone={alone(row)}
@@ -262,6 +265,7 @@ function Row({
 	full,
 	onSelect,
 	onEdit,
+	onWindow,
 	onDelete,
 	onPin,
 	alone,
@@ -280,6 +284,8 @@ function Row({
 	full: boolean;
 	onSelect(): void;
 	onEdit(): void;
+	/** Opens its chat in a window of its own. */
+	onWindow(): void;
 	onDelete(): void;
 	onPin(): void;
 	/** The only teammate on its desk. */
@@ -330,6 +336,7 @@ function Row({
 				event.preventDefault();
 				void popupTeammateMenu({
 					onOpen: onSelect,
+					onWindow,
 					onEdit,
 					onDelete,
 					pin: { pinned: false, full, onToggle: onPin },
@@ -410,6 +417,7 @@ function PinTile({
 	compact,
 	onSelect,
 	onEdit,
+	onWindow,
 	onDelete,
 	onPin,
 	alone,
@@ -431,6 +439,8 @@ function PinTile({
 	compact: boolean;
 	onSelect(): void;
 	onEdit(): void;
+	/** Opens its chat in a window of its own. */
+	onWindow(): void;
 	onDelete(): void;
 	onPin(personaId: string, slot: number | null): void;
 	alone: boolean;
@@ -500,6 +510,7 @@ function PinTile({
 				event.preventDefault();
 				void popupTeammateMenu({
 					onOpen: onSelect,
+					onWindow,
 					onEdit,
 					onDelete,
 					pin: {

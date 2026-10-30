@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { PaneClose } from "./PaneClose";
 
 /**
  * A picture over the whole window: a diagram, a picture a teammate sent, a
@@ -32,12 +33,9 @@ export function Viewer({ src, alt, onClose, actions }: { src: string; alt: strin
 				if (event.target === event.currentTarget) onClose();
 			}}
 		>
-			<div className="viewer-bar">
+			<ViewerBar title={alt} onClose={onClose}>
 				{actions}
-				<button type="button" className="control btn btn-sm" onClick={onClose}>
-					Close
-				</button>
-			</div>
+			</ViewerBar>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: a press beside the picture is the pointer's way out; the keyboard's is Escape or Close. */}
 			<div
 				className={`viewer-stage ${actual ? "viewer-actual" : ""}`}
@@ -55,5 +53,20 @@ export function Viewer({ src, alt, onClose, actions }: { src: string; alt: strin
 			</div>
 		</div>,
 		document.body,
+	);
+}
+
+/**
+ * The bar over anything opened full window, a picture or a document: the
+ * pane's band, its height and keys, so a viewer opens as every pane does.
+ * What it is at the left, its actions, then the close key.
+ */
+export function ViewerBar({ title, onClose, children }: { title: string; onClose(): void; children?: ReactNode }) {
+	return (
+		<div className="viewer-bar">
+			<span className="viewer-title">{title}</span>
+			{children !== undefined && <span className="viewer-actions">{children}</span>}
+			<PaneClose onClose={onClose} />
+		</div>
 	);
 }

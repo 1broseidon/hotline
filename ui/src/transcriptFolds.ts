@@ -70,18 +70,39 @@ function sameWords(a: string, b: string): boolean {
 	return words(a) === words(b);
 }
 
-/** The written events as rows: runs of thoughts and tool calls fold into one block of steps. */
-export function toBlocks(events: TranscriptEvent[]): Block[] {
+/**
+ * The written events as rows. A turn's thoughts and tool calls, wherever they
+ * fell between its bubbles, fold into one block of steps that sits under its
+ * last bubble, just above the line that ends it: the work is read as a whole,
+ * once the turn has said what it came to. A turn with no end yet (still
+ * running) has its block last, `open`. A message from the person ends a turn
+ * that never wrote its end. A call's transcript keeps each run of steps where
+ * it fell (`inline`), between the lines said aloud around it.
+ */
+export function toBlocks(events: TranscriptEvent[], inline = false): Block[] {
 	const blocks: Block[] = [];
+	let group: { id: string; ts: number; items: Step[] } | null = null;
+	const close = () => {
+		if (group === null) return;
+		const last = blocks[blocks.length - 1];
+		// Stamped as the bubble it follows, so it never draws a time line of its own.
+		const after = last === undefined ? group.ts : last.kind === "event" ? last.event.ts : last.ts;
+		blocks.push({ kind: "steps", id: group.id, ts: Math.max(group.ts, after), items: group.items });
+		group = null;
+	};
 	for (const event of events) {
 		if (event.kind === "computer_pull") continue;
 		if (event.kind === "thought" || event.kind === "tool") {
-			const tail = blocks[blocks.length - 1];
-			if (tail?.kind === "steps") tail.items.push(event);
-			else blocks.push({ kind: "steps", id: event.id, ts: event.ts, items: [event] });
-		} else {
-			blocks.push({ kind: "event", event });
+			group ??= { id: event.id, ts: event.ts, items: [] };
+			group.items.push(event);
+			continue;
 		}
+		if (inline || event.kind === "turn" || event.kind === "user") close();
+		blocks.push({ kind: "event", event });
+	}
+	if (group !== null) {
+		const { id, ts, items }: { id: string; ts: number; items: Step[] } = group;
+		blocks.push({ kind: "steps", id, ts, items, open: true });
 	}
 	return blocks;
 }
@@ -107,20 +128,25 @@ export function withStreaming(written: Block[], streaming: Streaming[]): Block[]
 			});
 			continue;
 		}
+		// A thought being written joins the running turn's steps.
 		const thought: Step = { kind: "thought", id: one.messageId, ts: one.ts, text: one.text };
-		const tail = blocks[blocks.length - 1];
-		if (tail?.kind === "steps") blocks[blocks.length - 1] = { ...tail, items: [...tail.items, thought] };
-		else blocks.push({ kind: "steps", id: thought.id, ts: thought.ts, items: [thought] });
+		const at = blocks.findLastIndex((block) => block.kind === "steps" && block.open === true);
+		const open = blocks[at];
+		if (open?.kind === "steps") blocks[at] = { ...open, items: [...open.items, thought] };
+		else blocks.push({ kind: "steps", id: thought.id, ts: thought.ts, items: [thought], open: true });
 	}
 	return blocks;
 }
 
 /**
- * The runs of steps in a tape, in order, each under the id its caption
- * opens it by. What is streaming joins the last run, as it does on screen.
+ * The turns' steps in a tape, in order, each under the id its caption opens
+ * it by, `open` while its turn has not ended. What is streaming joins the
+ * running turn's, as it does on screen.
  */
-export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[] }[] {
-	return withStreaming(toBlocks(events), streaming).flatMap((block) => (block.kind === "steps" ? [{ id: block.id, items: block.items }] : []));
+export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[]; open?: boolean }[] {
+	return withStreaming(toBlocks(events), streaming).flatMap((block) =>
+		block.kind === "steps" ? [{ id: block.id, items: block.items, ...(block.open === true ? { open: true } : {}) }] : [],
+	);
 }
 
 /**
@@ -136,12 +162,6 @@ export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "s
 		if (event.kind === "turn") return event.stopReason === "end_turn" ? "done" : "stopped";
 	}
 	return "done";
-}
-
-/** "12 steps", "12 steps · one failed": the caption, and the work pane's line. */
-export function stepsSummary(items: Step[]): string {
-	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
-	return `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
 }
 
 /** Only an operator message from this turn can be offered again. A schedule,

@@ -21,6 +21,14 @@ import { wire } from "./wire";
 /** How often a pane that shows the desktop asks whether it is still there. */
 export const COMPUTER_STATUS_EVERY_MS = 5000;
 
+/** Said on the window when a teammate's computer was started or stopped from here. */
+const MOVED = "hotline:computer-moved";
+
+/** Tells everything showing this teammate's computer to look again now, rather than at its next tick. */
+export function computerMoved(personaId: string): void {
+	window.dispatchEvent(new window.CustomEvent(MOVED, { detail: personaId }));
+}
+
 /** Open the teammate's desktop, or bring the window already showing it forward. */
 export async function openComputer(personaId: string, name: string, viewer: string): Promise<void> {
 	if (!isDesktop()) {
@@ -71,9 +79,16 @@ export function useComputerViewer(personaId: string, wanted: boolean): string | 
 		};
 		ask();
 		const timer = setInterval(ask, COMPUTER_STATUS_EVERY_MS);
+		// A Stop or Start from the pane is seen at once: the band's key goes
+		// with the computer, not up to a tick later.
+		const moved = (event: Event) => {
+			if ((event as CustomEvent<string>).detail === personaId) ask();
+		};
+		window.addEventListener(MOVED, moved);
 		return () => {
 			gone = true;
 			clearInterval(timer);
+			window.removeEventListener(MOVED, moved);
 		};
 	}, [personaId, wanted]);
 

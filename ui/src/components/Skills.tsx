@@ -139,7 +139,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 							<h3 className="group-title">Your skills</h3>
 							{home.some((one) => one.invalid === undefined && one.offered !== true) && (
 								<button type="button" className="nt-fold-action" disabled={busy} onClick={() => void offerAll()}>
-									Offer all
+									Make all available
 								</button>
 							)}
 						</div>
@@ -171,7 +171,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 							)}
 						</div>
 						<p className="group-hint">
-							Switch one on to offer it. Give it to a teammate in its pane.
+							Switch one on to make it available. Allow it for a teammate in that teammate's settings.
 						</p>
 					</section>
 					<section>
@@ -188,7 +188,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 							)}
 						</div>
 						<p className="group-hint">
-							Any folder with a SKILL.md, copied in and offered to every teammate.
+							Any folder with a SKILL.md, copied in and made available to every teammate.
 						</p>
 					</section>
 					<section>
@@ -285,7 +285,7 @@ function SkillPage({
 							<span className="welcome-card-title">{entry.name}</span>
 							<span className="welcome-badge">{skillSourceName(entry)}</span>
 							{entry.version !== undefined && <span className="text-sm text-ink-3">release {entry.version}</span>}
-							{entry.source === "home" && <span className="text-sm text-ink-3">{entry.offered === true ? "Offered to teammates" : "Not offered"}</span>}
+							{entry.source === "home" && <span className="text-sm text-ink-3">{entry.offered === true ? "Available to teammates" : "Not available"}</span>}
 						</div>
 						{entry.invalid !== undefined ? (
 							<p className="text-sm text-danger">{entry.invalid}</p>

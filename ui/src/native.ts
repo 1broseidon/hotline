@@ -262,6 +262,8 @@ export function listenMenu(onAction: (id: string) => void): () => void {
 
 export async function popupTeammateMenu(actions: {
 	onOpen(): void;
+	/** Its chat in a window of its own, beside this one. */
+	onWindow(): void;
 	onEdit(): void;
 	onDelete(): void;
 	/** Pin or unpin, and while pinned, move along the row. Pin is disabled when the desk has its three. */
@@ -274,6 +276,7 @@ export async function popupTeammateMenu(actions: {
 		const menu = await Menu.new({
 			items: [
 				{ id: "open", text: "Open", action: actions.onOpen },
+				{ id: "window", text: "Open in new window", action: actions.onWindow },
 				{ id: "edit", text: "Edit", action: actions.onEdit },
 				{ item: "Separator" as const },
 				{ id: "pin", text: pin.pinned ? "Unpin" : "Pin to top", enabled: pin.pinned || !pin.full, action: pin.onToggle },

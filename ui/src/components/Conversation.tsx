@@ -12,12 +12,15 @@ import { dmOf, sameThread, useThread } from "../tape";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
+import { harnessMark } from "../ui/Mark";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
+import { useRoomRead } from "../roomReads";
 import { wire, type RosterEntry } from "../wire";
 import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
+import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
 import { AskCard, askLine, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
@@ -326,7 +329,11 @@ export function Conversation({
 					{...(asks.length > 0
 						? {
 								work: {
-									activity: { phase: "blocked" as const, word: asks.length === 1 ? `Needs you · ${askLine(asks[0]!)}` : `${asks.length} things need you` },
+									// Open, the card above says the question; the strip only says what state it is.
+									activity: {
+										phase: "blocked" as const,
+										word: asks.length === 1 ? (asking !== null ? "Needs you" : `Needs you · ${askLine(asks[0]!)}`) : `${asks.length} things need you`,
+									},
 									sleeping: false,
 									open: asking !== null,
 									onToggle: () => setAskAt((at) => (at === null ? 0 : null)),
@@ -408,6 +415,14 @@ const ConversationBand = memo(function ConversationBand({
 	);
 	const scheduleDetail = next === null ? "Paused" : `Next ${nextText(next.nextAt)}`;
 
+	// The plan gauge's card names the agent the login is for; opening it
+	// asks for a fresh reading, which the core takes only when it is old.
+	const backends = useRoomRead("backends.list", "", true);
+	const agentName = backends?.find((one) => one.id === persona.backendId)?.name ?? (persona.backendId === "hotline" ? "Hotline Agent" : persona.backendId);
+	const refreshPlan = useCallback(() => {
+		void wire.command("plan.refresh", { personaId }).catch(() => {});
+	}, [personaId]);
+
 	/* A narrow band keeps the name and its keys; the schedule line folds into
 	 * the More menu, one press further away, rather than a band that clips it. */
 	const narrow = useNarrow();
@@ -422,16 +437,10 @@ const ConversationBand = memo(function ConversationBand({
 		});
 	}
 
-	// Four words, as the board's label rule asks (decision ui.tooltip-length):
-	// the rest lives where it is used, not in this menu.
-	const more: MenuEntry[] = [
-		{
-			kind: "heading",
-			card: true,
-			text: persona.name,
-			...(persona.goal ? { detail: persona.goal } : {}),
-			icon: <Avatar id={persona.id} name={persona.name} size={28} hash={persona.avatar?.hash} />,
-		},
+	// The teammate's own actions, under who it is and what it runs on in the
+	// pill's menu. Four words, as the board's label rule asks (decision
+	// ui.tooltip-length): the rest lives where it is used, not in this menu.
+	const actions: MenuEntry[] = [
 		...folded,
 		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: startChapter },
@@ -439,6 +448,13 @@ const ConversationBand = memo(function ConversationBand({
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
 	];
+	const teammate = {
+		name: persona.name,
+		goal: persona.goal,
+		face: (size: number) => <Avatar id={persona.id} name={persona.name} size={size} hash={persona.avatar?.hash} />,
+		working: state === "thinking",
+		actions,
+	};
 
 	// The call on the line, when it is to this teammate: its face then leads the call card.
 	const liveCall = useCall();
@@ -459,8 +475,7 @@ const ConversationBand = memo(function ConversationBand({
 	
 					<span className="min-w-0 flex-1" />
 	
-					<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} onAddAccount={onProviders} />
-	
+
 					{/* Side threads still live: a chip each. They are conversations of
 					 * their own rather than this turn's work, so they stay in the band
 					 * when the subagents sit at the composer. They leave the band when
@@ -510,6 +525,14 @@ const ConversationBand = memo(function ConversationBand({
 						</button>
 					)}
 	
+					{/* The plan's gauge, while the teammate's login has a reading:
+					 * weekly outside, 5-hour inside, its card the plan's lines. */}
+					<PlanGauge
+						plan={session.planUsage}
+						agent={agentName}
+						mark={harnessMark(persona.backendId)}
+						onOpen={refreshPlan}
+					/>
 					{/* A computer on its way fills in where its button will be; the
 					 * conversation carries on around it. */}
 					{pulling !== null ? (
@@ -535,17 +558,19 @@ const ConversationBand = memo(function ConversationBand({
 							<ComputerIcon />
 						</button>
 					)}
-					{/* The teammate's face is its menu: who it is, Settings, New chapter,
-					 * Threads, Remove. It beats while the teammate works. */}
-					<MenuButton
-						className="control btn-icon band-face"
-						label={state === "thinking" ? `${persona.name}, working` : persona.name}
-						title={persona.name}
-						entries={more}
-					>
-						<Avatar id={persona.id} name={persona.name} size={24} hash={persona.avatar?.hash} />
-						{state === "thinking" && <span aria-hidden="true" className="band-face-beat beat" />}
-					</MenuButton>
+					{/* One pill in the corner: the model, its effort and the teammate's
+					 * face, which beats while it works. Its menu is who the teammate
+					 * is, what it runs on, and its actions: Settings, New chapter,
+					 * Threads, Remove. */}
+					<SessionPickers
+						key={persona.id}
+						entry={entry}
+						models={models}
+						onSaid={onSaid}
+						onAddAccount={onProviders}
+						teammate={teammate}
+						compact={narrow}
+					/>
 				</Band>
 				{callBar}
 			</div>

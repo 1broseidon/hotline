@@ -99,6 +99,18 @@ pub struct Desk {
 }
 
 impl Desk {
+    /// Looks at each agent due a look, quietly, in the background
+    /// (`driver/acp/models.rs`); the teammates at rest on one whose offer
+    /// changed are drawn again with it.
+    pub(crate) fn look_at_agents(&self) {
+        let room = Arc::downgrade(&self.room);
+        acp::models::refresh_in_background(self.log.root(), move |backend_id| {
+            if let Some(room) = room.upgrade() {
+                room.redraw_resting(backend_id);
+            }
+        });
+    }
+
     /// What the vault holds for a web search provider, for a test to check
     /// that the key went to the vault and nowhere else.
     #[cfg(test)]
@@ -427,6 +439,10 @@ impl RoomHandle for Desk {
         self.room.process_stop(persona_id, id)
     }
 
+    fn plan_refresh(&self, persona_id: &str) -> Result<(), String> {
+        self.room.refresh_plan(persona_id)
+    }
+
     fn process_output(
         &self,
         persona_id: &str,
@@ -543,6 +559,16 @@ impl RoomHandle for Desk {
 
     fn drawing(&self, persona_id: &str) -> bool {
         self.room.drawing(persona_id)
+    }
+
+    fn plan_of(&self, backend_id: &str) -> Option<crate::contract::PlanUsage> {
+        self.room.plan_of(backend_id)
+    }
+
+    fn backend_offer(&self, backend_id: &str) -> Option<crate::contract::BackendOffer> {
+        (backend_id != HOTLINE_BACKEND_ID)
+            .then(|| acp::models::offer(self.log.root(), backend_id))
+            .flatten()
     }
 
     fn subagents(&self, persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
@@ -884,7 +910,7 @@ impl RoomHandle for Desk {
             sign_in: None,
         }];
         let root = self.log.root();
-        acp::models::refresh_in_background(root);
+        self.look_at_agents();
         let mut models = acp::models::cached(root);
         let sign_in = acp::models::needing_sign_in(root);
         for backend in acp::registry::backends(root).await {
@@ -1131,6 +1157,10 @@ impl RoomHandle for Desk {
         persona_id: &str,
     ) -> Result<crate::contract::ComputerStatus, String> {
         self.room.computer_status(persona_id).await
+    }
+
+    async fn computer_start(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_start(persona_id).await
     }
 
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
@@ -1610,6 +1640,8 @@ mod tests {
             model_id: None,
             mode_id: None,
             effort_id: None,
+            config_choices: std::collections::BTreeMap::new(),
+            effort_by_model: std::collections::BTreeMap::new(),
             harness_override: None,
             hop_notice: None,
             mcp_policy: McpPolicy {

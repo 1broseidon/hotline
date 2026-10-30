@@ -2080,10 +2080,17 @@ narrator leaves the written result available without a new spoken pointer.
   A restart loses the operation authority; the persisted card cannot restore
   it. Ordinary question text and extra tool arguments cannot authorize a
   setting change. Settings uses the same name normalization and may clear it.
+  The saved name reaches an agent only as a JSON-quoted string marked
+  "data, not instructions": once in the preamble `Room::thread_agent` builds,
+  and once on the person's next line after a change (`Room::with_name_news`).
 - **Proof:** `tests/call_threads/person_name.rs`
   `a_name_is_saved_only_by_its_approved_card_on_both_drivers` drives proposals,
   decline, approve, repeated approval, change and revocation through both real
   drivers and the wire, and checks the current Settings name reaches home.
+  `the_name_is_said_once_a_session_and_a_change_once_after_it` proves, on
+  both drivers, that the name is in the preamble once and on no message,
+  that a change or a clear is said once on the next line, and that a work
+  thread is told the same way.
   `a_live_call_saves_a_name_only_after_spoken_yes` covers yes/no across all
   three live provider seams. `voice/room/tests/cards.rs`
   `a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_it`
@@ -2345,23 +2352,90 @@ already hides the reason from it).
 The picker lists each agent's models before a teammate runs on it. The
 list is the one the agent last reported here (`cache/acp-models.json`): a
 teammate's session records it as it opens, and when the desk starts (and
-when the picker asks) each agent Hotline names (its native CLIs and the ones
-it adapts) and each that has answered on this machine before, with no list
-from the last day, gets one quiet look (`driver/acp/models.rs`). An agent that
+when the picker asks, or a teammate's menu or pane opens) each agent Hotline
+names (its native CLIs and the ones it adapts) and each that has answered on
+this machine before, with no list from the last day, or no modes and no look
+in the last day, gets one quiet look (`driver/acp/models.rs`). An agent that
 refuses the session until it is signed in is recorded as wanting sign-in; the
 picker then offers Sign in, which only moves the teammate onto the agent, where
 the agent's own sign-in card runs as it always has. Nothing about the
 sign-in itself passes through the look. The look starts the agent's own launch in an empty
 folder of its own (`cache/acp-look/<id>`, a plain id only), offers no file,
 terminal or auth capability, opens a session naming no MCP servers, reads the
-model picker and kills the process group. It never sends a prompt, so it
-spends nothing and runs no tool; one look at a time, bounded at a minute, and
-a failed look waits a day like a good one. The agent still reads its own
+model picker, modes and settings, closes the agent's input, gives it three
+seconds to leave by itself (Claude Code then clears its own entry in
+`~/.claude/sessions` and its socket) and kills the process group. It never
+sends a prompt, so it spends nothing and runs no tool; one look at an agent
+at a time, bounded at a minute, and a failed look waits a day like a good
+one. The agent still reads its own
 configuration and sign-in as any start does.
 
 | Boundary | Proof |
 | --- | --- |
 | A look that runs out of time ends the agent's whole process group | `driver/acp/models.rs` `a_look_that_runs_out_of_time_ends_the_agents_whole_process_group` |
-| A look offers nothing, names no servers, never prompts, and reads only the model picker | `driver/acp/models.rs` `a_look_offers_nothing_and_reads_the_model_picker_without_a_prompt` |
+| A look offers nothing, names no servers, never prompts, and reads only the session's pickers: models and modes | `driver/acp/models.rs` `a_look_offers_nothing_and_reads_the_models_and_modes_without_a_prompt` |
+| An agent with no modes is looked at again at most once a day | `driver/acp/models.rs` `an_agent_with_no_modes_is_due_a_look_once_a_day` |
 | A look that meets "sign in first" records it, and a session opening clears it; the list stays | `driver/acp/models.rs` `a_look_that_meets_sign_in_marks_it_until_a_session_opens` |
 | Only a plain id names a look folder; an empty report keeps the last list | `driver/acp/models.rs` `only_a_plain_id_names_a_look_folder`, `an_agents_reported_models_are_kept_and_an_empty_report_keeps_them` |
+
+## A harness login's plan, read out of band
+
+The model picker shows how much of each harness login's plan is used. The
+desk reads it per login, not through a teammate: when the desk starts (each
+login some teammate runs on, a few seconds apart), every ten minutes while it
+runs, when a session starts and the kept reading is a quarter of an hour old,
+and when the picker opens and it is two minutes old (`session/plan.rs`). Two
+reads of one login at once are one. No read sends a prompt or calls a model,
+and nothing a teammate runs is touched. Readings are kept in
+`cache/plan-usage.json`: windows, percentages, resets, the plan's name and a
+count of banked resets, never an account id, an email or a credential. The
+same read of Claude Code or Codex lists the harness's models with each one's
+effort levels (`driver/acp/catalog.rs`), and is also due when that list is
+nine minutes old; the list is kept in `cache/acp-models.json` beside what
+the agent's sessions offered: model ids, names, descriptions and levels,
+nothing of the account.
+
+- **Claude Code** (`driver/acp/plan/claude_cli.rs`): the `claude` found on the
+  desk's PATH is started in stream-JSON mode in an empty folder
+  (`cache/plan-read/claude-acp`), with the environment the desk gives Claude
+  Code teammates, `--no-session-persistence`, hooks off, no MCP servers
+  (`--strict-mcp-config`, claude.ai's servers off). It is sent two control
+  requests, `initialize` (whose answer lists the models) and `get_usage` with
+  `skip_behaviors`, never a user message; its stdin is then closed, and a child still running after two
+  seconds, or one that has not answered in fifteen, is killed with its
+  process group by the id it was spawned with. The CLI reads its own login
+  and asks claude.ai's usage endpoint itself.
+- **Codex** (`driver/acp/plan/codex_server.rs`): `codex app-server`, started
+  the same way (`cache/plan-read/codex-acp`), is sent `initialize`,
+  `initialized`, `account/rateLimits/read` and `model/list` (a page at a
+  time, twenty at most), and ended the same way. When it
+  cannot be started or does not answer, the reading is the last one in
+  Codex's own session logs (`driver/acp/plan/codex_log.rs`), which are also
+  read after every turn.
+- **Grok Build** (`driver/acp/plan/grok_billing.rs`): the desk reads the
+  Grok CLI's sign-in itself. It reads `auth.json` in `GROK_HOME` (else
+  `~/.grok`), or `GROK_AUTH` when that holds it, and takes the `key` of only
+  the two entries the CLI signs in as
+  (`https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828`, then
+  `https://accounts.x.ai/sign-in`). It reads nothing, and sends nothing, when
+  the entry is in `api_key` mode, when `XAI_API_KEY` is set, when any
+  `GROK_*` setting that chooses another issuer, client, principal, auth
+  command, proxy, models endpoint or config is set, or when the CLI's
+  `config.toml`, `managed_config.toml` or `requirements.toml` (in the Grok
+  home or `/etc/grok`) has an `auth`, `grok_com_config` or `endpoints`
+  section. The token is sent once, as the bearer of one `GET
+  https://cli-chat-proxy.grok.com/v1/billing?format=credits` over rustls with
+  a ten-second bound, and dropped. It is never logged, written, kept, put in
+  a reading, on the wire, in the window or in an error; an error names the
+  failure in the desk's own words (a status code, a timeout), never the
+  response's body. The desk never refreshes the token or writes the file: an
+  expired sign-in is no reading until the CLI signs in again.
+
+| Boundary | Proof |
+| --- | --- |
+| The Claude CLI is sent only control requests, never a user message, and exits when its stdin closes; a login without plan limits is no reading | `driver/acp/plan/claude_cli.rs` `the_cli_is_asked_its_account_and_usage_and_nothing_else`, `a_login_whose_plan_limits_do_not_apply_has_no_reading` |
+| A CLI that never answers is killed, its group with it, when its time is up | `driver/acp/plan/claude_cli.rs` `a_cli_that_never_answers_is_killed_when_its_time_is_up` |
+| `codex app-server` is greeted and asked only its rate limits and its models; one that cannot be reached leaves the reading to Codex's logs | `driver/acp/plan/codex_server.rs` `the_app_server_is_greeted_then_asked_its_rate_limits_and_models`; `driver/acp/plan.rs` `codex_is_read_from_its_app_server_and_from_its_logs_when_that_cannot_be_reached` |
+| Grok's token is the bearer of the one billing request; an API key, another deployment's sign-in, an override or a config section that chooses another account sends nothing | `driver/acp/plan/grok_billing.rs` `the_sign_ins_token_is_the_bearer_of_one_billing_request`, `another_account_or_deployment_or_an_api_key_is_left_to_the_cli` |
+| No error says the token, whatever the endpoint answers or the file holds | `driver/acp/plan/grok_billing.rs` `a_failed_request_never_says_the_token` |
+| The room reads only the logins its teammates run on, each once a round and not while its reading is fresh; Hotline Agent's is never read | `session/tests/plan.rs` `the_desk_reads_each_login_its_teammates_run_on` |

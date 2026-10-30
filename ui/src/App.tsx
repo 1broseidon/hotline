@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useNarrow } from "./narrow";
 import { chordKeys } from "./chords";
 import { SettingsIcon } from "./icons";
-import { shownState } from "./activity";
 import type { ConfigChoice } from "./generated/contract";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
@@ -16,7 +15,7 @@ import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import { Teammate } from "./components/Teammate";
-import { ProcessWork, sameWork, Work, type OpenWork } from "./components/Work";
+import { ProcessWork, sameWork, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { EmptyRoom, Welcome } from "./components/Welcome";
 import { LeadPrompt } from "./components/LeadPrompt";
@@ -34,6 +33,7 @@ import { useSaved } from "./useSaved";
 import { openOnDesk, useNavigation } from "./useNavigation";
 import { useSeen } from "./useSeen";
 import { useWindowHotkeys } from "./useWindowHotkeys";
+import { chatWindow } from "./chatWindow";
 
 
 /* Settings is opened now and then, not at launch: it loads on first open,
@@ -52,8 +52,9 @@ export function DeskRoot() {
 	const desk = useActiveDesk();
 	const desks = useDesks();
 	// Every desk not on screen is watched for toasts and unread (deskWatch.ts).
+	// A chat in a window of its own leaves that to the main window.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: syncWatches reads desks.ts itself; these are what change it.
-	useEffect(syncWatches, [desk?.id, desks]);
+	useEffect(() => (chatWindow === null ? syncWatches() : undefined), [desk?.id, desks]);
 	// Keyed by the endpoint too: a desk paired again has a new bridge, and its
 	// old connection (and everything subscribed on it) is gone.
 	return <App key={desk === null ? "none" : `${desk.id} ${desk.origin} ${desk.token}`} />;
@@ -112,20 +113,26 @@ export function App() {
 	/* A narrow window keeps the pane and shows the rail as faces only, open
 	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
-	const mainRef = useRef<HTMLElement>(null);
 	const dockWidthRef = useRef(dockWidth);
 	dockWidthRef.current = dockWidth;
 	const measured = useRef<() => void>(() => {});
-	useLayoutEffect(() => {
-		const el = mainRef.current;
+	/* The conversation's column is measured wherever it stands now: the
+	 * welcome takes its place in an empty room and a first teammate brings it
+	 * back as a new element, so the watch moves with it. Watching the one
+	 * that left read its width as nothing, and the pane lay over a wide
+	 * window from then on (task-308). A column not laid out says nothing. */
+	const watching = useRef<ResizeObserver | null>(null);
+	const mainRef = useCallback((el: HTMLElement | null) => {
+		watching.current?.disconnect();
+		watching.current = null;
 		if (el === null) return;
 		const measure = () => {
+			if (!el.isConnected || el.clientWidth === 0) return;
 			setPaneOverlays(dockOverlays(el.clientWidth, dockWidthRef.current));
 		};
 		measured.current = measure;
-		const observer = new ResizeObserver(measure);
-		observer.observe(el);
-		return () => observer.disconnect();
+		watching.current = new ResizeObserver(measure);
+		watching.current.observe(el);
 	}, []);
 	// The pane's own width is the other half of the sum.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the measure reads the width through dockWidthRef; this re-runs it.
@@ -201,8 +208,9 @@ export function App() {
 
 	const seen = useSeen(selectedId, selected?.latest);
 
+	// Toasts are the main window's: a chat beside it would post each one twice.
 	useEffect(() => {
-		noticeRoster(roster, { id: activeDeskId() ?? "" });
+		if (chatWindow === null) noticeRoster(roster, { id: activeDeskId() ?? "" });
 	}, [roster]);
 
 	// The dock's badge is the rail's unread count: the rows in bold, counted,
@@ -213,7 +221,7 @@ export function App() {
 		[roster, selectedId, seen, unreadElsewhere],
 	);
 	useEffect(() => {
-		void setBadge(badge);
+		if (chatWindow === null) void setBadge(badge);
 	}, [badge]);
 
 	// In native fullscreen the traffic lights leave with the menu bar, and
@@ -248,7 +256,7 @@ export function App() {
 	// One from a desk not on screen opens that desk on that teammate.
 	useEffect(
 		() =>
-			listenToastClicks((payload) => {
+			chatWindow !== null ? undefined : listenToastClicks((payload) => {
 				const { deskId, personaId } = toastTarget(payload);
 				select(personaId, deskId ?? undefined);
 			}),
@@ -280,16 +288,18 @@ export function App() {
     }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
-	/* The peek's line, or its pane key, opens the turn in the right-hand pane
-	 * at that line, and the peek goes: one place to read it at a time. */
-	const openWorkPane = useCallback(
-		(personaId: string, blockId: string | null, stepId: string | null) => {
-			closeWork(personaId);
-			openDock({ open: null, work: { personaId, blockId, ...(stepId !== null ? { stepId } : {}) } });
+	/* A turn's work is read in one place, the right-hand pane: its caption
+	 * or the composer's activity row opens it there, and pressed again with
+	 * that turn open, closes it. */
+	const toggleWorkPane = useCallback(
+		(personaId: string, blockId: string | null) => {
+			if (dock?.work?.personaId === personaId && dock.work.blockId === blockId) closeDock();
+			else openDock({ open: null, work: { personaId, blockId } });
 		},
-		[closeWork, openDock],
+		[dock, closeDock, openDock],
 	);
-	/* A caption or the mark, pressed again with its work already open, closes it. */
+	/* A command left running opens in the card over the composer's foot;
+	 * pressed again with it open, the card closes. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
 			const was = works[work.personaId];
@@ -437,13 +447,13 @@ export function App() {
 	const railWidth = pane === "settings" ? settingsWidth : faces ? RAIL_FACES : railSize.width;
 	/* Settings' sections are the only way round settings, so they stay out
 	 * whatever the team's rail was left at, and have no key to hide them. */
-	const railShown = railSize.open || pane === "settings";
+	const railShown = (railSize.open && chatWindow === null) || pane === "settings";
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
 	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
 
 
-	/* The work card shows only on its own teammate's conversation: not over
+	/* A command's card shows only on its own teammate's conversation: not over
 	 * Settings or another pane, and not on a teammate who has none open. */
 	const workCard = (entry: RosterEntry, open: OpenWork) =>
 		open.processId !== undefined ? (
@@ -454,16 +464,7 @@ export function App() {
 				process={entry.session.processes?.find((process) => process.id === open.processId)}
 				onClose={() => closeWork(entry.persona.id)}
 			/>
-		) : (
-			<Work
-				key={`work-${entry.persona.id}`}
-				open={open}
-				name={entry.persona.name}
-				live={shownState(entry.session) === "thinking"}
-				onPick={(stepId) => openWorkPane(entry.persona.id, open.blockId, stepId)}
-				onClose={() => closeWork(entry.persona.id)}
-			/>
-		);
+		) : null;
 
 
 	// A call to a teammate is the conversation's inset card, or a strip atop
@@ -518,7 +519,7 @@ export function App() {
 				<Titlebar bare />
 			) : (
 				<FlushChrome
-					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" }}
+					rail={{ open: railShown, onToggle: toggleRail, key: pane !== "settings" && chatWindow === null }}
 					width={railWidth}
 					search={teamSearch("below")}
 				/>
@@ -579,7 +580,7 @@ export function App() {
 			/>
 			)}
 			</div>
-			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
+			{!narrow && railShown && <RailEdge size={railSize} onSize={setRailSize} />}
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
@@ -630,8 +631,8 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
-							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
-							workOpen={workOf?.processId === undefined ? workOf?.blockId : undefined}
+							onOpenWork={(blockId) => toggleWorkPane(selected.persona.id, blockId)}
+							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
 							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
@@ -695,10 +696,10 @@ export function App() {
 						}
 					>
 						{/* Settings › Updates says it already, with the notes and the install. */}
-						<UpdateFloat onOpen={() => {
+						{chatWindow === null && <UpdateFloat onOpen={() => {
 							setSettingsSection("updates");
 							setPane("settings");
-						}} />
+						}} />}
 					</div>
 				)}
 				</div>

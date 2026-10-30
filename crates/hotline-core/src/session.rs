@@ -54,6 +54,7 @@ pub(crate) mod new_teammate;
 mod pacing;
 mod peers;
 mod person_name;
+mod plan;
 mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
@@ -301,6 +302,33 @@ pub trait Agents: Send + Sync {
 
     /// One answer, with no tools and no conversation.
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String>;
+
+    /// The plan of the login a backend runs on, and its harness's models
+    /// with their effort levels, read out of band, with no teammate's
+    /// session and no model asked (`driver/acp/plan.rs`). Each is missing
+    /// when the backend's is not one the desk reads, the login has no plan,
+    /// or it could not be read.
+    async fn read_login(&self, _backend_id: &str, _how: PlanRead) -> acp::plan::LoginReading {
+        acp::plan::LoginReading::default()
+    }
+
+    /// Looks at a harness's agent out of band when it is due — a session
+    /// opened and ended with no prompt — and keeps what it offers, its modes
+    /// with its models and settings (`driver/acp/models.rs`). Whether what
+    /// the desk offers for the agent changed.
+    async fn look(&self, _backend_id: &str) -> bool {
+        false
+    }
+}
+
+/// How a login's plan is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlanRead {
+    /// Out of band, now: a CLI started for the question, or a request.
+    Now,
+    /// After a turn, only from what the harness has just written itself,
+    /// which costs nothing (Codex's session logs).
+    AfterTurn,
 }
 
 /// A voice front's reach into the room: see [`Room::front_reach`].
@@ -322,6 +350,30 @@ struct DeskAgents {
 
 #[async_trait]
 impl Agents for DeskAgents {
+    async fn read_login(&self, backend_id: &str, how: PlanRead) -> acp::plan::LoginReading {
+        // A test's room never starts a real harness's CLI or reaches its
+        // service; the readers are tested on their own.
+        if cfg!(test) {
+            return acp::plan::LoginReading::default();
+        }
+        match how {
+            PlanRead::Now => acp::plan::read(&self.root, backend_id).await,
+            PlanRead::AfterTurn => acp::plan::LoginReading {
+                plan: acp::plan::read_after_turn(&self.root, backend_id).await,
+                catalog: None,
+            },
+        }
+    }
+
+    async fn look(&self, backend_id: &str) -> bool {
+        // A test's room never starts a real harness; the look is tested on
+        // its own.
+        if cfg!(test) {
+            return false;
+        }
+        acp::models::look_if_due(&self.root, backend_id).await
+    }
+
     fn agent(
         &self,
         persona: &Persona,
@@ -432,6 +484,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         error: None,
         awaiting_subagents: false,
         processes: Vec::new(),
+        plan_usage: None,
     }
 }
 
@@ -461,6 +514,9 @@ struct Session {
     /// when it started, so these ride on its next line; a session that starts
     /// later reads them from the tape.
     pending_posts: Mutex<Vec<String>>,
+    /// The person's name as this session's agent was last told it: by its
+    /// preamble, then by the one line after each change.
+    told_name: Mutex<Option<String>>,
     /// The user lines the driver has taken and not yet shown it read.
     ///
     /// A line is `sent` when it is written and `read` once the agent has
@@ -720,6 +776,9 @@ pub struct Room {
     /// Set once the desk is stopping for a restart: new work is refused while
     /// the turns already running drain (see `stopping`).
     closing: std::sync::atomic::AtomicBool,
+    /// How much of each harness login's plan is used, by backend id
+    /// (`session/plan.rs`).
+    plans: plan::Plans,
 }
 
 impl Room {
@@ -796,6 +855,7 @@ impl Room {
                 None
             }
         };
+        let plans = plan::Plans::load(log.root());
         let room = Arc::new(Self {
             spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
             #[cfg(test)]
@@ -851,6 +911,7 @@ impl Room {
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
+            plans,
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
@@ -867,6 +928,7 @@ impl Room {
         });
         follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));
         sweep_idle_chapters(Arc::downgrade(&room));
+        plan::watch(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
         room
     }

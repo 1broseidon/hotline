@@ -136,7 +136,7 @@ test("every call file opens its own stored bytes as text without executing marku
 			const dialog = document.querySelector('[role="dialog"]')!;
 			expect(dialog.textContent).toContain(`<script>file ${index}</script>`);
 			expect(dialog.querySelector("script")).toBeNull();
-			const close = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Close")!;
+			const close = dialog.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!;
 			await act(async () => close.click());
 		}
 		expect(reads).toEqual([0, 1, 2, 3, 4, 5]);

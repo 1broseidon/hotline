@@ -66,6 +66,7 @@ fn idle(persona_id: &str) -> SessionInfo {
         error: None,
         awaiting_subagents: false,
         processes: Vec::new(),
+        plan_usage: None,
     }
 }
 
@@ -103,6 +104,13 @@ struct Quiet {
     /// Teammates with a card waiting in a thread other than their DM.
     thread_cards: Mutex<std::collections::HashSet<String>>,
     policy_updates: Arc<tokio::sync::Mutex<()>>,
+    /// What each harness last offered, by backend id.
+    offers: Mutex<HashMap<String, crate::contract::BackendOffer>>,
+    /// The effort picker a live session reports once on each model, as an
+    /// ACP session does after `session/set_model`.
+    session_efforts: Mutex<HashMap<String, crate::contract::SessionConfig>>,
+    /// Each `set_model` and `set_config` a live session was sent, in order.
+    calls: Mutex<Vec<String>>,
 }
 
 impl Quiet {
@@ -121,7 +129,34 @@ impl Quiet {
             computer_changes: Mutex::new(Vec::new()),
             thread_cards: Mutex::default(),
             policy_updates: Arc::new(tokio::sync::Mutex::new(())),
+            offers: Mutex::default(),
+            session_efforts: Mutex::default(),
+            calls: Mutex::default(),
         }
+    }
+
+    /// A live session on `model_id` reports this effort picker.
+    fn reporting(self, model_id: &str, picker: crate::contract::SessionConfig) -> Self {
+        self.session_efforts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(model_id.to_string(), picker);
+        self
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn offering(self, backend_id: &str, offer: crate::contract::BackendOffer) -> Self {
+        self.offers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(backend_id.to_string(), offer);
+        self
     }
 
     fn set_info(&self, info: SessionInfo) {
@@ -459,6 +494,14 @@ impl RoomHandle for CoreHandle {
 
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
+    fn backend_offer(&self, backend_id: &str) -> Option<crate::contract::BackendOffer> {
+        self.offers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(backend_id)
+            .cloned()
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.thread_cards.lock().unwrap().contains(persona_id)
     }
@@ -608,8 +651,21 @@ impl RoomHandle for Quiet {
     }
 
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(format!("set_model {model_id}"));
         let mut info = self.info(persona_id);
         info.current_model_id = Some(model_id.to_string());
+        if let Some(picker) = self
+            .session_efforts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(model_id)
+        {
+            info.configs.retain(|config| config.id != picker.id);
+            info.configs.push(picker.clone());
+        }
         self.set_info(info.clone());
         Ok(info)
     }
@@ -624,14 +680,32 @@ impl RoomHandle for Quiet {
         config_id: &str,
         value: &str,
     ) -> Result<SessionInfo, String> {
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(format!("set_config {config_id} {value}"));
         let mut info = self.info(persona_id);
-        info.configs = vec![crate::contract::SessionConfig {
-            id: config_id.to_string(),
-            name: config_id.to_string(),
-            category: None,
-            current_id: Some(value.to_string()),
-            options: Vec::new(),
-        }];
+        // A picker the session reports keeps its levels; any other is said
+        // back as set.
+        match info
+            .configs
+            .iter_mut()
+            .find(|config| config.id == config_id)
+        {
+            Some(config) if !config.options.is_empty() => {
+                config.current_id = Some(value.to_string());
+            }
+            _ => {
+                info.configs = vec![crate::contract::SessionConfig {
+                    id: config_id.to_string(),
+                    name: config_id.to_string(),
+                    category: None,
+                    current_id: Some(value.to_string()),
+                    options: Vec::new(),
+                    note: None,
+                }];
+            }
+        }
         self.set_info(info.clone());
         Ok(info)
     }
@@ -781,6 +855,9 @@ impl RoomHandle for Quiet {
                 description: None,
                 group: None,
                 account: None,
+                efforts: None,
+                default_effort: None,
+                fast: None,
             },
             ConfigChoice {
                 id: "openai/gpt".to_string(),
@@ -788,6 +865,9 @@ impl RoomHandle for Quiet {
                 description: None,
                 group: None,
                 account: None,
+                efforts: None,
+                default_effort: None,
+                fast: None,
             },
         ]
     }

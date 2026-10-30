@@ -22,6 +22,9 @@ fn choice(id: &str) -> ConfigChoice {
         description: None,
         group: None,
         account: None,
+        efforts: None,
+        default_effort: None,
+        fast: None,
     }
 }
 
@@ -1128,6 +1131,8 @@ fn test_persona(id: &str) -> crate::contract::Persona {
         model_id: None,
         mode_id: None,
         effort_id: None,
+        config_choices: std::collections::BTreeMap::new(),
+        effort_by_model: std::collections::BTreeMap::new(),
         harness_override: None,
         hop_notice: None,
         mcp_policy: crate::contract::McpPolicy {

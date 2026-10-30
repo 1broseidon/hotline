@@ -25,8 +25,8 @@
 //! caller as opener and its history oriented to the target answering it.
 
 use super::computer::{
-    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, computer_failed_note, computer_unavailable,
-    with_note, without_computer,
+    COMPUTER_DOWNLOADING, ComputerAtStart, ComputerSetup, Driving, computer_failed_note,
+    computer_unavailable, with_note, without_computer,
 };
 use super::prompt::said;
 use super::{Room, chapters, now_ms};
@@ -88,6 +88,9 @@ pub(super) struct ThreadAgent {
     /// The saved session id the agent reopened, when it did. Nothing else
     /// about the thread's own memory is promised by the harness.
     pub resumed: Option<String>,
+    /// The person's name as the preamble said it, so a later change is told
+    /// once on the next line rather than the name on every line.
+    pub told_name: Option<String>,
     armed: bool,
 }
 
@@ -311,6 +314,9 @@ impl Room {
                 ComputerAtStart::Unavailable(reason) => {
                     lease.check()?;
                     eprintln!("{}", computer_unavailable(&view.name, &reason));
+                    // Kept where the pane's Start, and the teammate's own
+                    // computer_status, can say why.
+                    self.set_computer_setup(&view.id, ComputerSetup::Failed(reason.clone()));
                     computer_note = Some(computer_failed_note(&reason));
                     view = without_computer(view);
                     Vec::new()
@@ -383,6 +389,7 @@ impl Room {
             return Err("The teammate asking in this pair is no longer available.".to_string());
         }
         let stored = self.stored_secrets();
+        let told_name = self.person_name();
         let build = |view: &Persona, transcript: Option<String>| {
             let mut preamble = preamble_of(
                 thread.kind,
@@ -396,6 +403,10 @@ impl Room {
                     note: note.clone(),
                 },
             );
+            if let Some(name) = &told_name {
+                preamble.push_str("\n\n");
+                preamble.push_str(&super::person_name::name_sentence(name));
+            }
             if self.lead_call(&view.id, &thread) {
                 preamble.push_str("\nYou are answering the desk as team lead. Answer roster questions with list_teammates. For work naming a teammate, use message_teammate, intent handoff, with the person's words unchanged and say who has it. Do not stop or reassign another teammate's work.");
             }
@@ -459,6 +470,7 @@ impl Room {
             holder: driving.holder().clone(),
             watches,
             resumed,
+            told_name,
             armed: true,
         })
     }
@@ -634,6 +646,7 @@ mod tests {
             category: None,
             current_id: Some("high".to_string()),
             options: Vec::new(),
+            note: None,
         }];
         let view = clone_of(ada, &home, &[]);
         assert_eq!(view.model_id.as_deref(), Some("vendor/live"));

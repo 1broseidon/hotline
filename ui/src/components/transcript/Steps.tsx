@@ -3,7 +3,8 @@ import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
 import { joinThoughts, outputText, stepTitle } from "../../stepText";
-import { stepsSummary } from "../../transcriptFolds";
+import { sitesOf, summaryOf, summaryWords } from "../../turnFacts";
+import { Favicons } from "../Favicon";
 
 /**
  * The machinery between two messages, as one caption: a count, closed
@@ -30,8 +31,10 @@ export const Steps = memo(function Steps({
 	const [toggled, setToggled] = useState(false);
 	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
-	const summary = stepsSummary(items);
-	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
+	const summary = useMemo(() => summaryOf(items), [items]);
+	const sites = useMemo(() => sitesOf(items), [items]);
+	// The sites stand for the sources, so the words leave them out.
+	const words = summary.steps === 0 ? { said: "Thought it through", failed: null } : summaryWords(summary, { sources: false });
 
 	return (
 		<div className="my-2">
@@ -42,7 +45,9 @@ export const Steps = memo(function Steps({
 					aria-expanded={inPane ? paneOpen === true : open}
 					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
 				>
-					<span className={`truncate ${failed ? "text-danger" : ""}`}>{summary}</span>
+					<Favicons sites={sites} size={16} total={summary.sources} />
+					<span className="truncate">{words.said}</span>
+					{words.failed !== null && <span className="shrink-0 text-danger">· {words.failed}</span>}
 					{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
 				</button>
 			)}

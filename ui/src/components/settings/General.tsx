@@ -123,7 +123,7 @@ export function GeneralSection({
 			<section>
 				<h3 className="group-title">New teammates</h3>
 				<div className="grouped">
-					<Fold title="Thinks with" value={agentName} open={open === "agent"} onToggle={() => setOpen((was) => toggled(was, "agent"))}>
+					<Fold title="Agent" value={agentName} open={open === "agent"} onToggle={() => setOpen((was) => toggled(was, "agent"))}>
 						{backends.length > 0 ? (
 							<BackendPicker
 								backends={backends}

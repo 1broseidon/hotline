@@ -1,7 +1,7 @@
 import { startCall } from "../voice/call";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
-import { chordKeys } from "../chords";
+import { PaneClose } from "../ui/PaneClose";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
 import {
@@ -153,6 +153,10 @@ export function Dock({
 	);
 }
 
+/** How soon after a line in a running thread its list is read again, and how often while it runs. */
+const LIST_AFTER_LINE_MS = 1500;
+const LIST_WHILE_WORKING_MS = 5000;
+
 /** Whether a turn of this thread is running, as the roster, which hears of it first, says. */
 function workingNow(entry: RosterEntry, open: ThreadRef): boolean {
 	if (open.thread.kind === "side") return entry.sides?.find((side) => side.sideId === open.thread.key)?.working ?? false;
@@ -167,9 +171,7 @@ function DockBand({ onClose }: { onClose(): void }) {
 	return (
 		<Band>
 			<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Threads</h2>
-			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-				<CloseIcon />
-			</button>
+			<PaneClose onClose={onClose} />
 		</Band>
 	);
 }
@@ -471,6 +473,23 @@ function ThreadView({
 		if (eventIds.length > 0) void wire.command("peers.mark_read", { key: id.key, eventIds });
 	}, [id.kind, id.key, events]);
 
+	// Whether a pair's turn is running is the thread list's word, and the
+	// roster does not hear of a pair's turn ending, so nothing would read the
+	// list again: while the list says it runs, it is read again shortly after
+	// each new line, and every few seconds besides, so it ends when the turn does.
+	const newest = events.at(-1)?.id;
+	const listedWorking = row?.working === true;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new line is what asks for the list again.
+	useEffect(() => {
+		if (!listedWorking) return;
+		const soon = setTimeout(onChanged, LIST_AFTER_LINE_MS);
+		const every = setInterval(onChanged, LIST_WHILE_WORKING_MS);
+		return () => {
+			clearTimeout(soon);
+			clearInterval(every);
+		};
+	}, [listedWorking, newest]);
+
 	const refuse = (error: unknown) => setRefused(error instanceof Error ? error.message : String(error));
 	const send = (text: string, attachments: Attachment[]) => {
 		setRefused(null);
@@ -532,9 +551,7 @@ function ThreadView({
 						}}
 					/>
 				)}
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<PaneClose onClose={onClose} />
 			</Band>
 			{from !== "" && opener === undefined && <p className="dock-note selectable">{from}</p>}
 			{withoutWords(job?.without) !== "" && <p className="dock-note selectable">{withoutWords(job?.without)}</p>}

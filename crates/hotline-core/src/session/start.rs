@@ -134,6 +134,12 @@ impl Room {
         info.mode_label = reported.mode_label;
         info.configs = reported.configs;
         info.capabilities = reported.capabilities;
+        // The account's reading, kept by the room across teammates and
+        // restarts, with whatever the agent reported as it started.
+        if let Some(reading) = reported.plan_usage {
+            self.take_plan(&persona.backend_id, reading);
+        }
+        info.plan_usage = self.plan_of(&persona.backend_id);
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
             computer: has_computer,
@@ -146,6 +152,7 @@ impl Room {
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_posts: Mutex::new(Vec::new()),
+            told_name: Mutex::new(agent.told_name.clone()),
             unread: Mutex::new(Vec::new()),
             voice_origin: Mutex::new(None),
             dispatched_deliveries: Mutex::new(HashSet::default()),
@@ -162,6 +169,11 @@ impl Room {
             agent.keep();
             let _ = self.info_changes.send(info.clone());
         }
+        // What the agent offered as it opened is the offer now: the
+        // teammates on it that are not running show it.
+        if persona.backend_id != crate::driver::HOTLINE_BACKEND_ID {
+            self.redraw_resting(&persona.backend_id);
+        }
         if let Some(info_updates) = info_updates {
             self.watch_driver_info(&session, info_updates);
         }
@@ -177,6 +189,7 @@ impl Room {
         if let Some(processes) = session.driver.processes() {
             self.watch_processes(&session, &processes);
         }
+        self.read_plan_on_start(&session);
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
         self.begin_chapter(&persona.id, &persona.backend_id);

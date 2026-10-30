@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Wire } from "./wire";
+import { chatWindow } from "./chatWindow";
 
 /**
  * The desks this window can show: the one on this computer, if there is
@@ -51,11 +52,13 @@ declare global {
 export const LOCAL_DESK = "local";
 const ACTIVE_KEY = "hotline.desk.active";
 
-/* Read lazily and guarded: tests import this module before a DOM exists. */
+/* Read lazily and guarded: tests import this module before a DOM exists.
+ * A chat in a window of its own starts on its teammate's desk and keeps any
+ * change to itself. */
 const saved = {
-	get: () => (typeof localStorage === "undefined" ? null : localStorage.getItem(ACTIVE_KEY)),
+	get: () => chatWindow?.deskId ?? (typeof localStorage === "undefined" ? null : localStorage.getItem(ACTIVE_KEY)),
 	set: (id: string) => {
-		if (typeof localStorage !== "undefined") localStorage.setItem(ACTIVE_KEY, id);
+		if (chatWindow === null && typeof localStorage !== "undefined") localStorage.setItem(ACTIVE_KEY, id);
 	},
 };
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChapterClose, ChapterSummary, GlobalSearchHit, ThreadSearchHit } from "../generated/contract";
 import { chordKeys } from "../chords";
+import { excerptText } from "../excerpt";
 import { ChevronDownIcon, ChevronRightIcon, SearchIcon } from "../icons";
 import { Avatar } from "../ui/Avatar";
 import { wire, type RosterEntry } from "../wire";
@@ -245,9 +246,9 @@ export function TeamSearch({
 							>
 								{/* The group says whose; the row is the line itself. */}
 								<span className="min-w-0 flex-1 truncate text-ink-2">
-									{hit.kind === "chapter" ? hit.title : `${hit.from === "me" ? "You: " : ""}${hit.excerpt}`}
+									{hit.kind === "chapter" ? hit.title : `${hit.from === "me" ? "You: " : ""}${excerptText(hit.excerpt)}`}
 								</span>
-								<span className="shrink-0 text-xs text-ink-3">{when(hit.ts)}</span>
+								<span className="instrument shrink-0">{when(hit.ts)}</span>
 							</button>
 						);
 					})}

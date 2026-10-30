@@ -138,6 +138,10 @@ impl Room {
         session: &Arc<Session>,
         reported: &DriverInfo,
     ) -> Result<SessionInfo, String> {
+        // A reading is the account's, whichever teammate's agent gave it.
+        if let Some(reading) = &reported.plan_usage {
+            self.take_plan(&session.backend_id, reading.clone());
+        }
         let _lifecycle = lock(&self.lifecycle);
         session.capability.check()?;
         if !lock(&self.sessions)
@@ -164,6 +168,9 @@ impl Room {
             info.current_mode_id.clone_from(&reported.current_mode_id);
             info.mode_label.clone_from(&reported.mode_label);
             info.configs.clone_from(&reported.configs);
+            if let Some(plan) = self.plan_of(&session.backend_id) {
+                info.plan_usage = Some(plan);
+            }
             info.clone()
         };
         let _ = self.info_changes.send(info.clone());

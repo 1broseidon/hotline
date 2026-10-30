@@ -137,7 +137,7 @@ export function ToolsSection({
 								))
 							)}
 						</div>
-						<p className="group-hint">Grant servers per teammate, in its pane.</p>
+						<p className="group-hint">Allow servers per teammate, in that teammate's settings.</p>
 					</section>
 					<WebSearchGroup />
 					{refusal !== null && <Refusal message={refusal} />}

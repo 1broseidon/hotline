@@ -45,11 +45,11 @@ export function McpRows({
 			{open && (
 				<>
 					<div className={NESTED}>
-						<RowText title="Grant" />
+						<RowText title="Allowed" />
 						<Picker
 							value={policy.mode}
 							choices={GRANT_MODES}
-							placeholder="Grant"
+							placeholder="Allowed"
 							label="Which MCP servers this teammate gets"
 							disabled={disabled}
 							onChange={(mode) => {
@@ -85,7 +85,7 @@ export function McpRows({
 const SKILL_GRANT_MODES: { id: PolicyMode; name: string; detail: string }[] = [
 	{ id: "none", name: "None", detail: "Default for new teammates" },
 	{ id: "some", name: "Selected", detail: "Only the skills ticked below" },
-	{ id: "all", name: "All", detail: "Every offered skill, including ones offered later" },
+	{ id: "all", name: "All", detail: "Every available skill, including ones made available later" },
 ];
 
 /**
@@ -146,12 +146,12 @@ export function SkillRows({
 			{open && (
 				<>
 					<div className={NESTED}>
-						<RowText title="Grant" />
+						<RowText title="Allowed" />
 						<Picker
 							value={policy.mode}
 							choices={SKILL_GRANT_MODES}
-							placeholder="Grant"
-							label="Which offered skills this teammate gets"
+							placeholder="Allowed"
+							label="Which available skills this teammate may use"
 							disabled={disabled}
 							onChange={(mode) => {
 								if (mode !== policy.mode) onChange({ ...policy, mode: mode as PolicyMode });
@@ -161,7 +161,7 @@ export function SkillRows({
 					{policy.mode === "some" &&
 						(offered.length === 0 ? (
 							<div className={NESTED}>
-								<RowText title="No skills offered yet" value="switch one on under Settings → Skills" />
+								<RowText title="No skills available yet" value="switch one on under Settings → Skills" />
 							</div>
 						) : (
 							offered.map((entry) => (

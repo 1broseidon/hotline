@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FolderGrant, Persona, ScheduledJob, SessionInfo } from "../generated/contract";
-import { chordKeys } from "../chords";
+import { PaneClose } from "../ui/PaneClose";
 import { CloseIcon, FolderIcon, PlusIcon, RevealIcon, TrashIcon } from "../icons";
 import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
@@ -83,6 +83,14 @@ export function Teammate({
 	useEffect(() => {
 		setPathShown(false);
 	}, [persona.id]);
+
+	// Opened on a harness teammate, the core looks at its agent when due and
+	// reads its plan when old, so the modes the agent offers are here to
+	// choose before the teammate ever runs; the row comes with the roster.
+	useEffect(() => {
+		if (hotline) return;
+		void wire.command("plan.refresh", { personaId: persona.id }).catch(() => {});
+	}, [hotline, persona.id]);
 
 	// The goal is as tall as its text, never a well with room to spare, up to
 	// the card's four lines; past them it fades out.
@@ -173,9 +181,7 @@ export function Teammate({
 		<aside className="inspector" aria-label={`${persona.name}'s settings`}>
 			<Band>
 				<h2 className="eyebrow min-w-0 flex-1 truncate pl-1">Teammate</h2>
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<PaneClose onClose={onClose} />
 			</Band>
 			<Scroll>
 				<div className="flex flex-col gap-5 px-4 pb-4 pt-2">
@@ -221,6 +227,7 @@ export function Teammate({
 								<textarea
 									ref={goalField}
 									aria-label="Goal"
+									title="Saved as AGENTS.md"
 									className="profile-goal"
 									data-clipped={goalClipped || undefined}
 									rows={1}
@@ -474,7 +481,10 @@ function folderName(path: string): string {
 
 /**
  * An ACP teammate's reach is the harness's own. What Hotline can offer is
- * the runtime mode the harness advertised, if any.
+ * the runtime mode the harness advertised, if any: the live session's, or
+ * at rest the modes its agent last offered here with the teammate's own
+ * choice current. A mode chosen at rest is kept on the teammate and set on
+ * its next session before the first prompt.
  */
 function HarnessRows({
 	personaId,
@@ -495,7 +505,7 @@ function HarnessRows({
 			<div className="group-row">
 				<RowText title={`Managed by ${harness}`} />
 			</div>
-			{/* A harness that offers no modes has nothing here to choose, so no row. */}
+			{/* An agent that has offered no modes here has nothing to choose, so no row. */}
 			{session.modes.length > 0 && (
 				<div className="group-row">
 					<RowText title={modeLabel} />

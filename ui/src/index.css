@@ -365,6 +365,10 @@
 	.band-row > :not(span:empty, h1, h2) {
 		pointer-events: auto;
 	}
+	/* A band's quiet facts (a run's step count) are text, not controls: they drag too. */
+	.band-row > .instrument {
+		pointer-events: none;
+	}
 	/* ------------------------------------------------------------- refusal
 	 * A refusal is a row on the danger fill: the glyph, one sentence of ours,
 	 * and a disclosure for whoever wants the words behind it. */
@@ -637,12 +641,15 @@
 		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
 	}
+	/* A group's label, as the work pane labels its sections: small, tracked, upper case. */
 	.group-title {
-		margin: 0 0 6px 12px;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		font-weight: 500;
-		color: var(--ink-2);
+		margin: 0 0 8px 12px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-3);
 	}
 	.group-hint {
 		margin: 6px 12px 0;
@@ -653,6 +660,27 @@
 	/* A selectable row: the whole row is the control. */
 	.group-row-choice {
 		cursor: default;
+	}
+	/* A fold with a key of its own (the desktop's Start or Stop): the text
+	 * and the chevron open it, each the row's full height, the key between. */
+	.fold-row-acted {
+		gap: 4px;
+		padding-block: 0;
+	}
+	.fold-row-open {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		align-self: stretch;
+		align-items: center;
+		gap: 12px;
+		padding-block: 8px;
+	}
+	.fold-row-chevron {
+		display: flex;
+		align-self: stretch;
+		align-items: center;
+		padding-left: 4px;
 	}
 	/* The add row at the head of a list the room keeps (Providers, Tools):
 	 * the one place in a pane that is accent, because adding is the one
@@ -682,6 +710,12 @@
 	}
 	.pane-column .group-title {
 		margin: 0 0 8px 16px;
+	}
+	/* A group of one setting is a row, not a card: the card is for rows that
+	 * belong together. */
+	.pane-column .grouped:has(> .group-row:only-child) {
+		background: none;
+		box-shadow: none;
 	}
 	.pane-column .use-for-nested {
 		padding-left: 32px;
@@ -741,9 +775,11 @@
 		opacity: 0.5;
 	}
 
+	/* A checkbox drawn as a switch; a span with data-on draws one inside a menu row. */
 	.switch {
 		appearance: none;
 		position: relative;
+		display: inline-block;
 		flex-shrink: 0;
 		width: 26px;
 		height: 16px;
@@ -760,13 +796,16 @@
 		width: 13px;
 		height: 13px;
 		border-radius: 50%;
-		background: var(--ink);
+		background: var(--knob);
+		box-shadow: var(--knob-shadow);
 		transition: transform var(--dur-open) var(--ease-out);
 	}
-	.switch:checked {
+	.switch:checked,
+	.switch[data-on="true"] {
 		background: var(--accent);
 	}
-	.switch:checked::after {
+	.switch:checked::after,
+	.switch[data-on="true"]::after {
 		background: var(--on-accent);
 		transform: translateX(10px);
 	}
@@ -874,59 +913,323 @@
 	.mark-none {
 		visibility: hidden;
 	}
-	/* The model picker (ModelPicker.tsx): a head naming what the teammate runs
-	 * on with its effort slider, then one row per account, each opening its
-	 * models, each model its efforts. */
-	/* The button carries the maker's mark and the effort besides the model. */
-	.picker.model-picker {
-		max-width: 300px;
+	/* The model picker (ModelPicker.tsx), which is the teammate's menu too:
+	 * who it is, the agent and its plan's name, the effort tabs, the agent's
+	 * models, the one in use checked, Change agent opening every other
+	 * account and agent beside, then the teammate's actions. */
+	/* One pill in the band's corner: the maker's mark, the model and its
+	 * effort, the teammate's face at the end. A raised
+	 * plane with a hairline, larger than a control, so it reads as the one
+	 * key it is. Narrow, it is the mark and the face. */
+	.model-pill {
+		min-width: 0;
+		max-width: 340px;
+		height: 32px;
+		flex-shrink: 1;
+		gap: 7px;
+		padding: 0 4px 0 11px;
+		border-radius: 999px;
+		background: var(--raised);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		color: var(--ink);
+	}
+	.model-pill:not(:has(.model-pill-face)) {
+		padding-right: 8px;
+	}
+	.model-pill[data-compact="true"] {
 		gap: 6px;
+		padding-left: 9px;
+	}
+	.model-pill:hover:not(:disabled),
+	.model-pill[aria-expanded="true"] {
+		background: var(--pop);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+	}
+	.model-pill-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.model-pill-chevron {
+		flex-shrink: 0;
+		color: var(--ink-3);
+	}
+	/* Fast mode on: a bolt after the effort. */
+	.model-pill-fast {
+		flex-shrink: 0;
+		width: 13px;
+		height: 13px;
+		margin-left: -2px;
+		color: var(--ink-2);
+	}
+	.model-pill-face {
+		position: relative;
+		display: inline-flex;
+		flex-shrink: 0;
+		margin-left: 1px;
+	}
+	/* The teammate at work: a mint dot on the face's corner, beating. */
+	.model-pill-beat {
+		position: absolute;
+		right: -1px;
+		bottom: -1px;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: 0 0 0 2px var(--raised);
 	}
 	.model-menu {
 		max-width: 360px;
 	}
-	/* The main menu is wide enough for an account's whole name beside its kind. */
+	.model-menu .model-row {
+		min-height: 30px;
+	}
 	.model-menu-main {
-		min-width: 300px;
+		width: 272px;
 	}
+	.model-menu-main.model-menu-teammate {
+		width: 300px;
+	}
+	.model-who {
+		gap: 12px;
+		padding-top: 6px;
+	}
+	/* The agent and its plan, on one line: over the effort tabs in the
+	 * menu, over the plan's lines on the gauge's card. */
 	.model-head {
-		padding: 4px 4px 6px;
-	}
-	.model-head-plain {
-		padding: 4px 4px 0;
-	}
-	/* The head as a key: the model in use and its account, one large target
-	 * opening their models beside it, lit like a row when pointed at. */
-	.model-head-key {
 		display: flex;
-		width: 100%;
-		align-items: center;
-		gap: 8px;
-		padding: 6px 8px 7px 4px;
-		border-radius: 6px;
-		text-align: left;
-		transition: background var(--dur-press) var(--ease-out);
+		min-width: 0;
+		align-items: baseline;
+		gap: 6px;
+		padding: 7px 8px 5px 6px;
 	}
-	.model-head-key:hover,
-	.model-head-key[data-active="true"] {
-		background: var(--fill-hover);
+	.model-head .mark {
+		align-self: center;
+		margin-right: 2px;
 	}
-	.model-head-key .model-head-now,
-	.model-head-key .model-head-account {
-		display: flex;
-	}
-	.model-head-now {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-weight: 600;
+	.model-head-name {
+		flex-shrink: 0;
+		max-width: 60%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-md);
+		font-weight: 500;
 		color: var(--ink);
 	}
-	.model-head-account {
-		margin: 2px 0 0 22px;
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
+	.model-head-kind {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
 		color: var(--ink-3);
+	}
+	.model-head-kind::before {
+		content: "· ";
+	}
+	/* Remove: the one action said in red, until it is the lit row. */
+	.model-danger:not([data-active="true"]) {
+		color: var(--danger);
+	}
+	/* The account's plan on the gauge's card: one quiet line per window,
+	 * its name, a hairline bar, the use and the reset in the instrument
+	 * face. Amber once near the limit. */
+	.plan-rows {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 0 8px 6px 6px;
+	}
+	.plan-row {
+		display: grid;
+		grid-template-columns: 3.4em 1fr 2.8em 4.4em;
+		align-items: center;
+		column-gap: 8px;
+		height: 18px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	.plan-name {
+		color: var(--ink-2);
+	}
+	.plan-bar {
+		position: relative;
+		height: 3px;
+		border-radius: 2px;
+		background: var(--line);
+	}
+	.plan-fill {
+		display: block;
+		height: 100%;
+		border-radius: 2px;
+		background: var(--ink-3);
+	}
+	.plan-row[data-status="warning"] .plan-fill,
+	.plan-row[data-status="limited"] .plan-fill {
+		background: var(--warn);
+	}
+	/* Where use would be if spread evenly over the window so far: fill past
+	 * it is going faster than the window allows. */
+	.plan-tick {
+		position: absolute;
+		top: -2px;
+		bottom: -2px;
+		width: 1px;
+		margin-left: -0.5px;
+		background: var(--ink-2);
+	}
+	.plan-use {
+		text-align: right;
+	}
+	.plan-row[data-status="warning"] .plan-use,
+	.plan-row[data-status="limited"] .plan-use {
+		color: var(--warn-ink);
+	}
+	.plan-reset {
+		color: var(--ink-4);
+	}
+	/* Under each line on the gauge's card, its reset and runway, quieter than the line. */
+	.plan-window + .plan-window {
+		margin-top: 4px;
+	}
+	.plan-runway {
+		font-size: var(--text-xs);
+		line-height: 16px;
+		color: var(--ink-3);
+	}
+	/* The plan's gauge in the band: a dial, weekly outside and 5-hour
+	 * inside, each an arc from twelve o'clock over a faint track. Amber,
+	 * both arcs, near a limit. Its card is the menu's surface. */
+	.plan-gauge-track,
+	.plan-gauge-arc {
+		fill: none;
+		stroke-width: 2;
+	}
+	.plan-gauge-track {
+		stroke: var(--line-strong);
+	}
+	.plan-gauge-arc {
+		stroke: var(--ink-2);
+		stroke-linecap: round;
+	}
+	.plan-gauge:hover .plan-gauge-arc,
+	.plan-gauge[aria-expanded="true"] .plan-gauge-arc {
+		stroke: var(--ink);
+	}
+	.plan-gauge[data-near="true"] .plan-gauge-arc {
+		stroke: var(--warn);
+	}
+	.plan-card {
+		width: 300px;
+		max-width: 300px;
+		padding-bottom: 6px;
+	}
+	/* The effort of the model in use, one row of equal tabs under the agent.
+	 * Dimmed while a model switch waits on the agent. */
+	.segmented.effort-tabs {
+		display: flex;
+		min-width: 0;
+		margin: 1px 6px 6px;
+		border: 0;
+	}
+	.effort-tab {
+		flex: 1 1 0;
+		min-width: 0;
+		justify-content: center;
+		padding: 0 2px;
+		white-space: nowrap;
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	.effort-tab:hover:not([aria-checked="true"]),
+	.effort-tab[data-active="true"]:not([aria-checked="true"]) {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.effort-tab[aria-checked="true"] {
+		background: var(--pop);
+		color: var(--ink);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	.effort-tab[data-active="true"][aria-checked="true"] {
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong);
+	}
+	.effort-tabs[data-busy="true"] {
+		opacity: 0.5;
+	}
+	/* The model in use: a mint check, its row faintly lit at rest. */
+	.model-row[data-current="true"]:not([data-active="true"]) {
+		background: var(--fill-hover);
+	}
+	.model-check {
+		color: var(--accent);
+	}
+	.menu-item[data-active="true"] .model-check {
+		color: inherit;
+	}
+	/* Context: a small segmented pair at the row's end, the size in use raised as a tab is. */
+	fieldset.model-context {
+		min-inline-size: 0;
+		margin: 0;
+		border: 0;
+	}
+	.model-context-sizes {
+		height: 22px;
+		flex-shrink: 0;
+	}
+	.model-context-sizes .segment {
+		padding: 0 8px;
+		font-size: var(--text-xs);
+	}
+	.model-context-sizes .segment:hover:not([aria-checked="true"]) {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.model-context-sizes .segment[aria-checked="true"] {
+		background: var(--pop);
+		color: var(--ink);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	/* On a lit row the sizes keep the menu's ink, not the accent's. */
+	.menu-item[data-active="true"].model-context {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	/* Fast mode: the bolt where a model's check stands, what it costs, its switch. */
+	.model-fast-icon {
+		color: var(--ink-3);
+	}
+	.model-fast[aria-checked="true"] .model-fast-icon {
+		color: var(--accent);
+	}
+	.model-fast-hint {
+		flex-shrink: 0;
+		font-size: var(--text-xs);
+		color: var(--ink-3);
+	}
+	.menu-item[data-active="true"] .model-fast-icon,
+	.menu-item[data-active="true"] .model-fast-hint {
+		color: inherit;
+		opacity: 0.8;
+	}
+	/* On a lit row, which is the accent, the switch turns over to keep its shape. */
+	.menu-item[data-active="true"] .switch {
+		background: color-mix(in oklch, var(--on-accent) 30%, transparent);
+	}
+	.menu-item[data-active="true"] .switch[data-on="true"] {
+		background: var(--on-accent);
+	}
+	.menu-item[data-active="true"] .switch[data-on="true"]::after {
+		background: var(--accent);
 	}
 	/* An agent that wants its own sign-in: the row is the key, said in the accent. */
 	.model-row-signin {
@@ -954,109 +1257,41 @@
 	.menu-item[data-active="true"] .model-row-more {
 		color: inherit;
 	}
-	.model-dot {
-		display: inline-block;
-		width: 6px;
-		height: 6px;
-		margin-left: 3px;
-		border-radius: 50%;
-		background: var(--accent);
-	}
-	.menu-item[data-active="true"] .model-dot {
-		background: currentColor;
-	}
+	/* Change agent: quieter than a model, a hint of the others before its chevron. */
+	.model-change,
+	.model-more,
 	.model-add {
+		color: var(--ink-2);
+	}
+	.model-change-mark {
+		width: 14px;
+		height: 14px;
+		margin-left: -1px;
 		color: var(--ink-3);
+	}
+	.menu-item[data-active="true"] .model-change-mark {
+		color: inherit;
+	}
+	.model-change-hint {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		text-align: right;
+		font-size: var(--text-xs);
+		color: var(--ink-4);
+	}
+	.model-change .menu-item-text {
+		flex: none;
+	}
+	.menu-item[data-active="true"] .model-change-hint {
+		color: inherit;
+		opacity: 0.8;
 	}
 	.model-add-mark {
 		width: 14px;
 		height: 14px;
-	}
-	/* Effort as a slider: a stop per level, the thumb on the one in use. */
-	.effort-slider {
-		margin: 12px 4px 2px;
-	}
-	.effort-slider-label {
-		margin-bottom: 6px;
-		font-size: var(--text-xs);
-		font-weight: 500;
-		color: var(--ink-3);
-	}
-	.effort-track {
-		position: relative;
-		height: 18px;
-		margin: 0 7px;
-		cursor: pointer;
-		touch-action: none;
-		border-radius: 9px;
-	}
-	.effort-track:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 4px;
-	}
-	.effort-rail,
-	.effort-fill {
-		position: absolute;
-		top: 8px;
-		left: 0;
-		height: 2px;
-		border-radius: 1px;
-	}
-	.effort-rail {
-		right: 0;
-		background: var(--line-strong);
-	}
-	.effort-fill {
-		background: var(--accent);
-	}
-	.effort-stop {
-		position: absolute;
-		top: 6px;
-		width: 6px;
-		height: 6px;
-		margin-left: -3px;
-		border-radius: 50%;
-		background: var(--line-strong);
-	}
-	.effort-stop[data-lit] {
-		background: var(--accent);
-	}
-	.effort-thumb {
-		position: absolute;
-		top: 2px;
-		width: 14px;
-		height: 14px;
-		margin-left: -7px;
-		border-radius: 50%;
-		background: var(--ink);
-		box-shadow:
-			0 1px 3px oklch(0% 0 0 / 0.45),
-			0 0 0 3px var(--accent-soft);
-		transition: left var(--dur-press) var(--ease-out);
-	}
-	.effort-ticks {
-		position: relative;
-		height: 16px;
-		margin: 4px 7px 0;
-	}
-	.effort-tick {
-		position: absolute;
-		transform: translateX(-50%);
-		font-size: 10.5px;
-		color: var(--ink-4);
-		white-space: nowrap;
-	}
-	.effort-tick:first-child {
-		transform: translateX(-7px);
-	}
-	.effort-tick:last-child {
-		transform: translateX(calc(-100% + 7px));
-	}
-	.effort-tick[data-on] {
-		color: var(--ink-2);
-	}
-	.effort-tick:hover {
-		color: var(--ink);
 	}
 	.menu-heading .mark {
 		margin-right: 6px;
@@ -1248,6 +1483,11 @@
 			opacity: 0.3;
 		}
 	}
+	@keyframes sheen {
+		to {
+			background-position: -200% 0;
+		}
+	}
 
 	/* ------------------------------------------------------------- kbd */
 	.kbd {
@@ -1435,30 +1675,35 @@
 	.said-name + .said-name {
 		margin-left: 12px;
 	}
-	/* Them, at work: the mark and its word on a card tucked behind the
-	 * composer's top, a little narrower than it, Stop at its right as the
-	 * phone's activity bar has it (the pill has none meanwhile). The card runs
-	 * on under the composer, which paints over it, so only its top shows. It
-	 * is not a message; it is in the room while the reply is on its way and
-	 * gone when it lands. A press opens the peek above it. */
+	/* A thread's teammate at work: the composer's activity row as a pill of
+	 * its own, floating at the foot of the thread under the last line, the
+	 * mark in its colour, its words, and Stop. It is not a message; it is in
+	 * the room while the reply is on its way and gone when it lands. */
 	.ambient {
 		position: absolute;
 		inset: auto 0 0 0;
 		z-index: 0;
 		pointer-events: none;
-		clip-path: inset(-160px -80px -40px -80px);
+		/* It rises from the thread's foot, never from below it. */
+		clip-path: inset(-160px -80px 0 -80px);
 	}
 	.ambient-card {
 		display: flex;
+		width: fit-content;
+		max-width: 100%;
+		height: 32px;
 		align-items: center;
-		gap: 8px;
-		margin: 0 18px -22px;
-		padding: 5px 6px 27px 10px;
-		border-radius: 14px 14px 0 0;
-		background: var(--raised);
+		gap: 6px;
+		margin: 0 0 12px;
+		padding: 0 4px 0 6px;
+		border-radius: 16px;
+		background: color-mix(in oklab, var(--pop) 88%, transparent);
+		-webkit-backdrop-filter: blur(14px);
+		backdrop-filter: blur(14px);
 		box-shadow:
 			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
+			0 0 0 var(--hairline) var(--line),
+			0 6px 18px oklch(0% 0 0 / 0.22);
 		pointer-events: auto;
 		/* The transcript makes room first (its 200ms padding ease), then the
 		 * card rises into it, slow out of sleep; the glyph's first blink
@@ -1476,13 +1721,19 @@
 		flex: 1;
 		align-items: center;
 		gap: 8px;
-		padding: 2px 4px 2px 0;
-		border-radius: var(--radius-control);
-		color: var(--ink-3);
+		height: 26px;
+		padding: 0 10px 0 4px;
+		border-radius: 13px;
+		color: var(--ink-2);
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.ambient-mark:hover {
+		background: var(--fill-hover);
 	}
 	.ambient-card .glyph {
 		width: 22px;
 		height: 15.7px;
+		color: var(--accent);
 	}
 	.ambient-stop {
 		flex-shrink: 0;
@@ -1770,148 +2021,414 @@
 	.step-edit-same {
 		color: var(--ink-3);
 	}
-	/* The pane's trail (Trail.tsx): one line down the left joining the steps'
-	 * dots, each step a plain heading over a quiet line of what ran, its time
-	 * at the right; opened, what ran and what came back as labelled blocks. */
-	.trail {
-		position: relative;
+	/* The pane's work (Trail.tsx): Sources as cards, Files changed with the
+	 * lines in and out, then Steps as plain lines with a fact at the right;
+	 * a line opens to what ran and what came back, as labelled blocks. */
+	.work-sections {
+		display: flex;
+		flex-direction: column;
+		gap: 18px;
+		padding: 8px 4px 8px;
+	}
+	.work-heading {
+		margin: 0 0 8px 6px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-3);
+	}
+	.source-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 8px;
+	}
+	.source-more {
+		margin: 6px 0 0 6px;
+		padding: 2px 0;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.source-more:hover {
+		color: var(--ink-2);
+	}
+	.source-card {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		gap: 6px;
+		padding: 10px 12px 11px;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow: var(--top-light), inset 0 0 0 var(--hairline) var(--line);
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.source-card:hover {
+		background: var(--pop);
+	}
+	.source-site {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 7px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.source-title {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+	.source-path {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+	}
+	.file-list {
 		margin: 0;
-		padding: 4px 0 8px;
+		padding: 0;
 		list-style: none;
 	}
-	.trail-step {
-		position: relative;
+	.file-row {
+		display: flex;
+		min-height: 26px;
+		align-items: center;
+		gap: 12px;
+		padding: 2px 6px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
 	}
-	/* The line joining each dot to the next. */
-	.trail-step:not(:last-child)::before {
-		content: "";
-		position: absolute;
-		top: 22px;
-		bottom: -6px;
-		left: 15px;
-		width: 1.5px;
-		background: var(--line);
+	.file-path {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.file-folder {
+		color: var(--ink-3);
+	}
+	.file-name {
+		color: var(--ink);
+	}
+	.file-lines {
+		flex-shrink: 0;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	.file-added {
+		color: var(--accent-ink);
+	}
+	.file-removed {
+		color: var(--danger);
+	}
+	.trail {
+		margin: 0;
+		padding: 0;
+		list-style: none;
 	}
 	.trail-head {
-		position: relative;
 		display: flex;
 		width: 100%;
-		align-items: flex-start;
-		gap: 12px;
-		padding: 8px 10px 8px 11px;
+		min-height: 30px;
+		align-items: center;
+		gap: 10px;
+		padding: 4px 6px;
 		border-radius: var(--radius-control);
 		text-align: left;
 	}
-	.trail-head:hover:not(:disabled) {
-		background: var(--fill-hover);
-	}
+	.trail-head:hover:not(:disabled),
+	.trail-head[data-hot],
 	.trail-head[aria-expanded="true"] {
 		background: var(--fill-hover);
 	}
 	.trail-dot {
-		position: relative;
-		z-index: 1;
 		flex-shrink: 0;
-		width: 10px;
-		height: 10px;
-		margin-top: 5px;
+		width: 6px;
+		height: 6px;
 		border-radius: 50%;
 		background: var(--ink-4);
-		box-shadow: 0 0 0 3px var(--canvas);
 	}
-	.trail-step[data-status="in_progress"] .trail-dot,
-	.trail-step[data-status="pending"] .trail-dot {
+	.trail-step[data-status="in_progress"] .trail-dot {
 		background: var(--accent);
 	}
 	.trail-step[data-status="failed"] .trail-dot {
 		background: var(--danger);
 	}
-	.trail-step[data-thought] .trail-dot {
-		background: transparent;
-		box-shadow:
-			inset 0 0 0 1.5px var(--ink-4),
-			0 0 0 3px var(--canvas);
-	}
-	.trail-words {
-		display: flex;
+	.trail-said {
 		min-width: 0;
 		flex: 1;
-		flex-direction: column;
-		gap: 2px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
 	}
-	.trail-said {
-		font-size: 14.5px;
-		line-height: 1.35;
-		font-weight: 500;
+	.trail-step[data-status="in_progress"] .trail-said,
+	.trail-step[data-status="failed"] .trail-said {
 		color: var(--ink);
 	}
-	.trail-step[data-thought] .trail-said {
-		color: var(--ink-2);
-		font-weight: 400;
+	/* The line running now: a slow sheen across its words. */
+	.trail-step[data-status="in_progress"] .trail-said {
+		background: linear-gradient(90deg, var(--ink-2) 0%, var(--ink) 45%, var(--ink-2) 90%) 0 / 200% 100%;
+		-webkit-background-clip: text;
+		background-clip: text;
+		-webkit-text-fill-color: transparent;
+		/* Stepped, like the beat: a smooth sweep repaints every frame. */
+		animation: sheen 2.4s steps(12) infinite;
 	}
-	.trail-ran {
+	/* The one fact beside a line: a count, a time, the lines in and out. */
+	.trail-fact,
+	.step-fact {
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	.trail-fact[data-tone="live"],
+	.step-fact[data-tone="live"] {
+		color: var(--accent-ink);
+	}
+	.trail-fact[data-tone="danger"],
+	.step-fact[data-tone="danger"] {
+		color: var(--danger);
+	}
+	.trail-chevron {
+		flex-shrink: 0;
+		color: var(--ink-3);
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.trail-head:hover .trail-chevron,
+	.trail-head:focus-visible .trail-chevron,
+	.trail-head[aria-expanded="true"] .trail-chevron {
+		opacity: 1;
+	}
+	/* Opened: the thinking before it, then each step as a person reads it. */
+	.trail-detail {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin: 2px 6px 10px 18px;
+		padding-left: 10px;
+		border-left: var(--hairline) solid var(--line);
+	}
+	.trail-thought {
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		margin: 2px 0 6px;
+		font-size: var(--text-sm);
+		line-height: 1.45;
+		font-style: italic;
+		text-align: left;
+		color: var(--ink-3);
+		white-space: pre-wrap;
+	}
+	.trail-thought[data-all] {
+		display: block;
+	}
+	/* A search, a page read: one row each, its time at the right. */
+	.trail-row {
+		display: flex;
+		min-height: 26px;
+		width: calc(100% + 12px);
+		align-items: center;
+		gap: 8px;
+		margin-left: -6px;
+		padding: 3px 6px;
+		border-radius: var(--radius-control);
+		text-align: left;
+	}
+	.trail-row:hover {
+		background: var(--fill-hover);
+	}
+	.trail-query {
+		min-width: 0;
+		flex: 1;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		color: var(--ink-3);
+		color: var(--ink-2);
 	}
-	.trail-when {
+	.trail-page {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	.trail-meta {
 		flex-shrink: 0;
-		margin-top: 2px;
+		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-3);
 	}
-	.trail-step[data-status="failed"] .trail-when {
+	.trail-run[data-failed] .trail-why .trail-meta {
 		color: var(--danger);
 	}
-	.trail-step[data-status="in_progress"] .trail-when {
-		color: var(--accent);
+	.trail-hits {
+		margin: 0 0 6px 2px;
+		padding: 0;
+		list-style: none;
 	}
-	.trail-chevron {
-		flex-shrink: 0;
-		margin-top: 3px;
+	.trail-hit {
+		display: flex;
+		height: 24px;
+		align-items: center;
+		gap: 7px;
+		font-size: var(--text-sm);
 		color: var(--ink-3);
 	}
-	/* Opened: the command and its output, each in its own labelled block. */
-	.trail-detail {
+	.trail-hit:hover {
+		color: var(--ink);
+	}
+	/* A command: what it was for, how it ended, the command, what it printed. */
+	.trail-run {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
-		margin: 2px 10px 10px 33px;
+		gap: 5px;
+		padding: 6px 0 8px;
+	}
+	.trail-run + .trail-run {
+		border-top: var(--hairline) solid var(--line);
+	}
+	.trail-why {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		font-size: var(--text-sm);
+		color: var(--ink);
+	}
+	.trail-cmd-row {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 8px;
+	}
+	.trail-cmd {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 6px 9px;
+		border-radius: var(--radius-control);
+		background: var(--fill-code);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: 1.5;
+		color: var(--ink-2);
 	}
 	.trail-label {
-		margin: 0 0 6px;
+		margin: 4px 0 0;
 		font-size: var(--text-xs);
 		font-weight: 600;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
 		color: var(--ink-3);
 	}
-	.trail-code,
+	.trail-out,
 	.trail-detail .step-out {
 		margin: 0 !important;
-		max-height: 280px;
+		max-height: 320px;
 		overflow: auto;
-		padding: 10px 12px;
-		border-radius: 10px;
+		padding: 7px 9px;
+		border-radius: var(--radius-control);
 		background: var(--well);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		line-height: 1.6;
-		color: var(--ink-2);
+		line-height: 1.5;
+		color: var(--ink-3);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
-	.trail-thought {
-		margin: 0;
+	/* Its first lines, fading out where the rest would go. */
+	.trail-out[data-clipped] {
+		max-height: calc(4 * 1.5em + 14px);
+		overflow: hidden;
+		mask-image: linear-gradient(to bottom, black 55%, transparent);
+	}
+	.trail-out[data-failed] {
+		color: var(--danger);
+	}
+	.trail-all {
+		align-self: flex-start;
 		font-size: var(--text-sm);
-		line-height: 1.55;
+		color: var(--ink-3);
+	}
+	.trail-all:hover {
 		color: var(--ink-2);
-		white-space: pre-wrap;
+	}
+	/* The turn's shape: a segment a step, as long as it took. */
+	.shape {
+		margin: 0 6px 4px;
+	}
+	.shape-bar {
+		display: flex;
+		height: 5px;
+		gap: 2px;
+	}
+	/* A segment is a mark, not a line: ink, quietly, so it reads on either
+	 * theme's pane (a hairline's colour all but vanished on white). */
+	.shape-bar > span {
+		min-width: 3px;
+		border-radius: 2px;
+		background: color-mix(in oklab, var(--ink-4) 60%, transparent);
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.shape-bar > span[data-tone="think"] {
+		background: none;
+		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink-4) 55%, transparent);
+	}
+	.shape-bar > span[data-tone="web"] {
+		background: color-mix(in oklab, var(--accent), transparent 45%);
+	}
+	.shape-bar > span[data-tone="live"] {
+		background: var(--accent);
+		animation: beat var(--dur-breath) steps(6, jump-none) infinite;
+	}
+	.shape-bar > span[data-tone="failed"] {
+		background: var(--danger);
+	}
+	.shape-bar > span[data-hot] {
+		background: var(--ink-2);
+	}
+	.shape-ticks {
+		display: flex;
+		justify-content: space-between;
+		margin-top: 5px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		line-height: 1;
+		color: var(--ink-4);
+	}
+	/* The eye on a page the agent opened. */
+	.source-read {
+		display: inline-flex;
+		flex-shrink: 0;
+		color: var(--accent-ink);
+	}
+	.source-read svg {
+		width: 13px;
+		height: 13px;
 	}
 	.steps {
 		margin: 4px 0;
@@ -1933,11 +2450,15 @@
 			0 0 0 var(--hairline) var(--line);
 		overflow-wrap: anywhere;
 	}
+	/* A card waiting on the person: the amber the composer's "Needs you" is. */
 	.card-live {
 		box-shadow:
 			var(--top-light),
-			0 0 0 var(--hairline) var(--accent),
-			0 0 0 3px var(--accent-soft);
+			0 0 0 var(--hairline) var(--warn),
+			0 0 0 3px var(--warn-soft);
+	}
+	.card-live > .eyebrow:first-child {
+		color: var(--warn-ink);
 	}
 	.card-actions {
 		display: flex;
@@ -2213,7 +2734,7 @@
 		color: var(--warn);
 	}
 	.composer-work[data-blocked] {
-		color: var(--warn);
+		color: var(--warn-ink);
 	}
 	.composer-work[data-sleeping] {
 		opacity: 0.5;
@@ -2223,6 +2744,81 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.composer-work-count,
+	.composer-work-failed {
+		margin-left: auto;
+		flex-shrink: 0;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+	}
+	.composer-work-count {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+	}
+	.composer-work-failed {
+		color: var(--danger);
+	}
+	.composer-work-count ~ .composer-work-chevron,
+	.composer-work-failed ~ .composer-work-chevron {
+		margin-left: 2px;
+	}
+	/* A site's icon, and a few of them overlapping: the pages read. */
+	/* A site's icon sits on a light tile, as browsers show them, so a dark
+	 * mark (GitHub's, Next.js's) reads on the dark theme. */
+	.favicon {
+		display: inline-flex;
+		flex-shrink: 0;
+		box-sizing: border-box;
+		align-items: center;
+		justify-content: center;
+		padding: 1.5px;
+		border-radius: 4px;
+		background: oklch(97% 0.004 250);
+		object-fit: contain;
+	}
+	.favicon-letter {
+		font-weight: 600;
+		line-height: 1;
+		color: var(--ink-2);
+		background: var(--pressed);
+	}
+	.favicons {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+	}
+	.favicons > .favicon {
+		box-shadow: 0 0 0 1.5px var(--canvas);
+	}
+	.composer .favicons > .favicon {
+		box-shadow: 0 0 0 1.5px var(--pop);
+	}
+	.favicons > .favicon + .favicon {
+		margin-left: -2px;
+	}
+	.favicons-more {
+		margin-left: 4px;
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--ink-3);
+	}
+	.steps-caption .favicons + * {
+		margin-left: 2px;
+	}
+	/* What the turn came to, as counts: the instrument voice. */
+	.composer-work[data-done] .composer-work-word,
+	.composer-work[data-done] .composer-work-failed {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		letter-spacing: 0.02em;
+	}
+	.composer-work[data-done] .composer-work-word {
+		color: var(--ink-2);
+	}
+	/* The live line of the peek is what is happening now: it reads in full ink. */
+	.work-window .step[data-live] .step-title {
+		color: var(--ink);
 	}
 	.composer-work-chevron {
 		margin-left: auto;
@@ -2861,11 +3457,12 @@
 		flex-wrap: wrap;
 		gap: 6px;
 	}
-	.nt-submit {
-		height: 38px;
-		min-width: 150px;
-		border-radius: 999px;
-		font-weight: 600;
+	/* The form's own keys: the system's buttons, a step taller as a form's footer is. */
+	.nt-submit,
+	.nt-submit ~ .control,
+	.control:has(~ .nt-submit) {
+		height: 30px;
+		padding: 0 14px;
 	}
 	/* A provider Hotline Agent can run on now, under its row in the agent picker. */
 	.provider-chip {
@@ -3098,13 +3695,49 @@
 			animation: none;
 		}
 	}
-	.chrome-controls {
-		position: fixed;
-		top: 0;
-		right: 0;
-		z-index: 30;
+	/* Windows and Linux: the window's own row across its top (ui/Titlebar.tsx
+	 * FlushChrome), the rail's key at the left over the faces' axis, the
+	 * app's name on the window's centre, the window's controls at the right.
+	 * It drags the window; the panes start under it. */
+	.chrome-strip {
+		position: relative;
 		display: flex;
-		height: 40px;
+		height: 32px;
+		flex-shrink: 0;
+		align-items: center;
+	}
+	.chrome-strip-drag {
+		position: absolute;
+		inset: 0;
+	}
+	.chrome-strip-lead {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding-left: 21px;
+	}
+	.chrome-strip-title {
+		position: absolute;
+		left: 50%;
+		display: flex;
+		transform: translateX(-50%);
+		color: var(--ink-3);
+		pointer-events: none;
+	}
+	.chrome-strip-controls {
+		position: relative;
+		display: flex;
+		height: 100%;
+		margin-left: auto;
+	}
+	.chrome-strip-controls .window-control {
+		width: 46px;
+	}
+	/* The rail no longer keeps a head for the key: the strip holds it. */
+	html[data-platform="windows"] .rail,
+	html[data-platform="linux"] .rail {
+		padding-top: 8px;
 	}
 	/* A band under the lead's keys or the window's controls makes room for
 	 * them (FlushChrome measures how much). */
@@ -3626,11 +4259,17 @@
 		min-width: 0;
 		flex-shrink: 0;
 	}
+	/* Too narrow for both side by side, the pane takes the conversation's
+	 * place whole, with its back and close, rather than covering half of it
+	 * and leaving the composer's keys under its edge. */
 	.dock-slot[data-overlay] {
 		position: absolute;
-		inset: 0 0 0 auto;
+		inset: 0;
 		z-index: 30;
-		width: min(var(--dock-width), 100%);
+		width: 100%;
+	}
+	.dock-slot[data-overlay] .dock-edge {
+		display: none;
 	}
 	.dock-slot[data-overlay] .dock {
 		box-shadow:
@@ -3807,10 +4446,15 @@
 		-webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
 		mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
 	}
+	/* A line says what was done in words, so it reads in the sans, as the
+	 * pane's lines do; its fact at the right is the measured part. */
 	.work-docked .work-window .step-title {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		letter-spacing: 0;
 	}
 	/* The pane's page (Dock.tsx): the turn flush and full height, with room
 	 * for every step to open; no well inside it, the pane is the surface. */
@@ -3820,9 +4464,57 @@
 		flex: 1;
 		flex-direction: column;
 	}
+	/* Holding an earlier turn: the way back to the one that follows the latest. */
+	.work-latest {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+		height: 22px;
+		padding: 0 9px;
+		border-radius: 999px;
+		background: var(--fill-code);
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+		white-space: nowrap;
+	}
+	.work-latest:hover {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	/* The turn's shape and sources, fixed over the steps scrolling beneath. */
+	.work-page > .work-head {
+		flex: none;
+		max-height: 45%;
+		overflow-y: auto;
+		gap: 14px;
+		padding: 4px 12px 12px;
+		/* A hairline that fades out toward both edges, not a hard rule. */
+		background: linear-gradient(to right, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent) bottom / 100% var(--hairline) no-repeat;
+	}
+	/* The steps' heading stays at the top while its steps scroll under it.
+	 * It starts where it sticks, with nothing above it in the window, so a
+	 * scroll never slides it into place; and the window does not bounce at
+	 * its ends, which would carry the heading with it. */
+	.work-page .steps-heading {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		margin: 0 -4px 4px;
+		padding: 12px 10px 8px;
+		background: var(--canvas);
+	}
+	.work-page .work-window > .work-sections {
+		padding-top: 0;
+	}
+	/* Files changed, when the turn changed any, scroll above the steps. */
+	.work-page .work-window > .work-sections > [aria-label="Files changed"] {
+		padding-top: 12px;
+	}
 	.work-page .work-window {
 		margin: 0;
-		padding: 4px 8px 16px;
+		padding: 0 8px 16px;
+		overscroll-behavior: none;
 		border-radius: 0;
 		background: transparent;
 		box-shadow: none;
@@ -4232,11 +4924,38 @@
 		flex-direction: column;
 		background: oklch(0% 0 0 / 0.78);
 	}
+	/* A pane's band over the viewer: what it is, its actions, close. */
 	.viewer-bar {
 		display: flex;
-		justify-content: flex-end;
+		height: 40px;
+		flex-shrink: 0;
+		align-items: center;
 		gap: 6px;
-		padding: 10px 12px;
+		padding: 0 8px 0 16px;
+		background: var(--canvas);
+		color: var(--ink);
+		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
+	}
+	/* Over the whole window: the traffic lights keep their corner. */
+	html[data-platform="macos"]:not([data-fullscreen]) .viewer-bar {
+		padding-left: 80px;
+	}
+	.viewer-title {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: 600;
+	}
+	.viewer-actions {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+	}
+	.viewer-actions .sent-actions {
+		margin-left: 0;
 	}
 	.viewer-stage {
 		flex: 1;
@@ -4321,11 +5040,60 @@
 	.md strong {
 		font-weight: 600;
 	}
+	/* A markdown file opened as a document: a reading column, its headings and
+	 * rules as written. */
+	.md-doc {
+		max-width: 72ch;
+		margin: 0 auto;
+		font-size: var(--text-md);
+		line-height: 1.6;
+	}
+	.md-doc h1,
+	.md-doc h2,
+	.md-doc h3,
+	.md-doc h4,
+	.md-doc h5,
+	.md-doc h6 {
+		margin: 1.4em 0 0.5em;
+		font-weight: 600;
+		line-height: 1.3;
+		color: var(--ink);
+	}
+	.md-doc h1 {
+		font-size: 1.7em;
+	}
+	.md-doc h2 {
+		font-size: 1.35em;
+		padding-bottom: 0.25em;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.md-doc h3 {
+		font-size: 1.15em;
+	}
+	.md-doc h5,
+	.md-doc h6 {
+		color: var(--ink-2);
+	}
+	.md-doc hr {
+		margin: 1.6em 0;
+		border: none;
+		border-top: var(--hairline) solid var(--line);
+	}
+	.md-doc input[type="checkbox"] {
+		margin-right: 0.4em;
+		vertical-align: -1px;
+	}
+	.md-doc li:has(> input[type="checkbox"]) {
+		list-style: none;
+		margin-left: -1.2em;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.welcome-stage,
 	.beat,
+	.shape-bar > span,
+	.trail-step[data-status="in_progress"] .trail-said,
 	.ambient-card,
 	.ambient-card[data-sleeping],
 	.menu,
@@ -5250,21 +6018,6 @@
 }
 
 @layer components {
-	/* The teammate's face as the band's menu key, and who it is atop its menu. */
-	.band-face {
-		position: relative;
-		padding: 0;
-	}
-	.band-face-beat {
-		position: absolute;
-		right: 1px;
-		bottom: 1px;
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--accent);
-		box-shadow: 0 0 0 2px var(--canvas);
-	}
 	/* Who a menu is about: the face and name centred on each other, a line
 	 * under the name when there is one, and a hairline inset as the menu's
 	 * rules are, the face on the items' leading edge. */

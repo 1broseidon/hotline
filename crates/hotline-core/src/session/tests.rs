@@ -29,6 +29,7 @@ mod chapters;
 mod chat;
 #[cfg(unix)]
 mod computer;
+mod plan;
 mod posting;
 mod preamble;
 mod reading;
@@ -86,6 +87,17 @@ pub(crate) struct Scripted {
     start_gate: Option<Arc<Semaphore>>,
     /// Why every start is refused, for a harness that cannot come up.
     start_error: Option<String>,
+    /// What reading a login's plan answers, how often it was read, and
+    /// which logins, in order. The room reads it through [`Fake`].
+    pub(super) plan: Arc<Mutex<Option<crate::contract::PlanUsage>>>,
+    pub(super) plan_reads: Arc<std::sync::atomic::AtomicUsize>,
+    pub(super) plan_logins: Arc<Mutex<Vec<(String, PlanRead)>>>,
+    /// The models with their levels the same read answers.
+    pub(super) catalog: Arc<Mutex<Option<crate::driver::acp::catalog::Catalog>>>,
+    /// Each agent looked at out of band, in order, and whether a look
+    /// says its offer changed.
+    pub(super) looks: Arc<Mutex<Vec<String>>>,
+    pub(super) look_changes: Arc<std::sync::atomic::AtomicBool>,
 }
 
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
@@ -117,6 +129,12 @@ impl Scripted {
             retried: Arc::new(Mutex::new(Vec::new())),
             start_gate: None,
             start_error: None,
+            plan: Arc::new(Mutex::new(None)),
+            plan_reads: Arc::default(),
+            plan_logins: Arc::default(),
+            catalog: Arc::default(),
+            looks: Arc::default(),
+            look_changes: Arc::default(),
         }
     }
 
@@ -167,6 +185,9 @@ impl Scripted {
                 description: None,
                 group: None,
                 account: None,
+                efforts: None,
+                default_effort: None,
+                fast: None,
             }],
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),
@@ -466,6 +487,28 @@ impl Agents for Fake {
         }
         self.answer.clone()
     }
+
+    async fn read_login(
+        &self,
+        backend_id: &str,
+        how: PlanRead,
+    ) -> crate::driver::acp::plan::LoginReading {
+        self.driver
+            .plan_reads
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        lock(&self.driver.plan_logins).push((backend_id.to_string(), how));
+        crate::driver::acp::plan::LoginReading {
+            plan: lock(&self.driver.plan).clone(),
+            catalog: lock(&self.driver.catalog).clone(),
+        }
+    }
+
+    async fn look(&self, backend_id: &str) -> bool {
+        lock(&self.driver.looks).push(backend_id.to_string());
+        self.driver
+            .look_changes
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
 /// One provider key, so the room has a model to name the note's completion
@@ -515,6 +558,8 @@ pub(crate) fn persona(id: &str) -> Persona {
         model_id: None,
         mode_id: None,
         effort_id: None,
+        config_choices: std::collections::BTreeMap::new(),
+        effort_by_model: std::collections::BTreeMap::new(),
         harness_override: None,
         hop_notice: None,
         mcp_policy: McpPolicy {

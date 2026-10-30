@@ -4,7 +4,7 @@ import type { TranscriptEvent } from "../src/generated/contract";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { Transcript, deliveryLine, deliveryMissed, peerLine, superseded, turnCauseLine, stepRuns, stepsSummary } = await import("../src/components/Transcript");
+const { Transcript, deliveryLine, deliveryMissed, peerLine, superseded, turnCauseLine, stepRuns } = await import("../src/components/Transcript");
 const { HandoffNote } = await import("../src/components/Dock");
 
 const handoff = {
@@ -40,7 +40,7 @@ describe("Ask or hand off", () => {
 			{ kind: "thought", id: "new-thought-2", ts: 4, text: "Another step" },
 		];
 		const runs = stepRuns(events, []);
-		expect(runs.map((run) => stepsSummary(run.items))).toEqual(["1 step", "2 steps"]);
+		expect(runs.map((run) => run.items.length)).toEqual([1, 2]);
 		expect(runs.map((run) => run.id)).toEqual(["old-thought", "new-thought"]);
 	});
 

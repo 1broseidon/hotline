@@ -55,6 +55,8 @@ class FakeCore {
 				"capabilities.options": { tts: { options: [] } },
 				"computer.status": { state: "absent" },
 				"skills.list": [], "teammate.tools": null,
+				// A model set at rest answers with the row, its effort picker on the new model.
+				"session.set_model": { configs: [{ id: "reasoning_effort", name: "Reasoning effort", category: "effort", currentId: "medium", options: [] }] },
 			};
 			const reply = { id: frame["id"], ok: true, result: answers[String(frame["cmd"])] ?? null };
 			if (this.hold && frame["cmd"] === "models.efforts") this.waiting.push(reply);
@@ -196,10 +198,11 @@ test("a Hotline Agent teammate with no account left keeps the picker, so it can 
 		root.render(<SessionPickers key="no-accounts" entry={entry("no-accounts")} models={[]} onSaid={noop} />);
 	});
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-	const button = container.querySelector<HTMLButtonElement>("button.model-picker");
+	const button = container.querySelector<HTMLButtonElement>("button.model-pill");
 	expect(button).not.toBeNull();
 	await act(async () => button!.click());
-	expect(document.body.textContent).toContain("Agents");
+	await act(async () => document.querySelector<HTMLButtonElement>(".model-change")!.click());
+	expect(document.querySelector('[role="menu"][aria-label="Change agent"]')?.textContent).toContain("Agents");
 });
 
 test("a resting harness teammate's strip keeps the pretty name and effort its last live session named, never the model id", async () => {
@@ -216,11 +219,105 @@ test("a resting harness teammate's strip keeps the pretty name and effort its la
 		root.render(<SessionPickers key="live" entry={live} models={[]} onSaid={noop} />);
 	});
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-	expect(container.querySelector("button.model-picker")?.textContent).toContain("Sonnet 5.5 · High");
+	expect(container.querySelector("button.model-pill")?.textContent).toContain("Sonnet 5.5 · High");
 
 	await act(async () => { root.render(<SessionPickers key="resting" entry={entry("resting", "harness", "claude-sonnet-5-5")} models={[]} onSaid={noop} />); });
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 	const resting = container.textContent ?? "";
 	expect(resting).toContain("Sonnet 5.5 · High");
 	expect(resting).not.toContain("claude-sonnet-5-5");
+});
+
+test("opening the model picker asks the core to read the teammate's plan again", async () => {
+	const live = entry("planned", "harness", "claude-sonnet-5-5");
+	live.session = { ...live.session, state: "ready", currentModelId: "claude-sonnet-5-5", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5" }] };
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="planned" entry={live} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	expect(core().count("plan.refresh")).toBe(0);
+	await act(async () => container.querySelector<HTMLButtonElement>("button.model-pill")!.click());
+	const asked = core().sent.filter((frame) => frame["cmd"] === "plan.refresh");
+	expect(asked.map((frame) => frame["params"])).toEqual([{ personaId: "planned" }]);
+});
+
+test("a resting harness teammate's menu lists the models and effort its agent last offered, and effort chosen at rest is set and shown", async () => {
+	// The roster row as the core draws a teammate that is not running: its
+	// agent's last offer, the teammate's own choices current.
+	const resting = entry("rested", "harness", "sonnet");
+	const offered = (effort: string): RosterEntry => ({
+		...resting,
+		session: {
+			...resting.session,
+			models: [{ id: "opus", name: "Opus 5.5" }, { id: "sonnet", name: "Sonnet 5.5" }],
+			currentModelId: "sonnet",
+			configs: [{ id: "reasoning", name: "Effort", category: "effort", currentId: effort, options: [{ id: "low", name: "Low" }, { id: "medium", name: "Medium" }, { id: "high", name: "High" }] }],
+		},
+	});
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="rested" entry={offered("high")} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const pill = () => container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill().textContent).toContain("Sonnet 5.5 · High");
+
+	await act(async () => pill().click());
+	const main = document.querySelector<HTMLElement>(".model-menu-main")!;
+	const rows = [...main.querySelectorAll<HTMLElement>('.model-row[role="menuitemradio"]')];
+	expect(rows.map((row) => [row.textContent, row.getAttribute("aria-checked")])).toEqual([
+		["Opus 5.5", "false"],
+		["Sonnet 5.5", "true"],
+	]);
+	const tabs = () => [...main.querySelectorAll<HTMLElement>('[aria-label="Effort"] [role="menuitemradio"]')];
+	expect(tabs().map((one) => one.textContent)).toEqual(["Low", "Med", "High"]);
+	await act(async () => tabs()[0]!.click());
+	const asked = core().sent.filter((frame) => frame["cmd"] === "session.set_config");
+	expect(asked.map((frame) => frame["params"])).toEqual([{ personaId: "rested", configId: "reasoning", value: "low" }]);
+	expect(document.querySelector(".model-menu-main")).not.toBeNull();
+
+	// The core answers by drawing the row again with the choice current.
+	await act(async () => { root.render(<SessionPickers key="rested" entry={offered("low")} models={[]} onSaid={noop} />); });
+	expect(pill().textContent).toContain("Sonnet 5.5 · Low");
+});
+
+test("a resting teammate on an agent never run here shows the models and levels the desk read out of band, and a model switch shows the new model's tabs at the effort the core landed on", async () => {
+	// The row as the core draws it from Codex's catalogue alone: each model
+	// with its levels, the effort picker on the teammate's model.
+	const resting = entry("fresh", "codex-acp");
+	const levels = (ids: string[]) => ids.map((id) => ({ id, name: id[0]!.toUpperCase() + id.slice(1) }));
+	resting.session = {
+		...resting.session,
+		models: [
+			{ id: "gpt-6.1-sol", name: "6.1 Sol", efforts: levels(["low", "medium", "xhigh"]), defaultEffort: "low" },
+			{ id: "gpt-6-luna", name: "6 Luna", efforts: levels(["medium", "max"]), defaultEffort: "medium" },
+		],
+		currentModelId: "gpt-6.1-sol",
+		configs: [{ id: "reasoning_effort", name: "Reasoning effort", category: "effort", currentId: "low", options: levels(["low", "medium", "xhigh"]) }],
+	};
+	await act(async () => {
+		setActiveDesk("local");
+		root.render(<SessionPickers key="fresh" entry={resting} models={[]} onSaid={noop} />);
+	});
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const pill = container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill.textContent).toContain("6.1 Sol · Low");
+
+	await act(async () => pill.click());
+	const main = document.querySelector<HTMLElement>(".model-menu-main")!;
+	const tabs = () => [...main.querySelectorAll<HTMLElement>('[aria-label="Effort"] [role="menuitemradio"]')];
+	expect(tabs().map((one) => one.textContent)).toEqual(["Low", "Med", "Xhigh"]);
+	const rows = [...main.querySelectorAll<HTMLElement>('.model-row[role="menuitemradio"]')];
+	expect(rows.map((row) => row.getAttribute("aria-haspopup"))).toEqual([null, null]);
+	await act(async () => rows[1]!.click());
+	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	// The core chooses the effort: one command, and the menu shows Luna's tabs at its answer.
+	const asked = core().sent.filter((frame) => frame["cmd"] === "session.set_model" || frame["cmd"] === "session.set_config");
+	expect(asked.map((frame) => [frame["cmd"], frame["params"]])).toEqual([["session.set_model", { personaId: "fresh", modelId: "gpt-6-luna" }]]);
+	expect(document.querySelector(".model-menu-main")).not.toBeNull();
+	expect(tabs().map((one) => [one.textContent, one.getAttribute("aria-checked")])).toEqual([
+		["Med", "true"],
+		["Max", "false"],
+	]);
 });

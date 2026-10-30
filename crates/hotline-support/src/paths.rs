@@ -141,6 +141,19 @@ pub fn acp_models_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-models.json")
 }
 
+/// The latest plan usage reading of each harness login on this desk, by the
+/// backend id the login is one per. A cache: each reading says when it was
+/// taken, and a missing file is a desk that has read none yet.
+pub fn plan_usage_path(root: &Path) -> PathBuf {
+    root.join("cache").join("plan-usage.json")
+}
+
+/// The empty folder a harness's CLI is started in to read its login's plan,
+/// one per agent. No session is opened there and nothing is written.
+pub fn plan_read_dir(root: &Path, backend_id: &str) -> PathBuf {
+    root.join("cache").join("plan-read").join(backend_id)
+}
+
 /// The empty folders the daily look at an agent's models opens its session
 /// in, one per agent. Nothing is asked of the agent there.
 pub fn acp_look_dir(root: &Path, backend_id: &str) -> PathBuf {

@@ -395,6 +395,8 @@ impl Threads<'_> {
                         text: text.clone(),
                     }]),
                     said: Some(crate::glance::step_said("work_result", "work_result", None)),
+                    ended_ts: None,
+                    sources: None,
                 },
             );
             if !failed

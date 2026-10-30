@@ -596,6 +596,14 @@ kind, the connected service a tool belongs to, or the program a command runs.
 The windows only group a run of one kind into a line and count it, so the desk
 and the phone never keep lists of their own.
 
+The facts a glance shows beside the words are recorded on the same event when
+the step finishes, never fetched or guessed afterwards: `endedTs` (how long it
+took), `sources` (the web pages a fetch read or a web search listed, each as
+the step's own output named it, a page title only when the tool wrote one; see
+`glance::sources_of`), and on each changed file the lines its diff `added` and
+`removed` (`hotline_support::lines`), counted from the two versions the tool
+showed. A step without one of them shows without that fact.
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Hotline
@@ -1204,8 +1212,11 @@ and informational `ask_question` cards under the requesting session's live
 lease. `set_person_name` adds one core-owned operation: the proposed name
 and lease are bound to its card before publication, and only approval writes
 `personName`. Settings → General also reads and writes it as **Your name**.
-The home agent receives the current name with each prompt; live voice reads
-it when the call opens and hears the name card's answer during the call.
+Every thread's agent, on either driver, is told the name once, in the
+preamble it starts on, as information it rarely needs to say rather than a
+prompt to open replies with; a change while it runs rides once on the
+person's next line in that thread. Live voice reads it when the call opens
+and hears the name card's answer during the call.
 An informational answer never grants an operation. Existing action
 cards, passkeys and opaque driver approvals stay at the desk: their words
 cannot establish that an action is safe for voice. This includes credentials,

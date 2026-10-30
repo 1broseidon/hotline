@@ -81,33 +81,73 @@ test("the button names model and effort, the account only in its tooltip", async
 	expect(button.title).toBe("Claude Haiku · Anthropic · Work · subscription · Medium");
 });
 
-test("the head names the account and the slider changes the effort alone; the account in use has the dot", async () => {
-	const calls = await picker();
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const menu = document.querySelector('[role="menu"][aria-label="Model"]')!;
-	expect(menu.querySelector(".model-head-account")?.textContent).toBe("Anthropic · Work · subscription");
-	const slider = menu.querySelector<HTMLElement>('[role="slider"]')!;
-	expect(slider.getAttribute("aria-valuetext")).toBe("Medium");
-	const ticks = [...menu.querySelectorAll<HTMLButtonElement>(".effort-tick")];
-	expect(ticks.map((tick) => tick.textContent)).toEqual(["Low", "Medium", "High", "Max"]);
-	await act(async () => ticks[2]!.click());
-	expect(calls).toEqual(["effort:high"]);
-	// The account in use is the head's key, not a row again below.
-	const head = menu.querySelector<HTMLButtonElement>(".model-head-key")!;
-	expect(head.getAttribute("aria-haspopup")).toBe("menu");
-	expect(head.getAttribute("aria-label")).toContain("in use");
-	const rows = [...menu.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Personal", "OpenAI"]);
-	// Pointing at the head opens the account's models beside it.
-	await act(async () => head.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
-	expect(document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')).not.toBeNull();
+const open = async () => act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
+const mainMenu = () => document.querySelector<HTMLElement>('[role="menu"][aria-label="Model"]')!;
+const mainModels = () => [...mainMenu().querySelectorAll<HTMLButtonElement>('.model-row[role="menuitemradio"]')];
+const tabs = () => [...mainMenu().querySelectorAll<HTMLButtonElement>('fieldset[aria-label="Effort"] [role="menuitemradio"]')];
+const changeAgent = () => mainMenu().querySelector<HTMLButtonElement>(".model-change")!;
+const agentRows = () => [...document.querySelectorAll<HTMLElement>('[role="menu"][aria-label="Change agent"] .model-account')];
+const names = (rows: HTMLElement[]) => rows.map((row) => row.querySelector(".menu-item-text")?.textContent);
+const hover = async (element: HTMLElement) => act(async () => element.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
+const press = async (key: string) => act(async () => mainMenu().dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })));
+
+test("the head names the agent's account, and its models are the menu: the one in use checked with its effort", async () => {
+	await picker();
+	await open();
+	const menu = mainMenu();
+	expect(menu.querySelector(".model-head-name")?.textContent).toBe("Anthropic · Work");
+	expect(menu.querySelector(".model-head-kind")?.textContent).toBe("subscription");
+	const models = mainModels();
+	expect(models.map((model) => model.querySelector(".menu-item-text")?.textContent)).toEqual(["Claude Haiku", "Claude Opus"]);
+	expect(models.map((model) => model.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+	// The effort is the tabs over the models; no row opens levels beside it.
+	expect(tabs().map((tab) => [tab.textContent, tab.getAttribute("aria-checked")])).toEqual([
+		["Low", "false"],
+		["Med", "true"],
+		["High", "false"],
+		["Max", "false"],
+	]);
+	expect(models.map((model) => model.getAttribute("aria-haspopup"))).toEqual([null, null]);
+	expect(models.some((model) => model.querySelector(".model-row-more") !== null)).toBe(false);
+	// No slider, and no API or Agents headings: the others wait under Change agent.
+	expect(menu.querySelector('[role="slider"]')).toBeNull();
+	expect(menu.querySelectorAll(".menu-heading").length).toBe(0);
+	expect(changeAgent().querySelector(".model-change-hint")?.textContent).toBe("API");
 });
 
-test("an account opens its models, and picking one sets that account's model", async () => {
+test("choosing another of the agent's models changes the model and keeps the menu open", async () => {
 	const calls = await picker();
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const personalRow = [...document.querySelectorAll<HTMLElement>(".model-row")].find((row) => row.textContent?.includes("Personal"))!;
-	await act(async () => personalRow.click());
+	await open();
+	await act(async () => mainModels()[1]!.click());
+	expect(calls).toEqual(["model:anthropic#work/claude-opus"]);
+	expect(mainMenu()).not.toBeNull();
+	// The model in use, chosen again, is nothing to do.
+	await act(async () => mainModels()[1]!.click());
+	expect(calls).toEqual(["model:anthropic#work/claude-opus"]);
+});
+
+test("a tab sets the effort and keeps the menu open, the tab chosen at once", async () => {
+	const calls = await picker();
+	await open();
+	await act(async () => tabs()[2]!.click());
+	expect(calls).toEqual(["effort:high"]);
+	expect(mainMenu()).not.toBeNull();
+	expect(tabs().map((tab) => tab.getAttribute("aria-checked"))).toEqual(["false", "false", "true", "false"]);
+	// The tab in use, chosen again, sends nothing.
+	await act(async () => tabs()[2]!.click());
+	expect(calls).toEqual(["effort:high"]);
+});
+
+test("Change agent opens every other account, and picking one of its models sets that account's model", async () => {
+	const calls = await picker();
+	await open();
+	expect(changeAgent().getAttribute("aria-haspopup")).toBe("menu");
+	await act(async () => changeAgent().click());
+	expect(changeAgent().getAttribute("aria-expanded")).toBe("true");
+	const list = document.querySelector('[role="menu"][aria-label="Change agent"]')!;
+	expect([...list.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["API"]);
+	expect(names(agentRows())).toEqual(["Anthropic · Personal", "OpenAI"]);
+	await act(async () => agentRows()[0]!.click());
 	const sub = document.querySelector('[role="menu"][aria-label="Anthropic · Personal"]')!;
 	const models = [...sub.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
 	expect(models.map((model) => model.textContent)).toEqual(["Claude Haiku", "Claude Opus"]);
@@ -117,21 +157,79 @@ test("an account opens its models, and picking one sets that account's model", a
 	expect(document.querySelector('[role="menu"]')).toBeNull();
 });
 
-test("Add an account goes to Settings › Providers", async () => {
+test("Add an account, under Change agent, goes to Settings › Providers", async () => {
 	const calls = await picker();
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const add = [...document.querySelectorAll<HTMLButtonElement>(".model-add")][0]!;
+	await open();
+	await act(async () => changeAgent().click());
+	const add = document.querySelector<HTMLButtonElement>('[role="menu"][aria-label="Change agent"] .model-add')!;
 	expect(add.textContent).toBe("Add an account…");
 	await act(async () => add.click());
 	expect(calls).toEqual(["add"]);
 });
 
-test("a plain id runs on the account listing it plainly, and a model with one effort has no slider", async () => {
+test("a plain id runs on the account listing it plainly, and a model with one effort or none has no tabs", async () => {
 	await picker({ modelId: "openai/gpt-6", effort: { value: "high", choices: [{ id: "high", name: "High" }] } });
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const menu = document.querySelector('[role="menu"][aria-label="Model"]')!;
-	expect(menu.querySelector(".model-head-account")?.textContent).toBe("OpenAI · API key");
-	expect(menu.querySelector('[role="slider"]')).toBeNull();
+	await open();
+	expect(mainMenu().querySelector(".model-head-name")?.textContent).toBe("OpenAI");
+	expect(mainMenu().querySelector(".model-head-kind")?.textContent).toBe("API key");
+	const [gpt] = mainModels();
+	expect(gpt!.getAttribute("aria-checked")).toBe("true");
+	expect(tabs()).toEqual([]);
+	await picker({ modelId: "openai/gpt-6", effort: null });
+	expect(tabs()).toEqual([]);
+});
+
+test("the keyboard walks the menu: ← and → walk the tabs, → opens Change agent, ← and Escape close it, Enter picks and stays", async () => {
+	const calls = await picker();
+	await open();
+	// The first arrow lights the model in use; up is the effort row, on the tab in use.
+	await press("ArrowDown");
+	expect(mainModels()[0]!.dataset["active"]).toBe("true");
+	await press("ArrowUp");
+	expect(tabs()[1]!.dataset["active"]).toBe("true");
+	await press("ArrowRight");
+	expect(tabs()[2]!.dataset["active"]).toBe("true");
+	await press("Enter");
+	expect(calls).toEqual(["effort:high"]);
+	expect(mainMenu()).not.toBeNull();
+	// Down to Claude Opus: Enter switches to it and the menu stays.
+	await press("ArrowDown");
+	await press("ArrowDown");
+	await press("Enter");
+	expect(calls).toEqual(["effort:high", "model:anthropic#work/claude-opus"]);
+	expect(mainMenu()).not.toBeNull();
+	// On to Change agent; → opens the list, → again an account's models.
+	await press("ArrowDown");
+	expect(changeAgent().dataset["active"]).toBe("true");
+	await press("ArrowRight");
+	expect(changeAgent().getAttribute("aria-expanded")).toBe("true");
+	expect(agentRows()[0]!.dataset["active"]).toBe("true");
+	await press("ArrowRight");
+	expect(document.querySelector('[role="menu"][aria-label="Anthropic · Personal"]')).not.toBeNull();
+	await press("Escape");
+	expect(document.querySelector('[role="menu"][aria-label="Anthropic · Personal"]')).toBeNull();
+	await press("Escape");
+	expect(document.querySelector('[role="menu"][aria-label="Change agent"]')).toBeNull();
+	await press("Escape");
+	expect(document.querySelector('[role="menu"]')).toBeNull();
+});
+
+test("an agent with many models shows the first five, the one in use among them, and More models opens the rest", async () => {
+	const many = Array.from({ length: 12 }, (_, at) => choice(`anthropic#work/m${at}`, `Model ${at}`, "Anthropic", work));
+	const calls = await picker({ choices: many, modelId: "anthropic#work/m10" });
+	await open();
+	const shown = mainModels().map((model) => model.querySelector(".menu-item-text")?.textContent);
+	expect(shown).toEqual(["Model 0", "Model 1", "Model 2", "Model 3", "Model 10"]);
+	const more = mainMenu().querySelector<HTMLButtonElement>(".model-more")!;
+	expect(more.textContent).toBe("More models");
+	await hover(more);
+	const rest = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Anthropic · Work models"] [role="menuitemradio"]')];
+	// Only what the menu does not already list, in the agent's order.
+	expect(rest.map((model) => model.textContent)).toEqual(["Model 4", "Model 5", "Model 6", "Model 7", "Model 8", "Model 9", "Model 11"]);
+	expect(rest.some((model) => model.getAttribute("aria-checked") === "true")).toBe(false);
+	await act(async () => rest[6]!.click());
+	expect(calls).toEqual(["model:anthropic#work/m11"]);
+	expect(mainMenu()).not.toBeNull();
 });
 
 const agents = [
@@ -142,7 +240,7 @@ const agents = [
 	{ id: "cursor", name: "Cursor", unavailable: "Not signed in.", choices: [] },
 ];
 
-test("the other agents follow the accounts with the models they last reported; one with none is picked by its row, and one not ready does not open", async () => {
+test("Change agent lists the accounts, then the other agents with the models they last reported; one with none is picked by its row, and one not ready does not open", async () => {
 	const { ModelPicker } = await import("../src/components/ModelPicker");
 	const moves: string[] = [];
 	let opened = 0;
@@ -165,12 +263,14 @@ test("the other agents follow the accounts with the models they last reported; o
 			/>,
 		);
 	});
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const menu = document.querySelector('[role="menu"][aria-label="Model"]')!;
-	// The account in use is pinned on top; the rest are API (straight to a provider), then Agents.
-	expect([...menu.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["API", "Agents"]);
-	const rows = [...menu.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor"]);
+	await open();
+	expect(changeAgent().querySelector(".model-change-hint")?.textContent).toBe("Claude, Codex, API…");
+	await act(async () => changeAgent().click());
+	const list = document.querySelector('[role="menu"][aria-label="Change agent"]')!;
+	// What the teammate runs on is the menu itself; the rest are API (straight to a provider), then Agents.
+	expect([...list.querySelectorAll(".menu-heading")].map((heading) => heading.textContent)).toEqual(["API", "Agents"]);
+	const rows = agentRows();
+	expect(names(rows)).toEqual(["Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor"]);
 	const cursor = rows[4]!;
 	expect(cursor.getAttribute("aria-disabled")).toBe("true");
 	expect(cursor.title).toBe("Not signed in.");
@@ -184,8 +284,9 @@ test("the other agents follow the accounts with the models they last reported; o
 	await act(async () => gpt.click());
 	expect(moves).toEqual(["codex-acp:gpt-6"]);
 	// Claude Code has reported nothing yet: no submenu, the row itself is the pick.
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const claude = [...document.querySelectorAll<HTMLElement>(".model-row")].find((row) => row.textContent?.includes("Claude Code"))!;
+	await open();
+	await act(async () => changeAgent().click());
+	const claude = agentRows().find((row) => row.textContent?.includes("Claude Code"))!;
 	expect(claude.getAttribute("aria-haspopup")).toBeNull();
 	expect(claude.querySelector(".model-row-more")).toBeNull();
 	await act(async () => claude.click());
@@ -196,46 +297,85 @@ test("the other agents follow the accounts with the models they last reported; o
 	expect(opened).toBe(2);
 });
 
-test("on a harness, its models are a model change and Hotline Agent's are a move back", async () => {
+test("on a harness, the head is the agent and its models are a model change; Hotline Agent's accounts are a move back", async () => {
 	const { ModelPicker } = await import("../src/components/ModelPicker");
 	const calls: string[] = [];
 	const onClaude = agents.map((agent) => (agent.id === "claude-acp" ? { ...agent, choices: [{ id: "opus", name: "Opus" }, { id: "sonnet", name: "Sonnet" }] } : agent));
-	const render = async () =>
+	await act(async () => {
+		root.render(
+			<ModelPicker
+				choices={choices}
+				modelId="opus"
+				backendId="claude-acp"
+				agents={onClaude}
+				effort={null}
+				label="Model"
+				plan={{ at: 0, plan: "Max", windows: [{ kind: "five_hour", usedPercent: 8, resetsAt: Date.now() + 3 * 3_600_000, windowMinutes: 300, status: "allowed" }] }}
+				onModel={(id) => {
+					calls.push(`model:${id}`);
+				}}
+				onAgent={(backend, model) => {
+					calls.push(`move:${backend}:${model ?? "own"}`);
+				}}
+				onEffort={() => {}}
+			/>,
+		);
+	});
+	const button = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+	expect(button.textContent).toBe("Opus");
+	await open();
+	// A harness that reports a plan is on a subscription, named when the plan says.
+	expect(mainMenu().querySelector(".model-head-name")?.textContent).toBe("Claude Code");
+	expect(mainMenu().querySelector(".model-head-kind")?.textContent).toBe("Max subscription");
+	// The plan's lines are the band gauge's, not the menu's.
+	expect(mainMenu().querySelectorAll(".plan-row").length).toBe(0);
+	expect(mainModels().map((model) => model.textContent)).toEqual(["Opus", "Sonnet"]);
+	await act(async () => changeAgent().click());
+	// Claude Code, in use, is not listed again under Change agent.
+	expect(names(agentRows())).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Codex", "Cursor"]);
+	await act(async () => mainModels()[1]!.click());
+	await act(async () => changeAgent().click());
+	await act(async () => agentRows()[0]!.click());
+	const haiku = document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
+	await act(async () => haiku.click());
+	expect(calls).toEqual(["model:sonnet", "move:hotline:anthropic#work/claude-haiku"]);
+});
+
+test("a harness that lists no models shows the one in use, if named, and Change agent still moves it", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const moves: string[] = [];
+	const render = async (modelId: string) =>
 		act(async () => {
 			root.render(
 				<ModelPicker
 					choices={choices}
-					modelId="opus"
+					modelId={modelId}
 					backendId="claude-acp"
-					agents={onClaude}
+					fallbackName="Claude Code"
+					agents={agents}
 					effort={null}
 					label="Model"
-					onModel={(id) => {
-						calls.push(`model:${id}`);
-					}}
+					onModel={() => {}}
 					onAgent={(backend, model) => {
-						calls.push(`move:${backend}:${model ?? "own"}`);
+						moves.push(`${backend}:${model ?? "own"}`);
 					}}
 					onEffort={() => {}}
 				/>,
 			);
 		});
-	await render();
-	const button = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
-	expect(button.textContent).toBe("Opus");
-	await act(async () => button.click());
-	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
-	// Claude Code, in use, is the head's key and not listed again below.
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Work", "Anthropic · Personal", "OpenAI", "Codex", "Cursor"]);
-	await act(async () => document.querySelector<HTMLButtonElement>(".model-head-key")!.click());
-	const sonnet = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Claude Code"] [role="menuitemradio"]')].find((item) => item.textContent === "Sonnet")!;
-	await act(async () => sonnet.click());
-	await act(async () => button.click());
-	const work = [...document.querySelectorAll<HTMLElement>(".model-row")][0]!;
-	await act(async () => work.click());
-	const haiku = document.querySelector('[role="menu"][aria-label="Anthropic · Work"]')!.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!;
-	await act(async () => haiku.click());
-	expect(calls).toEqual(["model:sonnet", "move:hotline:anthropic#work/claude-haiku"]);
+	await render("");
+	await open();
+	expect(mainMenu().querySelector(".model-head-name")?.textContent).toBe("Claude Code");
+	expect(mainMenu().querySelector(".model-head-kind")).toBeNull();
+	expect(mainModels().length).toBe(0);
+	await act(async () => changeAgent().click());
+	const codex = agentRows().find((row) => row.textContent?.includes("Codex"))!;
+	await act(async () => codex.click());
+	await act(async () => document.querySelector<HTMLButtonElement>('[role="menu"][aria-label="Codex"] [role="menuitemradio"]')!.click());
+	expect(moves).toEqual(["codex-acp:gpt-6"]);
+	await render("opus");
+	await open();
+	expect(mainModels().map((model) => [model.textContent, model.getAttribute("aria-checked")])).toEqual([["opus", "true"]]);
 });
 
 test("the registry's other ready agents share one row, and those not ready are left out", async () => {
@@ -263,9 +403,11 @@ test("the registry's other ready agents share one row, and those not ready are l
 			/>,
 		);
 	});
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")];
-	expect(rows.map((row) => row.querySelector(".menu-item-text")?.textContent)).toEqual(["Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor", "Other agents"]);
+	await open();
+	await act(async () => changeAgent().click());
+	const rows = agentRows();
+	expect(names(rows)).toEqual(["Anthropic · Personal", "OpenAI", "Claude Code", "Codex", "Cursor", "Other agents"]);
+	expect(rows[5]!.querySelector(".model-row-detail")?.textContent).toBe("2");
 	await act(async () => rows[5]!.click());
 	const more = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Other agents"] [role="menuitemradio"]')];
 	expect(more.map((item) => item.textContent)).toEqual(["Amp", "Cline"]);
@@ -295,9 +437,9 @@ test("the named agents are Antigravity, Claude Code, Codex, Cursor and Grok Buil
 			<ModelPicker choices={choices} modelId="anthropic#work/claude-haiku" agents={named} effort={null} label="Model" onModel={() => {}} onAgent={() => {}} onEffort={() => {}} />,
 		);
 	});
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const rows = [...document.querySelectorAll<HTMLElement>(".model-row")].map((row) => row.querySelector(".menu-item-text")?.textContent);
-	expect(rows.slice(2)).toEqual(["Claude Code", "Codex", "Cursor", "Google Antigravity", "Grok Build", "Other agents"]);
+	await open();
+	await act(async () => changeAgent().click());
+	expect(names(agentRows()).slice(2)).toEqual(["Claude Code", "Codex", "Cursor", "Google Antigravity", "Grok Build", "Other agents"]);
 });
 
 test("an agent that wants its sign-in says Sign in on its row, opens no stale list, and its row moves the teammate there", async () => {
@@ -324,12 +466,298 @@ test("an agent that wants its sign-in says Sign in on its row, opens no stale li
 			/>,
 		);
 	});
-	await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
-	const cursor = [...document.querySelectorAll<HTMLElement>(".model-row")].find((row) => row.textContent?.includes("Cursor"))!;
+	await open();
+	await act(async () => changeAgent().click());
+	const cursor = agentRows().find((row) => row.textContent?.includes("Cursor"))!;
 	expect(cursor.querySelector(".model-row-signin")?.textContent).toBe("Sign in");
 	expect(cursor.getAttribute("aria-haspopup")).toBeNull();
 	expect(cursor.title).toBe("Opens its sign-in");
 	await act(async () => cursor.click());
 	expect(document.querySelector('[role="menu"][aria-label="Cursor"]')).toBeNull();
 	expect(moves).toEqual(["cursor:own"]);
+});
+
+test("with the teammate it is one pill and one menu: the face ends the pill, the menu is who, what it runs on, then its actions", async () => {
+	const done: string[] = [];
+	const calls = await picker({
+		plan: { at: 0, plan: "Max", windows: [{ kind: "five_hour", usedPercent: 91, status: "warning" }] },
+		teammate: {
+			name: "Goldie",
+			goal: "Help me with whatever I bring you.",
+			working: true,
+			face: (size) => <span className="face" data-size={size} />,
+			actions: [
+				{ kind: "item", id: "teammate", text: "Settings", shortcut: "⌘I", checked: true, onSelect: () => done.push("settings") },
+				{ kind: "item", id: "chapter", text: "New chapter", disabled: true, onSelect: () => done.push("chapter") },
+				{ kind: "item", id: "side-list", text: "Threads", onSelect: () => done.push("threads") },
+				{ kind: "rule" },
+				{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: () => done.push("remove") },
+			],
+		},
+	});
+	const pill = container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill.getAttribute("aria-label")).toBe("Goldie, working: Claude Haiku · Medium");
+	expect(pill.querySelector('.model-pill-face .face[data-size="24"]')).not.toBeNull();
+	expect(pill.querySelector(".model-pill-beat")).not.toBeNull();
+	// Near the limit is the band gauge's to say, not the pill's.
+	expect(pill.querySelector(".plan-dot")).toBeNull();
+	expect(pill.querySelector(".model-pill-chevron")).toBeNull();
+
+	await act(async () => pill.click());
+	const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Goldie"]')!;
+	expect(menu.querySelector(".model-who .menu-card-name")?.textContent).toBe("Goldie");
+	expect(menu.querySelector(".model-who .menu-card-detail")?.textContent).toBe("Help me with whatever I bring you.");
+	expect(menu.querySelector(".model-head-name")?.textContent).toBe("Anthropic · Work");
+	// The effort tabs, models, Change agent, then the actions, a rule above them and above Remove.
+	const items = [...menu.querySelectorAll<HTMLElement>("[data-row]")].slice(1);
+	expect(menu.querySelector("[data-row]")?.getAttribute("aria-label")).toBe("Effort");
+	expect(items.map((one) => one.textContent)).toEqual(["Claude Haiku", "Claude Opus", "Change agentAPI", "Settings⌘I", "New chapter", "Threads", "Remove"]);
+	expect(menu.querySelectorAll("hr.menu-rule").length).toBe(2);
+	expect(items[3]!.querySelector(".model-check svg")).not.toBeNull();
+	expect(items[4]!.getAttribute("aria-disabled")).toBe("true");
+	expect(items[6]!.classList.contains("model-danger")).toBe(true);
+
+	// The keyboard walks on into the actions: a disabled one does nothing, Enter on one closes and does it.
+	const press = async (key: string) => act(async () => menu.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })));
+	for (let at = 0; at < 5; at++) await press("ArrowDown");
+	expect(items[4]!.dataset["active"]).toBe("true");
+	await press("Enter");
+	expect(done).toEqual([]);
+	await press("ArrowDown");
+	await press("Enter");
+	expect(done).toEqual(["threads"]);
+	expect(document.querySelector('[role="menu"]')).toBeNull();
+
+	await act(async () => pill.click());
+	await act(async () => document.querySelector<HTMLElement>(".model-danger")!.click());
+	expect(done).toEqual(["threads", "remove"]);
+	expect(calls).toEqual([]);
+});
+
+test("a compact pill is the model's mark and the face, the model in its label", async () => {
+	await picker({ compact: true, teammate: { name: "Goldie", goal: "", working: false, face: () => <span className="face" />, actions: [] } });
+	const pill = container.querySelector<HTMLButtonElement>("button.model-pill")!;
+	expect(pill.querySelector(".model-pill-label")).toBeNull();
+	expect(pill.getAttribute("aria-label")).toBe("Goldie: Claude Haiku · Medium");
+	expect(pill.querySelector(".model-pill-beat")).toBeNull();
+});
+
+const levels = (ids: string[]): ConfigChoice[] => ids.map((id) => ({ id, name: id === "default" ? "Default" : id[0]!.toUpperCase() + id.slice(1) }));
+// Claude Code's models as the desk read them out of band, each with its own levels.
+const claudeModels: ConfigChoice[] = [
+	{ id: "opus", name: "Opus 5.5", efforts: levels(["default", "low", "medium", "high", "xhigh", "max"]), defaultEffort: "default" },
+	{ id: "sonnet", name: "Sonnet 4.6", efforts: levels(["default", "low", "medium", "high", "max"]), defaultEffort: "default" },
+	{ id: "haiku", name: "Haiku 4.5", efforts: [] },
+];
+
+/** A Claude Code teammate on Opus at `value`; `answer` is what the desk says a switch landed on. */
+async function claudePicker(value: string, answer: () => Promise<string | null>, landsOn?: (id: string) => string | undefined) {
+	const calls: string[] = [];
+	await picker({
+		choices: [],
+		backendId: "claude-acp",
+		modelId: "opus",
+		agents: [{ id: "claude-acp", name: "Claude Code", choices: claudeModels }],
+		onAgent: () => {},
+		effort: { value, choices: claudeModels[0]!.efforts! },
+		onModel: (id) => {
+			calls.push(`model:${id}`);
+			return answer();
+		},
+		onEffort: (level) => {
+			calls.push(`effort:${level}`);
+		},
+		landsOn,
+	});
+	return calls;
+}
+
+test("the tabs are the model in use's levels: Default is Auto, which Claude decides, and Medium is Med", async () => {
+	await claudePicker("xhigh", async () => null);
+	await open();
+	expect(tabs().map((tab) => tab.textContent)).toEqual(["Auto", "Low", "Med", "High", "Xhigh", "Max"]);
+	expect(tabs()[0]!.title).toBe("Claude decides");
+	expect(tabs()[2]!.title).toBe("Medium");
+	expect(tabs()[4]!.getAttribute("aria-checked")).toBe("true");
+	const { tabLabel } = await import("../src/components/ModelPicker");
+	expect(tabLabel({ id: "default", name: "Default" }, "codex-acp")).toEqual({ label: "Auto", title: "The agent decides" });
+	expect(tabLabel({ id: "ultra", name: "Ultra" }, "codex-acp")).toEqual({ label: "Ultra" });
+});
+
+test("switching model keeps the menu open and shows the new model's tabs at once, dimmed with its check beating until the desk answers", async () => {
+	let answer: (effort: string | null) => void = () => {};
+	const calls = await claudePicker(
+		"xhigh",
+		() =>
+			new Promise((resolve) => {
+				answer = resolve;
+			}),
+		(id) => (id === "sonnet" ? "high" : undefined),
+	);
+	await open();
+	await act(async () => mainModels()[1]!.click());
+	expect(calls).toEqual(["model:sonnet"]);
+	expect(mainMenu()).not.toBeNull();
+	const [opus, sonnet] = mainModels();
+	expect([opus!.getAttribute("aria-checked"), sonnet!.getAttribute("aria-checked")]).toEqual(["false", "true"]);
+	expect(sonnet!.getAttribute("aria-busy")).toBe("true");
+	expect(sonnet!.querySelector(".model-check")?.classList.contains("beat")).toBe(true);
+	// Sonnet's levels, no Xhigh, at the level it is likely to land on, dimmed.
+	expect(tabs().map((tab) => tab.textContent)).toEqual(["Auto", "Low", "Med", "High", "Max"]);
+	expect(tabs().find((tab) => tab.getAttribute("aria-checked") === "true")?.textContent).toBe("High");
+	const group = mainMenu().querySelector<HTMLElement>('fieldset[aria-label="Effort"]')!;
+	expect(group.dataset["busy"]).toBe("true");
+	// A tab while the switch waits does nothing.
+	await act(async () => tabs()[1]!.click());
+	expect(calls).toEqual(["model:sonnet"]);
+
+	// The desk answers: the effort it landed on is the one selected, not dimmed.
+	await act(async () => answer("medium"));
+	expect(group.dataset["busy"]).toBeUndefined();
+	expect(mainModels()[1]!.getAttribute("aria-busy")).toBeNull();
+	expect(tabs().find((tab) => tab.getAttribute("aria-checked") === "true")?.textContent).toBe("Med");
+});
+
+test("a switch to a model without levels shows no tabs, and a refused switch goes back", async () => {
+	let refuse: (error: Error) => void = () => {};
+	await claudePicker(
+		"high",
+		() =>
+			new Promise((_, reject) => {
+				refuse = reject;
+			}),
+	);
+	await open();
+	await act(async () => mainModels()[2]!.click());
+	expect(tabs()).toEqual([]);
+	expect(mainModels()[2]!.getAttribute("aria-checked")).toBe("true");
+	await act(async () => refuse(new Error("no")));
+	expect(mainModels()[0]!.getAttribute("aria-checked")).toBe("true");
+	expect(tabs().length).toBe(6);
+});
+
+test("fast mode is a toggle under the tabs: it flips at once, the pill wears a bolt, and a model without it has none", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const calls: string[] = [];
+	const onClaude = agents.map((agent) =>
+		agent.id === "claude-acp"
+			? { ...agent, choices: [{ id: "opus", name: "Opus", fast: true }, { id: "sonnet", name: "Sonnet", fast: false }] }
+			: agent,
+	);
+	const render = (fast: { on: boolean; hint: string; note?: string } | null) =>
+		act(async () => {
+			root.render(
+				<ModelPicker
+					choices={choices}
+					modelId="opus"
+					backendId="claude-acp"
+					agents={onClaude}
+					effort={{ value: "high", choices: efforts }}
+					fast={fast}
+					label="Model"
+					onModel={(id) => {
+						calls.push(`model:${id}`);
+						return new Promise(() => {});
+					}}
+					onAgent={() => {}}
+					onEffort={() => {}}
+					onFast={(on) => {
+						calls.push(`fast:${on}`);
+					}}
+				/>,
+			);
+		});
+	await render({ on: false, hint: "Extra usage only" });
+	const button = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+	expect(button.querySelector(".model-pill-fast")).toBeNull();
+	await open();
+	const toggle = () => mainMenu().querySelector<HTMLButtonElement>('[role="menuitemcheckbox"]');
+	expect(toggle()?.textContent).toBe("FastExtra usage only");
+	expect(toggle()?.getAttribute("aria-checked")).toBe("false");
+	await act(async () => toggle()!.click());
+	expect(calls).toEqual(["fast:true"]);
+	// On at once, the menu open, the pill's bolt beside the effort.
+	expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+	expect(button.querySelector(".model-pill-fast")).not.toBeNull();
+	expect(button.getAttribute("aria-label")).toContain(", fast");
+	// Switching to a model that cannot run fast takes the toggle away.
+	await act(async () => mainModels()[1]!.click());
+	expect(toggle()).toBeNull();
+	await act(async () => root.unmount());
+	root = (await import("react-dom/client")).createRoot(container);
+
+	// The agent says why it cannot: the row says Unavailable, the reason on hover.
+	await render({ on: false, hint: "Extra usage only", note: "Requires extra usage to be enabled for this account" });
+	await open();
+	expect(toggle()?.querySelector(".model-fast-hint")?.textContent).toBe("Unavailable");
+	expect(toggle()?.title).toBe("Requires extra usage to be enabled for this account");
+	// No toggle when the model offers no fast mode.
+	await render(null);
+	expect(toggle()).toBeNull();
+});
+
+test("the pill says Extra high as Xhigh, and its tab says it short with the whole name on hover", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const levels: ConfigChoice[] = [
+		{ id: "low", name: "Low" },
+		{ id: "medium", name: "Medium" },
+		{ id: "xhigh", name: "Extra high" },
+	];
+	await act(async () => {
+		root.render(<ModelPicker choices={choices} modelId="grok-4.7" backendId="grok-build" effort={{ value: "xhigh", choices: levels }} label="Model" onModel={() => {}} onEffort={() => {}} />);
+	});
+	expect(container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.textContent).toBe("grok-4.7 · Xhigh");
+	await open();
+	expect(tabs().map((tab) => tab.textContent)).toEqual(["Low", "Med", "Xhigh"]);
+	expect(tabs()[2]!.title).toBe("Extra high");
+});
+
+test("a context the agent offers sizes of is a row of its own: a size chosen is sent and shown at once", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const calls: string[] = [];
+	await act(async () => {
+		root.render(
+			<ModelPicker
+				choices={choices}
+				modelId="claude-opus-5-5"
+				backendId="cursor"
+				effort={{ value: "high", choices: efforts }}
+				context={{ value: "300k", choices: [{ id: "300k", name: "300K" }, { id: "1m", name: "1M" }] }}
+				label="Model"
+				onModel={() => {}}
+				onEffort={() => {}}
+				onContext={(value) => {
+					calls.push(`context:${value}`);
+				}}
+			/>,
+		);
+	});
+	await open();
+	const sizes = () => [...mainMenu().querySelectorAll<HTMLButtonElement>('fieldset[aria-label="Context"] [role="menuitemradio"]')];
+	expect(sizes().map((one) => one.textContent)).toEqual(["300K", "1M"]);
+	expect(sizes().map((one) => one.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+	await act(async () => sizes()[1]!.click());
+	expect(calls).toEqual(["context:1m"]);
+	expect(sizes().map((one) => one.getAttribute("aria-checked"))).toEqual(["false", "true"]);
+	// The size in use, chosen again, sends nothing.
+	await act(async () => sizes()[1]!.click());
+	expect(calls).toEqual(["context:1m"]);
+});
+
+test("Cursor's pill wears Cursor's mark whatever lab's model it runs; Claude Code's wears the model's", async () => {
+	const { ModelPicker } = await import("../src/components/ModelPicker");
+	const pillMark = () => container.querySelector('[aria-haspopup="menu"] .mark') as HTMLElement | null;
+	const markOf = (element: HTMLElement | null) => element?.getAttribute("src") ?? element?.style.maskImage ?? "";
+	await act(async () => {
+		root.render(<ModelPicker choices={choices} modelId="claude-opus-5-5" backendId="cursor" effort={null} label="Model" onModel={() => {}} onEffort={() => {}} />);
+	});
+	const cursor = markOf(pillMark());
+	await act(async () => {
+		root.render(<ModelPicker choices={choices} modelId="claude-opus-5-5" backendId="claude-acp" effort={null} label="Model" onModel={() => {}} onEffort={() => {}} />);
+	});
+	const claude = markOf(pillMark());
+	expect(cursor).not.toBe("");
+	expect(claude).not.toBe("");
+	expect(cursor).not.toBe(claude);
+	expect(cursor.toLowerCase()).toContain("cursor");
 });

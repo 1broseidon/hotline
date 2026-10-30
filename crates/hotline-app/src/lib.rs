@@ -26,6 +26,7 @@ mod lights;
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod chat_window;
 mod desks;
 mod files;
 mod instance;
@@ -227,6 +228,117 @@ fn allow_microphone(window: &tauri::WebviewWindow) {
     });
 }
 
+/// The page's startup script: the desk it talks to and every paired desk,
+/// for each window that opens the desk's page.
+struct DeskScript(String);
+
+/// A window of the desk's page: the main one, or one teammate's chat on its
+/// own (`chat`, naming the teammate and its desk). Closing the main window
+/// hides it, since the room keeps working; a chat window just closes.
+pub(crate) fn desk_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    chat: Option<(&str, &serde_json::Value)>,
+) -> tauri::Result<tauri::WebviewWindow> {
+    let main = chat.is_none();
+    let desk = &app.state::<DeskScript>().0;
+    let script = match chat {
+        Some((_, open)) => format!("{desk}\nwindow.__hotlineChat = {open};"),
+        None => desk.clone(),
+    };
+    let development = if tauri::is_dev() {
+        " · Development"
+    } else {
+        ""
+    };
+    let title = match chat {
+        Some((name, _)) => format!("{name}{development}"),
+        None => format!("Hotline{development}"),
+    };
+    // The window stays hidden until the page has loaded, because a
+    // window shown first is a white frame before the well paints,
+    // and a dark theme notices. Shown once: a reload of the page
+    // while the window is hidden in the tray must not raise it.
+    let shown = std::sync::Once::new();
+    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+        .title(title)
+        .inner_size(if main { 1280.0 } else { 760.0 }, 860.0)
+        .min_inner_size(520.0, 420.0)
+        .center()
+        .visible(false)
+        .on_page_load(move |window, payload| {
+            // A page that reloads mid-utterance no longer knows its
+            // session id, and the microphone would stay open for it.
+            if matches!(payload.event(), PageLoadEvent::Started) {
+                tauri::async_runtime::spawn(speech::speech_cancel(String::new()));
+            }
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                shown.call_once(|| {
+                    let _ = window.show();
+                    #[cfg(target_os = "macos")]
+                    lights::seat_shown(&window);
+                });
+            }
+        })
+        .initialization_script(&script);
+    // Overlay puts the traffic lights on the page; the desk seats
+    // them on the top strip's centre line itself (lights.rs). A
+    // click into an inactive window lands on what it hit, the way
+    // Finder's does, rather than only waking the window. Elsewhere
+    // the system frame is dropped and the page draws its own strip
+    // and controls.
+    #[cfg(target_os = "macos")]
+    let window = window
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .accept_first_mouse(true);
+    #[cfg(not(target_os = "macos"))]
+    let window = window.decorations(false);
+    // A frameless window on Linux is a rectangle unless it is see-through
+    // and the page rounds itself; Windows rounds a top-level window on
+    // its own and would lose its shadow for the transparency.
+    #[cfg(target_os = "linux")]
+    let window = window.transparent(true);
+    let window = window.build()?;
+    #[cfg(target_os = "linux")]
+    allow_microphone(&window);
+    #[cfg(target_os = "macos")]
+    lights::seat(&window);
+    // The plugin writes size and place to disk on exit, and only
+    // updates its cache on close, so a hide that is not an exit
+    // would lose the last place unless we save now.
+    window.on_window_event({
+        let window = window.clone();
+        move |event| {
+            // A drop hands its files over for sending to a desk on a server.
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                window
+                    .state::<std::sync::Arc<transfer::Transfers>>()
+                    .hand(paths);
+            }
+            #[cfg(target_os = "macos")]
+            if matches!(
+                event,
+                tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::Focused(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+                    | tauri::WindowEvent::ThemeChanged(_)
+            ) {
+                lights::seat(&window);
+            }
+            if !main {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.app_handle().save_window_state(window_state_flags());
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        }
+    });
+    Ok(window)
+}
+
 /// Show, unminimize and focus the main window. The tray's Open, a left click
 /// on Linux and Windows, and a macOS dock reopen of a hidden app all mean
 /// the same thing: the room is still here, bring the window back.
@@ -418,6 +530,7 @@ fn start() -> Result<(), String> {
         speech::speech_stop,
         speech::speech_cancel,
         lights::window_title,
+        chat_window::chat_window,
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -449,6 +562,7 @@ fn start() -> Result<(), String> {
         speech::speech_stop,
         speech::speech_cancel,
         lights::window_title,
+        chat_window::chat_window,
     ]);
     builder
         .manage(desks.clone())
@@ -460,91 +574,8 @@ fn start() -> Result<(), String> {
                 install_menu(app)?;
                 notify::install(app.handle());
             }
-            // The window stays hidden until the page has loaded, because a
-            // window shown first is a white frame before the well paints,
-            // and a dark theme notices. Shown once: a reload of the page
-            // while the window is hidden in the tray must not raise it.
-            let shown = std::sync::Once::new();
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title(if tauri::is_dev() {
-                    "Hotline · Development"
-                } else {
-                    "Hotline"
-                })
-                .inner_size(1280.0, 860.0)
-                .min_inner_size(520.0, 420.0)
-                .center()
-                .visible(false)
-                .on_page_load(move |window, payload| {
-                    // A page that reloads mid-utterance no longer knows its
-                    // session id, and the microphone would stay open for it.
-                    if matches!(payload.event(), PageLoadEvent::Started) {
-                        tauri::async_runtime::spawn(speech::speech_cancel(String::new()));
-                    }
-                    if matches!(payload.event(), PageLoadEvent::Finished) {
-                        shown.call_once(|| {
-                            let _ = window.show();
-                            #[cfg(target_os = "macos")]
-                            lights::seat_shown(&window);
-                        });
-                    }
-                })
-                .initialization_script(&script);
-            // Overlay puts the traffic lights on the page; the desk seats
-            // them on the top strip's centre line itself (lights.rs). A
-            // click into an inactive window lands on what it hit, the way
-            // Finder's does, rather than only waking the window. Elsewhere
-            // the system frame is dropped and the page draws its own strip
-            // and controls.
-            #[cfg(target_os = "macos")]
-            let window = window
-                .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .accept_first_mouse(true);
-            #[cfg(not(target_os = "macos"))]
-            let window = window.decorations(false);
-            // A frameless window on Linux is a rectangle unless it is see-through
-            // and the page rounds itself; Windows rounds a top-level window on
-            // its own and would lose its shadow for the transparency.
-            #[cfg(target_os = "linux")]
-            let window = window.transparent(true);
-            let window = window.build()?;
-            #[cfg(target_os = "linux")]
-            allow_microphone(&window);
-            #[cfg(target_os = "macos")]
-            lights::seat(&window);
-            // The plugin writes size and place to disk on exit, and only
-            // updates its cache on close, so a hide that is not an exit
-            // would lose the last place unless we save now.
-            window.on_window_event({
-                let window = window.clone();
-                move |event| {
-                    // A drop hands its files over for sending to a desk on a server.
-                    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop {
-                        paths, ..
-                    }) = event
-                    {
-                        window
-                            .state::<std::sync::Arc<transfer::Transfers>>()
-                            .hand(paths);
-                    }
-                    #[cfg(target_os = "macos")]
-                    if matches!(
-                        event,
-                        tauri::WindowEvent::Resized(_)
-                            | tauri::WindowEvent::Focused(_)
-                            | tauri::WindowEvent::ScaleFactorChanged { .. }
-                            | tauri::WindowEvent::ThemeChanged(_)
-                    ) {
-                        lights::seat(&window);
-                    }
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        let _ = window.app_handle().save_window_state(window_state_flags());
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                }
-            });
+            app.manage(DeskScript(script));
+            desk_window(app.handle(), "main", None)?;
             install_tray(app)?;
             updater::start(app.handle().clone());
             {

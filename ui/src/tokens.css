@@ -57,6 +57,9 @@
 	 * it passes, and quieter than a reading until a hand is near. */
 	--thumb: oklch(34% 0.008 250);
 	--thumb-hover: oklch(46% 0.008 250);
+	/* A switch's knob while it is off: the ink on a dark track. */
+	--knob: var(--ink);
+	--knob-shadow: none;
 	--hairline: 1px;
 
 	/* ------------------------------------------------------------- signal
@@ -79,6 +82,9 @@
 	--said-them: oklch(22% 0.008 250);
 
 	--warn: oklch(80% 0.14 80);
+	/* Waiting on the person, as words and an outline: the same amber everywhere it asks. */
+	--warn-ink: oklch(80% 0.14 80);
+	--warn-soft: oklch(80% 0.14 80 / 0.14);
 	--danger: oklch(72% 0.17 25);
 	/* Hanging up: a red deep enough to carry a white glyph. */
 	--hang-up: oklch(60% 0.2 27);
@@ -145,10 +151,13 @@
 	--pressed: oklch(95% 0.005 250);
 	--top-light: inset 0 1px 0 oklch(100% 0 0 / 0.6);
 
+	/* The ladder is set by contrast, not by eye: ink-3 holds 4.5:1 (WCAG AA)
+	 * on the well, the darkest plane its captions sit on, and ink-4 holds
+	 * 3:1 there, as furniture may. ink-2 steps down so the four stay apart. */
 	--ink: oklch(20% 0.01 250);
-	--ink-2: oklch(42% 0.01 250);
-	--ink-3: oklch(56% 0.01 250);
-	--ink-4: oklch(68% 0.008 250);
+	--ink-2: oklch(38% 0.01 250);
+	--ink-3: oklch(47% 0.01 250);
+	--ink-4: oklch(58% 0.008 250);
 
 	--fill-hover: oklch(20% 0.01 250 / 0.06);
 	--fill-active: oklch(20% 0.01 250 / 0.1);
@@ -159,6 +168,9 @@
 	--line-strong: oklch(20% 0.01 250 / 0.2);
 	--thumb: oklch(80% 0.008 250);
 	--thumb-hover: oklch(68% 0.008 250);
+	/* White on a grey track, lifted a little: a dark knob read as on. */
+	--knob: oklch(100% 0 0);
+	--knob-shadow: 0 1px 2px oklch(20% 0.01 250 / 0.3);
 
 	--accent: oklch(78.7% 0.128 163);
 	--accent-hover: oklch(74% 0.13 163);
@@ -171,7 +183,10 @@
 	--said-them: oklch(95% 0.005 250);
 
 	--warn: oklch(64% 0.15 75);
-	--danger: oklch(55% 0.19 27);
+	/* Darker as words on a light card, so small text keeps its contrast. */
+	--warn-ink: oklch(50% 0.13 65);
+	--warn-soft: oklch(64% 0.15 75 / 0.16);
+	--danger: oklch(52% 0.19 27);
 	--hang-up: oklch(57% 0.21 27);
 	--danger-soft: oklch(55% 0.19 27 / 0.1);
 
@@ -229,6 +244,7 @@
 	--color-on-accent: var(--on-accent);
 	--color-accent-soft: var(--accent-soft);
 	--color-accent-ink: var(--accent-ink);
+	--color-warn-ink: var(--warn-ink);
 	--color-said-me: var(--said-me);
 	--color-said-them: var(--said-them);
 

@@ -86,11 +86,25 @@ pub struct Persona {
     pub model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode_id: Option<String>,
-    /// The effort a Hotline Agent teammate runs at, when its model offers one.
-    /// Absent means the model's default. An ACP teammate does not store this:
-    /// the harness owns its config ids.
+    /// The effort the teammate runs at, when its model offers one: Hotline
+    /// Agent's, or a harness's effort picker, whatever that picker is called.
+    /// Absent means the model's default. A harness that no longer offers it
+    /// at the next start keeps its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_id: Option<String>,
+    /// The harness's other settings as the person chose them, by the
+    /// harness's own config id: put back on each session that opens, and
+    /// dropped by any that no longer offers the value. Effort is not here;
+    /// it is `effortId`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[ts(as = "Option<std::collections::BTreeMap<String, String>>", optional)]
+    pub config_choices: std::collections::BTreeMap<String, String>,
+    /// The effort last chosen for each model this teammate has run on, by
+    /// `backend/model`: what a switch back to that model lands on. Kept
+    /// across moves between agents, since the key names the agent.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[ts(as = "Option<std::collections::BTreeMap<String, String>>", optional)]
+    pub effort_by_model: std::collections::BTreeMap<String, String>,
     /// A configured fallback harness for a desk that cannot run this
     /// teammate's current one — the matching ladder's middle rung, between
     /// "exactly what it runs now" and the room's default. Absent means no

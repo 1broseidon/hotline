@@ -1,15 +1,14 @@
-import { type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, memo, useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { processLabel } from "../activity";
-import { chordKeys } from "../chords";
+import { PaneClose } from "../ui/PaneClose";
 import type { ProcessOutput, SessionProcess } from "../generated/contract";
-import { ArrowDownIcon, CloseIcon, SidebarIcon } from "../icons";
+import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon, } from "../icons";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
-import { runEnding, stepRuns, stepsSummary } from "./Transcript";
-import { glance } from "../glance";
-import { Trail } from "./transcript/Trail";
-import type { Step } from "../scheduledRuns";
+import { runEnding, stepRuns } from "./Transcript";
+import { workDetail } from "../turnFacts";
+import { TrailHead, TrailSteps, useHot } from "./transcript/Trail";
 
 /**
  * What the card shows: a turn's work, by its caption's id, or the turn
@@ -102,6 +101,9 @@ export function ProcessWork({
 	);
 }
 
+/** The turn just begun, as a place to step to before it has a run of its own. */
+const NOW = { id: "" };
+
 /** Slack under the newest step that still counts as following it. */
 const FOLLOW_SLACK = 48;
 
@@ -110,93 +112,24 @@ function useTurnWork(personaId: string, blockId: string | null, name: string, li
 	const { events, streaming } = useThread(dmOf(personaId));
 	const runs = useMemo(() => stepRuns(events, streaming), [events, streaming]);
 	const latest = runs[runs.length - 1];
-	const run = blockId === null ? latest : runs.find((one) => one.id === blockId);
-	const running = live && run !== undefined && run === latest;
+	// A turn that has just begun has no steps yet: the latest run is the last
+	// turn's, ended, and the new turn is shown as starting, never as more of it.
+	const begun = live && latest !== undefined && latest.open !== true;
+	const run = blockId === null ? (begun ? undefined : latest) : runs.find((one) => one.id === blockId);
+	const running = live && run !== undefined && run.open === true;
 	const waiting = blockId === null && live && run === undefined;
 	const state = running || waiting ? "Working" : run && runEnding(events, run.items) === "stopped" ? "Stopped" : "Done";
 	const items = run?.items;
 	const content = useMemo(() => ({ items, running, waiting, name }), [items, running, waiting, name]);
 	const empty = <p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>;
-	return { run, running, state, content, empty };
-}
-
-/**
- * The peek: a teammate's turn as a glance, sliding up from behind the
- * composer over the conversation's foot. Four plain lines that follow the
- * newest, nothing in them to open; a line pressed (or the pane key) opens the
- * turn in the right-hand pane, that line open there, and the peek goes. A
- * caption opens its own turn; the work card opens the turn running now. A
- * subagent's run, a side thread or a call is a thread, and opens in the pane.
- */
-export function Work({
-	open,
-	name,
-	live,
-	docked = true,
-	onPick,
-	onClose,
-}: {
-	open: OpenWork;
-	name: string;
-	/** A turn is running for this teammate. */
-	live: boolean;
-	docked?: boolean;
-	/** Opens the turn in the right-hand pane, at the line pressed or at its top. */
-	onPick?: ((stepId: string | null) => void) | undefined;
-	onClose(): void;
-}) {
-	const { run, running, state, content, empty } = useTurnWork(open.personaId, open.blockId, name, live);
-	return (
-		<WorkCard
-			label={`${name}'s work`}
-			heading={state}
-			working={state === "Working"}
-			{...(run !== undefined ? { detail: stepsSummary(run.items) } : {})}
-			docked={docked}
-			following={run?.id}
-			count={run?.items.length ?? 0}
-			content={content}
-			actions={
-				onPick !== undefined && (
-					<button type="button" className="control btn-icon" title="Open in pane" aria-label="Open the work in the pane" onClick={() => onPick(null)}>
-						<SidebarIcon />
-					</button>
-				)
-			}
-			onClose={onClose}
-		>
-			{run === undefined ? empty : <GlanceRows items={run.items} running={running} onPick={onPick} />}
-		</WorkCard>
-	);
-}
-
-/**
- * The peek's lines: what was done in a few words, a run of one kind as one
- * line (glance.ts), each a press away from its steps in the pane. The pane
- * shows the steps themselves, each as it was run.
- */
-export function GlanceRows({ items, running, onPick }: { items: Step[]; running: boolean; onPick: ((stepId: string | null) => void) | undefined }) {
-	const lines = useMemo(() => glance(items, running), [items, running]);
-	return lines.map((line) => (
-		<div key={line.id} data-step-id={line.id}>
-			<button type="button" className="step" onClick={() => onPick?.(line.id)}>
-				<span
-					aria-hidden="true"
-					className={`step-mark ${line.live ? "beat" : ""}`}
-					style={{ background: line.failed ? "var(--danger)" : line.live ? "var(--accent)" : "var(--ink-4)" }}
-				/>
-				<span className="step-title">{line.text}</span>
-				{line.failed && <span className="shrink-0 text-danger">failed</span>}
-			</button>
-		</div>
-	));
+	return { runs, run, latest, running, state, content, empty };
 }
 
 /**
  * A turn's work as a page of the right-hand pane, flush and full height like
- * a thread: the room to read it, every step opening to say what it did. The
- * line pressed in the peek arrives open and in view; otherwise the page
- * follows the newest step, as the peek does.
+ * a thread: the room to read it, every step opening to say what it did. A
+ * line asked for arrives open and in view; otherwise the page follows the
+ * newest step.
  */
 export function WorkPage({
 	personaId,
@@ -208,18 +141,57 @@ export function WorkPage({
 }: {
 	personaId: string;
 	blockId: string | null;
-	/** The line pressed in the peek, opened on arrival. */
+	/** A line to open on arrival. */
 	stepId?: string | undefined;
 	name: string;
 	live: boolean;
 	onClose(): void;
 }) {
-	const { run, running, state, content, empty } = useTurnWork(personaId, blockId, name, live);
+	/* The turn shown: null follows the latest, rolling on to each new turn
+	 * as it starts; an id holds that turn, and stepping back in time is what
+	 * holds one. Opened on the latest turn's own caption, the pane follows. */
+	const [held, setHeld] = useState<string | null>(blockId);
+	const { runs, run, latest, running, state, content, empty } = useTurnWork(personaId, held, name, live);
+	const settledOpen = useRef(false);
+	useEffect(() => {
+		if (settledOpen.current || latest === undefined) return;
+		settledOpen.current = true;
+		if (held !== null && held === latest.id) setHeld(null);
+	}, [held, latest]);
+	// The turn just begun, with no steps yet, is the newest of all and has no run.
+	const fresh = held === null && run === undefined;
+	const at = run === undefined ? (fresh ? runs.length : -1) : runs.indexOf(run);
+	const earlier = at > 0 ? runs[at - 1] : undefined;
+	const later = at >= 0 && at < runs.length - 1 ? runs[at + 1] : at === runs.length - 1 && live && run?.open !== true ? NOW : undefined;
+	const step = (to: { id: string } | undefined) => {
+		if (to !== undefined) setHeld(to === latest || to === NOW ? null : to.id);
+	};
+	// Only the turn it opened at opens a line on arrival.
+	const openId = held === blockId ? stepId : undefined;
+	const hot = useHot();
+	const actions = (runs.length > 1 || (fresh && runs.length > 0)) && (
+		<>
+			{held !== null && later !== undefined && (
+				<button type="button" className="work-latest" onClick={() => setHeld(null)}>
+					{live && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+					{live ? "Working now" : "Latest"}
+				</button>
+			)}
+			<button type="button" className="control btn-icon" title="Earlier turn" aria-label="Earlier turn" disabled={earlier === undefined} onClick={() => step(earlier)}>
+				<ChevronLeftIcon />
+			</button>
+			<button type="button" className="control btn-icon" title="Later turn" aria-label="Later turn" disabled={later === undefined} onClick={() => step(later)}>
+				<ChevronRightIcon />
+			</button>
+		</>
+	);
 	return (
 		<section className="work-page" aria-label={`${name}'s work`}>
-			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? stepsSummary(run.items) : undefined} actions={null} onClose={onClose} />
-			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={stepId === undefined}>
-				{run === undefined ? empty : <Trail key={stepId ?? ""} items={run.items} settled={!running} openId={stepId} />}
+			<WorkBand heading={state} working={state === "Working"} detail={run !== undefined ? workDetail(run.items) : undefined} actions={actions} onClose={onClose} />
+			{/* The turn's shape and its sources stay put; the steps, which run long, scroll. */}
+			{run !== undefined && <TrailHead key={run.id} items={run.items} settled={!running} hot={hot} />}
+			<FollowWindow following={run?.id} count={run?.items.length ?? 0} content={content} follow={openId === undefined}>
+				{run === undefined ? empty : <TrailSteps key={`${run.id}:${openId ?? ""}`} items={run.items} settled={!running} openId={openId} hot={hot} />}
 			</FollowWindow>
 		</section>
 	);
@@ -274,18 +246,25 @@ const WorkBand = memo(function WorkBand({ heading, working, detail, actions, onC
 }) {
 	return (
 		<Band>
-			<div className="min-w-0 flex-1 pl-1">
-				{/* The heading is the run's state, so it reads in the instrument face, as states do. */}
-				<h2 className="flex items-center gap-2 truncate font-mono text-sm font-medium text-ink">
-					{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-					<span className="truncate">{heading}</span>
-				</h2>
-			</div>
-			{detail !== undefined && <span className="instrument min-w-0 truncate pr-1">{detail}</span>}
+			{/* The heading is the run's state, so it reads in the instrument face, as states do.
+			 * It is the band's own h2, so a press on it or the space after it drags the window. */}
+			<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 font-mono text-sm font-medium text-ink">
+				{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+				<span className="truncate">{heading}</span>
+			</h2>
+			{detail !== undefined && (
+				<span className="instrument min-w-0 truncate pr-1">
+					{/* A failure in the run's counts is the one part in red. */}
+					{detail.split(" · ").map((part, at) => (
+						<Fragment key={part}>
+							{at > 0 && " · "}
+							<span className={/^\d+ failed$/.test(part) ? "text-danger" : undefined}>{part}</span>
+						</Fragment>
+					))}
+				</span>
+			)}
 			{actions}
-			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-				<CloseIcon />
-			</button>
+			<PaneClose onClose={onClose} />
 		</Band>
 	);
 });

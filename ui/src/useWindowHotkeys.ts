@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import { chatWindow } from "./chatWindow";
 import { matchChord } from "./chords";
 import type { OpenWork } from "./components/Work";
 import { activeDeskId, allDesks, deskFilter } from "./desks";
@@ -99,6 +100,9 @@ export function useWindowHotkeys({
 				}
 				return;
 			}
+			// A chat in a window of its own is that one conversation: the team's
+			// chords are the main window's.
+			if (chatWindow !== null && chord !== "teammate") return;
 			if (chord === "new-teammate") {
 				event.preventDefault();
 				if (takeChord()) newTeammate();
@@ -137,6 +141,8 @@ export function useWindowHotkeys({
 	}, [selectedId, pane, dock, inspector, workOf, closeWork, select, seatOf, closePane, setDock, closeDock, setInspector, togglePane, newTeammate, toggleInspector, toggleRail, setSearchAsk]);
 
 	useEffect(() => {
+		// The menu bar acts on the main window, never a chat beside it.
+		if (chatWindow !== null) return;
 		return listenMenu((id) => {
 			if (id === "sidebar") {
 				if (takeChord()) toggleRail();
@@ -207,11 +213,13 @@ export function useWindowHotkeys({
 		void showWindow();
 		callTeammate(selected);
 	};
-	useEffect(() => onHotkey((id, state) => hotkeyPressed.current(id, state)), []);
+	// The shortcuts heard anywhere are the main window's to register and answer.
+	useEffect(() => (chatWindow !== null ? undefined : onHotkey((id, state) => hotkeyPressed.current(id, state))), []);
 	const bindings = useHotkeys();
 	const recordingKeys = useRecording();
 	const dictationHere = useDictationAvailable();
 	useEffect(() => {
+		if (chatWindow !== null) return;
 		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation, desk: bindings.desk });
 	}, [bindings, recordingKeys, dictationHere]);
 }

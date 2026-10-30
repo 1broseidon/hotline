@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type { ComputerReleases, ComputerRuntime, RuntimeReport, RuntimeState, CookieOfferSettings as OfferSettings } from "../../generated/contract";
 import { openLink, pinnedComputerImage } from "../../native";
+import { useCommitOnLeave } from "../../commitOnLeave";
 import { InfoIcon } from "../../icons";
 import { Fold, toggled } from "../../ui/Fold";
 import { Picker } from "../../ui/Menu";
@@ -166,6 +167,10 @@ export function ComputerSection({
 		const next = trimmed === "" ? null : trimmed;
 		if (next !== image) onImage(next);
 	};
+	// Only a custom image is typed; otherwise the draft is not the person's words.
+	useCommitOnLeave(() => {
+		if (pickedRelease === CUSTOM_IMAGE) commitImage();
+	});
 
 	const chosen = runtime ?? "";
 	const rows: { id: string; name: string; detail: string; off: boolean; report?: RuntimeReport }[] = [

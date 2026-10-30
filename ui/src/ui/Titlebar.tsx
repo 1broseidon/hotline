@@ -114,15 +114,16 @@ export function Titlebar({
 const LIGHTS_RIGHT = 76;
 
 /**
- * The room's chrome once the panes run to the window's top: no strip of its
- * own. The rail's key stands over the rail's head, past the traffic lights
- * on macOS, with the search beside it while the rail is closed. Where the
- * shell draws no frame (Linux, Windows) the window's controls stand at the
- * top-right corner. Whatever pane's band runs under either is measured and
- * makes room for it (`--lead-room`, `--controls-room`), so the faces-only
- * rail, a closed rail and any pane at the right all keep their titles clear.
- * A call's card that would stand under either drops below the top bar
- * instead (`--chrome-drop`), keeping the pane's whole width.
+ * The room's chrome. On macOS the panes run to the window's top, with no
+ * strip of their own: the rail's key stands over the rail's head, past the
+ * traffic lights, with the search beside it while the rail is closed, and
+ * whatever pane's band runs under it is measured and makes room for it
+ * (`--lead-room`), so the faces-only rail and a closed rail keep their titles
+ * clear. A call's card that would stand under it drops below the top bar
+ * instead (`--chrome-drop`), keeping the pane's whole width. Where the shell
+ * draws no frame (Linux, Windows) the window's controls have a row of their
+ * own, with the rail's key and the app's name, and the panes start under it:
+ * beside the window's close, a pane's own close read as a second one.
  */
 export function FlushChrome({
 	rail,
@@ -138,7 +139,6 @@ export function FlushChrome({
 	const frame = drawsFrame();
 	const [maximized, setMaximized] = useState(false);
 	const lead = useRef<HTMLDivElement>(null);
-	const controls = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (!frame) return;
 		return watchWindowShape(({ maximized: value }) => {
@@ -147,6 +147,8 @@ export function FlushChrome({
 		});
 	}, [frame]);
 	useEffect(() => {
+		// Under a row of the window's own nothing stands under the chrome.
+		if (frame) return;
 		// At most one fit a frame, and never put off: while the rail slides the
 		// bands move every frame, and a fit that waited for them to stop would
 		// leave a title under the lead until the slide ended.
@@ -159,7 +161,8 @@ export function FlushChrome({
 				// macOS's traffic lights are the lead's too, though they are the window's to draw.
 				const lights = platform() === "macos" && !document.documentElement.hasAttribute("data-fullscreen") ? LIGHTS_RIGHT : 0;
 				const leadRight = Math.max(lights, ...keys.map((key) => key.getBoundingClientRect().right));
-				const controlsLeft = controls.current?.getBoundingClientRect().left ?? Number.POSITIVE_INFINITY;
+				// macOS draws its window's controls in the lead's corner, not here.
+				const controlsLeft = Number.POSITIVE_INFINITY;
 				for (const band of document.querySelectorAll<HTMLElement>("#root .band")) {
 					sized.observe(band);
 					const box = band.getBoundingClientRect();
@@ -192,40 +195,51 @@ export function FlushChrome({
 			sized.disconnect();
 			window.removeEventListener("resize", fit);
 		};
-	}, []);
-	return (
+	}, [frame]);
+	const leadKeys = (
 		<>
-			<div ref={lead} className="chrome-lead" style={rail.open ? { width } : undefined}>
-				{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
-				{rail.key !== false && <button
-					type="button"
-					className="control btn-icon"
-					title={`${rail.open ? "Hide" : "Show"} the team (${chordKeys("sidebar")})`}
-					aria-label={rail.open ? "Hide the team" : "Show the team"}
-					onClick={rail.onToggle}
-				>
-					<SidebarIcon />
-				</button>}
-				{!rail.open && search}
-			</div>
-			{frame && (
-				<div ref={controls} className="chrome-controls">
+			{rail.key !== false && <button
+				type="button"
+				className="control btn-icon"
+				title={`${rail.open ? "Hide" : "Show"} the team (${chordKeys("sidebar")})`}
+				aria-label={rail.open ? "Hide the team" : "Show the team"}
+				onClick={rail.onToggle}
+			>
+				<SidebarIcon />
+			</button>}
+			{!rail.open && search}
+		</>
+	);
+	if (frame) {
+		// Windows and Linux: the window's controls have a row of their own
+		// across the window's top, with the rail's key and the app's name, and
+		// the panes start under it. A pane's close is its own X again, not one
+		// beside the window's (task-308 QA).
+		return (
+			<header className="chrome-strip">
+				<div data-tauri-drag-region aria-hidden="true" className="chrome-strip-drag" onDoubleClick={() => void toggleMaximize()} />
+				<div className="chrome-strip-lead">{leadKeys}</div>
+				<p className="chrome-strip-title">
+					<HotlineMark className="titlebar-mark" width={16} plain label="Hotline" />
+				</p>
+				<div className="chrome-strip-controls">
 					<button type="button" className="window-control" aria-label="Minimize" onClick={() => void minimizeWindow()}>
 						<MinimizeIcon />
 					</button>
-					<button
-						type="button"
-						className="window-control"
-						aria-label={maximized ? "Restore" : "Maximize"}
-						onClick={() => void toggleMaximize()}
-					>
+					<button type="button" className="window-control" aria-label={maximized ? "Restore" : "Maximize"} onClick={() => void toggleMaximize()}>
 						{maximized ? <RestoreIcon /> : <MaximizeIcon />}
 					</button>
 					<button type="button" className="window-control window-control-close" aria-label="Close" onClick={() => void closeWindow()}>
 						<CloseIcon />
 					</button>
 				</div>
-			)}
-		</>
+			</header>
+		);
+	}
+	return (
+		<div ref={lead} className="chrome-lead" style={rail.open ? { width } : undefined}>
+			{rail.open && <div data-tauri-drag-region aria-hidden="true" className="chrome-lead-drag" onDoubleClick={() => void toggleMaximize()} />}
+			{leadKeys}
+		</div>
 	);
 }

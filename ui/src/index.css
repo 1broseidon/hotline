@@ -3695,14 +3695,49 @@
 			animation: none;
 		}
 	}
-	/* Above a pane laid over the conversation (30), whose band makes room for them. */
-	.chrome-controls {
-		position: fixed;
-		top: 0;
-		right: 0;
-		z-index: 31;
+	/* Windows and Linux: the window's own row across its top (ui/Titlebar.tsx
+	 * FlushChrome), the rail's key at the left over the faces' axis, the
+	 * app's name on the window's centre, the window's controls at the right.
+	 * It drags the window; the panes start under it. */
+	.chrome-strip {
+		position: relative;
 		display: flex;
-		height: 40px;
+		height: 32px;
+		flex-shrink: 0;
+		align-items: center;
+	}
+	.chrome-strip-drag {
+		position: absolute;
+		inset: 0;
+	}
+	.chrome-strip-lead {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding-left: 21px;
+	}
+	.chrome-strip-title {
+		position: absolute;
+		left: 50%;
+		display: flex;
+		transform: translateX(-50%);
+		color: var(--ink-3);
+		pointer-events: none;
+	}
+	.chrome-strip-controls {
+		position: relative;
+		display: flex;
+		height: 100%;
+		margin-left: auto;
+	}
+	.chrome-strip-controls .window-control {
+		width: 46px;
+	}
+	/* The rail no longer keeps a head for the key: the strip holds it. */
+	html[data-platform="windows"] .rail,
+	html[data-platform="linux"] .rail {
+		padding-top: 8px;
 	}
 	/* A band under the lead's keys or the window's controls makes room for
 	 * them (FlushChrome measures how much). */

@@ -30,16 +30,12 @@ const render = async (os: string) => {
 	return { key, closed };
 };
 
-test("a pane's close says Close where the page draws the window's own controls, and is an X on macOS", async () => {
-	for (const os of ["windows", "linux"]) {
+test("a pane's close is an X on every platform: the window's own controls have a row of their own where the page draws them", async () => {
+	for (const os of ["windows", "linux", "macos"]) {
 		const { key, closed } = await render(os);
-		expect(key.textContent).toBe("Close");
-		expect(key.querySelector("svg")).toBeNull();
+		expect(key.textContent).toBe("");
+		expect(key.getAttribute("aria-label")).toBe("Close");
+		expect(key.querySelector("svg")).not.toBeNull();
 		expect(closed).toBe(1);
 	}
-	const { key, closed } = await render("macos");
-	expect(key.textContent).toBe("");
-	expect(key.getAttribute("aria-label")).toBe("Close");
-	expect(key.querySelector("svg")).not.toBeNull();
-	expect(closed).toBe(1);
 });

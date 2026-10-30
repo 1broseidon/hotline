@@ -113,10 +113,14 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
     // The tape's link, in the shape each client reads. A subscription is
     // answered before it listens, so on a fast machine the link was written
     // in between and arrives in the tape's snapshot instead of live.
-    let link = live_or_snapshot(&mut now, now_tape, |event| event["kind"] == "link").await;
+    let link = now
+        .live_or_snapshot(now_tape, |event| event["kind"] == "link")
+        .await;
     assert_eq!(link["thread"], key.as_str());
     assert_eq!(link["threadKind"], "side");
-    let marker = live_or_snapshot(&mut old, old_tape, |event| event["kind"] == "side").await;
+    let marker = old
+        .live_or_snapshot(old_tape, |event| event["kind"] == "side")
+        .await;
     assert_eq!(marker["sideId"], key.as_str());
     assert!(
         old.inbox
@@ -286,25 +290,3 @@ async fn state_of(client: &mut Client, persona: &str, thread: &Value) -> String 
 
 #[path = "threads/together.rs"]
 mod together;
-
-/// The event on subscription `sub` that `wanted` picks, live or in a
-/// snapshot it was sent. A snapshot found goes back to the inbox less the
-/// event taken, for the next wait to read.
-async fn live_or_snapshot(client: &mut Client, sub: i64, wanted: impl Fn(&Value) -> bool) -> Value {
-    let mut frame = client
-        .next_where(PATIENCE, |frame| {
-            frame["sub"] == sub
-                && (wanted(&frame["event"])
-                    || frame["snapshot"]
-                        .as_array()
-                        .is_some_and(|events| events.iter().any(&wanted)))
-        })
-        .await;
-    let Some(events) = frame["snapshot"].as_array_mut() else {
-        return frame["event"].clone();
-    };
-    let at = events.iter().position(&wanted).unwrap();
-    let event = events.remove(at);
-    client.inbox.push_front(frame);
-    event
-}

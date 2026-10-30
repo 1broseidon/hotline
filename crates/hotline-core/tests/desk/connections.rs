@@ -1071,13 +1071,13 @@ async fn hotline_agent_with_no_provider_says_so_before_the_first_turn() {
         .await;
     assert_eq!(started["ok"], true, "{started}");
     assert_eq!(started["result"]["state"], "error", "{started}");
+    // The tape's snapshot is taken after its `ok`, so the notice the start
+    // wrote is in that snapshot or comes after it, as the runtime schedules.
     let notice = client
-        .next_where(Duration::from_secs(5), |frame| {
-            is_sub(frame, tape, "event") && frame["event"]["kind"] == "notice"
-        })
+        .live_or_snapshot(tape, |event| event["kind"] == "notice")
         .await;
-    assert_eq!(notice["event"]["level"], "error");
-    let text = notice["event"]["text"].as_str().unwrap();
+    assert_eq!(notice["level"], "error");
+    let text = notice["text"].as_str().unwrap();
     assert!(
         text.starts_with("Hotline Agent unavailable: Connect a provider in Settings › Providers"),
         "{text}"
@@ -1098,9 +1098,7 @@ async fn hotline_agent_with_no_provider_says_so_before_the_first_turn() {
     // Not a failed turn: the words were never written, and no turn ran.
     let again = client.subscribe(json!({"tape": persona})).await;
     let snapshot = client
-        .next_where(Duration::from_secs(5), |frame| {
-            is_sub(frame, again, "snapshot")
-        })
+        .next_where(common::ANSWER, |frame| is_sub(frame, again, "snapshot"))
         .await;
     let kinds: Vec<&str> = snapshot["snapshot"]
         .as_array()
@@ -1125,7 +1123,7 @@ async fn hotline_agent_with_no_provider_says_so_before_the_first_turn() {
         .await;
     assert_eq!(sent["ok"], true, "{sent}");
     let answer = client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"
         })
         .await;

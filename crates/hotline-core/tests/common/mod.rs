@@ -213,6 +213,30 @@ impl Client {
         }
     }
 
+    /// The event on subscription `sub` that `wanted` picks, live or in the
+    /// snapshot it was sent, within `ANSWER`. A subscription's snapshot is
+    /// taken after its `ok`, so a line a command wrote just after subscribing
+    /// may be in the snapshot and never sent as an event. A snapshot found
+    /// goes back to the inbox less the event taken, for the next wait to read.
+    pub async fn live_or_snapshot(&mut self, sub: i64, wanted: impl Fn(&Value) -> bool) -> Value {
+        let mut frame = self
+            .next_where(ANSWER, |frame| {
+                frame["sub"] == sub
+                    && (wanted(&frame["event"])
+                        || frame["snapshot"]
+                            .as_array()
+                            .is_some_and(|events| events.iter().any(&wanted)))
+            })
+            .await;
+        let Some(events) = frame["snapshot"].as_array_mut() else {
+            return frame["event"].clone();
+        };
+        let at = events.iter().position(&wanted).unwrap();
+        let event = events.remove(at);
+        self.inbox.push_front(frame);
+        event
+    }
+
     /// The last dozen frames that arrived unwanted, newest last and each cut
     /// short, so a timeout on a slow runner says which step stalled.
     fn latest(&self) -> String {

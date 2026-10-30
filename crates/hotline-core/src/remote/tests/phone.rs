@@ -813,7 +813,7 @@ async fn a_revoked_seat_drains_tcp_instead_of_resetting_it() {
 /// (its queue never fills) and never asked for the silence timer (no `lean`).
 #[tokio::test]
 async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound() {
-    let (h, mut phone) = stalled_phone().await;
+    let (h, mut phone, _) = stalled_phone().await;
     // Bound each wait for progress; the whole drain may take longer under load.
     use tokio::io::AsyncReadExt;
     let tcp = phone.socket.get_mut().get_mut().0;
@@ -833,15 +833,29 @@ async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound()
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
-/// Admission cannot report a stalled seat gone while TCP is still open.
-/// The one-second ceiling is the task's transport requirement, measured only
-/// after the paused deadline clock has resumed and admission reaches zero.
+/// Admission cannot report a stalled seat gone while TCP is still open: by
+/// the time admission reads zero, no descriptor in this process (the desk's
+/// and the test's) is still the desk's end of the phone's connection, and
+/// the phone is then told by a reset, not a close.
+///
+/// The ordering is checked where it happens, on the desk's side, and the
+/// reset is waited on, not timed. The phone's kernel drops a reset whose
+/// sequence lands past its window (bytes still in flight, or a zero-window
+/// probe), and is reset only when the bytes it then reads send an ACK to the
+/// closed port; so how soon the phone hears is up to two kernels, not the desk.
 #[tokio::test]
-async fn a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission() {
-    let (h, mut phone) = stalled_phone().await;
+async fn a_stalled_seat_resets_tcp_before_releasing_admission() {
+    let (h, mut phone, ends) = stalled_phone().await;
     use tokio::io::AsyncReadExt;
+    #[cfg(unix)]
+    assert!(
+        !desk_end_open(ends),
+        "admission reached zero while the desk's end of TCP was still open"
+    );
+    #[cfg(not(unix))]
+    let _ = ends;
     let tcp = phone.socket.get_mut().get_mut().0;
-    let reset = tokio::time::timeout(Duration::from_secs(1), async {
+    let reset = tokio::time::timeout(crate::test_support::PATIENCE, async {
         let mut bytes = [0; 65536];
         loop {
             match tcp.read(&mut bytes).await {
@@ -852,16 +866,63 @@ async fn a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission() {
         }
     })
     .await
-    .expect("TCP resets within one second of admission reaching zero");
+    .expect("the phone is told its stalled seat ended");
     assert_eq!(reset.kind(), std::io::ErrorKind::ConnectionReset);
     drop(phone);
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
-async fn stalled_phone() -> (Harness, PhoneSocket) {
+/// Whether a descriptor in this process is still the desk's end of the
+/// phone's connection: a socket at `desk_at`, connected to `phone_at`. The
+/// desk runs in the test's process, so these are all that could hold it.
+#[cfg(unix)]
+fn desk_end_open((phone_at, desk_at): Ends) -> bool {
+    std::fs::read_dir("/dev/fd")
+        .unwrap()
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
+        .any(|fd| {
+            address(fd, libc::getsockname) == Some(desk_at)
+                && address(fd, libc::getpeername) == Some(phone_at)
+        })
+}
+
+/// A descriptor's own or peer address, by `query`; none for a descriptor
+/// that is not a connected IP socket.
+#[cfg(unix)]
+fn address(
+    fd: libc::c_int,
+    query: unsafe extern "C" fn(
+        libc::c_int,
+        *mut libc::sockaddr,
+        *mut libc::socklen_t,
+    ) -> libc::c_int,
+) -> Option<std::net::SocketAddr> {
+    // SAFETY: `query` writes at most `len` bytes into the storage `try_init`
+    // provides and sets `len`. A descriptor another test closes or reuses
+    // meanwhile answers an error or another socket's address, nothing worse.
+    let ((), address) = unsafe {
+        socket2::SockAddr::try_init(|storage, len| {
+            if query(fd, storage.cast(), len) == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        })
+    }
+    .ok()?;
+    address.as_socket()
+}
+
+/// A connection's two addresses, the phone's first, read while it is up: a
+/// socket that has been reset no longer has a peer to name.
+type Ends = (std::net::SocketAddr, std::net::SocketAddr);
+
+async fn stalled_phone() -> (Harness, PhoneSocket, Ends) {
     let h = Harness::new().await;
     let grant = h.pair().await;
     let mut phone = h.socket(&grant.private).await.unwrap();
+    let tcp = phone.socket.get_ref().get_ref().0;
+    let ends = (tcp.local_addr().unwrap(), tcp.peer_addr().unwrap());
     assert_eq!(read(&mut phone).await["protocolVersion"], 2);
     send(&mut phone, json!({"id":1,"cmd":"mobile.persona_create","params":{"requestId":Uuid::new_v4(),"name":"Ada"}})).await;
     let created = read(&mut phone).await;
@@ -896,7 +957,7 @@ async fn stalled_phone() -> (Harness, PhoneSocket) {
         tokio::time::advance(crate::wire::WRITE_STALL).await;
         tokio::time::resume();
     }
-    (h, phone)
+    (h, phone, ends)
 }
 
 #[tokio::test]

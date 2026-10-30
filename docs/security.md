@@ -1315,8 +1315,8 @@ it lets a colleague use another's tools.
   command and desktop work surviving disconnect;
   `remote/tests/phone.rs` `a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound`
   proves the stalled connection ends in a TCP reset;
-  `a_stalled_seat_resets_tcp_within_one_second_of_releasing_admission` bounds
-  that reset to one second after admission reaches zero.
+  `a_stalled_seat_resets_tcp_before_releasing_admission` proves the desk's
+  end of that connection is closed by the time admission reaches zero.
   `wire/tests/phone_pressure.rs` `dropping_a_seat_drops_its_blocked_writer_before_returning`
   proves cancellation leaves no detached writer sending after its seat ends;
   `a_revoked_seat_drains_tcp_instead_of_resetting_it` in the same file proves

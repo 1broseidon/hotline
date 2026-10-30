@@ -8,7 +8,32 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-29
+
 ### Added
+
+- A teammate's chat opens in a window of its own from the rail's
+  right-click menu, beside the main window, to talk to two teammates side
+  by side. The main window keeps the rail, toasts, the badge, the hotkeys
+  and the menu bar.
+- A markdown file a teammate sends opens rendered as a document, with its
+  source a press away.
+- Fast mode, on the models that offer it, is a toggle in the model menu
+  under the effort tabs, with what it costs beside it ("Extra usage only" on
+  Claude Code, "Uses more of plan" on Codex) and a bolt on the pill while it
+  is on. It is the teammate's choice, put back as a session opens and after
+  a model switch, and it says why when the agent cannot turn it on.
+- Antigravity offers its thinking levels as effort tabs and its modes
+  (Default, Auto Edit, YOLO), and names its plan ("Google AI Pro").
+- Cursor lists its base models with their reasoning levels, a context size
+  (300K or 1M) and fast mode as controls of their own, instead of one entry
+  per variant, and offers Run Everything beside Agent, Plan and Ask, which
+  starts Cursor with `--force` (it still keeps to its deny list and to a
+  team that forbids it). Its pill wears Cursor's mark, whatever lab's model
+  it runs.
+- The Computer section's Desktop row starts and stops the computer from the
+  row itself, before its chevron. A computer that cannot start says why
+  there, and the band's computer key goes as soon as it stops.
 
 - A finished step records when it ended, the web pages it read or found (a
   fetch's page and its title when the tool gave one, a web search's results)
@@ -16,6 +41,28 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- A turn's work opens in the side pane from its caption or the composer's
+  activity row. The caption is one line under the turn's last bubble once
+  the turn has ended, with the first three sites' icons and how many more.
+  The pane keeps the turn's shape bar and sources in place while its steps
+  scroll under a heading that stays put, marks pages actually read with a
+  green eye, shows the first four sources and how many more, and steps
+  between turns: on the latest it rolls on to each new turn, and stepping
+  back holds a turn until you return. A new turn opens a pane of its own at
+  once.
+- On Windows and Linux the window's controls have a row of their own across
+  the top, with the team key and the app's mark, and the panes start under
+  it, so a pane's close never stands beside the window's.
+- Light mode is set for contrast: every caption meets WCAG AA against the
+  plane it sits on, an off switch shows a white knob, and a turn's shape bar
+  reads on white.
+- Every agent's effort levels read alike, least first and by the same names
+  (Grok Build listed them most first, as "Extra High").
+- A teammate is told the person's name once, in the preamble it starts on,
+  and of a change on the next message, rather than on every message.
+- Settings, cards and the new-teammate form share one look: section labels,
+  amber for whatever waits on you, and Agent as the runtime's name
+  everywhere.
 - A teammate's work reads in plain words and counts. While it works the
   composer's row says what it is doing and how many steps so far, with the
   icons of the sites it has read while it reads the web; when the turn ends
@@ -31,7 +78,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   account it runs on), then the effort of the model in use as one row of
   tabs (Auto, Low, Med, High, Xhigh, Max; Auto is the agent's own choice),
   then the agent's models, one click each, with a check on the one in use;
-  past eight models the rest are under More models. Choosing a tab or a
+  past five models, newest first with the one in use always among them,
+  the rest are under More models, which lists only those. Choosing a tab or a
   model keeps the menu open: a new model's tabs show at once, dimmed with
   its check beating while a running teammate switches. Change agent, with a
   hint of the others, opens the accounts and agents the menu used to list,
@@ -56,12 +104,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   what the agent reports never replaces them, and fills only a model the
   teammate has none of. A running teammate still shows what its session
   actually runs.
-- Any model's effort can be chosen at any time on Claude Code and Codex.
+- Any model's effort can be chosen at any time on Claude Code, Codex and
+  Grok Build.
   The desk reads each one's models with every model's own effort levels
   when it reads the plan, from the same CLI and with no model asked, so a
   teammate shows its model and effort before its first turn, even on an
-  agent never run here. Grok Build still offers only what its session
-  reports.
+  agent never run here. Grok Build's models and levels come from the list
+  its CLI keeps on disk, read with no token and no request.
 - A model switch keeps the effort you would expect: the one last chosen for
   that model by the teammate, else by anyone on the desk, else the current
   effort where the new model has it, else the nearest level below it, never
@@ -82,6 +131,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   subscription"), a line per window whose bar has a tick where use would be
   if spread evenly over the window, and under each when it resets and its
   runway ("Runway: runs out ~Fri 3pm", "Runway: lasts past the reset").
+
+### Fixed
+
+- Grok Build lists every model it has (Grok 4.7 among them), not the two its
+  CLI falls back on while it renews an expired sign-in, and a teammate set
+  to one of them is still asked for it.
+- The side pane stands beside the conversation after an empty desk's first
+  teammate; it lay over a wide window, the band and, on Windows and Linux,
+  the window's controls.
+- A thread with a colleague stops showing Thinking when its turn ends.
+- A new release of an agent shipped as an archive (Antigravity) no longer
+  leaves the desk's view of its models stale until a teammate starts on it.
+- On Linux a tooltip no longer stays over the menu or pane its click opened.
 
 ## [0.44.2] - 2026-10-28
 

@@ -38,7 +38,7 @@ const MORE_AGENTS = "__more__";
 const MAJOR_AGENTS = ["antigravity-acp", "claude-acp", "codex-acp", "cursor", "grok-build"];
 
 /** How many of the agent's models the menu lists before More models. */
-const SHOWN_MODELS = 8;
+const SHOWN_MODELS = 5;
 
 type Effort = { value: string; choices: ConfigChoice[] };
 
@@ -640,7 +640,10 @@ function Panels({
 	const firstAgent = others.findIndex((row) => sectionOf(row) === "agents");
 	// Change agent's list: every other account and agent, then Add an account.
 	const agentList: (AccountRow | "add")[] = [...others, ...(onAddAccount !== undefined ? ["add" as const] : [])];
-	const sideCount = flyout?.kind === "more" ? models.length : agentList.length;
+	// More models is the rest: what the menu itself does not list, in the
+	// agent's own order, newest first.
+	const more = models.filter((choice) => !shown.includes(choice));
+	const sideCount = flyout?.kind === "more" ? more.length : agentList.length;
 
 	const opens = (row: AccountRow) => row.unavailable === undefined && row.choices.length > 0;
 	const openRow = others.find((row) => row.key === account?.key);
@@ -649,7 +652,7 @@ function Panels({
 		if (flyout?.kind === kind) return;
 		setFlyout({ kind, top: element.getBoundingClientRect().top });
 		setAccount(null);
-		setSideActive(Math.max(0, kind === "more" ? models.findIndex((one) => one.id === checked) : 0));
+		setSideActive(Math.max(0, kind === "more" ? more.findIndex((one) => one.id === checked) : 0));
 	};
 	const hideFlyout = () => {
 		setFlyout(null);
@@ -764,7 +767,7 @@ function Panels({
 			else if (row?.kind === "action" && enter) act(row.action);
 		} else if (level === 1) {
 			if (flyout?.kind === "more") {
-				const choice = models[sideActive];
+				const choice = more[sideActive];
 				if (choice && enter) onModel(choice.id);
 			} else {
 				chooseAgent(agentList[sideActive], side.current?.querySelector<HTMLElement>(`[data-row="${sideActive}"]`) ?? null, enter);
@@ -1010,7 +1013,7 @@ function Panels({
 			{flyout?.kind === "more" && (
 				<div ref={side} role="menu" tabIndex={-1} aria-label={`${head.name} models`} className="menu model-menu" style={beside(main.current, flyout.top, 248)}>
 					<div className="menu-heading">{head.name}</div>
-					{models.map((choice, at) =>
+					{more.map((choice, at) =>
 						modelRow(choice, at, 1, sideActive, () => {
 							setSideActive(at);
 							setLevel(1);

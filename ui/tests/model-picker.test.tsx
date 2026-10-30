@@ -214,19 +214,20 @@ test("the keyboard walks the menu: ← and → walk the tabs, → opens Change a
 	expect(document.querySelector('[role="menu"]')).toBeNull();
 });
 
-test("an agent with many models shows the first eight, the one in use among them, and More models opens them all", async () => {
+test("an agent with many models shows the first five, the one in use among them, and More models opens the rest", async () => {
 	const many = Array.from({ length: 12 }, (_, at) => choice(`anthropic#work/m${at}`, `Model ${at}`, "Anthropic", work));
 	const calls = await picker({ choices: many, modelId: "anthropic#work/m10" });
 	await open();
 	const shown = mainModels().map((model) => model.querySelector(".menu-item-text")?.textContent);
-	expect(shown).toEqual(["Model 0", "Model 1", "Model 2", "Model 3", "Model 4", "Model 5", "Model 6", "Model 10"]);
+	expect(shown).toEqual(["Model 0", "Model 1", "Model 2", "Model 3", "Model 10"]);
 	const more = mainMenu().querySelector<HTMLButtonElement>(".model-more")!;
 	expect(more.textContent).toBe("More models");
 	await hover(more);
-	const all = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Anthropic · Work models"] [role="menuitemradio"]')];
-	expect(all.length).toBe(12);
-	expect(all[10]!.getAttribute("aria-checked")).toBe("true");
-	await act(async () => all[11]!.click());
+	const rest = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Anthropic · Work models"] [role="menuitemradio"]')];
+	// Only what the menu does not already list, in the agent's order.
+	expect(rest.map((model) => model.textContent)).toEqual(["Model 4", "Model 5", "Model 6", "Model 7", "Model 8", "Model 9", "Model 11"]);
+	expect(rest.some((model) => model.getAttribute("aria-checked") === "true")).toBe(false);
+	await act(async () => rest[6]!.click());
 	expect(calls).toEqual(["model:anthropic#work/m11"]);
 	expect(mainMenu()).not.toBeNull();
 });

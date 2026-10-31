@@ -592,13 +592,23 @@ pub(super) fn title_of(text: &str) -> String {
     cut(line, TITLE_CHARS)
 }
 
+/// Words flattened to one line and cut to `max` characters at a word, an
+/// ellipsis standing for the rest, so a cut never leaves half of one to be
+/// read as another ("moving Hotl…" read as a tool called Hotl). A first
+/// word longer than the line is the one cut.
 pub(super) fn cut(text: &str, max: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {
         return flat;
     }
     let kept: String = flat.chars().take(max.saturating_sub(1)).collect();
-    format!("{}…", kept.trim_end())
+    let at_a_word = flat.chars().nth(kept.chars().count()) == Some(' ');
+    let words = match kept.rsplit_once(' ') {
+        Some((words, _)) if !at_a_word => words,
+        _ => kept.as_str(),
+    }
+    .trim_end_matches([',', ';', ':', '.', '—', '-', ' ']);
+    format!("{}…", if words.is_empty() { &kept } else { words })
 }
 
 /// What a thread is brought up from: a task that has never run, or a thread

@@ -1625,12 +1625,12 @@ These are your own threads, and the same you worked in them …
 <hotline_threads>
 THREADS · Goldie · Fri 30 Oct 2026, 21:41
 ACTIVE 1
-you're doing "release 0.11.1" (work side:<id>, working 2m): "Signing build 46"
+you're doing "release 0.11.1" (working 2m): "Signing build 46" · side:<id>
 WAITING ON GEORGE 1
-call call:<id> · Call · card 10m · "Push the tag v0.11.1?"
+call · Call · card 10m · "Push the tag v0.11.1?" · call:<id>
 ENDED TODAY 3
-you did "Gull Point winter hours notice" for Quill (work side:<id>, ended 15:48): "Saved as gull-point-winter-hours.md, from 15 Dec…"
-work side:<id> · handed to Huck: contract check · ended 18:10 · "Huck's notes are in the doc"
+you did "Gull Point winter hours notice" for Quill, then updated it (ended 15:48): "Saved as gull-point-winter-hours.md, from 15 Dec…" · side:<id>
+work · handed to Huck: contract check · ended 18:10 · "Huck's notes are in the doc" · side:<id>
 main chapter · The 0.11.1 notes · ended 14:02 · "Drafted the 0.11.1 notes"
 41 older · search_thread finds them
 </hotline_threads>
@@ -1679,9 +1679,12 @@ colleague's ("handed to Huck"), quoted in the colleague's words only.
 
 The thread the turn runs in is left out. The cap is fifteen entries (`MOST`),
 what waits on the person kept first, then what is under way, then what ended,
-newest first; titles are cut to 40 characters and last lines to 60 (54, at a
-word, for the teammate's own work), which keeps a full index to a few hundred
-tokens. A teammate with no other threads and no asides is told nothing.
+newest first; titles are cut to 56 characters and last lines to 60 (64 for
+the teammate's own work), always at a word, so a cut never leaves half of one
+to be read as another ("moving Hotl…"). Each line says what the thread is
+first and ends with the key `read_thread` takes (` · side:<id>`), about 45
+characters a thread kept out of the way of the words a turn reads it by. A
+full index of fifteen stays within about 3,100 characters, some 750 tokens. A teammate with no other threads and no asides is told nothing.
 
 **A job's firing and a run** are told only their parent thread, the main
 conversation, as one `PARENT` line, and the asides about them.

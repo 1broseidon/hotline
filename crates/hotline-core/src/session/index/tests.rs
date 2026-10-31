@@ -220,22 +220,22 @@ async fn the_main_conversation_opens_each_turn_with_the_index_of_its_threads() {
         "{told}"
     );
     assert!(
-        told.contains("ACTIVE 1\nrun run:crane · Check the crane · working 2m"),
+        told.contains("ACTIVE 1\nrun · Check the crane · working 2m · run:crane\n"),
         "{told}"
     );
     assert!(
         told.contains(
-            "WAITING ON THE PERSON 1\nyou're on \"Release 0.11.1\" (work side:tag, card 10m): \"Push the tag v0.11.1?\""
+            "WAITING ON THE PERSON 1\nyou're on \"Release 0.11.1\" (card 10m): \"Push the tag v0.11.1?\" · side:tag\n"
         ),
         "{told}"
     );
     assert!(told.contains("ENDED TODAY 2\n"), "{told}");
     assert!(
-        told.contains("you did \"Contract check\" (work side:contract, ended "),
+        told.contains("you did \"Contract check\" (ended "),
         "{told}"
     );
     assert!(
-        told.contains("): \"Huck's notes are in the doc\"\n"),
+        told.contains("): \"Huck's notes are in the doc\" · side:contract\n"),
         "{told}"
     );
     assert!(
@@ -268,8 +268,8 @@ async fn the_main_conversation_opens_each_turn_with_the_index_of_its_threads() {
 
 /// However many threads a teammate has, the index lists fifteen, keeps what
 /// waits on the person before what ended, counts the rest as older, and stays
-/// within a few hundred tokens with long titles and long last lines, its own
-/// work told as its own, for whom included.
+/// within some 750 tokens with long titles and long last lines, its own work
+/// told as its own, for whom and how it was updated included.
 #[tokio::test]
 async fn the_index_holds_its_cap() {
     let (room, _) = room("index-cap");
@@ -291,6 +291,18 @@ async fn the_index_holds_its_cap() {
                 name: "Ada".into(),
             });
             write_link(&room.log, &link);
+        }
+        // A third were asked again, and say so.
+        if n % 3 == 0 {
+            let stream = StreamId::of_thread(&id).unwrap();
+            for (at, kind) in ["user", "agent", "user", "agent"].into_iter().enumerate() {
+                room.log
+                    .append(
+                        &stream,
+                        &json!({"kind": kind, "id": format!("{n}-{at}"), "ts": now_ms(), "text": long}),
+                    )
+                    .unwrap();
+            }
         }
     }
     let now = now_ms();
@@ -328,11 +340,91 @@ async fn the_index_holds_its_cap() {
         rendered.contains("6 older · search_thread finds them"),
         "{rendered}"
     );
+    assert!(rendered.contains(", then updated it ("), "{rendered}");
     assert!(
-        rendered.chars().count() <= 2_600,
+        rendered.chars().count() <= 3_100,
         "{} chars: {rendered}",
         rendered.chars().count()
     );
+}
+
+/// No text the index quotes is cut in half a word: a title, a last line, an
+/// outcome or a chapter's note cut short ends at a whole word, in the
+/// teammate's own work, a colleague's, a call and a chapter alike, so a cut
+/// never reads as another word ("moving Hotl…").
+#[tokio::test]
+async fn no_index_text_ends_mid_word() {
+    const WORDS: [&str; 26] = [
+        "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india",
+        "juliett", "kilo", "lima", "mike", "november", "oscar", "papa", "quebec", "romeo",
+        "sierra", "tango", "uniform", "victor", "whiskey", "xray", "yankee", "zulu",
+    ];
+    let words = |from: usize| {
+        (0..30)
+            .map(|at| WORDS[(from + at * 7) % WORDS.len()])
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let (room, _) = room("index-words");
+    for n in 0..7 {
+        let ago = (n as i64 + 1) * MINUTE;
+        let own = ThreadId::side(format!("own-{n}"));
+        ended(&room.log, own.clone(), &words(n), ago, &words(n + 1));
+        let mut link = room.log.thread_link(&own).unwrap();
+        link.opener = Some(crate::thread::Opener {
+            persona_id: "ada".into(),
+            name: "Ada".into(),
+        });
+        write_link(&room.log, &link);
+        room.log
+            .append(
+                &StreamId::of_thread(&own).unwrap(),
+                &json!({"kind": "agent", "id": format!("a-{n}"), "ts": now_ms() - ago, "text": words(n + 2)}),
+            )
+            .unwrap();
+        ended(
+            &room.log,
+            ThreadId::call(format!("call-{n}")),
+            &words(n + 3),
+            ago,
+            &words(n + 4),
+        );
+        chapter(
+            &room.log,
+            &format!("ch-{n}"),
+            &words(n + 5),
+            ago,
+            &words(n + 6),
+        );
+    }
+    let now = now_ms();
+    for (who, name) in [("bob", "Bob"), ("ada", "Ada")] {
+        let told = room
+            .index_of(who, &ThreadId::dm(who), now)
+            .render(name, None, now);
+        let cuts: Vec<&str> = told
+            .match_indices('…')
+            .map(|(at, _)| {
+                told[..at]
+                    .rsplit(|c: char| c.is_whitespace() || c == '"')
+                    .next()
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert!(cuts.len() >= 7, "{told}");
+        for cut in cuts {
+            assert!(WORDS.contains(&cut), "{cut:?} is half a word in {told}");
+        }
+    }
+}
+
+#[test]
+fn a_cut_ends_at_a_word() {
+    assert_eq!(cut("moving Hotline desks", 13), "moving…");
+    assert_eq!(cut("moving Hotline desks", 15), "moving Hotline…");
+    assert_eq!(cut("moving  Hotline", 40), "moving Hotline");
+    assert_eq!(cut("one, two three", 8), "one…");
+    assert_eq!(cut("supercalifragilistic", 6), "super…");
 }
 
 /// Work a teammate handed a colleague is in the sender's index as the
@@ -369,7 +461,7 @@ async fn handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only(
     };
     let index = listed(&room);
     assert!(
-        index.contains("work side:hull · handed to Bob: Paint the hull · parked"),
+        index.contains("work · handed to Bob: Paint the hull · parked "),
         "{index}"
     );
     assert!(
@@ -384,10 +476,13 @@ async fn handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only(
         .index_of("bob", &ThreadId::dm("bob"), now_ms())
         .render("Bob", None, now_ms());
     assert!(
-        own.contains("you did \"Paint the hull\" for Ada (work side:hull, parked "),
+        own.contains("you did \"Paint the hull\" for Ada (parked "),
         "{own}"
     );
-    assert!(own.contains("): \"The hull is painted.\"\n"), "{own}");
+    assert!(
+        own.contains("): \"The hull is painted.\" · side:hull\n"),
+        "{own}"
+    );
 }
 
 /// A thread a colleague handed the teammate is, in the teammate's own index,
@@ -438,12 +533,14 @@ async fn a_handed_over_thread_that_ended_is_the_teammates_own_work_in_the_second
     let open = told(&room);
     assert!(
         open.contains(
-            "you did \"Please write a winter-hours notice for…\" for Ada (work side:gull, parked "
+            "you did \"Please write a winter-hours notice for Gull Point.\" for Ada (parked "
         ),
         "{open}"
     );
     assert!(
-        open.contains("): \"The notice is saved as gull-point-winter-hours.md…\"\n"),
+        open.contains(
+            "): \"The notice is saved as gull-point-winter-hours.md, 120 words.\" · side:gull\n"
+        ),
         "in plain words: {open}"
     );
 
@@ -464,7 +561,7 @@ async fn a_handed_over_thread_that_ended_is_the_teammates_own_work_in_the_second
         .format("%H:%M");
     assert!(
         ended.contains(&format!(
-            "ENDED TODAY 1\nyou did \"Gull Point winter hours notice\" for Ada (work side:gull, ended {at}): \"Saved as gull-point-winter-hours.md, from 15 Dec…\"\n"
+            "ENDED TODAY 1\nyou did \"Gull Point winter hours notice\" for Ada (ended {at}): \"Saved as gull-point-winter-hours.md, from 15 Dec. Gift-shop…\" · side:gull\n"
         )),
         "{ended}"
     );
@@ -586,7 +683,7 @@ async fn own_work_handed_over_again_is_told_by_its_latest_result() {
         "{told}"
     );
     assert!(
-        line.ends_with(": \"Done. Step 4, Tag v0.46.0, is appended after Publish.\""),
+        line.ends_with(": \"Done. Step 4, Tag v0.46.0, is appended after Publish.\" · side:plan"),
         "{told}"
     );
     assert!(!line.contains("three steps"), "{told}");
@@ -637,11 +734,11 @@ async fn a_handed_over_thread_at_work_is_the_teammates_own_work_under_way() {
         .render("Bob", None, now_ms());
     assert!(
         index.contains(
-            "\nyou're doing \"Please build the Gull Point visitor…\" for Ada (work side:"
+            "\nyou're doing \"Please build the Gull Point visitor page.\" for Ada (working now"
         ),
         "{index}"
     );
-    assert!(index.contains(", working now)"), "{index}");
+    assert!(index.contains(") · side:"), "{index}");
     gate.add_permits(10);
 }
 
@@ -655,7 +752,7 @@ async fn a_work_thread_opens_each_turn_with_the_index_and_leaves_itself_out() {
     let told = &agents.told()[0];
     assert!(told.contains("THREADS · Bob · "), "{told}");
     assert!(
-        told.contains("you're on \"Release 0.11.1\" (work side:tag, card"),
+        told.contains("you're on \"Release 0.11.1\" (card "),
         "{told}"
     );
     assert!(told.contains("main chapter · The 0.11.1 notes"), "{told}");
@@ -689,7 +786,7 @@ async fn a_call_turn_opens_with_the_index_and_leaves_itself_out() {
     until("the call's turn was told", || agents.told().len() == 1).await;
     let told = &agents.told()[0];
     assert!(told.contains("THREADS · Bob · "), "{told}");
-    assert!(told.contains("ACTIVE 1\nrun run:crane"), "{told}");
+    assert!(told.contains("ACTIVE 1\nrun · Check the crane"), "{told}");
     assert!(!told.contains("call:live"), "{told}");
     assert!(told.ends_with("Look up the tide"), "{told}");
 }
@@ -714,7 +811,7 @@ async fn a_run_hears_only_its_parent_thread() {
     assert_eq!(outcome.report, "said-0");
     let told = &agents.told()[0];
     assert!(
-        told.contains("PARENT 1\nmain dm:bob · main conversation · idle"),
+        told.contains("PARENT 1\nmain · main conversation · idle "),
         "{told}"
     );
     for elsewhere in [
@@ -774,7 +871,7 @@ async fn a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it() {
     until("the job fired", || !agents.told().is_empty()).await;
     let told = &agents.told()[0];
     assert!(
-        told.contains("PARENT 1\nmain dm:bob · main conversation · idle"),
+        told.contains("PARENT 1\nmain · main conversation · idle "),
         "{told}"
     );
     assert!(

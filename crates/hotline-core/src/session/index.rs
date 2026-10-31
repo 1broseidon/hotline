@@ -258,8 +258,9 @@ fn last_words(events: &[Value]) -> Option<String> {
 /// title its closing note gave it, else the ask that opened it, else its
 /// title), whom it was for, and what came of it (the note's outcome, else
 /// the last thing it said, else the outcome its link was closed with), in
-/// plain words.
+/// plain words and its own voice.
 fn mine(
+    name: Option<&str>,
     thread: &Thread,
     section: Section,
     state: &'static str,
@@ -293,7 +294,7 @@ fn mine(
         state,
         moved,
         said: said
-            .map(|said| cut_at_a_word(&plain(&said), MINE_SAID_CHARS))
+            .map(|said| cut_at_a_word(&own_words(&plain(&said), name), MINE_SAID_CHARS))
             .filter(|said| !said.is_empty()),
         mine: true,
         whom: link
@@ -301,6 +302,29 @@ fn mine(
             .map(|opener| opener.name)
             .or_else(|| asked.map(|(name, _)| name)),
     }
+}
+
+/// What came of the teammate's own work, in its own voice: an outcome that
+/// names who did it ("The teammate wrote…", "Bob wrote…") starts at the verb
+/// instead ("Wrote…"), since the index tells it as work the teammate did.
+fn own_words(said: &str, name: Option<&str>) -> String {
+    let said = said.trim_start();
+    let rest = ["The teammate ", "the teammate ", "Teammate "]
+        .iter()
+        .find_map(|subject| said.strip_prefix(subject))
+        .or_else(|| name.and_then(|name| said.strip_prefix(name)?.strip_prefix(' ')));
+    let Some(rest) = rest.filter(|rest| {
+        rest.starts_with(char::is_lowercase)
+            && !["and ", "or ", "with "]
+                .iter()
+                .any(|joined| rest.starts_with(joined))
+    }) else {
+        return said.to_string();
+    };
+    let mut chars = rest.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 /// Who asked for the work a thread was opened with, and what they asked:
@@ -582,7 +606,16 @@ impl Room {
             .as_ref()
             .is_some_and(|parent| parent.thread.key != persona_id);
         if thread.kind() == ThreadKind::Side && !handed {
-            return Some(mine(thread, section, state, moved, &events, link));
+            let name = self.persona(persona_id).ok().map(|persona| persona.name);
+            return Some(mine(
+                name.as_deref(),
+                thread,
+                section,
+                state,
+                moved,
+                &events,
+                link,
+            ));
         }
         let said = match section {
             Section::Waiting => card_of(&events),

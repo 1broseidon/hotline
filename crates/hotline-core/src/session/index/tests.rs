@@ -474,6 +474,62 @@ async fn a_handed_over_thread_that_ended_is_the_teammates_own_work_in_the_second
     );
 }
 
+/// What came of the teammate's own work is quoted in its own voice: a
+/// closing note's outcome that names who did it, as "the teammate" or by the
+/// teammate's name, starts at the verb instead.
+#[tokio::test]
+async fn the_outcome_of_the_teammates_own_work_is_in_its_own_voice() {
+    let (room, _) = room("index-own-voice");
+    for (key, outcome) in [
+        (
+            "plan",
+            "The teammate wrote release-plan.md with three steps.",
+        ),
+        ("notes", "Bob saved notes.md for the release."),
+        ("draft", "Teammate drafted the FAQ."),
+    ] {
+        let mut link = thread(
+            &room.log,
+            ThreadId::side(key),
+            key,
+            ThreadState::Live,
+            now_ms() - HOUR,
+        );
+        link.state = ThreadState::Closed(End::Agent);
+        link.at = Some(now_ms() - MINUTE);
+        link.note = Some(format!("Goal: {key}.\nOutcome: {outcome}"));
+        write_link(&room.log, &link);
+    }
+    let told = room
+        .index_of("bob", &ThreadId::dm("bob"), now_ms())
+        .render("Bob", None, now_ms());
+    for said in [
+        "\"Wrote release-plan.md with three steps.\"",
+        "\"Saved notes.md for the release.\"",
+        "\"Drafted the FAQ.\"",
+    ] {
+        assert!(told.contains(said), "{said} in {told}");
+    }
+    assert!(!told.contains("eammate"), "{told}");
+}
+
+#[test]
+fn only_a_subject_that_names_the_teammate_is_dropped() {
+    for (said, own) in [
+        ("The teammate wrote it.", "Wrote it."),
+        ("the teammate fixed CI.", "Fixed CI."),
+        ("Bob added a step.", "Added a step."),
+        ("I wrote it.", "I wrote it."),
+        ("Wrote it.", "Wrote it."),
+        ("The teammate's draft is in.", "The teammate's draft is in."),
+        ("Bob's draft is in.", "Bob's draft is in."),
+        ("Bob and Ada agreed.", "Bob and Ada agreed."),
+        ("Bobby wrote it.", "Bobby wrote it."),
+    ] {
+        assert_eq!(own_words(said, Some("Bob")), own, "{said}");
+    }
+}
+
 /// While the turn of a thread a colleague handed it is running, the
 /// teammate's main conversation is told it is at that work now, for whom.
 #[tokio::test]

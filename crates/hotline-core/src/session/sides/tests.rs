@@ -910,6 +910,37 @@ async fn a_closing_note_is_written_on_archive_and_found_by_search() {
     assert!(text.contains(&format!("side:{id}")), "{text}");
 }
 
+/// A work thread's closing note is a chapter's note asked for its outcome in
+/// the teammate's own voice ("Wrote…", "I wrote…"), never "the teammate":
+/// the teammate's index quotes that outcome back to it as its own work.
+#[tokio::test]
+async fn a_work_threads_closing_note_is_asked_in_the_teammates_own_voice() {
+    let agents = Fake::answering(
+        Scripted::new(vec![say("m1", "Wrote release-plan.md."), turn()]),
+        crate::session::tests::note_json("Release plan"),
+    );
+    let room = room("side-note-voice", agents.clone());
+    let summary = room.start_side("ada", "Write the plan").await.unwrap();
+    settled(&room, &summary.side_id).await;
+    room.archive_side(&summary.side_id, SideEnd::Person, None)
+        .unwrap();
+    until("the tape's marker has its note", || {
+        tape(&room)[0].get("note").is_some()
+    })
+    .await;
+    let asked = lock(&agents.summarised).clone();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(
+        asked[0].starts_with(crate::session::chapters::INSTRUCTIONS),
+        "{}",
+        asked[0]
+    );
+    let voice = crate::session::chapters::OWN_VOICE;
+    assert!(asked[0].ends_with(voice), "{}", asked[0]);
+    assert!(voice.contains("own voice"), "{voice}");
+    assert!(voice.contains("Never write \"the teammate\""), "{voice}");
+}
+
 fn listed_title(room: &Room) -> String {
     room.side_threads("ada")[0].title.clone()
 }

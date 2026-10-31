@@ -1662,7 +1662,11 @@ the title the closing note gave the thread, else the ask that opened it (the
 first handoff or question delivered into it, by its `about`, without the
 greeting a message opens with), else its title; what came of it is the
 closing note's outcome, else the thread's last message, else its link's
-outcome. The block's first line says these are the teammate's own threads,
+outcome, in the teammate's own voice: a work thread's closing note is asked
+to write its outcome as the teammate would ("Wrote…", "I wrote…",
+`chapters::OWN_VOICE`), and an outcome that still opens by naming who did it
+("The teammate wrote…", "Teammate…", "Goldie wrote…") starts at the verb in the
+index ("Wrote…"). The block's first line says these are the teammate's own threads,
 the same it, so it speaks from them as its own without `read_thread` unless it
 needs more detail. A thread the teammate handed a colleague is still that
 colleague's ("handed to Huck"), quoted in the colleague's words only.

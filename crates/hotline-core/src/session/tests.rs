@@ -400,6 +400,8 @@ pub(crate) struct Fake {
     views: Arc<Mutex<Vec<Persona>>>,
     tools: Arc<Mutex<Vec<TeammateTools>>>,
     answer: Result<String, String>,
+    /// The instructions the summariser was asked each note with, in order.
+    pub(super) summarised: Arc<Mutex<Vec<String>>>,
     /// When set, the summariser does not answer until this is notified.
     hold_note: Arc<tokio::sync::Notify>,
     holding: std::sync::atomic::AtomicBool,
@@ -480,6 +482,7 @@ impl Fake {
             views: Arc::new(Mutex::new(Vec::new())),
             tools: Arc::new(Mutex::new(Vec::new())),
             answer,
+            summarised: Arc::new(Mutex::new(Vec::new())),
             hold_note: Arc::new(tokio::sync::Notify::new()),
             holding: std::sync::atomic::AtomicBool::new(false),
         })
@@ -506,9 +509,10 @@ impl Agents for Fake {
     async fn complete(
         &self,
         _model_id: &str,
-        _system: &str,
+        system: &str,
         _prompt: &str,
     ) -> Result<String, String> {
+        lock(&self.summarised).push(system.to_string());
         if self.holding.load(std::sync::atomic::Ordering::SeqCst) {
             self.hold_note.notified().await;
         }

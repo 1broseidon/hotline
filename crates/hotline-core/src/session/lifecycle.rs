@@ -369,7 +369,8 @@ impl Room {
     ///
     /// The note is produced the way a chapter's is ([`Room::note`]): the same
     /// summariser over the thread's stream, so it reads goal, what got done,
-    /// what is still open and the key files. It replaces the link's title with
+    /// what is still open and the key files, with the outcome in the
+    /// teammate's own voice, since its index quotes it back as its own work. It replaces the link's title with
     /// the note's, and its outcome becomes the one-line outcome unless the
     /// teammate wrote one itself. A link that has moved on since — the thread
     /// was continued, or closed again — is left alone.
@@ -405,7 +406,7 @@ impl Room {
             if !slice.iter().any(crate::store::chapters::is_message) {
                 return;
             }
-            let Some(note) = room.note(&persona, &slice).await else {
+            let Some(note) = room.work_note(&persona, &slice).await else {
                 eprintln!("the {thread} was closed without a closing note: no model answered");
                 return;
             };

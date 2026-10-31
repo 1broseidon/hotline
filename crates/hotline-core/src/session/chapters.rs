@@ -93,6 +93,11 @@ Reply with exactly one JSON object and no other text — no prose before or afte
 
 Be concrete and brief. Write "the user" for the person. Do not include greetings, small talk, or the teammate's tool chatter."#;
 
+/// What a work thread's closing note is told besides: its outcome is quoted
+/// back to the teammate as work it did itself (`session/index.rs`), so it is
+/// written as the teammate would say it, and never about "the teammate".
+pub(super) const OWN_VOICE: &str = r#"This chapter is one of the teammate's work threads, and its outcome is quoted back to the teammate as its own work. Write the outcome in the teammate's own voice, starting with the verb or with "I": "Wrote release-plan.md with three steps." or "I wrote release-plan.md with three steps." Never write "the teammate", "the agent", or the teammate's name in the outcome."#;
+
 /// The handoff note a chapter closes with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Note {
@@ -913,6 +918,14 @@ impl Room {
     /// them.
     pub(super) async fn note(&self, persona: &Persona, slice: &[Value]) -> Option<Note> {
         self.note_with(persona, slice, INSTRUCTIONS)
+            .await
+            .and_then(|answer| parse_note(&answer))
+    }
+
+    /// A work thread's closing note: a chapter's, with its outcome in the
+    /// teammate's own voice ([`OWN_VOICE`]).
+    pub(super) async fn work_note(&self, persona: &Persona, slice: &[Value]) -> Option<Note> {
+        self.note_with(persona, slice, &format!("{INSTRUCTIONS}\n\n{OWN_VOICE}"))
             .await
             .and_then(|answer| parse_note(&answer))
     }

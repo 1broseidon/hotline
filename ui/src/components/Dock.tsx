@@ -104,6 +104,8 @@ export function Dock({
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
 	const at = state.open;
+	// Opened from a line in the conversation too, not only from the list.
+	if (at !== null) opened.current = `${at.thread.kind}:${at.thread.key}`;
 	/* A turn's work, for the teammate it belongs to; another teammate open shows its list. */
 	const work = state.work !== undefined && entry !== null && entry.persona.id === state.work.personaId ? state.work : undefined;
 	const row = at === null ? undefined : rows.find((one) => sameThread(one.thread, at.thread));

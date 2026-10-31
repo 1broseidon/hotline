@@ -747,8 +747,9 @@ const Row = memo(function Row({
 
 		/* A colleague's answer or handoff, in their voice: their face, their
 		 * name and the start of what they said, hung under the row before
-		 * it. It opens the originating thread, with the handoff's request and
-		 * reply route. Your own answer never gets here: it is on its card. */
+		 * it. A result from a work thread opens that thread; any other opens
+		 * the pair's, with the handoff's request and reply route. Your own
+		 * answer never gets here: it is on its card. */
 		case "delivery": {
 			const cause = event.cause;
 			const line = deliveryLine(event);
@@ -760,7 +761,10 @@ const Row = memo(function Row({
 					type="button"
 					className="hung-line"
 					data-missed={deliveryMissed(event) || undefined}
-					onClick={() => onOpenThread?.({
+					onClick={() => onOpenThread?.(event.from?.kind === "side" ? {
+						thread: { kind: "side", key: event.from.thread },
+						...(cause.about !== "" ? { title: cause.about } : {}),
+					} : {
 						thread: { kind: "pair", key: cause.threadKey },
 						withName: cause.name,
 						...(cause.kind === "handoff" ? { handoff: cause } : {}),

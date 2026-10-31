@@ -1135,6 +1135,16 @@ beside its `generation`, a swap or rebuild advances the generation only, and a
 stop or a policy update advances both. A sign-out, a server removed and a
 policy change narrow reach and still revoke.
 
+The person's "Always allow" is consent, not a session's authority, so no
+reattach, restart or sign-out ends it (decided 2026-10-30, task-316; before,
+every reattach tombstoned it and the next restart asked again while the
+settings still said Always). Only the recipient's access growing clears it,
+because the work agreed to could then do more than the person agreed to:
+reach to the whole machine, a new workspace, a folder or mount added or made
+writable, a secret given to its computer, its computer turned on, or an MCP
+server granted. Clearing takes the caller off `allowedSenders` as well, and
+the next card names what grew.
+
 ### The team lead
 
 A desk has at most one lead: a teammate's id, kept in the room stream as

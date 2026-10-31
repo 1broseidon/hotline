@@ -73,6 +73,7 @@ pub(crate) fn events_of_updates(
         .collect()
 }
 pub(crate) mod capture;
+pub(crate) mod consent;
 mod cookie_offers;
 #[cfg(all(test, unix))]
 pub(crate) use cookie_offers::NOT_NOW_QUIET_MS;

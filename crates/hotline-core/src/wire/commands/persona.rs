@@ -8,6 +8,7 @@ use crate::contract::{
 };
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::Log;
+use crate::session::consent;
 use crate::wire::RoomHandle;
 use crate::{paths, room};
 use serde_json::{Map, Value, json};
@@ -476,6 +477,12 @@ pub(super) fn update_persona(
     let reattaches = persona_update_reattaches(patch, &previous, &updated);
     if reattaches {
         room.invalidate(id)?;
+    }
+    // Reaching more than the person agreed to when they chose "Always allow"
+    // takes that consent away, with the reason for the next card.
+    let servers = super::settings::server_ids(log);
+    if let Some(why) = consent::widened(&previous, &updated, &servers, &servers) {
+        consent::clear(log, &mut updated, why)?;
     }
     room::append_persona(log, &updated)?;
     if updated.avatar.is_none() {

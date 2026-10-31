@@ -104,9 +104,12 @@ fn collaboration_options(caller_name: &str) -> Vec<PermissionOption> {
     ]
 }
 
-fn collaboration_title(caller_name: &str, target_name: &str) -> String {
+/// The card's words. `again` says why a direction the person allowed for good
+/// is asked about again (see [`crate::session::consent`]).
+fn collaboration_title(caller_name: &str, target_name: &str, again: Option<&str>) -> String {
+    let again = again.map(|line| format!("{line}\n\n")).unwrap_or_default();
     format!(
-        "Allow {caller_name} to ask {target_name} to work?\n\n{target_name} can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill {caller_name}'s requests and return results."
+        "Allow {caller_name} to ask {target_name} to work?\n\n{again}{target_name} can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill {caller_name}'s requests and return results."
     )
 }
 
@@ -155,7 +158,8 @@ pub(crate) struct CollaborationWait {
     pub(crate) caller_id: String,
     pub(crate) caller_name: String,
     pub(crate) target_id: String,
-    pub(crate) target_name: String,
+    /// The card's words as it was raised, which its decision repeats.
+    pub(crate) title: String,
     pub(crate) caller_capability: CapabilityLease,
     pub(crate) target_capability: CapabilityLease,
     pub(crate) scope: CollaborationScope,
@@ -168,7 +172,7 @@ struct CollaborationRequest {
     caller_id: String,
     caller_name: String,
     target_id: String,
-    target_name: String,
+    title: String,
     caller_capability: CapabilityLease,
     target_capability: CapabilityLease,
     scope: CollaborationScope,
@@ -396,7 +400,7 @@ impl Peers {
                 caller_id: request.caller_id,
                 caller_name: request.caller_name,
                 target_id: request.target_id,
-                target_name: request.target_name,
+                title: request.title,
                 caller_capability: request.caller_capability,
                 target_capability: request.target_capability,
                 scope: request.scope,

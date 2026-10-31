@@ -262,6 +262,11 @@ impl RoomHandle for CoreHandle {
         Ok(())
     }
 
+    /// The room keeps no vault, and a test's servers carry no secret to seal.
+    fn protect_mcp_settings(&self, value: &Value) -> Result<Value, String> {
+        Ok(value.clone())
+    }
+
     async fn prompt(
         &self,
         persona_id: &str,
@@ -1229,6 +1234,7 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
 mod asks;
 mod capabilities;
 mod capture;
+mod consent;
 #[cfg(unix)]
 mod cookie_offers;
 mod deltas;

@@ -286,11 +286,8 @@ impl Room {
         let implicit = caller.node.is_none()
             && caller.backend_id == HOTLINE_BACKEND_ID
             && caller.reach.unwrap_or_default() == Reach::Machine;
-        let informed = self.log.load(&StreamId::Room).iter().any(|v| {
-            v["kind"] == "collaboration_informed"
-                && v["id"] == format!("collaboration:{}:{}", caller.id, target.id)
-                && v["deleted"] != true
-        });
+        let room = self.log.load(&StreamId::Room);
+        let informed = crate::session::consent::informed(&room, &caller.id, &target.id);
         if (!handoff || informed)
             && (implicit
                 || target
@@ -312,7 +309,8 @@ impl Room {
 
         let request_id = format!("{COLLAB_REQUEST_PREFIX}{}", new_id());
         let caller_name = crate::session::links::shown(&caller);
-        let title = collaboration_title(&caller_name, &target.name);
+        let again = crate::session::consent::asking_again(&room, &caller.id, &target);
+        let title = collaboration_title(&caller_name, &target.name, again.as_deref());
         let options = collaboration_options(&caller_name);
         // The card is the person's, on the desk whose teammate would do the
         // work: the caller's tape, or the recipient's when the caller lives
@@ -328,7 +326,7 @@ impl Room {
             caller_id: caller.id.clone(),
             caller_name,
             target_id: target.id.clone(),
-            target_name: target.name.clone(),
+            title: title.clone(),
             caller_capability: caller_capability.clone(),
             target_capability: target_capability.clone(),
             scope,
@@ -418,9 +416,7 @@ impl Room {
         sender_id: &str,
     ) -> Result<(), String> {
         let mut target = self.persona(target_id)?;
-        self.log.append(&StreamId::Room, &serde_json::json!({"kind":"collaboration_informed",
-            "id":format!("collaboration:{sender_id}:{target_id}"), "from":sender_id, "to":target_id}))
-            .map_err(|e|e.to_string())?;
+        crate::session::consent::record_informed(&self.log, sender_id, target_id)?;
         if !target
             .allowed_senders
             .iter()
@@ -448,7 +444,7 @@ impl Room {
                 id: format!("perm:{}", wait.request_id),
                 ts: now_ms(),
                 request_id: wait.request_id.clone(),
-                title: collaboration_title(&wait.caller_name, &wait.target_name),
+                title: wait.title.clone(),
                 options: collaboration_options(&wait.caller_name),
                 decision: Some(decision.to_string()),
                 decided_option_name: Some(option_name.to_string()),

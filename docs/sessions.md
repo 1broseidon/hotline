@@ -1299,9 +1299,26 @@ requests and return results. `Allow this session` binds a temporary grant to
 both live capability leases. It expires when either session or chapter is
 replaced, when the room restarts, or when a cached peer session is revoked.
 `Always allow <caller>` appends the caller's stable id to the recipient's
-`allowedSenders` list. The recipient's settings show that list as `Accept
-requests from <caller>` and removing one revokes active and queued delegated
-work and cached peer sessions. New and imported records have an empty list.
+`allowedSenders` list and records, in a `collaboration_informed` room event,
+that the person was shown what a handoff means; a handoff needs both. The
+recipient's settings show that list as `Accept requests from <caller>` and
+removing one revokes active and queued delegated work and cached peer
+sessions. New and imported records have an empty list.
+
+An Always grant stands until the person removes it or the recipient comes to
+reach more than it did (`session/consent.rs`): its reach set to the whole
+machine, its workspace moved, a folder or a computer mount added or made
+writable, a secret granted to its computer, its computer turned on, or an MCP
+server granted, by its policy or by a server added to the desk while its
+policy grants all. Then every caller leaves its `allowedSenders` and each
+direction's informed event is tombstoned with what grew, so the settings
+never say Always where a handoff would ask, and the next card says why it is
+asking again ("Bob was given a folder since you chose Always."). Nothing
+else clears it: a goal edited, a model or agent switched, a reattach, a
+restart, a chapter, a narrowing, or an MCP sign-in or sign-out. The check
+reads the room stream's fold by id, so a tombstone counts the moment it is
+written and the same after the stream is compacted. Deleting a teammate
+forgets its informed consent in both directions.
 
 An authorized exchange does not need a reverse grant for its reply or receipt,
 and it does not authorize a reverse or transitive request. Further delegated

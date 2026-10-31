@@ -487,18 +487,6 @@ impl Room {
         }
         false
     }
-    pub(super) fn forget_informed_collaboration(&self, persona: &str) {
-        for mut event in self.log.load(&StreamId::Room) {
-            if event["kind"] == "collaboration_informed"
-                && (event["from"] == persona || event["to"] == persona)
-            {
-                event["deleted"] = json!(true);
-                if let Err(error) = self.log.append(&StreamId::Room, &event) {
-                    eprintln!("expire informed collaboration: {error}");
-                }
-            }
-        }
-    }
     fn cancel_handoff(&self, request: &Request) {
         if let Some((caller, target)) = lock(&self.exchange_leases).get(&request.id) {
             caller.revoke();

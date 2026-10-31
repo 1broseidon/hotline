@@ -222,10 +222,11 @@ impl Room {
     /// Revokes a teammate's current generation before its replacement policy
     /// is written. Keeping the session record until reattach lets a live
     /// caller restart it, while the inactive epoch blocks starts that race
-    /// inside the wire's invalidate-to-append window.
+    /// inside the wire's invalidate-to-append window. The person's standing
+    /// consent to collaborate is not authority this ends: only the
+    /// recipient's access growing clears it (see [`super::consent`]).
     pub fn invalidate(&self, persona_id: &str) -> Result<(), String> {
         self.persona(persona_id)?;
-        self.forget_informed_collaboration(persona_id);
         {
             let _lifecycle = lock(&self.lifecycle);
             self.capability_epoch(persona_id).invalidate();
@@ -302,6 +303,7 @@ impl Room {
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
         self.drop_peer_sessions(persona_id);
+        super::consent::forget(&self.log, persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
         let computers = self.computers.clone();

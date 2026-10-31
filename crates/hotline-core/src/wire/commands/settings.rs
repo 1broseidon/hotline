@@ -4,6 +4,7 @@ use super::{append, now};
 use crate::contract::WebSearchProvider;
 use crate::log::Log;
 use crate::room;
+use crate::session::consent;
 use crate::wire::RoomHandle;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
@@ -71,12 +72,14 @@ pub(super) async fn apply_update(
     }
     let servers = patch.contains_key("mcpServers");
     let cookie_offers = patch.contains_key("cookieOffers");
+    let before = server_ids(log);
     if servers {
         room.invalidate_all()?;
     }
     let updated = update_settings(log, patch)?;
     if servers {
         forget_removed_servers(log)?;
+        clear_consent_for_new_servers(log, &before)?;
         // Replacing or deleting legacy sources also removes their
         // superseded plaintext values from the room's history.
         log.migrate_mcp_settings(|value| {
@@ -145,7 +148,7 @@ pub(super) fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Va
 }
 
 /// The ids of the room's tool sources, as settings hold them now.
-fn server_ids(log: &Log) -> Vec<String> {
+pub(super) fn server_ids(log: &Log) -> Vec<String> {
     room::settings(log)
         .get("mcpServers")
         .and_then(Value::as_array)
@@ -153,6 +156,21 @@ fn server_ids(log: &Log) -> Vec<String> {
         .flatten()
         .filter_map(|server| server["id"].as_str().map(String::from))
         .collect()
+}
+
+/// A server added to the desk reaches every teammate whose policy grants all
+/// of them, which takes away the person's standing consent to hand each of
+/// those work (see [`consent`]).
+fn clear_consent_for_new_servers(log: &Log, before: &[String]) -> Result<(), String> {
+    let after = server_ids(log);
+    for mut persona in room::roster(log) {
+        if let Some(why) = consent::widened(&persona, &persona, before, &after) {
+            consent::clear(log, &mut persona, why)?;
+            persona.updated_at = now();
+            room::append_persona(log, &persona)?;
+        }
+    }
+    Ok(())
 }
 
 /// A tool source removed from settings leaves every teammate's grant with

@@ -1249,7 +1249,7 @@ async fn a_human_answer_does_not_replace_collaboration_consent_after_restart() {
     let mut target = old.persona("bob").unwrap();
     target.allowed_senders.clear();
     crate::room::append_persona(&old.log, &target).unwrap();
-    old.forget_informed_collaboration("bob");
+    crate::session::consent::forget(&old.log, "bob");
     let mut caller = old.persona("ada").unwrap();
     caller.reach = Some(crate::contract::Reach::Workspace);
     crate::room::append_persona(&old.log, &caller).unwrap();

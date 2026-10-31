@@ -188,20 +188,28 @@ impl LiveJob {
     /// Lets go of the agent and parks the thread, unless a line already waits
     /// for it: then the agent stays for that line.
     fn let_go(&self, room: &Room) {
-        let up = {
-            let turns = lock(&self.turns);
-            if !turns.waiting.is_empty() {
-                return;
-            }
-            lock(&self.up).take()
-        };
-        let Some(up) = up else {
-            return;
+        if lock(&self.turns).waiting.is_empty() {
+            self.release(room);
+        }
+    }
+
+    /// Lets go of the agent and parks the thread whatever waits: a line still
+    /// waiting gets an agent of its own, under the authority there is then.
+    fn release(&self, room: &Room) {
+        if self.drop_agent(room) {
+            room.mark_job(self, ThreadState::Parked, None);
+        }
+    }
+
+    /// Stops the agent, its processes and its lease, if there is one.
+    fn drop_agent(&self, room: &Room) -> bool {
+        let Some(up) = lock(&self.up).take() else {
+            return false;
         };
         up.lease.revoke();
         up.driver.invalidate();
         room.let_go_of_computer(&self.persona_id, &lock(&self.holder));
-        room.mark_job(self, ThreadState::Parked, None);
+        true
     }
 
     /// A delivery's turn has begun: it is read, and is not handed over again.
@@ -333,7 +341,7 @@ impl Occupant for LiveJob {
             .as_ref()
             .is_some_and(|up| !up.lease.is_current());
         if stale {
-            self.let_go(room);
+            self.release(room);
         }
         if lock(&self.up).is_none() {
             room.mark_job(self, ThreadState::Live, None);
@@ -394,6 +402,7 @@ impl Occupant for LiveJob {
         *lock(&self.last_used) = now_ms();
         lock(&self.firing_since).take();
         if self.stopped.load(Ordering::SeqCst) {
+            self.drop_agent(room);
             return Then::Stop;
         }
         self.remember_session(room, &driven);
@@ -1154,7 +1163,7 @@ impl Room {
             Some(live) => {
                 live.stopped.store(true, Ordering::SeqCst);
                 live.interrupt();
-                live.let_go(self);
+                live.release(self);
                 lock(&self.job_threads).remove(&job.id);
                 self.mark_job(&live, ThreadState::Closed(by), final_word);
             }
@@ -1175,7 +1184,7 @@ impl Room {
     /// agent and closes its thread with what came of it, unless the end
     /// already closed it.
     fn close_job(&self, live: &LiveJob, end: End, outcome: Option<String>) {
-        live.let_go(self);
+        live.release(self);
         lock(&self.job_threads).remove(&live.job_id);
         let closed = self
             .link_of(&live.thread())
@@ -1245,8 +1254,9 @@ impl Room {
     }
 
     /// Stops every job agent a teammate has, or every one in the room: its
-    /// authority changed or it was stopped. The jobs go on firing, each on an
-    /// agent built under whatever the teammate has next.
+    /// authority changed or it was stopped. What waited behind a job's turn
+    /// is dropped with it. The jobs go on firing, each on an agent built
+    /// under whatever the teammate has next.
     pub(super) fn let_go_of_jobs(&self, persona_id: Option<&str>) {
         let live: Vec<Arc<LiveJob>> = lock(&self.job_threads)
             .values()
@@ -1255,7 +1265,7 @@ impl Room {
             .collect();
         for live in live {
             live.interrupt();
-            live.let_go(self);
+            live.release(self);
         }
     }
 

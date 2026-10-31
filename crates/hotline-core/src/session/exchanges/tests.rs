@@ -1,3 +1,4 @@
+mod lasting;
 mod pause;
 
 use super::*;

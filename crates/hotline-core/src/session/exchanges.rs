@@ -232,18 +232,23 @@ impl Room {
         answer: Answer<'_>,
     ) -> Result<peers::Sent, String> {
         let _working = self.working()?;
-        if let Some(capability) = &capability {
-            capability.check()?;
-        }
         let (caller, target, message) = self.checked(from, to, message)?;
         let key = thread_key(&caller.id, &target.id).ok_or("Invalid teammate pair")?;
         let id = new_id();
-        let leases = (
-            capability
-                .unwrap_or_else(|| self.capability_lease(&caller.id))
-                .scoped(),
-            self.capability_lease(&target.id).scoped(),
-        );
+        // The request holds each teammate's lasting authority, not the
+        // conversation's it was sent from, so the chapter or firing that sent
+        // it may end before it does. Taken before the sender's own lease is
+        // checked: one still current now was current as it was taken. Work a
+        // colleague delegated is the exception: what it sends holds that
+        // colleague's authority too, and ends with the delegation.
+        let caller_lease = match &capability {
+            Some(capability) if capability.is_delegated() => capability.scoped(),
+            _ => self.request_lease(&caller.id),
+        };
+        let leases = (caller_lease, self.request_lease(&target.id));
+        if let Some(capability) = &capability {
+            capability.check()?;
+        }
         {
             let _guard = lock(&self.exchange_lock);
             let mut pair = self.exchange_pair(&key).unwrap_or(Pair {
@@ -440,35 +445,6 @@ impl Room {
     fn exchange_pending(request: &Request) -> bool {
         request.phase != Phase::Stopped
             && (request.phase != Phase::Done || (!request.inline && !request.result_consumed))
-    }
-    pub(super) fn revoke_exchanges(&self, persona: &str) {
-        self.stop_revoked_exchanges(Some(persona));
-    }
-    fn stop_revoked_exchanges(&self, persona: Option<&str>) {
-        let _guard = lock(&self.exchange_lock);
-        let mut stopped = Vec::new();
-        for mut pair in self.exchange_pairs() {
-            let mut changed = false;
-            for request in &mut pair.requests {
-                if !Self::exchange_pending(request)
-                    || (!persona.is_some_and(|id| pair.a == id || pair.b == id)
-                        && self.exchange_lease_current(&request.id))
-                {
-                    continue;
-                }
-                self.cancel_handoff(request);
-                request.phase = Phase::Stopped;
-                request.failed = true;
-                request.reply = "Collaboration was revoked or a participant stopped. Send again if still needed.".into();
-                stopped.push(request.clone());
-                changed = true;
-            }
-            if changed && let Err(error) = self.save_pair(&pair) {
-                eprintln!("revoke exchange: {error}");
-            }
-            self.wake_owed(&pair);
-        }
-        self.exchange_notices(&stopped);
     }
     /// A request from a linked teammate that was stopped here, whose desk has
     /// not been told: its sender is waiting on an answer until it is.
@@ -709,8 +685,8 @@ impl Room {
             .entry(id.into())
             .or_insert_with(|| {
                 (
-                    self.capability_lease(&caller.id).scoped(),
-                    self.capability_lease(&target.id).scoped(),
+                    self.request_lease(&caller.id),
+                    self.request_lease(&target.id),
                 )
             })
             .clone();
@@ -898,8 +874,8 @@ impl Room {
                     .entry(request.id.clone())
                     .or_insert_with(|| {
                         (
-                            self.capability_lease(&caller.id),
-                            self.capability_lease(&target.id),
+                            self.request_lease(&caller.id),
+                            self.request_lease(&target.id),
                         )
                     })
                     .clone();
@@ -1323,10 +1299,7 @@ impl Room {
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
                 id.to_string(),
-                (
-                    self.capability_lease(from).scoped(),
-                    self.capability_lease(to).scoped(),
-                ),
+                (self.request_lease(from), self.request_lease(to)),
             );
         }
         self.wake_exchange(&key);
@@ -1451,6 +1424,8 @@ impl Room {
             .map_err(|e| e.to_string())
     }
 }
+
+mod revoked;
 
 #[cfg(test)]
 mod tests;

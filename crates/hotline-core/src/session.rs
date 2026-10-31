@@ -506,6 +506,9 @@ struct Session {
     info: Mutex<SessionInfo>,
     /// Queued lines and the claim on the active driver share one lock.
     turns: Mutex<Turns>,
+    /// An MCP sign-in completed while this session ran, and it is rebuilt to
+    /// connect with it once its turn is over.
+    rebuild_for_sign_in: std::sync::atomic::AtomicBool,
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
@@ -971,8 +974,15 @@ impl Room {
     }
 
     /// The room-wide gate used by the wire around policy updates. A caller
-    /// holds it across invalidate, the log append, and reattach so another
-    /// socket cannot reactivate a generation between those steps.
+    /// holds it across the invalidate and the durable log append, so another
+    /// socket cannot reactivate a generation between those steps, then lets it
+    /// go before the reattach or rebuild that starts the new generation: those
+    /// take each teammate's start gate, and the one lock order is
+    /// `start_gate -> policy_update_lock` (see [`Room::in_this_chapter`], whose
+    /// chapter close takes the policy lock while holding the start gate).
+    /// [`Room::reattach_held`] runs under the start gate and takes this lock
+    /// for its own invalidate and epoch activation, so a reattach cannot start
+    /// a change another update is still half-writing.
     pub(crate) fn policy_update_lock(&self) -> Arc<TokioMutex<()>> {
         self.policy_updates.clone()
     }

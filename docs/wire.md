@@ -203,7 +203,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
 | `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs) |
-| `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none |
+| `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none; one mid-turn is refused, since parking would cut the turn |
 | `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
@@ -719,7 +719,10 @@ and no answer repeats the address, which carries the code. `mcp.auth_status` rep
 `failed`; its result never includes an access token, refresh token or client
 secret. `mcp.auth_sign_out` revokes the live gateway capability before it
 deletes the registration and tokens from the protected vault. Signing in
-does not change a teammate's MCP policy.
+does not change a teammate's MCP policy: once it completes, each running
+main session is rebuilt to connect with it when its turn is over, and
+nothing a teammate holds or was given ends
+([sessions.md](sessions.md#reattaching)).
 
 `mcp.secret_set` is the other credential: the token a server in `bearer` or
 `header` auth mode sends on every request. The window saves it before it

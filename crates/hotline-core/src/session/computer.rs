@@ -176,8 +176,8 @@ impl Room {
         let room = self.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
-            // A restart that fails says why on the teammate's band itself.
-            let _ = room.reattach(&persona_id).await;
+            // A rebuild that fails says why on the teammate's band itself.
+            let _ = room.rebuild(&persona_id).await;
         });
     }
 
@@ -498,7 +498,8 @@ impl Room {
     /// Swaps in a computer whose new release has downloaded, between turns.
     /// A turn in flight keeps the old computer to its end, which calls this
     /// again (see [`Room::run_queue`]). The swap is the old container going and the
-    /// session reattaching, which makes and grants the new one.
+    /// session rebuilt as a chapter's swap rebuilds it, which makes and grants
+    /// the new one and leaves the teammate's threads and requests standing.
     pub(super) fn swap_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
         if !lock(&self.computer_swaps)
             .get(persona_id)
@@ -544,9 +545,9 @@ impl Room {
             }
             let _ = room.computer_remove(&persona_id).await;
             if wanted.is_some() && session.is_some() {
-                // A restart that fails says why on the teammate's band itself.
+                // A rebuild that fails says why on the teammate's band itself.
                 let _working = room.working();
-                let _ = room.reattach_held(&persona_id).await;
+                let _ = room.rebuild_held(&persona_id).await;
             }
             drop(held);
             room.forget_release(swap.old).await;
@@ -579,7 +580,8 @@ impl Room {
     /// Brings a teammate's computer up from its pane. A computer serves its
     /// teammate's session, which is what makes and grants it: a teammate at
     /// rest starts, computer and all, and a running one whose computer was
-    /// stopped from the pane is attached to it again, which starts it. Mid
+    /// stopped from the pane is rebuilt with it, which starts it and leaves
+    /// its threads and requests standing. Mid
     /// turn the session is left alone: the turn's tools are its own.
     pub async fn computer_start(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let persona = self.persona(persona_id)?;
@@ -601,7 +603,7 @@ impl Room {
                     persona.name
                 ));
             }
-            Some(_) => self.reattach(persona_id).await?,
+            Some(_) => self.rebuild(persona_id).await?,
         }
         // A session goes ahead without a computer that cannot start; the key
         // that asked for the computer says why rather than nothing.

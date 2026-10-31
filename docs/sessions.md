@@ -518,7 +518,10 @@ handler verifies that token and the capability lease, then puts the vault's
 credential on each request — a current OAuth token, or the pasted one; the
 child never receives either. Signing in authorizes the
 gateway connection and does not change any teammate's none, selected or all
-policy.
+policy. A completed sign-in rebuilds each running main session, once its
+turn is over, so it connects with it, and ends nothing a teammate holds or
+was given ([Reattaching](#reattaching)); a sign-out revokes, as a grant
+change does.
 
 A grant authorizes the server's own capabilities, including any access it has
 outside the teammate's workspace. Hotline does not put granted servers inside the
@@ -1384,6 +1387,17 @@ queued requests and completed results wait without being discarded.
 belong to the person, on desktop or phone. Hearing from the person also
 resets the count. Stopping cannot undo side effects already performed.
 
+A request ends only when someone ends it: Stop exchange, or a revocation of
+either teammate (a policy change, a stop or a removal). Its two leases are
+each teammate's lasting authority (`Room::request_lease`,
+`CapabilityEpoch::lasting`), taken as it is sent and scoped to it, so ending
+it ends them alone. A chapter's swap only replaces the main session
+(`replace_session`, through `stop_with_capability`, reopening the previous
+chapter included), as does a rebuild for a computer or an MCP sign-in
+(`Room::rebuild`); neither ends a request, so its result still comes back.
+A request sent by a peer session answering a colleague is the exception: it
+holds that colleague's delegation too, and ends with it.
+
 Restart recovers unstarted requests and saved results. Work that had begun
 but had not saved its result reports uncertainty instead of automatically
 repeating potentially side-effecting work. Stable request and delivery ids
@@ -1702,7 +1716,8 @@ the open one. A context from further back is not offered. The current
 chapter closes as `"Back to: <previous title>"` with `closedBy` `resume`,
 without asking a model for a note — it is a turning point, not a stretch
 of work — and a new marker opens carrying `resumedFrom` and the previous
-chapter's note. The session is stopped and started again: Hotline Agent is
+chapter's note. The session is replaced as a chapter's swap replaces it,
+leaving the teammate's requests standing: Hotline Agent is
 seeded from that chapter's tape slice; an ACP child from the checkpoint
 the marker still names. User lines said in the meantime arrive as a nudge
 — Hotline's words, never a line of the tape. If the restore fails, the new
@@ -1715,7 +1730,13 @@ when that previous chapter ran on a different agent.
 
 A change to reach, workspace, folders, tools, background work, goal, or harness
 revokes existing execution before the new record is written. Policy updates
-from separate clients are serialized through persistence and reattachment.
+from separate clients are serialized through persistence, under the
+room's `policy_update_lock`, which the wire lets go of before the reattach:
+the reattach takes the teammate's start gate, and the one lock order is
+`start_gate -> policy_update_lock`, the order a message closing a quiet
+chapter takes them in. `Room::reattach_held` takes the policy lock again
+under the gate for its own invalidate and activation, so it never starts a
+change another update is still writing.
 New starts cannot acquire usable authority during that interval. A driver
 still starting must validate its captured authority before publication.
 If persistence fails, affected sessions remain stopped and their old
@@ -1729,6 +1750,22 @@ revocable lease, so removing a session from the cache alone is never the
 permission check. An idle teammate stays idle and uses the new policy on
 its next start. A gateway change applies this boundary to the whole room,
 including peers whose main session is stopped.
+
+What changes the session and not what the teammate may do is no policy
+change: its computer joining once downloaded, started from the pane or made
+again between turns, and a sign-in to an MCP server completing
+(`Room::signed_in_to_mcp`), rebuild a running main session the way a
+chapter's swap does (`Room::rebuild`, through `stop_with_capability`), so
+the teammate's threads, its requests and its authority stand. The sign-in
+reads which sessions run under the policy lock and rebuilds them after
+letting it go. Like the computer's, its rebuild waits for the turn in
+flight (`Room::rebuild_for_sign_in_when_idle`, called again as the turn
+loop rests) and looks once more behind the start gate, so it cuts no turn.
+A session stopped, revoked or replaced meanwhile is not rebuilt: what
+starts the teammate again connects with the sign-in. A thread keeps the
+computer and the servers it was built with until it is brought up again. A
+sign-out, a server removed or a policy change narrows reach and goes
+through the revocation above.
 
 Stop ends current main and peer execution and invalidates their handles.
 It also invalidates a replacement that is still starting.

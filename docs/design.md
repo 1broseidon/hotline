@@ -1123,6 +1123,18 @@ is recorded before calling the driver, so an interrupted continuation is still
 uncertain work, never a replay. Old requests without action ids retain the old
 settlement rules; no route is guessed from conversation text.
 
+A request ends only when someone ends it: Stop exchange, or a revocation of
+either teammate (a policy change, a stop or a removal). A chapter turning over
+or reopened, and a rebuild of the main session for what changes the session
+and not what the teammate may do (its computer joining or made again, an MCP
+sign-in completing, each between turns), leave it standing, so its result
+still comes back (decided with Kelviny Moura's #203, 2026-10-30; before, any
+of these ended every request the teammate had sent or been given). Its leases
+are each teammate's lasting authority: `CapabilityEpoch` keeps an `authority`
+beside its `generation`, a swap or rebuild advances the generation only, and a
+stop or a policy update advances both. A sign-out, a server removed and a
+policy change narrow reach and still revoke.
+
 ### The team lead
 
 A desk has at most one lead: a teammate's id, kept in the room stream as

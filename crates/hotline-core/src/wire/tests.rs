@@ -256,6 +256,12 @@ impl RoomHandle for CoreHandle {
         self.room.reattach_all().await
     }
 
+    /// The room keeps no vault, so there is nothing to forget: the sign-out
+    /// is the revocation and the reattach around it.
+    async fn mcp_auth_sign_out(&self, _server_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     async fn prompt(
         &self,
         persona_id: &str,
@@ -1229,6 +1235,7 @@ mod deltas;
 mod door;
 mod files;
 mod linked;
+mod lock_order;
 mod mobile_computer;
 mod models;
 mod owner_handler;

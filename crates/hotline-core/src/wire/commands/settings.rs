@@ -63,8 +63,7 @@ pub(super) async fn apply_update(
             }
         }
     }
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
+    let held = room.policy_update_lock().lock_owned().await;
     if let Some(value) = patch.get_mut("mcpServers")
         && !value.is_null()
     {
@@ -76,9 +75,6 @@ pub(super) async fn apply_update(
         room.invalidate_all()?;
     }
     let updated = update_settings(log, patch)?;
-    if cookie_offers {
-        room.cookie_offer_settings_changed().await?;
-    }
     if servers {
         forget_removed_servers(log)?;
         // Replacing or deleting legacy sources also removes their
@@ -88,6 +84,16 @@ pub(super) async fn apply_update(
                 .map_err(std::io::Error::other)
         })
         .map_err(|error| error.to_string())?;
+    }
+    // The invalidate and every durable append are done; let go of the policy
+    // lock before the reattach, which takes each teammate's start gate. The
+    // one order is `start_gate -> policy_update_lock`, so a message closing a
+    // chapter under the start gate cannot deadlock against this.
+    drop(held);
+    if cookie_offers {
+        room.cookie_offer_settings_changed().await?;
+    }
+    if servers {
         room.reattach_all().await?;
     }
     Ok(updated)

@@ -997,6 +997,12 @@ impl Room {
     /// and an archived one is refused, since it is not open.
     pub fn park_side_thread(&self, side_id: &str) -> Result<(), String> {
         if let Some(side) = self.sides.get(side_id) {
+            // Parking lets go of the agent mid-thought, which would cut a turn
+            // in flight: the person stops it or waits for its turn to end
+            // first.
+            if side.working() {
+                return Err("That thread is working; stop or wait for its turn first.".into());
+            }
             self.park_side(&side);
             return Ok(());
         }

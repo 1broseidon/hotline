@@ -102,8 +102,11 @@ ahead without the computer: the agent is told its computer is downloading and
 has `computer_status` (optionally waiting up to 300 s) to follow it, the pull
 streams as a `computer_pull` delta that the window draws as a ring where the
 computer's button will be (never a line on the tape, never sent to the
-phone), and when `ensure_running` returns the session is restarted with the
-grant as soon as no turn is in flight (the turn loop checks on its way out).
+phone), and when `ensure_running` returns the main session is rebuilt with
+the grant as soon as no turn is in flight (the turn loop checks on its way
+out). The rebuild is a chapter's swap's (`Room::rebuild`): the teammate's
+threads, and the requests it sent or was given, go on, since the computer
+changes the session and not what the teammate may do.
 A computer that fails, at once or behind the session, leaves the teammate
 answering without it, with the reason in its preamble and the desk's log;
 the persona keeps the grant, so the next start tries again. None of this is
@@ -145,8 +148,10 @@ changed mount takes effect at the next Remove. `computer.update` is the pane's a
 container so the next one is made on the current choice. A teammate at rest
 has its container removed at once. A running one is not stopped or held up:
 the new release downloads while the old computer keeps working, and once the
-turn in flight ends the container is removed and the session reattaches onto
-the new one. The rest of the computer's settings (limits, mounts, a pinned
+turn in flight ends the container is removed and the main session is rebuilt
+onto the new one, as when a download lands; a thread built on the old
+container keeps it until the thread is parked and brought back, and its
+computer calls fail meanwhile. The rest of the computer's settings (limits, mounts, a pinned
 image, granted secrets) do not restart the teammate either. The first three
 wait for the next container, and secrets are handed to the running one. Only
 turning the computer on or off restarts the session. Memory and CPUs are taken

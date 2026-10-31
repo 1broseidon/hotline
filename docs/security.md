@@ -663,12 +663,32 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   the append is durable. In between, every lease — existing or newly
   captured — is dead, and a failed append leaves the teammate visibly
   stopped and refusing work until a retry succeeds. The wire holds one
-  room-wide `policy_update_lock` across invalidate, append and reattach so
-  a second socket cannot reactivate a generation between the steps.
-- **Stop.** Advances the generation and leaves the epoch open: old handles
-  are permanently dead, a later explicit start uses the current policy. A
-  stop also invalidates a replacement session captured before its startup
-  began.
+  room-wide `policy_update_lock` across invalidate and append so a second
+  socket cannot reactivate a generation between the steps, and lets it go
+  before the reattach, which takes each teammate's start gate: the one lock
+  order is `start_gate -> policy_update_lock`. `Room::reattach_held` takes
+  the policy lock again under the gate for its own invalidate and
+  activation, so it waits out an update still being written.
+- **Stop.** Advances the generation and the authority and leaves the epoch
+  open: old handles, lasting ones included, are permanently dead, a later
+  explicit start uses the current policy. A stop also invalidates a
+  replacement session captured before its startup began.
+- **Session replacement.** A chapter's swap (`replace_session`, through
+  `stop_with_capability`) ends the old session's handles the same way, but
+  not the teammate's authority: a lasting lease (`CapabilityEpoch::lasting`)
+  follows only stops and policy changes. So does a rebuild for what changes
+  the session and not what the teammate may do (`Room::rebuild`): its
+  computer joining once downloaded or made again, and a sign-in to an MCP
+  server completing, which adds reach the policies already granted, each
+  between turns. A sign-out, a server removed and a policy change narrow
+  reach and revoke as above. A job's agent whose lease went stale is let go
+  of before its next line, whatever else waits for it.
+- **Requests.** Each request between two teammates holds two leases, each
+  teammate's lasting authority `scoped()` to the request
+  (`Room::request_lease`), checked before it is taken up and while it runs,
+  so only Stop exchange or a revocation of either teammate ends it. One sent
+  by a peer session holds that session's delegated lease instead, so it ends
+  with the delegation it came from.
 - **Delegation.** A peer session holds a lease `scoped()` from the caller's
   and dependent on the target's. Peer teardown revokes only the scoped
   lease; a stop or policy change on either side revokes the peer through
@@ -764,6 +784,9 @@ extend; when a change adds a boundary, it adds a row.
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
+| `persona.update`, `settings.update` and `mcp.auth_sign_out` let go of the policy lock before the reattach that waits on a start gate, so a message closing a quiet chapter (start gate, then policy lock) and a policy update or an MCP sign-in never wait on each other | `wire/tests/lock_order.rs` `a_persona_update_lets_go_of_the_policy_lock_before_its_reattach`, `a_settings_update_lets_go_of_the_policy_lock_before_its_reattach`, `an_mcp_sign_out_lets_go_of_the_policy_lock_before_its_reattach`; `session/tests/chapters.rs` `a_sign_in_and_a_message_closing_a_quiet_chapter_both_finish`, `a_policy_update_and_a_message_closing_a_quiet_chapter_both_finish` | — |
+| A lasting lease outlives a session replacement and not a stop or a policy update; a request outlives either teammate's chapter turning over, and Stop exchange, a stop, a policy change or a room-wide invalidation still end it | `hotline-tools/src/capability.rs` `a_lasting_lease_outlives_a_session_replacement_but_not_a_stop_or_a_policy_update`, `replacing_a_session_during_quarantine_does_not_reopen_it`; `session/exchanges/tests/lasting.rs` `a_handoff_outlives_either_teammates_chapter_turning_over`, `each_explicit_end_still_ends_a_request_a_chapter_left_standing` | — |
+| A computer joining once downloaded, a computer made again between turns and an MCP sign-in completing rebuild the running main session the way a chapter's swap does (`Room::rebuild`), ending none of the teammate's threads or requests, so a handoff at work goes on to its result; the sign-in's rebuild waits for the turn in flight; a job's stale agent is rebuilt for its next line | `session/exchanges/tests/lasting.rs` `a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in`, `an_mcp_sign_in_rebuilds_a_main_conversation_only_once_its_turn_is_over`; `session/tests/scheduled.rs` `a_stale_job_agent_is_rebuilt_for_the_next_line_whatever_waits_behind_it` | the computer's own runtime path: Unix (`session/tests/computer.rs`) |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests/door.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`; `wire/tests/seats.rs` `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests/linked.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `hotline-room/src/linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |

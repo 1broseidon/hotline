@@ -97,6 +97,10 @@ active-input support queues it. Internal nudges and deliveries remain queued. Jo
 the queue and claiming an idle driver are one decision under one lock, so a
 line cannot be filed behind a turn that has already stopped coming back for
 it. `session.cancel` stops the turn in flight and drops whatever was waiting.
+Without `interrupt` it is the person's Stop; with it, the window's Interrupt
+and Esc, which differ only in what becomes of a colleague's question the
+turn was answering and of a first-contact card
+([Stop and Interrupt](#stop-and-interrupt)).
 Deltas go out on the tape
 subscription as `ephemeral` and are never written; the durable line is the
 message that lands when it is whole.
@@ -1404,7 +1408,79 @@ into it is released, one whose work had not come back is stopped with no
 result and no failure handed anywhere, the link says `handoffEnded`, and the
 opener is left one `note` aside, "Ada ended this thread, and the work you
 handed over with it.", heard at its next turn and never a wake. Ending a
-thread that has ended already does nothing.
+thread that has ended already does nothing. A question an Interrupt left the
+thread carrying ends with it as a turn that ended without a result.
+
+## Stop and Interrupt
+
+The person cuts a turn two ways (`session/exchanges/stops.rs`; #203 group E).
+**Stop** is their decision about the colleague's work the turn was doing.
+**Interrupt**, the window's composer button and Esc, is them redirecting the
+turn, and decides nothing. On the wire they are `session.cancel` and
+`thread.cancel`, the Interrupt with `interrupt: true`; `side.cancel`, the
+phone and an older window send none, and keep the Stop's meaning. Each sets
+the conversation's `cut` (on `Session` and `LiveSide`), which the next turn's
+door clears and the cut turn's end reads, and which counts only when the turn
+ended because it was cut (`cut_short`: the runner's cancel, or a stop reason
+`cancelled`, `canceled` or `aborted`).
+
+**Stop on a handoff.** The person's Stop in a work thread
+(`Room::cancel_side`) ends a colleague's handoff for good when it reaches it:
+the one whose turn it cut, one whose line it dropped from the queue (a
+handoff that waited for the thread's agent to start or behind the person's
+own turn, and one waiting on the person or a colleague whose answer was
+among what it dropped, since nothing else would carry it on), and one an
+Interrupt left the thread carrying. Each is stopped with "The person stopped
+this handoff. Do not send it again unless they ask." as its reply, its
+leases revoked, and released, so the link says `handoffEnded`
+(`Room::stop_handoff_for_the_person`); it is never handed over or run again.
+Its sender gets no result and no failure, which would start a turn that sends
+the work again: it is left one `note` aside, `stopped:<request>`, of what the
+cut turn last said (cut to 400 characters) and that sentence, heard at its
+next turn and never a wake. A sender on a linked desk is sent the sentence
+as the stopped request's failure. A thread whose handoff's own turn the Stop
+cut closes as `stopped`, unless a line said since waits in it, and the
+person may continue it as theirs; one whose handoff only waited in it goes
+on.
+
+**Interrupt in a work thread** (`Room::interrupt_side`) only cuts the turn
+in flight. Nothing waiting behind it is dropped, and what the person steered
+into the cut turn is kept, so their line is heard next. A handoff or a
+question the cut turn was answering stays at work, running and begun on its
+record with no turn on it, which is all that says the thread carries it
+(`Room::carried_into`). The next line said there that answers no request of
+its own and is not a wake, normally the person's, takes it up, and that
+turn's end is its result or its answer. The cut turn leaves the sender the
+note any turn that is not the result leaves. A parked thread keeps what it
+carries, so the person's line that brings it back carries it on; a second
+Interrupt keeps the first, and the thread does not close on a result while
+it still carries another. The person's Stop ends what it carries, as above;
+a close ends it as a turn that ended without a result, and the person's End
+thread as theirs. A restart settles it as any started request.
+
+**An answer cut by either.** A turn answering a colleague's question that
+the person's Stop or Interrupt cuts fails the question to its asker, as any
+failed answer reaches it ([Peer threads](#peer-threads)), with what the turn
+had said and the person's word as its reply: "The person stopped the answer
+to this question. Do not ask it again unless they ask." for a Stop, in the
+main conversation, a work thread or a job (whose cancel is the Stop), and
+"The person interrupted the answer to this question. Ask it again if you
+still need it." for the main conversation's Interrupt, which has no thread to
+carry the answer on and whose next line must never become a colleague's
+answer. A handoff waiting on the question carries on with that failure, as
+with an answer. "Send it again if you still need it." is never added after
+the person's word, whatever the cut turn had said before it, and neither is
+it after Stop exchange's. Only the person's cut is theirs: a restart whose
+drain runs out cuts a main conversation's turn without it (`Room::cut_turn`),
+and the answer that turn was giving fails as uncertain, to inspect before
+asking again.
+
+**A first-contact card** expires with the person's Stop of either
+teammate's main-conversation turn, as before; their Interrupt leaves it up
+(`settle_permissions_of_a_redirect`), since its wait is a colleague's
+request, not the turn's, and the person's answer to it still lets the
+request through. Other permission cards the cut turn left open expire with
+either.
 
 ## The thread index
 
@@ -1643,11 +1719,12 @@ answer or its failure, is the handoff's next turn in its thread
 a revocation, its teammate deleted, its desk unlinked) hands its failure to
 the work thread or job that asked it, while that is open, rather than to the
 sender's DM, unless the asker is what was stopped; a handoff waiting on it
-carries on with it. The person's Stop in a conversation (`session.cancel`,
+carries on with it. The person's Stop or Interrupt in the main conversation
+(`session.cancel`), their Stop in a work thread or a job (`thread.cancel`,
 `side.cancel`, a job's cancel) or a thread closing drops what waited behind
 the turn, and a colleague's question among it fails to its asker at once,
-once, and is never handed over again; one whose turn the Stop cut fails as a
-cancelled turn does.
+once, and is never handed over again; one whose turn the person cut fails
+with their word ([Stop and Interrupt](#stop-and-interrupt)).
 
 Restart recovers unstarted requests and saved results. Work that had begun
 but had not saved its result reports uncertainty instead of automatically

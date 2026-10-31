@@ -511,6 +511,9 @@ struct Session {
     /// An MCP sign-in completed while this session ran, and it is rebuilt to
     /// connect with it once its turn is over.
     rebuild_for_sign_in: std::sync::atomic::AtomicBool,
+    /// The person's Stop or Interrupt of the turn in flight, which decides
+    /// what becomes of a colleague's question it was answering.
+    cut: Mutex<Option<exchanges::Cut>>,
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,

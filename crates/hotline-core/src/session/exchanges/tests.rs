@@ -5,6 +5,7 @@ mod lasting;
 mod loop_in;
 mod pause;
 mod questions;
+mod stops;
 mod threads;
 
 use super::*;

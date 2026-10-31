@@ -445,6 +445,36 @@ pub(super) fn delivery_from(persona_id: &str, cause: &DeliveryCause) -> Delivery
     }
 }
 
+/// Why a request the person's Stop exchange ended failed.
+pub(super) const STOPPED_BY_THE_PERSON: &str = "The person stopped this exchange.";
+
+/// What a handoff the person's Stop ended tells its sender: their decision,
+/// not a failure to look into and send again.
+pub(super) const HANDOFF_STOPPED_BY_THE_PERSON: &str =
+    "The person stopped this handoff. Do not send it again unless they ask.";
+
+/// Why a question whose answering turn the person stopped ended.
+pub(super) const ANSWER_STOPPED_BY_THE_PERSON: &str =
+    "The person stopped the answer to this question. Do not ask it again unless they ask.";
+
+/// Why a question whose answering turn in a main conversation the person
+/// interrupted ended: a redirect, not a decision about the question.
+pub(super) const ANSWER_INTERRUPTED_BY_THE_PERSON: &str =
+    "The person interrupted the answer to this question. Ask it again if you still need it.";
+
+/// Whether a failure ends on the person's own word about it, after whatever
+/// the turn it cut had said: its sender is then never told to send it again.
+fn the_persons_word(text: &str) -> bool {
+    [
+        STOPPED_BY_THE_PERSON,
+        HANDOFF_STOPPED_BY_THE_PERSON,
+        ANSWER_STOPPED_BY_THE_PERSON,
+        ANSWER_INTERRUPTED_BY_THE_PERSON,
+    ]
+    .iter()
+    .any(|sentence| text.trim_end().ends_with(sentence))
+}
+
 /// What the agent hears when a delivery reaches it: who answered or asked
 /// what, and their words quoted, as data and never instructions. Built from
 /// the tape's record alone, so a delivery sent again after a restart, or
@@ -519,9 +549,13 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
             about,
             ..
         } => format!(
-            "Your message to {name}{} was not answered: {text}\n\
-             Send it again if you still need it.",
+            "Your message to {name}{} was not answered: {text}{}",
             named(about),
+            if the_persons_word(text) {
+                ""
+            } else {
+                "\nSend it again if you still need it."
+            },
         ),
         DeliveryCause::Peer {
             name,

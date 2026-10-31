@@ -147,15 +147,21 @@ impl Room {
         Some((persona_id, action))
     }
 
-    /// Stops the turn in flight in a side thread and drops what waited behind
-    /// it, a colleague's question included, which fails to its asker at once.
-    /// The thread stays live.
-    pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
+    /// The person's Stop in a work thread: it stops the turn in flight and
+    /// drops what waited behind it. A colleague's handoff the turn was
+    /// doing, or whose line it dropped, ends for good as their stop of it, as
+    /// does whatever an Interrupt left the thread carrying; a colleague's
+    /// question fails to its asker at once (`exchanges/stops.rs`). The
+    /// thread stays live, unless a handoff's own turn was cut: that ends it.
+    pub fn cancel_side(self: &Arc<Self>, side_id: &str) -> Result<(), String> {
         let side = self.live_side(side_id)?;
+        *lock(&side.cut) = Some(Cut::Stop);
         let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
+        let carried = self.carried_into(side_id, side.request().as_deref());
+        self.end_for_the_persons_stop(&dropped, &carried);
         self.fail_dropped_questions(
             &side.persona_id,
             dropped
@@ -163,6 +169,19 @@ impl Room {
                 .filter_map(|line| line.request.as_ref())
                 .map(|line| line.request.as_str()),
         );
+        Ok(())
+    }
+
+    /// The person's Interrupt (and Esc) in a work thread: only the turn in
+    /// flight is cut, and what waited behind it is heard next. A colleague's
+    /// handoff or question the turn was answering goes on in the turn the
+    /// person's next line there starts; only their Stop ends it.
+    pub fn interrupt_side(&self, side_id: &str) -> Result<(), String> {
+        let side = self.live_side(side_id)?;
+        *lock(&side.cut) = Some(Cut::Interrupt);
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
         Ok(())
     }
 }

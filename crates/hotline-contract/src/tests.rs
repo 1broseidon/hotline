@@ -119,3 +119,46 @@ fn a_question_delivery_round_trips_with_and_without_its_work() {
     let event: TranscriptEvent = serde_json::from_value(about_work.clone()).unwrap();
     assert_eq!(serde_json::to_value(&event).unwrap(), about_work);
 }
+
+/// The phone's and an older window's cancel, which says nothing more, is the
+/// Stop it always was; the window's Interrupt says so, on either command.
+#[test]
+fn a_cancel_is_a_stop_unless_it_says_it_interrupts() {
+    let dm = json!({"kind":"dm","key":"ada"});
+    for (stop, interrupt) in [
+        (
+            json!({"cmd":"session.cancel","params":{"personaId":"ada"}}),
+            json!({"cmd":"session.cancel","params":{"personaId":"ada","interrupt":true}}),
+        ),
+        (
+            json!({"cmd":"thread.cancel","params":{"thread":dm}}),
+            json!({"cmd":"thread.cancel","params":{"thread":dm,"interrupt":true}}),
+        ),
+    ] {
+        for (value, interrupts) in [(&stop, false), (&interrupt, true)] {
+            let command = serde_json::from_value::<Command>(value.clone()).unwrap();
+            assert!(
+                matches!(
+                    command,
+                    Command::SessionCancel { interrupt, .. }
+                        | Command::ThreadCancel { interrupt, .. } if interrupt == interrupts
+                ),
+                "{value}"
+            );
+            assert_eq!(&serde_json::to_value(&command).unwrap(), value);
+        }
+    }
+    let decl = Command::decl(&ts_rs::Config::default());
+    assert!(
+        decl.contains(
+            r#""cmd": "session.cancel", "params": { personaId: string, interrupt?: boolean, }"#
+        ),
+        "{decl}"
+    );
+    assert!(
+        decl.contains(
+            r#""cmd": "thread.cancel", "params": { thread: ThreadId, interrupt?: boolean, }"#
+        ),
+        "{decl}"
+    );
+}

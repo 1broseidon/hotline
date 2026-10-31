@@ -1,6 +1,7 @@
 //! Words into a session: the chapter a message lands in, the prompt funnel,
 //! deliveries, nudges and retries, and how driver updates become tape events.
 
+use super::exchanges::Cut;
 use super::*;
 
 impl Room {
@@ -453,17 +454,48 @@ impl Room {
         });
     }
 
-    /// Stops the turn in flight and drops whatever was waiting behind it, a
-    /// colleague's question included, which fails to its asker at once and
-    /// is never handed over again.
+    /// The person's Stop of the turn in flight: as [`Room::cut_turn`], and a
+    /// colleague's question the turn was answering fails with their word
+    /// not to ask it again (`exchanges/stops.rs`).
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
+        *lock(&session.cut) = Some(Cut::Stop);
+        self.cut_turn(&session, Cut::Stop);
+        Ok(())
+    }
+
+    /// The person's Interrupt of the turn in flight, to say something
+    /// instead: as [`Room::cut_turn`], and a question the turn was answering
+    /// fails as interrupted, to be asked again if still needed, never as
+    /// their stop. The main conversation has no thread to carry the answer
+    /// on, and the person's next line must never become it.
+    pub fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        let session = self.session(persona_id)?;
+        *lock(&session.cut) = Some(Cut::Interrupt);
+        self.cut_turn(&session, Cut::Interrupt);
+        Ok(())
+    }
+
+    /// Stops the turn in flight and drops whatever was waiting behind it, a
+    /// colleague's question included, which fails to its asker at once and
+    /// is never handed over again. A permission card the turn left open
+    /// expires; a first-contact card expires only with a Stop, since an
+    /// Interrupt redirects the turn and decides nothing about a colleague.
+    /// A restart's cut is a Stop that is not the person's: the session's
+    /// `cut` is left unset, so an answer it cuts fails as uncertain.
+    pub(super) fn cut_turn(&self, session: &Session, how: Cut) {
+        let persona_id = session.persona_id.as_str();
         let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();
-        self.settle_collaboration(persona_id);
-        self.settle_permissions(persona_id);
+        match how {
+            Cut::Stop => {
+                self.settle_collaboration(persona_id);
+                self.settle_permissions(persona_id);
+            }
+            Cut::Interrupt => self.settle_permissions_of_a_redirect(persona_id),
+        }
         self.fail_dropped_questions(
             persona_id,
             dropped
@@ -471,7 +503,6 @@ impl Room {
                 .filter_map(|line| line.request.as_ref())
                 .map(|line| line.request.as_str()),
         );
-        Ok(())
     }
 }
 

@@ -163,6 +163,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         attachments: Option<Vec<hotline_contract::Attachment>>,
     ) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
+    /// Cuts the main conversation's turn for the person to say something
+    /// instead: an answer it was giving a colleague ends as interrupted,
+    /// never as their stop. A room that tells no Interrupt apart stops it.
+    fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        self.cancel(persona_id)
+    }
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
     async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String>;
     async fn set_config(
@@ -311,6 +317,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
 
     fn side_cancel(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    /// Cuts a work thread's turn for the person to say something instead:
+    /// the work the turn was doing goes on in the next one.
+    fn side_interrupt(&self, _side_id: &str) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
     }
 

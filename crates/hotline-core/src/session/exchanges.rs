@@ -14,11 +14,13 @@ use crate::linked;
 use crate::log::{StreamId, thread};
 use crate::paths::{thread_key, thread_participants};
 use crate::thread::Opener;
+use asides::said_last;
 use place::Place;
 use questions::Route;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
+pub(super) use stops::{Cut, cut_short};
 
 pub(crate) const EXCHANGE_CAP: i64 = 12;
 /// The most requests a linked desk's teammates may have waiting here at once:
@@ -368,7 +370,7 @@ impl Room {
             for request in &mut pair.requests {
                 request.release(&mut ended);
                 if Self::exchange_pending(request) {
-                    self.stop_request(request, "The person stopped this exchange.", None);
+                    self.stop_request(request, peers::STOPPED_BY_THE_PERSON, None);
                     stopped.push(request.clone());
                 }
             }
@@ -588,14 +590,22 @@ impl Room {
     }
     /// Saves what a request's turn came to: see [`Finished`]. A turn that
     /// failed or was stopped says so, for its sender to look before trying
-    /// again.
-    pub(super) fn finish_request(&self, id: &str, driven: &Driven) -> Finished {
-        let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
-            matches!(
-                reason,
-                "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
-            )
-        });
+    /// again, unless it was the person's `cut` that stopped it
+    /// (`exchanges/stops.rs`): their Stop ends a handoff for good, and their
+    /// Stop or Interrupt of an answer fails it with their own words.
+    pub(super) fn finish_request(&self, id: &str, driven: &Driven, cut: Option<Cut>) -> Finished {
+        let cut = cut.filter(|_| stops::cut_short(driven));
+        if cut == Some(Cut::Stop) && self.stop_handoff_for_the_person(id, true, &said_last(driven))
+        {
+            return Finished::Gone;
+        }
+        let failed = cut.is_some()
+            || driven.stop_reason.as_deref().is_none_or(|reason| {
+                matches!(
+                    reason,
+                    "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
+                )
+            });
         let finished = {
             let _guard = lock(&self.exchange_lock);
             let found = self.exchange_pairs().into_iter().find_map(|pair| {
@@ -617,11 +627,7 @@ impl Room {
                     Finished::Gone
                 };
             }
-            let ended = if ask {
-                "The turn answering this question ended without a result; inspect before retrying."
-            } else {
-                "The handoff turn ended without a result; inspect before retrying."
-            };
+            let ended = stops::ended_without_a_result(ask, cut);
             let mut reply = driven.replies.join("\n\n");
             if failed && reply.is_empty() {
                 reply = ended.to_string();
@@ -1481,6 +1487,7 @@ mod loop_in;
 mod place;
 mod questions;
 mod revoked;
+mod stops;
 
 #[cfg(test)]
 mod tests;

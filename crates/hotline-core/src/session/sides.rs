@@ -59,7 +59,7 @@
 //! folder is shared, and it is told that too.
 
 use super::agent::{Opening, lease_of};
-use super::exchanges::Finished;
+use super::exchanges::{Cut, Finished, cut_short};
 use super::runner::Driven;
 use super::turns::{Begin, Line, Occupant, RequestLine, Seat, Then, Turns};
 use super::{Room, lock, new_id, now_ms, timed_from};
@@ -110,6 +110,9 @@ pub(super) struct LiveSide {
     /// The request the turn in flight is answering, a handoff or a question,
     /// until what came of it is saved.
     request: Mutex<Option<String>>,
+    /// The person's Stop or Interrupt of the turn in flight, which decides
+    /// what becomes of the request it was answering.
+    cut: Mutex<Option<Cut>>,
     /// The agent, once it is up. The thread is published before its agent is
     /// built, because starting one takes seconds, so until this is set the
     /// thread is starting: lines said in it wait in `turns`, and there is
@@ -308,11 +311,25 @@ impl Occupant for LiveSide {
         if asides.is_empty() && line.wake {
             return Begin::Skip;
         }
+        // What an Interrupt left the thread carrying goes on in the next line
+        // said here that answers no request of its own, normally the
+        // person's: that turn's end is its result or its answer.
+        if line.request.is_none()
+            && !line.wake
+            && let Some(carried) = room
+                .carried_into(&self.id, None)
+                .into_iter()
+                .find(|carried| room.begin_request(carried).is_ok())
+        {
+            *lock(&self.request) = Some(carried);
+        }
         if let Some(index) =
             room.thread_index(&self.persona_id, &self.thread, &asides, Some(&self.indexed))
         {
             line.text = format!("{index}\n\n{}", line.text);
         }
+        // The person's Stop or Interrupt from here on is this turn's.
+        lock(&self.cut).take();
         Begin::Go(WorkTurn { line: Some(line) })
     }
 
@@ -344,15 +361,18 @@ impl Occupant for LiveSide {
             // A thread ended under a turn still settles the request it
             // answered.
             if let Some(request) = lock(&side.request).take() {
-                room.finish_request(&request, &driven);
+                room.finish_request(&request, &driven, None);
             }
             return Then::Stop;
         }
+        let cut = lock(&side.cut).take().filter(|_| cut_short(&driven));
         if let Some(driver) = side.driver() {
             let unconsumed = driver.take_unconsumed();
-            let cancelled = driven.stop_reason.as_deref().is_some_and(|reason| {
-                matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
-            });
+            // An Interrupt keeps what the person said into the turn it cut.
+            let cancelled = cut != Some(Cut::Interrupt)
+                && driven.stop_reason.as_deref().is_some_and(|reason| {
+                    matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
+                });
             for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
                 lock(&side.turns).waiting.push_front(Line {
                     voice: room.attached_voice(&side.thread),
@@ -373,7 +393,13 @@ impl Occupant for LiveSide {
         }
         let said_so = lock(&side.archive_note).take();
         let request = lock(&side.request).take();
-        if let Some(request) = request {
+        if request.is_some() && cut == Some(Cut::Interrupt) {
+            // Cut for the person to say something: what the turn was doing
+            // stays running on its record, held by no turn, and goes on in
+            // the turn their line starts. Its sender is left a note of what
+            // the cut turn had said, as of any turn that is not the result.
+            room.note_turn(&side.id, false, &driven);
+        } else if let Some(request) = request {
             // A handoff's result is what the teammate said when it was done.
             // The thread closes with it unless the turn stopped to wait for
             // the person or a colleague, in which case it is the answer that
@@ -386,14 +412,21 @@ impl Occupant for LiveSide {
                     "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
                 )
             });
-            match room.finish_request(&request, &driven) {
+            match room.finish_request(&request, &driven, cut) {
                 // A turn that stopped to wait on the person is not the
                 // result: its sender is left a note, and the result follows.
                 Finished::Waiting => room.note_turn(&side.id, true, &driven),
                 Finished::Answered(false) => {}
+                // Nor does it close while it still carries other work.
                 Finished::Result | Finished::Gone | Finished::Answered(true) => {
-                    if lock(&side.turns).waiting.is_empty() {
-                        let end = if failed { End::Failed } else { End::Agent };
+                    if lock(&side.turns).waiting.is_empty()
+                        && room.carried_into(&side.id, None).is_empty()
+                    {
+                        let end = match (cut, failed) {
+                            (Some(Cut::Stop), _) => End::Stopped,
+                            (_, true) => End::Failed,
+                            (_, false) => End::Agent,
+                        };
                         room.finish_side(side, end, None);
                         return Then::Stop;
                     }
@@ -741,6 +774,7 @@ impl Room {
             opener: start.opener,
             asked_in: start.asked,
             request: Mutex::new(None),
+            cut: Mutex::new(None),
             backend_id: persona.backend_id.clone(),
             up: OnceLock::new(),
             capability: lease,

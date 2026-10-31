@@ -54,6 +54,14 @@ impl Room {
         // A colleague's question still waiting here fails to its asker.
         let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
         self.fail_dropped_lines(&side.persona_id, dropped);
+        // A parked thread leaves what an Interrupt left it carrying to the
+        // agent that brings it back: only a close ends that, and the
+        // person's End thread ends it as theirs (`Room::person_ended`).
+        if let Ending::Close(by, _) = &ending
+            && *by != End::Person
+        {
+            self.end_carried(&side.id, side.request().as_deref());
+        }
         side.capability.revoke();
         // A thread ended while its agent is still starting has none to stop
         // here: the start sees that it is closed and stops it itself.
@@ -79,12 +87,16 @@ impl Room {
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
-    /// Archives a thread that has no agent: the person ended a parked one.
+    /// Archives a thread that has no agent: a parked one ended, and with it
+    /// what an Interrupt left it carrying, as a live thread's close ends it.
     pub(super) fn archive_parked(&self, link: Link, by: End, result: Option<String>) {
         let thread = link.thread.clone();
         let Some(persona_id) = link.persona_id.clone() else {
             return;
         };
+        if by != End::Person {
+            self.end_carried(&thread.key, None);
+        }
         let said_so = result.is_some();
         let result = result.or_else(|| {
             last_words(

@@ -219,7 +219,7 @@ async fn the_persons_line_in_a_handed_over_thread_never_reaches_its_opener() {
 
 /// Whether a handed-over thread's link says its handoff no longer stands: on
 /// the thread itself, on Bob's tape, and on Ada's copy.
-fn says_ended(room: &Room, thread: &str) -> [bool; 3] {
+pub(super) fn says_ended(room: &Room, thread: &str) -> [bool; 3] {
     let id = format!("link:side:{thread}");
     let on = |tape: Vec<serde_json::Value>, id: &str| {
         tape.iter()

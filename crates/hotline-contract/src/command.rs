@@ -569,8 +569,19 @@ pub enum Command {
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     },
+    /// Stops the main conversation's turn in flight and drops what waited
+    /// behind it. `interrupt` is the window's Interrupt (and Esc) rather than
+    /// the person's Stop: an answer the turn was giving a colleague ends with
+    /// the person having interrupted it, to be asked again if still needed,
+    /// never as their stop of it, and a first-contact card stays up. Without
+    /// it, as from the phone or an older window, it is the Stop.
     #[serde(rename = "session.cancel")]
-    SessionCancel { persona_id: String },
+    SessionCancel {
+        persona_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        interrupt: bool,
+    },
     /// Stops one command the teammate left running. The teammate is not
     /// woken by its end: the person stopped it.
     #[serde(rename = "process.stop")]
@@ -970,9 +981,20 @@ pub enum Command {
         attachments: Option<Vec<Attachment>>,
     },
     /// Stops the turn in flight and drops what waited behind it; the thread
-    /// stays as it was. On a pair it stops the automatic exchange.
+    /// stays as it was. On a pair it stops the automatic exchange. Without
+    /// `interrupt` it is the person's Stop, which ends a colleague's handoff
+    /// or answer the turn was working on. `interrupt` is the window's
+    /// Interrupt (and Esc): in a work thread it only cuts the turn, what
+    /// waited behind it is heard next, and the work the turn was doing goes
+    /// on in the next one; in the main conversation it is `session.cancel`'s.
+    /// Elsewhere it changes nothing.
     #[serde(rename = "thread.cancel")]
-    ThreadCancel { thread: ThreadId },
+    ThreadCancel {
+        thread: ThreadId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        interrupt: bool,
+    },
     /// Lets go of a work thread's agent and keeps the thread open: saying
     /// something in it brings one back.
     #[serde(rename = "thread.park")]

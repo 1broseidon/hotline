@@ -329,29 +329,6 @@ async fn the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_ow
     .await;
 }
 
-/// A question the main conversation took up and whose turn the person
-/// cancelled fails to its asker, who is told to look before asking again.
-#[tokio::test]
-async fn a_cancelled_question_turn_tells_the_asker_to_inspect_before_retrying() {
-    let (room, _, gate) = gated(
-        "ask-cancelled-turn",
-        vec![turn("late", "Too late.", "end_turn")],
-    );
-    let id = send(&room, "ask").await;
-    until("Bob's question turn is running", || {
-        request(&room, "ada~bob", &id).started && room.mid_turn("bob")
-    })
-    .await;
-    room.cancel("bob").unwrap();
-    done(&room, &id).await;
-    let failure = answer_to(&room, &id).unwrap();
-    assert_eq!(failure["cause"]["status"], "failed");
-    let text = failure["text"].as_str().unwrap();
-    assert!(text.contains("without a result"), "{text}");
-    assert!(text.contains("inspect before retrying"), "{text}");
-    gate.add_permits(10);
-}
-
 /// The person's cancel drops what waited behind Bob's turn, a colleague's
 /// question too: it fails to its asker at once, once, and is never handed
 /// over again.

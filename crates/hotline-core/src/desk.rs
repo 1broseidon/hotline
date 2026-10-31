@@ -493,6 +493,10 @@ impl RoomHandle for Desk {
         self.room.cancel(persona_id)
     }
 
+    fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        self.room.interrupt(persona_id)
+    }
+
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
         self.room.set_model(persona_id, model_id).await
     }
@@ -627,6 +631,10 @@ impl RoomHandle for Desk {
 
     fn side_cancel(&self, side_id: &str) -> Result<(), String> {
         self.room.cancel_side(side_id)
+    }
+
+    fn side_interrupt(&self, side_id: &str) -> Result<(), String> {
+        self.room.interrupt_side(side_id)
     }
 
     async fn job_prompt(

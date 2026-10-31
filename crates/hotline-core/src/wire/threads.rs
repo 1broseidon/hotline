@@ -73,10 +73,18 @@ pub(super) async fn prompt(
 }
 
 /// Stops the turn in flight. For a pair that is the automatic exchange between
-/// its two teammates.
-pub(super) fn cancel(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Value, String> {
+/// its two teammates. The person's `interrupt` of a work thread's turn only
+/// cuts it, and one of the main conversation's ends an answer it was giving
+/// a colleague as interrupted, never as their stop.
+pub(super) fn cancel(
+    room: &Arc<dyn RoomHandle>,
+    thread: &ThreadId,
+    interrupt: bool,
+) -> Result<Value, String> {
     match thread.kind {
+        ThreadKind::Dm if interrupt => room.interrupt(&thread.key)?,
         ThreadKind::Dm => room.cancel(&thread.key)?,
+        ThreadKind::Side | ThreadKind::Call if interrupt => room.side_interrupt(&thread.key)?,
         ThreadKind::Side | ThreadKind::Call => room.side_cancel(&thread.key)?,
         ThreadKind::Job => room.job_cancel(&thread.key)?,
         ThreadKind::Pair => {

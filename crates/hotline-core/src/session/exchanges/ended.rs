@@ -48,6 +48,9 @@ impl Room {
             }
         }
         self.mark_handoffs(&ended);
+        // A question an Interrupt left the thread carrying has no turn left
+        // to answer it.
+        self.end_carried(side_id, None);
         let Some(request) = standing else {
             return;
         };

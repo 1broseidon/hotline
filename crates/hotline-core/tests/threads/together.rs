@@ -9,8 +9,9 @@
 //! handed: each `CALL <tool> <json>` is one call to one of Hotline's tools,
 //! made in order, and the turn's reply is `RESULTS` with what each came back
 //! with, or what follows `SAY`. The first line with `STALL` holds its first
-//! answer back for [`STALL`]. Bob is on ACP, the fixture child playing the same
-//! `CALL` lines over the desk's MCP server.
+//! answer back for [`STALL`], and every line with `HOLD` holds its own. Bob is
+//! on ACP, the fixture child playing the same `CALL` lines over the desk's MCP
+//! server.
 
 use crate::common::{self, Client, acp_fixture, until};
 use hotline_core::log::{Log, StreamId};
@@ -85,7 +86,7 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
             let mut heard = heard.lock().unwrap();
             let first = !heard.iter().any(|line| line.contains("STALL"));
             heard.push(asked.clone());
-            first && asked.contains("STALL")
+            (first && asked.contains("STALL")) || asked.contains("HOLD")
         };
         if stalls {
             tokio::time::sleep(STALL).await;
@@ -620,5 +621,80 @@ async fn a_follow_up_handoff_lands_in_the_thread_the_first_ran_in() {
     assert_eq!(
         result_for(&desk, &second_id).unwrap()["cause"]["status"],
         "done"
+    );
+}
+
+/// The main conversation's Interrupt, by either command the window sends it
+/// as, reaches the room as the person redirecting the turn: the colleague
+/// whose question that turn was answering is told the person interrupted the
+/// answer and may ask again, never that they stopped it. The same cancel
+/// without `interrupt`, as the phone and an older window send it, is the
+/// person's Stop.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_main_conversations_interrupt_over_the_wire_fails_a_colleagues_answer_as_interrupted() {
+    let mut desk = open().await;
+    let ada = desk.teammate("Ada", false).await;
+    let cy = desk.teammate("Cy", false).await;
+    let interrupted =
+        "The person interrupted the answer to this question. Ask it again if you still need it.";
+    let stopped =
+        "The person stopped the answer to this question. Do not ask it again unless they ask.";
+    let failures = |desk: &Desk| -> Vec<String> {
+        desk.log
+            .load(&StreamId::Tape(ada.clone()))
+            .into_iter()
+            .filter(|event| event["kind"] == "delivery" && event["cause"]["status"] == "failed")
+            .filter_map(|event| event["text"].as_str().map(str::to_string))
+            .collect()
+    };
+    for (n, (cmd, params, told)) in [
+        (
+            "session.cancel",
+            json!({"personaId": cy, "interrupt": true}),
+            interrupted,
+        ),
+        (
+            "thread.cancel",
+            json!({"thread": {"kind": "dm", "key": cy}, "interrupt": true}),
+            interrupted,
+        ),
+        ("session.cancel", json!({"personaId": cy}), stopped),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // Escaped, so only Cy's turn answering it is held, not Ada's asking.
+        let question = format!(r"Which port, {n}? \u0048OLD");
+        let ask = format!(r#"{{"to":"Cy","intent":"ask","message":"{question}"}}"#);
+        desk.ok(
+            "session.prompt",
+            json!({"personaId": ada, "text": format!("CALL message_teammate {ask}")}),
+        )
+        .await;
+        let held = format!("Which port, {n}? HOLD");
+        until("Cy's main conversation is answering", || {
+            desk.heard(&held)
+                .iter()
+                .any(|line| line.contains("asks you"))
+        })
+        .await;
+        desk.ok(cmd, params).await;
+        until(&format!("{cmd}: Ada is told"), || {
+            failures(&desk).len() == n + 1
+        })
+        .await;
+        let said = &failures(&desk)[n];
+        assert!(said.ends_with(told), "{cmd}: {said}");
+    }
+    let tape = desk.log.load(&StreamId::Tape(ada.clone()));
+    let heard: Vec<&Value> = tape
+        .iter()
+        .filter(|event| event["kind"] == "delivery" && event["cause"]["status"] == "failed")
+        .collect();
+    assert!(
+        heard[..2]
+            .iter()
+            .all(|event| !event.to_string().contains("Do not ask it again")),
+        "an Interrupt is never the person's stop: {heard:?}"
     );
 }

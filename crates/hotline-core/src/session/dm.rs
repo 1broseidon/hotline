@@ -171,6 +171,8 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         };
+        // The person's Stop or Interrupt from here on is this turn's.
+        lock(&session.cut).take();
         Begin::Go(Hold {
             source: Some(source),
             reach,
@@ -230,8 +232,9 @@ impl Occupant for Session {
             };
             lock(&session.turns).waiting.push_front(wire);
         }
+        let cut = lock(&session.cut).take();
         if let Some(request) = &held.request {
-            room.finish_request(request, &driven);
+            room.finish_request(request, &driven, cut);
         }
         Then::Next
     }

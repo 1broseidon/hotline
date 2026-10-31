@@ -104,7 +104,7 @@ impl Room {
                 if !lock(&session.turns).running {
                     continue;
                 }
-                let _ = self.cancel(&session.persona_id);
+                self.cut_turn(session, exchanges::Cut::Stop);
                 self.write(
                     &session.persona_id,
                     &TranscriptEvent::Notice {

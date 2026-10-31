@@ -1,6 +1,7 @@
 # Threads as streams of thought: awareness, asides and agent to agent
 
-Draft for George's walkthrough, 2026-10-30. Builds on
+Agreed with George, 2026-10-30 (the five answers below, as drawn in
+`thread-awareness/` frames 00–09). Builds on
 [ADR 0001](../adr/0001-threads-are-a-primitive.md) and [threads.md](../threads.md),
 which made every conversation a thread with its kind as policy. This document is
 about what an agent knows of its own threads and how threads reach each other.
@@ -146,32 +147,93 @@ level, plus a cross-desk test).
 file lands in Quill's workspace, Quill's next turn knows where (tests), and
 an over-cap file is refused with a reason.
 
-## What to take from #203
+## Decisions (George, 2026-10-30)
 
-| #203 idea | Under this frame |
-| --- | --- |
-| A handoff keeps its thread, continued by name | **Take.** It's thread addressing. |
-| The person talks in a handed-over thread | **Take.** |
-| Asks answered by the main conversation or the named thread, ask sessions gone | **Take, reshaped.** The answer comes from a stream with memory. Open question below on waiting behind a busy main conversation. |
-| The delegator hears every turn | **Replace with asides.** A handed-over thread asides its opener (`note` per turn, `nudge` on its result), instead of reports that wake it. |
-| Stop vs Interrupt | **Take**, as wire and UX polish. |
-| Requests end only when someone ends them | **Take.** |
-| A rebuild isn't a revocation (authority vs generation); lock-order fix | **Take now.** These are bug fixes, and they overlap task-316. |
+1. **Asking a busy colleague.** An ask never waits behind a busy main
+   conversation. A work thread of the colleague's answers at once, seeded with
+   its thread index and recent asides, and leaves an aside on the colleague's
+   main conversation saying what it answered on its behalf. When the main
+   conversation is idle, it answers itself. An ask that names a thread is
+   answered in that thread.
+2. **"Aside" is the word.** The person sees a teammate's asides on a
+   **Noted** page of its ⋯ card (between Threads and Search), each with where it
+   came from, its level (note, nudge, or "to you" in amber) and its time. In a
+   conversation an aside is a quiet line with the `(·)` mark, never a bubble.
+3. **The index goes to the main conversation, work threads and calls.** Jobs
+   and subagent runs get only their parent thread and the asides about them.
+4. **Inbound: shape it now, build it later.** Inbound events arrive as
+   asides from day one, through a source model with **its own permissions and
+   controls** (below). No transport ships until that model is in.
+5. **No multi-party threads.** **Loop in…** on a work thread's ⋯ card sends a
+   colleague a `nudge` aside linking the thread. The looped-in colleague may
+   answer once in that thread, under its face; the thread shows a quiet "Quill
+   was looped in" line. A work thread's ⋯ card has Loop in… where a DM has New
+   chapter, and End thread where a DM has Remove.
 
-Credit: commits taken as they are keep Kelviny's authorship; adapted work
-carries `Co-authored-by: Kelviny Moura`; the release notes thank him by name.
+## Inbound sources: permissions and controls
 
-## Open questions for George
+An inbound source (a webhook, a mailbox, a GitHub repository) is a standing
+grant, kept on the desk like a folder or an MCP server, never something a
+teammate makes for itself.
 
-1. **Asks to a busy main conversation.** If the colleague's DM is mid-turn,
-   does an ask wait for it (real memory, slower), or is it answered by a work
-   thread seeded with the DM's index and recent asides (fast, nearly the same
-   memory)?
-2. **Aside name and placement.** Is "aside" the word, and is a Noted list in
-   the teammate menu the right place to see them?
-3. **Index in every thread?** Should a job's firing or a subagent's run get
-   the full index, or only the DM and work threads?
-4. **Inbound threads.** Worth designing now, so webhooks and email arrive as
-   asides from day one, or later?
-5. **Multi-party threads.** In scope, or does the aside model cover enough of
-   it?
+- **Owned by the person.** Only the owner's desk or phone adds, pauses or
+  removes a source. A teammate can propose one (a card), like `add_teammate`.
+- **Scoped to teammates.** Each source names which teammates it may aside, and
+  the highest level it may use (`note` by default; `nudge` and `person` must be
+  allowed per source).
+- **Untrusted content.** What a source delivers is data, fenced and labelled
+  as coming from outside, never instructions. It can't carry files into a
+  workspace unless the source allows it, and never secrets.
+- **Rate-limited and quiet by default.** A per-source limit and a brake, the
+  same as a pair's, and a mute switch per source.
+- **Auditable.** Every inbound aside is kept and searchable, listed on Noted
+  with its source, and the source's own page shows what it delivered.
+
+Shape now means: the `Aside` type carries a `source` that is a thread or an
+inbound source, the grant record and its checks exist and are tested, and
+the Noted page can show a source. No webhook endpoint, mailbox or GitHub
+transport is built yet.
+
+## Mapping #203 to this design
+
+#203 is 80 commits by Kelviny Moura on `feature/handoff-threads` (base
+`release/0.44.0`). It still merges into main with three conflicts (two test
+files and `ui/src/components/Dock.tsx`). Most of it can't be cherry-picked as
+is, because the parts are woven through each other, so it is ported phase by
+phase onto this design. Work taken unchanged keeps Kelviny's authorship;
+adapted work carries `Co-authored-by: Kelviny Moura
+<kelvinyhenrique17@gmail.com>`; the 0.46 release notes thank him.
+
+| Group | #203 commits | Under this design |
+| --- | --- | --- |
+| **G. A rebuild isn't a revocation; lock order** | 1c8267a3, 8246a1b5, 4269984e, d14f90d5 | **Take as is.** A computer joining, a release swap and an MCP sign-in rebuild only the main session; `persona.update`, `settings.update` and `mcp.auth_sign_out` release `policy_update_lock` before awaiting a reattach. Overlaps task-316. |
+| **F. Requests end only when someone ends them** | 632ef23d, 543a2a92, 638e4cee, 0a3f6e53, 28d039b0 | **Take as is.** `CapabilityEpoch.authority` beside `generation`: a swap or rebuild advances only the generation. |
+| **A. A handoff keeps its thread** | fb5d18c6, 2fcf7fd3, 1d482942, 27b230f1 | **Take.** `message_teammate` returns `thread` and takes it back to continue. This is thread addressing (§3) on one desk. |
+| **B. The person talks in a handed-over thread** | f9cdb4e1, 3bed7168, 2a9fbd82, 38a77fdf, f8287f4c, 247e7f7f, 4eebc70b, 118732b2 | **Take**, plus decision 5's card changes (Loop in…, End thread). |
+| **C. Questions go where the memory is** | 13755553, 1caffb9c, 3d3d3000, ca40411c, 6191c26f, aebb3a36, 3f8f8057, 1dd637de, 153d9eb2, 0208f35d, d78c6ebb, 42b611f5, 9de5dcab, e0f63b82, b9f21ae9, 7812b61a, 2609ae5e, 5a670d95 | **Adapt.** Keep: the separate ask session goes; an ask naming a thread is answered there; a question back reaches the delegating conversation without a new card while the delegation stands; failures reach the asker. Change: an ask to a busy main conversation is answered by a seeded work thread plus an aside back (decision 1), not queued behind it. |
+| **D. The delegator hears every turn** | 9af33321, 53c11c1a, 75af8085, b21b2ccd, 6758ae6a, 12e0705d, part of d915e505 and 362b5cd1 | **Replace with asides.** A handed-over thread leaves its opener a `note` per turn and a `nudge` on its result. Kelviny's wake rules (only when idle, once for many threads, counted on the pair's brake) become the `nudge` rules. |
+| **E. Stop vs Interrupt** | 8ca12665, 0d12fb05, c5838795, ffca1aed, c1a237ca, ac90e42b, d10cfdfe, 34dc60d5, 3df48bcc, 9d946917, fa668c7d, 39d32095, 479fbcfa, 185120fb, 7c32e5c8 | **Take**, after C. The person's Stop ends a handoff for good and its sender hears once (an aside, not a wake); Interrupt only redirects. Adds `interrupt` to `session.cancel` and `thread.cancel`. |
+| **H. Across a desk link** | e79d5890, 362b5cd1, ffca1aed, 34dc60d5 | **Adapt** to addressable threads and asides across a link (§3). |
+| **Separate** | 9ea0a533 | **Review on its own.** It auto-allows ACP permission requests for Hotline's own loopback MCP tools: a security change that needs its own decision. |
+| **Docs and test upkeep** | fe49127b, 16c35d54, 54ae2646, 6e5974d8, 7667a0df, 2fd22fd7, 035f7367, cc847b2a, ae62d379, 7a8ed4e7 | **Rewrite** to this design as each phase lands; the tests come along with their phase. |
+
+## Order of work
+
+Each phase is its own branch off `feat/thread-awareness` (itself off
+`release/0.46.0`), green on `make check` before it merges into that branch.
+Nothing reaches the release branch until George has looked.
+
+1. **Foundations:** G and F, and task-316 (an "Always" grant that survives;
+   the informed check reads the fold).
+2. **Thread addressing and handed-over threads:** A and B.
+3. **Asides:** the type, store, grants, levels and brake, delivery into the
+   next turn, search; D replaced by asides.
+4. **The thread index:** built per turn for the main conversation, work
+   threads and calls, capped, with chapters as ended main-conversation
+   threads.
+5. **Asks:** C adapted to decision 1.
+6. **The desk's window:** the aside line, Noted, Loop in…, End thread.
+7. **Stop vs Interrupt:** E.
+8. **Across a link:** H, and files between agents.
+9. **Inbound shape:** the source grant model and its checks, no transport.
+10. **The phone:** the aside line, Noted, Loop in… (hotline-mobile board).

@@ -333,6 +333,16 @@ impl Driver for Scripted {
 /// time it was said: every line reaches a driver timed, so every test that
 /// reads what a driver heard checks that, and reads the words.
 pub(super) fn words_of(heard: &str) -> String {
+    let words = stamped(heard);
+    match super::index::split(&words) {
+        Some((_, rest)) => words_of(rest),
+        None => words,
+    }
+}
+
+/// The words of a line a driver heard, the thread index it opens with kept:
+/// what a test of the index or an aside reads.
+pub(super) fn stamped(heard: &str) -> String {
     let (stamp, words) = heard
         .strip_prefix('[')
         .and_then(|rest| rest.split_once("] "))
@@ -424,9 +434,18 @@ impl Fake {
         lock(&self.driver.waiting).clone()
     }
 
-    /// Every line any driver in this room has been handed, in order.
+    /// Every line any driver in this room has been handed, in order, without
+    /// the thread index it opened with.
     pub(super) fn prompts(&self) -> Vec<String> {
         lock(&self.driver.prompts).clone()
+    }
+
+    /// The same lines whole: the thread index and its asides, then the words.
+    pub(super) fn told(&self) -> Vec<String> {
+        lock(&self.driver.heard)
+            .iter()
+            .map(|heard| stamped(heard))
+            .collect()
     }
 
     /// A room whose summariser is asked and refused, which is the shape of

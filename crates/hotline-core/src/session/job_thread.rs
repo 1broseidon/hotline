@@ -362,7 +362,8 @@ impl Occupant for LiveJob {
         if let Some(id) = &line.line.delivery {
             self.heard(room, id);
         }
-        // What other threads left the teammate about this job opens the line.
+        // The job's parent thread, and what other threads left the teammate
+        // about this job, open the line: a job hears nothing of the rest.
         let told: Vec<String> = line
             .line
             .from
@@ -372,9 +373,10 @@ impl Occupant for LiveJob {
             .map(super::asides::result_aside)
             .into_iter()
             .collect();
-        if let Some(asides) = room.hear_asides(&self.persona_id, &Occupant::thread(&**self), &told)
-        {
-            line.line.text = format!("{asides}\n\n{}", line.line.text);
+        let thread = Occupant::thread(&**self);
+        let asides = room.hear_asides(&self.persona_id, &thread, &told);
+        if let Some(index) = room.thread_index(&self.persona_id, &thread, &asides, None) {
+            line.line.text = format!("{index}\n\n{}", line.line.text);
         }
         Begin::Go(JobTurn {
             line: Some(line.line),

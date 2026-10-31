@@ -74,7 +74,7 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
     else {
         return said("On it.");
     };
-    let asked = text_of(&messages[asked_at]);
+    let asked = common::asked(&text_of(&messages[asked_at]));
     let answered: Vec<String> = messages[asked_at + 1..]
         .iter()
         .filter(|message| message["role"] == "tool")

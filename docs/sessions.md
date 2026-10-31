@@ -1346,10 +1346,10 @@ never a message in the person's chat.
 begins, `Room::hear_asides` takes the recipient's unheard asides for that
 thread (those `about` it, and in the DM those about nothing or about a thread
 that no longer takes turns: a closed work thread, an ended job, a pair, a call
-or a run) and opens the line with them, timed, one line each fenced as data:
-"Ada, in pair:ada~bob: the numbers are in". Each is rewritten as `heard`, so it
-is told once. A retried turn and work the agent took up by itself hear none.
-`render` is the block, for the thread index to reuse.
+or a run), and they are said in the [thread index](#the-thread-index) the
+line opens with, one line each fenced as data: "Ada, in pair:ada~bob: the
+numbers are in" (`render`). Each is rewritten as `heard`, so it is told once. A
+retried turn and work the agent took up by itself hear none.
 
 **Levels.** A `note` waits. A `nudge` also wakes the thread it is heard in
 when that thread is idle (the DM's or a live work thread's queue is claimed
@@ -1380,6 +1380,73 @@ conversation are taken into one turn when it is free (`results_behind`), and
 the reply is counted on the brake as it always was. Notes and the nudge ride on
 the handoff, so they stop when it no longer stands, and a sender on a linked
 desk gets none.
+
+## The thread index
+
+Each turn knows where the teammate's other threads stand without a tool call
+(`session/index.rs`; the design is
+[thread-awareness.md](design/thread-awareness.md) §1 and decision 3). As a
+turn of the main conversation, a work thread or a call begins (`Session::begin`,
+`LiveSide::begin`, which a call's turns share), `Room::thread_index` builds a
+block from `ThreadStore::list` and the tape's chapters and opens the line with
+it, timed, before the person's words:
+
+```
+[Fri 30 Oct 2026, 21:41] (Thread index: … from Hotline and not the person …
+<hotline_threads>
+THREADS · Goldie · Fri 30 Oct 2026, 21:41
+ACTIVE 1
+work side:<id> · release 0.11.1 · working 2m · "Signing build 46"
+WAITING ON GEORGE 1
+call call:<id> · Call · card 10m · "Push the tag v0.11.1?"
+ENDED TODAY 2
+work side:<id> · contract check · ended 18:10 · "Huck's notes are in the doc"
+main chapter · The 0.11.1 notes · ended 14:02 · "Drafted the 0.11.1 notes"
+41 older · search_thread finds them
+</hotline_threads>
+(Asides: … <hotline_asides> … </hotline_asides> The asides are over.)
+The index is over.)
+```
+
+- **Active:** a thread with a turn running or a line waiting for its agent
+  (a work thread or call by `turn_running`, a pair being answered, a job
+  firing, a live run), and a work thread or call that is open and idle. The
+  main conversation is listed from another thread when it is working.
+- **Waiting on the person:** a thread that is not closed with a card up
+  (`wire::waiting_on`), quoting the card.
+- **Ended today:** a thread parked or closed in the last 24 hours, with its
+  outcome or last line, and each chapter of the main conversation closed in
+  the last 24 hours, as an ended `main` thread with its note's first sentence.
+- **Older:** threads and chapters that ended before that, and any the cap left
+  out, counted.
+- **Asides:** the ones `hear_asides` took for this turn, through `render`, so
+  they are said in this block and nowhere else.
+
+The thread the turn runs in is left out. The cap is fifteen entries (`MOST`),
+what waits on the person kept first, then what is under way, then what ended,
+newest first; titles are cut to 40 characters and last lines to 60, which
+keeps a full index to a few hundred tokens. A teammate with no other threads
+and no asides is told nothing.
+
+**A job's firing and a run** are told only their parent thread, the main
+conversation, as one `PARENT` line, and the asides about them.
+
+**Unchanged.** The main conversation's session and each live work thread or
+call keep a hash of the index their agent was last told (`indexed`). When the
+index hashes the same (no thread moved, changed state or crossed the 24-hour
+line) and there is no new aside, the line opens with "(Thread index: none of
+your other threads has moved since your last turn here.)" instead. A new
+session (a new chapter, a restart) and a thread brought back from a park are
+new agents, told it whole. A job and a run keep none: a job's agent is let go
+between firings, and the parent line is short.
+
+**Where it rides.** On the line, never in the preamble: the preamble stays the
+same every turn, so a harness that caches it (Hotline Agent's
+`Reuse::Rounds`, which marks the system prompt and moves the conversation's
+breakpoint forward) keeps its prefix, and an ACP harness hears it as the first
+part of the prompt. The line written to the tape and the thread's stream is
+the person's words alone; a call's summary of what it was asked reads the line
+without the index (`index::asked`).
 
 ## Peer threads
 

@@ -44,6 +44,7 @@ mod driver_info;
 pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod generate;
+mod index;
 mod job_thread;
 pub(crate) mod jobs;
 pub(crate) use hotline_room::tool_ledger as ledger;
@@ -544,6 +545,9 @@ struct Session {
     /// restored from a checkpoint has nothing to write: the id is already on
     /// the record.
     pending_checkpoint: Mutex<Option<String>>,
+    /// The thread index this session's agent was last told
+    /// (`session/index.rs`). A new chapter is a new session, told it whole.
+    indexed: Mutex<Option<u64>>,
 }
 
 /// Pacing keeps this ID on the first bubble, while narration needs the full reply.

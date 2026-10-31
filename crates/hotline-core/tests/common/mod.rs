@@ -113,6 +113,20 @@ pub async fn until(what: &str, mut condition: impl FnMut() -> bool) {
     }
 }
 
+/// A line as a scripted model reads it: without the thread index it opens
+/// with, which quotes other threads' lines (and the `CALL`s and `SAY`s they
+/// were asked) as context, never as this turn's ask.
+#[allow(dead_code, reason = "each test binary uses a different part of common")]
+pub fn asked(text: &str) -> String {
+    match (
+        text.find("(Thread index:"),
+        text.find("The index is over.)"),
+    ) {
+        (Some(start), Some(end)) if start < end => format!("{}{}", &text[..start], &text[end..]),
+        _ => text.to_string(),
+    }
+}
+
 /// The window's half of the wire, as a harness plays it. Every wait is
 /// bounded.
 #[allow(dead_code, reason = "each test binary uses a different part of common")]

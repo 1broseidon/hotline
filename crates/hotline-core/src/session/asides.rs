@@ -12,12 +12,12 @@
 //! It is heard at the start of the teammate's next turn in the thread it is
 //! `about`, or its main conversation when it is about none or that thread is
 //! no longer open: the turn's line opens with them, fenced as their senders'
-//! own words, and each is rewritten as heard so it is told once
-//! ([`Room::hear_asides`]). Its level says what more it does: a `note` only
-//! waits; a `nudge` wakes the teammate when the thread it is heard in is idle,
-//! once however many arrive together, and counts the wake on the two
-//! teammates' brake; a `person` aside also raises a card for the person on
-//! the teammate's main conversation.
+//! own words, inside the thread index ([`Room::thread_index`]), and each is
+//! rewritten as heard so it is told once ([`Room::hear_asides`]). Its level
+//! says what more it does: a `note` only waits; a `nudge` wakes the teammate
+//! when the thread it is heard in is idle, once however many arrive together,
+//! and counts the wake on the two teammates' brake; a `person` aside also
+//! raises a card for the person on the teammate's main conversation.
 //!
 //! Who may aside whom is who may ask whom: the same check, the same
 //! first-contact card ([`Room::authorize_collaboration`]). What a handed-over
@@ -50,7 +50,8 @@ pub(crate) struct Leaving<'a> {
     pub level: AsideLevel,
 }
 
-/// The asides a turn hears, as the block its line opens with: one line each,
+/// The asides a turn hears, as the thread index that opens its line says
+/// them ([`Room::thread_index`]): one line each,
 /// "Quill, in pair:pork-chop~quill: the numbers are in". Each sender's words
 /// are fenced as data, since an aside carries what a colleague or a source
 /// said and never an instruction of the person's. `named` is each aside with
@@ -210,17 +211,17 @@ impl Room {
             .any(|aside| aside.id == id)
     }
 
-    /// The asides a turn of `persona_id`'s in `thread` hears now, as the
-    /// block its line opens with, each written back as heard. Those in `told`
-    /// are heard without being said again, since the turn's own line carries
-    /// them (a result that came back is its delivery). None when there is
-    /// nothing to say.
+    /// The asides a turn of `persona_id`'s in `thread` hears now, each with
+    /// the name of whoever left it and written back as heard; the thread index
+    /// says them ([`Room::thread_index`]). Those in `told` are heard without
+    /// being said again, since the turn's own line carries them (a result
+    /// that came back is its delivery). Empty when there is nothing to say.
     pub(super) fn hear_asides(
         &self,
         persona_id: &str,
         thread: &ThreadId,
         told: &[String],
-    ) -> Option<String> {
+    ) -> Vec<(String, Aside)> {
         let _hearing = lock(&self.asides_lock);
         let now = now_ms();
         let heard: Vec<Aside> = crate::store::asides::of(&self.log, persona_id)
@@ -228,7 +229,7 @@ impl Room {
             .filter(|aside| aside.heard.is_none() && self.heard_in(aside) == *thread)
             .collect();
         if heard.is_empty() {
-            return None;
+            return Vec::new();
         }
         for aside in &heard {
             let mut kept = aside.clone();
@@ -242,12 +243,11 @@ impl Room {
             }
         }
         let _ = self.info_changes.send(self.info(persona_id));
-        let said: Vec<(String, &Aside)> = heard
-            .iter()
+        heard
+            .into_iter()
             .filter(|aside| !told.contains(&aside.id))
-            .map(|aside| (self.aside_name(aside), aside))
-            .collect();
-        (!said.is_empty()).then(|| timed(now, &render(&said)))
+            .map(|aside| (self.aside_name(&aside), aside))
+            .collect()
     }
 
     /// How many asides the teammate has not heard yet, for its roster row.

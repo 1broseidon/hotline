@@ -118,6 +118,7 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 | Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | one turn in flight per pair | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
 | Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
 | Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
+| Thread index | each turn, whole or "unchanged" | each turn, whole or "unchanged" | none: no turns of its own | each turn, as a work thread | its parent's line and the asides about it | its parent's line and the asides about it |
 
 A handoff is a side thread: opened by a teammate instead of the person, with the
 sender as its opener. Its result returns to the opener as a delivery. A later
@@ -692,6 +693,30 @@ Notes for phase 10:
 - The per-kind markers, deltas and commands can leave the wire once no build
   that needs them is in use; the window no longer sends or reads any of them
   except `peers.list` and `peers.mark_read`.
+
+**Thread awareness: the index** (epic-28 phase 4,
+[thread-awareness.md](design/thread-awareness.md) §1). Each turn of the main
+conversation, a work thread or a call opens with the teammate's thread index,
+built from `ThreadStore::list` and the tape's chapters by `Room::thread_index`
+(`session/index.rs`) and carrying the asides the turn hears; a job's firing and
+a run are told their parent thread's line and the asides about them. The
+shape, the cap and the "unchanged" line are in
+[sessions.md](sessions.md#the-thread-index).
+
+Where this differs from the design above:
+
+- **Open idle work threads are active.** The design's sections are working,
+  waiting on the person, ended; a live work thread or call with no turn running
+  is neither ended nor older, so it is listed under Active as `open`.
+- **"Today" is the last 24 hours**, for threads and chapters alike.
+- **The main conversation is listed only when it is working or has a card
+  up**, since it never ends and every turn knows it is there; a job and a run
+  are always told its line, as their parent.
+- **A key is a `read_thread` key** (`side:<id>`, `run:<id>`); a chapter has none
+  and is found by `search_thread`. A work thread the teammate handed a colleague
+  is listed for the sender too, as "handed to Quill: …".
+- **No unchanged line for a job or a run.** They keep no hash: a job's agent is
+  let go between firings, and a run has one turn.
 
 ## Today
 

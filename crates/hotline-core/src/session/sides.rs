@@ -191,6 +191,8 @@ pub(super) struct LiveSide {
     /// only once a turn has completed on the session: some agents issue an id
     /// they cannot reopen until a prompt has committed.
     saved: Mutex<Option<String>>,
+    /// The thread index this agent was last told (`session/index.rs`).
+    indexed: Mutex<Option<u64>>,
 }
 
 /// What a thread holds once its agent is up.
@@ -336,9 +338,9 @@ impl Occupant for LiveSide {
         if let Some(id) = &line.delivery {
             self.heard(room, id);
         }
-        // What other threads left the teammate about this one opens the line.
-        // A line that only woke it to hear them is spent once a turn before
-        // it has.
+        // Where the teammate's other threads stand, and what they left it about
+        // this one, open the line. A line that only woke it to hear asides is
+        // spent once a turn before it has.
         let told: Vec<String> = line
             .from
             .as_ref()
@@ -347,10 +349,14 @@ impl Occupant for LiveSide {
             .map(super::asides::result_aside)
             .into_iter()
             .collect();
-        match room.hear_asides(&self.persona_id, &self.thread, &told) {
-            Some(asides) => line.text = format!("{asides}\n\n{}", line.text),
-            None if line.wake => return Begin::Skip,
-            None => {}
+        let asides = room.hear_asides(&self.persona_id, &self.thread, &told);
+        if asides.is_empty() && line.wake {
+            return Begin::Skip;
+        }
+        if let Some(index) =
+            room.thread_index(&self.persona_id, &self.thread, &asides, Some(&self.indexed))
+        {
+            line.text = format!("{index}\n\n{}", line.text);
         }
         Begin::Go(WorkTurn { line: Some(line) })
     }
@@ -804,6 +810,7 @@ impl Room {
             archive_note: Mutex::new(None),
             reported: Mutex::new(None),
             saved: Mutex::new(kept),
+            indexed: Mutex::new(None),
         });
         {
             // Publication and revocation share this lock, so a stop or policy

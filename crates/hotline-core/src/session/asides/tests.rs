@@ -168,14 +168,14 @@ async fn a_note_waits_for_the_next_turn_and_opens_its_line_never_the_chat() {
     .await
     .unwrap();
     assert!(!lock(&session.turns).running, "a note wakes nobody");
-    assert_eq!(agents.prompts(), [] as [String; 0]);
+    assert_eq!(agents.told(), [] as [String; 0]);
     assert_eq!(chat(&room, "bob"), chat_before, "nothing new in the chat");
 
     room.prompt("bob", "What changed?", None, None)
         .await
         .unwrap();
-    until("bob's turn was told", || agents.prompts().len() == 1).await;
-    let heard = &agents.prompts()[0];
+    until("bob's turn was told", || agents.told().len() == 1).await;
+    let heard = &agents.told()[0];
     assert!(
         heard.contains("Ada, in dm:ada: The Q3 numbers are in /shared/q3.csv"),
         "{heard}"
@@ -198,11 +198,11 @@ async fn a_note_waits_for_the_next_turn_and_opens_its_line_never_the_chat() {
 
     until("bob is at rest", || !lock(&session.turns).running).await;
     room.prompt("bob", "And now?", None, None).await.unwrap();
-    until("bob's next turn was told", || agents.prompts().len() == 2).await;
+    until("bob's next turn was told", || agents.told().len() == 2).await;
     assert!(
-        !agents.prompts()[1].contains("Asides"),
+        !agents.told()[1].contains("Asides"),
         "heard once: {}",
-        agents.prompts()[1]
+        agents.told()[1]
     );
 }
 
@@ -242,12 +242,14 @@ async fn an_aside_about_a_thread_is_heard_there_and_one_about_a_closed_thread_at
     room.keep_aside(&aside).unwrap();
     // A work thread that is not open takes no turn: it is heard at home.
     assert_eq!(room.heard_in(&aside), ThreadId::dm("bob"));
-    assert!(
-        room.hear_asides("bob", &ThreadId::side("gone"), &[])
-            .is_none()
+    assert_eq!(
+        room.hear_asides("bob", &ThreadId::side("gone"), &[]),
+        [] as [(String, Aside); 0]
     );
-    let heard = room.hear_asides("bob", &ThreadId::dm("bob"), &[]).unwrap();
-    assert!(heard.contains("Ada, in dm:ada: the crane"), "{heard}");
+    let heard = room.hear_asides("bob", &ThreadId::dm("bob"), &[]);
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    assert_eq!(heard[0].0, "Ada");
+    assert_eq!(heard[0].1.text, "the crane");
 }
 
 #[tokio::test]
@@ -263,10 +265,10 @@ async fn nudges_wake_an_idle_teammate_once_and_count_once_on_the_brake() {
         .await
         .unwrap();
     }
-    until("bob woke", || agents.prompts().len() == 1).await;
+    until("bob woke", || agents.told().len() == 1).await;
     until("bob is at rest again", || !lock(&session.turns).running).await;
-    assert_eq!(agents.prompts().len(), 1, "one wake for three nudges");
-    let heard = &agents.prompts()[0];
+    assert_eq!(agents.told().len(), 1, "one wake for three nudges");
+    let heard = &agents.told()[0];
     for text in ["first", "second", "third"] {
         assert!(heard.contains(&format!("(nudge): {text}")), "{heard}");
     }
@@ -289,7 +291,7 @@ async fn nudges_wake_an_idle_teammate_once_and_count_once_on_the_brake() {
     };
     let line = claim_idle(&session.turns, spent).unwrap();
     room.clone().run_queue(session.clone(), line).await;
-    assert_eq!(agents.prompts().len(), 1);
+    assert_eq!(agents.told().len(), 1);
 }
 
 #[tokio::test]
@@ -311,7 +313,7 @@ async fn a_nudge_at_the_brake_or_to_a_busy_teammate_waits_for_the_next_turn() {
     )
     .await
     .unwrap();
-    until("bob woke", || agents.prompts().len() == 1).await;
+    until("bob woke", || agents.told().len() == 1).await;
     until("bob is at rest", || !lock(&session.turns).running).await;
     let pair = pair_record(&room).unwrap();
     assert_eq!(pair["exchanges"], 12);
@@ -358,8 +360,8 @@ async fn a_nudge_at_the_brake_or_to_a_busy_teammate_waits_for_the_next_turn() {
     lock(&session.turns).running = false;
 
     room.prompt("bob", "go on", None, None).await.unwrap();
-    until("bob's next turn", || agents.prompts().len() == 2).await;
-    let heard = &agents.prompts()[1];
+    until("bob's next turn", || agents.told().len() == 2).await;
+    let heard = &agents.told()[1];
     assert!(heard.contains("held") && heard.contains("busy"), "{heard}");
 }
 
@@ -385,11 +387,11 @@ async fn a_person_aside_raises_a_card_on_the_teammates_conversation_and_is_heard
     assert_eq!(kept(&room, "bob")[0].level, AsideLevel::Person);
 
     room.prompt("bob", "hello", None, None).await.unwrap();
-    until("bob's turn was told", || agents.prompts().len() == 1).await;
+    until("bob's turn was told", || agents.told().len() == 1).await;
     assert!(
-        agents.prompts()[0].contains("The crane needs a sign-off"),
+        agents.told()[0].contains("The crane needs a sign-off"),
         "{}",
-        agents.prompts()[0]
+        agents.told()[0]
     );
 }
 
@@ -511,8 +513,8 @@ async fn results_that_come_back_together_are_heard_in_one_turn() {
     }
     let first = lock(&session.turns).next_line().unwrap();
     room.clone().run_queue(session.clone(), first).await;
-    assert_eq!(agents.prompts().len(), 1, "{:?}", agents.prompts());
-    let heard = &agents.prompts()[0];
+    assert_eq!(agents.told().len(), 1, "{:?}", agents.told());
+    let heard = &agents.told()[0];
     assert!(
         heard.contains("first result") && heard.contains("second result"),
         "{heard}"

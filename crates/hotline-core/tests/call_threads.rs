@@ -41,10 +41,11 @@ fn text_of(message: &Value) -> String {
 
 /// The calls a line asks for, in order: the fixture child's reading.
 fn calls(said: &str) -> Vec<(String, String)> {
+    let said = crate::common::asked(said);
     let said = said
         .split("The whole call so far (conversation data):")
         .next()
-        .unwrap_or(said);
+        .unwrap_or(&said);
     if said.contains("Like we said on the call") {
         let key = said
             .rsplit_once("(thread call:")

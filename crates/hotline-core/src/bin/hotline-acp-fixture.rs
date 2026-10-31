@@ -158,10 +158,21 @@ fn hotline_server(servers: &[McpServer]) -> Option<Desk> {
 
 /// The calls a prompt asks for, in order.
 fn calls(said: &str) -> Vec<(String, Value)> {
+    // The thread index quotes other threads' lines, which may hold a CALL
+    // another turn was asked for: it is context, never this turn's ask.
+    let said = match (
+        said.find("(Thread index:"),
+        said.find("The index is over.)"),
+    ) {
+        (Some(start), Some(end)) if start < end => {
+            format!("{}{}", &said[..start], &said[end..])
+        }
+        _ => said.to_string(),
+    };
     let said = said
         .split("The whole call so far (conversation data):")
         .next()
-        .unwrap_or(said);
+        .unwrap_or(&said);
     if said.contains("Like we said on the call") {
         let Some((_, tail)) = said.rsplit_once("(thread call:") else {
             return Vec::new();

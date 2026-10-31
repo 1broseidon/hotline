@@ -336,7 +336,7 @@ impl Threads<'_> {
             .voice
             .clone()
             .or_else(|| self.room.attached_voice(&thread));
-        let subject = line.text.clone();
+        let subject = super::index::asked(&line.text).to_string();
         let mut told = Told {
             replies: Vec::new(),
             files: Vec::new(),

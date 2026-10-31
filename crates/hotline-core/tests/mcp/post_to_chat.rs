@@ -43,7 +43,8 @@ fn text_of(message: &Value) -> String {
 
 /// The calls a line asks for, in order: the fixture child's reading.
 fn calls(said: &str) -> Vec<(String, String)> {
-    said.lines()
+    crate::common::asked(said)
+        .lines()
         .filter_map(|line| {
             let rest = &line[line.find("CALL ")? + "CALL ".len()..];
             let (tool, arguments) = rest.split_once(' ')?;

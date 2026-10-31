@@ -138,12 +138,20 @@ impl Occupant for Session {
                     text = format!("{text}\n\n{}", behind.text);
                 }
             }
-            // What other threads left the teammate opens the line. A line that
-            // only woke it to hear them is spent once a turn before it has.
-            match room.hear_asides(&session.persona_id, &session.thread(), &told) {
-                Some(asides) => text = format!("{asides}\n\n{text}"),
-                None if wired.wake => return Begin::Skip,
-                None => {}
+            // Where the teammate's other threads stand, and what they left it,
+            // open the line. A line that only woke it to hear asides is spent
+            // once a turn before it has.
+            let asides = room.hear_asides(&session.persona_id, &session.thread(), &told);
+            if asides.is_empty() && wired.wake {
+                return Begin::Skip;
+            }
+            if let Some(index) = room.thread_index(
+                &session.persona_id,
+                &session.thread(),
+                &asides,
+                Some(&session.indexed),
+            ) {
+                text = format!("{index}\n\n{text}");
             }
             Source::Say {
                 text,

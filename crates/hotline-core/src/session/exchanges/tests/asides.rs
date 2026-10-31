@@ -71,7 +71,7 @@ async fn a_result_comes_back_as_its_delivery_with_a_nudge_heard_once_beside_it()
     })
     .await;
     let told = agents
-        .prompts()
+        .told()
         .into_iter()
         .find(|prompt| prompt.contains("result-0"))
         .expect("ada's turn was told the result");
@@ -176,7 +176,7 @@ async fn a_persons_turn_in_a_handed_over_thread_leaves_its_opener_the_colleagues
     })
     .await;
     let heard = others
-        .prompts()
+        .told()
         .into_iter()
         .find(|p| p.contains("Anything new?"))
         .unwrap();

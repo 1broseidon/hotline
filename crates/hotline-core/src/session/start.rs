@@ -169,6 +169,7 @@ impl Room {
             pending_checkpoint: Mutex::new(
                 reported.session_id.filter(|_| !reported.context_restored),
             ),
+            indexed: Mutex::new(None),
         });
         {
             let _lifecycle = lock(&self.lifecycle);

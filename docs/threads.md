@@ -738,7 +738,9 @@ Where this differs from the design above:
 aside is a quiet line, never a bubble (`AsideLine`): in the recipient's main
 conversation, where the window draws it from `aside.list` at its time, the
 `(·)` mark, "from Goldie · work thread · 9:41 PM" in the instrument face and
-the words, opening the thread it came from; on the thread that left it, "to
+the words, opening the thread it came from (a result's nudge, `result:<request>`,
+is not drawn where the delivery it wakes the teammate for is, since that
+delivery says the result already; Noted still lists it); on the thread that left it, "to
 Quill · nudge · …", and for the person's Loop in… "Quill was looped in". The
 teammate's menu has Noted between Threads and Remove, with how many the person
 has not seen (`asidesNew`); it opens the pane's Noted page (`NotedPage`,

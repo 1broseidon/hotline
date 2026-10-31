@@ -70,12 +70,19 @@ export function asideTime(at: number, now: number = Date.now()): string {
 /**
  * The receiver's asides drawn into its main conversation, each at its time,
  * as `aside` lines. With older lines still on the desk, only those since the
- * first one loaded are drawn, so none hangs above a gap.
+ * first one loaded are drawn, so none hangs above a gap. A result's nudge
+ * (`result:<request>`) is there to wake the teammate, and the delivery beside
+ * it already says the result: where that delivery is drawn, the nudge is
+ * not drawn again. Noted still lists it.
  */
 export function withAsides(events: TranscriptEvent[], asides: Aside[], more: boolean): TranscriptEvent[] {
 	if (asides.length === 0) return events;
 	const since = more ? (events[0]?.ts ?? Number.POSITIVE_INFINITY) : Number.NEGATIVE_INFINITY;
-	const lines: TranscriptEvent[] = asides.filter((aside) => aside.ts >= since).map((aside) => ({ kind: "aside" as const, ...aside }));
+	const delivered = new Set<string>();
+	for (const event of events) if (event.kind === "delivery" && event.cause.kind === "peer" && event.cause.requestId !== undefined) delivered.add(`result:${event.cause.requestId}`);
+	const lines: TranscriptEvent[] = asides
+		.filter((aside) => aside.ts >= since && !delivered.has(aside.id))
+		.map((aside) => ({ kind: "aside" as const, ...aside }));
 	if (lines.length === 0) return events;
 	return [...events, ...lines].sort((a, b) => a.ts - b.ts);
 }

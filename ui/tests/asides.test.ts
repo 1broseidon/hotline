@@ -31,6 +31,21 @@ describe("asides in the receiver's main conversation", () => {
 		expect(withAsides(said, [], false)).toBe(said);
 	});
 
+	test("leave out a result's nudge where its delivery is drawn, which says the result already", () => {
+		const delivery: TranscriptEvent = {
+			kind: "delivery",
+			id: "exchange-result:r1",
+			ts: 21,
+			text: "The fix is the bind path fix.",
+			from: { kind: "side", thread: "release", request: "r1" },
+			cause: { kind: "peer", requestId: "r1", personaId: "goldie", name: "Goldie", threadKey: "goldie~quill", status: "done", about: "the fix" },
+		};
+		const nudge = aside("result:r1", 21, { level: "nudge", text: "The fix is the bind path fix." });
+		expect(withAsides([...said, delivery], [nudge, aside("x", 20)], false).map((event) => event.id)).toEqual(["u1", "x", "exchange-result:r1", "a1"]);
+		// One whose delivery went to a work thread is the only word of it here.
+		expect(withAsides(said, [nudge], false).map((event) => event.id)).toEqual(["u1", "result:r1", "a1"]);
+	});
+
 	test("are told apart from the ones a thread left, by whom they are for and where they came from", () => {
 		const here = { kind: "dm" as const, key: "quill" };
 		expect(leftHere(aside("x", 1), "quill", here)).toBe(false);

@@ -1670,7 +1670,8 @@ index ("Wrote…"). Work asked of it again in the same thread, by another
 handoff or question delivered into it or the person's words there, says so
 ("then updated it", "now updating it" while that turn runs, "then answered a
 question about it"), and what came of it is then the answer the latest
-turn ended on, since a closing note leads with what the first ask came to
+turn gave (of what it said after its last tool card, the first message past
+its openers, `text::answer`, not a remark it closed on), since a closing note leads with what the first ask came to
 and the index keeps only its head.
 The block's first line says these are the teammate's own threads,
 the same it, so it speaks from them as its own without `read_thread` unless it

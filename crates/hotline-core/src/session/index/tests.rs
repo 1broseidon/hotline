@@ -613,7 +613,7 @@ async fn the_outcome_of_the_teammates_own_work_is_in_its_own_voice() {
 /// A work thread a colleague handed over twice, the second a follow-up into
 /// the same thread, is told as work the teammate did and then updated, and
 /// what came of it is the second handoff's answer, not the first's, which
-/// the closing note leads with.
+/// the closing note leads with, nor a remark that turn closed on.
 #[tokio::test]
 async fn own_work_handed_over_again_is_told_by_its_latest_result() {
     let (room, _) = room("index-mine-again");
@@ -660,10 +660,17 @@ async fn own_work_handed_over_again_is_told_by_its_latest_result() {
         ),
         handoff("r2", now - 3 * MINUTE, "Add a fourth step, Tag v0.46.0."),
         said("a2", now - 3 * MINUTE, "on it, one sec."),
+        json!({"kind": "tool", "id": "tool:c1", "ts": now - 3 * MINUTE, "toolCallId": "c1",
+            "title": "edit release-plan.md", "status": "completed"}),
         said(
             "a3",
             now - 2 * MINUTE,
             "Done. Step 4, **Tag v0.46.0**, is appended after Publish.",
+        ),
+        said(
+            "a4",
+            now - 2 * MINUTE,
+            "Note: step 3 still says \"Tag the release\"; I left it.",
         ),
     ] {
         room.log
@@ -687,6 +694,7 @@ async fn own_work_handed_over_again_is_told_by_its_latest_result() {
         "{told}"
     );
     assert!(!line.contains("three steps"), "{told}");
+    assert!(!line.contains("left it"), "{told}");
 }
 
 #[test]

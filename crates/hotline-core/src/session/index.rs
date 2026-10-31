@@ -273,7 +273,7 @@ fn last_words(events: &[Value]) -> Option<String> {
 /// the last thing it said, else the outcome its link was closed with), in
 /// plain words and its own voice. Work asked of it again in the same thread
 /// says so ("then updated it"), and what came of it is then the latest:
-/// the answer the turn the latest ask opened ended on, since a closing note
+/// the answer the turn the latest ask opened gave, since a closing note
 /// leads with what the first ask came to and the index keeps only its head.
 fn mine(
     name: Option<&str>,
@@ -303,7 +303,7 @@ fn mine(
             (false, true) => "then answered a question about it",
             (false, false) => "then updated it",
         };
-        (then, last_words(&events[at..]))
+        (then, answer_since(&events[at..]))
     });
     let said = match (section, &latest) {
         (Section::Waiting, _) => card_of(events),
@@ -331,6 +331,23 @@ fn mine(
             .or_else(|| asked.map(|(name, _)| name)),
         then: latest.map(|(then, _)| then),
     }
+}
+
+/// What the turn the latest ask opened answered it with: of what it said
+/// after its last tool card, the message that answers (`text::answer`, not a
+/// remark it closed on), else its last words.
+fn answer_since(events: &[Value]) -> Option<String> {
+    let after = events
+        .iter()
+        .rposition(|event| event["kind"] == "tool")
+        .map_or(events, |at| &events[at + 1..]);
+    hotline_room::text::answer(
+        after
+            .iter()
+            .filter(|event| event["kind"] == "agent")
+            .filter_map(|event| event["text"].as_str()),
+    )
+    .or_else(|| last_words(events))
 }
 
 /// Where each turn of a work thread was asked for: a colleague's handoff or

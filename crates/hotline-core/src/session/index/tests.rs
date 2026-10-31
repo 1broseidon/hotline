@@ -513,6 +513,85 @@ async fn the_outcome_of_the_teammates_own_work_is_in_its_own_voice() {
     assert!(!told.contains("eammate"), "{told}");
 }
 
+/// A work thread a colleague handed over twice, the second a follow-up into
+/// the same thread, is told as work the teammate did and then updated, and
+/// what came of it is the second handoff's answer, not the first's, which
+/// the closing note leads with.
+#[tokio::test]
+async fn own_work_handed_over_again_is_told_by_its_latest_result() {
+    let (room, _) = room("index-mine-again");
+    let now = now_ms();
+    let mut link = thread(
+        &room.log,
+        ThreadId::side("plan"),
+        "Release plan",
+        ThreadState::Live,
+        now - 10 * MINUTE,
+    );
+    link.opener = Some(crate::thread::Opener {
+        persona_id: "ada".into(),
+        name: "Ada".into(),
+    });
+    link.state = ThreadState::Closed(End::Agent);
+    link.at = Some(now - MINUTE);
+    link.note = Some(
+        "Goal: Write the release plan.\nOutcome: Wrote release-plan.md with three steps, then added a fourth.".into(),
+    );
+    write_link(&room.log, &link);
+    let handoff = |id: &str, ts: i64, about: &str| {
+        json!({
+            "kind": "delivery", "id": format!("handoff:{id}"), "ts": ts,
+            "cause": {
+                "kind": "handoff", "requestId": id, "personaId": "ada", "name": "Ada",
+                "threadKey": "ada~bob", "about": about,
+            },
+            "text": about,
+        })
+    };
+    let said =
+        |id: &str, ts: i64, text: &str| json!({"kind": "agent", "id": id, "ts": ts, "text": text});
+    for line in [
+        handoff(
+            "r1",
+            now - 10 * MINUTE,
+            "Write release-plan.md: freeze, test, publish.",
+        ),
+        said(
+            "a1",
+            now - 9 * MINUTE,
+            "Done. `release-plan.md` has three steps.",
+        ),
+        handoff("r2", now - 3 * MINUTE, "Add a fourth step, Tag v0.46.0."),
+        said("a2", now - 3 * MINUTE, "on it, one sec."),
+        said(
+            "a3",
+            now - 2 * MINUTE,
+            "Done. Step 4, **Tag v0.46.0**, is appended after Publish.",
+        ),
+    ] {
+        room.log
+            .append(&StreamId::Side("plan".into()), &line)
+            .unwrap();
+    }
+
+    let told = room
+        .index_of("bob", &ThreadId::dm("bob"), now_ms())
+        .render("Bob", None, now_ms());
+    let line = told
+        .lines()
+        .find(|line| line.contains("side:plan"))
+        .unwrap_or_default();
+    assert!(
+        line.starts_with("you did \"Release plan\" for Ada, then updated it ("),
+        "{told}"
+    );
+    assert!(
+        line.ends_with(": \"Done. Step 4, Tag v0.46.0, is appended after Publish.\""),
+        "{told}"
+    );
+    assert!(!line.contains("three steps"), "{told}");
+}
+
 #[test]
 fn only_a_subject_that_names_the_teammate_is_dropped() {
     for (said, own) in [

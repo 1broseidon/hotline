@@ -77,6 +77,10 @@ pub(super) struct Entry {
     /// Whom its own work was for, when a colleague handed it over or asked:
     /// the colleague's name.
     pub whom: Option<String>,
+    /// How its own work went on after the ask that opened it, when another
+    /// handoff, question or word of the person's followed: "then updated it".
+    /// `said` is then what came of the latest.
+    pub then: Option<&'static str>,
 }
 
 /// A teammate's threads, ready to be told.
@@ -181,12 +185,15 @@ impl Entry {
             .whom
             .as_deref()
             .map_or_else(String::new, |whom| format!(" for {whom}"));
+        let then = self
+            .then
+            .map_or_else(String::new, |then| format!(", {then}"));
         let said = self
             .said
             .as_deref()
             .map_or_else(String::new, |said| format!(": \"{said}\""));
         format!(
-            "{verb} \"{}\"{whom} (work {key}, {} {when}){said}",
+            "{verb} \"{}\"{whom}{then} (work {key}, {} {when}){said}",
             self.title, self.state
         )
     }
@@ -258,7 +265,10 @@ fn last_words(events: &[Value]) -> Option<String> {
 /// title its closing note gave it, else the ask that opened it, else its
 /// title), whom it was for, and what came of it (the note's outcome, else
 /// the last thing it said, else the outcome its link was closed with), in
-/// plain words and its own voice.
+/// plain words and its own voice. Work asked of it again in the same thread
+/// says so ("then updated it"), and what came of it is then the latest:
+/// the answer the turn the latest ask opened ended on, since a closing note
+/// leads with what the first ask came to and the index keeps only its head.
 fn mine(
     name: Option<&str>,
     thread: &Thread,
@@ -278,9 +288,21 @@ fn mine(
         (_, _, Some(title)) => title,
         (_, _, None) => "untitled".to_string(),
     };
-    let said = match section {
-        Section::Waiting => card_of(events),
-        Section::Ended => thread.note.as_deref().and_then(super::sides::outcome_line),
+    let asks = asks_in(events);
+    let latest = asks.last().filter(|_| asks.len() > 1).map(|&at| {
+        let question = events[at]["cause"]["kind"] == "question";
+        let then = match (state == "working", question) {
+            (true, true) => "now answering a question about it",
+            (true, false) => "now updating it",
+            (false, true) => "then answered a question about it",
+            (false, false) => "then updated it",
+        };
+        (then, last_words(&events[at..]))
+    });
+    let said = match (section, &latest) {
+        (Section::Waiting, _) => card_of(events),
+        (_, Some((_, answer))) => answer.clone(),
+        (Section::Ended, None) => thread.note.as_deref().and_then(super::sides::outcome_line),
         _ => None,
     }
     .or_else(|| last_words(events))
@@ -301,7 +323,26 @@ fn mine(
             .and_then(|link| link.opener)
             .map(|opener| opener.name)
             .or_else(|| asked.map(|(name, _)| name)),
+        then: latest.map(|(then, _)| then),
     }
+}
+
+/// Where each turn of a work thread was asked for: a colleague's handoff or
+/// question delivered into it, or the person's words, in order.
+fn asks_in(events: &[Value]) -> Vec<usize> {
+    events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| match event["kind"].as_str() {
+            Some("user") => true,
+            Some("delivery") => matches!(
+                event["cause"]["kind"].as_str(),
+                Some("handoff" | "question")
+            ),
+            _ => false,
+        })
+        .map(|(at, _)| at)
+        .collect()
 }
 
 /// What came of the teammate's own work, in its own voice: an outcome that
@@ -493,6 +534,7 @@ impl Room {
                     .filter(|said| !said.is_empty()),
                 mine: false,
                 whom: None,
+                then: None,
             });
         }
         for found in ThreadStore::new(&self.log).list(persona_id) {
@@ -544,6 +586,7 @@ impl Room {
             said: said.map(|said| cut(&said, SAID_CHARS)),
             mine: false,
             whom: None,
+            then: None,
         }
     }
 
@@ -639,6 +682,7 @@ impl Room {
             said: said.map(|said| cut(&said, SAID_CHARS)),
             mine: false,
             whom: None,
+            then: None,
         })
     }
 

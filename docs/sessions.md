@@ -1666,7 +1666,13 @@ outcome, in the teammate's own voice: a work thread's closing note is asked
 to write its outcome as the teammate would ("Wrote…", "I wrote…",
 `chapters::OWN_VOICE`), and an outcome that still opens by naming who did it
 ("The teammate wrote…", "Teammate…", "Goldie wrote…") starts at the verb in the
-index ("Wrote…"). The block's first line says these are the teammate's own threads,
+index ("Wrote…"). Work asked of it again in the same thread, by another
+handoff or question delivered into it or the person's words there, says so
+("then updated it", "now updating it" while that turn runs, "then answered a
+question about it"), and what came of it is then the answer the latest
+turn ended on, since a closing note leads with what the first ask came to
+and the index keeps only its head.
+The block's first line says these are the teammate's own threads,
 the same it, so it speaks from them as its own without `read_thread` unless it
 needs more detail. A thread the teammate handed a colleague is still that
 colleague's ("handed to Huck"), quoted in the colleague's words only.

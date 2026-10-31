@@ -71,6 +71,41 @@ async fn a_reply_is_paced_as_chat() {
     );
 }
 
+/// A reply of only a zero-width space, as a model answers "Good, that's the
+/// right date" with when it has nothing to add, is no message: the tape gets
+/// the person's line and the turn's end, never an agent line to draw as an
+/// empty bubble, and the next real reply is written as ever.
+#[tokio::test]
+async fn a_reply_of_only_zero_width_characters_is_no_message() {
+    let room = room(
+        "zero-width-reply",
+        Fake::new(Scripted::turns(vec![
+            saying("nothing", "\u{200B}"),
+            saying("blank", " \u{FEFF}\n\n\u{2060} "),
+            saying("words", "Noted."),
+        ])),
+    );
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "Good, that's the correct date", None, None)
+        .await
+        .unwrap();
+    assert_eq!(kinds(&settled(&room, "ada", 2).await), ["user", "turn"]);
+    room.prompt("ada", "Thanks", None, None).await.unwrap();
+    assert_eq!(
+        kinds(&settled(&room, "ada", 4).await),
+        ["user", "turn", "user", "turn"]
+    );
+    room.prompt("ada", "Anything else?", None, None)
+        .await
+        .unwrap();
+    let chat = settled(&room, "ada", 7).await;
+    assert_eq!(
+        kinds(&chat),
+        ["user", "turn", "user", "turn", "user", "agent", "turn"]
+    );
+    assert_eq!(chat[5]["text"], "Noted.");
+}
+
 /// A teammate that narrates its work is heard once before it and once after.
 /// What it said between its tool calls is on the tape as thinking, its
 /// deltas after the acknowledgement stream as thinking, and the phone is

@@ -111,8 +111,11 @@ A reply is chat: one string split into bubbles by a function of the text
 (`session/pacing.rs::paced`), never by the model's mood. Blank-line units
 outside fences become bubbles; a list stays one unit; a stub shorter than
 60 characters joins its neighbour, and a unit that ends with `:` joins the
-next, so "Here's the fix:" and a fence stay one bubble. The length of a
-reply is the prompt's job, not a fold's.
+next, so "Here's the fix:" and a fence stay one bubble. A unit of only
+whitespace and zero-width characters (U+200B, U+200C, U+200D, U+2060,
+U+FEFF) is no bubble, so a reply of nothing but those writes no `agent`
+event, and `post_to_chat` refuses one. The length of a reply is the
+prompt's job, not a fold's.
 
 Each bubble is one `agent` event, ids `{id}` then `{id}-2`…, same timestamp.
 The model said one thing: history rejoins consecutive agent events with a

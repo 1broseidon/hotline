@@ -121,9 +121,22 @@ fn units(text: &str) -> Vec<String> {
 
 fn push_unit(out: &mut Vec<String>, lines: &[&str]) {
     let unit = lines.join("\n").trim().to_string();
-    if !unit.is_empty() {
+    if !says_nothing(&unit) {
         out.push(unit);
     }
+}
+
+/// Whether words say nothing a bubble could show: empty, or only whitespace
+/// and the zero-width characters a model sometimes answers with in place of
+/// silence. Such a reply is no message, never an empty bubble.
+pub(crate) fn says_nothing(text: &str) -> bool {
+    text.chars().all(|c| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+            )
+    })
 }
 
 /// Join a lead-in to what it introduces, left to right, once.
@@ -216,6 +229,22 @@ mod tests {
         let a = bubble(1);
         let b = bubble(2);
         assert_eq!(paced(&format!("{a}\n\n{b}")), chat(&[&a, &b]));
+    }
+
+    #[test]
+    fn a_reply_of_only_zero_width_characters_is_no_bubble() {
+        for nothing in [
+            "",
+            " \n\t",
+            "\u{200B}",
+            "\u{200C}\u{200D}",
+            "\u{FEFF} \u{2060}",
+        ] {
+            assert!(paced(nothing).is_empty(), "{nothing:?}");
+        }
+        let said = bubble(1);
+        assert_eq!(paced(&format!("{said}\n\n\u{200B}")), chat(&[&said]));
+        assert_eq!(paced("ok\u{200B}"), chat(&["ok\u{200B}"]));
     }
 
     #[test]

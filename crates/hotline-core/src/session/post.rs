@@ -143,7 +143,7 @@ impl Room {
         wake: bool,
     ) -> Result<String, String> {
         let text = text.trim();
-        if text.is_empty() {
+        if super::pacing::says_nothing(text) {
             return Err("post_to_chat needs the `text` to post.".to_string());
         }
         if thread.kind == ThreadKind::Run {

@@ -243,6 +243,77 @@ async fn the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_run
     assert!(answer_to(&room, &handoff).is_none());
 }
 
+/// The person answers the card Bob's handoff waits on in its parked thread,
+/// and presses Stop while the thread's agent starts: the answer, which would
+/// have carried the handoff on, is dropped, the handoff ends as theirs, and
+/// it never runs again.
+#[tokio::test]
+async fn the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_it() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let starts = Arc::new(Semaphore::new(1));
+    let bob = Fake::new(
+        Scripted::new(turn("waiting", "Waiting for the person.", "end_turn"))
+            .gated(gate.clone())
+            .slow_to_start(starts.clone()),
+    );
+    let room = apart("stops-a-cards-answer", &bob, &ada);
+    let handoff = send(&room, "handoff").await;
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let thread = work_thread(&room, &handoff);
+    TeammateTools::new(&room, "bob")
+        .for_work(thread.clone())
+        .call("request_human", &json!({"reason":"Approve the colour"}))
+        .await
+        .unwrap();
+    gate.add_permits(2);
+    until("the handoff waits on the person", || {
+        request(&room, "ada~bob", &handoff).phase == Phase::WaitingHuman
+            && thread_open(&room, &thread)
+    })
+    .await;
+    room.park_side_thread(&thread).unwrap();
+    let action = room
+        .log
+        .load(&StreamId::Side(thread.clone()))
+        .iter()
+        .find(|v| v["kind"] == "human_action")
+        .unwrap()["actionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    room.answer_human(
+        "bob",
+        &action,
+        crate::contract::HumanAnswer::Done,
+        Some("blue".into()),
+    )
+    .unwrap();
+    until("the answer waits for the thread's agent to start", || {
+        room.sides
+            .get(&thread)
+            .is_some_and(|side| side.turn_running())
+    })
+    .await;
+    room.cancel_side(&thread).unwrap();
+
+    let stopped = request(&room, "ada~bob", &handoff);
+    assert_eq!((stopped.phase, stopped.released), (Phase::Stopped, true));
+    assert_eq!(stopped_notes(&room).len(), 1);
+    starts.add_permits(4);
+    until("the thread's agent is up and idle", || {
+        thread_open(&room, &thread)
+    })
+    .await;
+    room.park_side_thread(&thread).unwrap();
+    room.wake_exchange("ada~bob");
+    gate.add_permits(4);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(bob.prompts().len(), 1, "the stopped work never runs");
+    assert_eq!(request(&room, "ada~bob", &handoff).phase, Phase::Stopped);
+    assert!(answer_to(&room, &handoff).is_none());
+}
+
 /// The person's Interrupt only cuts the handoff's turn: the handoff goes on
 /// running on its record, nothing ends and nothing wakes Ada, who is left
 /// the cut turn's words as any turn's note. Parked meanwhile, the thread

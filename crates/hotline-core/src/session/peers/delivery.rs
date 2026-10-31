@@ -55,25 +55,10 @@ impl Room {
         caller_capability.check()?;
         target_capability.check()?;
         let scope = self.peers.scope(&caller.id, &target.id);
-        // Whatever a teammate may do on its own desk, it gains nothing by
-        // crossing a link: one on a linked desk is never implicitly trusted.
-        let implicit = caller.node.is_none()
-            && caller.backend_id == HOTLINE_BACKEND_ID
-            && caller.reach.unwrap_or_default() == Reach::Machine;
+        if self.collaboration_granted(&caller, &target, handoff) {
+            return Ok(());
+        }
         let room = self.log.load(&StreamId::Room);
-        let informed = crate::session::consent::informed(&room, &caller.id, &target.id);
-        if (!handoff || informed)
-            && (implicit
-                || target
-                    .allowed_senders
-                    .iter()
-                    .any(|sender| sender == &caller.id))
-        {
-            return Ok(());
-        }
-        if self.peers.session_granted(&caller.id, &target.id) {
-            return Ok(());
-        }
 
         let request_id = format!("{COLLAB_REQUEST_PREFIX}{}", new_id());
         let caller_name = crate::session::links::shown(&caller);
@@ -221,6 +206,30 @@ impl Room {
         card_on: &str,
     ) -> Option<CollaborationWait> {
         self.peers.take_wait(request_id, card_on)
+    }
+
+    /// Whether `caller` may ask `target` to work without the person's card:
+    /// implicitly, by a standing grant, or by one for these two sessions.
+    pub(in crate::session) fn collaboration_granted(
+        &self,
+        caller: &Persona,
+        target: &Persona,
+        handoff: bool,
+    ) -> bool {
+        // Whatever a teammate may do on its own desk, it gains nothing by
+        // crossing a link: one on a linked desk is never implicitly trusted.
+        let implicit = caller.node.is_none()
+            && caller.backend_id == HOTLINE_BACKEND_ID
+            && caller.reach.unwrap_or_default() == Reach::Machine;
+        let room = self.log.load(&StreamId::Room);
+        let informed = crate::session::consent::informed(&room, &caller.id, &target.id);
+        let allowed = (!handoff || informed)
+            && (implicit
+                || target
+                    .allowed_senders
+                    .iter()
+                    .any(|sender| sender == &caller.id));
+        allowed || self.peers.session_granted(&caller.id, &target.id)
     }
 
     pub(in crate::session) fn settle_collaboration(&self, persona_id: &str) {

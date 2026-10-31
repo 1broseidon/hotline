@@ -25,37 +25,55 @@ use crate::session::runner::Driven;
 /// The most of a turn's last words a note carries.
 const NOTE_CHARS: usize = 400;
 
-/// What a note adds when the turn stopped to wait on the person.
+/// What a note adds when the turn stopped to wait on the person and the
+/// card it waits on cannot be found.
 const WAITING: &str = "Waiting on the person.";
 
-/// A turn's note, in the colleague's own words: what it said once its work
-/// was done, and that it waits when it does. Nothing for a turn that said
-/// nothing and is not waiting.
-fn turn_note(driven: &Driven, waiting: bool) -> Option<String> {
-    let words = if driven.last_words.is_empty() {
+/// What a note adds when the turn waits on a colleague's answer.
+const WAITING_ON_A_COLLEAGUE: &str = "Waiting on a colleague's answer.";
+
+/// What a turn said once its work was done: its words after the last tool
+/// card, else its last line.
+pub(super) fn said_last(driven: &Driven) -> String {
+    if driven.last_words.is_empty() {
         driven.replies.last().cloned().unwrap_or_default()
     } else {
         driven.last_words.join("\n\n")
-    };
-    let words = crate::driver::clip(words.trim(), NOTE_CHARS);
+    }
+}
+
+/// A turn's note, in the colleague's own words: what it said once its work
+/// was done, and then what it waits on when it does. Nothing for a turn that
+/// said nothing and is not waiting.
+fn turn_note(driven: &Driven, waiting: Option<&str>) -> Option<String> {
+    let words = crate::driver::clip(said_last(driven).trim(), NOTE_CHARS);
     match (words.is_empty(), waiting) {
-        (true, false) => None,
-        (true, true) => Some(WAITING.to_string()),
-        (false, false) => Some(words),
-        (false, true) => Some(format!("{words}\n\n{WAITING}")),
+        (true, None) => None,
+        (true, Some(waiting)) => Some(waiting.to_string()),
+        (false, None) => Some(words),
+        (false, Some(waiting)) => Some(format!("{words}\n\n{waiting}")),
     }
 }
 
 impl Room {
     /// A turn of a work thread ended that is not a handoff's result: the
     /// teammate that handed the thread over is left a note, if one did and
-    /// its handoff still stands. `waiting` says the turn stopped to wait on
-    /// the person.
+    /// its handoff still stands. `waiting` says the turn stopped to wait, and
+    /// the note says on what; a turn that waits only on questions to that
+    /// teammate leaves none, since those reach it themselves.
     pub(in crate::session) fn note_turn(&self, side_id: &str, waiting: bool, driven: &Driven) {
         let Some(request) = self.handoff_standing(side_id) else {
             return;
         };
-        let Some(text) = turn_note(driven, waiting) else {
+        let waiting = if waiting {
+            match self.waiting_on(&request) {
+                Some(waiting) => Some(waiting),
+                None => return,
+            }
+        } else {
+            None
+        };
+        let Some(text) = turn_note(driven, waiting.as_deref()) else {
             return;
         };
         let aside = Aside {
@@ -74,6 +92,80 @@ impl Room {
         if let Err(error) = self.keep_aside(&aside) {
             eprintln!("a note from thread {side_id}: {error}");
         }
+    }
+
+    /// What a handoff's turn waits on, as its sender is told it: the card up
+    /// for the person, said in its own words, or that a colleague is
+    /// answering. Nothing when it waits only on questions to its sender.
+    fn waiting_on(&self, handoff: &Request) -> Option<String> {
+        let pairs = self.exchange_pairs();
+        let asked = |id: &str| {
+            pairs.iter().find_map(|pair| {
+                pair.requests
+                    .iter()
+                    .find(|r| r.id == id && r.intent == Intent::Ask)
+            })
+        };
+        let open: Vec<&HumanGate> = handoff
+            .human_actions
+            .iter()
+            .filter(|gate| !gate.consumed)
+            .collect();
+        if !open.is_empty()
+            && open
+                .iter()
+                .all(|gate| asked(&gate.id).is_some_and(|ask| ask.to == handoff.from))
+        {
+            return None;
+        }
+        let card = open
+            .iter()
+            .find_map(|gate| match self.human_card(&handoff.to, &gate.id) {
+                Some((TranscriptEvent::HumanAction { reason, .. }, _)) => Some(reason),
+                _ => self.card_before_asking(&pairs, &gate.id),
+            });
+        Some(match card {
+            Some(card) => format!("Waiting on the person: {card}"),
+            None if open.iter().any(|gate| asked(&gate.id).is_some()) => {
+                WAITING_ON_A_COLLEAGUE.to_string()
+            }
+            None => WAITING.to_string(),
+        })
+    }
+
+    /// The card a question waits behind before it can be asked at all, in
+    /// its asker's main conversation: Keep going while the two have paused
+    /// at the cap, which holds it whatever the asker may do, and only then
+    /// the person allowing its asker to ask that colleague. A question to
+    /// another desk is allowed there.
+    fn card_before_asking(&self, pairs: &[Pair], ask: &str) -> Option<String> {
+        let (pair, ask) = pairs.iter().find_map(|pair| {
+            pair.requests
+                .iter()
+                .find(|r| r.id == ask && r.intent == Intent::Ask && r.phase == Phase::Queued)
+                .map(|ask| (pair, ask))
+        })?;
+        let asker = self.participant(&ask.from).ok()?;
+        let asker_name = crate::session::links::shown(&asker);
+        if pair.paused {
+            let colleague = self
+                .participant(&ask.to)
+                .map_or_else(|_| ask.to.clone(), |p| crate::session::links::shown(&p));
+            return Some(format!(
+                "Let {asker_name} and {colleague} keep going? They paused at {EXCHANGE_CAP} messages. The card is in {asker_name}'s main conversation."
+            ));
+        }
+        if linked::is_linked(&ask.to) || ask.looped_in || self.about_live(ask).is_some() {
+            return None;
+        }
+        let colleague = self.persona(&ask.to).ok()?;
+        if self.collaboration_granted(&asker, &colleague, false) {
+            return None;
+        }
+        Some(format!(
+            "Allow {asker_name} to ask {} to work? The card is in {asker_name}'s main conversation.",
+            colleague.name
+        ))
     }
 
     /// The nudge a handoff's result leaves its sender beside the delivery,
@@ -199,18 +291,18 @@ mod tests {
             &["The crane is fixed."],
         );
         assert_eq!(
-            turn_note(&said, false).as_deref(),
+            turn_note(&said, None).as_deref(),
             Some("The crane is fixed.")
         );
         assert_eq!(
-            turn_note(&said, true).as_deref(),
+            turn_note(&said, Some(WAITING)).as_deref(),
             Some("The crane is fixed.\n\nWaiting on the person.")
         );
         let quiet = driven(&[], &[]);
-        assert_eq!(turn_note(&quiet, false), None);
-        assert_eq!(turn_note(&quiet, true).as_deref(), Some(WAITING));
+        assert_eq!(turn_note(&quiet, None), None);
+        assert_eq!(turn_note(&quiet, Some(WAITING)).as_deref(), Some(WAITING));
         let long = "x".repeat(NOTE_CHARS * 2);
-        let clipped = turn_note(&driven(&[&long], &[]), false).unwrap();
+        let clipped = turn_note(&driven(&[&long], &[]), None).unwrap();
         assert!(clipped.chars().count() <= NOTE_CHARS + 1, "{clipped}");
     }
 }

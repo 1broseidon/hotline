@@ -24,7 +24,7 @@ async fn a_turn_that_waits_on_the_person_leaves_its_opener_a_note_and_no_message
     assert_eq!(note.about, None, "heard in Ada's main conversation");
     assert_eq!(
         note.text,
-        "Waiting for the person\n\nWaiting on the person."
+        "Waiting for the person\n\nWaiting on the person: Approve the deployment"
     );
     assert!(
         room.tape("ada")
@@ -185,4 +185,166 @@ async fn a_persons_turn_in_a_handed_over_thread_leaves_its_opener_the_colleagues
         "{heard}"
     );
     assert!(!heard.contains("Make it darker"), "{heard}");
+}
+
+/// The collaboration card on `whose` tape the person has not answered.
+fn open_card(room: &Room, whose: &str) -> Option<serde_json::Value> {
+    room.tape(whose).into_iter().find(|v| {
+        v["kind"] == "permission"
+            && v["requestId"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(crate::session::peers::COLLAB_REQUEST_PREFIX))
+            && v.get("decision").is_none()
+    })
+}
+
+/// A room where Ada hands Bob work and Bob and Carol work in the ordinary
+/// workspace reach, so Bob asking Carol needs the person's card; Bob's
+/// handoff turn asks Carol and ends, held at the returned gate.
+async fn asking_carol(name: &str, granted: bool, paused: bool) -> (Arc<Room>, String) {
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    for (id, name) in [("bob", "Bob"), ("carol", "Carol")] {
+        enrol(
+            &log,
+            &Persona {
+                name: name.into(),
+                reach: Some(crate::contract::Reach::Workspace),
+                ..persona(id)
+            },
+        );
+    }
+    let gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::new(super::questions::turn(
+            "asked",
+            "I asked Carol which colour.",
+            "end_turn",
+        ))
+        .gated(gate.clone()),
+    );
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Arc::new(Apart {
+            bob: bob.clone(),
+            others: Fake::new(Scripted::new(super::questions::turn(
+                "heard", "Heard.", "end_turn",
+            ))),
+        }),
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    if granted {
+        room.allow_sender("carol", "bob").unwrap();
+    }
+    if paused {
+        let pair = Pair {
+            id: thread_key("bob", "carol").unwrap(),
+            a: "bob".into(),
+            b: "carol".into(),
+            exchanges: EXCHANGE_CAP,
+            paused: true,
+            requests: vec![],
+        };
+        room.save_pair(&pair).unwrap();
+        room.exchange_card(&pair, ExchangePauseStatus::Pending);
+    }
+    let handoff = send(&room, "handoff").await;
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let thread = work_thread(&room, &handoff);
+    TeammateTools::new(&room, "bob")
+        .for_work(thread.clone())
+        .call(
+            "message_teammate",
+            &json!({"to":"carol","message":"Which colour?","intent":"ask"}),
+        )
+        .await
+        .unwrap();
+    gate.add_permits(2);
+    until("ada is left a note", || !asides(&room, "ada").is_empty()).await;
+    (room, thread)
+}
+
+/// Bob may not ask Carol yet: his question waits on the person's card in his
+/// main conversation, and the note the handoff's turn leaves Ada names it.
+#[tokio::test]
+async fn a_turn_waiting_on_a_question_the_person_must_allow_names_the_card() {
+    let (room, _) = asking_carol("aside-collaboration-card", false, false).await;
+    let notes: Vec<String> = asides(&room, "ada").into_iter().map(|a| a.text).collect();
+    assert_eq!(
+        notes,
+        [
+            "I asked Carol which colour.\n\nWaiting on the person: Allow Bob to ask Carol to work? The card is in Bob's main conversation."
+        ]
+    );
+    until("the card is up in Bob's main conversation", || {
+        open_card(&room, "bob").is_some()
+    })
+    .await;
+}
+
+/// Bob and Carol have paused at twelve: Bob's question waits on Keep going,
+/// whatever his grant, and the note names the card that is up, never one for
+/// allowing him to ask, which only comes once they go on.
+#[tokio::test]
+async fn a_turn_waiting_on_a_question_its_paused_pair_holds_names_the_pause() {
+    for granted in [false, true] {
+        let (room, _) =
+            asking_carol(&format!("aside-paused-question-{granted}"), granted, true).await;
+        let notes: Vec<String> = asides(&room, "ada").into_iter().map(|a| a.text).collect();
+        assert_eq!(
+            notes,
+            [
+                "I asked Carol which colour.\n\nWaiting on the person: Let Bob and Carol keep going? They paused at 12 messages. The card is in Bob's main conversation."
+            ],
+            "{granted}"
+        );
+        assert!(open_card(&room, "bob").is_none(), "{granted}");
+    }
+}
+
+/// Bob may ask Carol, who is answering: the note says the turn waits on a
+/// colleague's answer.
+#[tokio::test]
+async fn a_turn_waiting_on_a_colleagues_answer_says_so() {
+    let (room, _) = asking_carol("aside-colleagues-answer", true, false).await;
+    let notes: Vec<String> = asides(&room, "ada").into_iter().map(|a| a.text).collect();
+    assert_eq!(
+        notes,
+        ["I asked Carol which colour.\n\nWaiting on a colleague's answer."]
+    );
+}
+
+/// A handoff's turn that waits only on its question back to Ada leaves her
+/// no note: the question reaches her by itself, and a note would say it
+/// twice.
+#[tokio::test]
+async fn a_turn_waiting_only_on_a_question_to_its_sender_leaves_no_note() {
+    let (room, _) = setup("aside-waits-on-the-sender");
+    let mut handoff = saved_request("h", Intent::Handoff, Phase::WaitingHuman);
+    handoff.thread = Some("t".into());
+    handoff.started = true;
+    handoff.human_actions = vec![HumanGate {
+        id: "q".into(),
+        consumed: false,
+    }];
+    let mut back = saved_request("q", Intent::Ask, Phase::Running);
+    back.from = "bob".into();
+    back.to = "ada".into();
+    back.about = Some("h".into());
+    room.save_pair(&Pair {
+        id: "ada~bob".into(),
+        a: "ada".into(),
+        b: "bob".into(),
+        exchanges: 0,
+        paused: false,
+        requests: vec![handoff, back],
+    })
+    .unwrap();
+    let said = crate::session::runner::Driven {
+        replies: vec!["I asked Ada which port.".into()],
+        ..Default::default()
+    };
+    room.note_turn("t", true, &said);
+    assert_eq!(asides(&room, "ada"), []);
 }

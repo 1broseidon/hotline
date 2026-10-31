@@ -1365,8 +1365,17 @@ thread of the recipient's own. A teammate on a linked desk is refused for now.
 colleague handed over that is not the handoff's result (a turn that stopped
 to wait on the person, a turn the person's line started, one a colleague's
 answer started) leaves the opener a note in the colleague's own words: what
-the turn last said, cut to 400 characters, and "Waiting on the person." when
-it waits (`session/exchanges/asides.rs`). It is heard in the conversation the
+the turn last said, cut to 400 characters, and, when it waits, on what
+(`session/exchanges/asides.rs` `Room::waiting_on`): "Waiting on the person:"
+and the card's own words, the reason of a card the turn raised, or, for a
+question the person must first allow, "Allow Mack to ask Clementine to work?
+The card is in Mack's main conversation.", since grants are per teammate and
+that is where it is raised; a question whose pair has paused at twelve waits
+on that pause first, whatever the asker may do, so it names the card that is
+up, "Let Mack and Clementine keep going? They paused at 12 messages.", in the
+same conversation; a question a colleague is answering is "Waiting on a
+colleague's answer.". A turn that waits only on questions to the opener
+leaves no note, since they reach it themselves. It is heard in the conversation the
 result goes back to. The result still returns as a delivery, and leaves a
 nudge beside it (`result:<request>`), which the delivery's own turn hears
 without saying again. The delivery is the wake: results queued behind a busy

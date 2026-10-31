@@ -13,6 +13,7 @@ use crate::linked;
 use crate::log::{StreamId, thread};
 use crate::paths::{thread_key, thread_participants};
 use crate::thread::Opener;
+use place::Place;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -94,15 +95,6 @@ pub(crate) struct Outgoing<'a> {
     /// handoff that ran there.
     pub thread: Option<&'a str>,
 }
-/// Where a handoff's work is done.
-enum Place {
-    /// A thread of its own, opened for it.
-    New,
-    /// This thread: the one it was dispatched into, or the one it continues.
-    In(String),
-    /// Not known yet: the thread it continues has not been opened.
-    Later,
-}
 /// How the sender of a request hears its answer: inline, while it waits, or
 /// later, in the thread it was sent from.
 enum Answer<'a> {
@@ -123,59 +115,6 @@ struct Pair {
     paused: bool,
     requests: Vec<Request>,
 }
-impl Pair {
-    /// The name a handoff from `from` to `to` gives its thread, found by the
-    /// id of any handoff that ran there: the id of the one that opened it.
-    fn thread_named(&self, named: &str, from: &str, to: &str) -> Option<String> {
-        self.requests
-            .iter()
-            .find(|r| r.id == named && r.from == from && r.to == to && r.intent == Intent::Handoff)
-            .map(|r| r.continues.clone().unwrap_or_else(|| r.id.clone()))
-    }
-    /// Where a handoff's work is done. One that names a thread follows the
-    /// handoffs before it into that thread, as its sender sent them; it is
-    /// refused when no handoff of its sender's to its recipient opened one by
-    /// that name, whatever another desk says.
-    fn place(&self, request: &Request) -> Result<Place, String> {
-        if let Some(thread) = &request.thread {
-            return Ok(Place::In(thread.clone()));
-        }
-        let Some(opener) = &request.continues else {
-            return Ok(Place::New);
-        };
-        let before: Vec<&Request> = self
-            .requests
-            .iter()
-            .take_while(|r| r.id != request.id)
-            .filter(|r| {
-                r.from == request.from
-                    && r.to == request.to
-                    && r.intent == Intent::Handoff
-                    && (r.id == *opener || r.continues.as_ref() == Some(opener))
-            })
-            .collect();
-        if !before.iter().any(|r| r.id == *opener) {
-            return Err(
-                "That work thread was not opened by this teammate's handoff. Send without a thread to open a new one."
-                    .into(),
-            );
-        }
-        if let Some(thread) = before.iter().rev().find_map(|r| r.thread.clone()) {
-            return Ok(Place::In(thread));
-        }
-        // None of them has a thread yet: one still to be handed over opens
-        // it, and this follows; if none ever will, this one opens it.
-        if before
-            .iter()
-            .any(|r| matches!(r.phase, Phase::Queued | Phase::Running))
-        {
-            Ok(Place::Later)
-        } else {
-            Ok(Place::New)
-        }
-    }
-}
-
 /// Whether an `exchange_pair` record has a request an agent is answering now,
 /// as the room stream says it: running, or waiting on the person.
 pub(crate) fn answering(record: &serde_json::Value) -> bool {
@@ -959,6 +898,8 @@ impl Room {
             Phase::Queued if linked::is_linked(&request.to) => {
                 self.forward_queued(key, &request).await?;
             }
+            // One being taken up is its task's until it has been handed over.
+            Phase::Queued if lock(&self.exchange_admitting).contains(&request.id) => {}
             Phase::Queued => {
                 let thread = if request.intent == Intent::Handoff {
                     match pair.place(&request) {
@@ -985,73 +926,28 @@ impl Room {
                 {
                     return Ok(());
                 }
-                let caller = self.participant(&request.from)?;
-                let target = self.persona(&request.to)?;
-                let (caller_capability, target_capability) = lock(&self.exchange_leases)
-                    .entry(request.id.clone())
-                    .or_insert_with(|| {
-                        (
-                            self.request_lease(&caller.id),
-                            self.request_lease(&target.id),
-                        )
-                    })
-                    .clone();
-                let auth = tokio::select! {
-                    biased;
-                    () = peers::capabilities_expired(&caller_capability, &target_capability) => {
-                        self.stop_revoked_exchanges(None);
-                        return Ok(());
-                    }
-                    auth = self.authorize_exchange(&request, &caller, &target, &caller_capability, &target_capability) => auth,
-                };
-                if let Err(error) = auth {
-                    self.set_exchange_reply(key, &request.id, error, true)?;
+                // Asks take turns on the pair: one waits while another is
+                // taken up or answered.
+                if request.intent == Intent::Ask && self.ask_under_way(&pair) {
                     return Ok(());
                 }
-                {
-                    let _guard = lock(&self.exchange_lock);
-                    let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
-                    if pair.paused {
-                        return Ok(());
+                // Taking a request up may wait on the person's first-contact
+                // card: it does so on a task of its own, so the pair's other
+                // requests, a finished handoff's result among them, go on
+                // meanwhile.
+                lock(&self.exchange_admitting).insert(request.id.clone());
+                let room = self.clone();
+                let key = key.to_string();
+                tokio::spawn(async move {
+                    if let Err(error) = room.admit_request(&key, &request, thread).await {
+                        eprintln!(
+                            "exchange {key} request {} waiting after error: {error}",
+                            request.id
+                        );
                     }
-                    let Some(r) = pair
-                        .requests
-                        .iter_mut()
-                        .find(|r| r.id == request.id && r.phase == Phase::Queued)
-                    else {
-                        return Ok(());
-                    };
-                    r.phase = Phase::Running;
-                    if !r.request_counted {
-                        r.request_counted = true;
-                        pair.exchanges += 1;
-                    }
-                    pair.paused = pair.exchanges >= EXCHANGE_CAP;
-                    self.save_pair(&pair)?;
-                    if pair.paused {
-                        self.exchange_card(&pair, ExchangePauseStatus::Pending);
-                    }
-                }
-                if request.intent == Intent::Handoff {
-                    self.dispatch_handoff(key, &request, thread).await?;
-                } else {
-                    let outcome = tokio::select! {
-                        biased;
-                        () = peers::capabilities_expired(&caller_capability, &target_capability) => {
-                            self.stop_revoked_exchanges(None);
-                            return Ok(());
-                        }
-                        result = async {
-                            let asked = self.ask(&request.from, &request.to, &request.message)?;
-                            self.exchange(asked, Some(caller_capability.clone())).await.map(|r| r.reply)
-                        } => result,
-                    };
-                    let (reply, failed) = match outcome {
-                        Ok(r) => (r, false),
-                        Err(e) => (e, true),
-                    };
-                    self.set_exchange_reply(key, &request.id, reply, failed)?;
-                }
+                    lock(&room.exchange_admitting).remove(&request.id);
+                    room.wake_exchange(&key);
+                });
             }
             Phase::Running => {
                 // A handoff whose turn has not begun, in no live thread, is
@@ -1225,87 +1121,6 @@ impl Room {
         }
         self.save_pair(&pair)
     }
-    /// Hands a handoff to a work thread on the teammate it was handed to, and
-    /// its result is the reply the thread gives when it has done the work.
-    /// `thread` is the one it continues, or its own from before a restart;
-    /// without one, it opens a thread with the handoff as its first message.
-    async fn dispatch_handoff(
-        self: &Arc<Self>,
-        key: &str,
-        request: &Request,
-        thread: Option<String>,
-    ) -> Result<(), String> {
-        let caller = self.participant(&request.from)?;
-        self.exchange_thread_line(key, &request.from, &request.id, &request.message)?;
-        let handoff = HandoffStart {
-            key: key.to_string(),
-            request: request.id.clone(),
-        };
-        let side_id = thread.unwrap_or_else(new_id);
-        self.set_handoff_thread(key, &request.id, &side_id)?;
-        // A thread that has run before comes back with what was said in it.
-        // One the last process left live was parked when this room was
-        // built (`Room::settle`), before any request is taken up.
-        let ran_before =
-            self.sides.get(&side_id).is_some() || self.link_of(&ThreadId::side(&side_id)).is_some();
-        let started = if ran_before {
-            self.wake_side(&side_id, true, Some(handoff)).await
-        } else {
-            self.bring_up(
-                &request.to,
-                Start {
-                    thread: ThreadId::side(&side_id),
-                    title: super::sides::title_of(&request.message),
-                    started: now_ms(),
-                    opener: Some(Opener {
-                        persona_id: caller.id.clone(),
-                        name: super::links::shown(&caller),
-                    }),
-                    fresh: true,
-                    saved: None,
-                    handoff: Some(handoff),
-                },
-            )
-            .map(|(side, launch)| (side, Some(launch)))
-        };
-        let launch = match started {
-            Ok((_, launch)) => launch,
-            Err(error) => {
-                let target = self.persona(&request.to)?;
-                return self.set_exchange_reply(
-                    key,
-                    &request.id,
-                    format!("{} could not start a thread for this: {error}", target.name),
-                    true,
-                );
-            }
-        };
-        let delivered = self
-            .deliver_into_work(
-                &side_id,
-                &format!("handoff:{}", request.id),
-                DeliveryCause::Handoff {
-                    request_id: request.id.clone(),
-                    persona_id: caller.id.clone(),
-                    name: caller.name,
-                    thread_key: key.into(),
-                    about: peers::about(&request.message),
-                },
-                DeliveryFrom::new(&ThreadId::dm(&caller.id), Some(request.id.clone())),
-                request.message.clone(),
-                Some(HandoffLine {
-                    request: request.id.clone(),
-                    answer: None,
-                }),
-            )
-            .await;
-        // The line is queued first, so the agent's start finds it waiting.
-        if let Some(launch) = launch {
-            self.launch(launch);
-        }
-        delivered
-    }
-
     /// Takes up a request to a linked teammate: the pair's brake applies as
     /// it does to a local one, then it crosses the link. It stays queued while
     /// the link is down, and is running once the other desk has it.
@@ -1561,6 +1376,8 @@ impl Room {
     }
 }
 
+mod handover;
+mod place;
 mod revoked;
 
 #[cfg(test)]

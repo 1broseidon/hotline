@@ -744,6 +744,9 @@ pub struct Room {
     exchange_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
+    /// Requests being taken up on a task of their own, by id: each may wait
+    /// on the person's first-contact card while its pair's others go on.
+    exchange_admitting: Mutex<HashSet<String>>,
     /// Who is driving each teammate's computer: one thread at a time, whichever
     /// of the teammate's threads asked first (`computer/gate.rs`).
     computer_leases: Arc<crate::computer::gate::Leases>,
@@ -899,6 +902,7 @@ impl Room {
             exchange_lock: Mutex::new(()),
             exchange_workers: Mutex::new(HashSet::default()),
             exchange_leases: Mutex::new(HashMap::default()),
+            exchange_admitting: Mutex::new(HashSet::default()),
             computer_leases: crate::computer::gate::Leases::new(),
             push,
             computers,

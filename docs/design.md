@@ -1114,8 +1114,9 @@ the person also resets the pair. These actions do not create new grants.
 The queue is not single file. Each time the pair is looked at, every request
 goes as far as it can, so a handoff at work in its thread, or one waiting on
 the person or on a linked desk, holds up nothing behind it, in either
-direction. An ask is answered while its pair waits, so it is the one request
-that holds up what follows it, and asks still take turns on the pair's thread.
+direction. Neither does a request still being taken up, which may wait on the
+person's first-contact card: it waits on a task of its own. Asks still take
+turns on the pair's thread: one waits while another is taken up or answered.
 
 Restart recovery preserves paused queues and completed results. Work known to
 have started is not blindly replayed: an interrupted turn returns an explicit

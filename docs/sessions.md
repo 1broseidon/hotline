@@ -1391,8 +1391,12 @@ threads are all mid-turn stays queued until one is free. Neither intent expands 
 There is no link record, roster link, or chapter-scoped relationship.
 
 **Continuing a work thread.** A handoff's tool result carries `thread`: the
-request id of the handoff that opened its thread. Passing that id, or the id of
-any handoff that ran in the thread, as `message_teammate`'s `thread` hands the
+request id of the handoff that opened its thread. Its result names its own
+request id too, and `list_teammates` lists, on each colleague's row, the work
+threads the caller's handoffs to it opened and that were not stopped
+(`handoffThreads`: `thread`, `sideThreadId`, `phase`, `lastRequestId`).
+Passing that id, the id of any handoff that ran in the thread, or the work
+thread's own id, as `message_teammate`'s `thread` hands the
 new brief into the same thread instead of a new one. The sender's desk checks
 the id against the pair's record before queuing (it must be a handoff from the
 same sender to the same recipient) and refuses an ask that names one; a request
@@ -1413,8 +1417,11 @@ work the person is directing.
 A durable `exchange_pair` record holds the queue and count. The pair's worker
 takes every request as far as it can each time it looks, rather than only the
 first, so a handoff at work in a thread, or waiting on the person or on a linked
-desk, holds up nothing behind it in either direction; an ask is answered while
-the worker waits, so asks still take turns. Requests and
+desk, holds up nothing behind it in either direction. Taking a request up
+(`Room::admit_request`) runs on a task of its own, since it may wait on the
+person's first-contact card, so a request waiting on its card holds up nothing
+either; an ask is answered on that task, and asks still take turns: one waits
+while another is taken up or answered (`Room::ask_under_way`). Requests and
 replies share the twelve-message brake across intents; receipts do not
 count. At twelve, both tapes receive an `exchange_paused` card. Further
 queued requests and completed results wait without being discarded.

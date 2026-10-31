@@ -1,5 +1,6 @@
 mod lasting;
 mod pause;
+mod threads;
 
 use super::*;
 use crate::driver::{MessageKind, Update};

@@ -891,7 +891,8 @@ made it so.
   runs.
 - **Enforcement:** `enqueue_exchange` refuses a `thread` on an ask, and one
   that names no handoff from the same sender to the same recipient in the
-  pair's record. On the recipient's desk `Pair::place` resolves the name
+  pair's record, by its request id or its work thread's id (`Pair::thread_named`);
+  `list_teammates` lists to a caller only the threads its own handoffs opened. On the recipient's desk `Pair::place` resolves the name
   against that desk's own record, scoped to the request's sender and
   recipient, and fails the request when it names none; a linked desk's id is
   never used as a thread id or a path. The thread is brought back under the
@@ -901,6 +902,8 @@ made it so.
   `a_handoff_naming_its_thread_continues_it_and_one_without_opens_another`,
   `only_the_teammate_that_opened_a_thread_continues_it_and_only_by_handing_off`,
   `a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread`;
+  `session/exchanges/tests/threads.rs`
+  `a_handoffs_thread_is_listed_for_its_sender_and_named_by_its_own_id_too`;
   `session/links/tests.rs`
   `a_handoff_naming_its_thread_continues_it_on_the_recipients_desk`; over the
   wire, `tests/threads/together.rs`

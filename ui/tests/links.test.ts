@@ -97,17 +97,24 @@ describe("work colleagues handed a teammate", () => {
 		expect(handedIn(handed("a", "live"), "poe")).toBe(false);
 	});
 
-	test("is one line for whatever is unfinished, newest state of each", () => {
-		const events = [handed("a", "live"), handed("b", "live", "Clementine", "clem"), handed("a", "closed"), handed("c", "parked")];
-		expect(handoffsUnderway(events, "toad")).toEqual({ count: 2, from: ["Clementine", "Poe"] });
-		expect(handoffsUnderway([handed("a", "closed")], "toad")).toEqual({ count: 0, from: [] });
+	test("is one line for whatever is at work, newest state of each", () => {
+		const events = [handed("a", "live"), handed("b", "live", "Clementine", "clem"), handed("a", "closed"), handed("c", "live", "Ada", "ada")];
+		expect(handoffsUnderway(events, "toad", ["a", "b", "c"])).toEqual({ count: 2, from: ["Clementine", "Ada"] });
+		expect(handoffsUnderway([handed("a", "closed")], "toad", ["a"])).toEqual({ count: 0, from: [] });
+	});
+
+	test("leaves out a thread that is only open, as Continue leaves it, until a turn runs there", () => {
+		const continued = [handed("a", "closed"), handed("a", "live")];
+		expect(handoffsUnderway(continued, "toad", [])).toEqual({ count: 0, from: [] });
+		expect(handoffsUnderway(continued, "toad", ["a"])).toEqual({ count: 1, from: ["Poe"] });
+		expect(handoffsUnderway([handed("c", "parked")], "toad", [])).toEqual({ count: 0, from: [] });
 	});
 
 	test("leaves out a handoff the desk recorded as ended, whether its thread is open or parked", () => {
 		const ended = (id: string, state: LinkEvent["state"]) => ({ ...handed(id, state), handoffEnded: true });
 		const events = [handed("a", "live"), handed("b", "parked", "Clementine", "clem"), ended("a", "live"), ended("b", "parked")];
-		expect(handoffsUnderway(events, "toad")).toEqual({ count: 0, from: [] });
-		expect(handoffsUnderway([ended("a", "live"), handed("a", "live")], "toad")).toEqual({ count: 1, from: ["Poe"] });
+		expect(handoffsUnderway(events, "toad", ["a", "b"])).toEqual({ count: 0, from: [] });
+		expect(handoffsUnderway([ended("a", "live"), handed("a", "live")], "toad", ["a"])).toEqual({ count: 1, from: ["Poe"] });
 	});
 
 	test("names its senders the way a person lists them", () => {

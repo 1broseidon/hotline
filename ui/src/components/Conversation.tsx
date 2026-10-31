@@ -193,6 +193,9 @@ export function Conversation({
 	 * at their times; the core never writes them into this conversation. */
 	const asides = useAsides(personaId, entry);
 	const told = useMemo(() => withAsides(events, asides ?? [], olderOnDesk), [events, asides, olderOnDesk]);
+	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
+	const workingIds = (entry.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
+	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
 	/* The line the core will write, standing in until it does: the same words
 	 * at or after the moment they were sent. */
 	const shown = useMemo(() => {
@@ -310,6 +313,7 @@ export function Conversation({
 					live={state === "thinking"}
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
+					workingSides={workingSides}
 					cornered={cornered}
 					focus={focus}
 					onReply={setReplying}

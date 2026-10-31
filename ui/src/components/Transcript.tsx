@@ -96,6 +96,7 @@ export function Transcript({
 	live,
 	cornered = false,
 	workingCalls,
+	workingSides,
 	focus,
 	speakers,
 	onReply,
@@ -135,6 +136,8 @@ export function Transcript({
 	cornered?: boolean;
 	/** Call thread IDs with a turn in flight, from the roster. */
 	workingCalls?: readonly string[] | undefined;
+	/** Work thread IDs running a turn or with a line waiting for one, from the roster. */
+	workingSides?: readonly string[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
@@ -383,7 +386,7 @@ export function Transcript({
 				),
 		),
 	)), [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
-	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId), [onOpenThreads, events, personaId]);
+	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId, workingSides ?? []), [onOpenThreads, events, personaId, workingSides]);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.

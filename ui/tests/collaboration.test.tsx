@@ -192,3 +192,19 @@ describe("a thread a teammate handed over", () => {
 		expect(html.indexOf(">Ada<")).toBeLessThan(html.indexOf("Use the staging key."));
 	});
 });
+
+describe("the main conversation of a teammate handed work", () => {
+	const continued: TranscriptEvent = {
+		kind: "link", id: "link:side:s1", ts: 1, thread: "s1", threadKind: "side", personaId: "ada",
+		title: "Fix the CI badge", state: "live", openerId: "mack", openerName: "Mack",
+	};
+	const drawn = (workingSides: string[]) =>
+		renderToStaticMarkup(
+			<Transcript personaId="ada" name="Ada" events={[continued]} streaming={[]} live={false} focus={null} onOpenThreads={() => {}} workingSides={workingSides} />,
+		);
+
+	test("says it is working on a handoff only while the roster says its thread runs a turn, not because Continue opened it", () => {
+		expect(drawn([])).not.toContain("Working on");
+		expect(drawn(["s1"])).toContain("Working on a handoff from Mack");
+	});
+});

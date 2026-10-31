@@ -659,7 +659,10 @@ has one hook and one view.
   idle when the receiver's turn ends; a pair, which no roster row follows, is
   the list's. The
   person's conversation with the teammate that took a handoff keeps one line
-  for all the unfinished ones, not a link each (`handoffsUnderway`). A pair keeps its two named chairs
+  for all the ones it is working on, not a link each (`handoffsUnderway`):
+  a handoff counts while its roster row says its thread runs a turn or has a
+  line waiting (`sides[].working`), so a thread Continue only opened, a parked
+  one and one waiting on the person are not "Working on". A pair keeps its two named chairs
   (`speakers`) and sends `peers.mark_read` as it did; a handoff opened from its
   delivery line keeps its sender, request and reply-route note (`HandoffNote`).
   `Thread.tsx` (the peer aside) and the work card's run view (`RunWork`,

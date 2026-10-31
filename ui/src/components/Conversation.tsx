@@ -9,6 +9,7 @@ import { type Call as CallSession, useCall, useCallSnapshot } from "../voice/cal
 import { carry } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
+import { useAsides, withAsides } from "../asides";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -56,6 +57,7 @@ export function Conversation({
 	onDelete,
 	onOpenThread,
 	onOpenThreadList,
+	onOpenNoted,
 	onOpenWork,
 	workOpen,
 	onOpenProcess,
@@ -97,6 +99,8 @@ export function Conversation({
 	onOpenThread(thread: ThreadRef): void;
 	/** Opens the right-hand pane on this teammate's list of threads. */
 	onOpenThreadList(): void;
+	/** Opens the right-hand pane on what this teammate's threads told it: its Noted page. */
+	onOpenNoted(): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
@@ -185,16 +189,20 @@ export function Conversation({
 		},
 		[personaId, replying, session.state],
 	);
+	/* What the teammate's threads and colleagues told it, drawn as quiet lines
+	 * at their times; the core never writes them into this conversation. */
+	const asides = useAsides(personaId, entry);
+	const told = useMemo(() => withAsides(events, asides ?? [], olderOnDesk), [events, asides, olderOnDesk]);
 	/* The line the core will write, standing in until it does: the same words
 	 * at or after the moment they were sent. */
 	const shown = useMemo(() => {
-		if (!saying) return events;
+		if (!saying) return told;
 		const landed = events.some(
 			(event) => event.kind === "user" && event.ts >= saying.at - 1000 && event.text === saying.text,
 		);
-		if (landed) return events;
+		if (landed) return told;
 		return [
-			...events,
+			...told,
 			{
 				kind: "user" as const,
 				id: `saying:${saying.at}`,
@@ -203,7 +211,7 @@ export function Conversation({
 				...(saying.replyTo !== undefined ? { replyTo: saying.replyTo } : {}),
 			},
 		];
-	}, [events, saying]);
+	}, [events, told, saying]);
 	/* A reaction is a line of its own, the shape the phone sends: the quoted
 	 * line and the emoji, answering it. The teammate reads it as a reply; both
 	 * windows fold it onto the bubble. */
@@ -277,7 +285,7 @@ export function Conversation({
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNoted, threadOpen, paneOpen, callBar,
 				pulling, openScreen, setRefused, onProviders, railOpen }} />
 
 			{notice !== null && (
@@ -383,10 +391,10 @@ export function Conversation({
 /** The header follows room state and controls, independently of streamed body changes. */
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNoted, threadOpen, paneOpen, callBar,
 	pulling, openScreen, setRefused, onProviders, railOpen,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
-	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
+	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList" | "onOpenNoted"
 	| "threadOpen" | "paneOpen" | "callBar" | "onProviders" | "railOpen"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
@@ -437,16 +445,18 @@ const ConversationBand = memo(function ConversationBand({
 		});
 	}
 
-	// The teammate's own actions, under who it is and what it runs on in the
-	// pill's menu. Four words, as the board's label rule asks (decision
-	// ui.tooltip-length): the rest lives where it is used, not in this menu.
-	const actions: MenuEntry[] = [
+	const actions = [
 		...folded,
-		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
-		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: startChapter },
-		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
-		{ kind: "rule" },
-		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
+		...teammateActions({
+			inspectorOpen,
+			chapterBusy,
+			unseen: entry.asidesNew ?? 0,
+			onToggleInspector,
+			onStartChapter: startChapter,
+			onOpenThreadList,
+			onOpenNoted,
+			onDelete,
+		}),
 	];
 	const teammate = {
 		name: persona.name,
@@ -561,7 +571,7 @@ const ConversationBand = memo(function ConversationBand({
 					{/* One pill in the corner: the model, its effort and the teammate's
 					 * face, which beats while it works. Its menu is who the teammate
 					 * is, what it runs on, and its actions: Settings, New chapter,
-					 * Threads, Remove. */}
+					 * Threads, Noted, Remove. */}
 					<SessionPickers
 						key={persona.id}
 						entry={entry}
@@ -576,6 +586,42 @@ const ConversationBand = memo(function ConversationBand({
 			</div>
 	);
 });
+
+/**
+ * The teammate's own actions, under who it is and what it runs on in the
+ * pill's menu: Settings, New chapter, Threads, Noted with how many asides the
+ * person has not seen, and Remove under a rule. Four words, as the board's
+ * label rule asks (decision ui.tooltip-length): the rest lives where it is
+ * used, not in this menu.
+ */
+export function teammateActions({
+	inspectorOpen,
+	chapterBusy,
+	unseen,
+	onToggleInspector,
+	onStartChapter,
+	onOpenThreadList,
+	onOpenNoted,
+	onDelete,
+}: {
+	inspectorOpen: boolean;
+	chapterBusy: boolean;
+	unseen: number;
+	onToggleInspector(): void;
+	onStartChapter(): void;
+	onOpenThreadList(): void;
+	onOpenNoted(): void;
+	onDelete(): void;
+}): MenuEntry[] {
+	return [
+		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
+		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: onStartChapter },
+		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
+		{ kind: "item", id: "noted", text: "Noted", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenNoted },
+		{ kind: "rule" },
+		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
+	];
+}
 
 /**
  * Subagents still running, wherever their lines have scrolled to, at the

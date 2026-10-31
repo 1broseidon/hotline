@@ -635,9 +635,10 @@ has one hook and one view.
   on a DM is that same command.
 - **One view.** `Dock.tsx`'s `ThreadView` renders every kind with `Transcript`
   and `Composer`; `powersOf(kind, state)` (in `dock.ts`) is the one place that
-  says what a kind allows: a work thread has the composer, Archive and Continue,
-  a pair, a run and a call are read-only. A work thread a teammate handed over
-  has the composer and Continue but no Archive, since only its result ends it:
+  says what a kind allows: a work thread has the composer, Loop in…, End thread
+  (Archive, before epic-28's phase 6) and Continue, a pair, a run and a call are
+  read-only. A work thread a teammate handed over has the same, and Stop, and
+  End thread there ends the handoff too:
   the brief is said whole in the opener's voice, the person's own lines are
   drawn as theirs, and a bar above the message box names who handed it over,
   says when the handoff no longer stands (`handoffEnded` on its row or link),
@@ -724,6 +725,37 @@ Where this differs from the design above:
   is listed for the sender too, as "handed to Quill: …".
 - **No unchanged line for a job or a run.** They keep no hash: a job's agent is
   let go between firings, and a run has one turn.
+
+**Thread awareness: the window** (epic-28 phase 6, decisions 2 and 5). An
+aside is a quiet line, never a bubble (`AsideLine`): in the recipient's main
+conversation, where the window draws it from `aside.list` at its time, the
+`(·)` mark, "from Goldie · work thread · 9:41 PM" in the instrument face and
+the words, opening the thread it came from; on the thread that left it, "to
+Quill · nudge · …", and for the person's Loop in… "Quill was looped in". The
+teammate's menu has Noted between Threads and Remove, with how many the person
+has not seen (`asidesNew`); it opens the pane's Noted page (`NotedPage`,
+`DockState.noted`), New then Earlier, each newest first, with the face and the
+kind of thread, the level ("to you" in amber), the time and the words, and
+opening it marks them seen (`aside.seen`). A work thread's header has Loop in…
+(`LoopIn`: the colleagues on this desk, "Idle · a nudge wakes it" or "Working
+· a thread answers", which sends `thread.loop_in`), and End thread where
+Archive was; the looped-in colleague's one answer is drawn whole under its
+face. How the core does both is in
+[sessions.md](sessions.md#asides).
+
+Where this differs from the design above:
+
+- **The desk's Noted has no Search beside it**, since the teammate's menu has
+  none: it stands between Threads and Remove.
+- **The menu counts what is new to the person**, not what the teammate has not
+  heard: opening Noted clears it, as the phone frame's "3 new" reads.
+- **A looped-in colleague answers as a question.** Its one answer is an ask
+  from the thread's teammate that the person's act grants, answered where the
+  colleague's memory is (its main conversation when idle, a work thread of its
+  own while busy) and delivered into the thread; it is not a turn of the
+  colleague's run in the thread itself. So a busy colleague answers at once,
+  not "next turn", and its words reach the thread's teammate as "Quill answered
+  the message you sent them".
 
 ## Today
 

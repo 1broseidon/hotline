@@ -227,10 +227,10 @@ describe("a link as a row", () => {
 });
 
 describe("what a person can do in a thread", () => {
-	const read = { say: false, close: false, resume: false, stop: false };
-	test("is speak and archive in an open work thread, and continue in a closed one", () => {
-		expect(powersOf("side", "live")).toEqual({ ...read, say: true, close: true });
-		expect(powersOf("side", "parked")).toEqual({ ...read, say: true, close: true });
+	const read = { say: false, close: false, resume: false, stop: false, loopIn: false };
+	test("is speak, loop in and end in an open work thread, and continue in a closed one", () => {
+		expect(powersOf("side", "live")).toEqual({ ...read, say: true, close: true, loopIn: true });
+		expect(powersOf("side", "parked")).toEqual({ ...read, say: true, close: true, loopIn: true });
 		expect(powersOf("side", "closed")).toEqual({ ...read, resume: true });
 	});
 
@@ -246,9 +246,9 @@ describe("what a person can do in a thread", () => {
 		expect(powersOf("job", "closed")).toEqual(read);
 	});
 
-	test("is spoken in and continued in a handoff, and never archived by the person", () => {
-		expect(powersOf("side", "live", true)).toEqual({ ...read, say: true, stop: true });
-		expect(powersOf("side", "parked", true)).toEqual({ ...read, say: true, stop: true });
+	test("is spoken in, looped into, ended and continued in a handoff, with Stop for its turns", () => {
+		expect(powersOf("side", "live", true)).toEqual({ ...read, say: true, close: true, loopIn: true, stop: true });
+		expect(powersOf("side", "parked", true)).toEqual({ ...read, say: true, close: true, loopIn: true, stop: true });
 		expect(powersOf("side", "closed", true)).toEqual({ ...read, resume: true });
 	});
 

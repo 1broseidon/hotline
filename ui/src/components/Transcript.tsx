@@ -38,6 +38,7 @@ import { CookieOfferCard } from "./transcript/CookieOfferCard";
 import { SecretUseAsk } from "./transcript/SecretUseAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
+import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -209,6 +210,8 @@ export function Transcript({
 		return lines;
 	}, [events]);
 	const answered = useMemo(() => superseded(events), [events]);
+	/* Who the person looped in here: their answers are said whole, under their faces. */
+	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
 	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call"), thread?.kind === "call"), [events, thread?.kind]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
@@ -463,6 +466,7 @@ export function Transcript({
 									ownerName={name}
 									event={block.event}
 									working={block.event.kind === "link" && block.event.threadKind === "call" && (workingCalls?.includes(block.event.thread) ?? false)}
+									loopedIn={block.event.kind === "delivery" && block.event.cause.kind === "peer" && looped.has(block.event.cause.personaId)}
 									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
 									top={run.top}
 									bottom={run.bottom}
@@ -553,6 +557,7 @@ const Row = memo(function Row({
 	ownerName,
 	event,
 	working,
+	loopedIn,
 	quote,
 	top,
 	bottom,
@@ -574,6 +579,8 @@ const Row = memo(function Row({
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
 	working: boolean;
+	/** A delivery from a colleague the person looped into this thread: its one answer. */
+	loopedIn: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
 	quote: string | undefined;
 	top: boolean;
@@ -756,6 +763,7 @@ const Row = memo(function Row({
 			if (cause.kind === "answer" || line === null) return null;
 			// Where both sides are named, a colleague's words are the conversation: said whole, in their voice.
 			if (speakers !== undefined) return <NamedSay name={cause.name} mine={false} text={event.text} />;
+			if (loopedIn && cause.kind === "peer") return <AnswerUnderFace cause={cause} text={event.text} ts={event.ts} people={people} />;
 			return (
 				<button
 					type="button"
@@ -803,10 +811,8 @@ const Row = memo(function Row({
 		case "call":
 			return null;
 
-		/* What this thread's teammate told a colleague: the Noted line comes
-		 * with the window's asides work, and until then it draws nothing. */
 		case "aside":
-			return null;
+			return <AsideLine aside={event} personaId={personaId} here={thread} people={people} onOpenThread={onOpenThread} />;
 
 		case "computer_frame":
 			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;

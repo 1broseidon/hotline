@@ -192,21 +192,22 @@ export function relativeTime(at: number, now: number = Date.now()): string {
 
 /**
  * What a person can do in a thread, by what it is: only a work thread is
- * spoken in, ended and brought back. One a teammate handed over is spoken in
- * and brought back like any work thread, and only its result ends it: the
- * person never archives it. The desk refuses the rest the same way.
+ * spoken in, has a colleague looped in, is ended (End thread) and brought
+ * back. One a teammate handed over is the same, and Stop is there too, since
+ * its handoff's turns run without the person; ending it ends the handoff. The
+ * desk refuses the rest the same way.
  */
-export type Powers = { say: boolean; close: boolean; resume: boolean; stop: boolean };
+export type Powers = { say: boolean; close: boolean; resume: boolean; stop: boolean; loopIn: boolean };
 
-const READ: Powers = { say: false, close: false, resume: false, stop: false };
+const READ: Powers = { say: false, close: false, resume: false, stop: false, loopIn: false };
 
 export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false): Powers {
 	// A job's thread is spoken in by the person, who is the desktop; a closed one is the record of an ended job.
 	if (kind === "job") return state === "closed" ? READ : { ...READ, say: true };
 	if (kind === "call") return state === "closed" ? READ : { ...READ, say: true, stop: true };
 	if (kind !== "side") return READ;
-	if (handedOver) return { say: state !== "closed", close: false, resume: state === "closed", stop: state !== "closed" };
-	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true };
+	if (state === "closed") return { ...READ, resume: true };
+	return { ...READ, say: true, close: true, loopIn: true, stop: handedOver };
 }
 
 /**

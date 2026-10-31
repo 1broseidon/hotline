@@ -62,8 +62,8 @@ thread: what you say waits for the turn in flight, and what it answers you
 stays in the thread and never goes to the sender. Only the work's result goes
 back. If the colleague needs something from you, the bar and the message box
 give way to a box for your answer. When the work is done the thread closes,
-and **Continue** brings it back. It has no **Archive**: it ends with its
-result.
+and **Continue** brings it back. **End thread** closes it yourself: the
+handoff ends with it, and the sender is told quietly, without being woken.
 
 The sender can hand more work into the same thread later, and the colleague
 takes it up with everything said there. Once you stop the pair's exchange, or
@@ -73,6 +73,23 @@ A teammate works on up to three threads at a time. A handoff to a teammate
 that is fully busy waits its turn. Threads take turns on the teammate's
 computer, if it has one, and a thread that finds the computer busy is told
 who has it.
+
+## Looping a colleague in
+
+A thread is between you and one teammate. To bring in another, press
+**Loop in…** in a work thread's header and choose a colleague. It gets a
+nudge with a link to the thread and answers once, in the thread, under its
+own name; the thread's teammate takes it from there. An idle colleague is
+woken to answer; a busy one answers from a thread of its own. The thread
+shows "Quill was looped in". Nothing is sent to you.
+
+## Noted
+
+What a teammate's threads and colleagues tell it, without telling you, are
+its asides. Each shows as a quiet line marked (·) in its conversation, saying
+who it is from and which kind of thread, and opens that thread. **Noted** in
+the teammate's menu lists them all, newest first, with what you have not seen
+under New; one marked "to you", in amber, also put a card up for you.
 
 ## Conversations between two teammates
 

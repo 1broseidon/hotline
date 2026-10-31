@@ -41,12 +41,15 @@ import { shownState } from "../activity";
 import { Composer } from "./Composer";
 import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
+import { NotedPage } from "./Noted";
+import { LoopIn } from "./LoopIn";
 
 /**
- * What the right-hand pane shows: the list, one thread open in it, or a
- * teammate's turn of work (`work`), opened from the peek at the line pressed.
+ * What the right-hand pane shows: the list, one thread open in it, a
+ * teammate's turn of work (`work`), opened from the peek at the line pressed,
+ * or its Noted page (`noted`), which a thread opened from it goes back to.
  */
-export type DockState = { open: ThreadRef | null; work?: { personaId: string; blockId: string | null; stepId?: string } };
+export type DockState = { open: ThreadRef | null; work?: { personaId: string; blockId: string | null; stepId?: string }; noted?: true };
 
 /**
  * The right-hand pane: this teammate's threads as a list, like the team on the
@@ -110,11 +113,13 @@ export function Dock({
 	const work = state.work !== undefined && entry !== null && entry.persona.id === state.work.personaId ? state.work : undefined;
 	const row = at === null ? undefined : rows.find((one) => sameThread(one.thread, at.thread));
 	const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
+	const noted = state.noted === true && entry !== null ? entry : null;
+	const back = noted !== null ? { open: null, noted: true as const } : { open: null };
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
-			<aside ref={root} className="dock" aria-label={work !== undefined ? "Work" : "Threads"}>
+			<aside ref={root} className="dock" aria-label={work !== undefined ? "Work" : noted !== null && at === null ? "Noted" : "Threads"}>
 				{work !== undefined && entry !== null ? (
 					<WorkPage
 						key={`${work.blockId ?? "now"}:${work.stepId ?? ""}`}
@@ -125,8 +130,10 @@ export function Dock({
 						live={shownState(entry.session) === "thinking"}
 						onClose={onClose}
 					/>
-				) : at === null && <DockBand onClose={onClose} />}
-				{work !== undefined ? null : at === null ? (
+				) : at === null && noted === null && <DockBand onClose={onClose} />}
+				{work !== undefined ? null : at === null && noted !== null ? (
+					<NotedPage key={noted.persona.id} entry={noted} people={people} onOpen={(open) => onState({ open, noted: true })} onClose={onClose} />
+				) : at === null ? (
 					<ThreadList
 						teammate={teammate}
 						rows={rows}
@@ -148,9 +155,10 @@ export function Dock({
 							nameOf={nameOf}
 							people={people}
 							working={turnRunning(owner, at.thread, row)}
+							roster={roster}
 							onChanged={reload}
 							onOpen={(open) => onState({ open })}
-							onBack={() => onState({ open: null })}
+							onBack={() => onState(back)}
 							onClose={onClose}
 							onOpenTeammate={onOpenTeammate}
 						/>
@@ -404,8 +412,10 @@ export function HandoffNote({ handoff }: { handoff: NonNullable<ThreadRef["hando
  * A thread, open in the pane, whatever its kind: the same conversation view the
  * main chat is, and below it a composer only where it can be spoken in. A work
  * thread is the same teammate in a second conversation, answerable, and a
- * parked one says so: saying something in it brings its agent back. Archive
- * ends it; once closed the page is the thread, read-only, with a Continue where
+ * parked one says so: saying something in it brings its agent back. Loop in…
+ * brings a colleague in for one answer, and End thread ends it, and the
+ * handoff into it when a teammate handed it over; once closed the page is the
+ * thread, read-only, with a Continue where
  * the composer was. A pair, a subagent's run and a call are read, not spoken
  * in: a run is told its task once and reports once. A job's thread is spoken
  * in until the job ends, and its header can stop a turn or end the job.
@@ -418,6 +428,7 @@ function ThreadView({
 	nameOf,
 	people,
 	working,
+	roster,
 	onChanged,
 	onOpen,
 	onBack,
@@ -425,6 +436,8 @@ function ThreadView({
 	onOpenTeammate,
 }: {
 	open: ThreadRef;
+	/** The team, for Loop in…'s colleagues. */
+	roster: RosterEntry[];
 	/** What the list knows of it: its state and its title. */
 	row: ThreadSummary | undefined;
 	/** The job this thread is, as the schedules view says, when it is one's. */
@@ -494,7 +507,8 @@ function ThreadView({
 		setRefused(null);
 		void carry(attachments).then((carried) => prompt(text, carried)).catch(refuse);
 	};
-	const archive = () => {
+	// End thread: closes it, and a handoff into it with it, as the person's decision.
+	const end = () => {
 		setRefused(null);
 		void close().then(onChanged, refuse);
 	};
@@ -515,7 +529,7 @@ function ThreadView({
 	return (
 		<section ref={root} className="dock-page" aria-label={`Thread with ${self.name}: ${title}`}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back to threads" aria-label="Back to threads" onClick={onBack}>
+				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
 				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 text-lg font-semibold">
@@ -530,9 +544,12 @@ function ThreadView({
 						Continue
 					</button>
 				)}
+				{powers.loopIn && (
+					<LoopIn thread={id} owner={self.id} roster={roster} people={people} onRefused={refuse} />
+				)}
 				{powers.close && (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Archive this thread" onClick={archive}>
-						Archive
+					<button type="button" className="control btn-quiet px-2 text-sm" title="End this thread" onClick={end}>
+						End thread
 					</button>
 				)}
 				{powers.stop && turning && (

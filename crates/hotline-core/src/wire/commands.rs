@@ -702,6 +702,13 @@ pub(crate) async fn run(
             asides.reverse();
             Ok(json!(asides))
         }
+        Command::AsideSeen { persona_id } => {
+            room.asides_seen(&persona_id)?;
+            Ok(Value::Null)
+        }
+        Command::ThreadLoopIn { thread, persona_id } => {
+            threads::loop_in(room, &thread, &persona_id).await
+        }
 
         Command::ComputerCapacity {} => Ok(json!(room.computer_capacity().await)),
         Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),

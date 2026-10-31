@@ -68,6 +68,8 @@ impl Room {
             about: self.route_about(&request),
             level: AsideLevel::Note,
             heard: None,
+            seen: None,
+            looped_in: false,
         };
         if let Err(error) = self.keep_aside(&aside) {
             eprintln!("a note from thread {side_id}: {error}");
@@ -95,6 +97,8 @@ impl Room {
             about: self.route_about(request),
             level: AsideLevel::Nudge,
             heard: None,
+            seen: None,
+            looped_in: false,
         };
         if let Err(error) = self.keep_aside(&aside) {
             eprintln!("the nudge for result {}: {error}", request.id);
@@ -112,7 +116,7 @@ impl Room {
 
     /// The latest handoff into a work thread while it stands, with a sender on
     /// this desk: the one whose opener its turns inform.
-    fn handoff_standing(&self, side_id: &str) -> Option<Request> {
+    pub(super) fn handoff_standing(&self, side_id: &str) -> Option<Request> {
         self.exchange_pairs()
             .into_iter()
             .flat_map(|pair| pair.requests)
@@ -128,7 +132,7 @@ impl Room {
     /// The sender's thread a request's answer goes back to, when it is not
     /// the sender's main conversation: the job or the work thread it was sent
     /// from, while that is still open.
-    fn route_about(&self, request: &Request) -> Option<ThreadId> {
+    pub(super) fn route_about(&self, request: &Request) -> Option<ThreadId> {
         if let Some(job) = request
             .reply_job
             .as_deref()

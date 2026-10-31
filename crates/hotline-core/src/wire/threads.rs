@@ -107,6 +107,20 @@ pub(super) fn close(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Val
     Ok(Value::Null)
 }
 
+/// Loops a colleague into a work thread: a nudge aside from the thread, and
+/// one answer written there.
+pub(super) async fn loop_in(
+    room: &Arc<dyn RoomHandle>,
+    thread: &ThreadId,
+    persona_id: &str,
+) -> Result<Value, String> {
+    match thread.kind {
+        ThreadKind::Side => room.side_loop_in(&thread.key, persona_id).await?,
+        _ => return Err(not_here(thread, "Looping in")),
+    }
+    Ok(Value::Null)
+}
+
 /// Brings a parked or closed work thread back, or lets a paused exchange go
 /// on, and answers the thread as it now stands.
 pub(super) async fn resume(

@@ -784,6 +784,7 @@ extend; when a change adds a boundary, it adds a row.
 | A computer joining once downloaded, a computer made again between turns and an MCP sign-in completing rebuild the running main session the way a chapter's swap does (`Room::rebuild`), ending none of the teammate's threads or requests, so a handoff at work goes on to its result; the sign-in's rebuild waits for the turn in flight; a job's stale agent is rebuilt for its next line | `session/exchanges/tests/lasting.rs` `a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in`, `an_mcp_sign_in_rebuilds_a_main_conversation_only_once_its_turn_is_over`; `session/tests/scheduled.rs` `a_stale_job_agent_is_rebuilt_for_the_next_line_whatever_waits_behind_it` | the computer's own runtime path: Unix (`session/tests/computer.rs`) |
 | Standing collaboration consent is cleared only by the recipient's access growing, each widening named and nothing else (goal, model, agent, narrowing) counting; clearing takes the caller off `allowedSenders` too, counts at once and after compaction, and the next card says what grew; it survives reattaches, a room-wide reattach and a restart with the room stream compacted | `session/consent/tests.rs` `each_widening_of_the_recipients_access_is_named`, `nothing_that_leaves_the_recipient_reaching_as_far_clears_consent`, `a_cleared_consent_counts_at_once_and_after_compaction`, `a_cleared_grant_asks_again_and_the_card_says_why`, `an_always_grant_survives_reattaches_a_sign_out_and_a_restart`; `wire/tests/consent.rs` `a_persona_update_clears_always_only_when_the_recipients_access_grows`, `a_server_added_to_the_desk_clears_always_for_a_teammate_granted_all` | — |
 | Asides: a colleague may aside a teammate only as it may ask it (card, `allowedSenders`, implicit Whole machine Hotline Agent), and a denied card leaves nothing; an aside is kept on the recipient's stream and the sender's thread and found by `search_thread`, heard once at the next turn as fenced data and never written to the person's chat; a nudge wakes an idle teammate once for many and counts on the pair's brake, and wakes nobody at the brake or mid-turn; a `person` aside raises the person's card; a handed-over thread's notes carry the colleague's words, never the person's | `session/asides/tests.rs` `an_aside_needs_the_grant_an_ask_needs`, `an_aside_is_kept_on_its_teammates_stream_and_the_senders_thread_and_search_finds_it`, `a_note_waits_for_the_next_turn_and_opens_its_line_never_the_chat`, `nudges_wake_an_idle_teammate_once_and_count_once_on_the_brake`, `a_nudge_at_the_brake_or_to_a_busy_teammate_waits_for_the_next_turn`, `a_person_aside_raises_a_card_on_the_teammates_conversation_and_is_heard_too`, `the_block_says_who_where_and_fences_their_words_as_data`; `session/exchanges/tests/asides.rs` `a_persons_turn_in_a_handed_over_thread_leaves_its_opener_the_colleagues_words`, `a_turn_that_waits_on_the_person_leaves_its_opener_a_note_and_no_message`; `wire/tests/asides.rs` `aside_list_reads_a_teammates_asides_newest_first_and_the_row_counts_the_unheard` | — |
+| Loop in… and End thread: the person may loop any colleague on this desk into an open work thread, which leaves it a nudge aside the thread draws and asks it once with no card, its answer delivered into the thread; never the thread's own teammate or an ended thread; the phone may loop in on a work thread only, and mark asides seen; the person's End thread on a handed-over thread releases and stops its handoff with no result and no failure, and tells the opener once by a note aside, never a wake | `session/exchanges/tests/loop_in.rs` `a_looped_in_colleague_is_nudged_and_answers_once_in_the_thread`, `loop_in_is_refused_for_the_threads_own_teammate_and_an_ended_thread`, `the_persons_end_thread_releases_the_handoff_and_tells_its_opener_once_by_a_note`; `wire/tests/asides.rs` `aside_seen_marks_the_persons_reading_and_the_row_counts_the_new` | — |
 | The thread index: a turn is told only its own teammate's threads, fenced and labelled as Hotline's note with each title, last line and aside quoted as data; a job's firing and a run are told only their parent thread and the asides about them; work handed to a colleague is quoted to its sender in the colleague's words, never the person's | `session/index/tests.rs` `the_main_conversation_opens_each_turn_with_the_index_of_its_threads`, `a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it`, `a_run_hears_only_its_parent_thread`, `handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes queued work; a dropped wait cannot be answered later | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later` | — |
 | A colleague's question is answered where the memory is, by a turn of the recipient's own threads under that thread's lease, and no session or agent of the pair's own is built: an idle main conversation answers it in a turn that takes in nothing the person says; a busy one is answered for at once by a work thread of the recipient's, seeded with its tail, its recent asides and its thread index, which closes with its answer and leaves the main conversation a note aside, nothing in the person's chat; an ask names only a thread its sender's handoff opened on that recipient and is answered there, which stays open; a question back from a handed-over thread to the teammate that handed it over needs no card while the delegation stands, and meets the ordinary grant once it has ended; a question stopped before its answer, or whose teammate was deleted or unlinked, hands its failure to the thread that asked it and a handoff waiting on it carries on; the person's Stop fails a question waiting behind the turn at once and once; a question a chapter's swap dropped is answered in the next chapter | `session/exchanges/tests/questions.rs` `an_ask_to_an_idle_main_conversation_is_answered_there`, `no_peer_session_or_peer_agent_is_built_for_an_ask`, `a_busy_main_conversation_is_answered_for_by_a_seeded_work_thread_that_asides_back`, `the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_own`, `an_ask_naming_a_thread_is_answered_in_it_and_leaves_it_open`, `an_ask_naming_a_thread_not_its_own_is_refused`, `a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card`, `the_persons_cancel_fails_a_question_still_waiting_behind_the_turn`, `a_question_waiting_behind_a_turn_outlives_a_chapter_swap`; `session/exchanges/tests/gates.rs` `a_handoff_that_asks_a_colleague_waits_for_the_answer_and_carries_on_with_it`, `a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_failure`, `a_question_to_a_deleted_teammate_carries_the_handoff_on_with_the_failure`, `a_question_to_a_desk_that_unlinks_carries_the_handoff_on_with_the_failure`; `session/agent.rs` `a_pair_has_no_agent_of_its_own` | — |
@@ -926,8 +927,8 @@ made it so.
 ### The person in a handed-over thread
 
 - **Default:** the person talks in a thread a teammate handed over and
-  continues it once it has closed, as in any work thread; the person does not
-  archive it, since it ends with its result.
+  continues it once it has closed, as in any work thread. The person's End
+  thread ends it and its handoff (below, Loop in… and End thread).
 - **Grant source:** the person's own seat. Their words grant the teammate
   nothing and carry nothing to the teammate that handed the work over.
 - **Enforcement:** only a turn begun by a request's own line (`RequestLine`,
@@ -936,14 +937,13 @@ made it so.
   line said during the handoff's turn waits behind it. While the handoff
   waits on a card in the thread, the person's words are that card's answer,
   with no files (`Room::prompt_side_replying`), checked as any answer is
-  (`resume_handoff_answer`). `Room::archive_side` refuses the person's
-  Archive of a thread with an opener.
+  (`resume_handoff_answer`).
 - **Tests:** `session/exchanges/tests/handed_over.rs`
   `the_persons_line_in_a_handed_over_thread_never_reaches_its_opener`,
   `the_persons_words_answer_the_card_a_handoff_waits_on`,
   `words_in_a_continued_thread_are_a_line_once_its_handoff_is_over`;
   `session/sides/tests.rs`
-  `a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them`.
+  `a_handed_over_thread_takes_the_persons_words_and_their_end_and_continues`.
 - **Residual risk:** the teammate hears the person's words in the thread with
   everything else said there, and a later handoff turn's result may reflect
   them; what reaches the opener is what the teammate chooses to say in it.
@@ -1012,7 +1012,45 @@ the start of its next turn, never a message in the person's chat
   enforced is that Hotline never forwards the person's words itself. A
   recipient hears an aside in its next turn's context and may act on it with
   every permission it already has, as with an ask's answer. The person sees
-  asides only through `aside.list` until the window draws them (phase 6).
+  them as the window draws them: quiet lines in the recipient's main
+  conversation, read from `aside.list` and never written there, and its Noted
+  page. `aside.seen` only marks the person's reading, on the desk, owner and
+  phone seats, and changes nothing a turn hears.
+
+## Loop in… and End thread (epic-28, task-323)
+
+The person's two acts on a work thread from its header
+(`docs/design/thread-awareness.md`, decision 5).
+
+- **Default and old records:** nothing is looped in, and a request saved
+  before carries no `looped_in` and is granted as it always was. A thread a
+  teammate handed over was refused the person's Archive before; End thread now
+  closes it.
+- **Grant source:** the person's seat, the desk's, an owner's or the phone's
+  (`thread.loop_in` on a work thread only). Loop in… is the person's grant for
+  one question from the thread's teammate to the colleague, so it asks no card
+  and passes neither `allowedSenders` nor the first-contact consent. End thread
+  is the person ending a request, which phase 1 says only someone does.
+- **Enforcement points:** `session/exchanges/loop_in.rs` `Room::loop_in` (an
+  open work thread, a colleague on this desk that is not its own teammate);
+  the ask is an ordinary request marked `looped_in`, and `authorize_exchange`
+  still checks both teammates' lasting leases before it is granted, so a
+  revoked or removed teammate is not asked. It carries the thread's title and
+  last eight lines, the person's among them: the person chose to show the
+  colleague the thread. The pair's brake counts it and its answer. The
+  colleague is left a `nudge` aside, kept and searchable, which wakes nothing
+  by itself: the question does. `session/exchanges/ended.rs`
+  `Room::person_ended`, run by `Room::archive_side` only when the person's
+  close actually closed the thread: every handoff into it is released, one
+  still queued, running or waiting on the person is stopped with its leases
+  revoked and nothing owed anywhere, and the opener standing there is left one
+  `note` aside, not a wake and nothing in its chat.
+- **Tests:** the regression matrix row for Loop in… and End thread.
+- **Residual risk:** the colleague reads what the thread's tail says, which
+  may include something the person said there; the colleague's answer goes to
+  the thread's teammate as any answer does. A question in flight when the
+  person ends the thread still brings its answer back, which reopens the
+  thread as any delivery to a closed work thread does.
 
 ## The thread index (epic-28, task-321)
 

@@ -1323,14 +1323,18 @@ room closes. One pending first-contact decision is held per direction.
 An aside informs a teammate without messaging it or the person
 (`session/asides.rs`; the design is
 [thread-awareness.md](design/thread-awareness.md) §2). It is an `Aside`
-(`{id, ts, to, from, by?, text, about?, level, heard?}`): `from` is the
-thread it was said in (or, in the type only so far, an inbound source), `by`
-the colleague whose words it is, `about` the recipient's thread it is heard
-in. It is kept on the recipient's own stream, `asides/<id>.jsonl`
+(`{id, ts, to, from, by?, text, about?, level, heard?, seen?, loopedIn?}`):
+`from` is the thread it was said in (or, in the type only so far, an inbound
+source), `by` the colleague whose words it is, `about` the recipient's thread
+it is heard in. It is kept on the recipient's own stream, `asides/<id>.jsonl`
 (`StreamId::Asides`), indexed under the recipient for `search_thread` with the
 thread it came from, and written as an `aside` event on the thread it was said
 in, so the sender's record shows it. It is never on the recipient's tape, and
-never a message in the person's chat.
+never a message in the person's chat: the window draws the recipient's asides
+into its main conversation from `aside.list`, as quiet lines, and lists them on
+its Noted page. Opening Noted marks them `seen` (`aside.seen`,
+`Room::mark_asides_seen`, under the lock hearing takes), which is the person's
+reading and leaves `heard` alone; the roster row counts the unseen.
 
 **Heard at the next turn.** As a turn of the DM, a work thread or a job
 begins, `Room::hear_asides` takes the recipient's unheard asides for that
@@ -1370,6 +1374,28 @@ conversation are taken into one turn when it is free (`results_behind`), and
 the reply is counted on the brake as it always was. Notes and the nudge ride on
 the handoff, so they stop when it no longer stands, and a sender on a linked
 desk gets none.
+
+**The person's acts on a work thread** (decision 5;
+`session/exchanges/loop_in.rs`, `ended.rs`). *Loop in…* (`thread.loop_in`)
+brings a colleague into an open work thread for one answer, since there are no
+threads of three. The colleague is left a `nudge` aside from the thread with
+`loopedIn`, `by` the thread's teammate, "Ada looped you in." (the person's
+name, else "The person"), which the thread draws as "Quill was looped in". The
+thread then asks the colleague once: an ask from the thread's teammate, sent
+from the thread, carrying the thread's title and its last eight lines, and
+marked `looped_in` so the person's act is its grant (`authorize_exchange`
+asks no card). It is answered where the colleague's memory is, as any
+question is (its idle main conversation, which the question wakes, else a work
+thread of its own at once), and the answer comes back into the thread as a
+delivery under the colleague's name, which the thread's teammate takes up in a
+turn of its own. The pair's brake counts the question and the answer. *End
+thread* is the person's `thread.close` on a work thread, live or parked; on one
+a teammate handed over it is also one of the ends phase 1 names: each handoff
+into it is released, one whose work had not come back is stopped with no
+result and no failure handed anywhere, the link says `handoffEnded`, and the
+opener is left one `note` aside, "Ada ended this thread, and the work you
+handed over with it.", heard at its next turn and never a wake. Ending a
+thread that has ended already does nothing.
 
 ## The thread index
 
@@ -1538,8 +1564,8 @@ continuation that is taken up.
 
 **The person in a handed-over thread.** The person talks in a thread a
 colleague handed over as in any work thread, and continues it once it has
-closed; only its result ends it, so the person's Archive is refused
-(`Room::archive_side`). A line said while the handoff's turn runs waits behind
+closed; its result ends it, and so does the person's End thread, which ends
+the handoff too ([Asides](#asides), the person's acts). A line said while the handoff's turn runs waits behind
 it, the turn's reply is still the handoff's result, and the thread does not
 close while the line waits. A turn the person's line starts is theirs: its
 reply stays in the thread and never reaches the opener, since only a turn begun

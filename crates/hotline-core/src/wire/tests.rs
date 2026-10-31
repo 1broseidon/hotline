@@ -232,6 +232,14 @@ impl RoomHandle for CoreHandle {
         self.room.asides_unheard(persona_id)
     }
 
+    fn asides_unseen(&self, persona_id: &str) -> usize {
+        self.room.asides_unseen(persona_id)
+    }
+
+    fn asides_seen(&self, persona_id: &str) -> Result<(), String> {
+        self.room.mark_asides_seen(persona_id)
+    }
+
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
         self.room.policy_update_lock()
     }

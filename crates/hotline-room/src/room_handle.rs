@@ -272,6 +272,23 @@ pub trait RoomHandle: Send + Sync + 'static {
         0
     }
 
+    /// How many of this teammate's asides the person has not seen on its
+    /// Noted page, for the roster row.
+    fn asides_unseen(&self, _persona_id: &str) -> usize {
+        0
+    }
+
+    /// The person has seen this teammate's asides.
+    fn asides_seen(&self, _persona_id: &str) -> Result<(), String> {
+        Err("Asides are unavailable on this room.".to_string())
+    }
+
+    /// Loops a colleague into a work thread: a nudge aside, and one answer
+    /// written in the thread.
+    async fn side_loop_in(&self, _side_id: &str, _persona_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
     /// Starts a side thread: a second conversation with this teammate.
     async fn side_start(
         &self,

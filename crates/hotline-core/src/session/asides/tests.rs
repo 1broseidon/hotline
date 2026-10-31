@@ -238,6 +238,8 @@ async fn an_aside_about_a_thread_is_heard_there_and_one_about_a_closed_thread_at
         about: Some(ThreadId::side("gone")),
         level: AsideLevel::Note,
         heard: None,
+        seen: None,
+        looped_in: false,
     };
     room.keep_aside(&aside).unwrap();
     // A work thread that is not open takes no turn: it is heard at home.
@@ -464,6 +466,8 @@ fn the_block_says_who_where_and_fences_their_words_as_data() {
         about: None,
         level: AsideLevel::Nudge,
         heard: None,
+        seen: None,
+        looped_in: false,
     };
     let inbound = Aside {
         from: AsideSource::Inbound("github".into()),
@@ -501,6 +505,8 @@ async fn results_that_come_back_together_are_heard_in_one_turn() {
             about: None,
             level: AsideLevel::Nudge,
             heard: None,
+            seen: None,
+            looped_in: false,
         })
         .unwrap();
         lock(&session.turns).waiting.push_back(Wired {

@@ -144,8 +144,9 @@ impl Seat {
                     | Command::SideList { .. }
                     | Command::SideAnswerPermission { .. }
                     // What a teammate's threads told it, which the person
-                    // reads as they read its threads.
+                    // reads as they read its threads, and marks as read.
                     | Command::AsideList { .. }
+                    | Command::AsideSeen { .. }
                     )
             }
         }
@@ -247,6 +248,9 @@ fn phone_thread_command(command: &Command) -> bool {
         Command::ThreadClose { thread } | Command::ThreadCancel { thread } => {
             thread.kind != ThreadKind::Job
         }
+        // Looping a colleague into a work thread is the person's own grant,
+        // which the phone gives as the desk does.
+        Command::ThreadLoopIn { thread, .. } => thread.kind == ThreadKind::Side,
         Command::ThreadPage { thread, .. } => phone_may_read(thread),
         Command::ClientHello { .. }
         | Command::ThreadList { .. }

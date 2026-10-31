@@ -382,6 +382,8 @@ impl Room {
             about: None,
             level: AsideLevel::Note,
             heard: None,
+            seen: None,
+            looped_in: false,
         };
         if self.aside_kept(&request.to, &aside.id) {
             return;

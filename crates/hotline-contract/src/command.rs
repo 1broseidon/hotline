@@ -978,7 +978,8 @@ pub enum Command {
     #[serde(rename = "thread.park")]
     ThreadPark { thread: ThreadId },
     /// Ends a work thread: its agent is stopped and its transcript is kept,
-    /// read-only until it is continued.
+    /// read-only until it is continued. The person ending one a teammate
+    /// handed over releases the handoff, and its opener is left a note aside.
     #[serde(rename = "thread.close")]
     ThreadClose { thread: ThreadId },
     /// Brings a parked or closed work thread back, as a `ThreadSummary`. On a
@@ -1007,6 +1008,18 @@ pub enum Command {
     /// `Aside`s: what other threads told it without telling the person.
     #[serde(rename = "aside.list")]
     AsideList { persona_id: String },
+    /// The person has read the teammate's asides: each not yet seen is marked
+    /// seen, which the roster row's `asidesNew` counts. The teammate's
+    /// hearing of them is its own and does not change.
+    #[serde(rename = "aside.seen")]
+    AsideSeen { persona_id: String },
+    /// Loops a colleague into a work thread: it is left a nudge aside from
+    /// the thread, and may answer once there, under its own name.
+    #[serde(rename = "thread.loop_in")]
+    ThreadLoopIn {
+        thread: ThreadId,
+        persona_id: String,
+    },
 }
 
 /// With `default`, absence is None; a present null is Some(None).

@@ -36,6 +36,14 @@ pub fn unheard(log: &Log, persona_id: &str) -> usize {
         .count()
 }
 
+/// How many the person has not seen on the teammate's Noted page yet.
+pub fn unseen(log: &Log, persona_id: &str) -> usize {
+    of(log, persona_id)
+        .iter()
+        .filter(|aside| aside.seen.is_none())
+        .count()
+}
+
 /// The thread an aside came from, as a search hit names it: `pair:<key>`, or
 /// `inbound:<source>` for a source outside the desk.
 pub fn source_name(source: &AsideSource) -> String {

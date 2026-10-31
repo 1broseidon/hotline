@@ -147,6 +147,8 @@ impl Room {
             about,
             level: leaving.level,
             heard: None,
+            seen: None,
+            looped_in: false,
         };
         let woke = self.leave_aside(&aside)?;
         Ok(match aside.level {
@@ -287,6 +289,37 @@ impl Room {
     /// How many asides the teammate has not heard yet, for its roster row.
     pub fn asides_unheard(&self, persona_id: &str) -> usize {
         crate::store::asides::unheard(&self.log, persona_id)
+    }
+
+    /// How many the person has not seen on the teammate's Noted page yet.
+    pub fn asides_unseen(&self, persona_id: &str) -> usize {
+        crate::store::asides::unseen(&self.log, persona_id)
+    }
+
+    /// The person opened the teammate's Noted page: each aside not seen yet is
+    /// rewritten as seen, keeping whether a turn has heard it, under the lock
+    /// hearing takes so neither rewrite loses the other's.
+    pub fn mark_asides_seen(&self, persona_id: &str) -> Result<(), String> {
+        self.participant(persona_id)?;
+        let _marking = lock(&self.asides_lock);
+        let now = now_ms();
+        let unseen: Vec<Aside> = crate::store::asides::of(&self.log, persona_id)
+            .into_iter()
+            .filter(|aside| aside.seen.is_none())
+            .collect();
+        if unseen.is_empty() {
+            return Ok(());
+        }
+        for mut aside in unseen {
+            aside.seen = Some(now);
+            let event = serde_json::to_value(TranscriptEvent::Aside(aside))
+                .map_err(|error| error.to_string())?;
+            self.log
+                .append(&StreamId::Asides(persona_id.to_string()), &event)
+                .map_err(|error| format!("The asides could not be marked seen: {error}"))?;
+        }
+        let _ = self.info_changes.send(self.info(persona_id));
+        Ok(())
     }
 
     /// The thread an aside is heard in: the one it is about while that is

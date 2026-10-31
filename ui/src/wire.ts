@@ -270,6 +270,10 @@ type Results = {
 	"thread.page": { events: TranscriptEvent[]; more: boolean };
 	/** What a teammate's threads told it without telling the person, newest first. */
 	"aside.list": Aside[];
+	/** The person has seen them: the row's `asidesNew` goes. */
+	"aside.seen": null;
+	/** The colleague has its nudge, and its one answer is on its way. */
+	"thread.loop_in": null;
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;

@@ -240,6 +240,10 @@ pub struct RosterEntry {
     /// heard yet (`aside.list` lists them). Absent when there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asides: Option<u32>,
+    /// How many of them the person has not seen on its Noted page yet
+    /// (`aside.seen` marks them). Absent when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asides_new: Option<u32>,
     pub session: SessionInfo,
 }
 

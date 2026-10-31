@@ -111,6 +111,10 @@ struct Request {
     /// its failure until it is handed there.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     owed_to_thread: bool,
+    /// For an ask: the person looped its recipient into the work thread it
+    /// was sent from (`loop_in.rs`), and that is its grant.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    looped_in: bool,
 }
 impl Request {
     /// Ends a handoff's standing, and says whether that changed it. Its
@@ -183,8 +187,9 @@ impl Room {
         a.check()?;
         b.check()?;
         // While it stands, the delegation is the grant for its thread's
-        // questions back to the teammate that handed it over.
-        if self.about_live(request).is_some() {
+        // questions back to the teammate that handed it over; the person's
+        // Loop in… is the grant for the one it asks.
+        if request.looped_in || self.about_live(request).is_some() {
             return Ok(());
         }
         if let Some(thread) = &request.lead_call {
@@ -238,6 +243,18 @@ impl Room {
         outgoing: &Outgoing<'_>,
         capability: Option<CapabilityLease>,
         sent_from: &ThreadId,
+    ) -> Result<peers::Sent, String> {
+        self.queue_request(from, outgoing, capability, sent_from, false)
+    }
+    /// Queues a request, as `send_intent` does; `looped_in` marks the ask the
+    /// person's Loop in… makes, which is its own grant.
+    fn queue_request(
+        self: &Arc<Self>,
+        from: &str,
+        outgoing: &Outgoing<'_>,
+        capability: Option<CapabilityLease>,
+        sent_from: &ThreadId,
+        looped_in: bool,
     ) -> Result<peers::Sent, String> {
         let _working = self.working()?;
         let intent = outgoing.intent;
@@ -313,6 +330,7 @@ impl Room {
                 about,
                 own_thread: false,
                 owed_to_thread: false,
+                looped_in,
             });
             self.save_pair(&pair)?;
             if intent == Intent::Ask {
@@ -1320,6 +1338,7 @@ impl Room {
                 about: None,
                 own_thread: false,
                 owed_to_thread: false,
+                looped_in: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
@@ -1455,8 +1474,10 @@ impl Room {
 }
 
 mod asides;
+mod ended;
 mod gates;
 mod handover;
+mod loop_in;
 mod place;
 mod questions;
 mod revoked;

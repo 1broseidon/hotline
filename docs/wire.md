@@ -193,7 +193,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then; one opened without a task runs no turn and is not `working` while its agent starts. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
 | `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued. In a thread a teammate handed over, while its handoff waits on a card there, the words are that card's answer (and attachments are refused) |
 | `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
-| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none. Refused for a thread a teammate handed over, which ends with its result |
+| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none. Ending one a teammate handed over is the person's End thread: the handoff into it is released and stopped with no result, and its opener is left one `note` aside, never woken |
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
@@ -203,11 +203,13 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
 | `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs) |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none; one mid-turn is refused, since parking would cut the turn |
-| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`, refused for one a teammate handed over), or cancels a job (`schedule.cancel`) |
+| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`: on one a teammate handed over, the person's End thread, which ends the handoff too), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
 | `aside.list` | `{personaId}` | `Aside[]`, newest first, heard or not: what the teammate's colleagues and threads left it without telling the person ([Asides](#asides)). The desk, owner and phone seats |
+| `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Noted page opened): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
+| `thread.loop_in` | `{thread, personaId}` | none; the person's Loop in… on a work thread that is open: the colleague is left a `nudge` aside from the thread with `loopedIn`, and the thread asks it once, as a question from the thread's teammate that the person's act grants, with the thread's last lines; its answer comes back into the thread as a delivery under the colleague's name. Refused for the thread's own teammate, a teammate on a linked desk and a closed thread. The desk, owner and phone seats, on a work thread only |
 | `tape.page` | `{personaId, before, limit?, through?}` | `{events, more}`: the `limit` lines of a tape before the line `before` (400 by default, at most 2,000), oldest first, or, with `through`, every line from 40 above `through` up to `before`, so a search hit or a quoted reply can be scrolled to. `more` is whether older lines are left. A `before` the tape does not hold is an empty page. A phone's page is cut as its snapshot is |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only, for the desk, owner and phone seats |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
@@ -983,7 +985,7 @@ may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 `mobile.prompt`, as before), `thread.answer` in anything but a pair (which
 raises no card), neither
-`thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.page` and `{"threadId": …}`
+`thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.loop_in` on a work thread only, `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
 pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
@@ -1021,9 +1023,15 @@ yet). `by` is the teammate whose words it is, absent for an inbound source.
 `about` is the recipient's thread it is heard in, absent for its main
 conversation. `level` is `note`, `nudge` (it woke the teammate if it was idle)
 or `person` (a card was raised for the person too). `heard` is when a turn
-took it in, absent until then. The thread it was said in carries the same
-object as a quiet `{kind: "aside", …}` event, which a client that predates it
-skips. `aside.list` reads them, and the roster row counts the unheard.
+took it in, absent until then; `seen` is when the person last opened the
+teammate's Noted page with it there (`aside.seen`), absent until then.
+`loopedIn: true` marks the nudge the person's Loop in… left (`by` is then the
+thread's teammate, and the words are Hotline's). The thread it was said in
+carries the same object as a quiet `{kind: "aside", …}` event, which a client
+that predates it skips. `aside.list` reads them, and the roster row counts the
+unheard (`asides`) and the unseen (`asidesNew`). The window draws the
+recipient's asides into its main conversation from `aside.list`, as quiet
+lines; they are never written there.
 
 ## The roster view
 
@@ -1067,7 +1075,8 @@ threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
 can be stopped; each is absent when there are none. `asides` is how many
 asides the teammate has been left that no turn of its has heard yet, absent
-when none; the row is sent again when one is left or heard. A phone that declared `lean` is sent each row
+when none, and `asidesNew` how many of them the person has not seen on its
+Noted page; the row is sent again when one is left, heard or seen. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports

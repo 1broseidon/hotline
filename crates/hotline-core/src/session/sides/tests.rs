@@ -89,10 +89,10 @@ async fn a_millisecond_passes() {
     until("the clock moves on", || now_ms() > before).await;
 }
 
-/// The person talks in a handoff and brings it back once it has ended, but
-/// only its result archives it.
+/// The person talks in a handoff, ends it with End thread, and brings it back.
+/// What ending it does to the handoff is `exchanges/tests/loop_in.rs`'s.
 #[tokio::test]
-async fn a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them() {
+async fn a_handed_over_thread_takes_the_persons_words_and_their_end_and_continues() {
     let agents = Fake::new(Scripted::new(vec![say("m1", "On it."), turn()]));
     let room = room("side-handed-over", agents.clone());
     let (live, launch) = room
@@ -119,24 +119,12 @@ async fn a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_a
         .unwrap();
     assert!(kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()));
 
-    let refused = room
-        .archive_side(&live.id, SideEnd::Person, None)
-        .unwrap_err();
-    assert!(
-        refused.starts_with("Mack handed this thread over"),
-        "{refused}"
-    );
+    room.archive_side(&live.id, SideEnd::Person, None).unwrap();
     assert_eq!(
         room.link_of(&ThreadId::side(&live.id)).unwrap().state,
-        ThreadState::Live,
-        "the person's Archive leaves it open"
+        ThreadState::Closed(End::Person),
+        "the person's End thread closes it"
     );
-
-    room.finish_side(&live, End::Agent, None);
-    assert!(matches!(
-        room.link_of(&ThreadId::side(&live.id)).unwrap().state,
-        ThreadState::Closed(_)
-    ));
     let back = room.continue_side(&live.id).await.unwrap();
     assert_eq!(back.status, SideStatus::Live);
     assert!(room.sides.get(&live.id).is_some());

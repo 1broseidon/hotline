@@ -63,11 +63,12 @@ pub struct Aside {
     /// The teammate it is for.
     pub to: String,
     pub from: AsideSource,
-    /// The teammate whose words it is, when a teammate left it. Absent for an
-    /// inbound source.
+    /// The teammate it is from: whose words it is, or, for one Hotline says
+    /// of the person's act (Loop in…, End thread), whose thread the person
+    /// acted in. Absent for an inbound source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
-    /// The sender's own words, never the person's.
+    /// The sender's own words, or Hotline's, never the person's.
     pub text: String,
     /// The thread of the teammate's it is about, which is where it is heard.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -76,4 +77,14 @@ pub struct Aside {
     /// When a turn of the teammate's took it in. Absent until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heard: Option<i64>,
+    /// When the person last opened the teammate's Noted page with it there
+    /// (`aside.seen`): the person's reading, apart from the teammate's
+    /// hearing. Absent until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen: Option<i64>,
+    /// The person looped the teammate into the work thread it came from
+    /// (`thread.loop_in`), whose answer is written there once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub looped_in: bool,
 }

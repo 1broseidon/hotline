@@ -2,6 +2,7 @@ mod asides;
 mod gates;
 mod handed_over;
 mod lasting;
+mod loop_in;
 mod pause;
 mod questions;
 mod threads;
@@ -98,6 +99,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         about: None,
         own_thread: false,
         owed_to_thread: false,
+        looped_in: false,
     }
 }
 /// A handoff from `from` to `to`, into the thread `thread` names when it does.

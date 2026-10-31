@@ -680,24 +680,6 @@ impl Room {
         Ok(self.side_summary(&side))
     }
 
-    /// The person talks in a thread a teammate handed over and brings it
-    /// back, but it ends with its result, not with the person's Archive.
-    fn refuse_archiving_handed_over(&self, side_id: &str) -> Result<(), String> {
-        let opener = match self.sides.get(side_id) {
-            Some(side) => side.opener.clone(),
-            None => self
-                .link_of(&self.work_thread(side_id))
-                .and_then(|link| link.opener),
-        };
-        match opener {
-            Some(opener) => Err(format!(
-                "{name} handed this thread over, so it ends with its result. Stop its turn, or talk to {name} about it.",
-                name = opener.name
-            )),
-            None => Ok(()),
-        }
-    }
-
     /// A thread's place, published: its link and its marker say live, and it
     /// can be said to, before any agent exists for it.
     ///
@@ -984,28 +966,40 @@ impl Room {
     }
 
     /// Archives a side thread, live or parked. Archiving one that is already
-    /// archived is answered as done, so a second press is not an error.
+    /// archived is answered as done, so a second press is not an error. The
+    /// person's End thread on one a teammate handed over ends that handoff
+    /// too (`exchanges/ended.rs`).
     pub fn archive_side(
         &self,
         side_id: &str,
         by: SideEnd,
         result: Option<String>,
     ) -> Result<(), String> {
-        if by == SideEnd::Person {
-            self.refuse_archiving_handed_over(side_id)?;
+        if self.close_side(side_id, by, result)? && by == SideEnd::Person {
+            self.person_ended(side_id);
         }
+        Ok(())
+    }
+
+    /// Closes a live or parked thread, and says whether it was open.
+    fn close_side(
+        &self,
+        side_id: &str,
+        by: SideEnd,
+        result: Option<String>,
+    ) -> Result<bool, String> {
         if let Some(side) = self.sides.get(side_id) {
             self.finish_side(&side, by.into(), result);
-            return Ok(());
+            return Ok(true);
         }
         let Some(link) = self.link_of(&self.work_thread(side_id)) else {
             return Err("There is no such side thread.".to_string());
         };
         match link.state {
-            ThreadState::Closed(_) => Ok(()),
+            ThreadState::Closed(_) => Ok(false),
             ThreadState::Parked => {
                 self.archive_parked(link, by.into(), result);
-                Ok(())
+                Ok(true)
             }
             ThreadState::Live => Err("There is no such side thread.".to_string()),
         }

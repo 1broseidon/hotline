@@ -593,6 +593,18 @@ impl RoomHandle for Desk {
         self.room.asides_unheard(persona_id)
     }
 
+    fn asides_unseen(&self, persona_id: &str) -> usize {
+        self.room.asides_unseen(persona_id)
+    }
+
+    fn asides_seen(&self, persona_id: &str) -> Result<(), String> {
+        self.room.mark_asides_seen(persona_id)
+    }
+
+    async fn side_loop_in(&self, side_id: &str, persona_id: &str) -> Result<(), String> {
+        self.room.loop_in(side_id, persona_id).await
+    }
+
     async fn side_start(
         &self,
         persona_id: &str,

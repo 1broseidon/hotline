@@ -897,7 +897,7 @@ made it so.
   recipient, and fails the request when it names none; a linked desk's id is
   never used as a thread id or a path. The thread is brought back under the
   recipient's current authority (`Room::bring_up`), never the one it had
-  before, and the person still only reads a handed-over thread.
+  before.
 - **Tests:** `session/exchanges/tests.rs`
   `a_handoff_naming_its_thread_continues_it_and_one_without_opens_another`,
   `only_the_teammate_that_opened_a_thread_continues_it_and_only_by_handing_off`,
@@ -912,6 +912,31 @@ made it so.
   including what an earlier brief carried (a password, say), for as long as
   the thread lasts; that is the point of continuing it, and a sender that wants
   a clean context opens a new one.
+
+### The person in a handed-over thread
+
+- **Default:** the person talks in a thread a teammate handed over and
+  continues it once it has closed, as in any work thread; the person does not
+  archive it, since it ends with its result.
+- **Grant source:** the person's own seat. Their words grant the teammate
+  nothing and carry nothing to the teammate that handed the work over.
+- **Enforcement:** only a turn begun by a handoff's own line (`HandoffLine`,
+  set by the exchange, never read off the person's words) returns a result to
+  the opener; a turn the person's line starts keeps its reply in the thread. A
+  line said during the handoff's turn waits behind it. While the handoff
+  waits on a card in the thread, the person's words are that card's answer,
+  with no files (`Room::prompt_side_replying`), checked as any answer is
+  (`resume_handoff_answer`). `Room::archive_side` refuses the person's
+  Archive of a thread with an opener.
+- **Tests:** `session/exchanges/tests/handed_over.rs`
+  `the_persons_line_in_a_handed_over_thread_never_reaches_its_opener`,
+  `the_persons_words_answer_the_card_a_handoff_waits_on`,
+  `words_in_a_continued_thread_are_a_line_once_its_handoff_is_over`;
+  `session/sides/tests.rs`
+  `a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_archived_by_them`.
+- **Residual risk:** the teammate hears the person's words in the thread with
+  everything else said there, and a later handoff turn's result may reflect
+  them; what reaches the opener is what the teammate chooses to say in it.
 
 
 ### Human-gated handoff continuation (BRO-128)

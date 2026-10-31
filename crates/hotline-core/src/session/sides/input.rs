@@ -98,7 +98,20 @@ impl Room {
         if text.is_empty() && attachments.is_none() {
             return Err("There is nothing to say.".to_string());
         }
-        self.refuse_handed_over(side_id)?;
+        // In a thread a teammate handed over, while its handoff waits on a
+        // card there, the person's words are that card's answer: the turn
+        // that answer starts is the one that carries the handoff on.
+        if let Some((persona_id, action)) = self.card_a_handoff_waits_on(side_id) {
+            if attachments.is_some() {
+                return Err("Answer what it asked you first: your words are its card's note, and files cannot ride on it.".to_string());
+            }
+            return self.answer_human(
+                &persona_id,
+                &action,
+                crate::contract::HumanAnswer::Done,
+                Some(text.to_string()),
+            );
+        }
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
             Err(_) => self.wake_work(side_id, false, None)?,
@@ -108,6 +121,29 @@ impl Room {
             self.launch(launch);
         }
         Ok(())
+    }
+
+    /// The card in a thread that a handoff still open waits on, the oldest if
+    /// it waits on several, and whose card it is: the one the person's words
+    /// answer.
+    fn card_a_handoff_waits_on(&self, side_id: &str) -> Option<(String, String)> {
+        let thread = self.work_thread(side_id);
+        let persona_id = match self.sides.get(side_id) {
+            Some(side) => side.persona_id.clone(),
+            None => self.link_of(&thread)?.persona_id?,
+        };
+        let action = self
+            .log
+            .load(&StreamId::of_thread(&thread)?)
+            .iter()
+            .filter(|event| event["kind"] == "human_action" && event["status"] == "pending")
+            .filter_map(|card| card["actionId"].as_str())
+            .find(|action| {
+                self.handoff_awaiting(&persona_id, action)
+                    .is_some_and(|handoff| self.handoff_is_open(&handoff))
+            })?
+            .to_string();
+        Some((persona_id, action))
     }
 
     /// Stops the turn in flight in a side thread and drops what waited behind

@@ -626,7 +626,6 @@ has one hook and one view.
   opener's voice, with a bar naming the two of them and a way to the opener's
   conversation, where it is steered; only its turn may be stopped. While its
   teammate waits on the person, the bar is the one field they answer in. The
-  desk refuses the rest (`refuse_handed_over`), whatever the window shows. The
   person's conversation with the teammate that took a handoff keeps one line
   for all the unfinished ones, not a link each (`handoffsUnderway`). A pair keeps its two named chairs
   (`speakers`) and sends `peers.mark_read` as it did; a handoff opened from its

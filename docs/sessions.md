@@ -1409,6 +1409,19 @@ before the handoff that opened the thread has started follows it in. A thread
 whose opening handoff was stopped before it ran is opened by the first
 continuation that is taken up.
 
+**The person in a handed-over thread.** The person talks in a thread a
+colleague handed over as in any work thread, and continues it once it has
+closed; only its result ends it, so the person's Archive is refused
+(`Room::archive_side`). A line said while the handoff's turn runs waits behind
+it, the turn's reply is still the handoff's result, and the thread does not
+close while the line waits. A turn the person's line starts is theirs: its
+reply stays in the thread and never reaches the opener, since only a turn begun
+by a handoff's own line (`HandoffLine`) returns a result. While the handoff
+waits on a card in the thread, the person's words are that card's answer, as
+its note (files are refused), and the turn it starts carries the handoff on;
+once the handoff has ended, a card left open is answered on its own and the
+words are a line.
+
 The existing collaboration card now explains both intents. A legacy grant
 still permits Ask but needs informed approval before Handoff. Revocation
 stops queued work and the affected exchange without cancelling unrelated

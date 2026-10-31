@@ -99,7 +99,7 @@ fn work_brief(name: &str, opener: Option<&Persona>) -> String {
                 format!(" {} was created for this: {goal}", opener.name)
             };
             format!(
-                "{from} handed this work to you, and their message opened this thread.{goal} Do what they asked, with your own judgment about how. When you have finished, say what came of it in your last message and end your turn: that message goes back to {from} by itself and this thread closes, so do not message {from} to report and do not call `archive_thread`. The person can read this thread and talk in it at any time; ask them here with `request_human` when you need something only they can give, and their answer arrives in this thread.",
+                "{from} handed this work to you, and their message opened this thread.{goal} Do what they asked, with your own judgment about how. When you have finished, say what came of it in your last message and end your turn: that message goes back to {from} by itself and this thread closes, so do not message {from} to report and do not call `archive_thread`. The person can read this thread and talk in it at any time: what you answer them stays here and does not go to {from}, since only the reply that ends a turn of {from}'s handoff does. Ask them here with `request_human` when you need something only they can give, and their answer arrives in this thread.",
                 from = opener.name
             )
         }
@@ -664,7 +664,6 @@ impl Room {
         side_id: &str,
     ) -> Result<SideThreadSummary, String> {
         let _working = self.working()?;
-        self.refuse_handed_over(side_id)?;
         let (side, launch) = self.wake_side(side_id, true, None).await?;
         if let Some(launch) = launch {
             self.launch(launch);
@@ -672,11 +671,9 @@ impl Room {
         Ok(self.side_summary(&side))
     }
 
-    /// A thread a teammate handed over is the two teammates' work: the person
-    /// reads along, steers it through whoever handed it over, and answers only
-    /// what it asks them, on its card. Saying something in it, or bringing it
-    /// back once it has ended, is refused here, whatever the window shows.
-    fn refuse_handed_over(&self, side_id: &str) -> Result<(), String> {
+    /// The person talks in a thread a teammate handed over and brings it
+    /// back, but it ends with its result, not with the person's Archive.
+    fn refuse_archiving_handed_over(&self, side_id: &str) -> Result<(), String> {
         let opener = match self.sides.get(side_id) {
             Some(side) => side.opener.clone(),
             None => self
@@ -685,8 +682,8 @@ impl Room {
         };
         match opener {
             Some(opener) => Err(format!(
-                "{} handed this thread over, so it is read along. Talk to {} about it, or answer what it asks you on its card.",
-                opener.name, opener.name
+                "{name} handed this thread over, so it ends with its result. Stop its turn, or talk to {name} about it.",
+                name = opener.name
             )),
             None => Ok(()),
         }
@@ -981,6 +978,9 @@ impl Room {
         by: SideEnd,
         result: Option<String>,
     ) -> Result<(), String> {
+        if by == SideEnd::Person {
+            self.refuse_archiving_handed_over(side_id)?;
+        }
         if let Some(side) = self.sides.get(side_id) {
             self.finish_side(&side, by.into(), result);
             return Ok(());

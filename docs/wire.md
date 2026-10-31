@@ -192,9 +192,9 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `teammates.exchange_resume` | `{a, b}` | none; answers a pair's `exchange_paused` card with Keep going (below) |
 | `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop exchange (below) |
 | `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
-| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
+| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued. In a thread a teammate handed over, while its handoff waits on a card there, the words are that card's answer (and attachments are refused) |
 | `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
-| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
+| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none. Refused for a thread a teammate handed over, which ends with its result |
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
@@ -204,7 +204,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
 | `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs) |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none; one mid-turn is refused, since parking would cut the turn |
-| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`), or cancels a job (`schedule.cancel`) |
+| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`, refused for one a teammate handed over), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |

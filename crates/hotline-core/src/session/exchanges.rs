@@ -650,6 +650,16 @@ impl Room {
             .map(|r| r.id.clone())
     }
 
+    /// Whether an answer can still carry this handoff on: it is at work or
+    /// waiting on the person. One that ended with its card open has nothing
+    /// left to resume.
+    pub(super) fn handoff_is_open(&self, id: &str) -> bool {
+        self.exchange_pairs()
+            .iter()
+            .flat_map(|p| &p.requests)
+            .any(|r| r.id == id && matches!(r.phase, Phase::Running | Phase::WaitingHuman))
+    }
+
     /// Where a delivery came from, as the typed field a turn reads. A result
     /// comes from the thread that did the work: the work thread of a handoff,
     /// else the pair's.

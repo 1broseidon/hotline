@@ -581,10 +581,7 @@ mod tests {
         agents.awaiting("r1");
         let room = room("call-home-permission", agents.clone());
         pair_a_phone(&room);
-        let thread = ThreadId {
-            kind: ThreadKind::Call,
-            key: "call-home".into(),
-        };
+        let thread = ThreadId::new(ThreadKind::Call, "call-home");
         let (_live, launch) = room
             .bring_up(
                 "ada",

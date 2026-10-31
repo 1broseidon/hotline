@@ -509,8 +509,9 @@ fn descriptors() -> Vec<Tool> {
                     "intent": {"type":"string", "enum":["ask","handoff"], "default":"ask"},
                     "thread": {
                         "type": "string",
-                        "description": "The `thread` of a handoff you sent this teammate (or any requestId of a handoff that ran there, or its work thread's id): a handoff continues that work thread instead of starting a new one, and an ask is answered in it.",
+                        "description": "The `thread` of a handoff you sent this teammate (or any requestId of a handoff that ran there, or its work thread's id): a handoff continues that work thread instead of starting a new one, and an ask is answered in it. For a teammate on a linked desk, a work thread of theirs an aside came from may be named as it was written, deskId/side:<id>.",
                     },
+                    "files": files_schema(),
                 },
                 "required": ["to", "message"],
                 "additionalProperties": false,
@@ -529,9 +530,10 @@ fn descriptors() -> Vec<Tool> {
                     "text": { "type": "string", "minLength": 1, "maxLength": crate::session::ASIDE_CHARS },
                     "about": {
                         "type": "string",
-                        "description": "One of their threads as kind:key (for example side:<id> for a work thread you handed them), to be heard there rather than in their main conversation.",
+                        "description": "One of their threads as kind:key (for example side:<id> for a work thread you handed them), to be heard there rather than in their main conversation. On a linked desk, as deskId/kind:key or kind:key.",
                     },
                     "level": {"type":"string", "enum":["note","nudge","person"], "default":"note"},
+                    "files": files_schema(),
                 },
                 "required": ["to", "text"],
                 "additionalProperties": false,
@@ -970,11 +972,20 @@ impl TeammateTools {
                 if self.front && intent != crate::session::exchanges::Intent::Handoff {
                     return Err("A lead's voice front can only hand named work on.".into());
                 }
+                let files = room
+                    .hold_files(
+                        &self.persona_id,
+                        to,
+                        &paths(arguments)?,
+                        self.capability.clone(),
+                    )
+                    .await?;
                 let outgoing = crate::session::exchanges::Outgoing {
                     to,
                     message,
                     intent,
                     thread,
+                    files: files.as_ref(),
                 };
                 let sent = room.send_intent(
                     &self.persona_id,
@@ -1012,11 +1023,13 @@ impl TeammateTools {
                     Some(level) => crate::contract::AsideLevel::parse(level)
                         .ok_or("level must be note, nudge or person.")?,
                 };
+                let files = paths(arguments)?;
                 let leaving = crate::session::Leaving {
                     to,
                     text: text("text").unwrap_or_default(),
                     about: text("about"),
                     level,
+                    files: &files,
                 };
                 room.aside_from(
                     &self.persona_id,
@@ -1614,6 +1627,33 @@ fn region(arguments: &Value) -> Result<Option<[i64; 4]>, String> {
                 .to_string(),
         ),
     }
+}
+
+/// `files` on `message_teammate` and `aside`.
+fn files_schema() -> Value {
+    json!({
+        "type": "array",
+        "items": { "type": "string" },
+        "maxItems": crate::session::files_between::FILES_COUNT_MAX,
+        "description": "Files to send with it, as your read tools name them: in your workspace or a folder you were granted. Each is copied into their working directory under inbox/<your id>/, and they are told where. At most 25 MB together, or 512 KB to a teammate on a linked desk.",
+    })
+}
+
+/// The files `message_teammate` or `aside` was asked to send with it: none
+/// when `files` is left out.
+fn paths(arguments: &Value) -> Result<Vec<String>, String> {
+    let Some(files) = arguments.get("files").filter(|files| !files.is_null()) else {
+        return Ok(Vec::new());
+    };
+    files
+        .as_array()
+        .and_then(|files| {
+            files
+                .iter()
+                .map(|path| path.as_str().map(str::to_owned))
+                .collect()
+        })
+        .ok_or_else(|| "`files` is a list of paths your read tools can open.".to_string())
 }
 
 /// One sentence for a `when` or `every` the parsers will not take. The

@@ -177,9 +177,16 @@ pub enum Command {
     DesksUnlink { desk_id: String },
     /// Federation: a linked desk's teammates, as it publishes them. Only a
     /// linked desk's seat sends the `federation.*` commands, and they are
-    /// all it may send.
+    /// all it may send. The first one on a channel is its hello: `features`
+    /// says what of the link's traffic the sending desk takes (`asides`),
+    /// and a desk older than features sends none.
     #[serde(rename = "federation.roster")]
-    FederationRoster { teammates: Vec<LinkedTeammate> },
+    FederationRoster {
+        teammates: Vec<LinkedTeammate>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(as = "Option<Vec<String>>", optional)]
+        features: Vec<String>,
+    },
     /// Federation: a message for one of this desk's teammates, or the answer
     /// to one of theirs, for the exchange queue.
     #[serde(rename = "federation.deliver")]

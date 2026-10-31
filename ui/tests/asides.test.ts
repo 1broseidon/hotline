@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Aside, TranscriptEvent } from "../src/generated/contract";
-import { asideTime, groupNoted, leftHere, levelWord, withAsides } from "../src/asides";
+import { asideTime, groupNoted, leftHere, levelWord, sourceThread, withAsides } from "../src/asides";
 
 const aside = (id: string, ts: number, extra: Partial<Aside> = {}): Aside => ({
 	id,
@@ -66,4 +66,12 @@ test("an aside's time is the clock today, the day this week, else the date", () 
 	expect(asideTime(new Date(2026, 9, 31, 9, 5).getTime(), now)).toMatch(/9:05/);
 	expect(asideTime(new Date(2026, 9, 27, 9, 5).getTime(), now)).toMatch(/^Tue/);
 	expect(asideTime(new Date(2026, 8, 3, 9, 5).getTime(), now)).toMatch(/Sep/);
+});
+
+describe("an aside from a linked desk", () => {
+	test("opens no thread here, since its thread is that desk's", () => {
+		expect(sourceThread(aside("here", 1))).toEqual({ kind: "side", key: "release" });
+		const there = aside("there", 1, { from: { thread: { desk: "grizzly-desk", kind: "side", key: "release" } } });
+		expect(sourceThread(there)).toBeUndefined();
+	});
 });

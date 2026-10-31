@@ -43,6 +43,7 @@ mod dm;
 mod driver_info;
 pub(crate) mod exchanges;
 pub(crate) mod files;
+pub(crate) mod files_between;
 pub(crate) mod generate;
 mod inbound;
 mod index;
@@ -1352,10 +1353,7 @@ impl Room {
             && event["from"]["kind"] == "call"
             && let Some(key) = event["from"]["thread"].as_str()
         {
-            let thread = ThreadId {
-                kind: crate::contract::ThreadKind::Call,
-                key: key.to_string(),
-            };
+            let thread = ThreadId::new(crate::contract::ThreadKind::Call, key.to_string());
             let stream = StreamId::of_thread(&thread).expect("a call has a stream");
             self.log.append(&stream, event)?;
         }

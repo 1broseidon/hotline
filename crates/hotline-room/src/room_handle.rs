@@ -66,11 +66,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn federation_roster_entries(&self) -> Vec<hotline_contract::LinkedTeammate> {
         Vec::new()
     }
-    /// A linked desk published its teammates.
+    /// A linked desk published its teammates, and what it takes.
     fn federation_roster(
         &self,
         _desk_id: &str,
         _teammates: Vec<hotline_contract::LinkedTeammate>,
+        _features: Vec<String>,
     ) -> Result<(), String> {
         Err(NOT_LINKED.into())
     }

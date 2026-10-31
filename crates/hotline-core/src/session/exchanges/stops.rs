@@ -58,6 +58,18 @@ pub(super) fn ended_without_a_result(ask: bool, cut: Option<Cut>) -> &'static st
 /// The most of the cut turn's last words a stopped handoff's note carries.
 const WORDS_CHARS: usize = 400;
 
+/// What a handoff's sender is told of the person's Stop: what the cut turn
+/// last said, then the person's sentence.
+fn stopped_text(words: &str) -> String {
+    let words = crate::driver::clip(words.trim(), WORDS_CHARS);
+    let sentence = peers::HANDOFF_STOPPED_BY_THE_PERSON;
+    if words.is_empty() {
+        sentence.to_string()
+    } else {
+        format!("{words}\n\n{sentence}")
+    }
+}
+
 impl Room {
     /// Ends `id`, a handoff still at work, as the person's Stop, and says
     /// whether it did. One whose turn had not `begun` is ended only if no
@@ -66,7 +78,9 @@ impl Room {
     /// the answer the stop dropped would have carried it on. Its sender is
     /// told by one note aside of `words` (what the cut turn last said) and
     /// the person's sentence, which wakes nobody. A sender on a linked desk
-    /// is sent the sentence as the stopped request's failure.
+    /// is sent the same as the stopped request's result, marked as the
+    /// person's stop, which its desk tells it the same way
+    /// ([`Room::stop_linked_request`]).
     pub(super) fn stop_handoff_for_the_person(&self, id: &str, begun: bool, words: &str) -> bool {
         let stoppable = |r: &Request| {
             r.id == id
@@ -98,7 +112,12 @@ impl Room {
             }
             stopped.phase = Phase::Stopped;
             stopped.failed = true;
-            stopped.reply = peers::HANDOFF_STOPPED_BY_THE_PERSON.into();
+            stopped.reply = if linked::is_linked(&stopped.from) {
+                stopped_text(words)
+            } else {
+                peers::HANDOFF_STOPPED_BY_THE_PERSON.into()
+            };
+            stopped.stopped_by_person = true;
             stopped.release(&mut ended);
             let stopped = stopped.clone();
             if let Err(error) = self.save_pair(&pair) {
@@ -110,15 +129,13 @@ impl Room {
         };
         self.mark_handoffs(&ended);
         if !linked::is_linked(&stopped.1.from) {
-            self.tell_stopped(&stopped.0, &stopped.1, words);
+            self.note_stopped(&stopped.0, &stopped.1, stopped_text(words));
         }
         true
     }
 
     /// The note a handoff the person stopped leaves its sender, once.
-    fn tell_stopped(&self, key: &str, handoff: &Request, words: &str) {
-        let words = crate::driver::clip(words.trim(), WORDS_CHARS);
-        let sentence = peers::HANDOFF_STOPPED_BY_THE_PERSON;
+    pub(super) fn note_stopped(&self, key: &str, handoff: &Request, text: String) {
         let from = handoff
             .thread
             .as_deref()
@@ -129,11 +146,7 @@ impl Room {
             to: handoff.from.clone(),
             from: AsideSource::Thread(from),
             by: Some(handoff.to.clone()),
-            text: if words.is_empty() {
-                sentence.to_string()
-            } else {
-                format!("{words}\n\n{sentence}")
-            },
+            text,
             about: self.route_about(handoff),
             level: AsideLevel::Note,
             heard: None,

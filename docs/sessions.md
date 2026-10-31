@@ -1362,7 +1362,33 @@ DM, which says who it is from.
 **Who may.** The `aside` tool (`message_teammate`'s neighbour) passes the
 same `authorize_collaboration` an ask does: `allowedSenders`, the first-contact
 card, implicit for a Whole machine Hotline Agent. Its `about` must name a
-thread of the recipient's own. A teammate on a linked desk is refused for now.
+thread of the recipient's own.
+
+**Across a link** (`session/asides/across.rs`, `exchanges/across.rs`). An
+aside to a teammate on a linked desk crosses as the link's `aside` delivery,
+only to a desk whose roster said it takes asides (`features` on its
+`federation.roster`, [wire.md](wire.md#linked-desks)) and only
+while the channel is open: otherwise nothing is left and the sender is told
+why ("…'s desk is older and does not take asides", "…is not connected now").
+The receiving desk decides it as an ask from that sender: its `allowedSenders`
+or a grant the person gave it for the session, never implicit, and never a
+first-contact card, since an aside asks nothing and a desk must not raise
+cards by leaving them; refused, the sender hears "Clementine on laptop has not
+been allowed to ask Lou here". It is kept there under `deskId:id` so the same
+aside sent again is the one kept, `by` the sender's qualified id and `from`
+the thread it was said in as the sending desk names it, with `desk` set
+(`deskId/side:<id>`); its `about` is resolved there among the recipient's own
+threads. The sender keeps the line on the thread it was said in, as for a
+local colleague. Its level means there what it means here.
+
+**Threads named across a link.** A `ThreadId` carries an optional `desk`: a
+thread on a linked desk, by that desk's kind and key, written
+`deskId/side:<id>`. Only that desk resolves it. A teammate learns one from an
+aside that came from there, and may pass it as `about` to `aside` or as
+`thread` to `message_teammate` for a teammate on that desk; `message_teammate`
+sends it on as `continues: "side:<id>"`, which the receiving desk looks up among
+the handoffs that sender made there and refuses when none opened it. The
+window opens no thread for an aside that came from another desk.
 
 **A handed-over thread informs its opener.** Each turn of a work thread a
 colleague handed over that is not the handoff's result (a turn that stopped
@@ -1384,8 +1410,17 @@ nudge beside it (`result:<request>`), which the delivery's own turn hears
 without saying again. The delivery is the wake: results queued behind a busy
 conversation are taken into one turn when it is free (`results_behind`), and
 the reply is counted on the brake as it always was. Notes and the nudge ride on
-the handoff, so they stop when it no longer stands, and a sender on a linked
-desk gets none.
+the handoff, so they stop when it no longer stands. A sender on a linked desk
+has no conversation here: each note is kept on the handoff's record
+(`crossing`) and the pair's worker sends it that desk as an `aside` delivery
+with the handoff's `requestId`, before anything that ends the handoff. They
+wait while the link is down or its roster has not said what the other desk
+takes; a desk that does not take asides is sent none, and they are dropped,
+while the result still goes; a release (Stop exchange, revocation, the
+person's Stop or End thread, the link's end) drops what was still to go. That
+desk keeps one only for a handoff it sent that teammate there and that still
+stands, as a `note` whatever level it says, about the conversation the result
+will go to, and leaves the result's nudge itself.
 
 **The person's acts on a work thread** (decision 5;
 `session/exchanges/loop_in.rs`, `ended.rs`). *Loop in…* (`thread.loop_in`)
@@ -1421,7 +1456,12 @@ No transport is built yet. The one door one will call is
 muted, to a teammate it names, with the level lowered to the source's
 `maxLevel`, and within its `rate` an hour, counted from what its teammates were
 left, under the lock hearing takes. Files are refused unless the source allows
-them, and even then wait for phase 8's file rules (`inbound_files`, a TODO).
+them, and then meet a colleague's [file rules](#files-between-teammates): a
+transport stages them in the source's own folder on the desk,
+`inbound/<source id>/`, and only plain files directly there are taken, at most
+10 coming to 25 MB, copied into the teammate's working directory under
+`inbox/inbound-<source id>/` once nothing else refuses the aside, which names
+where.
 The words are made one line with every control character a space and any
 token cut out (`hotline_room::inbound::untrusted_text`), clipped to an aside's
 length and kept with `sourceName`. They are heard after a colleague's asides, in
@@ -1432,6 +1472,33 @@ brake (`wakes`), which mutes it at a pair's twelve until the person unmutes
 it; a `person` aside's card says the source is outside Hotline. The window
 lists them on Noted under the source's name, marked "outside", and Settings →
 Inbound lists the sources with a switch (off is muted) and Remove.
+
+## Files between teammates
+
+A message or an aside may carry files (`files: [path]` on `message_teammate`
+and `aside`; `session/files_between.rs`; the design's §3). Each path is read as
+`send_file` reads one (`files::from_workspace`): where the sender's read tools
+find it, its working directory and the folders granted it, or anywhere under
+whole-machine reach; anything else is refused with the tool's reason. At most
+10 files, of plain names and none twice, coming to at most 25 MB together
+(`FILES_MAX`), or 512 KB to a teammate on a linked desk (`LINKED_FILES_MAX`),
+since they cross in the frame of the message or aside they ride on; more is
+refused before anything is sent, queued or kept.
+
+A message's files are read when it is sent and held on the desk,
+`files-between/<request id>/`, until it is let in: only then, past the grant
+an ask needs and the person's first-contact card, are they copied into the
+recipient's working directory under `inbox/<sender id>/` (`personaId@deskId`
+for a linked sender), never over a file there (`q3 (2).csv`), and the message
+gains a line saying where: "Files from Ada, now in your working directory:
+inbox/ada/q3.csv". They land in the working directory whatever the
+recipient's reach, through `Workspace::receive_file`, which is confined to
+it. To a linked teammate they cross the link with the request, as base64, and
+the desk there checks them as it would its own, holds them and copies them
+the same way once it lets the request in; the sending desk lets go of them
+once the request has crossed. An aside's files are copied as it is left,
+after its grant, and its text gains the same line. What a stopped or failed
+message held is let go of when the desk next starts.
 
 ## Stop and Interrupt
 
@@ -1459,8 +1526,15 @@ leases revoked, and released, so the link says `handoffEnded`
 Its sender gets no result and no failure, which would start a turn that sends
 the work again: it is left one `note` aside, `stopped:<request>`, of what the
 cut turn last said (cut to 400 characters) and that sentence, heard at its
-next turn and never a wake. A sender on a linked desk is sent the sentence
-as the stopped request's failure. A thread whose handoff's own turn the Stop
+next turn and never a wake. A sender on a linked desk is sent the same words
+as the stopped request's result with `stoppedByPerson`, and its desk ends the
+request there the same way (`Room::stop_linked_request`): stopped, released,
+its leases revoked, and its sender left one `note` aside of the words, never a
+delivery or a wake; one that desk still holds as queued, its forward's answer
+lost, is ended too, and this desk takes the same request sent again before
+the stop has crossed as the one it has. A desk older than that hands the
+words back as a failure. End thread on a handoff from a linked desk crosses
+the same way. A thread whose handoff's own turn the Stop
 cut closes as `stopped`, unless a line said since waits in it, and the
 person may continue it as theirs; one whose handoff only waited in it goes
 on.

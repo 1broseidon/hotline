@@ -63,6 +63,7 @@ impl Room {
             message: &message,
             intent: Intent::Ask,
             thread: None,
+            files: None,
         };
         self.queue_request(&owner.id, &outgoing, None, &thread, true)?;
         self.keep_aside(&Aside {

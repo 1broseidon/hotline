@@ -442,7 +442,7 @@ mode?: VoiceCallMode,
  * The rate of the microphone audio a front call will send:
  * 16000 or 24000. Omitted, the front's own rate.
  */
-inputRate?: number, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.front_audio", "params": { callId: string, seq: number, data: string, } } | { "cmd": "voice.front_barge", "params": { callId: string, playedMs: number, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.input_state", "params": { callId: string, speaking: boolean, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+inputRate?: number, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.front_audio", "params": { callId: string, seq: number, data: string, } } | { "cmd": "voice.front_barge", "params": { callId: string, playedMs: number, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.input_state", "params": { callId: string, speaking: boolean, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, features?: Array<string>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -952,7 +952,7 @@ export type LinkState = "live" | "parked" | "closed";
 
 /**
  * What crosses a link for the exchange queue: a teammate's message for one
- * of the other desk's, or the answer to one.
+ * of the other desk's, the answer to one, or an aside.
  */
 export type LinkedDelivery = { "kind": "request", requestId: string, fromPersonaId: string, to: string, message: string, 
 /**
@@ -960,11 +960,62 @@ export type LinkedDelivery = { "kind": "request", requestId: string, fromPersona
  */
 intent: string, 
 /**
- * For a handoff into the work thread an earlier one opened: the
- * request id of that earlier handoff. A desk that predates this
- * opens a new thread instead.
+ * For a handoff into the work thread an earlier one opened, or an
+ * ask answered in it: the request id of that earlier handoff, or the
+ * thread as the receiving desk names it (`side:<id>`). A desk that
+ * predates this opens a new thread for a handoff instead, and one
+ * that takes it only on a handoff refuses an ask that carries it.
  */
-continues?: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, };
+continues?: string, 
+/**
+ * For an ask from a work thread that a handoff of the receiving
+ * desk's teammate opened: that handoff's request id, which the
+ * receiving desk looks up in its own record. A desk older than this
+ * ignores it, and the ask meets the ordinary grant there.
+ */
+about?: string, 
+/**
+ * Files the sender sent with it, which reach the recipient's
+ * workspace once the request is let in there. A desk older than
+ * this ignores them.
+ */
+files?: Array<LinkedFile>, } | { "kind": "result", requestId: string, reply: string, failed: boolean, 
+/**
+ * The person on the desk that worked it stopped it, and `reply` is
+ * what its sender is told of that: heard as their decision, once and
+ * without a wake, never handed back as a failure to retry. An older
+ * desk ignores it and delivers the failure.
+ */
+stoppedByPerson?: boolean, } | { "kind": "aside", 
+/**
+ * The sending desk's id for it: the same id again is the same aside.
+ */
+id: string, fromPersonaId: string, 
+/**
+ * The recipient's id on the receiving desk.
+ */
+to: string, 
+/**
+ * The thread it was said in, as the sending desk names it.
+ */
+from: ThreadId, text: string, level: AsideLevel, 
+/**
+ * A thread of the recipient's, as the receiving desk names it.
+ */
+about?: ThreadId, 
+/**
+ * For what a work thread tells the teammate on the receiving desk
+ * whose handoff opened it: that handoff's request id, which the
+ * receiving desk looks up in its own record, and which is its grant.
+ */
+requestId?: string, files?: Array<LinkedFile>, };
+
+/**
+ * A file one teammate sent another across a link: its name and its bytes
+ * as standard base64. All of a message's or an aside's files together are
+ * at most `files::LINKED_FILES_MAX` bytes, so they cross in its one frame.
+ */
+export type LinkedFile = { name: string, data: string, };
 
 /**
  * What a linked desk publishes about one of its teammates: exactly what
@@ -2176,8 +2227,13 @@ export type ThreadEnd = "person" | "agent" | "idle" | "stopped" | "done" | "fail
  * Which thread: its kind and the key its stream is named by. A teammate's id
  * for a DM, the minted id for a side thread, run or call, the job's id for a
  * job, and the pair key (the core's `paths::thread_key`) for a pair.
+ *
+ * `desk` names a thread on a linked desk, by that desk's id: its kind and key
+ * are that desk's, and only that desk can resolve them. Absent, as on every
+ * thread of this desk's own, it is left out, so a local thread is written
+ * exactly as before it existed.
  */
-export type ThreadId = { kind: ThreadKind, key: string, };
+export type ThreadId = { desk?: string, kind: ThreadKind, key: string, };
 
 /**
  * What kind of conversation a thread is. The kind picks its [`Policy`].

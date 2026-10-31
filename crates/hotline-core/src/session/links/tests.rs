@@ -41,6 +41,17 @@ fn answers() -> Scripted {
 
 /// A desk with one teammate, linked with the other desk by record.
 fn desk(name: &str, teammate: (&str, &str), other: (&str, &str), dials: bool) -> Arc<Room> {
+    desk_with(name, teammate, other, dials, Fake::new(answers()))
+}
+
+/// [`desk`], its agents being `agents`.
+fn desk_with(
+    name: &str,
+    teammate: (&str, &str),
+    other: (&str, &str),
+    dials: bool,
+    agents: Arc<Fake>,
+) -> Arc<Room> {
     let log = scratch(name);
     let mut one = persona(teammate.0);
     one.name = teammate.1.to_string();
@@ -56,7 +67,7 @@ fn desk(name: &str, teammate: (&str, &str), other: (&str, &str), dials: bool) ->
         },
     )
     .unwrap();
-    Room::with_agents(log, Arc::new(DeskKeys), Fake::new(answers()))
+    Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
 
 /// The laptop with Clementine and grizzly with Lou, linked both ways.
@@ -86,7 +97,20 @@ fn pump(
     from_id: &str,
     to_id: &str,
 ) -> (u64, tokio::task::JoinHandle<()>) {
-    to.federation_roster(from_id, from.federation_roster_entries())
+    pump_saying(from, to, from_id, to_id, linked::FEATURES)
+}
+
+/// [`pump`], with `from`'s roster saying it takes `features`: none for a
+/// desk older than them.
+fn pump_saying(
+    from: &Arc<Room>,
+    to: &Arc<Room>,
+    from_id: &str,
+    to_id: &str,
+    features: &[&str],
+) -> (u64, tokio::task::JoinHandle<()>) {
+    let features = features.iter().map(ToString::to_string).collect();
+    to.federation_roster(from_id, from.federation_roster_entries(), features)
         .unwrap();
     let (calls, mut waiting) = mpsc::channel::<linked::Call>(32);
     let generation = from.links.opened(to_id, calls);
@@ -650,6 +674,8 @@ async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at
         message: "Check the CI runners.".into(),
         intent: "ask".into(),
         continues: None,
+        about: None,
+        files: Vec::new(),
     };
     assert_eq!(
         grizzly
@@ -678,7 +704,7 @@ async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at
 fn an_answer_is_cut_to_fit_one_of_the_links_frames_however_it_escapes() {
     let fits = |reply: &str| {
         let frame = json!({"id": 1, "cmd": "federation.deliver", "params": {"delivery":
-            LinkedDelivery::Result { request_id: "r".into(), reply: crossing(reply), failed: false }}});
+            LinkedDelivery::Result { request_id: "r".into(), reply: crossing(reply), failed: false, stopped_by_person: false }}});
         frame.to_string().len() < 1024 * 1024
     };
     assert_eq!(crossing("runner 3 is green"), "runner 3 is green");
@@ -687,3 +713,5 @@ fn an_answer_is_cut_to_fit_one_of_the_links_frames_however_it_escapes() {
         assert!(fits(&worst.repeat(REPLY_MAX)), "{worst:?}");
     }
 }
+
+mod across;

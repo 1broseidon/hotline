@@ -37,7 +37,7 @@ impl Room {
             self.set_exchange_reply(key, &request.id, error, true)?;
             return Ok(());
         }
-        {
+        let request = {
             let _guard = lock(&self.exchange_lock);
             let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
             if pair.paused {
@@ -50,18 +50,36 @@ impl Room {
             else {
                 return Ok(());
             };
+            // Its files go into the recipient's working directory only now
+            // that it is let in, and the message says where.
+            if !r.files.is_empty() {
+                match self.deliver_held(&r.id, &r.from, &r.to, &r.files) {
+                    Ok(line) => {
+                        r.message = format!("{}\n\n{line}", r.message);
+                        r.files.clear();
+                    }
+                    Err(error) => {
+                        r.phase = Phase::Reply;
+                        r.reply = format!("The files did not reach them: {error}");
+                        r.failed = true;
+                        return self.save_pair(&pair);
+                    }
+                }
+            }
             r.phase = Phase::Running;
             if !r.request_counted {
                 r.request_counted = true;
                 pair.exchanges += 1;
             }
+            let request = r.clone();
             pair.paused = pair.exchanges >= EXCHANGE_CAP;
             self.save_pair(&pair)?;
             if pair.paused {
                 self.exchange_card(&pair, ExchangePauseStatus::Pending);
             }
-        }
-        self.hand_over_request(key, request, thread).await
+            request
+        };
+        self.hand_over_request(key, &request, thread).await
     }
     /// Hands a handoff to a work thread on the teammate it was handed to, and
     /// its result is the reply the thread gives when it has done the work.

@@ -987,8 +987,11 @@ pub(crate) async fn federation(
         return Some(forbidden());
     }
     let result = match command {
-        Command::FederationRoster { teammates } => room
-            .federation_roster(desk_id, teammates)
+        Command::FederationRoster {
+            teammates,
+            features,
+        } => room
+            .federation_roster(desk_id, teammates, features)
             .map(|()| Value::Null),
         Command::FederationDeliver { delivery } => room.federation_deliver(desk_id, delivery).await,
         Command::FederationUnlink {} => room.unlinked(desk_id).await.map(|()| Value::Null),

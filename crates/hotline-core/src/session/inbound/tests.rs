@@ -187,10 +187,21 @@ async fn the_rate_limit_holds_for_the_hour() {
     assert_eq!(kept(&room, "bob").len(), 3);
 }
 
+/// A source's files are refused unless it allows them, and then meet a
+/// colleague's file rules: taken only from its own staging folder on the
+/// desk, at most 25 MB together, and landing in its teammate's working
+/// directory under `inbox/inbound-<source>/`, which the aside names.
 #[tokio::test]
-async fn files_are_refused_unless_the_source_allows_them_and_wait_for_the_file_rules() {
+async fn files_are_refused_unless_the_source_allows_them_and_then_meet_the_file_rules() {
     let (room, _) = room("inbound-files");
-    let files = [std::path::PathBuf::from("/tmp/report.pdf")];
+    let bobs = tempfile::TempDir::new().unwrap();
+    let mut bob = room.persona("bob").unwrap();
+    bob.cwd = bobs.path().to_string_lossy().into_owned();
+    crate::room::append_persona(&room.log, &bob).unwrap();
+    let staged = room.log.root().join("inbound/gh");
+    std::fs::create_dir_all(&staged).unwrap();
+    std::fs::write(staged.join("report.pdf"), "%PDF").unwrap();
+    let files = [staged.join("report.pdf")];
     let carrying = Delivery {
         files: &files,
         ..delivery("bob", "the report", AsideLevel::Note)
@@ -198,11 +209,55 @@ async fn files_are_refused_unless_the_source_allows_them_and_wait_for_the_file_r
     let refused = room.inbound_aside("gh", &carrying).unwrap_err();
     assert!(refused.contains("may not carry files"), "{refused}");
     change(&room, |source| source.files_allowed = true);
-    let waiting = room.inbound_aside("gh", &carrying).unwrap_err();
-    assert!(waiting.contains("not taken yet"), "{waiting}");
+
+    let elsewhere = tempfile::TempDir::new().unwrap();
+    std::fs::write(elsewhere.path().join("secret.txt"), "not staged").unwrap();
+    let outside = [elsewhere.path().join("secret.txt")];
+    let refused = room
+        .inbound_aside(
+            "gh",
+            &Delivery {
+                files: &outside,
+                ..delivery("bob", "the report", AsideLevel::Note)
+            },
+        )
+        .unwrap_err();
     assert!(
-        kept(&room, "bob").is_empty(),
+        refused.contains("is not a file the source staged"),
+        "{refused}"
+    );
+    let half = crate::sent::MAX_BYTES as usize / 2 + 1;
+    std::fs::write(staged.join("a.bin"), vec![0u8; half]).unwrap();
+    std::fs::write(staged.join("b.bin"), vec![0u8; half]).unwrap();
+    let both = [staged.join("a.bin"), staged.join("b.bin")];
+    let refused = room
+        .inbound_aside(
+            "gh",
+            &Delivery {
+                files: &both,
+                ..delivery("bob", "the dumps", AsideLevel::Note)
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        refused,
+        "Files with one aside come to at most 25 MB together, and these come to more."
+    );
+    assert_eq!(
+        kept(&room, "bob").len(),
+        0,
         "nothing is left half-delivered"
+    );
+    assert!(!bobs.path().join("inbox").exists());
+
+    let aside = room.inbound_aside("gh", &carrying).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(bobs.path().join("inbox/inbound-gh/report.pdf")).unwrap(),
+        "%PDF"
+    );
+    assert_eq!(
+        aside.text,
+        "the report\n\nFiles from hotline repo, now in your working directory: inbox/inbound-gh/report.pdf"
     );
 }
 

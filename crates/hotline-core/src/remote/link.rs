@@ -503,14 +503,16 @@ async fn session<S>(
     ping.tick().await;
     let mut heard = tokio::time::Instant::now();
     // The roster goes before anything else that crosses: a message names its
-    // sender, and the other desk takes only senders it has been shown.
+    // sender, and the other desk takes only senders it has been shown. It is
+    // the channel's hello too: its `features` say what this desk takes.
     let mut publish = |next: &mut i64| {
         let now = room.federation_roster_entries();
         if published.as_ref() == Some(&now) {
             return None;
         }
         *next += 1;
-        let frame = json!({"id": *next, "cmd": "federation.roster", "params": {"teammates": now}});
+        let frame = json!({"id": *next, "cmd": "federation.roster",
+            "params": {"teammates": now, "features": linked::FEATURES}});
         published = Some(now);
         Some(frame)
     };

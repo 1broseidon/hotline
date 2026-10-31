@@ -557,10 +557,7 @@ impl Room {
                 let home = if event["from"]["kind"] == "call"
                     && let Some(key) = event["from"]["thread"].as_str()
                 {
-                    ThreadId {
-                        kind: ThreadKind::Call,
-                        key: key.to_string(),
-                    }
+                    ThreadId::new(ThreadKind::Call, key.to_string())
                 } else {
                     dm.clone()
                 };

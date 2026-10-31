@@ -919,7 +919,10 @@ A thread is any conversation the room keeps: the main conversation (`dm`), a
 work thread (`side`, the name it is stored and sent under), a thread between
 two teammates (`pair`), a voice call (`call`) and a subagent's run (`run`). One
 `ThreadId` names any of them, `{kind, key}`: a teammate's id for a `dm`, the
-side, run or call id, and the pair key. [threads.md](threads.md) is the design.
+side, run or call id, and the pair key. One on a linked desk also has `desk`,
+that desk's id ([Linked desks](#linked-desks)); a thread of this desk's never
+does, so it is written as it always was. [threads.md](threads.md) is the
+design.
 
 **The subscription's name.** `{"thread": "<key>"}` already meant a pair, and a
 phone on an older build still sends it, so it keeps meaning that. A thread of
@@ -1023,8 +1026,9 @@ person's chat ([sessions.md](sessions.md#asides)). Each is an `Aside`:
 
 `from` is `{"thread": ThreadId}`, the thread it was said in, or
 `{"inbound": "<source id>"}` for an inbound source, with `sourceName`, the
-source's name when it delivered it. `by` is the teammate whose words it is,
-absent for an inbound source.
+source's name when it delivered it; an aside from a teammate on a linked desk
+has that desk's thread, with `desk` set, which a client cannot open. `by` is
+the teammate whose words it is, absent for an inbound source.
 `about` is the recipient's thread it is heard in, absent for its main
 conversation. `level` is `note`, `nudge` (it woke the teammate if it was idle)
 or `person` (a card was raised for the person too). `heard` is when a turn
@@ -1509,7 +1513,10 @@ record, gets the authenticated `{"error":"device_not_authorized"}`, which
 the dialer takes as the link having ended. The channel then takes an
 authenticated admission seat named `link:<deskId>`.
 
-After the handshake the channel is symmetric and has no hello. Either side
+After the handshake the channel is symmetric. Its hello is the roster each
+side sends before anything else, whose `features` say what that desk takes;
+a desk sends an `aside` delivery only to one whose roster on the channel open
+now named `asides`, and waits until that roster has come. Either side
 sends `{id, cmd, params}` and answers the other's with `{id, ok, result?,
 error?, code?}`; a frame with `ok` is an answer. Each side's commands are
 answered under the link seat, for the desk the handshake proved:
@@ -1517,8 +1524,8 @@ answered under the link seat, for the desk the handshake proved:
 | cmd | params | result |
 | --- | --- | --- |
 | `ping` | `{}` | none; sent every 25 s, and a channel that has heard nothing for three is closed |
-| `federation.roster` | `{teammates: LinkedTeammate[]}` | none; the sender's teammates, sent when they change (looked at every 2 s). Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}, goal, agent, model, effort, capabilities}`, the `list_teammates` row, and nothing more; rows are cut to plausible ids, known states and capability words, and bounded text, and a row from a desk older than the profile reads as the narrowest one |
-| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request — or `{kind:"result", requestId, reply, failed}` for a request the receiver sent |
+| `federation.roster` | `{teammates: LinkedTeammate[], features?: string[]}` | none; the sender's teammates, sent first on every channel and then when they change (looked at every 2 s), with `features`, what of the link's traffic it takes beyond requests and their answers: `asides` for now. A desk older than features sends none and is sent no aside; words the receiver does not know are dropped. Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}, goal, agent, model, effort, capabilities}`, the `list_teammates` row, and nothing more; rows are cut to plausible ids, known states and capability words, and bounded text, and a row from a desk older than the profile reads as the narrowest one |
+| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, `{woke}` for an aside left by a teammate's `aside`, none for a result or a handoff's note. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent, continues?, about?, files?}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request, one the receiver's person stopped included while that stop has still to cross; `continues`, on an ask or a handoff, names the work thread it continues or is answered in, by the request id of the sender's handoff that opened it or as the receiver names it (`side:<id>`), which the receiver looks up among that sender's handoffs to that teammate and refuses when none opened it (a desk older than asks naming a thread refuses an ask that carries it, and one older still ignores it); `about`, on an ask without `continues`, is the request id of the receiver's handoff whose thread is asking back, honoured without a card only for a handoff the receiver sent that teammate and that still stands (a desk older than it ignores it, and the ask meets the ordinary grant); `files` are `{name, data}` with `data` standard base64, at most 10 of plain names and 512 KB together, held until the request is let in and then copied into the recipient's working directory under `inbox/<personaId>@<deskId>/` — or `{kind:"result", requestId, reply, failed, stoppedByPerson?}` for a request the receiver sent, `stoppedByPerson` on a handoff saying the person on the sending desk stopped it and `reply` being what its sender is told of that (the cut turn's last words and the person's sentence), which the receiver ends the request with as its own person's stop, one it still holds as queued included, told by one note aside without a wake and never handed back as a failure (a desk older than it delivers the failure; said of an ask it is the ask's failure) — or `{kind:"aside", id, fromPersonaId, to, from, text, level, about?, requestId?, files?}`, sent only to a desk that takes `asides`: `from` is the thread it was said in and `about` a thread of the recipient's, each a `ThreadId` as its own desk names it; with `requestId` it is a note from the work thread a handoff of the receiver's opened, kept only for a handoff the receiver sent that teammate and that still stands, as a `note`, with no `about` or `files`; without, it passes the receiver's grant for an ask from that sender, `allowedSenders` or a session grant, never a card, and its `files` land as a request's do. The receiver keeps it under `<deskId>:<id>`, and the same id again is the one kept. A note is sent once its thread's turn ends, or when the link comes back; one cut off before it was answered is sent again |
 | `federation.unlink` | `{}` | none; the sender ended the link |
 
 Everything else, a subscription included, is answered `forbidden`. The desk
@@ -1526,7 +1533,10 @@ and owner seats are refused the `federation.*` commands.
 
 On the desk that holds them, a linked desk's teammates are named
 `<deskId>/<personaId>`, in `list_teammates`, in deliveries' `cause.personaId`
-and in pair thread keys (`ada~<deskId>/lou`). A `ThreadSummary` for such a
+and in pair thread keys (`ada~<deskId>/lou`). A thread on a linked desk is a
+`ThreadId` with `desk` set, `{desk, kind, key}`, written `<deskId>/side:<id>`:
+an aside that came from there has it as `from.thread`, and only that desk can
+open or resolve it. A `ThreadSummary` for such a
 pair is listed with this desk's teammate as `personaId` and names the other
 in `withName` ("Lou on grizzly").
 

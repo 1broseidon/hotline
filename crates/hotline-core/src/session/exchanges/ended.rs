@@ -5,7 +5,9 @@
 //! each handoff into it is released, as the person's decision, and one whose
 //! work had not come back is stopped with no result. The teammate that handed
 //! it over is not woken and gets no failure in its chat: it is left one `note`
-//! aside, heard with its next turn where the result would have gone.
+//! aside, heard with its next turn where the result would have gone. One on a
+//! linked desk is sent the note as the handoff's result, marked as the
+//! person's stop, which its desk tells it the same way.
 
 use super::*;
 use crate::contract::{Aside, AsideLevel, AsideSource};
@@ -18,6 +20,8 @@ impl Room {
     /// the teammate whose handoff stood there, once.
     pub(in crate::session) fn person_ended(&self, side_id: &str) {
         let standing = self.handoff_standing(side_id);
+        let person = self.person_name().unwrap_or_else(|| "The person".into());
+        let text = format!("{person} ended this thread, and the work you handed over with it.");
         let mut ended = Vec::new();
         {
             let _guard = lock(&self.exchange_lock);
@@ -39,29 +43,33 @@ impl Room {
                         request.phase = Phase::Stopped;
                         request.failed = true;
                         request.reply = ENDED.into();
+                        if linked::is_linked(&request.from) {
+                            request.reply.clone_from(&text);
+                            request.stopped_by_person = true;
+                        }
                         changed = true;
                     }
                 }
                 if changed && let Err(error) = self.save_pair(&pair) {
                     eprintln!("end the handoffs into thread {side_id}: {error}");
                 }
+                self.wake_owed(&pair);
             }
         }
         self.mark_handoffs(&ended);
         // A question an Interrupt left the thread carrying has no turn left
         // to answer it.
         self.end_carried(side_id, None);
-        let Some(request) = standing else {
+        let Some(request) = standing.filter(|r| !linked::is_linked(&r.from)) else {
             return;
         };
-        let person = self.person_name().unwrap_or_else(|| "The person".into());
         let aside = Aside {
             id: new_id(),
             ts: now_ms(),
             to: request.from.clone(),
             from: AsideSource::Thread(self.work_thread(side_id)),
             by: Some(request.to.clone()),
-            text: format!("{person} ended this thread, and the work you handed over with it."),
+            text,
             about: self.route_about(&request),
             level: AsideLevel::Note,
             heard: None,

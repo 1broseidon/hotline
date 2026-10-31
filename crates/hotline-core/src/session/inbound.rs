@@ -29,7 +29,8 @@ pub(crate) struct Delivery<'a> {
     pub about: Option<&'a str>,
     /// The level the transport asks for. The source's highest caps it.
     pub level: AsideLevel,
-    /// Files the transport received with it, where it staged them.
+    /// Files the transport received with it, where it staged them: directly
+    /// in the source's own folder on the desk (`inbound/<source id>/`).
     pub files: &'a [PathBuf],
 }
 
@@ -37,7 +38,8 @@ impl Room {
     /// Delivers one event from an inbound source as an aside, only as far as
     /// the person's grant goes: a source on this desk that is not muted, a
     /// teammate it names, its level lowered to the source's highest, within
-    /// its hourly rate, and files only where it allows them. The words are
+    /// its hourly rate, and files only where it allows them, under the rules a
+    /// colleague's files meet (`files_between.rs`). The words are
     /// one line with no control characters and no token in them, kept with
     /// the source's name, and heard fenced as untrusted data from outside
     /// Hotline ([`super::asides::render`]). A nudge that wakes its teammate
@@ -62,16 +64,18 @@ impl Room {
             // place.
             let _counting = lock(&self.asides_lock);
             let source = self.deliverable(source_id, delivery.to)?;
-            let text = clip(&inbound::untrusted_text(delivery.text), ASIDE_CHARS);
+            let mut text = clip(&inbound::untrusted_text(delivery.text), ASIDE_CHARS);
             if text.is_empty() {
                 return Err("An inbound aside needs text.".into());
             }
-            if !delivery.files.is_empty() {
+            let files = if delivery.files.is_empty() {
+                Vec::new()
+            } else {
                 if !source.files_allowed {
                     return Err(format!("{} may not carry files.", source.name));
                 }
-                self.inbound_files(&source, delivery.to, delivery.files)?;
-            }
+                self.take_staged(&source.id, delivery.files)?
+            };
             let about = match delivery
                 .about
                 .map(str::trim)
@@ -91,6 +95,15 @@ impl Room {
                     "{} has left its {} asides for this hour.",
                     source.name, source.rate
                 ));
+            }
+            // Its files land only now that nothing else refuses the aside,
+            // and the aside says where.
+            if !files.is_empty() {
+                let paths = self.deliver_inbound(&source.id, delivery.to, &files)?;
+                text = format!(
+                    "{text}\n\n{}",
+                    super::files_between::files_line(&source.name, &paths)
+                );
             }
             let aside = Aside {
                 id: new_id(),
@@ -128,24 +141,6 @@ impl Room {
         }
         self.persona(to)?;
         Ok(source)
-    }
-
-    /// Files a source that allows them carries into its teammate's workspace.
-    ///
-    /// TODO(task-325): they go through the size cap and the `inbox/` path
-    /// rules phase 8 sets for files between agents, called from here once it
-    /// has merged, and come back as the paths the aside names. Until then
-    /// none is taken, even from a source that allows them.
-    fn inbound_files(
-        &self,
-        source: &InboundSource,
-        _to: &str,
-        _files: &[PathBuf],
-    ) -> Result<(), String> {
-        Err(format!(
-            "{} may carry files, but files from outside Hotline are not taken yet.",
-            source.name
-        ))
     }
 
     /// Counts a nudge's wake on its source's brake, and mutes the source at

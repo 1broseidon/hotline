@@ -371,8 +371,9 @@ impl RoomHandle for Desk {
         &self,
         desk_id: &str,
         teammates: Vec<crate::contract::LinkedTeammate>,
+        features: Vec<String>,
     ) -> Result<(), String> {
-        self.room.federation_roster(desk_id, teammates)
+        self.room.federation_roster(desk_id, teammates, features)
     }
 
     async fn federation_deliver(

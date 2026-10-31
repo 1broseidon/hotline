@@ -13,9 +13,10 @@
 //!
 //! These ride on the handoff, as its result does: the opener asked for the
 //! work, so what the work says back needs no grant of its own. A handoff that
-//! no longer stands (stopped, revoked, unlinked) leaves nothing, and neither
-//! does one whose opener is on a linked desk, which has no conversation here
-//! to hear it in.
+//! no longer stands (stopped, revoked, unlinked) leaves nothing. An opener on
+//! a linked desk has no conversation here to hear a note in: it is sent its
+//! desk, which keeps it there (`exchanges/across.rs`), and that desk leaves
+//! the result's nudge itself.
 
 use super::*;
 use crate::contract::{Aside, AsideLevel, AsideSource};
@@ -90,6 +91,12 @@ impl Room {
             looped_in: false,
             source_name: None,
         };
+        if linked::is_linked(&request.from) {
+            if let Some(key) = thread_key(&request.from, &request.to) {
+                self.keep_for_link(&key, &request.id, aside);
+            }
+            return;
+        }
         if let Err(error) = self.keep_aside(&aside) {
             eprintln!("a note from thread {side_id}: {error}");
         }
@@ -208,18 +215,15 @@ impl Room {
         }
     }
 
-    /// The latest handoff into a work thread while it stands, with a sender on
-    /// this desk: the one whose opener its turns inform.
+    /// The latest handoff into a work thread while it stands: the one whose
+    /// opener its turns inform.
     pub(super) fn handoff_standing(&self, side_id: &str) -> Option<Request> {
         self.exchange_pairs()
             .into_iter()
             .flat_map(|pair| pair.requests)
             .rfind(|r| r.intent == Intent::Handoff && r.thread.as_deref() == Some(side_id))
             .filter(|r| {
-                !r.released
-                    && r.phase != Phase::Stopped
-                    && !linked::is_linked(&r.from)
-                    && self.exchange_lease_current(&r.id)
+                !r.released && r.phase != Phase::Stopped && self.exchange_lease_current(&r.id)
             })
     }
 

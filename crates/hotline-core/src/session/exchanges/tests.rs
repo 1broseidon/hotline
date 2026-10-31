@@ -1,4 +1,5 @@
 mod asides;
+mod files;
 mod gates;
 mod handed_over;
 mod lasting;
@@ -101,6 +102,9 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         own_thread: false,
         owed_to_thread: false,
         looped_in: false,
+        files: Vec::new(),
+        stopped_by_person: false,
+        crossing: Vec::new(),
     }
 }
 /// A handoff from `from` to `to`, into the thread `thread` names when it does.

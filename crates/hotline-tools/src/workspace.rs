@@ -673,6 +673,61 @@ impl Workspace {
             .join(relative.strip_prefix(".").unwrap_or(&relative)))
     }
 
+    /// A file a colleague sent this teammate, written into `folder` under
+    /// the working directory (made if missing) as `name`, or as `name (2)`
+    /// and so on when that is taken: nothing the teammate has is overwritten.
+    /// It is confined to the working directory as every write is, whatever
+    /// the reach the handle was opened with. Answers its path relative to the
+    /// working directory.
+    pub fn receive_file(
+        &self,
+        folder: &Path,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, ToolError> {
+        self.check_capability()?;
+        if bytes.len() > MAX_WRITE_BYTES {
+            return Err(ToolError::new("The file is too large to write."));
+        }
+        let plain = |path: &Path| {
+            path.components()
+                .all(|part| matches!(part, Component::Normal(_)))
+        };
+        if !plain(folder) || !plain(Path::new(name)) || Path::new(name).components().count() != 1 {
+            return Err(ToolError::new(format!("{name} is not a plain file name.")));
+        }
+        let dir = Dir::open_ambient_dir(&self.inner.cwd, ambient_authority())?;
+        dir.create_dir_all(folder)?;
+        let inbox = dir.open_dir(folder)?;
+        let (stem, extension) = match name.rsplit_once('.') {
+            Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
+            _ => (name, String::new()),
+        };
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        for n in 1..=100 {
+            let candidate = if n == 1 {
+                name.to_string()
+            } else {
+                format!("{stem} ({n}){extension}")
+            };
+            let mut file = match inbox.open_with(&candidate, &options) {
+                Ok(file) => file,
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+                let _ = inbox.remove_file(&candidate);
+                return Err(error.into());
+            }
+            return Ok(folder.join(candidate));
+        }
+        Err(ToolError::new(format!(
+            "{} already holds too many files called {name}.",
+            folder.display()
+        )))
+    }
+
     fn list_directory(&self, args: ListDirectoryArgs) -> Result<String, ToolError> {
         self.check_capability()?;
         let requested = args.path.as_deref().unwrap_or(".");

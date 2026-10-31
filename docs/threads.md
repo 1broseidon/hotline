@@ -157,7 +157,11 @@ The stream files stay where they are, and no history is migrated:
 A teammate's asides, `asides/<id>.jsonl`, are a stream of the teammate's but
 no thread: what its threads and colleagues left it, heard at the start of its
 next turn in a thread ([sessions.md](sessions.md#asides)). The line an aside
-leaves on the thread it was said in is an `aside` event of that thread.
+leaves on the thread it was said in is an `aside` event of that thread. The
+files a message carries wait in `files-between/<request id>/` on the desk
+until it is let in, and are then copied into the recipient's working
+directory ([sessions.md](sessions.md#files-between-teammates)); no thread
+holds them.
 
 The thread records themselves (state, binding, title, note) live where each
 kind keeps them today: the marker line, the sidecar, the persona record. They
@@ -760,6 +764,42 @@ Where this differs from the design above:
   colleague's run in the thread itself. So a busy colleague answers at once,
   not "next turn", and its words reach the thread's teammate as "Quill answered
   the message you sent them".
+
+**Thread awareness: across a link** (epic-28 phase 8,
+[thread-awareness.md](design/thread-awareness.md) §3, #203 group H). A
+`ThreadId` may carry a `desk`, naming a thread on a linked desk by that desk's
+kind and key, written `deskId/side:<id>`; only that desk resolves it. Asides
+cross a link as their own delivery under the receiving desk's grant, a
+handed-over thread's notes reach a sender on another desk the same way, its
+question back reaches that sender with no card while the handoff stands, and
+the person's Stop or End thread of a linked colleague's handoff crosses as
+theirs. A message or an aside may carry files, copied into the recipient's
+working directory under `inbox/<sender>/`, over the link too up to a cap. How
+the core does it is in [sessions.md](sessions.md#asides) and
+[Files between teammates](sessions.md#files-between-teammates); the frames
+are in [wire.md](wire.md#linked-desks).
+
+Where this differs from the design above:
+
+- **Turn reports are asides.** #203 sent a delegator every turn of a work
+  thread on another desk as a report; here they are the notes a local opener
+  is left, sent its desk and kept there, each resolved in that desk's own
+  record and honoured only for a handoff it sent.
+- **A desk says what it takes in its roster.** The link has no hello of its
+  own, so the roster that opens every channel carries `features`; a desk that
+  names no `asides` is sent none, and keeps every message and answer.
+- **An aside across a link never raises a card.** It lands only under a grant
+  that already stands there, `allowedSenders` or the person's session grant,
+  so a linked desk cannot fill the person's view with cards by leaving
+  asides; the sender is told to message first, which asks.
+- **A linked thread is learned, not listed.** A teammate names a thread on
+  another desk as an aside from it said it, or by the handoff id it was given;
+  the thread index lists only this desk's threads.
+- **Files across a link are capped at 512 KB together**, not the 25 MB a
+  file on one desk may come to, because they cross in the one frame of what
+  carries them and a link's frame is 1 MiB.
+
+## Today
 
 ## Today
 

@@ -47,10 +47,7 @@ async fn a_prompt_for_a_work_thread_is_said_there_and_is_its_own_operation() {
     let h = Harness::new().await;
     let grant = h.pair().await;
     let phone = h.remote.authenticate_v2(&grant.public).unwrap();
-    let pair = ThreadId {
-        kind: ThreadKind::Pair,
-        key: "a|b".into(),
-    };
+    let pair = ThreadId::new(ThreadKind::Pair, "a|b");
     let refused = phone
         .prompt(
             &Uuid::new_v4().to_string(),

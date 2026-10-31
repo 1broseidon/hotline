@@ -26,9 +26,12 @@ export function levelWord(level: AsideLevel): string {
 	return level === "person" ? "to you" : level;
 }
 
-/** The thread an aside came from, when it came from one. */
+/**
+ * The thread an aside came from, when it came from one this desk can open:
+ * one on a linked desk (`desk` set) is that desk's, and opens nothing here.
+ */
 export function sourceThread(aside: Aside): ThreadId | undefined {
-	return "thread" in aside.from ? aside.from.thread : undefined;
+	return "thread" in aside.from && aside.from.thread.desk === undefined ? aside.from.thread : undefined;
 }
 
 /**

@@ -228,7 +228,8 @@ export function Conversation({
 		},
 		[personaId, session.state],
 	);
-	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
+	// The composer's Interrupt and Esc redirect the turn; they are never the person's Stop of a colleague's answer.
+	const cancel = useCallback(() => void wire.command("session.cancel", { personaId, interrupt: true }), [personaId]);
 	/* The first conversation, before a word: what the starter card reads.
 	 * A line on its way (`saying`) already ends it. */
 	const fresh = loaded && saying === null && untouched(events, olderOnDesk);

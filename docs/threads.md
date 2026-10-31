@@ -637,8 +637,12 @@ has one hook and one view.
   and `Composer`; `powersOf(kind, state)` (in `dock.ts`) is the one place that
   says what a kind allows: a work thread has the composer, Loop in…, End thread
   (Archive, before epic-28's phase 6) and Continue, a pair, a run and a call are
-  read-only. A work thread a teammate handed over has the same, and Stop, and
-  End thread there ends the handoff too:
+  read-only. Stop in a thread's header is the person's Stop (`thread.cancel`);
+  the composer's Interrupt and Esc send it with `interrupt`, which only cuts
+  the turn, and the main conversation's send `session.cancel` with it
+  (sessions.md, "Stop and Interrupt"). A work thread a teammate handed over has
+  the same: Stop there ends the handoff for good, Interrupt leaves it to the
+  person's next line, and End thread there ends the handoff too:
   the brief is said whole in the opener's voice, the person's own lines are
   drawn as theirs, and a bar above the message box names who handed it over,
   says when the handoff no longer stands (`handoffEnded` on its row or link),

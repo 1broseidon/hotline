@@ -65,6 +65,23 @@ give way to a box for your answer. When the work is done the thread closes,
 and **Continue** brings it back. **End thread** closes it yourself: the
 handoff ends with it, and the sender is told quietly, without being woken.
 
+While the colleague is working, **Stop** in the thread's header and
+**Interrupt** in its message box (or <kbd>Esc</kbd>) do different things:
+
+- **Stop** ends the handoff for good. The work is not run again, and the
+  sender is told quietly, without being woken, that you stopped it and not
+  to send it again unless you ask. You can still talk to the colleague in
+  the thread; it is yours now.
+- **Interrupt** only cuts the turn, so you can say something. The handoff
+  goes on: your next message in the thread carries it on, and its result
+  still goes back to the sender.
+
+If you stop a teammate while it is answering a colleague's question, the
+colleague is told you stopped the answer and not to ask again unless you ask.
+Interrupting a teammate's turn in its own conversation tells the colleague
+you interrupted the answer instead, and that it can ask again. Stopping a
+turn from the phone is always a Stop.
+
 The sender can hand more work into the same thread later, and the colleague
 takes it up with everything said there. Once you stop the pair's exchange, or
 a grant is revoked, the bar says the handoff has ended.

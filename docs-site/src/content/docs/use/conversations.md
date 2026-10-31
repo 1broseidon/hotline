@@ -21,7 +21,9 @@ You do not have to wait for it to finish:
 - **Send another message** and it reaches the teammate while it works. On
   Hotline Agent, Claude Code, Codex and Muse Code it joins the task already
   in hand; other agents read it when they finish the turn.
-- **Interrupt** the turn with <kbd>Esc</kbd> in the message box.
+- **Interrupt** the turn with <kbd>Esc</kbd> in the message box, or the
+  stop key beside it. If the teammate was answering a colleague's question,
+  the colleague is told you interrupted the answer and can ask again.
   **More → Stop the session** stops the agent altogether; your next message
   starts it again.
 

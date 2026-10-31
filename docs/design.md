@@ -179,8 +179,9 @@ resolves vault connections and their discovery/manual records once per request,
 using one room snapshot for credentials and enabled models. No secret survives
 in a listing cache. Thread listing scans the side and pair directories once,
 reads each selected tape once, and asks the shared fold for thread links without
-copying unrelated side histories. A pair's thread has no agent of its own, so
-its summary names nobody at work in it and is read from its stream alone.
+copying unrelated side histories. A pair's thread has no agent of its own: its
+summary names the teammate answering one of its questions, from the room's
+record of its requests, and the list reads it as live from that record.
 
 ### 2. A wire of commands and subscriptions
 

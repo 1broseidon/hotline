@@ -1,7 +1,8 @@
 import type { Aside, DeliveryCause, ThreadId } from "../../generated/contract";
-import { asideTime, leftHere, levelWord, sourceName, sourceThread, sourceWords } from "../../asides";
+import { asideTime, fromThePerson, leftHere, levelWord, sourceName, sourceThread, sourceWords } from "../../asides";
 import type { Person } from "../../avatars";
 import { ChevronRightIcon, PersonPlusIcon } from "../../icons";
+import { usePersonName } from "../../room";
 import { Avatar } from "../../ui/Avatar";
 import { Markdown } from "../Markdown";
 import type { ThreadRef } from "../Transcript";
@@ -10,7 +11,7 @@ import type { ThreadRef } from "../Transcript";
  * An aside as a conversation draws it: a quiet line, never a bubble. In the
  * conversation it was left in (the receiver's main conversation), the `(·)`
  * mark, who it is from and the kind of thread, its time, and the words; it
- * opens the thread it came from. On the thread that left it, whom it went to
+ * opens the thread it came from. The person's Loop in… is from them. On the thread that left it, whom it went to
  * and at what level, and "Quill was looped in" for the person's Loop in….
  */
 export function AsideLine({
@@ -27,6 +28,7 @@ export function AsideLine({
 	people: ReadonlyMap<string, Person> | undefined;
 	onOpenThread?: ((thread: ThreadRef) => void) | undefined;
 }) {
+	const personName = usePersonName();
 	const nameOf = (id: string) => people?.get(id)?.name ?? "A teammate";
 	const when = asideTime(aside.ts);
 	const level = levelWord(aside.level);
@@ -44,7 +46,7 @@ export function AsideLine({
 			</p>
 		);
 	}
-	const who = aside.by !== undefined ? nameOf(aside.by) : sourceName(aside);
+	const who = fromThePerson(aside) ? personName || "you" : aside.by !== undefined ? nameOf(aside.by) : sourceName(aside);
 	const meta = sent
 		? (
 			<>

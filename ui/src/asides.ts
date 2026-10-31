@@ -42,6 +42,14 @@ export function sourceWords(aside: Aside): string {
 	return "thread" in aside.from ? KIND_WORDS[aside.from.thread.kind] : "outside";
 }
 
+/**
+ * Whether the person left it: a Loop in… is their own act, so it is from
+ * them, though `by` names the teammate whose thread they acted in.
+ */
+export function fromThePerson(aside: Aside): boolean {
+	return aside.loopedIn === true;
+}
+
 /** Who left it when no teammate did: the inbound source, by the name it had then. */
 export function sourceName(aside: Aside): string {
 	return aside.sourceName ?? "An outside source";

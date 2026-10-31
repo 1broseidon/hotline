@@ -148,6 +148,11 @@ export function useRoomReadEpoch(): { ready: boolean } {
 
 const pickModelsRevision = (state: RoomState) => state.modelsRevision;
 
+/** The person's name from Settings, or "" while they have not given one. */
+export function usePersonName(): string {
+	return stringSetting(useRoom(pickSettings).get("personName"), "");
+}
+
 /** The room's settings over their defaults. */
 export function useRoomSettings(): {
 	personName: string;

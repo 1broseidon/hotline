@@ -1432,7 +1432,11 @@ will go to, and leaves the result's nudge itself.
 brings a colleague into an open work thread for one answer, since there are no
 threads of three. The colleague is left a `nudge` aside from the thread with
 `loopedIn`, `by` the thread's teammate, "Ada looped you in." (the person's
-name, else "The person"), which the thread draws as "Quill was looped in". The
+name, else "The person"), which the thread draws as "Quill was looped in". It
+is the person's act, so it is from them: the colleague hears it under the
+person's name (else "The person"), and the window says "from Ada" (else "from
+you") and lists it on Noted under the person's name and the `(·)` mark, never
+the thread's teammate's. The
 thread then asks the colleague once: an ask from the thread's teammate, sent
 from the thread, carrying the thread's title and its last eight lines, and
 marked `looped_in` so the person's act is its grant (`authorize_exchange`

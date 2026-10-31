@@ -405,9 +405,14 @@ impl Room {
         }
     }
 
-    /// Who left an aside, by the name the teammate knows them by: a
-    /// colleague's, or an inbound source's as it was when it delivered.
+    /// Who left an aside, by the name the teammate knows them by: the
+    /// person, for their own Loop in…, whose `by` is only the teammate whose
+    /// thread they acted in; a colleague's; or an inbound source's as it was
+    /// when it delivered.
     fn aside_name(&self, aside: &Aside) -> String {
+        if aside.looped_in {
+            return self.person_name().unwrap_or_else(|| "The person".into());
+        }
         match (&aside.by, &aside.from, &aside.source_name) {
             (Some(by), _, _) => self
                 .participant(by)

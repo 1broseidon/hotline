@@ -24,7 +24,7 @@ fn bobs_answers(room: &Room, thread: &str) -> Vec<serde_json::Value> {
 }
 
 /// Ada's own work thread, with the person looping Bob in: Bob is left a
-/// nudge from the thread, the thread draws it, and Bob answers once there,
+/// nudge from the thread, heard as the person's, the thread draws it, and Bob answers once there,
 /// under his name, with no card for the grant, since the person's act is it.
 #[tokio::test]
 async fn a_looped_in_colleague_is_nudged_and_answers_once_in_the_thread() {
@@ -36,6 +36,12 @@ async fn a_looped_in_colleague_is_nudged_and_answers_once_in_the_thread() {
     let mut bob = room.persona("bob").unwrap();
     bob.name = "Bob".into();
     crate::room::append_persona(&room.log, &bob).unwrap();
+    room.log
+        .append(
+            &StreamId::Room,
+            &json!({"kind": "setting", "id": "personName", "value": "George"}),
+        )
+        .unwrap();
     let opened = room.start_side("ada", "Ship the release").await.unwrap();
     let thread = opened.side_id;
     until("ada's thread has answered", || {
@@ -58,7 +64,7 @@ async fn a_looped_in_colleague_is_nudged_and_answers_once_in_the_thread() {
     assert_eq!(nudge.level, AsideLevel::Nudge);
     assert_eq!(nudge.from, AsideSource::Thread(ThreadId::side(&thread)));
     assert_eq!(nudge.by.as_deref(), Some("ada"));
-    assert_eq!(nudge.text, "The person looped you in.");
+    assert_eq!(nudge.text, "George looped you in.");
     assert!(
         in_thread(&room, &thread)
             .iter()
@@ -75,6 +81,14 @@ async fn a_looped_in_colleague_is_nudged_and_answers_once_in_the_thread() {
         .into_iter()
         .find(|prompt| prompt.contains("looped you into"))
         .expect("bob was asked");
+    until("bob hears who looped him in", || {
+        agents.told().iter().any(|prompt| {
+            prompt.contains(&format!(
+                "George, in side:{thread} (nudge): George looped you in."
+            ))
+        })
+    })
+    .await;
     assert!(asked.contains("Ship the release"), "{asked}");
     assert!(
         asked.contains("result-0"),

@@ -85,7 +85,9 @@ pub struct Aside {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seen: Option<i64>,
     /// The person looped the teammate into the work thread it came from
-    /// (`thread.loop_in`), whose answer is written there once.
+    /// (`thread.loop_in`), whose answer is written there once. It is the
+    /// person's, and is said to be from them, by their name.
+    /// `by` names the thread's teammate.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub looped_in: bool,

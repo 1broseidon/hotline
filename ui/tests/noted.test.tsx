@@ -38,6 +38,8 @@ const aside = (id: string, ts: number, extra: Partial<Aside> = {}): Aside => ({
 /** What the desk answers, by command; and what the window sent it. */
 let answers: Record<string, (params: unknown) => unknown>;
 let sent: { cmd: string; params: unknown }[];
+/** The room's lines: the person's name, when a test gives one. */
+let roomLines: unknown[];
 /** The open thread's lines, and its state on the list. */
 let threadLines: TranscriptEvent[];
 let threadState: LinkState;
@@ -56,6 +58,7 @@ beforeEach(async () => {
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	answers = {};
 	sent = [];
+	roomLines = [];
 	threadLines = [];
 	threadState = "live";
 	const connection = wireFor("local");
@@ -64,8 +67,8 @@ beforeEach(async () => {
 		return () => {};
 	});
 	restores.push(() => open.mockRestore());
-	const subscription = spyOn(connection, "subscribe").mockImplementation(((target: { threadId?: { kind: string; key: string } }, handlers: { snapshot(items: unknown[]): void }) => {
-		const first = target.threadId?.key === release.key ? threadLines : [];
+	const subscription = spyOn(connection, "subscribe").mockImplementation(((target: "room" | { threadId?: { kind: string; key: string } }, handlers: { snapshot(items: unknown[]): void }) => {
+		const first = target === "room" ? roomLines : target.threadId?.key === release.key ? threadLines : [];
 		queueMicrotask(() => handlers.snapshot(first));
 		return () => {};
 	}) as Wire["subscribe"]);
@@ -150,6 +153,23 @@ describe("an aside in a conversation", () => {
 		expect(container.querySelectorAll(".speech").length).toBe(1);
 		await act(async () => line!.click());
 		expect(opened).toEqual([{ thread: release }]);
+	});
+
+	const loopedIn = () => ({ kind: "aside" as const, ...aside("l", 2, { level: "nudge", loopedIn: true, text: "George looped you in." }) });
+
+	test("of a Loop in is from the person, by their name", async () => {
+		roomLines = [{ kind: "setting", id: "personName", value: "George" }];
+		await transcript("quill", { kind: "dm", key: "quill" }, [loopedIn()]);
+		await settle();
+		const line = container.querySelector(".aside-line")?.textContent ?? "";
+		expect(line).toContain("from George · work thread · nudge");
+		expect(line).not.toContain("Goldie");
+	});
+
+	test("of a Loop in is from you while the person has given no name", async () => {
+		await transcript("quill", { kind: "dm", key: "quill" }, [loopedIn()]);
+		await settle();
+		expect(container.querySelector(".aside-line")?.textContent).toContain("from you · work thread · nudge");
 	});
 
 	test("on the thread that left it says whom it went to and at what level, and opens nothing", async () => {
@@ -264,6 +284,33 @@ describe("the Noted page", () => {
 
 		await act(async () => rows[1]!.click());
 		expect(states).toEqual([{ open: { thread: release }, noted: true }]);
+	});
+
+	test("lists a Loop in as the person's, under the mark rather than the face of the thread's teammate", async () => {
+		roomLines = [{ kind: "setting", id: "personName", value: "George" }];
+		answers["aside.list"] = () => [aside("l1", 40, { level: "nudge", loopedIn: true, text: "George looped you in." })];
+		answers["aside.seen"] = () => null;
+		const roster = [entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })];
+		await act(async () => {
+			root.render(
+				<Dock
+					state={{ open: null, noted: true }}
+					onState={() => {}}
+					onClose={() => {}}
+					onOpenTeammate={() => {}}
+					entry={roster[1]!}
+					roster={roster}
+					width={360}
+					onWidth={() => {}}
+					overlay={false}
+				/>,
+			);
+		});
+		await settle();
+		const row = container.querySelector("button.noted-row");
+		expect(row?.textContent).toContain("George · work thread");
+		expect(row?.textContent).not.toContain("Goldie");
+		expect(row?.querySelector(".aside-mark")).not.toBeNull();
 	});
 
 	test("names an inbound aside's source and marks it outside, with no thread to open", async () => {

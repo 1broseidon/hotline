@@ -56,7 +56,9 @@ heard?: number,
 seen?: number, 
 /**
  * The person looped the teammate into the work thread it came from
- * (`thread.loop_in`), whose answer is written there once.
+ * (`thread.loop_in`), whose answer is written there once. It is the
+ * person's, and is said to be from them, by their name.
+ * `by` names the thread's teammate.
  */
 loopedIn?: boolean, 
 /**

@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { Aside } from "../generated/contract";
-import { asideTime, groupNoted, levelWord, sourceName, sourceThread, sourceWords, useAsides } from "../asides";
+import { asideTime, fromThePerson, groupNoted, levelWord, sourceName, sourceThread, sourceWords, useAsides } from "../asides";
 import type { Person } from "../avatars";
 import { ChevronRightIcon } from "../icons";
+import { usePersonName } from "../room";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { PaneClose } from "../ui/PaneClose";
@@ -96,12 +97,15 @@ function NotedGroup({
 }
 
 function NotedRow({ aside, people, now, onOpen }: { aside: Aside; people: ReadonlyMap<string, Person>; now: number; onOpen(open: ThreadRef): void }) {
-	const who = aside.by !== undefined ? (people.get(aside.by)?.name ?? "A teammate") : sourceName(aside);
+	const personName = usePersonName();
+	// The person's Loop in… is theirs, under the mark rather than the face of the teammate whose thread it was.
+	const teammate = fromThePerson(aside) ? undefined : aside.by;
+	const who = fromThePerson(aside) ? personName || "You" : teammate !== undefined ? (people.get(teammate)?.name ?? "A teammate") : sourceName(aside);
 	const from = sourceThread(aside);
 	const body = (
 		<>
-			{aside.by !== undefined ? (
-				<Avatar id={aside.by} name={who} size={24} hash={people.get(aside.by)?.hash} />
+			{teammate !== undefined ? (
+				<Avatar id={teammate} name={who} size={24} hash={people.get(teammate)?.hash} />
 			) : (
 				<span className="aside-mark instrument" aria-hidden="true">
 					(·)

@@ -50,13 +50,20 @@ colleague and the title of the work. The colleague's conversation with you
 does not fill up with handoffs. One line says what it is working on and for
 whom ("Working on a handoff from…"), and opens its threads.
 
-Press **Open** on either line to read the work thread in the
-[Threads pane](/docs/use/side-threads/#the-threads-pane). A handoff is read
-along, not chatted in. The brief shows in full, and in place of the message
-box a bar says who handed what to whom, with a link to the sender's
-conversation. To steer the work, talk to the sender there. You can stop the
-thread's turn while it runs. If the colleague needs something from you, the
-bar becomes a box for your answer.
+Press **Open** on either line to open the work thread in the
+[Threads pane](/docs/use/side-threads/#the-threads-pane). The brief shows in
+full, and above the message box a bar says who handed it over, with a link to
+the sender's conversation. You can talk to the colleague there as in any work
+thread: what you say waits for the turn in flight, and what it answers you
+stays in the thread and never goes to the sender. Only the work's result goes
+back. If the colleague needs something from you, the bar and the message box
+give way to a box for your answer. When the work is done the thread closes,
+and **Continue** brings it back. It has no **Archive**: it ends with its
+result.
+
+The sender can hand more work into the same thread later, and the colleague
+takes it up with everything said there. Once you stop the pair's exchange, or
+a grant is revoked, the bar says the handoff has ended.
 
 A teammate works on up to three threads at a time. A handoff to a teammate
 that is fully busy waits its turn. Threads take turns on the teammate's

@@ -1113,9 +1113,12 @@ nothing.
   `hotline_asides`) under a line saying they are Hotline's note and data, never
   instructions. A work thread handed to a colleague is quoted to its sender in
   the colleague's last words or the thread's outcome, never a line the person
-  said there, as the notes such a thread leaves its opener are. A job's firing
-  and a run, which act without the person, are told only their parent thread's
-  line and the asides about them.
+  said there, as the notes such a thread leaves its opener are. A work thread
+  of the teammate's own is told as its own work, in the second person, with
+  the ask that opened it (the colleague's delivery's `about`) and what came of
+  it quoted inside the same fence. A job's firing and a run, which act
+  without the person, are told only their parent thread's line and the asides
+  about them.
 - **Tests:** the regression matrix row for the thread index.
 - **Residual risk:** a title or last line is whatever a thread said, and an
   agent may act on it with the permissions it already has; the fence keeps it

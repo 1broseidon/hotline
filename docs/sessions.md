@@ -1601,15 +1601,17 @@ block from `ThreadStore::list` and the tape's chapters and opens the line with
 it, timed, before the person's words:
 
 ```
-[Fri 30 Oct 2026, 21:41] (Thread index: … from Hotline and not the person …
+[Fri 30 Oct 2026, 21:41] (Thread index: … from Hotline and not the person.
+These are your own threads, and the same you worked in them …
 <hotline_threads>
 THREADS · Goldie · Fri 30 Oct 2026, 21:41
 ACTIVE 1
-work side:<id> · release 0.11.1 · working 2m · "Signing build 46"
+you're doing "release 0.11.1" (work side:<id>, working 2m): "Signing build 46"
 WAITING ON GEORGE 1
 call call:<id> · Call · card 10m · "Push the tag v0.11.1?"
-ENDED TODAY 2
-work side:<id> · contract check · ended 18:10 · "Huck's notes are in the doc"
+ENDED TODAY 3
+you did "Gull Point winter hours notice" for Quill (work side:<id>, ended 15:48): "Saved as gull-point-winter-hours.md, from 15 Dec…"
+work side:<id> · handed to Huck: contract check · ended 18:10 · "Huck's notes are in the doc"
 main chapter · The 0.11.1 notes · ended 14:02 · "Drafted the 0.11.1 notes"
 41 older · search_thread finds them
 </hotline_threads>
@@ -1631,11 +1633,26 @@ The index is over.)
 - **Asides:** the ones `hear_asides` took for this turn, through `render`, so
   they are said in this block and nowhere else.
 
+**Its own work is its own.** A work thread of the teammate's own, the
+person's or one a colleague handed it or asked in, is told in the second
+person, as work it did (`you did`), is doing (`you're doing`, while a turn
+runs) or is on (open, or waiting on a card), never as someone else's thread:
+what the work was, whom it was for (the colleague that handed it over or
+asked), and what came of it, quoted in plain words without markdown. What it was is
+the title the closing note gave the thread, else the ask that opened it (the
+first handoff or question delivered into it, by its `about`, without the
+greeting a message opens with), else its title; what came of it is the
+closing note's outcome, else the thread's last message, else its link's
+outcome. The block's first line says these are the teammate's own threads,
+the same it, so it speaks from them as its own without `read_thread` unless it
+needs more detail. A thread the teammate handed a colleague is still that
+colleague's ("handed to Huck"), quoted in the colleague's words only.
+
 The thread the turn runs in is left out. The cap is fifteen entries (`MOST`),
 what waits on the person kept first, then what is under way, then what ended,
-newest first; titles are cut to 40 characters and last lines to 60, which
-keeps a full index to a few hundred tokens. A teammate with no other threads
-and no asides is told nothing.
+newest first; titles are cut to 40 characters and last lines to 60 (54, at a
+word, for the teammate's own work), which keeps a full index to a few hundred
+tokens. A teammate with no other threads and no asides is told nothing.
 
 **A job's firing and a run** are told only their parent thread, the main
 conversation, as one `PARENT` line, and the asides about them.

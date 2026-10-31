@@ -730,6 +730,10 @@ Where this differs from the design above:
   waiting on the person, ended; a live work thread or call with no turn running
   is neither ended nor older, so it is listed under Active as `open`.
 - **"Today" is the last 24 hours**, for threads and chapters alike.
+- **A teammate's own work threads are told as its own**, in the second person
+  ("you did … for Quill"), with what the work was and what came of it, not
+  as a kind, key, title and last line: a teammate listed its own handed-over
+  work like a colleague's and said it had not read it.
 - **The main conversation is listed only when it is working or has a card
   up**, since it never ends and every turn knows it is there; a job and a run
   are always told its line, as their parent.

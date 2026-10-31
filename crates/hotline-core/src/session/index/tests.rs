@@ -212,6 +212,10 @@ async fn the_main_conversation_opens_each_turn_with_the_index_of_its_threads() {
     assert!(told.starts_with("(Thread index:"), "{told}");
     assert!(told.contains("not the person"), "{told}");
     assert!(
+        told.contains("These are your own threads, and the same you worked in them"),
+        "{told}"
+    );
+    assert!(
         told.contains("<hotline_threads>\nTHREADS · Bob · "),
         "{told}"
     );
@@ -221,16 +225,19 @@ async fn the_main_conversation_opens_each_turn_with_the_index_of_its_threads() {
     );
     assert!(
         told.contains(
-            "WAITING ON THE PERSON 1\nwork side:tag · Release 0.11.1 · card 10m · \"Push the tag v0.11.1?\""
+            "WAITING ON THE PERSON 1\nyou're on \"Release 0.11.1\" (work side:tag, card 10m): \"Push the tag v0.11.1?\""
         ),
         "{told}"
     );
     assert!(told.contains("ENDED TODAY 2\n"), "{told}");
     assert!(
-        told.contains("work side:contract · Contract check · ended "),
+        told.contains("you did \"Contract check\" (work side:contract, ended "),
         "{told}"
     );
-    assert!(told.contains("· \"Huck's notes are in the doc\""), "{told}");
+    assert!(
+        told.contains("): \"Huck's notes are in the doc\"\n"),
+        "{told}"
+    );
     assert!(
         told.contains("main chapter · The 0.11.1 notes · ended "),
         "a chapter is an ended main-conversation thread: {told}"
@@ -261,19 +268,30 @@ async fn the_main_conversation_opens_each_turn_with_the_index_of_its_threads() {
 
 /// However many threads a teammate has, the index lists fifteen, keeps what
 /// waits on the person before what ended, counts the rest as older, and stays
-/// within a few hundred tokens with long titles and long last lines.
+/// within a few hundred tokens with long titles and long last lines, its own
+/// work told as its own, for whom included.
 #[tokio::test]
 async fn the_index_holds_its_cap() {
     let (room, _) = room("index-cap");
     let long = "a very long account of what happened in this thread ".repeat(8);
     for n in 0..20 {
+        let id = ThreadId::side(format!("{n:08}-0000-0000-0000-000000000000"));
         ended(
             &room.log,
-            ThreadId::side(format!("{n:08}-0000-0000-0000-000000000000")),
+            id.clone(),
             &format!("{n} {long}"),
             (n + 1) * MINUTE,
             &long,
         );
+        // Half were handed over, and say for whom.
+        if n % 2 == 0 {
+            let mut link = room.log.thread_link(&id).unwrap();
+            link.opener = Some(crate::thread::Opener {
+                persona_id: "ada".into(),
+                name: "Ada".into(),
+            });
+            write_link(&room.log, &link);
+        }
     }
     let now = now_ms();
     thread(
@@ -366,9 +384,130 @@ async fn handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only(
         .index_of("bob", &ThreadId::dm("bob"), now_ms())
         .render("Bob", None, now_ms());
     assert!(
-        own.contains("work side:hull · Paint the hull · parked"),
+        own.contains("you did \"Paint the hull\" for Ada (work side:hull, parked "),
         "{own}"
     );
+    assert!(own.contains("): \"The hull is painted.\"\n"), "{own}");
+}
+
+/// A thread a colleague handed the teammate is, in the teammate's own index,
+/// work it did itself, told in the second person: what it was, for whom, and
+/// what came of it in plain words. Before a closing note names it, what it
+/// was is the ask without its greeting, and what came of it its last words;
+/// once the thread has ended, the title its note gave it and the note's
+/// outcome. So asked what it is working on, it can say without reading it.
+#[tokio::test]
+async fn a_handed_over_thread_that_ended_is_the_teammates_own_work_in_the_second_person() {
+    let (room, _) = room("index-mine");
+    let now = now_ms();
+    let mut link = thread(
+        &room.log,
+        ThreadId::side("gull"),
+        "Hi Bob, it's Ada with a small writing task. Please wri…",
+        ThreadState::Parked,
+        now - 5 * MINUTE,
+    );
+    link.opener = Some(crate::thread::Opener {
+        persona_id: "ada".into(),
+        name: "Ada".into(),
+    });
+    write_link(&room.log, &link);
+    let stream = StreamId::Side("gull".into());
+    for line in [
+        json!({
+            "kind": "delivery", "id": "handoff:r1", "ts": now - 5 * MINUTE,
+            "cause": {
+                "kind": "handoff", "requestId": "r1", "personaId": "ada", "name": "Ada",
+                "threadKey": "ada~bob",
+                "about": "Hi Bob, it's Ada with a small writing task. Please write a winter-hours notice for Gull Point.",
+            },
+            "text": "Hi Bob, it's Ada with a small writing task. Please write a winter-hours notice for Gull Point.",
+        }),
+        json!({
+            "kind": "agent", "id": "a1", "ts": now - 4 * MINUTE,
+            "text": "The notice is saved as `gull-point-winter-hours.md`, **120 words**.",
+        }),
+    ] {
+        room.log.append(&stream, &line).unwrap();
+    }
+    let told = |room: &Room| {
+        room.index_of("bob", &ThreadId::dm("bob"), now_ms())
+            .render("Bob", None, now_ms())
+    };
+
+    let open = told(&room);
+    assert!(
+        open.contains(
+            "you did \"Please write a winter-hours notice for…\" for Ada (work side:gull, parked "
+        ),
+        "{open}"
+    );
+    assert!(
+        open.contains("): \"The notice is saved as gull-point-winter-hours.md…\"\n"),
+        "in plain words: {open}"
+    );
+
+    link.state = ThreadState::Closed(End::Agent);
+    link.title = "Gull Point winter hours notice".into();
+    link.at = Some(now - 3 * MINUTE);
+    link.outcome = Some("The notice is saved as gull-point-winter-hours.md, 120 words.".into());
+    link.note = Some(
+        "Goal: Write Gull Point's winter-hours notice.\nOutcome: Saved as gull-point-winter-hours.md, from 15 Dec. Gift-shop line added.\nNext: nothing."
+            .into(),
+    );
+    write_link(&room.log, &link);
+    let ended = told(&room);
+    let at = Local
+        .timestamp_millis_opt(now - 3 * MINUTE)
+        .single()
+        .unwrap()
+        .format("%H:%M");
+    assert!(
+        ended.contains(&format!(
+            "ENDED TODAY 1\nyou did \"Gull Point winter hours notice\" for Ada (work side:gull, ended {at}): \"Saved as gull-point-winter-hours.md, from 15 Dec…\"\n"
+        )),
+        "{ended}"
+    );
+    assert!(
+        !ended.contains("handed"),
+        "it is not a colleague's: {ended}"
+    );
+}
+
+/// While the turn of a thread a colleague handed it is running, the
+/// teammate's main conversation is told it is at that work now, for whom.
+#[tokio::test]
+async fn a_handed_over_thread_at_work_is_the_teammates_own_work_under_way() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let log = scratch("index-mine-working");
+    enrol(&log, &named("ada", "Ada"));
+    enrol(&log, &named("bob", "Bob"));
+    let agents = Fake::new(replies().gated(gate.clone()));
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    room.allow_sender("bob", "ada").unwrap();
+    crate::mcp::server::TeammateTools::new(&room, "ada")
+        .call(
+            "message_teammate",
+            &json!({
+                "to": "bob", "intent": "handoff",
+                "message": "Hi Bob, it's Ada. Please build the Gull Point visitor page.",
+            }),
+        )
+        .await
+        .unwrap();
+    until("bob is at work on it", || agents.prompts().len() == 1).await;
+
+    let index = room
+        .index_of("bob", &ThreadId::dm("bob"), now_ms())
+        .render("Bob", None, now_ms());
+    assert!(
+        index.contains(
+            "\nyou're doing \"Please build the Gull Point visitor…\" for Ada (work side:"
+        ),
+        "{index}"
+    );
+    assert!(index.contains(", working now)"), "{index}");
+    gate.add_permits(10);
 }
 
 /// A work thread's turn has the index too, with the main conversation's
@@ -381,7 +520,7 @@ async fn a_work_thread_opens_each_turn_with_the_index_and_leaves_itself_out() {
     let told = &agents.told()[0];
     assert!(told.contains("THREADS · Bob · "), "{told}");
     assert!(
-        told.contains("work side:tag · Release 0.11.1 · card"),
+        told.contains("you're on \"Release 0.11.1\" (work side:tag, card"),
         "{told}"
     );
     assert!(told.contains("main chapter · The 0.11.1 notes"), "{told}");

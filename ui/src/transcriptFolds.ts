@@ -183,14 +183,16 @@ type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;
 /**
  * A colleague's delivery, in the colleague's voice: who, and the start of
  * what they said. The answer is what happened, so the line quotes it rather
- * than the question it answers. `null` for your own answer to a card: the
- * card already says it.
+ * than the question it answers: the answer the turn ended on when the desk
+ * says it (`answer`), since a turn often opens with what it is about to
+ * check. `null` for your own answer to a card: the card already says it.
  */
 export function deliveryLine(event: DeliveryEvent): { name: string; said: string } | null {
 	const cause = event.cause;
 	if (cause.kind === "answer") return null;
 	if (cause.kind === "peer" && cause.status === "failed")
 		return { name: cause.name, said: cause.about ? `didn't answer · ${cause.about}` : "didn't answer" };
+	if (cause.kind === "peer" && cause.answer !== undefined && cause.answer !== "") return { name: cause.name, said: cause.answer };
 	const said = plain(firstLine(withoutOpener(event.text))) || cause.about;
 	if (cause.kind === "question") return { name: cause.name, said: `asks: ${said}` };
 	if (cause.kind !== "handoff") return { name: cause.name, said };

@@ -707,7 +707,15 @@ export type DeliveryCause = { "kind": "peer", requestId?: string, personaId: str
 /**
  * The start of the message this answers, clipped to a line.
  */
-about: string, } | { "kind": "handoff", requestId: string, personaId: string, name: string, threadKey: string, 
+about: string, 
+/**
+ * The answer the colleague's turn ended on, its last message in
+ * plain words and short, which a quiet line shows in place of the
+ * first words of `text` (often what it said on the way there).
+ * Absent from a failure, from a delivery written before it was
+ * kept, and from an answer that came over a link.
+ */
+answer?: string, } | { "kind": "handoff", requestId: string, personaId: string, name: string, threadKey: string, 
 /**
  * The start of the message, clipped to a line.
  */

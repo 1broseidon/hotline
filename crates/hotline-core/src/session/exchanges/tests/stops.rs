@@ -531,6 +531,7 @@ fn send_it_again_is_never_said_after_the_persons_word() {
         thread_key: "ada~bob".into(),
         status: PeerStatus::Failed,
         about: "the colour".into(),
+        answer: None,
     };
     for sentence in [
         STOPPED_BY_THE_PERSON,

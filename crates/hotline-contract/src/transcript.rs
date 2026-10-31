@@ -666,6 +666,14 @@ pub enum DeliveryCause {
         status: PeerStatus,
         /// The start of the message this answers, clipped to a line.
         about: String,
+        /// The answer the colleague's turn ended on, its last message in
+        /// plain words and short, which a quiet line shows in place of the
+        /// first words of `text` (often what it said on the way there).
+        /// Absent from a failure, from a delivery written before it was
+        /// kept, and from an answer that came over a link.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        answer: Option<String>,
     },
     /// Work explicitly handed to this teammate, in a work thread of its own.
     /// The result returns automatically to requestId on the sender's tape.

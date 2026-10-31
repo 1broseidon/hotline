@@ -519,6 +519,7 @@ async fn a_delivery_carries_where_it_came_from_and_keeps_it_when_read() {
             thread_key: "ada~bob".to_string(),
             status: PeerStatus::Done,
             about: "what broke?".to_string(),
+            answer: None,
         },
         "the winch".to_string(),
     )
@@ -590,6 +591,7 @@ async fn a_restart_hands_on_an_unheard_delivery_once() {
         thread_key: "ada~bob".to_string(),
         status: PeerStatus::Done,
         about: "what broke?".to_string(),
+        answer: None,
     };
     room.write(
         "ada",

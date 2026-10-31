@@ -105,6 +105,12 @@ describe("Ask or hand off", () => {
 	test("ask replies still open as answers, not handoffs", () => {
 		const answer = { ...delivery, cause: { ...handoff, kind: "peer" as const, status: "done" as const } };
 		expect(deliveryLine({ ...answer, text: "pong" })).toEqual({ name: "Mack", said: "pong" });
+		// The answer the turn ended on, not what it said on the way there.
+		const turn = "on it — let me check the changelog file and the release note first.\n\nThe 0.46 Windows fix is the **bind path fix**.";
+		expect(deliveryLine({ ...answer, text: turn, cause: { ...answer.cause, answer: "The 0.46 Windows fix is the bind path fix." } })).toEqual({
+			name: "Mack",
+			said: "The 0.46 Windows fix is the bind path fix.",
+		});
 		expect(turnCauseLine([answer])).toBe("Answering Mack");
 		expect(deliveryLine({ ...answer, cause: { ...answer.cause, status: "failed" } })).toEqual({
 			name: "Mack",

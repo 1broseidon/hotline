@@ -71,6 +71,8 @@ impl Room {
                 PeerStatus::Done
             },
             about: peers::about(&request.message),
+            answer: (!stopped && !request.failed && !request.answer.is_empty())
+                .then(|| request.gist()),
         };
         if stopped {
             return Ok((

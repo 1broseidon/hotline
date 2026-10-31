@@ -1410,7 +1410,8 @@ leaves no note, since they reach it themselves. It is heard in the conversation 
 result goes back to. The result still returns as a delivery, and leaves a
 nudge beside it (`result:<request>`), the answer the result's turn ended on
 said the same way (the request keeps it as `answer`, beside the whole
-`reply` that goes back), which the delivery's own turn hears
+`reply` that goes back, and the delivery's `cause` carries it as `answer` for
+the quiet line a window draws of it), which the delivery's own turn hears
 without saying again. The delivery is the wake: results queued behind a busy
 conversation are taken into one turn when it is free (`results_behind`), and
 the reply is counted on the brake as it always was. Notes and the nudge ride on

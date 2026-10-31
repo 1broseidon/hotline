@@ -55,6 +55,7 @@ async fn a_result_comes_back_as_its_delivery_with_a_nudge_heard_once_beside_it()
         .find(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == id)
         .expect("the result is still a delivery");
     assert_eq!(delivery["text"], "result-0");
+    assert_eq!(delivery["cause"]["answer"], "result-0");
     let nudge = asides(&room, "ada")
         .into_iter()
         .find(|aside| aside.id == format!("result:{id}"))
@@ -350,9 +351,9 @@ async fn a_turn_waiting_only_on_a_question_to_its_sender_leaves_no_note() {
 }
 
 /// A turn that opened with filler and ended on its answer: the result's
-/// nudge and the note a busy conversation is left of a question answered for
-/// it say the answer alone, in plain words, while the reply that goes back
-/// keeps the whole turn.
+/// nudge, its delivery's quiet line and the note a busy conversation is left
+/// of a question answered for it say the answer alone, in plain words, while
+/// the reply that goes back keeps the whole turn.
 #[tokio::test]
 async fn an_aside_of_a_result_is_the_turns_last_message_in_plain_words() {
     let (room, _) = setup("aside-result-gist");
@@ -386,6 +387,17 @@ async fn an_aside_of_a_result_is_the_turns_last_message_in_plain_words() {
     assert_eq!(
         saved("h").reply,
         "On it — let me check the changelog first.\n\nThe fix is the **bind path fix** in `server.rs`."
+    );
+
+    let (_, cause, _, text) = room.answer_delivery("ada~bob", &saved("h")).unwrap();
+    assert_eq!(text, saved("h").reply, "the delivery is the whole turn");
+    let DeliveryCause::Peer { answer, .. } = cause else {
+        panic!("a result is a peer's delivery: {cause:?}");
+    };
+    assert_eq!(
+        answer.as_deref(),
+        Some("The fix is the bind path fix in server.rs."),
+        "its quiet line says the answer"
     );
 
     room.nudge_handoff_result("ada~bob", &saved("h"));

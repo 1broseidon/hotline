@@ -648,7 +648,9 @@ has one hook and one view.
   the same: Stop there ends the handoff for good, Interrupt leaves it to the
   person's next line, and End thread there ends the handoff too:
   the brief is said whole in the opener's voice, the person's own lines are
-  drawn as theirs, and a bar above the message box names who handed it over,
+  drawn as theirs on the right, the thread's teammate's on the left under its
+  name as any colleague's are (the person is the one talking there, in
+  whichever teammate's pane it is open), and a bar above the message box names who handed it over,
   says when the handoff no longer stands (`handoffEnded` on its row or link),
   and leads to the opener's conversation. While its teammate waits on the
   person, the bar and the composer give way to the one field they answer in.

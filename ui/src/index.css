@@ -4863,6 +4863,12 @@
 	.md > :last-child {
 		margin-bottom: 0;
 	}
+	/* Your bubble keeps the newlines you typed, but markdown says its own
+	 * breaks: the newlines between the blocks it draws would show as blank
+	 * lines, a gap above every list. */
+	.said-me .md {
+		white-space: normal;
+	}
 	.md p {
 		margin: 0.6em 0;
 	}

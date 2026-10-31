@@ -174,12 +174,16 @@ describe("a thread a teammate handed over", () => {
 		renderToStaticMarkup(<Transcript personaId="ada" name="Ada" thread={thread} speakers={speakers} events={lines} streaming={[]} live={false} focus={null} />);
 
 	test("draws the person's own line as theirs and the opener's brief whole under the opener's name", () => {
-		const html = drawn({ kind: "side", key: "s1" }, { me: "Ada", them: "Mack", mine: "agent" });
+		// As the pane gives them: the person's chair, and the thread's teammate across from them.
+		const html = drawn({ kind: "side", key: "s1" }, { me: "You", them: "Ada", mine: "user" });
 		expect(html).toContain("Implement the fix and report back.");
 		expect(html.match(/>Mack</g)?.length).toBe(1);
 		expect(html.indexOf(">Mack<")).toBeLessThan(html.indexOf("Implement the fix"));
 		expect(html).toContain(">You<");
 		expect(html.indexOf(">You<")).toBeLessThan(html.indexOf("Use the staging key."));
+		// The thread's teammate is not the person: its words are on the left, under its name.
+		expect(html.indexOf(">Ada<")).toBeLessThan(html.indexOf("On it."));
+		expect(html.match(/said-me/g)?.length).toBe(1);
 	});
 
 	test("leaves a pair's user lines to the teammate who sent them", () => {

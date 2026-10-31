@@ -203,6 +203,34 @@ describe("a handed-over thread continued in the pane", () => {
 	}
 });
 
+describe("a handed-over thread's lines", () => {
+	for (const pane of [exec, lead]) {
+		test(`are the person's on the right, and the thread's teammate's and the opener's on the left under their names, in ${pane.name}'s pane`, async () => {
+			desk = { key: `work-sides-${pane.id}`, state: "live", working: false };
+			await show(pane, false);
+			await act(async () => {
+				threadHandlers?.event({
+					kind: "delivery", id: "brief", ts: 1, text: "Add mul to calc.py.",
+					cause: { kind: "handoff", requestId: "r1", personaId: "lead", name: "Lead", threadKey: "exec~lead", about: "Add mul" },
+				});
+				threadHandlers?.event({ kind: "user", id: "u1", ts: 4, text: "Add div too." });
+				threadHandlers?.event({ kind: "agent", id: "a2", ts: 5, text: "Added div:\n\n- `div` raises on zero\n- two tests" });
+			});
+			const bubble = (text: string) => [...container.querySelectorAll(".speech")].find((one) => one.textContent?.includes(text));
+			const nameAbove = (text: string) => bubble(text)?.parentElement?.querySelector(".said-name")?.textContent;
+			for (const theirs of ["Three tests pass.", "raises on zero"]) {
+				expect(bubble(theirs)?.classList.contains("said-them")).toBe(true);
+				expect(nameAbove(theirs)).toBe("Exec");
+			}
+			expect(bubble("Add mul to calc.py.")?.classList.contains("said-them")).toBe(true);
+			expect(nameAbove("Add mul to calc.py.")).toBe("Lead");
+			expect(bubble("Add div too.")?.classList.contains("said-me")).toBe(true);
+			expect([...container.querySelectorAll(".said-name")].map((one) => one.textContent)).toContain("You");
+			expect([...container.querySelectorAll(".said-me")].every((one) => one.textContent?.includes("Add div too."))).toBe(true);
+		});
+	}
+});
+
 describe("a handed-over thread's turn", () => {
 	test("is stopped, with the work it does, by Stop in the header, and only cut by the composer's Interrupt or Esc", async () => {
 		desk = { key: "work-cut", state: "live", working: true };

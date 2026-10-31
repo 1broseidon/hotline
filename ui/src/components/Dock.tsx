@@ -516,12 +516,13 @@ function ThreadView({
 		setRefused(null);
 		void resume().then(onChanged, refuse);
 	};
-	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right. In a handoff, this teammate's.
+	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right. A handoff is
+	// the person's to talk in: their lines are on the right, and this teammate's, like the opener's, on the left under its name.
 	const speakers =
 		id.kind === "pair"
 			? { me: self.name, them: withName, mine: (id.key.split("~")[0] === self.id ? "user" : "agent") as "user" | "agent" }
 			: opener !== undefined
-				? { me: self.name, them: opener.name, mine: "agent" as const }
+				? { me: "You", them: self.name, mine: "user" as const }
 				: undefined;
 	// What a handoff asks the person, the oldest first: the one thing they say in it.
 	const asked = opener === undefined ? undefined : lines.find((event): event is Extract<typeof event, { kind: "human_action" }> => event.kind === "human_action" && event.status === "pending");

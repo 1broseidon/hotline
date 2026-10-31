@@ -200,8 +200,20 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
     assert_eq!(side_list[0]["sideId"], key.as_str());
     assert_eq!(side_list[0]["status"], "live");
 
-    // Park, speak into it (which wakes it), close, continue.
-    let parked = now.call("thread.park", json!({"thread":thread})).await;
+    // Park, speak into it (which wakes it), close, continue. A thread mid-turn
+    // is refused the park, and its words reach the stream before its turn
+    // has ended, so the park is asked until the turn is over.
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let parked = loop {
+        let parked = now.call("thread.park", json!({"thread":thread})).await;
+        let working = parked["error"]
+            .as_str()
+            .is_some_and(|error| error.starts_with("That thread is working"));
+        if !working || tokio::time::Instant::now() > deadline {
+            break parked;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
     assert_eq!(parked["ok"], true, "{parked}");
     assert_eq!(state_of(&mut now, &persona, &thread).await, "parked");
     assert_eq!(

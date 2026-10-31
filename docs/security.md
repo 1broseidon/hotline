@@ -787,6 +787,7 @@ extend; when a change adds a boundary, it adds a row.
 | Loop in… and End thread: the person may loop any colleague on this desk into an open work thread, which leaves it a nudge aside the thread draws and asks it once with no card, its answer delivered into the thread; never the thread's own teammate or an ended thread; the phone may loop in on a work thread only, and mark asides seen; the person's End thread on a handed-over thread releases and stops its handoff with no result and no failure, and tells the opener once by a note aside, never a wake | `session/exchanges/tests/loop_in.rs` `a_looped_in_colleague_is_nudged_and_answers_once_in_the_thread`, `loop_in_is_refused_for_the_threads_own_teammate_and_an_ended_thread`, `the_persons_end_thread_releases_the_handoff_and_tells_its_opener_once_by_a_note`; `wire/tests/asides.rs` `aside_seen_marks_the_persons_reading_and_the_row_counts_the_new` | — |
 | Stop and Interrupt: the person's Stop on a handoff's turn, on a handoff's line it drops, or on what an Interrupt left a thread carrying ends that handoff for good, released and stopped with its leases revoked, never handed over or run again, and tells its sender once by a note aside, never a wake and nothing delivered; Interrupt only cuts the turn and the person's next line there carries the handoff to its result; an answer either cuts fails to its asker in the person's words, never followed by "send it again", and only Stop says not to ask again; a restart's cut is not the person's; the main conversation's Interrupt leaves a first-contact card up and the Stop expires it; `session.cancel` and `thread.cancel` are the Stop without `interrupt`, as the phone and an older window send them, and the Interrupt with it, over the wire | `session/exchanges/tests/stops.rs` `the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_sender_once_by_a_note`, `the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_runs`, `the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_it`, `the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_carries_it_on`, `the_persons_stop_after_an_interrupt_ends_the_handoff_the_thread_carried`, `the_persons_stop_or_interrupt_of_a_main_conversations_answer_fails_it_in_their_words`, `a_restart_cutting_a_main_conversations_answer_is_not_the_persons_stop`, `send_it_again_is_never_said_after_the_persons_word`; `session/peers/tests.rs` `an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up`; `hotline-contract/src/tests.rs` `a_cancel_is_a_stop_unless_it_says_it_interrupts`; `tests/threads/together.rs` `the_main_conversations_interrupt_over_the_wire_fails_a_colleagues_answer_as_interrupted` | — |
 | The thread index: a turn is told only its own teammate's threads, fenced and labelled as Hotline's note with each title, last line and aside quoted as data; a job's firing and a run are told only their parent thread and the asides about them; work handed to a colleague is quoted to its sender in the colleague's words, never the person's | `session/index/tests.rs` `the_main_conversation_opens_each_turn_with_the_index_of_its_threads`, `a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it`, `a_run_hears_only_its_parent_thread`, `handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only` | — |
+| Inbound sources: nothing outside Hotline reaches a teammate but through a source the person added; a muted or removed source delivers nothing, a teammate it does not name is refused, the level is lowered to the source's highest, its hourly rate holds, files are refused unless allowed and wait for phase 8 even then, its words are one line with no control characters or tokens, fenced as untrusted data from outside Hotline and never among a colleague's, and found by search under the source's name; a nudge's wake counts on its brake, which mutes it at the cap; a teammate adds none but by the person's yes on its card, which names no secret; only the owner adds, widens or removes one, a phone only lists and mutes, and a secret is held by the name of a stored one, never its value | `session/inbound/tests.rs` `a_muted_or_missing_source_delivers_nothing`, `a_teammate_the_source_does_not_name_is_refused`, `the_level_is_lowered_to_the_sources_highest`, `the_rate_limit_holds_for_the_hour`, `files_are_refused_unless_the_source_allows_them_and_wait_for_the_file_rules`, `inbound_words_are_fenced_as_untrusted_data_from_outside_and_searchable`, `a_sources_nudges_wake_an_idle_teammate_and_its_brake_mutes_it_at_the_cap`, `a_teammate_adds_no_source_without_the_persons_yes`; `wire/tests/inbound.rs` `only_the_owner_adds_widens_and_removes_a_source_and_a_phone_only_mutes_it`, `a_source_names_a_stored_secret_and_never_holds_a_value`, `the_phone_seat_reads_and_mutes_sources_and_nothing_more`; `hotline-room/src/inbound.rs` `untrusted_text_is_one_line_with_no_control_characters_or_keys` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes queued work; a dropped wait cannot be answered later | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later` | — |
 | A colleague's question is answered where the memory is, by a turn of the recipient's own threads under that thread's lease, and no session or agent of the pair's own is built: an idle main conversation answers it in a turn that takes in nothing the person says; a busy one is answered for at once by a work thread of the recipient's, seeded with its tail, its recent asides and its thread index, which closes with its answer and leaves the main conversation a note aside, nothing in the person's chat; an ask names only a thread its sender's handoff opened on that recipient and is answered there, which stays open; a question back from a handed-over thread to the teammate that handed it over needs no card while the delegation stands, and meets the ordinary grant once it has ended; a question stopped before its answer, or whose teammate was deleted or unlinked, hands its failure to the thread that asked it and a handoff waiting on it carries on; the person's Stop fails a question waiting behind the turn at once and once; a question a chapter's swap dropped is answered in the next chapter | `session/exchanges/tests/questions.rs` `an_ask_to_an_idle_main_conversation_is_answered_there`, `no_peer_session_or_peer_agent_is_built_for_an_ask`, `a_busy_main_conversation_is_answered_for_by_a_seeded_work_thread_that_asides_back`, `the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_own`, `an_ask_naming_a_thread_is_answered_in_it_and_leaves_it_open`, `an_ask_naming_a_thread_not_its_own_is_refused`, `a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card`, `the_persons_cancel_fails_a_question_still_waiting_behind_the_turn`, `a_question_waiting_behind_a_turn_outlives_a_chapter_swap`; `session/exchanges/tests/gates.rs` `a_handoff_that_asks_a_colleague_waits_for_the_answer_and_carries_on_with_it`, `a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_failure`, `a_question_to_a_deleted_teammate_carries_the_handoff_on_with_the_failure`, `a_question_to_a_desk_that_unlinks_carries_the_handoff_on_with_the_failure`; `session/agent.rs` `a_pair_has_no_agent_of_its_own` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests/door.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`; `wire/tests/seats.rs` `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
@@ -983,9 +984,8 @@ the start of its next turn, never a message in the person's chat
 
 - **Default and old records:** nobody has any. A teammate's asides are its own
   stream (`asides/<id>.jsonl`); the line on the sender's thread is an
-  `aside` event clients that predate it skip. An `Inbound` source is in the
-  type and nothing makes one: no inbound transport exists, and phase 9 adds
-  the source grant before any does.
+  `aside` event clients that predate it skip. An aside from an inbound
+  source passes that source's grant instead (Inbound sources, below).
 - **Grant source:** a colleague's `aside` passes exactly the check an ask
   does, `authorize_collaboration` with the same two live leases: the
   recipient's `allowedSenders`, the person's first-contact card, implicit
@@ -1117,6 +1117,50 @@ nothing.
 - **Residual risk:** a title or last line is whatever a thread said, and an
   agent may act on it with the permissions it already has; the fence keeps it
   from reading as Hotline or the person.
+
+## Inbound sources (epic-28, task-326)
+
+A place outside Hotline (a webhook, a mailbox, a GitHub repository) may leave
+a teammate asides only through a source the person added
+(`docs/design/thread-awareness.md`, "Inbound sources"). Only the grant and
+its checks exist: no webhook endpoint, mailbox or GitHub poller is built.
+
+- **Default and old records:** nothing. A desk has no sources until the person
+  adds one, and nothing outside reaches any teammate. A new source asides only
+  the teammates it names, at `note`, ten an hour, with no files, unmuted.
+- **Grant source:** the person alone: `inbound.add`, `inbound.update` and
+  `inbound.remove` from the desk or owner seat, and a phone may only list them
+  and mute or unmute one (`wire/seat.rs`). A teammate's `propose_inbound`
+  only raises a card showing the source as it would be added, bound to a
+  core-generated `inbound-source:` id and the session's lease; the person's
+  yes writes exactly that record (`Room::settle_inbound_source`, which checks
+  the lease, the expiry and that its teammates are still here), and a no, a
+  stale card or a revoked session writes nothing. The proposal cannot name a
+  secret, and is not offered to a job, a run or a voice front. A source keeps
+  a transport's secret only as the name of a secret stored under Settings →
+  Secrets, checked against the vault's list when it is added, never a value.
+- **Enforcement points:** `session/inbound.rs` `Room::inbound_aside`, the one
+  door a transport will call: the source must exist and not be muted, `to`
+  must be among its teammates and on this desk, the level is lowered to its
+  `maxLevel`, and its rate is counted from the asides its teammates hold and
+  checked with the keeping under the lock hearing takes. Files are refused
+  unless the source allows them, and are refused for now even then
+  (`inbound_files`, a TODO for phase 8's size and path rules). The words are
+  made one line, every control character a space, with tokens and keys cut
+  (`hotline_room::inbound::untrusted_text`), clipped to an aside, and heard
+  in their own `hotline_inbound` fence headed as untrusted data from outside
+  Hotline that never says what to do, labelled "from <source> (outside
+  Hotline)" (`session/asides.rs` `fenced_lines`). A nudge that wakes its
+  teammate counts on the source's brake, which mutes it at a pair's twelve
+  until the person unmutes it; a `person` aside's card names it as outside.
+- **Tests:** the regression matrix row for inbound sources.
+- **Residual risk:** what a source delivers is written by whoever can reach it
+  outside, so it can carry a prompt injection; the fence, the label and the
+  level clamp keep it from reading as Hotline, a colleague or the person, and
+  from waking or carding anyone the person did not allow, but a teammate may
+  still act on it with every permission it already has. Redaction knows
+  token shapes (`Bearer`, `sk-`, `ghp_`, …), not every secret. Files cross no
+  boundary until phase 8's rules are wired in.
 
 ## What a colleague sees
 

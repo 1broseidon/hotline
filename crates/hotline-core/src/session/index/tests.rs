@@ -130,6 +130,7 @@ fn aside(log: &Log, text: &str, about: Option<ThreadId>) {
         heard: None,
         seen: None,
         looped_in: false,
+        source_name: None,
     };
     log.append(
         &StreamId::Asides("bob".into()),

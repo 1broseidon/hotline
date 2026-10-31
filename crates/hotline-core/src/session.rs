@@ -44,6 +44,7 @@ mod driver_info;
 pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod generate;
+mod inbound;
 mod index;
 mod job_thread;
 pub(crate) mod jobs;
@@ -753,7 +754,9 @@ pub struct Room {
     /// Serializes each durable exchange queue and its pair-wide brake.
     exchange_lock: Mutex<()>,
     /// Held while asides are heard, so two turns of one teammate starting
-    /// together never both take the same one.
+    /// together never both take the same one; and while an inbound source's
+    /// hour is counted and one more aside kept, or a wake counted on its
+    /// brake (`session/inbound.rs`).
     asides_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,

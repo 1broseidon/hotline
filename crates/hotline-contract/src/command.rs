@@ -1042,6 +1042,28 @@ pub enum Command {
         thread: ThreadId,
         persona_id: String,
     },
+    /// The desk's inbound sources, oldest first, as `InboundSource`s.
+    #[serde(rename = "inbound.list")]
+    InboundList {},
+    /// The person adds an inbound source: who it may aside, how loudly, with
+    /// files or not, how often, and the stored secret a transport will use,
+    /// by name. Answers the new `InboundSource`. The owner's alone.
+    #[serde(rename = "inbound.add")]
+    InboundAdd { draft: InboundDraft },
+    /// Changes what is given of a source. Unmuting it releases its brake. A
+    /// phone may only mute and unmute. Answers the `InboundSource`.
+    #[serde(rename = "inbound.update")]
+    InboundUpdate {
+        id: String,
+        muted: Option<bool>,
+        teammates: Option<Vec<String>>,
+        max_level: Option<AsideLevel>,
+        files_allowed: Option<bool>,
+        rate: Option<u32>,
+    },
+    /// Removes a source: it delivers nothing more. What it delivered stays.
+    #[serde(rename = "inbound.remove")]
+    InboundRemove { id: String },
 }
 
 /// With `default`, absence is None; a present null is Some(None).

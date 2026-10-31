@@ -21,6 +21,7 @@ import { ComputerSection } from "./settings/Computer";
 import { CookieSitesPage } from "./settings/CookieOfferSettings";
 import { GeneralSection } from "./settings/General";
 import { ImportSection } from "./settings/Import";
+import { InboundSection } from "./settings/Inbound";
 import { ProvidersSection } from "./settings/Providers";
 import { ToolsSection } from "./settings/Tools";
 
@@ -34,6 +35,7 @@ export type SettingsSection =
 	| "skills"
 	| "computer"
 	| "secrets"
+	| "inbound"
 	| "remote"
 	| "updates"
 	| "import"
@@ -48,6 +50,7 @@ const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "skills", title: "Skills" },
 	{ id: "computer", title: "Computer" },
 	{ id: "secrets", title: "Secrets" },
+	{ id: "inbound", title: "Inbound" },
 	{ id: "remote", title: "Remote" },
 	{ id: "updates", title: "Updates" },
 	{ id: "import", title: "Import" },
@@ -183,11 +186,14 @@ export function Settings({
 	onSection,
 	onBack,
 	onAddDesk,
+	team = [],
 }: {
 	section: SettingsSection;
 	onSection?: (section: SettingsSection) => void;
 	onBack?: () => void;
 	onAddDesk?: () => void;
+	/** Who is on the team, to name whom an inbound source may aside. */
+	team?: readonly { id: string; name: string }[];
 }) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
@@ -243,6 +249,7 @@ export function Settings({
 					{section === "updates" && <UpdatesSection />}
 					{section === "remote" && (onServer() ? <ServerRemoteNote /> : <RemoteSection />)}
 					{section === "desks" && <DesksSection onAddDesk={onAddDesk ?? (() => {})} />}
+					{section === "inbound" && <InboundSection team={team} />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
 					{section === "shortcuts" && <ShortcutsSection />}
 					{section === "about" && <AboutSection />}

@@ -384,6 +384,7 @@ impl Room {
             heard: None,
             seen: None,
             looped_in: false,
+            source_name: None,
         };
         if self.aside_kept(&request.to, &aside.id) {
             return;

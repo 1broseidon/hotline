@@ -192,6 +192,15 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         ),
     ),
     (
+        "propose_inbound",
+        label(
+            "ask",
+            "Proposed an inbound source",
+            "Proposed {n} inbound sources",
+            "Proposing an inbound source",
+        ),
+    ),
+    (
         "add_teammate",
         label(
             "team-add",

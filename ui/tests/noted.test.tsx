@@ -265,6 +265,38 @@ describe("the Noted page", () => {
 		await act(async () => rows[1]!.click());
 		expect(states).toEqual([{ open: { thread: release }, noted: true }]);
 	});
+
+	test("names an inbound aside's source and marks it outside, with no thread to open", async () => {
+		const { by: _by, ...fromOutside } = aside("o1", 40, {
+			from: { inbound: "gh" },
+			sourceName: "hotline repo",
+			text: "CI failed on main.",
+		});
+		answers["aside.list"] = () => [fromOutside];
+		answers["aside.seen"] = () => null;
+		const roster = [entry(goldie), entry(quill, { asides: 1, asidesNew: 1 })];
+		await act(async () => {
+			root.render(
+				<Dock
+					state={{ open: null, noted: true }}
+					onState={() => {}}
+					onClose={() => {}}
+					onOpenTeammate={() => {}}
+					entry={roster[1]!}
+					roster={roster}
+					width={360}
+					onWidth={() => {}}
+					overlay={false}
+				/>,
+			);
+		});
+		await settle();
+		expect(container.querySelector("button.noted-row")).toBeNull();
+		const row = container.querySelector(".noted-row");
+		expect(row?.textContent).toContain("hotline repo · outside");
+		expect(row?.querySelector(".noted-text")?.textContent).toBe("CI failed on main.");
+		expect(row?.querySelector(".aside-mark")).not.toBeNull();
+	});
 });
 
 describe("a work thread's header", () => {

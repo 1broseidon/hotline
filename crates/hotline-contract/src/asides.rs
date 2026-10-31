@@ -6,10 +6,9 @@ use ts_rs::TS;
 
 use super::*;
 
-/// Where an aside came from: one of a teammate's threads, or, once inbound
-/// sources exist, a source the person added to the desk (a webhook, a mailbox,
-/// a repository), by its id. Nothing makes an inbound aside yet; the variant
-/// is here so the record and the wire already carry it.
+/// Where an aside came from: one of a teammate's threads, or an inbound
+/// source the person added to the desk (a webhook, a mailbox, a repository),
+/// by its id ([`InboundSource`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -18,8 +17,11 @@ pub enum AsideSource {
     Inbound(String),
 }
 
-/// How much an aside asks of the teammate it is for, lowest first.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// How much an aside asks of the teammate it is for, lowest first, which is
+/// the order they compare in.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS,
+)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum AsideLevel {
@@ -87,4 +89,9 @@ pub struct Aside {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub looped_in: bool,
+    /// For an aside from an inbound source, the source's name when it
+    /// delivered it, so the record still says where it came from once the
+    /// source is renamed or removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
 }

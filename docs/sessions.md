@@ -467,7 +467,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `aside`, `propose_inbound`, `add_teammate` (the lead's only), `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
@@ -1328,9 +1328,8 @@ An aside informs a teammate without messaging it or the person
 (`session/asides.rs`; the design is
 [thread-awareness.md](design/thread-awareness.md) §2). It is an `Aside`
 (`{id, ts, to, from, by?, text, about?, level, heard?, seen?, loopedIn?}`):
-`from` is the thread it was said in (or, in the type only so far, an inbound
-source), `by` the colleague whose words it is, `about` the recipient's thread
-it is heard in. It is kept on the recipient's own stream, `asides/<id>.jsonl`
+`from` is the thread it was said in, or an inbound source (below), `by` the
+colleague whose words it is, `about` the recipient's thread it is heard in. It is kept on the recipient's own stream, `asides/<id>.jsonl`
 (`StreamId::Asides`), indexed under the recipient for `search_thread` with the
 thread it came from, and written as an `aside` event on the thread it was said
 in, so the sender's record shows it. It is never on the recipient's tape, and
@@ -1410,6 +1409,29 @@ opener is left one `note` aside, "Ada ended this thread, and the work you
 handed over with it.", heard at its next turn and never a wake. Ending a
 thread that has ended already does nothing. A question an Interrupt left the
 thread carrying ends with it as a turn that ended without a result.
+
+**Inbound sources** (`session/inbound.rs`; the record is
+`hotline_room::inbound`, the wire's [Inbound sources](wire.md#inbound-sources)).
+A place outside Hotline (a webhook, a mailbox, a GitHub repository) leaves a
+teammate asides only through a source the person added: from Settings or the
+wire (`inbound.add`), or by saying yes to a teammate's `propose_inbound` card,
+which names the source, whom it may aside and how loudly, and never a secret.
+No transport is built yet. The one door one will call is
+`Room::inbound_aside`, which delivers only while the source exists and is not
+muted, to a teammate it names, with the level lowered to the source's
+`maxLevel`, and within its `rate` an hour, counted from what its teammates were
+left, under the lock hearing takes. Files are refused unless the source allows
+them, and even then wait for phase 8's file rules (`inbound_files`, a TODO).
+The words are made one line with every control character a space and any
+token cut out (`hotline_room::inbound::untrusted_text`), clipped to an aside's
+length and kept with `sourceName`. They are heard after a colleague's asides, in
+a `hotline_inbound` fence headed as untrusted data from outside Hotline, "from
+hotline repo (outside Hotline): …", and found by `search_thread` under the
+source's name. A nudge that wakes its teammate counts one on the source's
+brake (`wakes`), which mutes it at a pair's twelve until the person unmutes
+it; a `person` aside's card says the source is outside Hotline. The window
+lists them on Noted under the source's name, marked "outside", and Settings →
+Inbound lists the sources with a switch (off is muted) and Remove.
 
 ## Stop and Interrupt
 

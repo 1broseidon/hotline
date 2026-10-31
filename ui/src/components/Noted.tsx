@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Aside } from "../generated/contract";
-import { asideTime, groupNoted, levelWord, sourceThread, sourceWords, useAsides } from "../asides";
+import { asideTime, groupNoted, levelWord, sourceName, sourceThread, sourceWords, useAsides } from "../asides";
 import type { Person } from "../avatars";
 import { ChevronRightIcon } from "../icons";
 import { Avatar } from "../ui/Avatar";
@@ -96,7 +96,7 @@ function NotedGroup({
 }
 
 function NotedRow({ aside, people, now, onOpen }: { aside: Aside; people: ReadonlyMap<string, Person>; now: number; onOpen(open: ThreadRef): void }) {
-	const who = aside.by !== undefined ? (people.get(aside.by)?.name ?? "A teammate") : sourceWords(aside);
+	const who = aside.by !== undefined ? (people.get(aside.by)?.name ?? "A teammate") : sourceName(aside);
 	const from = sourceThread(aside);
 	const body = (
 		<>

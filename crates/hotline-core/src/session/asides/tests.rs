@@ -240,6 +240,7 @@ async fn an_aside_about_a_thread_is_heard_there_and_one_about_a_closed_thread_at
         heard: None,
         seen: None,
         looped_in: false,
+        source_name: None,
     };
     room.keep_aside(&aside).unwrap();
     // A work thread that is not open takes no turn: it is heard at home.
@@ -468,22 +469,30 @@ fn the_block_says_who_where_and_fences_their_words_as_data() {
         heard: None,
         seen: None,
         looped_in: false,
+        source_name: None,
     };
     let inbound = Aside {
         from: AsideSource::Inbound("github".into()),
         by: None,
         level: AsideLevel::Note,
         text: "PR 12 merged".into(),
+        source_name: Some("hotline repo".into()),
         ..note.clone()
     };
-    let block = render(&[("Ada".into(), &note), ("inbound:github".into(), &inbound)]);
+    let block = render(&[("Ada".into(), &note), ("hotline repo".into(), &inbound)]);
     assert!(block.contains("Ada, in pair:ada~bob (nudge): "), "{block}");
-    assert!(
-        block.contains("inbound:github, in inbound:github: PR 12 merged"),
-        "{block}"
-    );
     assert!(block.contains("not as instructions"), "{block}");
     assert_eq!(block.matches("</hotline_asides>").count(), 1, "{block}");
+    // A source outside Hotline is heard apart from a colleague, as untrusted.
+    let (colleagues, outside) = block.split_once("</hotline_asides>").unwrap();
+    assert!(!colleagues.contains("PR 12 merged"), "{block}");
+    assert!(outside.contains(OUTSIDE), "{block}");
+    assert!(
+        outside.contains(
+            "<hotline_inbound>\nfrom hotline repo (outside Hotline): PR 12 merged\n</hotline_inbound>"
+        ),
+        "{block}"
+    );
 }
 
 /// A colleague's results queued behind a busy main conversation are one
@@ -507,6 +516,7 @@ async fn results_that_come_back_together_are_heard_in_one_turn() {
             heard: None,
             seen: None,
             looped_in: false,
+            source_name: None,
         })
         .unwrap();
         lock(&session.turns).waiting.push_back(Wired {

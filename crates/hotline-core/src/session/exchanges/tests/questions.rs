@@ -200,6 +200,7 @@ async fn a_busy_main_conversation_is_answered_for_by_a_seeded_work_thread_that_a
         heard: None,
         seen: None,
         looped_in: false,
+        source_name: None,
     })
     .unwrap();
     room.start("bob").await.unwrap();

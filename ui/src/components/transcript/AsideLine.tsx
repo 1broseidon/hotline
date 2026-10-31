@@ -1,5 +1,5 @@
 import type { Aside, DeliveryCause, ThreadId } from "../../generated/contract";
-import { asideTime, leftHere, levelWord, sourceThread, sourceWords } from "../../asides";
+import { asideTime, leftHere, levelWord, sourceName, sourceThread, sourceWords } from "../../asides";
 import type { Person } from "../../avatars";
 import { ChevronRightIcon, PersonPlusIcon } from "../../icons";
 import { Avatar } from "../../ui/Avatar";
@@ -44,7 +44,7 @@ export function AsideLine({
 			</p>
 		);
 	}
-	const who = aside.by !== undefined ? nameOf(aside.by) : sourceWords(aside);
+	const who = aside.by !== undefined ? nameOf(aside.by) : sourceName(aside);
 	const meta = sent
 		? (
 			<>

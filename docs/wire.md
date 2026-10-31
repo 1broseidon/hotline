@@ -210,6 +210,10 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `aside.list` | `{personaId}` | `Aside[]`, newest first, heard or not: what the teammate's colleagues and threads left it without telling the person ([Asides](#asides)). The desk, owner and phone seats |
 | `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Noted page opened): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
 | `thread.loop_in` | `{thread, personaId}` | none; the person's Loop in… on a work thread that is open: the colleague is left a `nudge` aside from the thread with `loopedIn`, and the thread asks it once, as a question from the thread's teammate that the person's act grants, with the thread's last lines; its answer comes back into the thread as a delivery under the colleague's name. Refused for the thread's own teammate, a teammate on a linked desk and a closed thread. The desk, owner and phone seats, on a work thread only |
+| `inbound.list` | `{}` | `InboundSource[]`, oldest first: the desk's inbound sources ([Inbound sources](#inbound-sources)). The desk, owner and phone seats |
+| `inbound.add` | `{draft}` | the new `InboundSource`; `draft` is an `InboundDraft` (`{type, name, teammates, maxLevel?, filesAllowed?, rate?, secret?}`). Refused for a teammate not on this desk, no teammates, a rate outside 1–120, or a `secret` that names no stored secret. The desk and owner seats |
+| `inbound.update` | `{id, muted?, teammates?, maxLevel?, filesAllowed?, rate?}` | the `InboundSource`, each given field changed and checked as `inbound.add` checks it; unmuting releases its brake (`wakes` back to 0). The desk and owner seats; the phone seat with `muted` alone |
+| `inbound.remove` | `{id}` | none; the source delivers nothing more, and what it delivered stays. The desk and owner seats |
 | `tape.page` | `{personaId, before, limit?, through?}` | `{events, more}`: the `limit` lines of a tape before the line `before` (400 by default, at most 2,000), oldest first, or, with `through`, every line from 40 above `through` up to `before`, so a search hit or a quoted reply can be scrolled to. `more` is whether older lines are left. A `before` the tape does not hold is an empty page. A phone's page is cut as its snapshot is |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only, for the desk, owner and phone seats |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
@@ -1018,8 +1022,9 @@ person's chat ([sessions.md](sessions.md#asides)). Each is an `Aside`:
 ```
 
 `from` is `{"thread": ThreadId}`, the thread it was said in, or
-`{"inbound": "<source id>"}` for a source outside the desk (nothing makes one
-yet). `by` is the teammate whose words it is, absent for an inbound source.
+`{"inbound": "<source id>"}` for an inbound source, with `sourceName`, the
+source's name when it delivered it. `by` is the teammate whose words it is,
+absent for an inbound source.
 `about` is the recipient's thread it is heard in, absent for its main
 conversation. `level` is `note`, `nudge` (it woke the teammate if it was idle)
 or `person` (a card was raised for the person too). `heard` is when a turn
@@ -1032,6 +1037,22 @@ that predates it skips. `aside.list` reads them, and the roster row counts the
 unheard (`asides`) and the unseen (`asidesNew`). The window draws the
 recipient's asides into its main conversation from `aside.list`, as quiet
 lines; they are never written there.
+
+## Inbound sources
+
+An `InboundSource` is a standing grant the person gives a place outside
+Hotline to leave teammates asides (`hotline_room::inbound`; the design is
+[thread-awareness.md](design/thread-awareness.md), "Inbound sources"):
+`{id, type, name, teammates, maxLevel, filesAllowed?, muted?, rate, secret?,
+wakes?, createdAt}`. `type` is `webhook`, `mail`, `github` or `other`, a label
+only: no transport delivers through any yet. `teammates` are the ids it may
+aside, `maxLevel` the highest level it may use (`note` unless the person
+allows more), `rate` how many asides an hour across them, `secret` the name of
+a stored secret a transport will use, never a value, and `wakes` the count on
+its brake. It is an `inbound` event on the room stream, folded by id, which
+only the `inbound.*` commands and a teammate's `propose_inbound` card, on the
+person's yes, write. Its asides carry `{"inbound": "<id>"}` as `from`
+([Asides](#asides)).
 
 ## The roster view
 

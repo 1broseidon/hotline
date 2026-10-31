@@ -6,6 +6,7 @@
 //! asked of the [`RoomHandle`], because a running agent and a vault are not
 //! things to reimplement behind a door.
 
+mod inbound;
 pub(super) mod models;
 pub(crate) mod persona;
 mod settings;
@@ -712,6 +713,26 @@ pub(crate) async fn run(
         Command::ThreadLoopIn { thread, persona_id } => {
             threads::loop_in(room, &thread, &persona_id).await
         }
+        Command::InboundList {} => Ok(inbound::list(log)),
+        Command::InboundAdd { draft } => inbound::add(log, room, draft).await,
+        Command::InboundUpdate {
+            id,
+            muted,
+            teammates,
+            max_level,
+            files_allowed,
+            rate,
+        } => {
+            let patch = inbound::Patch {
+                muted,
+                teammates,
+                max_level,
+                files_allowed,
+                rate,
+            };
+            inbound::update(log, room, &id, patch).await
+        }
+        Command::InboundRemove { id } => inbound::remove(log, room, &id).await,
 
         Command::ComputerCapacity {} => Ok(json!(room.computer_capacity().await)),
         Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),

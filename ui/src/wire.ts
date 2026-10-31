@@ -22,6 +22,7 @@ import type {
 	HostBrowser,
 	CapabilityOptions,
 	ImagesStatus,
+	InboundSource,
 	LinkPreview,
 	LoginPrompt,
 	LoginStatus,
@@ -274,6 +275,11 @@ type Results = {
 	"aside.seen": null;
 	/** The colleague has its nudge, and its one answer is on its way. */
 	"thread.loop_in": null;
+	/** The desk's inbound sources, oldest first. */
+	"inbound.list": InboundSource[];
+	"inbound.add": InboundSource;
+	"inbound.update": InboundSource;
+	"inbound.remove": null;
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;

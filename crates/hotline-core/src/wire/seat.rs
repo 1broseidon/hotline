@@ -147,6 +147,19 @@ impl Seat {
                     // reads as they read its threads, and marks as read.
                     | Command::AsideList { .. }
                     | Command::AsideSeen { .. }
+                    // The desk's inbound sources, to read, and to mute or
+                    // unmute one: quieting a grant is the person's anywhere,
+                    // while adding one, widening it or removing it stays at
+                    // the desk.
+                    | Command::InboundList { .. }
+                    | Command::InboundUpdate {
+                        muted: Some(_),
+                        teammates: None,
+                        max_level: None,
+                        files_allowed: None,
+                        rate: None,
+                        ..
+                    }
                     )
             }
         }

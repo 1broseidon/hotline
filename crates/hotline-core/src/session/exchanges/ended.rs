@@ -67,6 +67,7 @@ impl Room {
             heard: None,
             seen: None,
             looped_in: false,
+            source_name: None,
         };
         if let Err(error) = self.keep_aside(&aside) {
             eprintln!("tell the opener of thread {side_id} it ended: {error}");

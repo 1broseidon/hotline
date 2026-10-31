@@ -172,6 +172,7 @@ impl Room {
         let action_id = match question.as_ref().and_then(|q| q.approves.as_ref()) {
             Some(Approves::PersonName(_)) => format!("{PERSON_NAME_CARD}{}", new_id()),
             Some(Approves::NewTeammate(_)) => format!("{NEW_TEAMMATE_CARD}{}", new_id()),
+            Some(Approves::InboundSource(_)) => format!("{INBOUND_SOURCE_CARD}{}", new_id()),
             None => new_id(),
         };
         let work =
@@ -299,6 +300,9 @@ impl Room {
         }
         if action_id.starts_with(NEW_TEAMMATE_CARD) {
             self.settle_new_teammate(persona_id, action_id, status, expires_at)?;
+        }
+        if action_id.starts_with(INBOUND_SOURCE_CARD) {
+            self.settle_inbound_source(action_id, status, expires_at)?;
         }
         self.supersede_human(persona_id, action_id, status, note.clone());
         self.deliver_answer(persona_id, action_id, &reason, status, note, home);
@@ -583,9 +587,11 @@ pub(super) struct Question {
 pub(super) enum Approves {
     PersonName(String),
     NewTeammate(Box<Persona>),
+    InboundSource(Box<crate::contract::InboundSource>),
 }
 
 /// The action-id prefixes of the cards whose yes writes something, so an
 /// answer finds its settlement before the card is superseded.
 const PERSON_NAME_CARD: &str = "person-name:";
 const NEW_TEAMMATE_CARD: &str = "new-teammate:";
+const INBOUND_SOURCE_CARD: &str = "inbound-source:";

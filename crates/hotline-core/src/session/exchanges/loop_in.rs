@@ -77,6 +77,7 @@ impl Room {
             heard: None,
             seen: None,
             looped_in: true,
+            source_name: None,
         })
     }
 }

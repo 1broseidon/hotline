@@ -447,7 +447,10 @@ fn aside_line(event: &Value) -> Option<Value> {
         "kind": "agent",
         "id": aside.id,
         "ts": aside.ts,
-        "text": format!("Aside: {}", aside.text),
+        "text": match &aside.source_name {
+            Some(source) => format!("Aside from {source} (outside Hotline): {}", aside.text),
+            None => format!("Aside: {}", aside.text),
+        },
     }))
 }
 

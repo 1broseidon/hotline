@@ -31,9 +31,17 @@ export function sourceThread(aside: Aside): ThreadId | undefined {
 	return "thread" in aside.from ? aside.from.thread : undefined;
 }
 
-/** Where it came from in words: "work thread", or an inbound source's name. */
+/**
+ * Where it came from in words: "work thread", or "outside" for an inbound
+ * source, whose words came from outside Hotline.
+ */
 export function sourceWords(aside: Aside): string {
-	return "thread" in aside.from ? KIND_WORDS[aside.from.thread.kind] : aside.from.inbound;
+	return "thread" in aside.from ? KIND_WORDS[aside.from.thread.kind] : "outside";
+}
+
+/** Who left it when no teammate did: the inbound source, by the name it had then. */
+export function sourceName(aside: Aside): string {
+	return aside.sourceName ?? "An outside source";
 }
 
 /** Whether an aside on a thread's own record is one this thread left, rather than one it was left. */

@@ -188,16 +188,6 @@ pub(super) async fn answer(
                 .await?;
         }
         (
-            ThreadKind::Pair,
-            ThreadAnswer::Permission {
-                request_id,
-                option_id,
-            },
-        ) => {
-            room.peers_answer_permission(&thread.key, &request_id, &option_id)
-                .await?;
-        }
-        (
             ThreadKind::Job,
             ThreadAnswer::Permission {
                 request_id,
@@ -218,12 +208,13 @@ pub(super) async fn answer(
             let persona_id = owner_of(log, thread)?;
             room.answer_human(&persona_id, &action_id, status, note)?;
         }
-        // A pair and a job raise permissions and nothing else. A run and a
-        // call are refused above, by their policy.
+        // A job raises permissions and nothing else, and a pair, which has
+        // no agent of its own, raises none. A run and a call are refused
+        // above, by their policy.
         (_, ThreadAnswer::Human { .. }) => {
             return Err(not_here(thread, "A request for the person"));
         }
-        (ThreadKind::Run, _) => {
+        (ThreadKind::Pair | ThreadKind::Run, _) => {
             return Err(not_here(thread, "Answering a card"));
         }
     }
@@ -389,9 +380,10 @@ fn summarize(
         ThreadKind::Side => running
             .iter()
             .any(|side| side.side_id == thread.id.key && side.working),
-        ThreadKind::Pair => room.thread_working(&thread.id),
         ThreadKind::Job => room.working_jobs(&persona_id).contains(&thread.id.key),
-        ThreadKind::Run => state == LinkState::Live,
+        // A pair is live, in the room's own record, while a request of it
+        // is being answered.
+        ThreadKind::Pair | ThreadKind::Run => state == LinkState::Live,
         ThreadKind::Call => room.thread_working(&thread.id),
     };
 

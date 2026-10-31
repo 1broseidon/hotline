@@ -128,27 +128,13 @@ impl Room {
                     unprompted: None,
                     retry: false,
                     wake: false,
+                    request: None,
                 },
                 attachments,
             },
         )
         .await;
         Ok(())
-    }
-
-    /// Something that came back for a teammate, into its own conversation:
-    /// written to its tape first, so it survives a restart and is heard once,
-    /// and then handed to the driver behind the turn in flight, or on a turn
-    /// of its own if there is none. It never cuts into a turn, and a teammate
-    /// that is not running is started for it.
-    pub(crate) async fn deliver_into(
-        self: &Arc<Self>,
-        persona_id: &str,
-        cause: DeliveryCause,
-        text: String,
-    ) -> Result<(), String> {
-        self.deliver_identified(persona_id, &new_id(), cause, text)
-            .await
     }
 
     pub(super) fn handoff_queued(&self, persona_id: &str, id: &str) -> bool {
@@ -161,6 +147,11 @@ impl Room {
         })
     }
 
+    /// Something for a teammate, into its own conversation: written to its
+    /// tape first, so it survives a restart and is heard once, and then handed
+    /// to the driver behind the turn in flight, or on a turn of its own if
+    /// there is none. It never cuts into a turn, and a teammate that is not
+    /// running is started for it.
     pub(super) async fn deliver_identified(
         self: &Arc<Self>,
         persona_id: &str,
@@ -168,18 +159,45 @@ impl Room {
         cause: DeliveryCause,
         text: String,
     ) -> Result<(), String> {
+        self.deliver_to_main(persona_id, id, cause, text, None, false)
+            .await
+            .map(|_| ())
+    }
+
+    /// [`Self::deliver_identified`], for a line whose turn answers a
+    /// colleague's `request`. With `idle_only` it is handed over only while no
+    /// turn holds the conversation: the queue is claimed for it under the
+    /// start gate, before its line is written, so nothing lands between the
+    /// look and the claim. Says whether it was handed over; one handed over
+    /// already was.
+    pub(super) async fn deliver_to_main(
+        self: &Arc<Self>,
+        persona_id: &str,
+        id: &str,
+        cause: DeliveryCause,
+        text: String,
+        request: Option<turns::RequestLine>,
+        idle_only: bool,
+    ) -> Result<bool, String> {
         let _working = self.working()?;
         if self.handoff_queued(persona_id, id) {
-            return Ok(());
+            return Ok(true);
         }
         let existing = self.tape(persona_id).into_iter().find(|v| v["id"] == id);
         if existing.as_ref().is_some_and(|v| v["receipt"] == "read") {
-            return Ok(());
+            return Ok(true);
         }
         self.start(persona_id).await?;
         let (session, _held) = self.in_this_chapter(persona_id).await?;
         if lock(&session.dispatched_deliveries).contains(id) {
-            return Ok(());
+            return Ok(true);
+        }
+        if idle_only {
+            let mut turns = lock(&session.turns);
+            if turns.running {
+                return Ok(false);
+            }
+            turns.running = true;
         }
         let ts = existing
             .as_ref()
@@ -196,17 +214,39 @@ impl Room {
                 text,
                 receipt: Some(Receipt::Sent),
             };
-            let value = serde_json::to_value(event).map_err(|e| e.to_string())?;
-            self.log
-                .append(&StreamId::Tape(persona_id.into()), &value)
-                .map_err(|e| e.to_string())?;
+            let written = serde_json::to_value(event)
+                .map_err(|e| e.to_string())
+                .and_then(|value| {
+                    self.log
+                        .append(&StreamId::Tape(persona_id.into()), &value)
+                        .map_err(|e| e.to_string())
+                });
+            if let Err(error) = written {
+                if idle_only {
+                    lock(&session.turns).running = false;
+                }
+                return Err(error);
+            }
         }
         let mut wired = Wired::words(timed(ts, &wire));
         wired.said = Some(id.into());
         wired.from = Some(from);
+        wired.request = request;
         lock(&session.dispatched_deliveries).insert(id.into());
-        self.dispatch(session, wired);
-        Ok(())
+        if idle_only {
+            // The queue is this line's already: its turn starts now.
+            let working = self.lease().expect(
+                "a dispatch caller holds a read lease, so restart cannot hold the write lease",
+            );
+            let room = self.clone();
+            tokio::spawn(async move {
+                let _working = working;
+                room.run_queue(session, wired).await;
+            });
+        } else {
+            self.dispatch(session, wired);
+        }
+        Ok(true)
     }
 
     /// Hotline's own words to a running teammate — a reopened chapter told what
@@ -413,22 +453,24 @@ impl Room {
         });
     }
 
-    /// Stops the turn in flight and drops whatever was waiting behind it.
-    ///
-    /// A `request_human` the cancelled turn was parked on dies with it: the
-    /// tool call is inside the turn, so nothing is reading the answer any
-    /// more. The card is superseded and the wait released here, because
-    /// otherwise the transcript keeps a live button for ten minutes and
-    /// pressing it writes `done` for an agent that stopped listening.
+    /// Stops the turn in flight and drops whatever was waiting behind it, a
+    /// colleague's question included, which fails to its asker at once and
+    /// is never handed over again.
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
-        lock(&session.turns).waiting.clear();
+        let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
+        self.fail_dropped_questions(
+            persona_id,
+            dropped
+                .iter()
+                .filter_map(|line| line.request.as_ref())
+                .map(|line| line.request.as_str()),
+        );
         Ok(())
     }
 }

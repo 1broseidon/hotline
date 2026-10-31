@@ -1,20 +1,13 @@
 //! How a queued request is taken up and handed to the conversation that
 //! works it: the person's first-contact card, the pair's brake, and a
-//! handoff's work thread.
+//! handoff's work thread. Where a question goes is `questions.rs`.
 
 use super::*;
 
 impl Room {
-    /// Whether an ask of this pair is being taken up or answered.
-    pub(super) fn ask_under_way(&self, pair: &Pair) -> bool {
-        let admitting = lock(&self.exchange_admitting);
-        pair.requests
-            .iter()
-            .any(|r| r.intent == Intent::Ask && admitting.contains(&r.id))
-    }
     /// Authorizes a queued request against both teammates' leases, counts it
     /// toward the pair's brake, and hands it over: a handoff to `thread`, or
-    /// to a new one, and an ask to its answer.
+    /// to a new one, and an ask to the conversation that answers it.
     pub(super) async fn admit_request(
         self: &Arc<Self>,
         key: &str,
@@ -68,27 +61,7 @@ impl Room {
                 self.exchange_card(&pair, ExchangePauseStatus::Pending);
             }
         }
-        if request.intent == Intent::Handoff {
-            self.dispatch_handoff(key, request, thread).await?;
-        } else {
-            let outcome = tokio::select! {
-                biased;
-                () = peers::capabilities_expired(&caller_capability, &target_capability) => {
-                    self.stop_revoked_exchanges(None);
-                    return Ok(());
-                }
-                result = async {
-                    let asked = self.ask(&request.from, &request.to, &request.message)?;
-                    self.exchange(asked, Some(caller_capability.clone())).await.map(|r| r.reply)
-                } => result,
-            };
-            let (reply, failed) = match outcome {
-                Ok(r) => (r, false),
-                Err(e) => (e, true),
-            };
-            self.set_exchange_reply(key, &request.id, reply, failed)?;
-        }
-        Ok(())
+        self.hand_over_request(key, request, thread).await
     }
     /// Hands a handoff to a work thread on the teammate it was handed to, and
     /// its result is the reply the thread gives when it has done the work.
@@ -107,7 +80,7 @@ impl Room {
             request: request.id.clone(),
         };
         let side_id = thread.unwrap_or_else(new_id);
-        self.set_handoff_thread(key, &request.id, &side_id)?;
+        self.set_request_thread(key, &request.id, &side_id)?;
         // A handoff stands again in a thread whose earlier one was released.
         self.mark_handoffs(std::slice::from_ref(&side_id));
         // A thread that has run before comes back with what was said in it.
@@ -131,6 +104,7 @@ impl Room {
                     fresh: true,
                     saved: None,
                     handoff: Some(handoff),
+                    asked: None,
                 },
             )
             .map(|(side, launch)| (side, Some(launch)))
@@ -160,7 +134,7 @@ impl Room {
                 },
                 DeliveryFrom::new(&ThreadId::dm(&caller.id), Some(request.id.clone())),
                 request.message.clone(),
-                Some(HandoffLine {
+                Some(RequestLine {
                     request: request.id.clone(),
                     answer: None,
                 }),

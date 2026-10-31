@@ -470,6 +470,12 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(as = "Option<bool>", optional)]
         handoff_ended: bool,
+        /// The pair's thread whose question opened this work thread: the
+        /// teammate's main conversation was busy, so the thread answered
+        /// for it. Its link is on that pair's thread too.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        asked_in: Option<String>,
     },
     /// An aside this thread's teammate left a colleague: written on the
     /// thread it was said from, so the thread's record shows what it said.
@@ -670,6 +676,21 @@ pub enum DeliveryCause {
         thread_key: String,
         /// The start of the message, clipped to a line.
         about: String,
+    },
+    /// A colleague's question, in the conversation that answers it: the
+    /// recipient's main conversation, a work thread of its own, or the thread
+    /// it names. The reply of the turn it starts goes back to them by itself.
+    Question {
+        request_id: String,
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        /// The start of the question, clipped to a line.
+        about: String,
+        /// The start of the handoff the question is about, when it is about one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        work: Option<String>,
     },
     /// The person answered a `request_human` card the teammate did not wait
     /// on, or its lifetime ran out without an answer (`expired`). `text` is the

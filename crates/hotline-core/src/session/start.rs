@@ -236,13 +236,12 @@ impl Room {
                 self.revoke_session(session);
             }
         }
-        self.drop_peer_sessions(persona_id);
+        self.peers.expire_grants(persona_id);
         self.drop_sides(persona_id);
         self.let_go_of_jobs(Some(persona_id));
         self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
         Ok(())
     }
@@ -286,24 +285,22 @@ impl Room {
         for persona_id in &roster_ids {
             self.revoke_exchanges(persona_id);
         }
-        self.peers.invalidate_all();
+        self.peers.expire_all_grants();
         self.drop_all_sides();
         self.let_go_of_jobs(None);
         self.settle_all_collaboration();
         for session in sessions {
             self.settle_permissions(&session.persona_id);
-            self.release_human_waits(&session.persona_id);
             self.computers.mark_idle(&session.persona_id, now_ms());
         }
         Ok(())
     }
 
-    /// A deleted teammate: its own session stopped, every peer session it was
-    /// a side of dropped, and its start gate let go, because nothing should
-    /// wait behind — or be kept for — an id that names nobody any more.
+    /// A deleted teammate: its own session stopped, with the collaboration
+    /// grants it held or was given, and its start gate let go, because nothing
+    /// should wait behind — or be kept for — an id that names nobody any more.
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
-        self.drop_peer_sessions(persona_id);
         super::consent::forget(&self.log, persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
@@ -358,11 +355,10 @@ impl Room {
             epoch.replace_session();
             (lock(&self.sessions).remove(persona_id), epoch.lease())
         };
-        self.drop_peer_sessions(persona_id);
+        self.peers.expire_grants(persona_id);
         let Some(session) = session else {
             self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);
-            self.release_human_waits(persona_id);
             self.computers.mark_idle(persona_id, now_ms());
             return (capability, false);
         };
@@ -370,7 +366,6 @@ impl Room {
         session.driver.invalidate();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;

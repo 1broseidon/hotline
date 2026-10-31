@@ -67,9 +67,9 @@ impl Room {
     }
 
     /// The idle policy of the kinds whose live threads the room holds in
-    /// memory. A thread with a turn running is left alone. A peer session that
-    /// has gone quiet is the same kind of fact as a chapter that has: nothing
-    /// to arm when a message lands and nothing to cancel when a teammate is
+    /// memory. A thread with a turn running is left alone. A thread that has
+    /// gone quiet is the same kind of fact as a chapter that has: nothing to
+    /// arm when a message lands and nothing to cancel when a teammate is
     /// deleted.
     pub(super) fn sweep_threads(&self, now: i64) {
         // Silence detaches the voice, never the agent doing its work.
@@ -84,7 +84,6 @@ impl Room {
             ThreadKind::Side,
             ThreadKind::Run,
             ThreadKind::Call,
-            ThreadKind::Pair,
             ThreadKind::Job,
         ] {
             for quiet in self.quiet(kind) {
@@ -99,7 +98,9 @@ impl Room {
                 }
             }
         }
-        self.tidy_peers();
+        // A collaboration grant or card whose leases have gone has nobody
+        // behind it.
+        self.tidy_grants();
     }
 
     fn quiet(&self, kind: ThreadKind) -> Vec<Quiet> {
@@ -128,17 +129,8 @@ impl Room {
                 .collect(),
             // A call that nobody has spoken on for a while: the voice keeps the
             // time, and the room's clock reads it. A desk call is here too,
-            // with no thread behind it.
-            ThreadKind::Call => Vec::new(),
-            ThreadKind::Pair => self
-                .quiet_peers()
-                .into_iter()
-                .map(|(thread, since, working)| Quiet {
-                    thread,
-                    since,
-                    working,
-                })
-                .collect(),
+            // with no thread behind it. A pair's thread has no agent.
+            ThreadKind::Call | ThreadKind::Pair => Vec::new(),
             ThreadKind::Job => self
                 .idle_jobs()
                 .into_iter()
@@ -161,12 +153,9 @@ impl Room {
                     self.end_side(&side, ending);
                 }
             }
-            // A pair's agent is stopped; the thread is the stream, and the next
-            // exchange reads it again.
-            ThreadKind::Pair => self.park_peer(&thread.key),
             // A job's agent is let go of; the job goes on firing.
             ThreadKind::Job => self.park_job(&thread.key),
-            ThreadKind::Run | ThreadKind::Dm => {}
+            ThreadKind::Run | ThreadKind::Dm | ThreadKind::Pair => {}
         }
     }
 
@@ -353,6 +342,13 @@ impl Room {
         let threads = self.threads();
         if Policy::of(link.thread.kind).surface.link {
             threads.write(&ThreadId::dm(persona_id), persona_id, &event);
+            // A thread opened to answer a colleague's question hangs off the
+            // pair's thread it was asked in too.
+            if let Some(key) = &link.asked_in {
+                let mut copy = event.clone();
+                copy["id"] = format!("{}@pair", link.id).into();
+                threads.write(&ThreadId::pair(key), persona_id, &copy);
+            }
             // A thread a colleague opened is on the colleague's tape too, under
             // an id of its own, so each DM shows how the work is going.
             if let Some(opener) = &link.opener {
@@ -558,6 +554,7 @@ mod tests {
             elapsed_ms: None,
             opener: None,
             handoff_ended: false,
+            asked_in: None,
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
             log.append(&tape, &link.event()).unwrap();
@@ -744,6 +741,7 @@ mod tests {
             elapsed_ms: None,
             opener: None,
             handoff_ended: false,
+            asked_in: None,
         };
         let tape = StreamId::Tape("ada".into());
         let stream = StreamId::of_thread(&call).unwrap();
@@ -808,6 +806,7 @@ mod tests {
                 name: "Ada".into(),
             }),
             handoff_ended: false,
+            asked_in: None,
         };
         let mut copy = live.event();
         copy["id"] = format!("{}@ada", live.id).into();

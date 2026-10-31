@@ -116,7 +116,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
-| `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
+| `persona.delete` | `{id}` | none — the agent is stopped, its exchanges stopped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
@@ -188,7 +188,6 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner or local desk only |
 | `teammates.exchange_resume` | `{a, b}` | none; answers a pair's `exchange_paused` card with Keep going (below) |
 | `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop exchange (below) |
 | `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then; one opened without a task runs no turn and is not `working` while its agent starts. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
@@ -380,10 +379,9 @@ commands, not teammate tools. There are no link commands or roster links.
 `human.answer` is the same fact for a `request_human` card: `done` or
 `declined`, with an optional `note` the agent receives word for word. A card
 that `delivers` is answered off the tape at any time until it is settled,
-across restarts, and the answer reaches the teammate as a `delivery`. A card
-a tool is waiting on (a colleague's side session asked it) is refused once
-the deadline passed, the session stopped, the room restarted, or somebody
-else answered first, or the teammate withdrew the card (`withdrawn`). The
+across restarts, and the answer reaches the teammate as a `delivery`. No tool
+waits on a card. One that expired, that somebody else answered first, or that
+the teammate withdrew (`withdrawn`) is refused. The
 tape still writes `dismissed` for a decline, which is the previous edition's
 word for that afterlife.
 
@@ -790,9 +788,10 @@ that loads a thread. `peers.mark_read` says that
 those messages have been read and answers how many actually moved: an id
 naming nothing, an event that is not a message, and a message that is
 already read all move nothing, which is what makes a repeated receipt
-harmless. `peers.answer_permission` answers a permission card in a peer
-thread (`perm:<requestId>` on the pair stream) and is refused once its turn is
-over. A message's `receipt` is `sent` when it enters the thread and
+harmless. A pair has no agent of its own, so no card is raised in it: a
+question is answered, and its cards raised, in a conversation of the
+recipient's. (`peers.answer_permission`, which answered a card in an older
+version's peer turn, is gone.) A message's `receipt` is `sent` when it enters the thread and
 `read` once the recipient's session has proved a turn on it; nothing ever
 un-reads a message.
 
@@ -941,11 +940,14 @@ needs a newer core.
 
 A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
 state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
-backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?}`; `end` is how a
-closed thread ended (`person`, `agent`, `idle`, `stopped`, `done`, `failed`,
-`cancelled`). `handoffEnded` is `true` on a thread a teammate handed over once
-the handoff it serves no longer stands (Stop exchange, a revocation or an
-unlink ended it; see [sessions.md](sessions.md)), and absent while it stands.
+backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?, askedIn?}`; `end`
+is how a closed thread ended (`person`, `agent`, `idle`, `stopped`, `done`,
+`failed`, `cancelled`). `handoffEnded` is `true` on a thread a teammate handed
+over once the handoff it serves no longer stands (Stop exchange, a revocation
+or an unlink ended it; see [sessions.md](sessions.md)), and absent while it
+stands. `askedIn` is the pair key of the question that opened a work thread
+while its teammate's main conversation was busy; such a link is on the pair's
+stream too, under its id with `@pair` added.
 It is rewritten under the same id as the thread goes. A `thread_delta` is
 `{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never
 written down. The room broadcasts only that; the older four are what the door
@@ -979,8 +981,8 @@ refused in a sentence, never silently:
 **Seats.** The local desk and an owner may run all of it. A companion phone
 may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
-`mobile.prompt`, as before), `thread.answer` in anything but a pair
-(`peers.answer_permission` is the owner's and the desk's), neither
+`mobile.prompt`, as before), `thread.answer` in anything but a pair (which
+raises no card), neither
 `thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
 pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
@@ -994,7 +996,7 @@ main conversation is never parked or closed: its chapters are its lifecycle.
 `session.prompt`, `session.cancel`, `session.answer_permission`,
 `human.answer` (a DM's `thread.answer`, which also finds a card raised in one of
 its work threads), `side.prompt`, `side.cancel`, `side.archive`,
-`side.answer_permission`, `peers.answer_permission` and `tape.page` run
+`side.answer_permission` and `tape.page` run
 `thread.prompt`, `cancel`, `answer`, `close` and `page` on the matching
 `ThreadId`, and answer what they always did. `side.start`, `side.continue`,
 `side.list` and `peers.list` answer their own summaries (`SideThreadSummary`,

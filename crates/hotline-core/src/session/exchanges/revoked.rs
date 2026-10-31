@@ -28,10 +28,11 @@ impl Room {
                     continue;
                 }
                 request.release(&mut ended);
-                self.cancel_handoff(request);
-                request.phase = Phase::Stopped;
-                request.failed = true;
-                request.reply = "Collaboration was revoked or a participant stopped. Send again if still needed.".into();
+                self.stop_request(
+                    request,
+                    "Collaboration was revoked or a participant stopped. Send again if still needed.",
+                    persona,
+                );
                 stopped.push(request.clone());
                 changed = true;
             }

@@ -18,11 +18,27 @@ impl Room {
         let Some(side) = self.sides.get(side_id) else {
             return;
         };
-        lock(&side.turns).clear();
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
         self.finish_side(&side, End::Stopped, Some(outcome.to_string()));
+    }
+
+    /// Cancels the turn in flight in a live thread when it is the one
+    /// answering `request`, and nothing else: the thread stays open, and the
+    /// lines waiting behind the turn stay queued.
+    pub(in crate::session) fn cancel_turn_answering(&self, side_id: &str, request: &str) {
+        let Some(side) = self.sides.get(side_id) else {
+            return;
+        };
+        if side.request().as_deref() != Some(request) {
+            return;
+        }
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
     }
 
     /// Lets go of a thread's agent and leaves the thread open.
@@ -35,7 +51,9 @@ impl Room {
             return;
         }
         self.sides.remove(&side.id);
-        lock(&side.turns).clear();
+        // A colleague's question still waiting here fails to its asker.
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
         side.capability.revoke();
         // A thread ended while its agent is still starting has none to stop
         // here: the start sees that it is closed and stops it itself.
@@ -155,6 +173,7 @@ impl Room {
             elapsed_ms: None,
             opener: side.opener.clone(),
             handoff_ended: side.opener.is_some() && self.handoff_ended(&side.id),
+            asked_in: side.asked_in.clone(),
         });
     }
 

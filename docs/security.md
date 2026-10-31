@@ -608,16 +608,17 @@ question the change must answer in its PR description.
 
 1. **Inventory the paths.** List every way the new thing executes or
    reads: Hotline Agent tool closures, the in-process MCP server, ACP file
-   callbacks, the scheduler's queued turns, cached peer sessions, and the
-   wire. If a path is missed, the boundary has a hole in exactly that
+   callbacks, the scheduler's queued turns, the threads a colleague's
+   question or handoff is answered in, and the wire. If a path is missed, the boundary has a hole in exactly that
    place; the collaboration and background-work steps each found one in
    the built-in tools because those are always registered rather than
    granted.
 2. **Name whose authority a request uses.** The caller's? The recipient's?
-   The person's (only through the authenticated desk wire)? A request that
-   arrives through a peer session carries the caller's lease as a
-   dependency, so revoking the caller kills work done on its behalf. Never
-   let a request borrow the authority of the process it happens to run in.
+   The person's (only through the authenticated desk wire)? A request
+   between teammates holds both sides' lasting leases, so revoking either
+   ends it, and the turn that answers it runs under the lease of the
+   recipient's thread it is answered in. Never let a request borrow the
+   authority of the process it happens to run in.
 3. **Choose the default and the migration.** The default grants nothing
    beyond the workspace. Decide explicitly what an existing record without
    the field means, and write it down beside the field in `contract`;
@@ -631,7 +632,7 @@ question the change must answer in its PR description.
 5. **Make revocation reach it.** A new handle is cloned from the session's
    lease or scoped from it; it is never a fresh lease of its own. Confirm
    the change is covered by the lifecycle below, including queued work and
-   sessions cached for a peer.
+   the requests between teammates.
 6. **Tell the truth in three places.** The ledger row, the Reach or Tools
    card, and the preamble say what the code enforces, and distinguish what
    Hotline enforces from what a grantee enforces for itself.
@@ -686,18 +687,12 @@ capture, scope, tie and revoke a lease but never forge or revive one.
 - **Requests.** Each request between two teammates holds two leases, each
   teammate's lasting authority `scoped()` to the request
   (`Room::request_lease`), checked before it is taken up and while it runs,
-  so only Stop exchange or a revocation of either teammate ends it. One sent
-  by a peer session holds that session's delegated lease instead, so it ends
-  with the delegation it came from.
-- **Delegation.** A peer session holds a lease `scoped()` from the caller's
-  and dependent on the target's. Peer teardown revokes only the scoped
-  lease; a stop or policy change on either side revokes the peer through
-  the shared epoch. Third-party sessions delegated from a peer follow the
-  same chain and stop when the original request's authority goes, while
-  each teammate's independent main session stays usable.
-- **Caching.** Cached peer sessions are revoked whether the changed
-  teammate was caller or recipient, including peer-only sessions whose
-  main session is stopped.
+  so only Stop exchange or a revocation of either teammate ends it. There is
+  no session of a pair's own and so no delegated lease: a question is
+  answered by a turn of the recipient's DM, of a work thread of the
+  recipient's or of the thread it names, each under that thread's own lease,
+  and a temporary collaboration grant is dropped whether the changed teammate
+  was caller or recipient.
 - **Active and queued work.** Revocation cancels the activity's shell jobs
   and settles their results, clears queued turns, and releases collaboration
   and human waits so a late answer cannot establish a grant. Stale turns
@@ -712,8 +707,8 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   (`session/jobs.rs` `Processes`), so it outlives the turn. Default: nothing
   new is granted; the command was launched under the shell grant and the
   turn's lease, and only the DM session, the one that subscribes to its
-  wakes, takes processes (a subagent run, side thread or peer session still
-  waits on its own commands). Enforcement: the driver holds them and
+  wakes, takes processes (a subagent run or side thread still waits on its
+  own commands). Enforcement: the driver holds them and
   `invalidate` kills every one, so a stop, a removal, a grant change
   (which rebuilds the session, by design) or a revoked lease kills them with
   their whole process group; dropping the driver or quitting the desk drops
@@ -790,7 +785,8 @@ extend; when a change adds a boundary, it adds a row.
 | Standing collaboration consent is cleared only by the recipient's access growing, each widening named and nothing else (goal, model, agent, narrowing) counting; clearing takes the caller off `allowedSenders` too, counts at once and after compaction, and the next card says what grew; it survives reattaches, a room-wide reattach and a restart with the room stream compacted | `session/consent/tests.rs` `each_widening_of_the_recipients_access_is_named`, `nothing_that_leaves_the_recipient_reaching_as_far_clears_consent`, `a_cleared_consent_counts_at_once_and_after_compaction`, `a_cleared_grant_asks_again_and_the_card_says_why`, `an_always_grant_survives_reattaches_a_sign_out_and_a_restart`; `wire/tests/consent.rs` `a_persona_update_clears_always_only_when_the_recipients_access_grows`, `a_server_added_to_the_desk_clears_always_for_a_teammate_granted_all` | — |
 | Asides: a colleague may aside a teammate only as it may ask it (card, `allowedSenders`, implicit Whole machine Hotline Agent), and a denied card leaves nothing; an aside is kept on the recipient's stream and the sender's thread and found by `search_thread`, heard once at the next turn as fenced data and never written to the person's chat; a nudge wakes an idle teammate once for many and counts on the pair's brake, and wakes nobody at the brake or mid-turn; a `person` aside raises the person's card; a handed-over thread's notes carry the colleague's words, never the person's | `session/asides/tests.rs` `an_aside_needs_the_grant_an_ask_needs`, `an_aside_is_kept_on_its_teammates_stream_and_the_senders_thread_and_search_finds_it`, `a_note_waits_for_the_next_turn_and_opens_its_line_never_the_chat`, `nudges_wake_an_idle_teammate_once_and_count_once_on_the_brake`, `a_nudge_at_the_brake_or_to_a_busy_teammate_waits_for_the_next_turn`, `a_person_aside_raises_a_card_on_the_teammates_conversation_and_is_heard_too`, `the_block_says_who_where_and_fences_their_words_as_data`; `session/exchanges/tests/asides.rs` `a_persons_turn_in_a_handed_over_thread_leaves_its_opener_the_colleagues_words`, `a_turn_that_waits_on_the_person_leaves_its_opener_a_note_and_no_message`; `wire/tests/asides.rs` `aside_list_reads_a_teammates_asides_newest_first_and_the_row_counts_the_unheard` | — |
 | The thread index: a turn is told only its own teammate's threads, fenced and labelled as Hotline's note with each title, last line and aside quoted as data; a job's firing and a run are told only their parent thread and the asides about them; work handed to a colleague is quoted to its sender in the colleague's words, never the person's | `session/index/tests.rs` `the_main_conversation_opens_each_turn_with_the_index_of_its_threads`, `a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it`, `a_run_hears_only_its_parent_thread`, `handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only` | — |
-| Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
+| Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes queued work; a dropped wait cannot be answered later | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later` | — |
+| A colleague's question is answered where the memory is, by a turn of the recipient's own threads under that thread's lease, and no session or agent of the pair's own is built: an idle main conversation answers it in a turn that takes in nothing the person says; a busy one is answered for at once by a work thread of the recipient's, seeded with its tail, its recent asides and its thread index, which closes with its answer and leaves the main conversation a note aside, nothing in the person's chat; an ask names only a thread its sender's handoff opened on that recipient and is answered there, which stays open; a question back from a handed-over thread to the teammate that handed it over needs no card while the delegation stands, and meets the ordinary grant once it has ended; a question stopped before its answer, or whose teammate was deleted or unlinked, hands its failure to the thread that asked it and a handoff waiting on it carries on; the person's Stop fails a question waiting behind the turn at once and once; a question a chapter's swap dropped is answered in the next chapter | `session/exchanges/tests/questions.rs` `an_ask_to_an_idle_main_conversation_is_answered_there`, `no_peer_session_or_peer_agent_is_built_for_an_ask`, `a_busy_main_conversation_is_answered_for_by_a_seeded_work_thread_that_asides_back`, `the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_own`, `an_ask_naming_a_thread_is_answered_in_it_and_leaves_it_open`, `an_ask_naming_a_thread_not_its_own_is_refused`, `a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card`, `the_persons_cancel_fails_a_question_still_waiting_behind_the_turn`, `a_question_waiting_behind_a_turn_outlives_a_chapter_swap`; `session/exchanges/tests/gates.rs` `a_handoff_that_asks_a_colleague_waits_for_the_answer_and_carries_on_with_it`, `a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_failure`, `a_question_to_a_deleted_teammate_carries_the_handoff_on_with_the_failure`, `a_question_to_a_desk_that_unlinks_carries_the_handoff_on_with_the_failure`; `session/agent.rs` `a_pair_has_no_agent_of_its_own` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests/door.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`; `wire/tests/seats.rs` `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests/linked.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `hotline-room/src/linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
 | A linked sender is never implicitly trusted: the recipient's `allowedSenders` by qualified id or the person's card on the recipient's desk decide it, the sender's desk cannot answer the card, a denial runs nothing, and ending the link fails waiting work with a sentence and withdraws the card; only roster-row fields cross | `session/links/tests.rs` `an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_comes_back`, `a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread`, `a_denied_linked_sender_hears_so_and_nothing_ran`, `ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on`, `an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone`, `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
@@ -801,8 +797,8 @@ extend; when a change adds a boundary, it adds a row.
 | An agent from the ACP registry is unpacked only whole: a link, an entry out of its folder, or a set-id or world-writable mode installs nothing and leaves no scratch, in zip and tar; a checksum mismatch is never unpacked; ordinary archives and bare binaries still install | `driver/acp/install.rs` `a_symlink_out_of_the_scratch_folder_is_refused`, `a_write_through_a_symlink_lands_nowhere`, `an_entry_that_climbs_out_of_its_folder_is_refused`, `a_set_id_or_world_writable_mode_is_refused`, `a_checksum_mismatch_installs_nothing`, `a_zip_without_modes_still_starts`, `a_tarball_is_unpacked_into_place_and_its_command_made_runnable` | — |
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only the reading tools, starts no runs of its own and never reopens the teammate's session; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
 | Clones: a subagent and a job each reach back into the home thread with `search_thread` and `list_chapters` and read the granted folder, and one the home agent made `without` folders cannot read it; a run is not offered the doors to the person; a job's card is raised on its own thread, not the DM, and the answer comes back to it as a turn; a job's thread is found by `search_thread` after the index is rebuilt; a clone is built with the computer unless it was left out, on the model the home session is on, and on its teammate's own harness, ACP included; a run whose home lease is revoked never starts; a job is offered the home thread's tools but `JOB_WITHOUT`, and `schedule` writes what was left out on the job | `tests/schedule/clones.rs` `a_subagent_is_a_clone_that_reaches_back_and_is_narrowed_when_asked`, `a_job_is_a_clone_on_its_own_thread_and_reaches_back_after_a_restart`; `session/tests/runs.rs` `a_run_has_the_computer_unless_the_home_agent_leaves_it_out`, `a_run_is_a_clone_on_its_teammates_own_harness`, `a_run_refuses_a_brief_that_is_a_jobs`; `session/tests/scheduled.rs` `a_jobs_card_is_raised_and_answered_on_its_own_thread`, `a_job_has_the_computer_unless_it_was_made_without_it`; `session/agent.rs` `a_clone_is_narrowed_by_what_the_home_agent_left_out`, `a_clone_is_on_the_model_and_effort_its_home_session_is_on`; `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`; `hotline-store/src/search.rs` `a_rebuild_keeps_what_the_teammates_jobs_said`; `tests/threads/together.rs` `every_thread_reaches_the_chat_through_one_door_on_both_drivers`, `a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart` | Unix for the computer rows |
-| `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a pair posts to its target's chat, never the asker's; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_pair_posts_to_its_own_chat`, `an_acp_pair_posts_to_its_own_chat`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
-| A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
+| `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a question answered in the target's main conversation may not post, its reply being the chat already, and lands in neither chat; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_question_turn_may_not_post`, `an_acp_question_turn_may_not_post`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
+| A receipt cannot move machinery | `session/peers/tests.rs` `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
 | What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests/computer.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `hotline-room/src/room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests/seats.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
@@ -867,18 +863,30 @@ made it so.
   answer session consent but not standing consent. Keep going and Stop exchange are person-seat commands,
   not teammate tools, and do not grant collaboration authority.
 - **Enforcement:** `session/exchanges.rs` persists acceptance and checks live
-  leases and `authorize_collaboration` before starting either intent. Handoff
-  uses the recipient's existing main session and permissions; Ask uses its
-  isolated peer session. `invalidate`, stop and grant revocation settle queued
-  work; turn dispatch rejects stopped handoffs/results. A cap counts requests
-  and automatic replies together, never receipts, and survives restart.
-- **Tests:** `session/exchanges/tests.rs` covers default Ask isolation, main
+  leases and `authorize_collaboration` before starting either intent, except
+  for a question a handed-over thread asks the teammate that handed it over,
+  whose standing delegation (`Room::about_live`, read off this desk's own
+  record) is its grant. Handoff runs in a work thread of the recipient's own;
+  Ask is answered by a turn of the recipient's own threads
+  (`exchanges/questions.rs`): its main conversation when idle, claimed under
+  the start gate, with no line of the person's steered into it, else a work
+  thread opened for it under the recipient's current authority, or the thread
+  it names, validated against the pair's record (`Pair::place`). There is no
+  session of the pair's own and no delegated lease. `invalidate`, stop and
+  grant revocation settle queued work; turn dispatch (`Room::begin_request`)
+  rejects stopped handoffs, questions and results. A cap counts requests and
+  automatic replies together, never receipts, and survives restart.
+- **Tests:** `session/exchanges/tests.rs` covers main
   context Handoff and automatic request correlation, cross-intent counting,
   a held twelfth-message reply, paused restart, started-work crash settlement,
   Stop/revocation and legacy informed approval. `wire/tests.rs` covers both
   person seats' resume/stop authority and existing permission-card handling.
 - **Residual risk:** a recipient may use every permission it already has and
-  disclose context in its answer. A crash after work starts but before its
+  disclose context in its answer, and since an ask is answered from the
+  recipient's main conversation, or a thread seeded with its tail and asides,
+  that context is what the person said there; the card says so, but a standing
+  grant given before this version was given when an ask had none of it and is
+  not asked again. A crash after work starts but before its
   result is saved produces an explicit uncertain failure, not replayed work;
   inspect side effects before retrying. Stopping a handoff cancels its active
   turn but cannot undo completed effects.
@@ -891,7 +899,7 @@ made it so.
 - **Grant source:** none new. A continuation is a handoff and passes the same
   directional collaboration check, against the same live leases, before it
   runs.
-- **Enforcement:** `enqueue_exchange` refuses a `thread` on an ask, and one
+- **Enforcement:** `send_intent` refuses a `thread`, on a handoff or an ask,
   that names no handoff from the same sender to the same recipient in the
   pair's record, by its request id or its work thread's id (`Pair::thread_named`);
   `list_teammates` lists to a caller only the threads its own handoffs opened. On the recipient's desk `Pair::place` resolves the name
@@ -902,7 +910,7 @@ made it so.
   before.
 - **Tests:** `session/exchanges/tests.rs`
   `a_handoff_naming_its_thread_continues_it_and_one_without_opens_another`,
-  `only_the_teammate_that_opened_a_thread_continues_it_and_only_by_handing_off`,
+  `only_the_teammate_that_opened_a_thread_continues_it`,
   `a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread`;
   `session/exchanges/tests/threads.rs`
   `a_handoffs_thread_is_listed_for_its_sender_and_named_by_its_own_id_too`;
@@ -922,7 +930,7 @@ made it so.
   archive it, since it ends with its result.
 - **Grant source:** the person's own seat. Their words grant the teammate
   nothing and carry nothing to the teammate that handed the work over.
-- **Enforcement:** only a turn begun by a handoff's own line (`HandoffLine`,
+- **Enforcement:** only a turn begun by a request's own line (`RequestLine`,
   set by the exchange, never read off the person's words) returns a result to
   the opener; a turn the person's line starts keeps its reply in the thread. A
   line said during the handoff's turn waits behind it. While the handoff
@@ -1099,7 +1107,7 @@ it lets a colleague use another's tools.
   goes, the channel and dialing stop, waiting requests to or from that desk
   fail with a sentence, every capability epoch of that desk's teammates is
   invalidated — which withdraws their pending cards, ends session grants and
-  peer sessions and stops their handoffs — and they leave `list_teammates`.
+  stops their requests — and they leave `list_teammates`.
   The standing grants the person gave them here end too: their qualified ids
   leave every `allowedSenders` and their informed consent is withdrawn, so a
   link made again starts from nothing.
@@ -1935,7 +1943,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   | verb | companion may | because |
   | --- | --- | --- |
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
-  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, `peers.answer_permission` is the owner's |
+  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, and a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
   | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |

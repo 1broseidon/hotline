@@ -78,6 +78,7 @@ fn thread(log: &Log, thread: ThreadId, title: &str, state: ThreadState, ts: i64)
         elapsed_ms: None,
         opener: None,
         handoff_ended: false,
+        asked_in: None,
     };
     write_link(log, &link);
     link

@@ -10,8 +10,10 @@
 //!   line it was written as (so the tape can be told when the agent has read
 //!   it), and the thread it came from.
 //! - **The door of a turn.** A colleague's result is heard once, and one the
-//!   exchange has since stopped never; work the agent took up by itself is
-//!   read, not prompted.
+//!   exchange has since stopped never; a colleague's question is answered
+//!   only while its request still runs, in a turn that takes in nothing the
+//!   person says, and its reply goes back to the asker; work the agent took
+//!   up by itself is read, not prompted.
 //! - **The witness.** [`Heard`] writes what the agent does onto the tape,
 //!   through the stamps a prompt left, marks
 //!   the person's lines read, keeps the session's checkpoint, says a reply to a
@@ -52,6 +54,8 @@ pub(super) struct Hold {
     from_voice: bool,
     /// The lines the driver took mid-turn, in the order it took them.
     steered: Vec<Wired>,
+    /// The colleague's question this turn answers.
+    request: Option<String>,
 }
 
 impl Occupant for Session {
@@ -102,6 +106,15 @@ impl Occupant for Session {
                 room.is_exchange_request(request) && !room.begin_exchange_result(request)
             })
         {
+            return Begin::Skip;
+        }
+        // A colleague's question is answered only while its request still
+        // runs: one stopped while it waited here is never taken up.
+        let request = wired.request.as_ref().map(|line| line.request.clone());
+        if let Some(request) = &request
+            && let Err(error) = room.begin_request(request)
+        {
+            eprintln!("question not taken up: {error}");
             return Begin::Skip;
         }
         room.set_state(session, SessionState::Thinking);
@@ -163,6 +176,7 @@ impl Occupant for Session {
             reach,
             from_voice,
             steered: Vec::new(),
+            request,
         })
     }
 
@@ -175,6 +189,7 @@ impl Occupant for Session {
             steered: &mut held.steered,
             from_voice: held.from_voice,
             card: None,
+            answering_a_question: held.request.is_some(),
         };
         room.threads()
             .drive(
@@ -194,10 +209,7 @@ impl Occupant for Session {
         room.turn_ended(session);
         room.read_plan_after_turn(session);
         if driven.asked {
-            // A permission the turn left open is a button nobody is
-            // behind. A `request_human` wait is not: the tool is still
-            // parked on it, and only the person, the deadline, or a
-            // session stop settles that card.
+            // A permission the turn left open is a button nobody is behind.
             room.threads()
                 .expire_asked(&session.thread(), &session.persona_id);
         }
@@ -217,6 +229,9 @@ impl Occupant for Session {
                 wire
             };
             lock(&session.turns).waiting.push_front(wire);
+        }
+        if let Some(request) = &held.request {
+            room.finish_request(request, &driven);
         }
         Then::Next
     }
@@ -243,6 +258,9 @@ struct Heard<'a> {
     from_voice: bool,
     /// The card the update in hand raises, until its event is written.
     card: Option<(String, crate::push::Waiting)>,
+    /// Whether the turn answers a colleague's question, whose whole reply
+    /// goes to them: nothing the person says is steered into it.
+    answering_a_question: bool,
 }
 
 impl Heard<'_> {
@@ -396,7 +414,9 @@ impl Witness for Heard<'_> {
     }
 
     fn steer(&mut self) {
-        self.room.steer_waiting(self.session, self.steered);
+        if !self.answering_a_question {
+            self.room.steer_waiting(self.session, self.steered);
+        }
     }
 }
 
@@ -439,9 +459,6 @@ impl Room {
         }
         drop(turns);
         if steered {
-            // A new instruction is neither an answer nor permission. Release
-            // an obsolete human wait so the model can reconsider the request.
-            self.release_human_waits(&session.persona_id);
             // A turn that was only waiting on its subagents has a line to
             // answer now, so it is working again.
             self.await_subagents(session, false);

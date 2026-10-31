@@ -109,6 +109,7 @@ async fn a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_a
                 fresh: true,
                 saved: None,
                 handoff: None,
+                asked: None,
             },
         )
         .unwrap();
@@ -148,7 +149,14 @@ async fn a_handed_over_thread_takes_the_persons_words_and_continues_but_is_not_a
 fn a_handed_over_threads_brief_says_the_persons_words_stay_in_it() {
     let mut mack = persona("mack");
     mack.name = "Mack".to_string();
-    let brief = work_preamble(&persona("ada"), None, &[], Some(&mack), None, None);
+    let brief = work_preamble(
+        &persona("ada"),
+        None,
+        &[],
+        OpenedBy::Handoff(&mack),
+        None,
+        None,
+    );
     assert!(
         brief.contains("The person can read this thread and talk in it at any time"),
         "{brief}"

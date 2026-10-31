@@ -179,6 +179,12 @@ impl Log {
             .expect("a tolerant load skips unreadable files")
     }
 
+    /// Whether an event with this id is on the stream, without copying it.
+    pub fn contains(&self, stream: &StreamId, id: &str) -> bool {
+        self.with_fold(stream, false, |fold| fold.contains(id))
+            .expect("a tolerant load skips unreadable files")
+    }
+
     /// Read just a thread's own link from the shared fold, without cloning its history.
     pub fn thread_link(&self, thread: &hotline_contract::ThreadId) -> Option<crate::link::Link> {
         let stream = StreamId::of_thread(thread)?;

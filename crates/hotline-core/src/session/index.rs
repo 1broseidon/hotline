@@ -401,7 +401,7 @@ impl Room {
             ThreadKind::Side | ThreadKind::Call => {
                 live.as_ref().is_some_and(|side| side.turn_running())
             }
-            ThreadKind::Pair => self.peers.answering_in(&thread.id.key).is_some(),
+            ThreadKind::Pair => self.pair_answering(&thread.id.key).is_some(),
             ThreadKind::Job => self.working_jobs(persona_id).contains(&thread.id.key),
             ThreadKind::Run => thread.state == ThreadState::Live,
             ThreadKind::Dm => false,

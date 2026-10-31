@@ -462,7 +462,7 @@ impl Room {
         }
         self.links.forget(desk_id);
         // Every lease a teammate of that desk was holding here — a
-        // collaboration card's, a session grant's, a peer session's — ends.
+        // collaboration card's, a session grant's — ends.
         let theirs: Vec<String> = lock(&self.capabilities)
             .keys()
             .filter(|id| linked::split(id).is_some_and(|(desk, _)| desk == desk_id))
@@ -470,7 +470,7 @@ impl Room {
             .collect();
         for id in theirs {
             self.capability_epoch(&id).invalidate();
-            self.peers.invalidate(&id);
+            self.peers.expire_grants(&id);
         }
         self.settle_invalid_collaboration();
         self.forget_linked_grants(desk_id).await

@@ -55,9 +55,6 @@ pub struct CapabilityLease {
     /// Follows the teammate's authority alone, not the session it was
     /// captured beside.
     lasting: bool,
-    /// Holds another teammate's authority as well as its own, through
-    /// [`Self::with_dependency`] here or on a lease it was scoped from.
-    delegated: bool,
     active_at_capture: bool,
     revoked: Arc<AtomicBool>,
     dependencies: Vec<Arc<CapabilityLease>>,
@@ -83,7 +80,6 @@ impl CapabilityEpoch {
             generation: state.generation,
             authority: state.authority,
             lasting,
-            delegated: false,
             active_at_capture: state.active,
             revoked: Arc::new(AtomicBool::new(false)),
             dependencies: Vec::new(),
@@ -168,26 +164,10 @@ impl CapabilityLease {
             generation: self.generation,
             authority: self.authority,
             lasting: self.lasting,
-            delegated: self.delegated,
             active_at_capture: self.active_at_capture,
             revoked: Arc::new(AtomicBool::new(false)),
             dependencies: vec![Arc::new(self.clone())],
         }
-    }
-
-    /// Delegated tools need both the recipient's authority and the requester's
-    /// authority. Keeping the whole dependency includes session replacement,
-    /// as well as explicit revocation, even across different teammates.
-    pub fn with_dependency(mut self, requester: &Self) -> Self {
-        self.dependencies.push(Arc::new(requester.clone()));
-        self.delegated = true;
-        self
-    }
-
-    /// Whether this lease carries another teammate's authority: what it
-    /// starts has to end when that delegation does.
-    pub fn is_delegated(&self) -> bool {
-        self.delegated
     }
 }
 
@@ -312,25 +292,6 @@ mod tests {
 
         parent.revoke();
         assert!(!child.is_current());
-    }
-
-    #[test]
-    fn delegated_authority_requires_both_teammates_current_sessions() {
-        let caller = CapabilityEpoch::default();
-        let recipient = CapabilityEpoch::default();
-        let independent = recipient.lease();
-        let delegated = recipient.lease().with_dependency(&caller.lease());
-        assert!(delegated.is_current());
-        assert!(delegated.scoped().is_delegated());
-        assert!(!independent.is_delegated());
-        caller.stop();
-        assert!(!delegated.is_current());
-        assert!(independent.is_current());
-
-        let delegated = recipient.lease().with_dependency(&caller.lease());
-        recipient.stop();
-        assert!(!delegated.is_current());
-        assert!(caller.lease().is_current());
     }
 
     #[test]

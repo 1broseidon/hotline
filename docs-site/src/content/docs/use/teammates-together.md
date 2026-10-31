@@ -9,11 +9,15 @@ first, and you can read everything they said.
 
 ## Asking and handing off
 
-- **A question** is answered on the side. The colleague answers from a
-  conversation of its own with the asker, using its own folder and tools,
-  and its conversation with you is left alone. The asker carries on with
-  its work, and the answer arrives later as a line in its conversation, with
-  the colleague's picture and the start of what it said.
+- **A question** goes where the colleague's memory is. When its
+  conversation with you is free, the colleague answers there, in a turn of
+  its own that you can read; what you type meanwhile waits for that turn. When
+  it is busy, a work thread of the colleague's answers at once, knowing what
+  that conversation knows, closes with its answer, and leaves the
+  conversation a quiet note of what it said. A question about work handed
+  over is answered in that work's thread. The asker carries on with its work,
+  and the answer arrives later as a line in its conversation, with the
+  colleague's picture and the start of what it said.
 - **A handoff** gives the colleague a piece of work to do. It opens a
   **work thread** on the colleague with a brief saying who sent it and why.
   The colleague works on it with its full tools while you keep talking to it
@@ -72,10 +76,8 @@ who has it.
 
 ## Conversations between two teammates
 
-A question, and the back-and-forth after it, is kept as a conversation
-between the pair. Each side has one line for it in its conversation
-("Waiting on…" or "Talked with…" for the asker, "…asked" for the colleague).
-Pressing that line opens the conversation, read-only, in the Threads pane.
+Every question and its answer is also kept in a conversation between the
+pair, which you can open, read-only, in the Threads pane.
 The **Threads** section of a teammate's pane lists every colleague it has
 talked to.
 

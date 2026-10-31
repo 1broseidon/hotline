@@ -529,7 +529,7 @@ caller and recipient and offers a session grant, a standing sender grant, or
 denial. A standing grant is an `allowedSenders` id on the recipient; it
 survives rename and restart, while a session grant is tied to both live
 capability leases and expires on session or chapter replacement. Revocation
-clears waits, queued work and cached peer sessions. An authorized reply does
+clears waits, queued work and temporary grants. An authorized reply does
 not grant the reverse direction or any third party.
 
 A card a teammate raised to ask the person is the teammate's to take back.
@@ -1078,9 +1078,13 @@ is read-only reference and is not modified by work here.
 
 ### Teammate messages: ask or hand off
 
-`message_teammate(to, message, intent)` defaults to `ask`: a bounded answer or
-review in a side session with none of the recipient's main conversation. Ask
-is not tool-free: the recipient uses its own workspace and granted tools.
+`message_teammate(to, message, intent)` defaults to `ask`: an answer or review
+from where the memory is (decision 1 of
+[design/thread-awareness.md](design/thread-awareness.md)): the recipient's main
+conversation when it is idle, else a work thread of the recipient's, seeded
+with what that conversation knows, which answers at once and leaves it an
+aside saying what it answered. There is no session of the pair's own. Ask is
+not tool-free: the recipient uses its own workspace and granted tools.
 `handoff` opens a work thread of the recipient's own, which starts from its
 main conversation's context, to implement or continue work there; the main
 conversation is never interrupted by it.
@@ -1091,7 +1095,7 @@ with everything said in the thread before; a handoff without `thread` opens a
 new one. Asking the sender to choose, rather than guessing from timing or
 topic, keeps a colleague's unrelated work out of a thread and a follow-up out
 of a fresh one. Only the teammate that opened a thread on that recipient
-continues it, and only by handing off.
+continues it; an ask that passes it is answered in that thread.
 The recipient never silently promotes an Ask. Neither intent overrides the
 person or expands the recipient's permissions.
 

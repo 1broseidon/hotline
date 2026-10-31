@@ -110,20 +110,33 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 
 | | DM | Side (work thread) | Pair (ask) | Call | Run | Job |
 | --- | --- | --- | --- | --- | --- | --- |
-| Parent | — | DM, and the opener's DM when a teammate opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
-| Agent | main session | the teammate's own agent, full tools | target's peer agent | Turn by turn: the teammate on the shared work-thread occupant; live front delegation waits for S6 | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
-| Lease | the teammate's | the teammate's; the computer through an exclusive lease | dual, scoped; the same computer lease | the teammate’s own lease, including the exclusive computer lease | scoped child of the asking session's; the same computer lease | scoped child of the teammate's, revoked when its agent is let go of; the same computer lease |
-| Idle | chapters (setting) | park at 3 h | park at 10 min (`Room::sweep` row) | voice detaches at 10 min; thread parks after the closing note, at least 30 s after hang-up | ends with the run | park after each firing; a person's turn parks at 10 min |
-| Restart | resume | park | park; cut-off told to the sender | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
-| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | one turn in flight per pair | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
-| Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
+| Parent | — | DM, and the opener's DM when a teammate opened it; also the pair when a question opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
+| Agent | main session | the teammate's own agent, full tools | none: a question is answered in the target's own threads, its DM when idle, else a work thread of its own seeded with the index and recent asides, or the thread the question names | Turn by turn: the teammate on the shared work-thread occupant; live front delegation waits for S6 | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
+| Lease | the teammate's | the teammate's; the computer through an exclusive lease | none of its own: each request holds both teammates' lasting leases, and the turn answering it runs under its thread's | the teammate’s own lease, including the exclusive computer lease | scoped child of the asking session's; the same computer lease | scoped child of the teammate's, revoked when its agent is let go of; the same computer lease |
+| Idle | chapters (setting) | park at 3 h; a thread a question opened closes with its answer | nothing to park | voice detaches at 10 min; thread parks after the closing note, at least 30 s after hang-up | ends with the run | park after each firing; a person's turn parks at 10 min |
+| Restart | resume | park | a question whose turn never began is handed over again; one cut mid-turn fails, to inspect before retrying | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
+| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | none per pair; the brake counts every request and reply | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
+| Cards | person | person, pushed; `request_human` lands here | none: a card is raised in the thread answering | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
 | Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
 | Thread index | each turn, whole or "unchanged" | each turn, whole or "unchanged" | none: no turns of its own | each turn, as a work thread | its parent's line and the asides about it | its parent's line and the asides about it |
 
 A handoff is a side thread: opened by a teammate instead of the person, with the
 sender as its opener. Its result returns to the opener as a delivery. A later
 handoff from the same opener that names the thread (`message_teammate`'s
-`thread`) continues it rather than opening another.
+`thread`) continues it rather than opening another, and an ask that names it
+is answered there by the teammate doing the work, without closing it.
+
+An ask goes where the memory is (decision 1 of
+`design/thread-awareness.md`). The recipient's main conversation answers it
+when idle, as a turn of its own that takes in nothing the person says. While
+that conversation is busy, a work thread of the recipient's answers at once:
+it is opened for the question alone, with no opener and `askedIn` naming the
+pair on its link (which is written on the pair's thread too), seeded as any
+work thread is with the DM's tail and told the asides the teammate was left
+lately, and it closes with its answer and leaves the DM a `note` aside,
+"Answered Ada for you: …". A question a handed-over thread asks the teammate
+that handed it over reaches the conversation that did, by the handoff's reply
+route, with no card while the delegation stands.
 
 Chapters stay specific to the DM. A side thread long enough to need chapters
 should become a teammate.
@@ -307,10 +320,9 @@ Where this differs from the design above:
 - **The run's one turn is `Threads::turn`, not a loop.** A run has no queue, so
   there is one `Turns` and no second turn loop for it to use; the loop over a
   queue is `Room::run_queue`, which the DM and a side share (below).
-- **Not moved:** `start_now` (phase 7) and `peer_session` (phase 6) still build
-  their own agents. The builder already grants the computer when a kind's policy
-  says so, which is the part of `start_now` and `peer_session` they share, but
-  that branch has no caller and no test until one of them moves. The skills
+- **Not moved:** `start_now` (phase 7) still built its own agent. The builder
+  already granted the computer when a kind's policy said so, but that branch
+  had no caller and no test until it moved. The skills
   index is not materialised by the builder: a side and a run share the main
   session's folder, where `start_now` already wrote it.
 - **Resume is not tested beyond a thread's own record.** The existing
@@ -319,8 +331,8 @@ Where this differs from the design above:
 
 **Phase 4.** `session/lifecycle.rs` holds the lifecycle once. `Room::sweep`
 applies each kind's `idle` policy (`Policy::idle`): a side thread is parked
-there, and a run has none. It calls `sweep_chapters` and `sweep_peers` for the
-DM and the pairs. `Room::settle` replaces `settle_tapes`,
+there, and a run has none. It calls `sweep_chapters` for the DM; a pair has no
+agent to park. `Room::settle` replaces `settle_tapes`,
 `settle_orphaned_sides` and `settle_orphaned_subagents`: it expires dead cards on
 every tape and pair, moves each live thread by the kind's `restart` policy, and
 calls `reconcile_exchanges`. `Room::queue_closing_note` is the one closing-note
@@ -439,15 +451,13 @@ Where this differs from the design above:
   teammate's lease (`Leases::take`), waiting up to 20 s and otherwise telling the
   caller who has it; `tools/list` and `initialize` pass through. A thread keeps
   it until its turn ends, until it has been idle 30 s with no call in flight, or
-  until its capability lease is revoked (the gate then closes). The main DM and
-  peer sessions take part under the keys `dm` and `pair:<key>`. It never widens a
+  until its capability lease is revoked (the gate then closes). The main DM
+  takes part under the key `dm`. It never widens a
   grant: the gate only forwards to the URL the thread was already granted.
-- **Asks.** `Threads::write` takes Pair. A peer card is pushed and counted for
-  the answering teammate (`threads_waiting`), and `peers.answer_permission`
-  (owner seat only) answers it while the turn is behind it. Pair lines are
-  indexed under both teammates, tagged `pair:<key>`, and a rebuild finds them
-  from the `peer` markers on the tape. `sweep_peers` is a Pair row of
-  `Room::sweep`.
+- **Asks.** `Threads::write` takes Pair: the core writes each question and
+  its answer there, indexed under both teammates, tagged `pair:<key>`, and a
+  rebuild finds them from the pair files that name the teammate. A pair has no
+  agent, so it raises no card and has nothing to sweep.
 
 Where this differs from the design above:
 
@@ -517,12 +527,10 @@ Where this differs from the design above:
 - **The two live handles are not one.** `Session` and `LiveSide` each hold their
   own driver and lease and close through their own door; `Occupant` is the
   seam where they meet, not a shared handle.
-- **A peer session uses the shared builder and turn** (ADR 0008 slice 4).
-  `peer_session` calls `Room::thread_agent` with the target and the caller as
-  opener; `Threads::drive` reads its turn with a witness that keeps directional
-  receipts and the waiting marker. First contact, the exchange cap and the
-  dual leases remain the pair's. It has one turn in flight, so it needs no
-  `Room::run_queue` occupant.
+- **A pair has no session of its own** (threads phase 5, #203 group C). A
+  question is answered in the recipient's own threads, each through its
+  `Room::run_queue` occupant: the DM, a work thread or a job. First contact,
+  the exchange cap and the dual leases remain the pair's.
 
 **Phase 8.** The wire (BRO-203). The wire's part is in `wire/threads.rs`; the
 protocol is in [wire.md](wire.md#threads) and the seats in
@@ -537,8 +545,7 @@ protocol is in [wire.md](wire.md#threads) and the seats in
   a person could archive a work thread but not park it. The old commands that
   have the same effect (`session.prompt`, `session.cancel`,
   `session.answer_permission`, `human.answer`, `side.prompt`, `side.cancel`,
-  `side.archive`, `side.answer_permission`, `peers.answer_permission`,
-  `tape.page`) are these handlers; `side.start`, `side.continue`, `side.list`
+  `side.archive`, `side.answer_permission`, `tape.page`) are these handlers; `side.start`, `side.continue`, `side.list`
   and `peers.list` answer their own kind's summary and still do.
 - **The subscription.** `{"threadId": {kind, key}}`. `{"thread": key}` stays a
   pair's, because a phone on an older build sends it; a new variant is additive,
@@ -728,13 +735,13 @@ the phases built so far.
 | --- | --- | --- | --- | --- | --- |
 | Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | `Call`; desk calls on a `voice-dispatcher` tape | `Run` |
 | Write helper | `write_value` | `Threads::write` | `Threads::write` (`write_thread`) | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
-| Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | `Room::thread_agent` (from `peer_session`) | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
-| Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | `Threads::drive` | voice `run` | `Threads::turn` |
-| Resume | persona checkpoints | marker `sessionId` | reseed from thread | none: each front starts from the DM's recent lines (`front_prompt`) | none |
-| Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
+| Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | none: the recipient's DM or work thread answers | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
+| Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | the answering thread's | voice `run` | `Threads::turn` |
+| Resume | persona checkpoints | marker `sessionId` | nothing to resume | none: each front starts from the DM's recent lines (`front_prompt`) | none |
+| Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | nothing to park | `Room::sweep` (10 min) | `Room::sweep` (none) |
 | Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |
 | Marker | — | link | `xthread:`, `exchange-paused:` | link (`call`); `voice:` id for desk calls | link |
-| Cards answered by | `thread.answer` (`session.answer_permission`) | `thread.answer` (`side.answer_permission`) | `thread.answer` (`peers.answer_permission`) | never | nobody (expired) |
+| Cards answered by | `thread.answer` (`session.answer_permission`) | `thread.answer` (`side.answer_permission`) | none raised | never | nobody (expired) |
 | Push / waiting | yes | yes | yes | fallback push | no |
 | Search | indexed | indexed | indexed | indexed | indexed |
 | Desktop hook | `useTape` | `useSide` | `useThread` | `voice/call.ts` | `useRun` |

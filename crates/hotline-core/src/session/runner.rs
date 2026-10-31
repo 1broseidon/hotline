@@ -390,7 +390,7 @@ impl Room {
                     voice: None,
                     text: task,
                     attachments: Vec::new(),
-                    handoff: None,
+                    request: None,
                     from: None,
                     delivery: None,
                     wake: false,
@@ -613,6 +613,7 @@ impl Running {
             elapsed_ms,
             opener: None,
             handoff_ended: false,
+            asked_in: None,
         });
         room.list_subagent(
             &self.persona_id,

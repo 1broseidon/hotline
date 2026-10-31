@@ -328,8 +328,7 @@ running on its own.
 
 The DM session owns it, through its driver (`Processes` in
 `session/jobs.rs`, reached by `Driver::processes`). Only the DM session takes
-processes: a subagent run, a side thread or a peer session still waits on its
-own commands. A process counts toward the teammate's four commands. Every
+processes: a subagent run or a side thread still waits on its own commands. A process counts toward the teammate's four commands. Every
 later turn is told it is running, and can `inspect_job` or `cancel_job` it,
 but not `wait_jobs` on it. The person sees each on the session's
 `processes` (a chip beside the subagents, sent whenever the set changes,
@@ -402,9 +401,8 @@ narration, the same events, and a tool left running when the driver stops
 written down as failed.
 
 Other tools remain synchronous. An update arriving during one of those tools
-waits for it to settle, then skips further calls from the old request. An
-obsolete `request_human` wait is released without treating the new text as an
-answer or approval. Missing usage from an interrupted request is reported as
+waits for it to settle, then skips further calls from the old request.
+Missing usage from an interrupted request is reported as
 unknown.
 
 **The Chat budget.** A turn on a model billed per token (a provider key, or a
@@ -529,9 +527,9 @@ shell sandbox. Hotline's own tools and a separately enabled computer remain
 available independently of the gateway policy. Both drivers receive the
 selected gateway list; an ACP harness may also load its own configured tools.
 Grant changes revoke existing handles, cancel current execution, and clear
-queued turns before rebuilding a live session. Cached peer sessions are
-invalidated whether the changed teammate was their caller or recipient.
-Already dispatched external side effects cannot be undone; a remote tool
+queued turns before rebuilding a live session. Temporary collaboration
+grants are dropped whether the changed teammate was their caller or
+recipient. Already dispatched external side effects cannot be undone; a remote tool
 call may finish after its connection is closed.
 
 The Linux shell uses the host's installed tools without mounting the host's
@@ -1190,18 +1188,8 @@ its gate on the handoff, so the turn's end returns the result; once the turn
 has ended to wait on the card, only an answer carries the work on, and the
 withdrawal is refused.
 
-A colleague's side session (`TeammateTools::for_peer`) has no conversation
-of its own to be answered in, so there the call still waits, as it always
-has. The room holds a oneshot by the action id. `human.answer` resolves it with `done` or `declined`
-and an optional `note`, and supersedes the card with both; declined is
-written as `dismissed`, the previous edition's word for that afterlife. The
-tool returns a sentence: "The person did it.", "The person declined.", or
-"Nobody answered in ten minutes.", and when the person typed a note it
-follows word for word: "They said: …". A waiting card left pending when
-the turn is cancelled, the session stops or the room restarts is expired by
-the same fold that expires orphaned permission cards: the tool call is
-inside the turn, so a turn that ended is an agent that has stopped
-listening.
+No tool waits on a card: every caller, a turn answering a colleague
+included, has a conversation of its own for the answer to come back into.
 
 A teammate with a computer is told in its preamble that the person can see
 that desktop and take it over, and to get the page that needs them on
@@ -1285,8 +1273,8 @@ nothing deletes them while the conversation they belong to is kept.
 ## Teammate collaboration
 
 `message_teammate` is authority to ask another teammate to use its own
-workspace and enabled tools, so the room checks collaboration before opening a
-thread or starting a peer session. A Hotline Agent caller with explicit Whole
+workspace and enabled tools, so the room checks collaboration before handing a
+question or a handoff to the recipient. A Hotline Agent caller with explicit Whole
 machine reach has that authority implicitly. A workspace caller needs a
 first-contact operator decision for each caller and recipient direction,
 regardless of whether the two teammates happen to have the same tools. ACP
@@ -1294,16 +1282,18 @@ trust or mode labels and the separate Computer capability do not count as
 Whole machine reach.
 
 The card says `Allow <caller> to ask <recipient> to work?` and explains that
-the recipient can use its workspace and enabled tools to fulfill the caller's
-requests and return results. `Allow this session` binds a temporary grant to
-both live capability leases. It expires when either session or chapter is
-replaced, when the room restarts, or when a cached peer session is revoked.
+the caller's questions reach the recipient's main conversation with the
+person, or a work thread beside it while that is busy, and are answered from
+what it knows there, and that the recipient can take handoffs and use its
+workspace and enabled tools to fulfill the caller's requests. `Allow this
+session` binds a temporary grant to both live capability leases. It expires
+when either session or chapter is replaced, or when the room restarts.
 `Always allow <caller>` appends the caller's stable id to the recipient's
 `allowedSenders` list and records, in a `collaboration_informed` room event,
 that the person was shown what a handoff means; a handoff needs both. The
 recipient's settings show that list as `Accept requests from <caller>` and
-removing one revokes active and queued delegated work and cached peer
-sessions. New and imported records have an empty list.
+removing one revokes active and queued delegated work. New and imported
+records have an empty list.
 
 An Always grant stands until the person removes it or the recipient comes to
 reach more than it did (`session/consent.rs`): its reach set to the whole
@@ -1450,33 +1440,48 @@ without the index (`index::asked`).
 
 ## Peer threads
 
-A teammate asking a colleague is not a line on either tape. Four records
-come out of `message_teammate` (`session/peers.rs`):
+A teammate asking a colleague asks the conversation that has the memory
+(`session/exchanges/questions.rs`, decision 1 of
+[design/thread-awareness.md](design/thread-awareness.md)). There is no session
+of the pair's own, and nothing answers in the pair's thread. Three records come
+out of `message_teammate` (`session/peers.rs`):
 
 - **The thread.** `threads/<key>.jsonl`, one file per pair, belonging to
-  neither side. The words of the exchange go here and never onto either
-  teammate's tape: what a colleague asked is not part of the conversation
-  the user is having.
-- **The peer session.** The target's agent, started again for this caller,
-  with a preamble saying who is speaking and why. It is a session of its
-  own so a teammate answering a colleague does not do it inside the user's
-  context — and one per *direction*, because A asking B and B asking A are
-  two conversations. Checkpoints are withdrawn: reopening the user's
-  session would answer the colleague inside it.
-- **The marker.** A `peer` event on each side's own tape, superseded by id
-  as the exchange goes, so a person reading either tape can see that these
-  two are talking and how far they have got. It lives as long as the peer
-  session, which is also how far apart two exchanges may be and still be
-  drawn as one line: ten minutes idle, then the session is stopped.
-- **The answer.** A `delivery` event on the sender's own tape. The tool
+  neither side. The core writes each question and its answer there, through
+  the shared write path, so both teammates' searches find them; a question
+  never handed over has no answer there either.
+- **The question.** A `delivery` whose cause is `question`, in the
+  conversation that answers it. The recipient's main conversation answers when
+  no turn holds it: the line claims its queue under the start gate, so nothing
+  lands between the look and the claim, and its turn takes in nothing the
+  person says (their lines wait behind it). While that conversation is busy
+  the question never waits behind it: a work thread of the recipient's is
+  opened for it alone, with the question as its first line, `askedIn` on its
+  link naming the pair (whose thread carries the link too), told it answers
+  for the busy conversation, seeded with the DM's tail as any work thread is
+  and with the asides the teammate was left in the last day, heard or not,
+  and opening each turn with the thread index. It closes with its answer, and
+  leaves the main conversation a `note` aside, "Answered Ada for you: …", the
+  answer clipped, heard at that conversation's next turn and never in the
+  person's chat. A teammate with no place for a thread (three live, every one
+  mid-turn) takes the question behind its main conversation's turn instead.
+  An ask that names a handoff's thread (`thread`) is answered in that thread
+  by the teammate doing the work, which stays open. A question a handed-over
+  thread asks the teammate that handed it over (`about` on the request) goes
+  to the conversation that handed it over, by the handoff's reply route: its
+  main conversation as above, the work thread or the job it was sent from.
+- **The answer.** A `delivery` event on the sender's side. The tool
   returns as soon as the message is sent (`{"sent": true, "to": …}`) and the
   sender carries on; the exchange, including a first-contact approval, runs
   on its own task. What came back, or why nothing did (`cause.status` is
-  `done` or `failed`), is written to the sender's tape and then handed to its
-  driver behind the turn in flight, or on a turn of its own, starting the
-  sender if it is not running. A delivery never steers into a turn. The
-  agent hears the answer fenced, as the recipient heard the message, and the
-  seats draw the event as the reason a turn began, not as a bubble.
+  `done` or `failed`), is the whole reply of the turn that answered, handed to
+  the thread the sender asked from (its job while it lives, its work thread
+  while open, else its DM) behind the turn in flight, or on a turn of its own,
+  starting the sender if it is not running. A delivery never steers into a
+  turn. The agent hears the answer fenced, as the recipient heard the
+  question, and the seats draw the event as the reason a turn began, not as a
+  bubble. A turn that failed or was cancelled says so, to inspect before
+  retrying.
 
 `list_teammates` is public roster metadata: id, name, and the same state a
 desk window would show — `idle`, `working`, `waiting` (on the person) or
@@ -1498,8 +1503,8 @@ caller may be mid-turn on its own tape while the exchange runs: nothing
 touches the caller's session until the answer is delivered.
 
 **Ask or hand off** (`session/exchanges.rs`). `message_teammate` takes
-`intent: "ask" | "handoff"`, defaulting to Ask. Ask keeps the isolated peer
-session above; Handoff opens a **work thread** on the recipient (see
+`intent: "ask" | "handoff"`, defaulting to Ask. Ask goes where the memory is,
+above; Handoff opens a **work thread** on the recipient (see
 [Side threads](#side-threads)) with the sender as its opener, and never lands
 in the recipient's main conversation, which stays open to the person. The
 brief arrives in the thread as a delivery whose `handoff` cause keeps the
@@ -1519,7 +1524,9 @@ Passing that id, the id of any handoff that ran in the thread, or the work
 thread's own id, as `message_teammate`'s `thread` hands the
 new brief into the same thread instead of a new one. The sender's desk checks
 the id against the pair's record before queuing (it must be a handoff from the
-same sender to the same recipient) and refuses an ask that names one; a request
+same sender to the same recipient); an ask that names one is answered in that
+thread, waits for a handoff that will open it, and is refused when none will;
+a request
 crossing a link carries the id as `continues`, and the recipient's desk checks
 it against its own copy of the record before dispatch. The thread closes with
 each result, as before, unless another handoff is already waiting in it; the
@@ -1536,7 +1543,7 @@ closed; only its result ends it, so the person's Archive is refused
 it, the turn's reply is still the handoff's result, and the thread does not
 close while the line waits. A turn the person's line starts is theirs: its
 reply stays in the thread and never reaches the opener, since only a turn begun
-by a handoff's own line (`HandoffLine`) returns a result. While the handoff
+by a request's own line (`RequestLine`) returns what came of it. While the handoff
 waits on a card in the thread, the person's words are that card's answer, as
 its note (files are refused), and the turn it starts carries the handoff on;
 once the handoff has ended, a card left open is answered on its own and the
@@ -1568,8 +1575,8 @@ first, so a handoff at work in a thread, or waiting on the person or on a linked
 desk, holds up nothing behind it in either direction. Taking a request up
 (`Room::admit_request`) runs on a task of its own, since it may wait on the
 person's first-contact card, so a request waiting on its card holds up nothing
-either; an ask is answered on that task, and asks still take turns: one waits
-while another is taken up or answered (`Room::ask_under_way`). Requests and
+either. Asks no longer take turns on a pair: each is answered by a
+conversation of the recipient's, and several may be at once. Requests and
 replies share the twelve-message brake across intents; receipts do not
 count. At twelve, both tapes receive an `exchange_paused` card. Further
 queued requests and completed results wait without being discarded.
@@ -1586,26 +1593,38 @@ it ends them alone. A chapter's swap only replaces the main session
 (`replace_session`, through `stop_with_capability`, reopening the previous
 chapter included), as does a rebuild for a computer or an MCP sign-in
 (`Room::rebuild`); neither ends a request, so its result still comes back.
-A request sent by a peer session answering a colleague is the exception: it
-holds that colleague's delegation too, and ends with it.
+A question waiting behind the turn a chapter's swap cut, its turn not begun,
+is handed by the pair's worker to the session that replaced the old one once
+that is up (`Room::dropped_by_a_swap`), so the new chapter answers it; which
+questions went to the main conversation is read from its tape, where such a
+question is written before it is handed over. A question whose turn the swap
+cut mid-answer fails, to inspect before retrying.
+
+**A handoff waits on its questions.** A question asked from inside a
+handoff's turn is a gate on that handoff, as a card is: the turn's end waits
+for it instead of returning the result, and what comes of the question, its
+answer or its failure, is the handoff's next turn in its thread
+(`exchanges/gates.rs`). A question stopped before its answer (Stop exchange,
+a revocation, its teammate deleted, its desk unlinked) hands its failure to
+the work thread or job that asked it, while that is open, rather than to the
+sender's DM, unless the asker is what was stopped; a handoff waiting on it
+carries on with it. The person's Stop in a conversation (`session.cancel`,
+`side.cancel`, a job's cancel) or a thread closing drops what waited behind
+the turn, and a colleague's question among it fails to its asker at once,
+once, and is never handed over again; one whose turn the Stop cut fails as a
+cancelled turn does.
 
 Restart recovers unstarted requests and saved results. Work that had begun
 but had not saved its result reports uncertainty instead of automatically
 repeating potentially side-effecting work. Stable request and delivery ids
 prevent a recovered result from being dispatched twice.
 
-A peer session is the one caller that still waits. It has no conversation of
-its own for an answer to come back into, so a colleague's side session that
-asks a third teammate gets the reply as its tool result, as before.
-
 A delivery is heard exactly once. Its receipt goes `sent` → `read` like a
 message's, and when the room opens it hands the driver any delivery in the
-open chapter that was never read. An exchange whose peer turn died with the
-desk has its markers closed as `failed`, and if it was going within the
-last hour, the sender gets a `failed` delivery saying so.
+open chapter that was never read, but a question, which its pair's worker
+hands over again with its request.
 
-A pair is refused a second delivery while one is running (`"That thread is
-already answering."`). A teammate cannot message itself. A message is at
+A teammate cannot message itself. A message is at
 most 24,000 characters and cannot be empty. The caller's words arrive
 fenced as message data, not as a second system prompt.
 
@@ -1614,15 +1633,13 @@ is `sent` when it enters the thread and `read` when the recipient's
 session proves it took it into a turn. Nothing un-reads a message. The
 agent is never told a tick exists.
 
-A permission card raised inside a peer turn is the person's to answer. The
-card is written to the thread through the shared write path, pushed, counted in
-the answering teammate's `waiting`, and the marker goes to `waiting`; the owner
-seat answers it with `peers.answer_permission {key, requestId, optionId}` while
-the turn is still behind it. A card the turn left open expires when the turn
-ends, and on startup with the tapes. Pair lines are searchable by both
-teammates (`pair:<key>` hits).
+A card raised in the turn answering a question is raised where that turn
+runs, as any of the thread's: it is no gate on a handoff, and the question
+is answered whatever the person does. Pair lines are searchable by both
+teammates (`pair:<key>` hits). Older versions' pair conversations and `peer`
+markers stay readable.
 
-Deleting a teammate stops every peer session it is a side of. The wire for
+Deleting a teammate stops every exchange it is a side of. The wire for
 listing threads and marking them read is [wire.md](wire.md).
 
 ## Side threads
@@ -1715,8 +1732,8 @@ computer is taken through the lease below. How it remembers depends on the harne
 teammate's, and so is the computer, through an exclusive lease: a loopback gate
 (`computer/gate.rs`) in front of the computer's MCP URL lets one thread drive at
 a time. `tools/call` takes the lease, waiting up to 20 s and otherwise answering
-that the computer is busy and who has it; the main DM and peer sessions take
-part under the same lease. A thread keeps it until its turn ends, 30 s without a
+that the computer is busy and who has it; the main DM takes part under the
+same lease. A thread keeps it until its turn ends, 30 s without a
 call, or its capability lease is revoked (close, park, stop). A thread never
 holds a computer wider than the teammate's grants. Its tools are the work
 variant of the teammate's (`TeammateTools::for_work`): all of them but
@@ -1836,7 +1853,7 @@ once:
   voice reports how long each call has been quiet, and `Calls::end_quiet` ends
   it). The DM's row is `Idle::Chapters`: the sweep closes a chapter that has
   gone quiet (`sweep_chapters`), the one row it awaits, since a close waits on
-  its note. The peer session's quiet clock (`sweep_peers`) is a Pair row.
+  its note. A pair has no agent, and no row.
 - **The settle.** `Room::settle` runs as the room opens, before anything is
   served. It expires a card the last process left open on any tape or pair, moves
   every thread a link says was left live by its kind's restart policy (a side
@@ -1935,8 +1952,9 @@ handles stay revoked. Retrying the settings change restores execution;
 Hotline does not silently restore a grant the operator tried to remove.
 
 The room cancels the old driver, clears its queued turns, and rebuilds a
-live session behind the same start gate. It also drops cached peer sessions
-involving the teammate in either direction. Cloned tool handles retain a
+live session behind the same start gate. It also drops temporary
+collaboration grants involving the teammate in either direction. Cloned tool
+handles retain a
 revocable lease, so removing a session from the cache alone is never the
 permission check. An idle teammate stays idle and uses the new policy on
 its next start. A gateway change applies this boundary to the whole room,

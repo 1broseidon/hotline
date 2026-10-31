@@ -7,7 +7,7 @@ impl Room {
     /// Whether this work thread has a turn in flight, without listing its history.
     pub(crate) fn work_thread_working(&self, thread: &ThreadId) -> bool {
         if thread.kind == ThreadKind::Pair {
-            return self.peers.answering_in(&thread.key).is_some();
+            return self.pair_answering(&thread.key).is_some();
         }
         self.sides
             .get(&thread.key)

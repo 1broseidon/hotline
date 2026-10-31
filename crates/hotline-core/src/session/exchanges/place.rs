@@ -3,7 +3,8 @@
 
 use super::*;
 
-/// Where a handoff's work is done.
+/// Where a handoff's work is done, or where an ask that names a thread is
+/// answered.
 pub(super) enum Place {
     /// A thread of its own, opened for it.
     New,
@@ -30,10 +31,12 @@ impl Pair {
             })
             .map(|r| r.continues.clone().unwrap_or_else(|| r.id.clone()))
     }
-    /// Where a handoff's work is done. One that names a thread follows the
-    /// handoffs before it into that thread, as its sender sent them; it is
-    /// refused when no handoff of its sender's to its recipient opened one by
-    /// that name, whatever another desk says.
+    /// Where a request that works in a thread is done. One that names a thread
+    /// follows the handoffs before it into that thread, as its sender sent
+    /// them; it is refused when no handoff of its sender's to its recipient
+    /// opened one by that name, whatever another desk says. An ask never
+    /// opens a thread: it waits for the handoff that will, and is refused
+    /// when none will.
     pub(super) fn place(&self, request: &Request) -> Result<Place, String> {
         if let Some(thread) = &request.thread {
             return Ok(Place::In(thread.clone()));
@@ -53,21 +56,24 @@ impl Pair {
             })
             .collect();
         if !before.iter().any(|r| r.id == *opener) {
-            return Err(
-                "That work thread was not opened by this teammate's handoff. Send without a thread to open a new one."
-                    .into(),
-            );
+            return Err(match request.intent {
+                Intent::Ask => "That work thread was not opened by this teammate's handoff. Ask without a thread.",
+                Intent::Handoff => "That work thread was not opened by this teammate's handoff. Send without a thread to open a new one.",
+            }
+            .into());
         }
         if let Some(thread) = before.iter().rev().find_map(|r| r.thread.clone()) {
             return Ok(Place::In(thread));
         }
         // None of them has a thread yet: one still to be handed over opens
-        // it, and this follows; if none ever will, this one opens it.
+        // it, and this follows; if none ever will, a handoff opens it.
         if before
             .iter()
             .any(|r| matches!(r.phase, Phase::Queued | Phase::Running))
         {
             Ok(Place::Later)
+        } else if request.intent == Intent::Ask {
+            Err("That work thread has not been opened yet. Ask without a thread, or wait for its handoff to start.".into())
         } else {
             Ok(Place::New)
         }

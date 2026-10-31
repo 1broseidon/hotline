@@ -172,6 +172,7 @@ impl Room {
                 intent: outgoing.intent,
                 phase: Phase::Queued,
                 reply: String::new(),
+                answer: String::new(),
                 failed: false,
                 reply_counted: false,
                 request_counted: false,

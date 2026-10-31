@@ -3,8 +3,9 @@
 //!
 //! A thread a teammate handed over informs its opener and does not report
 //! home: each of its turns that is not the handoff's result leaves the opener
-//! a note, in the colleague's own words (what the turn last said, and that it
-//! waits on the person when it does), heard with the opener's next line in the
+//! a note, in the colleague's own words (the turn's last message, short and in
+//! plain words, and that it waits on the person when it does), heard with the
+//! opener's next line in the
 //! conversation the result will go to. The result itself still comes back as a
 //! delivery, and leaves a nudge beside it: the delivery is what wakes the
 //! opener, and results that come back together are heard in one turn
@@ -23,8 +24,9 @@ use crate::contract::{Aside, AsideLevel, AsideSource};
 use crate::session::asides::result_aside;
 use crate::session::runner::Driven;
 
-/// The most of a turn's last words a note carries.
-const NOTE_CHARS: usize = 400;
+/// The most of a turn's answer an aside carries: a line, not the work. The
+/// whole of it is in the thread it came from.
+pub(super) const GIST_CHARS: usize = 200;
 
 /// What a note adds when the turn stopped to wait on the person and the
 /// card it waits on cannot be found.
@@ -43,11 +45,37 @@ pub(super) fn said_last(driven: &Driven) -> String {
     }
 }
 
-/// A turn's note, in the colleague's own words: what it said once its work
-/// was done, and then what it waits on when it does. Nothing for a turn that
-/// said nothing and is not waiting.
+/// A turn's last message: the answer it came to, after whatever it said on
+/// the way there ("On it, let me check the notes first.").
+pub(super) fn last_message(driven: &Driven) -> String {
+    driven
+        .replies
+        .iter()
+        .map(|reply| reply.trim())
+        .rfind(|reply| !reply.is_empty())
+        .unwrap_or_default()
+        .to_string()
+}
+
+impl Request {
+    /// What came of a request as an aside or a quiet line says it: the
+    /// answer its turn ended on, else its whole reply, in plain words and
+    /// short.
+    pub(super) fn gist(&self) -> String {
+        let said = if self.answer.is_empty() {
+            &self.reply
+        } else {
+            &self.answer
+        };
+        hotline_room::text::gist(said, GIST_CHARS)
+    }
+}
+
+/// A turn's note, in the colleague's own words: its last message, short, and
+/// then what it waits on when it does. Nothing for a turn that said nothing
+/// and is not waiting.
 fn turn_note(driven: &Driven, waiting: Option<&str>) -> Option<String> {
-    let words = crate::driver::clip(said_last(driven).trim(), NOTE_CHARS);
+    let words = hotline_room::text::gist(&last_message(driven), GIST_CHARS);
     match (words.is_empty(), waiting) {
         (true, None) => None,
         (true, Some(waiting)) => Some(waiting.to_string()),
@@ -193,7 +221,7 @@ impl Room {
             to: request.from.clone(),
             from: AsideSource::Thread(from),
             by: Some(request.to.clone()),
-            text: crate::driver::clip(request.reply.trim(), NOTE_CHARS),
+            text: request.gist(),
             about: self.route_about(request),
             level: AsideLevel::Nudge,
             heard: None,
@@ -307,8 +335,27 @@ mod tests {
         let quiet = driven(&[], &[]);
         assert_eq!(turn_note(&quiet, None), None);
         assert_eq!(turn_note(&quiet, Some(WAITING)).as_deref(), Some(WAITING));
-        let long = "x".repeat(NOTE_CHARS * 2);
+        let long = "word ".repeat(GIST_CHARS);
         let clipped = turn_note(&driven(&[&long], &[]), None).unwrap();
-        assert!(clipped.chars().count() <= NOTE_CHARS + 1, "{clipped}");
+        assert!(clipped.chars().count() <= GIST_CHARS, "{clipped}");
+        assert!(clipped.ends_with("word…"), "cut at a word: {clipped}");
+    }
+
+    /// A turn that opens with filler and ends on its answer, with no tool
+    /// between them: the note is the answer alone, in plain words.
+    #[test]
+    fn a_note_is_the_turns_last_message_in_plain_words_without_its_filler() {
+        let said = driven(
+            &[
+                "On it, checking the release notes.",
+                "The 0.46 Windows fix is the **bind path fix** in `server.rs`.\n\n- one\n- two",
+                "",
+            ],
+            &[],
+        );
+        assert_eq!(
+            turn_note(&said, None).as_deref(),
+            Some("The 0.46 Windows fix is the bind path fix in server.rs. one two")
+        );
     }
 }

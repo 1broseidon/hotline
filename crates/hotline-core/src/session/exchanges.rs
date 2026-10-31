@@ -15,7 +15,7 @@ use crate::log::{StreamId, thread};
 use crate::paths::{thread_key, thread_participants};
 use crate::thread::Opener;
 use across::linked_thread;
-use asides::said_last;
+use asides::{last_message, said_last};
 use place::Place;
 use questions::Route;
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,12 @@ struct Request {
     intent: Intent,
     phase: Phase,
     reply: String,
+    /// The last message of the turn that answered it: the answer it came to,
+    /// after whatever it said on the way, which an aside and a quiet line
+    /// say in place of the whole reply (`Request::gist`). Empty for a
+    /// failure, and on a record written before it was kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    answer: String,
     failed: bool,
     #[serde(default)]
     reply_counted: bool,
@@ -333,6 +339,7 @@ impl Room {
                 intent,
                 phase: Phase::Queued,
                 reply: String::new(),
+                answer: String::new(),
                 failed: false,
                 reply_counted: false,
                 request_counted: false,
@@ -674,6 +681,11 @@ impl Room {
                 Phase::Reply
             };
             request.reply = reply;
+            request.answer = if failed {
+                String::new()
+            } else {
+                last_message(driven)
+            };
             request.failed = failed;
             let finished = match (ask, waiting) {
                 (true, _) => Finished::Answered(request.own_thread),
@@ -1269,6 +1281,7 @@ impl Room {
         {
             r.phase = Phase::Reply;
             r.reply = reply;
+            r.answer.clear();
             r.failed = failed;
         }
         self.save_pair(&pair)

@@ -18,9 +18,6 @@ use super::*;
 use crate::contract::{Aside, AsideLevel, AsideSource};
 use crate::session::sides::title_of;
 
-/// The most of a busy conversation's answer the aside back carries.
-const ANSWERED_CHARS: usize = 300;
-
 /// Where the sender of a request hears what came of it, or where a question
 /// back to the teammate that handed work over is answered.
 pub(super) enum Route {
@@ -358,9 +355,9 @@ impl Room {
     }
 
     /// The note a work thread leaves its teammate's main conversation once it
-    /// has answered a question there on its behalf: who asked, and what it
-    /// said, in its own words and short. Heard at that conversation's next
-    /// turn; never said to the person.
+    /// has answered a question there on its behalf: who asked, and the answer
+    /// its turn ended on, in its own words, plain and short. Heard at that
+    /// conversation's next turn; never said to the person.
     pub(super) fn answered_for_main(&self, request: &Request) {
         let Some(thread) = &request.thread else {
             return;
@@ -375,10 +372,7 @@ impl Room {
             to: request.to.clone(),
             from: AsideSource::Thread(ThreadId::side(thread)),
             by: Some(request.to.clone()),
-            text: format!(
-                "Answered {asker} for you: {}",
-                crate::driver::clip(request.reply.trim(), ANSWERED_CHARS)
-            ),
+            text: format!("Answered {asker} for you: {}", request.gist()),
             about: None,
             level: AsideLevel::Note,
             heard: None,

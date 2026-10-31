@@ -1393,8 +1393,10 @@ window opens no thread for an aside that came from another desk.
 **A handed-over thread informs its opener.** Each turn of a work thread a
 colleague handed over that is not the handoff's result (a turn that stopped
 to wait on the person, a turn the person's line started, one a colleague's
-answer started) leaves the opener a note in the colleague's own words: what
-the turn last said, cut to 400 characters, and, when it waits, on what
+answer started) leaves the opener a note in the colleague's own words: the
+turn's last message, the answer it came to after whatever it said on the way,
+as plain words cut at a word to 200 characters (`text::gist`, since markdown
+drawn in a quiet line reads as noise), and, when it waits, on what
 (`session/exchanges/asides.rs` `Room::waiting_on`): "Waiting on the person:"
 and the card's own words, the reason of a card the turn raised, or, for a
 question the person must first allow, "Allow Mack to ask Clementine to work?
@@ -1406,7 +1408,9 @@ same conversation; a question a colleague is answering is "Waiting on a
 colleague's answer.". A turn that waits only on questions to the opener
 leaves no note, since they reach it themselves. It is heard in the conversation the
 result goes back to. The result still returns as a delivery, and leaves a
-nudge beside it (`result:<request>`), which the delivery's own turn hears
+nudge beside it (`result:<request>`), the answer the result's turn ended on
+said the same way (the request keeps it as `answer`, beside the whole
+`reply` that goes back), which the delivery's own turn hears
 without saying again. The delivery is the wake: results queued behind a busy
 conversation are taken into one turn when it is free (`results_behind`), and
 the reply is counted on the brake as it always was. Notes and the nudge ride on
@@ -1669,7 +1673,7 @@ out of `message_teammate` (`session/peers.rs`):
   and with the asides the teammate was left in the last day, heard or not,
   and opening each turn with the thread index. It closes with its answer, and
   leaves the main conversation a `note` aside, "Answered Ada for you: …", the
-  answer clipped, heard at that conversation's next turn and never in the
+  answer its turn ended on as plain words cut to 200 characters, heard at that conversation's next turn and never in the
   person's chat. A teammate with no place for a thread (three live, every one
   mid-turn) takes the question behind its main conversation's turn instead.
   An ask that names a handoff's thread (`thread`) is answered in that thread

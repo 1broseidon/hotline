@@ -84,6 +84,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         intent,
         phase,
         reply: String::new(),
+        answer: String::new(),
         failed: false,
         reply_counted: false,
         request_counted: false,

@@ -348,3 +348,58 @@ async fn a_turn_waiting_only_on_a_question_to_its_sender_leaves_no_note() {
     room.note_turn("t", true, &said);
     assert_eq!(asides(&room, "ada"), []);
 }
+
+/// A turn that opened with filler and ended on its answer: the result's
+/// nudge and the note a busy conversation is left of a question answered for
+/// it say the answer alone, in plain words, while the reply that goes back
+/// keeps the whole turn.
+#[tokio::test]
+async fn an_aside_of_a_result_is_the_turns_last_message_in_plain_words() {
+    let (room, _) = setup("aside-result-gist");
+    let mut handoff = saved_request("h", Intent::Handoff, Phase::Running);
+    handoff.thread = Some("t".into());
+    handoff.started = true;
+    let mut ask = saved_request("q", Intent::Ask, Phase::Running);
+    ask.thread = Some("u".into());
+    ask.own_thread = true;
+    ask.started = true;
+    room.save_pair(&Pair {
+        id: "ada~bob".into(),
+        a: "ada".into(),
+        b: "bob".into(),
+        exchanges: 0,
+        paused: false,
+        requests: vec![handoff, ask],
+    })
+    .unwrap();
+    let turn = crate::session::runner::Driven {
+        replies: vec![
+            "On it — let me check the changelog first.".into(),
+            "The fix is the **bind path fix** in `server.rs`.".into(),
+        ],
+        stop_reason: Some("end_turn".into()),
+        ..Default::default()
+    };
+    room.finish_request("h", &turn, None);
+    room.finish_request("q", &turn, None);
+    let saved = |id: &str| super::questions::request(&room, "ada~bob", id);
+    assert_eq!(
+        saved("h").reply,
+        "On it — let me check the changelog first.\n\nThe fix is the **bind path fix** in `server.rs`."
+    );
+
+    room.nudge_handoff_result("ada~bob", &saved("h"));
+    let nudge = asides(&room, "ada")
+        .into_iter()
+        .find(|aside| aside.id == "result:h")
+        .expect("the result left a nudge");
+    assert_eq!(nudge.text, "The fix is the bind path fix in server.rs.");
+    let answered = asides(&room, "bob")
+        .into_iter()
+        .find(|aside| aside.id == "answered:q")
+        .expect("the main conversation is left a note");
+    assert_eq!(
+        answered.text,
+        "Answered Ada for you: The fix is the bind path fix in server.rs."
+    );
+}

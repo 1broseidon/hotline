@@ -315,7 +315,7 @@ impl Occupant for LiveJob {
         !self.stopped.load(Ordering::SeqCst) && room.persona(&self.persona_id).is_ok()
     }
 
-    async fn begin(self: &Arc<Self>, room: &Arc<Room>, line: JobLine) -> Begin<JobTurn> {
+    async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: JobLine) -> Begin<JobTurn> {
         let Some(job) = room::all_jobs(&room.log)
             .into_iter()
             .find(|job| job.id == self.job_id)
@@ -361,6 +361,20 @@ impl Occupant for LiveJob {
         }
         if let Some(id) = &line.line.delivery {
             self.heard(room, id);
+        }
+        // What other threads left the teammate about this job opens the line.
+        let told: Vec<String> = line
+            .line
+            .from
+            .as_ref()
+            .filter(|from| from.kind == ThreadKind::Side)
+            .and_then(|from| from.request.as_deref())
+            .map(super::asides::result_aside)
+            .into_iter()
+            .collect();
+        if let Some(asides) = room.hear_asides(&self.persona_id, &Occupant::thread(&**self), &told)
+        {
+            line.line.text = format!("{asides}\n\n{}", line.line.text);
         }
         Begin::Go(JobTurn {
             line: Some(line.line),
@@ -764,6 +778,7 @@ impl Room {
                     handoff: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 firing: Some(run),
                 last,
@@ -892,6 +907,7 @@ impl Room {
                     handoff: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 firing: None,
                 last: false,
@@ -969,6 +985,7 @@ impl Room {
                     handoff: None,
                     from: Some(from),
                     delivery: Some(id.to_string()),
+                    wake: false,
                 },
                 firing: None,
                 last: false,

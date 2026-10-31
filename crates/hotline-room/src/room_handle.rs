@@ -265,6 +265,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         false
     }
 
+    /// How many asides this teammate has been left that it has not heard,
+    /// for the roster row.
+    fn asides_unheard(&self, _persona_id: &str) -> usize {
+        0
+    }
+
     /// Starts a side thread: a second conversation with this teammate.
     async fn side_start(
         &self,

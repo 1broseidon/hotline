@@ -127,6 +127,7 @@ impl Room {
                     spoken: crate::wire::commands::from_voice(),
                     unprompted: None,
                     retry: false,
+                    wake: false,
                 },
                 attachments,
             },

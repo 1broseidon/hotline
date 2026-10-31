@@ -1,4 +1,5 @@
 import type {
+	Aside,
 	BackendChoice,
 	CatalogModel,
 	ChapterSummary,
@@ -268,6 +269,8 @@ type Results = {
 	"thread.answer": null;
 	/** Older lines of any thread than its window, oldest first. */
 	"thread.page": { events: TranscriptEvent[]; more: boolean };
+	/** What a teammate's threads told it without telling the person, newest first. */
+	"aside.list": Aside[];
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;

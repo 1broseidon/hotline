@@ -1328,6 +1328,59 @@ Pending approvals expire after ten minutes or when the requesting call is
 cancelled. They also settle when a participant stops, a policy changes, or the
 room closes. One pending first-contact decision is held per direction.
 
+## Asides
+
+An aside informs a teammate without messaging it or the person
+(`session/asides.rs`; the design is
+[thread-awareness.md](design/thread-awareness.md) §2). It is an `Aside`
+(`{id, ts, to, from, by?, text, about?, level, heard?}`): `from` is the
+thread it was said in (or, in the type only so far, an inbound source), `by`
+the colleague whose words it is, `about` the recipient's thread it is heard
+in. It is kept on the recipient's own stream, `asides/<id>.jsonl`
+(`StreamId::Asides`), indexed under the recipient for `search_thread` with the
+thread it came from, and written as an `aside` event on the thread it was said
+in, so the sender's record shows it. It is never on the recipient's tape, and
+never a message in the person's chat.
+
+**Heard at the next turn.** As a turn of the DM, a work thread or a job
+begins, `Room::hear_asides` takes the recipient's unheard asides for that
+thread (those `about` it, and in the DM those about nothing or about a thread
+that no longer takes turns: a closed work thread, an ended job, a pair, a call
+or a run) and opens the line with them, timed, one line each fenced as data:
+"Ada, in pair:ada~bob: the numbers are in". Each is rewritten as `heard`, so it
+is told once. A retried turn and work the agent took up by itself hear none.
+`render` is the block, for the thread index to reuse.
+
+**Levels.** A `note` waits. A `nudge` also wakes the thread it is heard in
+when that thread is idle (the DM's or a live work thread's queue is claimed
+under its lock for a line that only wakes it, and a turn before it that heard
+them makes it a skip), so nudges that arrive together wake it once; a job is
+not woken. It wakes nothing when its `about` thread no longer takes turns,
+when the thread is mid-turn or the teammate not running, or when the two
+teammates are at their brake, and then it is heard with whatever comes next.
+Each wake counts one toward the pair's twelve (`count_wake`) and can pause
+them. A `person` aside also raises a `request_human` card on the recipient's
+DM, which says who it is from.
+
+**Who may.** The `aside` tool (`message_teammate`'s neighbour) passes the
+same `authorize_collaboration` an ask does: `allowedSenders`, the first-contact
+card, implicit for a Whole machine Hotline Agent. Its `about` must name a
+thread of the recipient's own. A teammate on a linked desk is refused for now.
+
+**A handed-over thread informs its opener.** Each turn of a work thread a
+colleague handed over that is not the handoff's result (a turn that stopped
+to wait on the person, a turn the person's line started, one a colleague's
+answer started) leaves the opener a note in the colleague's own words: what
+the turn last said, cut to 400 characters, and "Waiting on the person." when
+it waits (`session/exchanges/asides.rs`). It is heard in the conversation the
+result goes back to. The result still returns as a delivery, and leaves a
+nudge beside it (`result:<request>`), which the delivery's own turn hears
+without saying again. The delivery is the wake: results queued behind a busy
+conversation are taken into one turn when it is free (`results_behind`), and
+the reply is counted on the brake as it always was. Notes and the nudge ride on
+the handoff, so they stop when it no longer stands, and a sender on a linked
+desk gets none.
+
 ## Peer threads
 
 A teammate asking a colleague is not a line on either tape. Four records

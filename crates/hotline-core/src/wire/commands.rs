@@ -713,6 +713,11 @@ pub(crate) async fn run(
             limit,
             through,
         } => threads::page(log, &thread, &before, limit, through.as_deref()),
+        Command::AsideList { persona_id } => {
+            let mut asides = crate::store::asides::of(log, &persona_id);
+            asides.reverse();
+            Ok(json!(asides))
+        }
 
         Command::ComputerCapacity {} => Ok(json!(room.computer_capacity().await)),
         Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),

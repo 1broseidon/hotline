@@ -31,6 +31,7 @@
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
+use super::asides::{result_aside, result_of};
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
@@ -124,8 +125,28 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         } else {
+            // Colleagues' results that came back together are one turn: the
+            // ones queued behind this result are heard with it.
+            let mut told: Vec<String> = result_of(&wired).map(result_aside).into_iter().collect();
+            let mut text = wired.text;
+            if !told.is_empty() {
+                for behind in room.results_behind(session) {
+                    told.extend(result_of(&behind).map(result_aside));
+                    if let Some(said) = behind.said {
+                        lock(&session.unread).push(said);
+                    }
+                    text = format!("{text}\n\n{}", behind.text);
+                }
+            }
+            // What other threads left the teammate opens the line. A line that
+            // only woke it to hear them is spent once a turn before it has.
+            match room.hear_asides(&session.persona_id, &session.thread(), &told) {
+                Some(asides) => text = format!("{asides}\n\n{text}"),
+                None if wired.wake => return Begin::Skip,
+                None => {}
+            }
             Source::Say {
-                text: wired.text,
+                text,
                 attachments: wired.attachments,
             }
         };

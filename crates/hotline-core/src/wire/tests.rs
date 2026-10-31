@@ -228,6 +228,10 @@ impl RoomHandle for CoreHandle {
         self.room.threads_waiting(persona_id)
     }
 
+    fn asides_unheard(&self, persona_id: &str) -> usize {
+        self.room.asides_unheard(persona_id)
+    }
+
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
         self.room.policy_update_lock()
     }
@@ -1231,6 +1235,7 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
     assert_eq!(read["ok"], false, "{read}");
 }
 
+mod asides;
 mod asks;
 mod capabilities;
 mod capture;

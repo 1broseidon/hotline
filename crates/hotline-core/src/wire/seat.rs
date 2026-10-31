@@ -143,6 +143,9 @@ impl Seat {
                     | Command::SideContinue { .. }
                     | Command::SideList { .. }
                     | Command::SideAnswerPermission { .. }
+                    // What a teammate's threads told it, which the person
+                    // reads as they read its threads.
+                    | Command::AsideList { .. }
                     )
             }
         }

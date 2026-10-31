@@ -891,6 +891,8 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// `agentSwitch`: `session.set_backend`, moving a teammate to another agent,
 /// and `backends.list` naming each agent's last reported models; a phone
 /// offers the agents in its picker only where the desk says this.
+/// `asides`: `aside.list` and the roster row's `asides`, what a teammate's
+/// threads told it without telling the person.
 pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "personaCreate",
     "personaEdit",
@@ -903,6 +905,7 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "thumbnails",
     "turnRetry",
     "agentSwitch",
+    "asides",
 ];
 
 /// The capability a client names in `client.hello` to be sent `link` events

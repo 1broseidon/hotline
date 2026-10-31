@@ -589,6 +589,10 @@ impl RoomHandle for Desk {
         self.room.threads_waiting(persona_id)
     }
 
+    fn asides_unheard(&self, persona_id: &str) -> usize {
+        self.room.asides_unheard(persona_id)
+    }
+
     async fn side_start(
         &self,
         persona_id: &str,

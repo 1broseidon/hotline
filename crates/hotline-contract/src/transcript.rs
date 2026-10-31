@@ -471,6 +471,11 @@ pub enum TranscriptEvent {
         #[ts(as = "Option<bool>", optional)]
         handoff_ended: bool,
     },
+    /// An aside this thread's teammate left a colleague: written on the
+    /// thread it was said from, so the thread's record shows what it said.
+    /// A quiet line, never a bubble; clients that do not know the kind skip
+    /// it.
+    Aside(Aside),
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.

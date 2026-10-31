@@ -96,6 +96,9 @@ pub(super) struct Line {
     /// The delivery this line is, which is stamped read once its turn has
     /// begun: until then a restart finds it still to be heard.
     pub delivery: Option<String>,
+    /// The line only wakes the agent to hear the asides left for it, and is
+    /// skipped at the door when a turn before it has heard them.
+    pub wake: bool,
 }
 
 /// The handoff a turn of a work thread belongs to.

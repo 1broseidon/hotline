@@ -140,6 +140,11 @@ The stream files stay where they are, and no history is migrated:
 | Call | `calls/<id>.jsonl` (new) |
 | Job | `jobs/<id>.jsonl`, under the job's id on the room stream (new) |
 
+A teammate's asides, `asides/<id>.jsonl`, are a stream of the teammate's but
+no thread: what its threads and colleagues left it, heard at the start of its
+next turn in a thread ([sessions.md](sessions.md#asides)). The line an aside
+leaves on the thread it was said in is an `aside` event of that thread.
+
 The thread records themselves (state, binding, title, note) live where each
 kind keeps them today: the marker line, the sidecar, the persona record. They
 are read through one `ThreadStore` trait. A later phase may consolidate them;

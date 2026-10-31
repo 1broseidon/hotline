@@ -385,6 +385,7 @@ impl Room {
                     handoff: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 reach,
                 Some(cancel),

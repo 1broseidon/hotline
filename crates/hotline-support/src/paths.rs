@@ -414,6 +414,17 @@ pub fn side_path(root: &Path, id: &str) -> Option<PathBuf> {
     plausible.then(|| sides_dir(root).join(format!("{id}.jsonl")))
 }
 
+/// Where each teammate's asides are kept, one file per teammate.
+pub fn asides_dir(root: &Path) -> PathBuf {
+    root.join("asides")
+}
+
+/// The file the asides a teammate has been left are written to, named by
+/// the teammate's id.
+pub fn asides_path(root: &Path, persona_id: &str) -> Option<PathBuf> {
+    valid_persona_id(persona_id).then(|| asides_dir(root).join(format!("{persona_id}.jsonl")))
+}
+
 /// Where jobs keep their threads, one file per job.
 pub fn jobs_dir(root: &Path) -> PathBuf {
     root.join("jobs")

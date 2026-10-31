@@ -803,6 +803,11 @@ const Row = memo(function Row({
 		case "call":
 			return null;
 
+		/* What this thread's teammate told a colleague: the Noted line comes
+		 * with the window's asides work, and until then it draws nothing. */
+		case "aside":
+			return null;
+
 		case "computer_frame":
 			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;
 

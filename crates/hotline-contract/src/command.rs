@@ -1011,6 +1011,10 @@ pub enum Command {
         limit: Option<i64>,
         through: Option<String>,
     },
+    /// The asides a teammate has been left, newest first, heard or not, as
+    /// `Aside`s: what other threads told it without telling the person.
+    #[serde(rename = "aside.list")]
+    AsideList { persona_id: String },
 }
 
 /// With `default`, absence is None; a present null is Some(None).

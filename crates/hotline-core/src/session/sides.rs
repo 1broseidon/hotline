@@ -304,7 +304,7 @@ impl Occupant for LiveSide {
 
     /// A handoff's turn is the exchange's: it begins only while the request is
     /// still running, and its result is saved when it ends.
-    async fn begin(self: &Arc<Self>, room: &Arc<Room>, line: Line) -> Begin<WorkTurn> {
+    async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: Line) -> Begin<WorkTurn> {
         // A result that came back from a colleague is heard once: it is
         // consumed as its turn begins, and one the exchange has since stopped,
         // or whose authority has been revoked, is never heard, however long
@@ -335,6 +335,22 @@ impl Occupant for LiveSide {
         }
         if let Some(id) = &line.delivery {
             self.heard(room, id);
+        }
+        // What other threads left the teammate about this one opens the line.
+        // A line that only woke it to hear them is spent once a turn before
+        // it has.
+        let told: Vec<String> = line
+            .from
+            .as_ref()
+            .filter(|from| from.kind == ThreadKind::Side)
+            .and_then(|from| from.request.as_deref())
+            .map(super::asides::result_aside)
+            .into_iter()
+            .collect();
+        match room.hear_asides(&self.persona_id, &self.thread, &told) {
+            Some(asides) => line.text = format!("{asides}\n\n{}", line.text),
+            None if line.wake => return Begin::Skip,
+            None => {}
         }
         Begin::Go(WorkTurn { line: Some(line) })
     }
@@ -379,6 +395,7 @@ impl Occupant for LiveSide {
                     handoff: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 });
             }
         }
@@ -407,14 +424,23 @@ impl Occupant for LiveSide {
             } else {
                 driven.replies.join("\n\n")
             };
-            if !room.finish_handoff(&request, reply, failed) && lock(&side.turns).waiting.is_empty()
-            {
+            let waiting = room.finish_handoff(&request, reply, failed);
+            // A turn that stopped to wait on the person is not the result:
+            // its sender is left a note, and the result follows later.
+            if waiting {
+                room.note_turn(&side.id, true, &driven);
+            } else if lock(&side.turns).waiting.is_empty() {
                 room.finish_side(side, if failed { End::Failed } else { End::Agent }, None);
                 return Then::Stop;
             }
-        } else if let Some(summary) = said_so {
-            room.finish_side(side, End::Agent, Some(summary));
-            return Then::Stop;
+        } else {
+            // Any other turn of a thread a colleague handed over leaves that
+            // colleague a note of what it came to.
+            room.note_turn(&side.id, false, &driven);
+            if let Some(summary) = said_so {
+                room.finish_side(side, End::Agent, Some(summary));
+                return Then::Stop;
+            }
         }
         Then::Next
     }
@@ -1276,6 +1302,7 @@ impl Room {
                 handoff: None,
                 from: None,
                 delivery: None,
+                wake: false,
             },
         );
     }
@@ -1372,6 +1399,7 @@ impl Room {
                     handoff,
                     from: Some(from),
                     delivery: Some(id.to_string()),
+                    wake: false,
                 },
             );
             Ok(())

@@ -6,9 +6,9 @@ use crate::contract::HumanActionStatus;
 use crate::thread::ThreadState;
 
 /// Bob's agents, and everyone else's, each from their own script.
-struct Apart {
-    bob: Arc<Fake>,
-    others: Arc<Fake>,
+pub(super) struct Apart {
+    pub(super) bob: Arc<Fake>,
+    pub(super) others: Arc<Fake>,
 }
 #[async_trait::async_trait]
 impl Agents for Apart {

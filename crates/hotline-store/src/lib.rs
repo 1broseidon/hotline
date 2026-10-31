@@ -1,6 +1,7 @@
 //! What Hotline keeps on disk and what it rebuilds from it: the log of
 //! append-only streams and the tapes and threads in it, the files teammates
-//! send the person, the line a thread leaves on its parent, and, beside the
+//! send the person, the line a thread leaves on its parent, the asides a
+//! teammate has been left, and, beside the
 //! tape, the search index over every tape and two views of one tape — its
 //! chapters and its last line. The index and the views are not records; every
 //! one is rebuilt from the log.
@@ -12,6 +13,7 @@
 //! names and this crate as `store`, so every `crate::log` and
 //! `crate::store::search` there still holds.
 
+pub mod asides;
 pub mod chapters;
 pub mod link;
 pub mod log;

@@ -1070,6 +1070,7 @@ impl Room {
                         &request.reply,
                     )?;
                 }
+                self.nudge_handoff_result(key, &request);
                 if linked::is_linked(&request.from) {
                     // Answering a linked teammate: the answer goes back over
                     // the link, and waits saved while the link is down.
@@ -1411,6 +1412,7 @@ impl Room {
     }
 }
 
+mod asides;
 mod handover;
 mod place;
 mod revoked;

@@ -208,6 +208,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
+| `aside.list` | `{personaId}` | `Aside[]`, newest first, heard or not: what the teammate's colleagues and threads left it without telling the person ([Asides](#asides)). The desk, owner and phone seats |
 | `tape.page` | `{personaId, before, limit?, through?}` | `{events, more}`: the `limit` lines of a tape before the line `before` (400 by default, at most 2,000), oldest first, or, with `through`, every line from 40 above `through` up to `before`, so a search hit or a quoted reply can be scrolled to. `more` is whether older lines are left. A `before` the tape does not hold is an empty page. A phone's page is cut as its snapshot is |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only, for the desk, owner and phone seats |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
@@ -1000,6 +1001,28 @@ its work threads), `side.prompt`, `side.cancel`, `side.archive`,
 `PeerThreadSummary`) and are left as they were; `peers.mark_read` is a pair's
 read receipts and stays one too. `voice.*` is still the call's control surface.
 
+## Asides
+
+An aside is a short line one of a teammate's threads, or a colleague, left in
+its context: heard at the start of its next turn, never a message in the
+person's chat ([sessions.md](sessions.md#asides)). Each is an `Aside`:
+
+```json
+{"id": "…", "ts": 5, "to": "bob", "from": {"thread": {"kind": "pair", "key": "ada~bob"}},
+ "by": "ada", "text": "The Q3 numbers are in /shared/q3.csv",
+ "about": {"kind": "side", "key": "…"}, "level": "note", "heard": 9}
+```
+
+`from` is `{"thread": ThreadId}`, the thread it was said in, or
+`{"inbound": "<source id>"}` for a source outside the desk (nothing makes one
+yet). `by` is the teammate whose words it is, absent for an inbound source.
+`about` is the recipient's thread it is heard in, absent for its main
+conversation. `level` is `note`, `nudge` (it woke the teammate if it was idle)
+or `person` (a card was raised for the person too). `heard` is when a turn
+took it in, absent until then. The thread it was said in carries the same
+object as a quiet `{kind: "aside", …}` event, which a client that predates it
+skips. `aside.list` reads them, and the roster row counts the unheard.
+
 ## The roster view
 
 Nothing logs this. It is a join of the room stream, each teammate's tape,
@@ -1040,7 +1063,9 @@ between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)
 `subagents` lists the runs still going, oldest first, and `sides` the work
 threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
-can be stopped; each is absent when there are none. A phone that declared `lean` is sent each row
+can be stopped; each is absent when there are none. `asides` is how many
+asides the teammate has been left that no turn of its has heard yet, absent
+when none; the row is sent again when one is left or heard. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
@@ -1158,14 +1183,15 @@ The phone's socket opens with a hello before any answer:
 ```json
 {"type": "hello", "protocolVersion": 2, "desktopId": "…", "mode": "team",
  "capabilities": ["personaCreate", "personaEdit", "schedules", "threads", "runs", "threads2",
-                  "lean", "thumbnails", "turnRetry"]}
+                  "lean", "thumbnails", "turnRetry", "asides"]}
 ```
 
 `capabilities` names the optional features this desk supports, so a phone
 asks only for what the desk it reached understands. `personaCreate` is
 `mobile.persona_create`; `personaEdit` is `mobile.persona_update` and
 `persona.delete`; `turnRetry` is `session.retry`, so a phone offers Try
-again on a failed turn only where the desk can run it; `schedules` is the schedules view; `threads` is
+again on a failed turn only where the desk can run it; `asides` is
+`aside.list` and the roster's `asides` ([Asides](#asides)); `schedules` is the schedules view; `threads` is
 reading a thread between two teammates the way a tape is read; `threads2` is
 the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
 them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads));

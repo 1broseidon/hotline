@@ -32,6 +32,7 @@
 //! work before a live session is rebuilt.
 
 mod agent;
+mod asides;
 mod asking;
 pub(crate) mod avatar;
 mod call_cards;
@@ -57,6 +58,7 @@ mod person_name;
 mod plan;
 mod post;
 mod preamble;
+pub(crate) use asides::{ASIDE_CHARS, Leaving};
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
 
@@ -612,6 +614,9 @@ struct Wired {
     /// The person's Retry of the turn that failed on this line: the driver
     /// runs it again rather than taking a new line.
     retry: bool,
+    /// The line only wakes the agent to hear the asides left for it, and is
+    /// skipped at the door when a turn before it has heard them.
+    wake: bool,
 }
 
 /// The call a queued line came from, if it came from one: the thread it says
@@ -637,6 +642,7 @@ impl Wired {
             spoken: false,
             unprompted: None,
             retry: false,
+            wake: false,
         }
     }
 
@@ -742,6 +748,9 @@ pub struct Room {
     links: Arc<crate::linked::Links>,
     /// Serializes each durable exchange queue and its pair-wide brake.
     exchange_lock: Mutex<()>,
+    /// Held while asides are heard, so two turns of one teammate starting
+    /// together never both take the same one.
+    asides_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
     /// Requests being taken up on a task of their own, by id: each may wait
@@ -900,6 +909,7 @@ impl Room {
             answering_later: Mutex::new(()),
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
+            asides_lock: Mutex::new(()),
             exchange_workers: Mutex::new(HashSet::default()),
             exchange_leases: Mutex::new(HashMap::default()),
             exchange_admitting: Mutex::new(HashSet::default()),

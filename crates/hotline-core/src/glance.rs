@@ -183,6 +183,15 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         ),
     ),
     (
+        "aside",
+        label(
+            "colleague",
+            "Left a teammate an aside",
+            "Left teammates {n} asides",
+            "Leaving a teammate an aside",
+        ),
+    ),
+    (
         "add_teammate",
         label(
             "team-add",

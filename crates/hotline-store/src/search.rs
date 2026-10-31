@@ -439,6 +439,18 @@ fn work_result(event: &Value) -> Option<Value> {
     )
 }
 
+/// An aside is found by its words, as something said to or by the teammate,
+/// on its teammate's own stream and on the thread it was left from alike.
+fn aside_line(event: &Value) -> Option<Value> {
+    let aside = crate::asides::read(event)?;
+    Some(serde_json::json!({
+        "kind": "agent",
+        "id": aside.id,
+        "ts": aside.ts,
+        "text": format!("Aside: {}", aside.text),
+    }))
+}
+
 fn index_message(
     database: &Connection,
     persona_id: &str,
@@ -446,7 +458,9 @@ fn index_message(
     thread: Option<&str>,
     event: &Value,
 ) -> rusqlite::Result<()> {
-    let synthetic = side_line(event).or_else(|| work_result(event));
+    let synthetic = side_line(event)
+        .or_else(|| work_result(event))
+        .or_else(|| aside_line(event));
     let replaces = synthetic.is_some();
     let event = synthetic.as_ref().unwrap_or(event);
     let kind = event
@@ -621,7 +635,7 @@ fn jobs_of(log: &Log, persona_id: &str) -> Vec<(ThreadId, StreamId)> {
 fn said_in_thread(event: &Value) -> bool {
     matches!(
         event.get("kind").and_then(Value::as_str),
-        Some("user" | "agent")
+        Some("user" | "agent" | "aside")
     ) || event["toolKind"] == "work_result"
 }
 
@@ -679,6 +693,13 @@ fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Resu
                     &event,
                 )?;
             }
+        }
+    }
+    // What other threads left the teammate, named by where each came from.
+    for event in log.load(&StreamId::Asides(persona_id.to_string())) {
+        if let Some(aside) = crate::asides::read(&event) {
+            let source = crate::asides::source_name(&aside.from);
+            index_message(database, persona_id, None, Some(&source), &event)?;
         }
     }
     stamp(database, log.root(), persona_id)?;
@@ -790,7 +811,7 @@ impl Indexer {
                 .insert(persona_id.to_string(), id.filter(|_| still_open));
             return stamp(&self.database, self.log.root(), persona_id);
         }
-        if !matches!(kind, "user" | "agent" | "side" | "link") {
+        if !matches!(kind, "user" | "agent" | "side" | "link" | "aside") {
             return Ok(());
         }
         if !self.open_chapters.contains_key(persona_id) {
@@ -827,6 +848,18 @@ impl Indexer {
             Some(&thread.to_string()),
             event,
         )?;
+        transaction.commit()
+    }
+
+    /// Indexes an aside the teammate was left, as it lands on its own
+    /// stream. The hit names the thread it came from.
+    pub fn index_aside(&mut self, persona_id: &str, event: &Value) -> rusqlite::Result<()> {
+        let Some(aside) = crate::asides::read(event) else {
+            return Ok(());
+        };
+        let source = crate::asides::source_name(&aside.from);
+        let transaction = self.database.transaction()?;
+        index_message(&transaction, persona_id, None, Some(&source), event)?;
         transaction.commit()
     }
 

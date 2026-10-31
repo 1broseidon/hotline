@@ -101,6 +101,7 @@ export function rowOfLink(link: LinkEvent, personaId: string): ThreadSummary {
 		state: link.state,
 		...(link.end !== undefined ? { end: link.end } : {}),
 		...(link.openerId !== undefined ? { opener: { personaId: link.openerId, name: link.openerName ?? "" } } : {}),
+		...(link.handoffEnded === true ? { handoffEnded: true } : {}),
 		startedAt: link.ts,
 		updatedAt: link.at ?? link.ts,
 		working: false,
@@ -127,13 +128,15 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 			rows.set(id, rowOfLink(link, personaId));
 			continue;
 		}
-		if (known.state === link.state && known.end === link.end && known.title === link.title) continue;
+		const ended = link.handoffEnded === true;
+		if (known.state === link.state && known.end === link.end && known.title === link.title && (known.handoffEnded === true) === ended) continue;
 		if (known.updatedAt > (link.at ?? link.ts)) continue;
-		const { end: _end, outcome: _outcome, ...rest } = known;
+		const { end: _end, outcome: _outcome, handoffEnded: _ended, ...rest } = known;
 		rows.set(id, {
 			...rest,
 			state: link.state,
 			...(link.end !== undefined ? { end: link.end } : {}),
+			...(ended ? { handoffEnded: true } : {}),
 			...(link.outcome !== undefined ? { outcome: link.outcome } : known.outcome !== undefined ? { outcome: known.outcome } : {}),
 			title: link.title,
 			working: link.state === "live" && known.working,

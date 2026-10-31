@@ -624,10 +624,16 @@ has one hook and one view.
   and `Composer`; `powersOf(kind, state)` (in `dock.ts`) is the one place that
   says what a kind allows: a work thread has the composer, Archive and Continue,
   a pair, a run and a call are read-only. A work thread a teammate handed over
-  is read along: it is drawn like a pair, the brief said whole in the
-  opener's voice, with a bar naming the two of them and a way to the opener's
-  conversation, where it is steered; only its turn may be stopped. While its
-  teammate waits on the person, the bar is the one field they answer in. The
+  has the composer and Continue but no Archive, since only its result ends it:
+  the brief is said whole in the opener's voice, the person's own lines are
+  drawn as theirs, and a bar above the message box names who handed it over,
+  says when the handoff no longer stands (`handoffEnded` on its row or link),
+  and leads to the opener's conversation. While its teammate waits on the
+  person, the bar and the composer give way to the one field they answer in.
+  Whether a thread runs a turn is the word of the roster row of the teammate
+  whose agent it is (`turnRunning`), so a handoff open in its sender's pane goes
+  idle when the receiver's turn ends; a pair, which no roster row follows, is
+  the list's. The
   person's conversation with the teammate that took a handoff keeps one line
   for all the unfinished ones, not a link each (`handoffsUnderway`). A pair keeps its two named chairs
   (`speakers`) and sends `peers.mark_read` as it did; a handoff opened from its

@@ -1730,8 +1730,14 @@ out of `message_teammate` (`session/peers.rs`):
   and with the asides the teammate was left in the last day, heard or not,
   and opening each turn with the thread index. It closes with its answer, and
   leaves the main conversation a `note` aside, "Answered Ada for you: …", the
-  answer its turn ended on as plain words cut to 200 characters, heard at that conversation's next turn and never in the
-  person's chat. A teammate with no place for a thread (three live, every one
+  answer the asker was given, as plain words cut at a word to 200 characters:
+  of what the turn said after its last tool card, the first message that is
+  more than an opener ("On it.", "One sec, let me check."), without an
+  opener paragraph it starts with ("on it.\n\n…"), and read with the message
+  after it when it only leads into it ("Here's what I found:"), so
+  a remark it closed on is not taken for the answer
+  (`exchanges/asides.rs` `answer_of`). It is heard at that conversation's next
+  turn and never in the person's chat. A teammate with no place for a thread (three live, every one
   mid-turn) takes the question behind its main conversation's turn instead.
   An ask that names a handoff's thread (`thread`) is answered in that thread
   by the teammate doing the work, which stays open. A question a handed-over

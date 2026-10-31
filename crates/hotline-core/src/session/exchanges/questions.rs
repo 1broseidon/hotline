@@ -356,7 +356,8 @@ impl Room {
 
     /// The note a work thread leaves its teammate's main conversation once it
     /// has answered a question there on its behalf: who asked, and the answer
-    /// its turn ended on, in its own words, plain and short. Heard at that
+    /// its turn gave them (`asides::answer_of`), in its own words, plain and
+    /// cut at a word to `asides::GIST_CHARS`. Heard at that
     /// conversation's next turn; never said to the person.
     pub(super) fn answered_for_main(&self, request: &Request) {
         let Some(thread) = &request.thread else {

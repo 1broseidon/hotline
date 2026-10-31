@@ -1,4 +1,4 @@
-//! Text cut for showing.
+//! Text cut for showing, and the message of a turn that answers.
 
 /// How much of a string a transcript line keeps, with an ellipsis standing
 /// for the rest. A tool's title and a tool's output are cut the same way and
@@ -115,6 +115,83 @@ fn link(chars: &[char], open: usize) -> Option<(String, usize)> {
         .filter(|c| !matches!(c, '*' | '`' | '_'))
         .collect();
     Some((text, end + 1))
+}
+
+/// Of the messages a turn said once its work was done, the one that answers
+/// what it was asked: the first that is more than an opener ("On it.", "One
+/// sec, let me check."), without an opener's paragraph it starts with ("on
+/// it.\n\nThe port is 8080."), and read with the message after it when it
+/// only leads into it ("Here's what I found:"). A remark the turn closes on
+/// after its answer is not the answer. None when every message is an opener.
+pub fn answer<'a>(messages: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let messages: Vec<&str> = messages
+        .into_iter()
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .collect();
+    let at = messages.iter().position(|message| !opener(message))?;
+    let answer = match messages.get(at + 1) {
+        Some(next) if lead_in(messages[at]) => format!("{}\n\n{next}", messages[at]),
+        _ => messages[at].to_string(),
+    };
+    let paragraphs: Vec<&str> = answer
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|paragraph| !paragraph.is_empty())
+        .collect();
+    let from = paragraphs
+        .iter()
+        .position(|paragraph| !opener(paragraph))
+        .unwrap_or_default();
+    Some(paragraphs[from..].join("\n\n"))
+}
+
+/// What an opener's clauses start with: an acknowledgement, or a word that
+/// the turn is under way.
+const OPENING: [&str; 22] = [
+    "on it",
+    "one sec",
+    "one moment",
+    "just a sec",
+    "just a moment",
+    "give me a",
+    "hang on",
+    "hold on",
+    "let me",
+    "i'll",
+    "i will",
+    "checking",
+    "looking",
+    "pulling",
+    "working on it",
+    "will do",
+    "sure",
+    "ok",
+    "okay",
+    "alright",
+    "got it",
+    "right",
+];
+
+/// Whether a message only says the turn is under way: short, and every clause
+/// of it an acknowledgement or a word of what it is about to do.
+fn opener(message: &str) -> bool {
+    let said = message.trim().to_lowercase();
+    if said.chars().count() > 80 {
+        return false;
+    }
+    if said.ends_with('…') || said.ends_with("...") {
+        return true;
+    }
+    said.split(['.', ',', '!', ';', '—', '–'])
+        .map(str::trim)
+        .filter(|clause| !clause.is_empty())
+        .all(|clause| OPENING.iter().any(|opening| clause.starts_with(opening)))
+}
+
+/// Whether a message only leads into the next: short, and ending in a colon.
+fn lead_in(message: &str) -> bool {
+    message.chars().count() <= 80 && message.ends_with(':')
 }
 
 #[cfg(test)]

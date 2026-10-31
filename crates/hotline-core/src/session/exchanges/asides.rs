@@ -57,6 +57,20 @@ pub(super) fn last_message(driven: &Driven) -> String {
         .to_string()
 }
 
+/// What a turn answered a question with: of what it said once its last tool
+/// card was done, the message that answers (`text::answer`: the first more
+/// than an opener, since a remark it adds after the answer is not the
+/// answer); else its last message.
+pub(super) fn answer_of(driven: &Driven) -> String {
+    let said = if driven.last_words.is_empty() {
+        &driven.replies
+    } else {
+        &driven.last_words
+    };
+    hotline_room::text::answer(said.iter().map(String::as_str))
+        .unwrap_or_else(|| last_message(driven))
+}
+
 impl Request {
     /// What came of a request as an aside or a quiet line says it: the
     /// answer its turn ended on, else its whole reply, in plain words and

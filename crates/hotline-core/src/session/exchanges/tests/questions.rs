@@ -289,6 +289,145 @@ async fn a_busy_main_conversation_is_answered_for_by_a_seeded_work_thread_that_a
     .await;
 }
 
+/// The aside a work thread leaves after answering for a busy main
+/// conversation carries the answer the asker was given, even when the turn
+/// opened with "On it.", used a tool, and closed on a side remark: the
+/// first message after its openers and its last tool card, plain and short.
+/// An opener in the answer's own first paragraph ("on it.\n\nQA build 4417.")
+/// is left out too.
+#[tokio::test]
+async fn the_answered_aside_carries_the_answer_and_not_a_remark_after_it() {
+    let log = scratch("ask-busy-answer");
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let gate = Arc::new(Semaphore::new(0));
+    let main = Fake::new(
+        Scripted::turns(vec![turn("person", "Done for the person.", "end_turn")])
+            .gated(gate.clone()),
+    );
+    let said = |id: &str, text: &str| Update::Message {
+        kind: MessageKind::Agent,
+        id: id.into(),
+        text: text.into(),
+    };
+    let work = Fake::new(Scripted::new(vec![
+        said("open", "On it."),
+        Update::ToolCall {
+            call_id: "c1".into(),
+            title: "react".into(),
+            kind: "other".into(),
+        },
+        Update::ToolResult {
+            call_id: "c1".into(),
+            ok: false,
+            output: "There is no message from the person to react to.".into(),
+            images: Vec::new(),
+        },
+        said(
+            "answer",
+            "QA build for 0.46 is **4417**. That's the one I noted for the release docs.",
+        ),
+        said(
+            "rest",
+            "On the rest: I only have the number, not the sign-off state or blockers.",
+        ),
+        said(
+            "remark",
+            "One thing worth checking before we ship anything: the plugin-design doc doesn't reference a build number.",
+        ),
+        Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        },
+    ]));
+    let others = Fake::new(Scripted::new(turn("heard", "Noted.", "end_turn")));
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Arc::new(ByThread {
+            main: main.clone(),
+            work,
+            others,
+        }),
+    );
+    room.start("bob").await.unwrap();
+    room.prompt("bob", "the person's work", None, None)
+        .await
+        .unwrap();
+    until("Bob's main conversation is busy", || {
+        main.prompts().len() == 1 && room.mid_turn("bob")
+    })
+    .await;
+
+    let id = send(&room, "ask").await;
+    done(&room, &id).await;
+    let reply = answer_to(&room, &id).expect("the answer reaches Ada")["text"].clone();
+    assert!(
+        reply
+            .as_str()
+            .is_some_and(|reply| reply.contains("plugin-design")),
+        "Ada is given the whole reply: {reply}"
+    );
+    let aside = crate::store::asides::of(&room.log, "bob")
+        .into_iter()
+        .find(|aside| aside.id == format!("answered:{id}"))
+        .expect("the main conversation is left an aside");
+    assert_eq!(
+        aside.text,
+        "Answered Ada for you: QA build for 0.46 is 4417. That's the one I noted for the release docs."
+    );
+    gate.add_permits(10);
+}
+
+#[test]
+fn an_answer_is_the_first_message_past_the_openers_after_the_last_tool() {
+    let driven = |replies: &[&str], last_words: &[&str]| crate::session::runner::Driven {
+        replies: replies.iter().map(ToString::to_string).collect(),
+        last_words: last_words.iter().map(ToString::to_string).collect(),
+        ..Default::default()
+    };
+    let cases = [
+        (
+            driven(&["On it.", "The port is 8080.", "Anything else?"], &[]),
+            "The port is 8080.",
+        ),
+        (
+            driven(
+                &[
+                    "Let me check the notes first.",
+                    "Here's what I found:",
+                    "It is 8080.",
+                ],
+                &["Here's what I found:", "It is 8080."],
+            ),
+            "Here's what I found:\n\nIt is 8080.",
+        ),
+        (
+            driven(
+                &[
+                    "on it.",
+                    "Updated. The plan now reads:\n\n1. Freeze\n2. Tag",
+                ],
+                &[],
+            ),
+            "Updated. The plan now reads:\n\n1. Freeze\n2. Tag",
+        ),
+        (
+            driven(&["One sec, let me look.", "Sure, it's 8080."], &[]),
+            "Sure, it's 8080.",
+        ),
+        (
+            driven(&["On it. The port is 8080."], &[]),
+            "On it. The port is 8080.",
+        ),
+        (driven(&["on it.\n\nQA build 4417."], &[]), "QA build 4417."),
+        (driven(&["On it.", "Let me check."], &[]), "Let me check."),
+    ];
+    for (driven, answer) in cases {
+        assert_eq!(answer_of(&driven), answer, "{:?}", driven.replies);
+    }
+}
+
 /// While Bob's main conversation answers a colleague, what the person says
 /// to Bob is not steered into that turn, whose whole reply goes to the
 /// asker: it waits, and is answered on a turn of its own.

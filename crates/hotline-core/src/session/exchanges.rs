@@ -84,6 +84,24 @@ struct Request {
     /// handoff that opened it, which is the thread's name to its sender.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     continues: Option<String>,
+    /// For a handoff: it no longer stands, whatever its phase. Stop
+    /// exchange, a revocation or the end of the link released it, and its
+    /// thread's link says so (`handoffEnded`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    released: bool,
+}
+impl Request {
+    /// Ends a handoff's standing, and says whether that changed it. Its
+    /// thread goes in `ended`, whose link says so once the pair is saved
+    /// ([`Room::mark_handoffs`]).
+    fn release(&mut self, ended: &mut Vec<String>) -> bool {
+        if self.intent != Intent::Handoff || self.released {
+            return false;
+        }
+        self.released = true;
+        ended.extend(self.thread.clone());
+        true
+    }
 }
 /// What a teammate sends a colleague, as `message_teammate` takes it.
 pub(crate) struct Outgoing<'a> {
@@ -327,6 +345,7 @@ impl Room {
                     _ => None,
                 },
                 continues: continues.clone(),
+                released: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(id.clone(), leases);
@@ -355,9 +374,11 @@ impl Room {
         let mut pair = self
             .exchange_pair(&key)
             .ok_or("There is no exchange for this pair")?;
+        let mut ended = Vec::new();
         if stop {
             let mut stopped = Vec::new();
             for request in &mut pair.requests {
+                request.release(&mut ended);
                 if Self::exchange_pending(request) {
                     self.cancel_handoff(request);
                     request.phase = Phase::Stopped;
@@ -372,6 +393,7 @@ impl Room {
         pair.exchanges = 0;
         pair.paused = false;
         self.save_pair(&pair)?;
+        self.mark_handoffs(&ended);
         self.exchange_card(
             &pair,
             if stop {
@@ -1256,6 +1278,7 @@ impl Room {
                 returned: false,
                 lead_call: None,
                 continues,
+                released: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
@@ -1309,13 +1332,14 @@ impl Room {
     pub(super) fn stop_linked_exchanges(&self, desk_id: &str, desk_name: &str) {
         let theirs = |id: &str| linked::split(id).is_some_and(|(desk, _)| desk == desk_id);
         let _guard = lock(&self.exchange_lock);
-        let mut stopped = Vec::new();
+        let (mut stopped, mut ended) = (Vec::new(), Vec::new());
         for mut pair in self.exchange_pairs() {
             if !theirs(&pair.a) && !theirs(&pair.b) {
                 continue;
             }
             let mut changed = false;
             for request in &mut pair.requests {
+                changed |= request.release(&mut ended);
                 if !Self::exchange_pending(request) {
                     continue;
                 }
@@ -1340,6 +1364,7 @@ impl Room {
                 eprintln!("unlink exchange: {error}");
             }
         }
+        self.mark_handoffs(&ended);
         self.exchange_notices(&stopped);
     }
 

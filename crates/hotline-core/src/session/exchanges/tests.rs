@@ -91,6 +91,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         returned: false,
         lead_call: None,
         continues: None,
+        released: false,
     }
 }
 /// A handoff from `from` to `to`, into the thread `thread` names when it does.

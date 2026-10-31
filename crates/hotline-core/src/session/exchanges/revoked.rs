@@ -12,16 +12,22 @@ impl Room {
     /// revocation it did not see.
     pub(super) fn stop_revoked_exchanges(&self, persona: Option<&str>) {
         let _guard = lock(&self.exchange_lock);
-        let mut stopped = Vec::new();
+        let (mut stopped, mut ended) = (Vec::new(), Vec::new());
         for mut pair in self.exchange_pairs() {
+            let ours = persona.is_some_and(|id| pair.a == id || pair.b == id);
             let mut changed = false;
             for request in &mut pair.requests {
+                // A revocation ends the standing of every handoff between the
+                // two, finished or not; the sweep only what it stops.
+                if ours {
+                    changed |= request.release(&mut ended);
+                }
                 if !Self::exchange_pending(request)
-                    || (!persona.is_some_and(|id| pair.a == id || pair.b == id)
-                        && self.exchange_lease_current(&request.id))
+                    || (!ours && self.exchange_lease_current(&request.id))
                 {
                     continue;
                 }
+                request.release(&mut ended);
                 self.cancel_handoff(request);
                 request.phase = Phase::Stopped;
                 request.failed = true;
@@ -34,6 +40,7 @@ impl Room {
             }
             self.wake_owed(&pair);
         }
+        self.mark_handoffs(&ended);
         self.exchange_notices(&stopped);
     }
 }

@@ -216,3 +216,113 @@ async fn the_persons_line_in_a_handed_over_thread_never_reaches_its_opener() {
         "the person's line is theirs in the thread"
     );
 }
+
+/// Whether a handed-over thread's link says its handoff no longer stands: on
+/// the thread itself, on Bob's tape, and on Ada's copy.
+fn says_ended(room: &Room, thread: &str) -> [bool; 3] {
+    let id = format!("link:side:{thread}");
+    let on = |tape: Vec<serde_json::Value>, id: &str| {
+        tape.iter()
+            .rev()
+            .find(|v| v["id"] == id)
+            .is_some_and(|v| v["handoffEnded"] == true)
+    };
+    [
+        room.link_of(&ThreadId::side(thread))
+            .is_some_and(|link| link.handoff_ended),
+        on(room.tape("bob"), &id),
+        on(room.tape("ada"), &format!("{id}@ada")),
+    ]
+}
+
+/// A handed-over thread's link says its handoff ended when, and only when,
+/// Stop exchange, a revocation or an unlink ends it: not while it stands, a
+/// finished handoff the person goes on with included, and no more once a new
+/// handoff into it stands.
+#[tokio::test]
+async fn a_threads_link_says_its_handoff_ended_when_and_only_when_it_does() {
+    let (room, _) = setup("link-says-ended");
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = send(&room, "handoff").await;
+    done(&room, &handoff).await;
+    let thread = work_thread(&room, &handoff);
+    assert_eq!(says_ended(&room, &thread), [false; 3], "done, it stands");
+
+    room.continue_side(&thread).await.unwrap();
+    room.prompt_side(&thread, "and the date?", None)
+        .await
+        .unwrap();
+    until("the person's turn is over", || {
+        said_in(&room, &thread)
+            .iter()
+            .filter(|v| v["kind"] == "agent")
+            .count()
+            == 2
+            && room.sides("bob").iter().all(|side| !side.working)
+    })
+    .await;
+    assert_eq!(
+        says_ended(&room, &thread),
+        [false; 3],
+        "continued, it stands"
+    );
+
+    room.stop_exchange("ada", "bob").unwrap();
+    assert_eq!(
+        says_ended(&room, &thread),
+        [true; 3],
+        "said in the live thread"
+    );
+    room.park_side_thread(&thread).unwrap();
+    assert_eq!(
+        says_ended(&room, &thread),
+        [true; 3],
+        "and kept as it parks"
+    );
+    let listed = room.handoff_threads_for("ada", "bob");
+    assert!(listed.is_empty(), "{listed:?}");
+
+    room.resume_exchange("ada", "bob").unwrap();
+    let again = hand_off(&room, "ada", "bob", "Work again.", Some(&handoff))
+        .await
+        .unwrap();
+    let again = again["requestId"].as_str().unwrap().to_string();
+    done(&room, &again).await;
+    assert_eq!(work_thread(&room, &again), thread);
+    assert_eq!(
+        says_ended(&room, &thread),
+        [false; 3],
+        "a new handoff stands"
+    );
+}
+
+/// A revocation, or the person's Stop exchange on the pair, ends the standing
+/// of every handoff between the two, finished or not; an ask has none.
+#[test]
+fn only_a_handoff_is_released_and_once() {
+    let mut handoff = saved_request("handoff", Intent::Handoff, Phase::Done);
+    handoff.thread = Some("t1".into());
+    let mut ask = saved_request("ask", Intent::Ask, Phase::Done);
+    ask.thread = Some("t2".into());
+    let mut ended = Vec::new();
+    assert!(handoff.release(&mut ended));
+    assert!(!handoff.release(&mut ended), "it is released once");
+    assert!(!ask.release(&mut ended));
+    assert!(handoff.released && !ask.released);
+    assert_eq!(ended, ["t1"], "its thread's link is to say so");
+    let saved = serde_json::to_value(&ask).unwrap();
+    assert!(saved.get("released").is_none(), "{saved}");
+}
+
+/// A revocation that touches either teammate ends the standing of a finished
+/// handoff between them, and its thread's link says so.
+#[tokio::test]
+async fn a_revocation_ends_a_finished_handoffs_standing() {
+    let (room, _) = setup("revocation-ends-standing");
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = send(&room, "handoff").await;
+    done(&room, &handoff).await;
+    let thread = work_thread(&room, &handoff);
+    room.revoke_exchanges("ada");
+    assert_eq!(says_ended(&room, &thread), [true; 3]);
+}

@@ -557,6 +557,7 @@ mod tests {
             binding: None,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
             log.append(&tape, &link.event()).unwrap();
@@ -742,6 +743,7 @@ mod tests {
             binding: None,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
         };
         let tape = StreamId::Tape("ada".into());
         let stream = StreamId::of_thread(&call).unwrap();
@@ -805,6 +807,7 @@ mod tests {
                 persona_id: "ada".into(),
                 name: "Ada".into(),
             }),
+            handoff_ended: false,
         };
         let mut copy = live.event();
         copy["id"] = format!("{}@ada", live.id).into();

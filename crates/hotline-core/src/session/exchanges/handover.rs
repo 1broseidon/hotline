@@ -108,6 +108,8 @@ impl Room {
         };
         let side_id = thread.unwrap_or_else(new_id);
         self.set_handoff_thread(key, &request.id, &side_id)?;
+        // A handoff stands again in a thread whose earlier one was released.
+        self.mark_handoffs(std::slice::from_ref(&side_id));
         // A thread that has run before comes back with what was said in it.
         // One the last process left live was parked when this room was
         // built (`Room::settle`), before any request is taken up.

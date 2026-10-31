@@ -75,8 +75,20 @@ impl Pair {
 }
 
 impl Room {
-    /// The work threads `from`'s handoffs to `to` run in and that were not
-    /// stopped, oldest first, each by the name a later handoff passes as
+    /// Whether the handoff a thread serves no longer stands: the latest one
+    /// handed into it was released or stopped. What the thread's link says,
+    /// and so what the window shows.
+    pub(in crate::session) fn handoff_ended(&self, side_id: &str) -> bool {
+        self.exchange_pairs()
+            .iter()
+            .flat_map(|pair| &pair.requests)
+            .rev()
+            .find(|r| r.intent == Intent::Handoff && r.thread.as_deref() == Some(side_id))
+            .is_some_and(|r| r.released || r.phase == Phase::Stopped)
+    }
+
+    /// The work threads `from`'s handoffs to `to` run in and whose handoff
+    /// still stands, oldest first, each by the name a later handoff passes as
     /// `thread`: what `list_teammates` tells `from` it can continue.
     pub(crate) fn handoff_threads_for(&self, from: &str, to: &str) -> Vec<serde_json::Value> {
         let Some(pair) = thread_key(from, to).and_then(|key| self.exchange_pair(&key)) else {
@@ -93,7 +105,7 @@ impl Room {
                 continue;
             }
             named.push(name.clone());
-            if r.phase == Phase::Stopped {
+            if r.released || r.phase == Phase::Stopped {
                 continue;
             }
             threads.push(json!({

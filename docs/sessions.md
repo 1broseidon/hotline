@@ -1422,6 +1422,18 @@ its note (files are refused), and the turn it starts carries the handoff on;
 once the handoff has ended, a card left open is answered on its own and the
 words are a line.
 
+A handoff **stands** from when it is sent until Stop exchange on the pair, a
+revocation that touches either teammate, or the end of the link to the other
+desk releases it (`released` on the request, written by `Request::release`),
+whether or not its result is back; one stopped before its result has ended
+too. The thread's link then says so (`handoffEnded`, written by
+`Room::mark_handoffs` once the pair is saved), as every later rewrite of it
+does while the latest handoff into the thread is released or stopped
+(`Room::handoff_ended`); a new handoff into it stands, and its link says so no
+more. `list_teammates` offers a sender only the threads whose handoff stands.
+The window reads only the link: the thread's bar says the handoff has ended,
+and the receiver's conversation leaves it out of the handoffs it is working on.
+
 The existing collaboration card now explains both intents. A legacy grant
 still permits Ask but needs informed approval before Handoff. Revocation
 stops queued work and the affected exchange without cancelling unrelated

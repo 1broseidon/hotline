@@ -1110,6 +1110,12 @@ intents, pause the pair. Receipts do not count. Queued requests and completed
 results wait without loss. The person's Keep going resets the counter; Stop
 exchange settles outstanding work and writes an explicit notice. Hearing from
 the person also resets the pair. These actions do not create new grants.
+A handoff stands until Stop exchange, a revocation or an unlink releases it,
+its result back or not, and its thread's link says when it no longer does
+(`handoffEnded`): the window shows only that, never inferring it. The request's
+`released` and the link's `handoffEnded` are optional and left out while
+false, so a record or a link without them, the reference tree's included, is a
+handoff that stands, and the segment layout and the importer are unchanged.
 
 The queue is not single file. Each time the pair is looked at, every request
 goes as far as it can, so a handoff at work in its thread, or one waiting on

@@ -2,7 +2,8 @@
 //! ends a handoff for good and tells its sender once, by a note aside that
 //! wakes nothing; Interrupt only cuts the turn, and the person's next line
 //! carries the work on. An answer either cuts fails to its asker in the
-//! person's own words, and only Stop says not to ask again.
+//! person's own words, and only Stop says not to ask again. A sender's
+//! follow-up into its running handoff steers it.
 
 use super::handed_over::says_ended;
 use super::questions::{answer_to, request, turn};
@@ -387,6 +388,162 @@ async fn the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_car
     assert_eq!(
         room.link_of(&ThreadId::side(&thread)).unwrap().state,
         ThreadState::Closed(End::Agent)
+    );
+}
+
+/// The requests of Ada's that have come back to her, by id.
+fn results(room: &Room, ids: &[&str]) -> Vec<String> {
+    room.tape("ada")
+        .into_iter()
+        .filter(|v| v["kind"] == "delivery")
+        .filter_map(|v| v["cause"]["requestId"].as_str().map(str::to_string))
+        .filter(|id| ids.contains(&id.as_str()))
+        .collect()
+}
+
+/// Ada's change, sent into the thread while Bob's turn on her handoff runs,
+/// steers it: the turn is cut as an Interrupt cuts it, and the next turn is
+/// the change, told what the cut turn had said, carrying the same work on.
+/// Ada hears one result, the change's, and no note of the cut pass; the
+/// handoff it took over is settled without one, and the thread closes.
+#[tokio::test]
+async fn a_follow_up_into_a_running_handoff_steers_it_and_its_sender_hears_one_result() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let bob = Fake::new(
+        Scripted::turns(vec![
+            turn(
+                "first",
+                "Writing it with winter hours from 1 December.",
+                "end_turn",
+            ),
+            turn(
+                "second",
+                "Saved, with winter hours from 15 December.",
+                "end_turn",
+            ),
+        ])
+        .on_cancel(cancelled())
+        .gated(gate.clone()),
+    );
+    let room = apart("a-follow-up-steers", &bob, &ada);
+    room.start("ada").await.unwrap();
+    let first = hand_off(&room, "ada", "bob", "Write the winter-hours notice.", None)
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let thread = work_thread(&room, &first);
+    gate.add_permits(1);
+    until("bob has said what he is doing", || {
+        said(
+            &room,
+            &thread,
+            "Writing it with winter hours from 1 December.",
+        )
+    })
+    .await;
+
+    let change = "One change: winter hours start 15 December.";
+    let follow_up = hand_off(&room, "ada", "bob", change, Some(&first))
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("the change's turn has begun", || bob.prompts().len() == 2).await;
+    assert_eq!(bob.cancel_count(), 1, "the turn in flight was cut");
+    let told = &bob.told()[1];
+    assert!(
+        told.contains("Your last turn here was cut for the line below"),
+        "{told}"
+    );
+    assert!(
+        told.contains("That turn had said: \"Writing it with winter hours from 1 December.\""),
+        "{told}"
+    );
+    assert!(told.contains(change), "{told}");
+    gate.add_permits(2);
+    done(&room, &follow_up).await;
+
+    assert_eq!(
+        results(&room, &[&first, &follow_up]),
+        std::slice::from_ref(&follow_up),
+        "one result, the change's"
+    );
+    assert_eq!(
+        answer_to(&room, &follow_up).unwrap()["text"],
+        "Saved, with winter hours from 15 December."
+    );
+    let taken_over = request(&room, "ada~bob", &first);
+    assert_eq!(
+        (
+            taken_over.phase,
+            taken_over.result_consumed,
+            taken_over.failed
+        ),
+        (Phase::Done, true, false)
+    );
+    assert!(
+        crate::store::asides::of(&room.log, "ada")
+            .iter()
+            .all(|aside| !aside.text.contains("1 December")),
+        "nothing of the cut pass reaches ada"
+    );
+    until("the result closes the thread", || {
+        !room.work_is_open(&thread)
+    })
+    .await;
+    assert_eq!(
+        room.link_of(&ThreadId::side(&thread)).unwrap().state,
+        ThreadState::Closed(End::Agent)
+    );
+}
+
+/// A follow-up into a thread whose turn is not running cuts nothing: the
+/// first turn ran to its own end and result, and the follow-up runs as its
+/// own turn, with its own result, as before.
+#[tokio::test]
+async fn a_follow_up_into_an_idle_thread_interrupts_nothing() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let bob = Fake::new(Scripted::turns(vec![
+        turn("first", "Written, from 1 December.", "end_turn"),
+        turn("second", "Changed to 15 December.", "end_turn"),
+    ]));
+    let room = apart("an-idle-follow-up", &bob, &ada);
+    room.start("ada").await.unwrap();
+    let first = hand_off(&room, "ada", "bob", "Write the winter-hours notice.", None)
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    done(&room, &first).await;
+    let thread = work_thread(&room, &first);
+    until("bob's turn is over", || {
+        !room.work_thread_working(&ThreadId::side(&thread))
+    })
+    .await;
+
+    let follow_up = hand_off(&room, "ada", "bob", "Make it 15 December.", Some(&first))
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    done(&room, &follow_up).await;
+    assert!(!bob.told()[1].contains("was cut"), "{}", bob.told()[1]);
+    assert!(bob.prompts()[1].starts_with("Ada handed work to you (\"Make it 15 December.\")"));
+    assert_eq!(
+        results(&room, &[&first, &follow_up]),
+        [first.clone(), follow_up.clone()]
+    );
+    assert_eq!(
+        answer_to(&room, &first).unwrap()["text"],
+        "Written, from 1 December.",
+        "the first turn ran to its own end"
     );
 }
 

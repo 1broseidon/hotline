@@ -21,7 +21,7 @@ use questions::Route;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
-pub(super) use stops::{Cut, cut_short};
+pub(super) use stops::{Cut, Steer, cut_short, steered_text};
 
 pub(crate) const EXCHANGE_CAP: i64 = 12;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

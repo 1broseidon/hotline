@@ -433,7 +433,8 @@ Where this differs from the design above:
   marker with title, state and outcome.
 - **Result.** When the handoff turn ends and no human gate is open, the thread
   closes (`End::Agent` or `End::Failed`), unless a follow-up handoff is already
-  waiting in it (see [sessions.md](sessions.md)), and the result is delivered to the
+  waiting in it (see [sessions.md](sessions.md); one from the same sender
+  while the turn runs steers it, and the two end in one result), and the result is delivered to the
   sender's DM, or to the sender's work thread when it was sent from one
   (`reply_thread`), from the work thread (`delivery_source`). The `handoff:` and
   `exchange-result:` ids are only idempotency keys; the turn loop reads

@@ -16,6 +16,17 @@
 //! conversation has no thread to carry an answer on, and the person's next
 //! line must never become a colleague's answer, so there an Interrupt ends
 //! the answer it cut with neutral words, to be asked again if still needed.
+//!
+//! A follow-up steers. A colleague's handoff into a work thread
+//! (`message_teammate` naming it) while the thread's turn does another of
+//! that colleague's handoffs cuts the turn as an Interrupt does, so that
+//! handoff stays standing, and the follow-up, queued behind it, runs next,
+//! told what the cut turn had said, and carries the same work on with the
+//! change. A handoff the follow-up's turn takes over from the same sender is
+//! settled without a result of its own ([`Room::fold_carried`]), so the
+//! sender hears one result for the whole of it. The person's line said there
+//! meanwhile still waits: it is theirs, and a turn it carried a handoff on in
+//! would make their answer the colleague's result.
 
 use super::*;
 use crate::contract::{Aside, AsideLevel, AsideSource};
@@ -39,6 +50,41 @@ pub(in crate::session) fn cut_short(driven: &Driven) -> bool {
             driven.stop_reason.as_deref(),
             Some("cancelled" | "canceled" | "aborted")
         )
+}
+
+/// A work thread's turn cut by a follow-up, from the cut to the turn that
+/// carries the work on.
+#[derive(Debug, Default)]
+pub(in crate::session) enum Steer {
+    #[default]
+    None,
+    /// A follow-up cut the turn in flight.
+    Cutting,
+    /// The cut turn has ended, having said this.
+    Said(String),
+}
+
+/// The most of a cut turn's words the follow-up's turn is told.
+const CUT_WORDS_CHARS: usize = 600;
+
+/// The line of the turn that carries steered work on, its words opening
+/// with a word that its last turn was cut for them and what that turn had
+/// said, after the time the line was said.
+pub(in crate::session) fn steered_text(said: &str, line: &str) -> String {
+    let said = crate::driver::clip(said.trim(), CUT_WORDS_CHARS);
+    let cut = "(Your last turn here was cut for the line below, which came while you worked: carry the same work on with it applied, from where you were.";
+    let note = if said.is_empty() {
+        format!("{cut})")
+    } else {
+        format!("{cut} That turn had said: \"{said}\")")
+    };
+    match line
+        .strip_prefix('[')
+        .and_then(|rest| rest.split_once("] "))
+    {
+        Some((stamp, words)) => format!("[{stamp}] {note}\n\n{words}"),
+        None => format!("{note}\n\n{line}"),
+    }
 }
 
 /// What a request's turn that ended without its result says after whatever
@@ -206,6 +252,48 @@ impl Room {
             })
             .map(|r| r.id)
             .collect()
+    }
+
+    /// Who sent `id`, when it is a handoff from this desk still at work:
+    /// whose follow-up steers its turn. A linked desk's sender is owed a
+    /// result for each handoff it sent, so its follow-ups wait as before.
+    pub(in crate::session) fn handoff_sender(&self, id: &str) -> Option<String> {
+        self.exchange_pairs()
+            .into_iter()
+            .flat_map(|pair| pair.requests)
+            .find(|r| r.id == id && r.intent == Intent::Handoff && r.phase == Phase::Running)
+            .map(|r| r.from)
+            .filter(|from| !linked::is_linked(from))
+    }
+
+    /// Settles each handoff `side_id` carries from the sender of `into`, the
+    /// follow-up whose turn is beginning there, as carried on by it: done,
+    /// with its result consumed, so it is never delivered and the follow-up's
+    /// result is the one its sender hears.
+    pub(in crate::session) fn fold_carried(&self, side_id: &str, into: &str) {
+        let Some(sender) = self.handoff_sender(into) else {
+            return;
+        };
+        let carried = self.carried_into(side_id, Some(into));
+        if carried.is_empty() {
+            return;
+        }
+        let _guard = lock(&self.exchange_lock);
+        for mut pair in self.exchange_pairs() {
+            let mut folded = false;
+            for r in pair.requests.iter_mut().filter(|r| {
+                carried.contains(&r.id) && r.from == sender && r.intent == Intent::Handoff
+            }) {
+                r.phase = Phase::Done;
+                r.reply = format!("Carried on by the follow-up {into}.");
+                r.answer.clear();
+                r.result_consumed = true;
+                folded = true;
+            }
+            if folded && let Err(error) = self.save_pair(&pair) {
+                eprintln!("settle a handoff its follow-up carried on: {error}");
+            }
+        }
     }
 
     /// A thread that closed before the person's next line came has no turn

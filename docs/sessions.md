@@ -1566,6 +1566,25 @@ it still carries another. The person's Stop ends what it carries, as above;
 a close ends it as a turn that ended without a result, and the person's End
 thread as theirs. A restart settles it as any started request.
 
+**A follow-up steers** (`Room::steer_work`, `exchanges/stops.rs`). A
+colleague's handoff into a work thread (`message_teammate` with `thread`)
+while the thread's turn does another of that colleague's handoffs cuts the
+turn as the person's Interrupt does, after the follow-up is queued behind it:
+the handoff it was doing stays standing and carried, its sender is left no
+note of the cut pass, and the follow-up's turn runs next, its line opening
+"(Your last turn here was cut for the line below … That turn had said: "…")"
+after its time (`steered_text`, at most 600 characters of what the cut turn
+had said), so the agent carries the same work on with the change applied.
+As that turn begins, each handoff the thread carries from the same sender is
+settled as carried on by it (`Room::fold_carried`: done, its result consumed,
+never delivered), so the sender hears one result, the follow-up's, and the
+thread closes on it. A follow-up into a thread with no turn running, or one
+whose turn does someone else's work, waits as any line does, and so does
+the person's line: it is theirs, and steering would make their answer the
+colleague's result. A linked desk's sender is owed a result per handoff, so
+its follow-ups wait too. A cut that lands after the turn ended on its own
+changes nothing, and both results are delivered as before.
+
 **An answer cut by either.** A turn answering a colleague's question that
 the person's Stop or Interrupt cuts fails the question to its asker, as any
 failed answer reaches it ([Peer threads](#peer-threads)), with what the turn

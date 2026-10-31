@@ -1,5 +1,6 @@
 //! Typed input and live-call work enter the same thread occupant.
 use super::*;
+use crate::session::exchanges::steered_text;
 
 impl Room {
     /// Says something in a side thread. Returns at once: the turn runs on its
@@ -172,6 +173,33 @@ impl Room {
         Ok(())
     }
 
+    /// A colleague's follow-up into `side` (`follow_up`, the request of
+    /// `from`) steers the turn in flight when that turn does another of that
+    /// colleague's handoffs: the turn is cut as the person's Interrupt cuts
+    /// it, so the handoff stays standing, and the follow-up, already queued
+    /// behind it, carries the work on (`exchanges/stops.rs`). Any other line
+    /// waits for the turn to end; the person's own line among them, which is
+    /// theirs and never becomes a colleague's result.
+    pub(in crate::session) fn steer_work(&self, side: &LiveSide, from: &str, follow_up: &str) {
+        let Some(doing) = side.request().filter(|doing| doing != follow_up) else {
+            return;
+        };
+        if self.handoff_sender(&doing).as_deref() != Some(from) {
+            return;
+        }
+        // The person's own Stop or Interrupt of the turn stands.
+        let mut cut = lock(&side.cut);
+        if cut.is_some() {
+            return;
+        }
+        *cut = Some(Cut::Interrupt);
+        drop(cut);
+        *lock(&side.steer) = Steer::Cutting;
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
+    }
+
     /// The person's Interrupt (and Esc) in a work thread: only the turn in
     /// flight is cut, and what waited behind it is heard next. A colleague's
     /// handoff or question the turn was answering goes on in the turn the
@@ -183,5 +211,25 @@ impl Room {
             driver.cancel();
         }
         Ok(())
+    }
+}
+
+impl LiveSide {
+    /// Whether the turn that ended so was cut by a follow-up: then what it
+    /// had said is kept for the follow-up's turn.
+    pub(super) fn steered(&self, driven: &Driven) -> bool {
+        let mut steer = lock(&self.steer);
+        if !matches!(*steer, Steer::Cutting) {
+            return false;
+        }
+        *steer = Steer::Said(driven.replies.join("\n\n"));
+        true
+    }
+
+    /// The turn after one a follow-up cut opens with what that turn had said.
+    pub(super) fn tell_steered(&self, line: &mut Line) {
+        if let Steer::Said(said) = std::mem::take(&mut *lock(&self.steer)) {
+            line.text = steered_text(&said, &line.text);
+        }
     }
 }

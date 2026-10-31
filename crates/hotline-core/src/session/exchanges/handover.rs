@@ -162,6 +162,12 @@ impl Room {
         if let Some(launch) = launch {
             self.launch(launch);
         }
+        // A follow-up into a thread at work on its sender's handoff steers it.
+        if delivered.is_ok()
+            && let Some(side) = self.sides.get(&side_id)
+        {
+            self.steer_work(&side, &request.from, &request.id);
+        }
         delivered
     }
 }

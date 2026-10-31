@@ -59,7 +59,7 @@
 //! folder is shared, and it is told that too.
 
 use super::agent::{Opening, lease_of};
-use super::exchanges::{Cut, Finished, cut_short};
+use super::exchanges::{Cut, Finished, Steer, cut_short};
 use super::runner::Driven;
 use super::turns::{Begin, Line, Occupant, RequestLine, Seat, Then, Turns};
 use super::{Room, lock, new_id, now_ms, timed_from};
@@ -113,6 +113,9 @@ pub(super) struct LiveSide {
     /// The person's Stop or Interrupt of the turn in flight, which decides
     /// what becomes of the request it was answering.
     cut: Mutex<Option<Cut>>,
+    /// A follow-up's cut of the turn in flight, and then what that turn had
+    /// said, for the turn that carries its work on (`exchanges/stops.rs`).
+    steer: Mutex<Steer>,
     /// The agent, once it is up. The thread is published before its agent is
     /// built, because starting one takes seconds, so until this is set the
     /// thread is starting: lines said in it wait in `turns`, and there is
@@ -292,6 +295,7 @@ impl Occupant for LiveSide {
                 return Begin::Skip;
             }
             *lock(&self.request) = Some(request.request.clone());
+            room.fold_carried(&self.id, &request.request);
         }
         if let Some(id) = &line.delivery {
             self.heard(room, id);
@@ -323,6 +327,7 @@ impl Occupant for LiveSide {
         {
             *lock(&self.request) = Some(carried);
         }
+        self.tell_steered(&mut line);
         if let Some(index) =
             room.thread_index(&self.persona_id, &self.thread, &asides, Some(&self.indexed))
         {
@@ -397,8 +402,11 @@ impl Occupant for LiveSide {
             // Cut for the person to say something: what the turn was doing
             // stays running on its record, held by no turn, and goes on in
             // the turn their line starts. Its sender is left a note of what
-            // the cut turn had said, as of any turn that is not the result.
-            room.note_turn(&side.id, false, &driven);
+            // the cut turn had said, as of any turn that is not the result;
+            // cut for a follow-up, it is that follow-up's turn that is told.
+            if !side.steered(&driven) {
+                room.note_turn(&side.id, false, &driven);
+            }
         } else if let Some(request) = request {
             // A handoff's result is what the teammate said when it was done.
             // The thread closes with it unless the turn stopped to wait for
@@ -775,6 +783,7 @@ impl Room {
             asked_in: start.asked,
             request: Mutex::new(None),
             cut: Mutex::new(None),
+            steer: Mutex::new(Steer::None),
             backend_id: persona.backend_id.clone(),
             up: OnceLock::new(),
             capability: lease,

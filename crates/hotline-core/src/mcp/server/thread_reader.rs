@@ -9,11 +9,15 @@ pub(super) fn read(room: &Room, persona: &str, args: &Value) -> Result<Value, St
     let key = args["thread"]
         .as_str()
         .ok_or("read_thread needs a thread key.")?;
-    let (kind, id) = key
-        .split_once(':')
-        .ok_or("Use a thread key such as call:<id>.")?;
-    let kind = ThreadKind::parse(kind).ok_or("Unknown thread kind.")?;
-    let thread = ThreadId::new(kind, id);
+    if !key.contains(':') {
+        return Err("Use a thread key such as call:<id>.".into());
+    }
+    // The full key, or the short one the index shows.
+    let thread = room
+        .thread_named(persona, key)
+        .ok_or("No such thread of yours.")?;
+    let kind = thread.kind;
+    let id = thread.key.as_str();
     let found = ThreadStore::new(room.log())
         .load(&thread)
         .ok_or("No such thread of yours.")?;

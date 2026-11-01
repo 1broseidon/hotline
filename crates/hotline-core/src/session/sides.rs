@@ -145,7 +145,7 @@ pub(super) struct LiveSide {
     /// they cannot reopen until a prompt has committed.
     saved: Mutex<Option<String>>,
     /// The thread index this agent was last told (`session/index.rs`).
-    indexed: Mutex<Option<u64>>,
+    indexed: super::index::Seen,
 }
 
 /// What a thread holds once its agent is up.

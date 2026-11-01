@@ -481,7 +481,14 @@ fn the_block_says_who_where_and_fences_their_words_as_data() {
     };
     let block = render(&[("Ada".into(), &note), ("hotline repo".into(), &inbound)]);
     assert!(block.contains("Ada, in pair:ada~bob (nudge): "), "{block}");
-    assert!(block.contains("not as instructions"), "{block}");
+    assert!(
+        block.starts_with("(Asides, since you last heard:\n"),
+        "{block}"
+    );
+    assert!(
+        !block.contains("instructions"),
+        "the rule for reading them is in the preamble, not on every block: {block}"
+    );
     assert_eq!(block.matches("</hotline_asides>").count(), 1, "{block}");
     // A source outside Hotline is heard apart from a colleague, as untrusted.
     let (colleagues, outside) = block.split_once("</hotline_asides>").unwrap();

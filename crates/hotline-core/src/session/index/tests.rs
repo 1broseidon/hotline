@@ -209,11 +209,13 @@ async fn the_main_conversation_opens_each_turn_with_the_index_of_its_threads() {
     until("bob's turn was told", || agents.told().len() == 1).await;
     let told = &agents.told()[0];
 
-    assert!(told.starts_with("(Thread index:"), "{told}");
-    assert!(told.contains("not the person"), "{told}");
     assert!(
-        told.contains("These are your own threads, and the same you worked in them"),
+        told.starts_with("(Thread index:\n<hotline_threads>"),
         "{told}"
+    );
+    assert!(
+        !told.contains("These are your own threads"),
+        "the rules for reading it are in the preamble, not on every block: {told}"
     );
     assert!(
         told.contains("<hotline_threads>\nTHREADS · Bob · "),
@@ -943,8 +945,12 @@ async fn an_unchanged_index_is_one_line_and_an_empty_one_is_nothing() {
     aside(&room.log, "Heads up", None);
     let told = next("And now?", 4).await;
     assert!(
-        told.contains("<hotline_threads>"),
+        told.starts_with("(Thread index:"),
         "an aside is news: {told}"
+    );
+    assert!(
+        !told.contains("<hotline_threads>"),
+        "nothing moved, so the aside comes alone: {told}"
     );
     assert!(told.contains("Ada, in dm:ada: Heads up"), "{told}");
 
@@ -959,7 +965,136 @@ async fn an_unchanged_index_is_one_line_and_an_empty_one_is_nothing() {
         "Done",
     );
     let told = next("Now?", 6).await;
-    assert!(told.contains("ENDED TODAY 2"), "a thread moved: {told}");
+    assert!(
+        told.contains("what moved since your last turn here"),
+        "a thread moved, so the turn is told the change: {told}"
+    );
+    assert!(
+        told.contains("ENDED TODAY 1\nyou did \"Tide tables\""),
+        "only the thread that moved is listed: {told}"
+    );
+    assert!(
+        !told.contains("Contract check"),
+        "what was told before stands: {told}"
+    );
+}
+
+/// Once an agent has seen the whole index, a turn is told only what moved:
+/// a thread whose state changed, under its section; a thread no longer
+/// listed, under GONE; nothing for one that only said more. The first turn
+/// of the agent, and a kind that keeps no memory of the index, see it whole.
+#[tokio::test]
+async fn a_moved_index_is_told_as_what_changed_and_what_left() {
+    let (room, agents) = room("index-delta");
+    thread(
+        &room.log,
+        ThreadId::side("crane"),
+        "Check the crane",
+        ThreadState::Live,
+        now_ms() - MINUTE,
+    );
+    room.start("bob").await.unwrap();
+    room.prompt("bob", "Hello", None, None).await.unwrap();
+    until("the first turn", || agents.told().len() == 1).await;
+    let told = &agents.told()[0];
+    assert!(
+        told.contains("<hotline_threads>"),
+        "whole, the first time: {told}"
+    );
+    assert!(!told.contains("what moved"), "{told}");
+
+    let session = room.session("bob").unwrap();
+    let next = async |text: &str, count: usize| {
+        until("bob is at rest", || !lock(&session.turns).running).await;
+        room.prompt("bob", text, None, None).await.unwrap();
+        until("bob's turn", || agents.told().len() == count).await;
+        agents.told()[count - 1].clone()
+    };
+    // The thread says more, but its state is what it was: not news.
+    room.log
+        .append(
+            &StreamId::of_thread(&ThreadId::side("crane")).unwrap(),
+            &serde_json::json!({"kind":"agent","id":new_id(),"ts":now_ms(),"text":"Still checking"}),
+        )
+        .unwrap();
+    let told = next("And?", 2).await;
+    assert!(
+        told.starts_with(UNCHANGED),
+        "a last line is not news: {told}"
+    );
+
+    // It ends: told as the one change, and the index's key is the short one.
+    ended(
+        &room.log,
+        ThreadId::side("crane"),
+        "Check the crane",
+        MINUTE,
+        "The crane is fine",
+    );
+    let told = next("Now?", 3).await;
+    assert!(
+        told.contains("what moved since your last turn here"),
+        "{told}"
+    );
+    assert!(
+        told.contains("ENDED TODAY 1\nyou did \"Check the crane\""),
+        "{told}"
+    );
+    assert!(!told.contains("GONE"), "it is still listed: {told}");
+}
+
+/// A long key is shown cut to its first characters, and the short form
+/// names the thread wherever a key does.
+#[tokio::test]
+async fn a_long_key_is_shown_short_and_the_short_form_names_the_thread() {
+    let id = "3f9c2b7e-1d4a-4e8b-9c6f-0a1b2c3d4e5f";
+    let other = "8a7b6c5d-4e3f-4a2b-9c1d-0e1f2a3b4c5d";
+    assert_eq!(short(&ThreadId::side(id)), "side:3f9c2b7e");
+    assert_eq!(
+        short(&ThreadId::new(
+            ThreadKind::Pair,
+            crate::paths::thread_key(id, other).unwrap()
+        )),
+        "pair:3f9c2b7e~8a7b6c5d"
+    );
+    assert_eq!(
+        short(&ThreadId::side("crane")),
+        "side:crane",
+        "a short key is whole"
+    );
+    assert!(abbreviates("3f9c2b7e", id));
+    assert!(abbreviates("3f9c2b7e~8a7b6c5d", &format!("{id}~{other}")));
+    assert!(
+        !abbreviates("3f9c2b7e", &format!("{id}~{other}")),
+        "a pair is two parts"
+    );
+    assert!(!abbreviates("", id), "nothing names nothing");
+
+    let (room, _) = room("index-short");
+    thread(
+        &room.log,
+        ThreadId::side(id),
+        "Check the crane",
+        ThreadState::Live,
+        now_ms() - MINUTE,
+    );
+    assert_eq!(
+        room.thread_named("bob", "side:3f9c2b7e")
+            .map(|thread| thread.key),
+        Some(id.to_string())
+    );
+    assert_eq!(
+        room.thread_named("bob", &format!("side:{id}"))
+            .map(|thread| thread.key),
+        Some(id.to_string()),
+        "the full key still names it"
+    );
+    assert_eq!(room.thread_named("bob", "side:ffffffff"), None);
+    assert_eq!(
+        room.thread_named("bob", "dm:bob"),
+        Some(ThreadId::dm("bob")),
+        "the main conversation by its own key"
+    );
 }
 
 /// A call's summary of what it was asked reads the turn's line without the

@@ -550,6 +550,8 @@ impl Room {
             next = lock(occupant.queue()).next_line();
         }
         occupant.rest(&self);
+        // A nudge that landed while a turn ran waited; the thread is idle now.
+        self.rewake(occupant.persona_id(), &occupant.thread());
     }
 }
 

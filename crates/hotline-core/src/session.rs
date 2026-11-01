@@ -550,7 +550,7 @@ struct Session {
     pending_checkpoint: Mutex<Option<String>>,
     /// The thread index this session's agent was last told
     /// (`session/index.rs`). A new chapter is a new session, told it whole.
-    indexed: Mutex<Option<u64>>,
+    indexed: index::Seen,
 }
 
 /// Pacing keeps this ID on the first bubble, while narration needs the full reply.

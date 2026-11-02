@@ -561,6 +561,7 @@ mod tests {
                 run_id: "r1".into(),
                 title: "Check the crane".into(),
                 started_at: 1,
+                kind: crate::contract::RunKind::Subagent,
             },
             true,
         );

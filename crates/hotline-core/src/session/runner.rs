@@ -42,8 +42,8 @@ use super::turns::{Line, Seat};
 use super::{Brief, Report, Room, Trigger, narration, new_id, now_ms, timed};
 use crate::contract::{End, ThreadId, ThreadKind};
 use crate::contract::{
-    NoticeLevel, Persona, Reach, RunningSubagent, SharedSecret, SubagentStatus, ToolStatus,
-    TranscriptEvent,
+    NoticeLevel, Persona, Reach, RunKind, RunningSubagent, SharedSecret, SubagentStatus,
+    ToolStatus, TranscriptEvent,
 };
 use crate::driver::{CapabilityLease, Driver, MessageKind, SubagentReport, Update};
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
@@ -277,6 +277,7 @@ impl Room {
             room: Arc::downgrade(self),
             persona_id: spec.persona_id.clone(),
             run_id: spec.run_id.clone(),
+            kind: RunKind::Subagent,
             title: spec.title.clone(),
             started: now_ms(),
             driver: None,
@@ -434,7 +435,12 @@ impl Room {
         report: SubagentReport,
     ) {
         match report {
-            SubagentReport::Started { child, title, task } => {
+            SubagentReport::Started {
+                child,
+                kind,
+                title,
+                task,
+            } => {
                 if runs.contains_key(&child) {
                     return;
                 }
@@ -442,6 +448,7 @@ impl Room {
                     room: Arc::downgrade(self),
                     persona_id: persona_id.to_string(),
                     run_id: new_id(),
+                    kind,
                     title,
                     started: now_ms(),
                     driver: None,
@@ -473,6 +480,27 @@ impl Room {
                         running,
                         voice: narration::Voice::new(),
                         in_flight: HashMap::new(),
+                    },
+                );
+            }
+            SubagentReport::Told { child, text } => {
+                let Some(run) = runs.get(&child) else {
+                    return;
+                };
+                self.threads().write(
+                    &ThreadId::run(&run.running.run_id),
+                    persona_id,
+                    &TranscriptEvent::User {
+                        id: new_id(),
+                        ts: now_ms(),
+                        text,
+                        attachments: None,
+                        reactions: None,
+                        reply_to: None,
+                        scheduled: None,
+                        ring: None,
+                        receipt: None,
+                        client: None,
                     },
                 );
             }
@@ -586,6 +614,8 @@ struct Running {
     room: Weak<Room>,
     persona_id: String,
     run_id: String,
+    /// A subagent, or a harness's background task.
+    kind: RunKind,
     title: String,
     started: i64,
     driver: Option<Arc<dyn Driver>>,
@@ -624,6 +654,7 @@ impl Running {
                 run_id: self.run_id.clone(),
                 title: self.title.clone(),
                 started_at: self.started,
+                kind: self.kind,
             },
             state == ThreadState::Live,
         );

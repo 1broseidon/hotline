@@ -181,6 +181,16 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
         }
         SessionUpdate::ToolCallUpdate(update) => {
             let call_id = update.tool_call_id.0.to_string();
+            let terminal = Terminal::of(update.meta.as_ref());
+            // The terminal of a command sent to the background closed: the
+            // command ended, which is the run's end, not the call starting
+            // again.
+            if let Some(exit_code) = terminal.exit
+                && update.fields.status.is_none()
+                && live.background_ended(&call_id, exit_code)
+            {
+                return;
+            }
             let fields = update.fields;
             // Absent means unchanged, so anything the update left out falls
             // back to what the call was announced with.
@@ -259,6 +269,17 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             let content = fields.content.unwrap_or_default();
             match fields.status.and_then(|status| finished(status, &content)) {
                 Some((ok, output, images)) => {
+                    // Under the terminal extension a command's output rides
+                    // in `_meta`, and its content only names the terminal.
+                    let output = match terminal.output {
+                        Some(said) if output.trim().is_empty() => said,
+                        _ => output,
+                    };
+                    // Its result came, and its terminal stays open: the
+                    // command was sent to the background and runs on.
+                    if ok && terminal.open {
+                        live.backgrounded(&call_id, &line.title);
+                    }
                     if ok && !line.files.is_empty() {
                         pen.emit(Update::ToolFiles {
                             call_id: call_id.clone(),
@@ -482,6 +503,39 @@ pub(super) fn finished(
     };
     let (output, images) = result_of(content);
     Some((ok, output, images))
+}
+
+/// What a tool call's `_meta` says of its command's terminal, under the
+/// terminal extension Hotline asks for (`terminal_output`): its output so
+/// far, whether it was announced and left open (`terminal_info` with no
+/// `terminal_exit`), and its exit code once it closed (`Some(None)` when the
+/// harness gave none).
+#[derive(Default)]
+struct Terminal {
+    output: Option<String>,
+    open: bool,
+    exit: Option<Option<i64>>,
+}
+
+impl Terminal {
+    fn of(meta: Option<&acp::Meta>) -> Self {
+        let Some(meta) = meta else {
+            return Self::default();
+        };
+        let exit = meta
+            .get("terminal_exit")
+            .filter(|exit| exit.is_object())
+            .map(|exit| exit.get("exit_code").and_then(Value::as_i64));
+        Self {
+            output: meta
+                .get("terminal_output")
+                .and_then(|output| output.get("data"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            open: meta.get("terminal_info").is_some_and(Value::is_object) && exit.is_none(),
+            exit,
+        }
+    }
 }
 
 /// A tool's output as the transcript keeps it: the text it produced, a

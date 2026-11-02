@@ -36,6 +36,13 @@ pub(super) struct Live {
     /// The subagent sessions the agent has announced and not yet ended, by
     /// their session id, each with its own open message and tool calls.
     pub(super) children: Mutex<HashMap<String, Arc<Scribe>>>,
+    /// The commands the agent sent to the background and that have not yet
+    /// ended, by their tool call id: each is reported as a run until its
+    /// terminal closes (see [`Live::backgrounded`]).
+    tasks: Mutex<std::collections::HashSet<String>>,
+    /// The last title each subagent was announced under, by its session:
+    /// one resumed later is announced again, often with no title.
+    titles: Mutex<HashMap<String, String>>,
     /// Permission requests waiting on a person, by the id their card carries.
     pub(super) pending: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
     /// `session/load` replays the whole history; nothing is written while it
@@ -371,13 +378,48 @@ impl Live {
         }
     }
 
-    /// Ends every subagent still open, which is what a session that ended
-    /// or was replaced does to them: nobody will hear how they finished.
+    /// A command the agent ran whose result came while it goes on running:
+    /// Claude's adapter keeps the call's terminal open past its result, and
+    /// closes it with a `terminal_exit` when the command ends. It is reported
+    /// as a background run of its own until then. One already reported is
+    /// not started twice.
+    pub(super) fn backgrounded(&self, call_id: &str, title: &str) {
+        if lock(&self.tasks).insert(call_id.to_string()) {
+            self.report(SubagentReport::Started {
+                child: call_id.to_string(),
+                kind: crate::contract::RunKind::Shell,
+                title: title.to_string(),
+                task: title.to_string(),
+            });
+        }
+    }
+
+    /// The terminal of a command sent to the background closed: the command
+    /// ended, failed if it said a failing exit code. Whether `call_id` was
+    /// one, so its update is not taken for the call starting again.
+    pub(super) fn background_ended(&self, call_id: &str, exit_code: Option<i64>) -> bool {
+        if !lock(&self.tasks).remove(call_id) {
+            return false;
+        }
+        self.report(SubagentReport::Ended {
+            child: call_id.to_string(),
+            status: match exit_code {
+                Some(code) if code != 0 => SubagentStatus::Failed,
+                _ => SubagentStatus::Done,
+            },
+        });
+        true
+    }
+
+    /// Ends every subagent and background task still open, which is what a
+    /// session that ended or was replaced does to them: nobody will hear how
+    /// they finished.
     pub(super) fn forget_subagents(&self) {
-        let children: Vec<String> = lock(&self.children)
+        let mut children: Vec<String> = lock(&self.children)
             .drain()
             .map(|(child, _)| child)
             .collect();
+        children.extend(lock(&self.tasks).drain());
         for child in children {
             self.report(SubagentReport::Ended {
                 child,
@@ -390,7 +432,20 @@ impl Live {
     /// session it names says from now until it ends is the subagent's.
     pub(super) async fn subagent(&self, announced: Announced) {
         match announced {
-            Announced::Spawned { child, title, task } => {
+            Announced::Spawned {
+                child,
+                mut title,
+                task,
+            } => {
+                {
+                    let mut titles = lock(&self.titles);
+                    if title == "Subagent"
+                        && let Some(known) = titles.get(&child)
+                    {
+                        title.clone_from(known);
+                    }
+                    titles.insert(child.clone(), title.clone());
+                }
                 let fresh = {
                     let mut children = lock(&self.children);
                     let fresh = !children.contains_key(&child);
@@ -398,7 +453,12 @@ impl Live {
                     fresh
                 };
                 if fresh {
-                    self.report(SubagentReport::Started { child, title, task });
+                    self.report(SubagentReport::Started {
+                        child,
+                        kind: crate::contract::RunKind::Subagent,
+                        title,
+                        task,
+                    });
                 }
             }
             Announced::Ended { child, status } => {
@@ -407,6 +467,11 @@ impl Live {
                 };
                 Pen::child(self, &child, &scribe).flush().await;
                 self.report(SubagentReport::Ended { child, status });
+            }
+            Announced::Told { child, text } => {
+                if !text.trim().is_empty() && lock(&self.children).contains_key(&child) {
+                    self.report(SubagentReport::Told { child, text });
+                }
             }
         }
     }

@@ -173,6 +173,36 @@ async fn a_line_admitted_before_the_stop_and_dispatched_after_the_spill_is_kept(
 /// Lines the driver had taken into the turn and hands back when it is cut
 /// are kept too, rather than run on or dropped.
 #[tokio::test]
+async fn a_line_steered_into_a_turn_the_restart_cuts_is_kept_for_the_next_start() {
+    let gate = Arc::new(Semaphore::new(0));
+    let driver = Scripted::new(spoken_turn()).gated(gate.clone()).steerable();
+    let agents = Fake::new(driver);
+    let room = room("run-state-steered-in", agents.clone());
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "first", None, None).await.unwrap();
+    until_state(&room, "ada", SessionState::Thinking).await;
+    room.prompt("ada", "second", None, None).await.unwrap();
+    // One update lets the turn look at its queue again, and "second" goes
+    // into the turn in flight: the driver holds it, not the queue.
+    gate.add_permits(1);
+    until("second is steered into the turn", || {
+        agents.steered().iter().any(|line| line.contains("second"))
+    })
+    .await;
+
+    let stopped = room.stop_for_restart(Duration::ZERO).await;
+    assert_eq!(stopped.interrupted, ["ada"]);
+    let kept: Vec<String> = pending(&room)
+        .iter()
+        .map(|line| line["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(kept.len(), 1, "the handed-back line is kept: {kept:?}");
+    assert!(kept[0].contains("second"), "{kept:?}");
+    drop(stopped);
+}
+
+/// A line still queued behind the turn the restart cuts is kept, and never run.
+#[tokio::test]
 async fn steered_lines_handed_back_by_a_cut_turn_are_kept_for_the_next_start() {
     let gate = Arc::new(Semaphore::new(0));
     let driver = Scripted::new(spoken_turn()).gated(gate).steerable();

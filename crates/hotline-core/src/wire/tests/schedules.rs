@@ -25,6 +25,7 @@ fn scheduled(
         created_at: 1_700_000_000_000,
         last_post: None,
         ended_at: None,
+        final_firing: None,
     }
 }
 

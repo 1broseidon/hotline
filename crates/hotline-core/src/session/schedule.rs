@@ -344,7 +344,11 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
             let now = now_ms();
             let due: Vec<ScheduledJob> = jobs
                 .iter()
-                .filter(|job| job.next_at <= now && should_consider(&room.log, job))
+                .filter(|job| {
+                    job.final_firing.is_none()
+                        && job.next_at <= now
+                        && should_consider(&room.log, job)
+                })
                 .cloned()
                 .collect();
             if !due.is_empty() {
@@ -355,7 +359,7 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
                 // than spinning on a disk that cannot take the next word.
                 let still_due = room::schedules(&room.log)
                     .iter()
-                    .any(|job| job.next_at <= now_ms());
+                    .any(|job| job.final_firing.is_none() && job.next_at <= now_ms());
                 drop(room);
                 if still_due {
                     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -364,7 +368,7 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
             }
             let wait = jobs
                 .iter()
-                .filter(|job| should_consider(&room.log, job))
+                .filter(|job| job.final_firing.is_none() && should_consider(&room.log, job))
                 .map(|job| job.next_at.saturating_sub(now))
                 .min()
                 .map_or(LOOK_AGAIN, |ms| Duration::from_millis(ms as u64))
@@ -389,7 +393,7 @@ fn fire(room: &Arc<Room>, job: ScheduledJob) {
     };
     let Some(current) = room::schedules(&room.log)
         .into_iter()
-        .find(|living| living.id == job.id)
+        .find(|living| living.id == job.id && living.final_firing.is_none())
     else {
         return;
     };
@@ -468,7 +472,16 @@ fn finish(room: &Room, job_id: &str, ran: bool) {
     } else {
         next_after_end(&next, now)
     };
-    if ends {
+    if ends && ran && next.reminder != Some(true) {
+        // The last firing is on its thread: the job fires no more, and ends
+        // when that firing does.
+        next.final_firing = Some(now);
+        // A firing so quick that its turn is already over has nothing left
+        // to wait for.
+        if room.job_at_rest(job_id) {
+            next.ended_at = Some(now);
+        }
+    } else if ends {
         next.ended_at = Some(now);
     }
     if next.kind == ScheduleKind::Loop {
@@ -632,6 +645,7 @@ impl Room {
             created_at: now,
             last_post: None,
             ended_at: None,
+            final_firing: None,
         };
         room::append_schedule(&self.log, &job)?;
         self.schedule_changed.notify_one();
@@ -678,6 +692,22 @@ impl Room {
         self.schedule_changed.notify_one();
         self.job_ended(&job, Some(report));
         Ok(())
+    }
+
+    /// A job whose last firing is over ends: its record says so, and what
+    /// gates on a job having ended turns away from it from here. Does nothing
+    /// for a job that is not in its last firing.
+    pub(super) fn end_final_firing(&self, job_id: &str) {
+        let _mutations = lock(&self.schedule_mutations);
+        let Some(mut job) = room::schedules(&self.log)
+            .into_iter()
+            .find(|job| job.id == job_id && job.final_firing.is_some())
+        else {
+            return;
+        };
+        job.ended_at = Some(now_ms());
+        write_or_log(room::append_schedule(&self.log, &job));
+        self.schedule_changed.notify_one();
     }
 
     /// Writes `job` as ended now. The caller holds the schedule guard.
@@ -885,6 +915,7 @@ mod tests {
             created_at: now,
             last_post: None,
             ended_at: None,
+            final_firing: None,
         };
         room::append_schedule(&log, &job).unwrap();
         let room = Room::new(log, Arc::new(NoKeys));
@@ -919,6 +950,7 @@ mod tests {
             created_at: now,
             last_post: None,
             ended_at: None,
+            final_firing: None,
         };
         room::append_schedule(&log, &job).unwrap();
         let room = Room::new(log, Arc::new(NoKeys));
@@ -960,6 +992,7 @@ mod tests {
             created_at: now,
             last_post: None,
             ended_at: None,
+            final_firing: None,
         };
         room::append_schedule(&log, &job).unwrap();
         let room = Room::new(log, Arc::new(NoKeys));
@@ -1003,6 +1036,7 @@ mod update_tests {
             created_at: now_ms(),
             last_post: None,
             ended_at: None,
+            final_firing: None,
         };
         room::append_schedule(&log, &job).unwrap();
         let before = log.load(&crate::log::StreamId::Room);

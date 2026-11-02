@@ -854,6 +854,10 @@ pub struct ScheduledJob {
     /// When the job ended: it fires no more, and its thread stays readable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<i64>,
+    /// When the job's last firing was handed to its thread. The job fires no
+    /// more, but it has not ended: it ends (`endedAt`) when that firing does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_firing: Option<i64>,
 }
 
 /// A job's latest post to the chat, for the listing to draw.

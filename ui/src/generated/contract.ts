@@ -1831,7 +1831,12 @@ lastPost?: JobPost,
 /**
  * When the job ended: it fires no more, and its thread stays readable.
  */
-endedAt?: number, };
+endedAt?: number, 
+/**
+ * When the job's last firing was handed to its thread. The job fires no
+ * more, but it has not ended: it ends (`endedAt`) when that firing does.
+ */
+finalFiring?: number, };
 
 /**
  * What a firing stamps on the user event it writes.

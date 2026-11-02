@@ -54,8 +54,10 @@ impl Scripted {
     }
 }
 
+/// The command as the script names it: `/` between the parts of its path on
+/// every platform, as the scripts write them, though Windows joins with `\`.
 fn line(program: &Path, args: &[String]) -> String {
-    std::iter::once(program.display().to_string())
+    std::iter::once(program.display().to_string().replace('\\', "/"))
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ")

@@ -26,13 +26,56 @@ pub(super) struct Claim {
 }
 /// What a claim with the right secret comes to.
 pub(super) enum Claimed {
-    Granted(DeviceRole),
+    Granted(DeviceRole, Undo),
     /// The claim's purpose does not match the window's role: no grant, and
     /// the window stays open. The word is what this invitation is for.
     Refused(&'static str),
 }
 
+/// What returns a grant whose answer never reached the phone: the device
+/// added, the grant it replaced, and the invitation's secret.
+pub(super) struct Undo {
+    device: String,
+    replaced: Option<(Grant, bool)>,
+    secret: String,
+}
+
 impl Remote {
+    /// Takes back a grant `claim_v2` made, because the Noise reply that
+    /// confirms it could not be sent: the phone does not know it is paired and
+    /// will claim again with the same invitation.
+    pub(super) fn unclaim_v2(&self, undo: Undo) {
+        let mut s = lock(&self.state);
+        let mut saved = s.saved.clone();
+        saved.grants.retain(|g| g.device.id != undo.device);
+        saved.relay_grants.retain(|g| g.device.id != undo.device);
+        if let Some((grant, relay)) = &undo.replaced {
+            if *relay {
+                saved.relay_grants.push(grant.clone());
+            } else {
+                saved.grants.push(grant.clone());
+            }
+        }
+        // Authority closes first: the device's sockets end whether or not the file is written.
+        if let Some(cancel) = s.devices.remove(&undo.device) {
+            cancel.cancel();
+        }
+        if let Some((grant, _)) = &undo.replaced {
+            let cancel = s.cancel.child_token();
+            s.devices.insert(grant.device.id.clone(), cancel);
+        }
+        if let Err(e) = self.save(&saved) {
+            eprintln!("[remote] could not take back an unanswered pairing: {e}");
+        }
+        s.saved = saved;
+        if let Some(window) = s.sealed_pairing.as_mut()
+            && window.result.as_ref().is_some_and(|d| d.id == undo.device)
+        {
+            window.result = None;
+            window.secret = undo.secret;
+        }
+    }
+
     pub(super) fn noise_keys(&self) -> Result<([u8; 32], [u8; 32]), String> {
         // Serialize first-use creation with grant changes. Never replace an
         // unreadable identity: that could make an existing pairing trust a new desk.
@@ -249,6 +292,19 @@ impl Remote {
             .all_grants()
             .find(|g| g.device.public_key.as_deref() == Some(&public_key))
             .map(|g| g.device.id.clone());
+        let replaced = s
+            .saved
+            .grants
+            .iter()
+            .find(|g| Some(&g.device.id) == old_id.as_ref())
+            .map(|g| (g.clone(), false))
+            .or_else(|| {
+                s.saved
+                    .relay_grants
+                    .iter()
+                    .find(|g| Some(&g.device.id) == old_id.as_ref())
+                    .map(|g| (g.clone(), true))
+            });
         // Inert bearer records remain revocable but must not block their
         // phones from migrating to a sealed grant.
         let keyed_devices = s
@@ -298,9 +354,14 @@ impl Remote {
             .sealed_pairing
             .as_mut()
             .expect("the window was checked open above, under this same lock");
+        let secret = std::mem::take(&mut window.secret);
+        let undo = Undo {
+            device: device.id.clone(),
+            replaced,
+            secret,
+        };
         window.result = Some(device);
-        window.secret.clear();
-        Ok(Claimed::Granted(role))
+        Ok(Claimed::Granted(role, undo))
     }
 
     pub(super) fn authenticate_v2(self: &Arc<Self>, public: &[u8]) -> Option<Phone> {

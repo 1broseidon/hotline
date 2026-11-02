@@ -16,13 +16,48 @@ pub(super) async fn receive(live: &Arc<Live>, notification: RawSessionUpdate) {
     let Ok(update) = serde_json::from_value::<SessionUpdate>(notification.update) else {
         return;
     };
-    let child = lock(&live.children).get(&notification.session_id).cloned();
-    match child {
-        Some(scribe) => {
+    match Sender::of(live, &notification.session_id) {
+        Sender::Child(scribe) => {
             translate_in(&Pen::child(live, &notification.session_id, &scribe), update).await;
         }
-        None => between_turns(live, update).await,
+        // A session that is neither the conversation nor a subagent it still
+        // counts: Claude's adapter sends a subagent its own model picker, one
+        // entry long, after a load or once the subagent has ended. Its
+        // pickers are its own, and never become the teammate's.
+        Sender::Other if sets_pickers(&update) => {}
+        Sender::Own | Sender::Other => between_turns(live, update).await,
     }
+}
+
+/// Whose session an update comes from.
+enum Sender {
+    /// The conversation's own session, or one not yet named (an update the
+    /// agent sends before its `session/new` answer).
+    Own,
+    /// A subagent this driver counts.
+    Child(Arc<live::Scribe>),
+    /// Any other session: a subagent no longer counted, or one never seen.
+    Other,
+}
+
+impl Sender {
+    fn of(live: &Live, session_id: &str) -> Self {
+        if let Some(scribe) = lock(&live.children).get(session_id).cloned() {
+            return Self::Child(scribe);
+        }
+        match &lock(&live.session).id {
+            Some(own) if own.0.as_ref() != session_id => Self::Other,
+            _ => Self::Own,
+        }
+    }
+}
+
+/// An update that sets the conversation's model, mode or settings.
+fn sets_pickers(update: &SessionUpdate) -> bool {
+    matches!(
+        update,
+        SessionUpdate::CurrentModeUpdate(_) | SessionUpdate::ConfigOptionUpdate(_)
+    )
 }
 
 /// One `session/update`, including those the agent sends with no prompt out.

@@ -132,6 +132,10 @@ pub(super) struct Line {
     /// The line joins the turn in flight when its driver takes input mid-turn
     /// ([`Turns::steer_into`]), and waits behind it when it does not.
     pub steer: bool,
+    /// The person's line this is, by the id it was written under on the
+    /// thread's stream: read once its turn begins, and kept for the next start
+    /// when a restart finds it still waiting.
+    pub said: Option<String>,
 }
 
 /// The exchange request a turn answers: a handoff, or a colleague's question.

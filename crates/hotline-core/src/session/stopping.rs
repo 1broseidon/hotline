@@ -7,9 +7,11 @@
 //! 1. It closes admission. New prompts, schedule firings and phone sends are
 //!    refused with a sentence that says the desk is restarting; the phone's
 //!    outbox and the scheduler both try again later.
-//! 2. It takes every person's line still waiting behind a turn out of the
-//!    queue and writes it to `pending.json`, before anything else can go
-//!    wrong, so a desk killed during the drain still has them.
+//! 2. It takes every person's line still waiting behind a turn, in the main
+//!    conversation or a work thread, out of the queue and writes it to
+//!    `pending.json`, before anything else can go wrong, so a desk killed
+//!    during the drain still has them. A line a work thread's agent had taken
+//!    into the turn and not used is kept the same way when the turn is cut.
 //! 3. It lets the turns already running finish, for up to the drain.
 //! 4. It stops whatever is still running and says so on that teammate's
 //!    tape. The turn is not retried: what it had already done may have had
@@ -26,6 +28,8 @@
 //! own words for a moment that has passed. None of this is exactly-once: a
 //! process killed outright keeps what was written and nothing more.
 
+use super::sides::LiveSide;
+use super::turns::Line;
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
@@ -44,6 +48,10 @@ struct PendingLine {
     attachments: Vec<Attachment>,
     #[serde(default)]
     steer: bool,
+    /// The work thread it was said in, by its id; none for the main
+    /// conversation, which is all a file from before threads kept lines holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thread: Option<String>,
 }
 
 /// What a stop did, for the log line the service writes.
@@ -70,6 +78,9 @@ impl Room {
         for session in &sessions {
             let waiting: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
             kept.extend(self.pending_of(&session.persona_id, waiting));
+        }
+        for side in self.sides.all() {
+            kept.extend(thread_pending(&side, side.take_waiting()));
         }
         let count = kept.len();
         if let Err(error) = self.keep_pending(kept) {
@@ -132,6 +143,7 @@ impl Room {
                     text: wire.text,
                     attachments: wire.attachments,
                     steer: wire.steer,
+                    thread: None,
                 });
             }
         }
@@ -148,6 +160,16 @@ impl Room {
         let kept = self.pending_of(persona_id, lines);
         if let Err(error) = self.keep_pending(kept) {
             eprintln!("[stop] a line said as the desk stopped could not be kept: {error}");
+        }
+    }
+
+    /// [`Room::keep_late`] for a work thread: its lines that reach it after the
+    /// stop took the waiting ones, or that its cut turn hands back.
+    pub(super) fn keep_late_in_thread(&self, side: &LiveSide, lines: Vec<Line>) {
+        if let Err(error) = self.keep_pending(thread_pending(side, lines)) {
+            eprintln!(
+                "[stop] a line said in a thread as the desk stopped could not be kept: {error}"
+            );
         }
     }
 
@@ -247,6 +269,9 @@ impl Room {
 
     /// `Err(None)` is a line that no longer needs handing on.
     async fn resume_line(self: &Arc<Self>, line: &PendingLine) -> Result<(), Option<String>> {
+        if let Some(thread) = &line.thread {
+            return self.resume_thread_line(thread, line).await;
+        }
         if !room::roster(&self.log)
             .iter()
             .any(|persona| persona.id == line.persona_id)
@@ -284,5 +309,84 @@ impl Room {
             },
         );
         Ok(())
+    }
+}
+
+impl Room {
+    /// A kept line said in a work thread goes back to that thread, which the
+    /// restart parked, as the line it was: not written again, and not handed
+    /// over once its turn has begun.
+    async fn resume_thread_line(
+        self: &Arc<Self>,
+        thread: &str,
+        line: &PendingLine,
+    ) -> Result<(), Option<String>> {
+        let Some(stream) = StreamId::of_thread(&self.work_thread(thread)) else {
+            return Err(None);
+        };
+        let read = self
+            .log
+            .load(&stream)
+            .iter()
+            .rev()
+            .find(|event| event["id"] == line.said.as_str())
+            .is_none_or(|event| event["receipt"] == "read");
+        if read {
+            return Err(None);
+        }
+        let _working = self.working().map_err(Some)?;
+        self.resume_in_work(
+            thread,
+            Line {
+                voice: None,
+                text: line.text.clone(),
+                attachments: line.attachments.clone(),
+                request: None,
+                from: None,
+                delivery: None,
+                wake: false,
+                steer: line.steer,
+                said: Some(line.said.clone()),
+            },
+        )
+        .await
+        .map_err(Some)
+    }
+}
+
+/// The person's lines among a thread's `lines`, as they are kept for the next
+/// start. What a colleague sent is not among them: a delivery is on the
+/// thread's stream unread and its exchange hands it over again at start.
+fn thread_pending(side: &LiveSide, lines: Vec<Line>) -> Vec<PendingLine> {
+    lines
+        .into_iter()
+        .filter_map(|line| {
+            Some(PendingLine {
+                persona_id: side.teammate().to_string(),
+                said: line.said?,
+                text: line.text,
+                attachments: line.attachments,
+                steer: line.steer,
+                thread: Some(side.id.clone()),
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file written before threads kept lines holds main-conversation lines
+    /// only, without `thread`: it loads as that, and is written back the same.
+    #[test]
+    fn a_pending_file_from_before_threads_kept_lines_loads_as_the_main_conversations() {
+        let old = r#"[{"personaId":"ada","said":"u1","text":"hello","steer":true}]"#;
+        let lines: Vec<PendingLine> = serde_json::from_str(old).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].thread, None);
+        assert_eq!(lines[0].said, "u1");
+        let written = serde_json::to_value(&lines).unwrap();
+        assert!(written[0].get("thread").is_none(), "{written}");
     }
 }

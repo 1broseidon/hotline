@@ -520,6 +520,7 @@ impl Room {
                     return false;
                 };
                 let line = Line {
+                    said: None,
                     voice: None,
                     text: timed(now_ms(), WAKE_LINE),
                     attachments: Vec::new(),

@@ -68,6 +68,7 @@ impl Room {
             self.queue_in_side(
                 &side,
                 Line {
+                    said: None,
                     voice: self.attached_voice(thread),
                     text: brief,
                     attachments: Vec::new(),

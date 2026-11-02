@@ -228,9 +228,7 @@ impl Room {
                 .collect()
         };
         for persona_id in resting {
-            let _ = self
-                .info_changes
-                .send(crate::session::idle_info(&persona_id));
+            let _ = self.info_changes.send(self.absent_info(&persona_id));
         }
     }
 

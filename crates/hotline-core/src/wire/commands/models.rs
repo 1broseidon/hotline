@@ -120,7 +120,7 @@ pub(super) async fn set_model(
         write_last_model(log, model_id)?;
     }
 
-    if room.info(persona_id).state != SessionState::Idle {
+    if is_running(room.info(persona_id).state) {
         let info = room.set_model(persona_id, model_id).await?;
         let info = land_live_effort(log, room, persona_id, &place, landed, info).await?;
         return keep_fast(room, &persona, info).await;
@@ -255,6 +255,12 @@ impl Placing {
 /// A model's levels and default as the desk knows them before switching:
 /// Hotline Agent's from the catalogue, a harness's as its offer lists them.
 /// None when a harness has not said, which only a session on it can.
+/// Whether a session stands behind this state. A teammate that is not running
+/// reads as idle, or as stopped (with the reason, if its start failed).
+fn is_running(state: SessionState) -> bool {
+    !matches!(state, SessionState::Idle | SessionState::Stopped)
+}
+
 fn levels_of(
     persona: &Persona,
     before: &SessionInfo,
@@ -430,7 +436,7 @@ pub(super) async fn set_config(
         return set_harness_config(log, room, &persona, config_id, value).await;
     }
     if config_id != "effort" {
-        if room.info(persona_id).state != SessionState::Idle {
+        if is_running(room.info(persona_id).state) {
             return room.set_config(persona_id, config_id, value).await;
         }
         return Err("This agent does not offer that setting.".to_string());
@@ -469,7 +475,7 @@ pub(super) async fn set_config(
         remember_on_desk(log, key, value)?;
     }
 
-    if room.info(persona_id).state != SessionState::Idle {
+    if is_running(room.info(persona_id).state) {
         return room.set_config(persona_id, config_id, value).await;
     }
     Ok(room.info(persona_id))
@@ -500,7 +506,7 @@ async fn set_harness_config(
             config.name
         ));
     }
-    let running = live.state != SessionState::Idle;
+    let running = is_running(live.state);
     let effort = config.map_or(config_id == "effort", |config| {
         config.category == Some(SessionConfigCategory::Effort)
     });

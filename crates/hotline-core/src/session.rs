@@ -707,6 +707,16 @@ pub struct Room {
     capabilities: Mutex<HashMap<String, CapabilityEpoch>>,
     /// Serializes candidate publication with invalidation.
     lifecycle: Mutex<()>,
+    /// One writer at a time to `pending.json`, which is read, added to and
+    /// renamed over.
+    pending_file: Mutex<()>,
+    /// What a teammate with no session in `sessions` is doing, where that is
+    /// more than resting: a start under way (`Starting`), or one that ended
+    /// stopped, with the reason if it failed. The one answer both [`Room::info`]
+    /// and the pushed `info_changes` give for an absent session. Written only
+    /// under `lifecycle`, and read with `sessions` held, so a session joining
+    /// (which removes the record) is never seen half done.
+    resting: Mutex<HashMap<String, SessionInfo>>,
     /// One start at a time, per teammate.
     ///
     /// The wire, a schedule firing and the chapter gate all bring a teammate
@@ -897,6 +907,8 @@ impl Room {
             sessions: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(HashMap::new()),
             lifecycle: Mutex::new(()),
+            pending_file: Mutex::new(()),
+            resting: Mutex::new(HashMap::new()),
             starts: Mutex::new(HashMap::new()),
             computer_setups: Mutex::new(HashMap::new()),
             computer_swaps: Mutex::new(HashMap::new()),
@@ -1040,14 +1052,47 @@ impl Room {
     /// What the teammate's session is doing. A teammate with no session is
     /// idle, which is a state and not an absence.
     pub fn info(&self, persona_id: &str) -> SessionInfo {
-        let mut info = match lock(&self.sessions).get(persona_id) {
-            Some(session) => lock(&session.info).clone(),
-            None => idle_info(persona_id),
+        let mut info = {
+            let sessions = lock(&self.sessions);
+            match sessions.get(persona_id) {
+                Some(session) => lock(&session.info).clone(),
+                None => lock(&self.resting)
+                    .get(persona_id)
+                    .cloned()
+                    .unwrap_or_else(|| idle_info(persona_id)),
+            }
         };
         for processes in self.sides.processes(persona_id) {
             info.processes.extend(processes.listed());
         }
         info
+    }
+
+    /// Records and pushes what an absent teammate is doing. The caller holds
+    /// `lifecycle` and has seen no session for it in `sessions`.
+    pub(super) fn rest_as(&self, persona_id: &str, state: SessionState, error: Option<String>) {
+        let mut info = idle_info(persona_id);
+        info.state = state;
+        info.error = error;
+        let mut resting = lock(&self.resting);
+        if resting.get(persona_id) == Some(&info) {
+            return;
+        }
+        resting.insert(persona_id.to_string(), info.clone());
+        let _ = self.info_changes.send(info);
+    }
+
+    /// What a teammate with no session is doing, as the roster is told.
+    pub(super) fn absent_info(&self, persona_id: &str) -> SessionInfo {
+        lock(&self.resting)
+            .get(persona_id)
+            .cloned()
+            .unwrap_or_else(|| idle_info(persona_id))
+    }
+
+    /// Whether a main session exists for this teammate, whatever it is doing.
+    pub fn has_session(&self, persona_id: &str) -> bool {
+        lock(&self.sessions).contains_key(persona_id)
     }
 
     /// Whether this teammate's picture is being drawn.

@@ -69,26 +69,7 @@ impl Room {
         let mut kept = Vec::new();
         for session in &sessions {
             let waiting: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
-            let tape = self.tape(&session.persona_id);
-            for wire in waiting {
-                let Some(said) = wire.said.clone() else {
-                    continue;
-                };
-                let persons = tape
-                    .iter()
-                    .rev()
-                    .find(|event| event["id"] == said.as_str())
-                    .is_some_and(|event| event["kind"] == "user");
-                if persons {
-                    kept.push(PendingLine {
-                        persona_id: session.persona_id.clone(),
-                        said,
-                        text: wire.text,
-                        attachments: wire.attachments,
-                        steer: wire.steer,
-                    });
-                }
-            }
+            kept.extend(self.pending_of(&session.persona_id, waiting));
         }
         let count = kept.len();
         if let Err(error) = self.keep_pending(kept) {
@@ -128,6 +109,45 @@ impl Room {
             kept: count,
             interrupted,
             _shut: shut,
+        }
+    }
+
+    /// The person's lines among `waiting`, as they are kept for the next start.
+    fn pending_of(&self, persona_id: &str, waiting: Vec<Wired>) -> Vec<PendingLine> {
+        let tape = self.tape(persona_id);
+        let mut kept = Vec::new();
+        for wire in waiting {
+            let Some(said) = wire.said.clone() else {
+                continue;
+            };
+            let persons = tape
+                .iter()
+                .rev()
+                .find(|event| event["id"] == said.as_str())
+                .is_some_and(|event| event["kind"] == "user");
+            if persons {
+                kept.push(PendingLine {
+                    persona_id: persona_id.to_string(),
+                    said,
+                    text: wire.text,
+                    attachments: wire.attachments,
+                    steer: wire.steer,
+                });
+            }
+        }
+        kept
+    }
+
+    /// Lines that reached a queue after the stop took the waiting ones (a
+    /// message past the door before it closed, or the lines a cut turn hands
+    /// back) go the same way the others went: to `pending.json`, never into
+    /// a queue the stop has already emptied. `closing` is set before the
+    /// stop looks at any queue and the callers look at it with the queue
+    /// locked, so a line is in one place or the other, never neither.
+    pub(super) fn keep_late(&self, persona_id: &str, lines: Vec<Wired>) {
+        let kept = self.pending_of(persona_id, lines);
+        if let Err(error) = self.keep_pending(kept) {
+            eprintln!("[stop] a line said as the desk stopped could not be kept: {error}");
         }
     }
 
@@ -172,6 +192,7 @@ impl Room {
         if lines.is_empty() {
             return Ok(());
         }
+        let _writing = lock(&self.pending_file);
         let mut all = self.read_pending();
         for line in lines {
             if !all.iter().any(|kept| kept.said == line.said) {

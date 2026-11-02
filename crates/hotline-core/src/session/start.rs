@@ -86,6 +86,44 @@ impl Room {
         persona_id: &str,
         capability: CapabilityLease,
     ) -> Result<SessionInfo, String> {
+        {
+            let _lifecycle = lock(&self.lifecycle);
+            if !lock(&self.sessions).contains_key(persona_id) {
+                self.rest_as(persona_id, SessionState::Starting, None);
+            }
+        }
+        // However this ends, `Starting` does not outlive it: a start dropped
+        // mid-await is a teammate stopped, not one forever starting.
+        let ending = Ending {
+            room: self.clone(),
+            persona_id: persona_id.to_string(),
+        };
+        let started = self.start_now_inner(persona_id, capability).await;
+        if let Err(error) = &started {
+            self.end_starting(persona_id, Some(error.clone()));
+        }
+        drop(ending);
+        started
+    }
+
+    /// Ends a start under way that did not bring a session up: the teammate
+    /// is stopped, with the reason when there is one. A stop that came first
+    /// has already said so, and is left as it said.
+    fn end_starting(&self, persona_id: &str, error: Option<String>) {
+        let _lifecycle = lock(&self.lifecycle);
+        let starting = lock(&self.resting)
+            .get(persona_id)
+            .is_some_and(|info| info.state == SessionState::Starting);
+        if starting && !lock(&self.sessions).contains_key(persona_id) {
+            self.rest_as(persona_id, SessionState::Stopped, error);
+        }
+    }
+
+    async fn start_now_inner(
+        self: &Arc<Self>,
+        persona_id: &str,
+        capability: CapabilityLease,
+    ) -> Result<SessionInfo, String> {
         let _working = self.working()?;
         capability.check()?;
         let persona = self.persona(persona_id)?;
@@ -177,6 +215,7 @@ impl Room {
             // Dropped, the agent is stopped: the session never joined the room.
             capability.check()?;
             lock(&self.sessions).insert(persona.id.clone(), session.clone());
+            lock(&self.resting).remove(&persona.id);
             agent.keep();
             let _ = self.info_changes.send(info.clone());
         }
@@ -348,33 +387,60 @@ impl Room {
 
     /// [`Self::stop_with_capability`], and whether a session was running.
     fn swap_out(&self, persona_id: &str) -> (CapabilityLease, bool) {
+        self.swap_out_unless_claimed(persona_id, false)
+            .expect("a swap that waits for no one is made")
+    }
+
+    /// [`Self::swap_out`], and with `unless_claimed`, refused (`None`, nothing
+    /// touched) while a message has claimed the session's turn. The claim is
+    /// looked at where the session is taken out of the map, with its turns
+    /// locked, so none can be claimed between the look and the swap.
+    fn swap_out_unless_claimed(
+        &self,
+        persona_id: &str,
+        unless_claimed: bool,
+    ) -> Option<(CapabilityLease, bool)> {
         let (session, capability) = {
             let _lifecycle = lock(&self.lifecycle);
+            let mut sessions = lock(&self.sessions);
+            if unless_claimed
+                && sessions
+                    .get(persona_id)
+                    .is_some_and(|session| lock(&session.turns).running)
+            {
+                return None;
+            }
             // A quarantined epoch stays closed, so a concurrent policy update
             // is not reopened by the swap.
             let epoch = self.capability_epoch(persona_id);
             epoch.replace_session();
-            (lock(&self.sessions).remove(persona_id), epoch.lease())
+            (sessions.remove(persona_id), epoch.lease())
         };
         self.peers.expire_grants(persona_id);
         let Some(session) = session else {
             self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);
             self.computers.mark_idle(persona_id, now_ms());
-            return (capability, false);
+            // A stop that finds a start under way ends it.
+            let _lifecycle = lock(&self.lifecycle);
+            let starting = lock(&self.resting)
+                .get(persona_id)
+                .is_some_and(|info| info.state == SessionState::Starting);
+            if starting && !lock(&self.sessions).contains_key(persona_id) {
+                self.rest_as(persona_id, SessionState::Stopped, None);
+            }
+            return Some((capability, false));
         };
         lock(&session.turns).waiting.clear();
         session.driver.invalidate();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
-        let mut info = idle_info(persona_id);
-        info.state = SessionState::Stopped;
         let _lifecycle = lock(&self.lifecycle);
         if !lock(&self.sessions).contains_key(persona_id) {
-            let _ = self.info_changes.send(info);
+            self.rest_as(persona_id, SessionState::Stopped, None);
         }
-        (capability, true)
+        Some((capability, true))
     }
 
     /// Rebuilds a live session from the teammate's current record, so a change
@@ -409,6 +475,9 @@ impl Room {
             self.invalidate(persona_id)?;
             let _lifecycle = lock(&self.lifecycle);
             let was_running = lock(&self.sessions).remove(persona_id).is_some();
+            if was_running {
+                self.rest_as(persona_id, SessionState::Stopped, None);
+            }
             let epoch = self.capability_epoch(persona_id);
             epoch.activate();
             self.schedule_changed.notify_one();
@@ -434,12 +503,29 @@ impl Room {
     }
 
     /// [`Self::rebuild`] for a caller already holding the start gate.
+    ///
+    /// A turn a message has claimed is never cut for it: the claim is looked
+    /// at where the session is swapped out, so a caller that checked "idle"
+    /// a moment ago and a message admitted in the gap cannot both win. A
+    /// rebuild that finds one does nothing and says `Ok`; a caller that must
+    /// know whether it happened uses [`Self::rebuild_unless_claimed`].
     pub(super) async fn rebuild_held(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
-        let (capability, was_running) = self.swap_out(persona_id);
+        self.rebuild_unless_claimed(persona_id).await.map(|_| ())
+    }
+
+    /// [`Self::rebuild_held`], saying what became of the session.
+    pub(super) async fn rebuild_unless_claimed(
+        self: &Arc<Self>,
+        persona_id: &str,
+    ) -> Result<Rebuilt, String> {
+        let Some((capability, was_running)) = self.swap_out_unless_claimed(persona_id, true) else {
+            return Ok(Rebuilt::Claimed);
+        };
         if !was_running {
-            return Ok(());
+            return Ok(Rebuilt::Absent);
         }
-        self.start_again(persona_id, capability).await
+        self.start_again(persona_id, capability).await?;
+        Ok(Rebuilt::Done)
     }
 
     /// Starts the main session again on `capability`. A start that fails (a
@@ -450,14 +536,8 @@ impl Room {
         persona_id: &str,
         capability: CapabilityLease,
     ) -> Result<(), String> {
-        if let Err(error) = self.start_now(persona_id, capability).await {
-            let mut info = idle_info(persona_id);
-            info.state = SessionState::Stopped;
-            info.error = Some(error.clone());
-            let _ = self.info_changes.send(info);
-            return Err(error);
-        }
-        Ok(())
+        // `start_now` leaves the teammate stopped with the reason on a failure.
+        self.start_now(persona_id, capability).await.map(|_| ())
     }
 
     /// A sign-in to an MCP server has completed. It adds reach the policies
@@ -494,22 +574,36 @@ impl Room {
         }
         let room = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
-            let gate = room.start_gate(&session.persona_id);
-            let _held = gate.lock().await;
-            if lock(&session.turns).running
-                || !session.capability.is_current()
-                || !room.current_session(&session)
-                || !session.rebuild_for_sign_in.swap(false, SeqCst)
-            {
-                return;
+        tokio::spawn(async move { room.rebuild_for_sign_in_now(&session).await });
+    }
+
+    /// The mark is spent only once the rebuild is done, or the session is one
+    /// a rebuild is no use to (stopped, revoked, replaced, or failed to come
+    /// back, in which case the start that follows connects with the sign-in).
+    /// A refusal that may pass (the room preparing to restart) or a turn
+    /// claimed meanwhile keeps it, for the next turn's end to find.
+    pub(super) async fn rebuild_for_sign_in_now(self: &Arc<Self>, session: &Arc<Session>) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let room = self;
+        let gate = room.start_gate(&session.persona_id);
+        let _held = gate.lock().await;
+        if !session.rebuild_for_sign_in.load(SeqCst) || lock(&session.turns).running {
+            return;
+        }
+        if !session.capability.is_current() || !room.current_session(session) {
+            session.rebuild_for_sign_in.store(false, SeqCst);
+            return;
+        }
+        let Ok(_working) = room.working() else {
+            return;
+        };
+        // A rebuild that fails says why on the teammate's band itself.
+        match room.rebuild_unless_claimed(&session.persona_id).await {
+            Ok(Rebuilt::Claimed) => {}
+            Ok(Rebuilt::Done | Rebuilt::Absent) | Err(_) => {
+                session.rebuild_for_sign_in.store(false, SeqCst);
             }
-            let Ok(_working) = room.working() else {
-                return;
-            };
-            // A rebuild that fails says why on the teammate's band itself.
-            let _ = room.rebuild_held(&session.persona_id).await;
-        });
+        }
     }
 
     /// Every live session, because a policy of "all" includes every server
@@ -527,5 +621,27 @@ impl Room {
             }
         }
         first_error.map_or(Ok(()), Err)
+    }
+}
+
+/// What a rebuild did.
+pub(super) enum Rebuilt {
+    /// The session was replaced.
+    Done,
+    /// There was no session to replace.
+    Absent,
+    /// A message had claimed the session's turn, so it was left as it was.
+    Claimed,
+}
+
+/// Held by a start for as long as it is under way.
+struct Ending {
+    room: Arc<Room>,
+    persona_id: String,
+}
+
+impl Drop for Ending {
+    fn drop(&mut self) {
+        self.room.end_starting(&self.persona_id, None);
     }
 }

@@ -74,12 +74,13 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
     // The state the roster shows: ready when it started, thinking while the
     // turn ran, ready again when it was over.
     let mut states = Vec::new();
-    for _ in 0..3 {
+    for _ in 0..4 {
         states.push(infos.recv().await.unwrap().state);
     }
     assert_eq!(
         states,
         [
+            SessionState::Starting,
             SessionState::Ready,
             SessionState::Thinking,
             SessionState::Ready
@@ -608,8 +609,9 @@ async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver
     );
     assert_eq!(room.info("ada"), switched);
 
+    // A stopped teammate reads as the push said it did.
     room.stop("ada").unwrap();
-    assert_eq!(room.info("ada").state, SessionState::Idle);
+    assert_eq!(room.info("ada").state, SessionState::Stopped);
     assert!(
         room.prompt("ada", "anyone there?", None, None)
             .await
@@ -623,6 +625,7 @@ async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
     let room = room("driver-info", Fake::new(driver));
     let mut infos = room.subscribe_info();
     room.start("ada").await.unwrap();
+    assert_eq!(infos.recv().await.unwrap().state, SessionState::Starting);
     assert_eq!(infos.recv().await.unwrap().state, SessionState::Ready);
 
     let updated = DriverInfo {
@@ -694,13 +697,13 @@ async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
     // Once the session is stopped, a late notification from its driver cannot
     // update the idle roster or resurrect a picker.
     room.stop("ada").unwrap();
-    assert_eq!(room.info("ada").state, SessionState::Idle);
+    assert_eq!(room.info("ada").state, SessionState::Stopped);
     changes.send_replace(DriverInfo {
         current_model_id: "stale-model".to_string(),
         ..updated
     });
     tokio::time::sleep(Duration::from_millis(25)).await;
-    assert_eq!(room.info("ada").state, SessionState::Idle);
+    assert_eq!(room.info("ada").state, SessionState::Stopped);
     assert_eq!(room.info("ada").current_model_id, None);
 }
 

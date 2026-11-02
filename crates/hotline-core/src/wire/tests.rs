@@ -217,6 +217,21 @@ impl ProviderKeys for NoKeys {
 
 #[async_trait]
 impl RoomHandle for CoreHandle {
+    fn harness_updates(&self) -> crate::contract::HarnessUpdates {
+        self.room.harness_updates()
+    }
+
+    async fn harness_updates_check(&self) -> crate::contract::HarnessUpdates {
+        self.room.harness_updates_check().await
+    }
+
+    async fn harness_update(
+        &self,
+        backend_id: &str,
+    ) -> Result<crate::contract::HarnessUpdate, String> {
+        self.room.harness_update(backend_id).await
+    }
+
     async fn secrets_capture_answer(
         &self,
         answer: crate::contract::CredentialAnswer,

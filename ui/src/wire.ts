@@ -19,6 +19,8 @@ import type {
 	EffortChoices,
 	FileChunk,
 	GlobalSearchHit,
+	HarnessUpdate,
+	HarnessUpdates,
 	HostBrowser,
 	CapabilityOptions,
 	ImagesStatus,
@@ -180,6 +182,9 @@ type Results = {
 	"mcp.auth_sign_out": null;
 	"mcp.secret_set": null;
 	"backends.list": BackendChoice[];
+	"harness.updates": HarnessUpdates;
+	"harness.updates.check": HarnessUpdates;
+	"harness.update": HarnessUpdate;
 	"skills.list": SkillEntry[];
 	"skills.add": SkillEntry;
 	"skills.remove": null;

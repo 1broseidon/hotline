@@ -905,6 +905,21 @@ impl RoomHandle for Desk {
         Ok(entries)
     }
 
+    fn harness_updates(&self) -> crate::contract::HarnessUpdates {
+        self.room.harness_updates()
+    }
+
+    async fn harness_updates_check(&self) -> crate::contract::HarnessUpdates {
+        self.room.harness_updates_check().await
+    }
+
+    async fn harness_update(
+        &self,
+        backend_id: &str,
+    ) -> Result<crate::contract::HarnessUpdate, String> {
+        self.room.harness_update(backend_id).await
+    }
+
     /// Hotline Agent first, then whatever the ACP catalogue and the PATH say,
     /// each with the models it last reported here.
     async fn backends(&self) -> Vec<BackendChoice> {

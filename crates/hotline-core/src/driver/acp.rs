@@ -38,6 +38,7 @@ pub(crate) mod plan;
 pub mod registry;
 mod session;
 mod translate;
+pub(crate) mod updates;
 
 use super::{
     CapabilityLease, Driver, DriverInfo, MessageKind, SubagentReport, ToolImage, Update, clip,

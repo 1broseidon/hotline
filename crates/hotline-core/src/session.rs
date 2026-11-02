@@ -45,6 +45,7 @@ pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod files_between;
 pub(crate) mod generate;
+mod harness_updates;
 mod inbound;
 mod index;
 mod job_thread;
@@ -775,6 +776,8 @@ pub struct Room {
     push: crate::push::Push,
     /// One container per teammate, tokens in process state.
     computers: Computer,
+    /// Where each agent harness this desk runs stands on updates.
+    harness_updates: Arc<crate::driver::acp::updates::Updates>,
     /// Where the secrets a computer is granted are read from, on their way
     /// to it. A room without one — a test's — grants none.
     vault: Option<Arc<Vault>>,
@@ -926,6 +929,7 @@ impl Room {
             computer_leases: crate::computer::gate::Leases::new(),
             push,
             computers,
+            harness_updates: Arc::default(),
             vault,
             passkey_armings: Mutex::new(HashMap::new()),
             stops: Mutex::default(),

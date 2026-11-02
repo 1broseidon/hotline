@@ -350,6 +350,12 @@ pub(crate) async fn run(
             .mcp_secret_set(&server_id, &url, &secret)
             .map(|()| Value::Null),
         Command::BackendsList {} => Ok(json!(room.backends().await)),
+        Command::HarnessUpdates {} => Ok(json!(room.harness_updates())),
+        Command::HarnessUpdatesCheck {} => Ok(json!(room.harness_updates_check().await)),
+        Command::HarnessUpdate { backend_id } => room
+            .harness_update(&backend_id)
+            .await
+            .map(|update| json!(update)),
         Command::SkillsList { persona_id } => room
             .skills(persona_id.as_deref())
             .map(|skills| json!(skills)),

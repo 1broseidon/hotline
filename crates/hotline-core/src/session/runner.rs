@@ -388,6 +388,7 @@ impl Room {
                     steer: None,
                 },
                 Line {
+                    said: None,
                     voice: None,
                     text: task,
                     attachments: Vec::new(),

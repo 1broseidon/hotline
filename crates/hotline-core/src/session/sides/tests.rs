@@ -1594,3 +1594,114 @@ async fn a_steered_line_the_agent_never_used_is_the_next_turn() {
     until("the unused line runs next", || agents.prompts().len() == 2).await;
     assert_eq!(agents.prompts()[1], "Use the other file");
 }
+
+/// What a stop kept in `pending.json` for the next start.
+fn kept_for_next_start(room: &Room) -> Vec<Value> {
+    std::fs::read(room.log.root().join(crate::session::stopping::PENDING_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// The next desk on the same data.
+fn reopened(root: std::path::PathBuf, agents: Arc<Fake>) -> Arc<Room> {
+    Room::with_agents_and_computers(
+        crate::log::Log::open(root),
+        Arc::new(crate::session::tests::DeskKeys),
+        agents,
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    )
+}
+
+/// The person's line waiting behind a thread's turn when the desk restarts
+/// is kept, and the next desk hands it to that thread once: not the line
+/// the cut turn was running, and not twice.
+#[tokio::test]
+async fn a_persons_line_waiting_in_a_thread_is_handed_to_it_once_after_a_restart() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents =
+        Fake::new(Scripted::turns(vec![vec![say("m1", "First."), turn()]]).gated(gate.clone()));
+    let room = room("side-restart-keeps", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "And another thing", None)
+        .await
+        .unwrap();
+
+    let stopped = room.stop_for_restart(Duration::ZERO).await;
+    let kept = kept_for_next_start(&room);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(
+        kept[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("And another thing"),
+        "{kept:?}"
+    );
+    assert_eq!(kept[0]["thread"], id.as_str());
+    let root = room.log.root().to_path_buf();
+    drop(room);
+
+    let next_agents = Fake::new(Scripted::new(vec![say("m2", "Done."), turn()]));
+    let next = reopened(root.clone(), next_agents.clone());
+    until("the kept line is heard in its thread", || {
+        next_agents
+            .prompts()
+            .iter()
+            .any(|prompt| prompt.contains("And another thing"))
+    })
+    .await;
+    until("pending.json is spent", || {
+        !root.join(crate::session::stopping::PENDING_FILE).exists()
+    })
+    .await;
+    settled(&next, &id).await;
+    assert_eq!(
+        next_agents.prompts().len(),
+        1,
+        "{:?}",
+        next_agents.prompts()
+    );
+    assert!(
+        !next_agents.prompts()[0].contains("Task"),
+        "the cut line is not run again"
+    );
+    let said: Vec<Value> = side_stream(&next, &id)
+        .into_iter()
+        .filter(|event| event["kind"] == "user" && event["text"] == "And another thing")
+        .collect();
+    assert_eq!(said.len(), 1, "written once: {said:?}");
+    drop(stopped);
+}
+
+/// A line the agent took into the turn a restart cuts, and never used, is
+/// kept for the next start rather than dropped with the cut.
+#[tokio::test]
+async fn a_line_steered_into_a_thread_turn_the_restart_cuts_is_kept() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![vec![say("m1", "First."), turn()]])
+            .gated(gate.clone())
+            .steerable(),
+    );
+    let room = room("side-restart-steered", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "Use the other file", None)
+        .await
+        .unwrap();
+    assert_eq!(agents.steered(), ["Use the other file"]);
+
+    let stopped = room.stop_for_restart(Duration::ZERO).await;
+    let kept = kept_for_next_start(&room);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(
+        kept[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Use the other file"),
+        "{kept:?}"
+    );
+    assert_eq!(kept[0]["thread"], id.as_str());
+    drop(stopped);
+}

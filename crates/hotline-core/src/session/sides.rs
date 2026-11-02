@@ -213,8 +213,8 @@ impl LiveSide {
         }
     }
 
-    /// A delivery's turn has begun: it is read, and a restart does not hand it
-    /// over again.
+    /// A delivery's or the person's line's turn has begun: it is read, and a
+    /// restart does not hand it over again.
     fn heard(&self, room: &Room, id: &str) {
         let stream = StreamId::of_thread(&self.thread).expect("work has a stream");
         let Some(event) = room
@@ -228,6 +228,16 @@ impl LiveSide {
             return;
         };
         self.say(room, &super::peers::stamped(event, Receipt::Read));
+    }
+
+    /// The lines waiting behind the turn in flight, taken out of the queue.
+    pub(super) fn take_waiting(&self) -> Vec<Line> {
+        lock(&self.turns).waiting.drain(..).collect()
+    }
+
+    /// The teammate whose thread this is.
+    pub(super) fn teammate(&self) -> &str {
+        &self.persona_id
     }
 
     /// Whether the queue is claimed: a turn is in flight, or the agent is
@@ -344,6 +354,9 @@ impl Occupant for LiveSide {
             *lock(&self.request) = Some(request.request.clone());
             room.fold_carried(&self.id, &request.request);
         }
+        if let Some(id) = &line.said {
+            self.heard(room, id);
+        }
         if let Some(id) = &line.delivery {
             self.heard(room, id);
         }
@@ -429,11 +442,14 @@ impl Occupant for LiveSide {
         let mut steered = std::mem::take(&mut *lock(&side.steered));
         if let Some(driver) = side.driver() {
             let unconsumed = driver.take_unconsumed();
-            // An Interrupt keeps what the person said into the turn it cut.
+            // An Interrupt keeps what the person said into the turn it cut, and
+            // so does a restart, for the next start.
             let cancelled = cut != Some(Cut::Interrupt)
+                && !room.closing()
                 && driven.stop_reason.as_deref().is_some_and(|reason| {
                     matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
                 });
+            let mut handed_back = Vec::new();
             for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
                 // A line steered in goes back as it was said, with the request
                 // it carries; matched from the end, as the driver hands them
@@ -444,6 +460,7 @@ impl Occupant for LiveSide {
                 {
                     Some(index) => steered.remove(index),
                     None => Line {
+                        said: None,
                         voice: room.attached_voice(&side.thread),
                         text,
                         attachments,
@@ -454,7 +471,18 @@ impl Occupant for LiveSide {
                         steer: false,
                     },
                 };
-                lock(&side.turns).waiting.push_front(line);
+                handed_back.push(line);
+            }
+            let mut turns = lock(&side.turns);
+            if room.closing() {
+                drop(turns);
+                // Last first, as the driver handed them back.
+                handed_back.reverse();
+                room.keep_late_in_thread(side, handed_back);
+            } else {
+                for line in handed_back {
+                    turns.waiting.push_front(line);
+                }
             }
         }
         room.remember_session(side, &driven);
@@ -1482,10 +1510,11 @@ impl Room {
         let client = crate::wire::commands::prompt_client();
         *lock(&side.last_used) = ts;
         self.name_side(side, text);
+        let said_id = new_id();
         side.say(
             self,
             &TranscriptEvent::User {
-                id: new_id(),
+                id: said_id.clone(),
                 ts,
                 text: text.to_string(),
                 attachments: attachments.clone(),
@@ -1525,6 +1554,7 @@ impl Room {
         self.queue_in_side(
             side,
             Line {
+                said: Some(said_id),
                 voice,
                 text: text.clone(),
                 attachments: attachments.unwrap_or_default(),
@@ -1566,6 +1596,14 @@ impl Room {
     fn queue_in_side(self: &Arc<Self>, side: &Arc<LiveSide>, line: Line) {
         let queued = {
             let mut turns = lock(&side.turns);
+            // Past the restart's spill no line starts or waits: the person's is
+            // kept for the next start, and a colleague's is handed over again
+            // from its exchange.
+            if self.closing() {
+                drop(turns);
+                self.keep_late_in_thread(side, vec![line]);
+                return;
+            }
             if side.closed.is_parking() {
                 drop(turns);
                 self.reopen_with(side, line);
@@ -1686,6 +1724,7 @@ impl Room {
             self.queue_in_side(
                 &side,
                 Line {
+                    said: None,
                     voice: None,
                     text: super::timed(ts, &wire),
                     attachments: Vec::new(),
@@ -1702,6 +1741,26 @@ impl Room {
             self.launch(launch);
         }
         delivered
+    }
+
+    /// Hands a line kept across a restart back to its thread, bringing the
+    /// thread back for it as a delivery does.
+    pub(super) async fn resume_in_work(
+        self: &Arc<Self>,
+        side_id: &str,
+        line: Line,
+    ) -> Result<(), String> {
+        let _admission = self.sides.waking.lock().await;
+        let (side, launch) = match self.live_side(side_id) {
+            Ok(side) => (side, None),
+            Err(_) => self.wake_work(side_id, true, None).await?,
+        };
+        *lock(&side.last_used) = now_ms();
+        self.queue_in_side(&side, line);
+        if let Some(launch) = launch {
+            self.launch(launch);
+        }
+        Ok(())
     }
 
     /// Whether this thread can be talked in without the person pressing

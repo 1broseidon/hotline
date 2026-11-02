@@ -949,6 +949,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    said: None,
                     voice: None,
                     text: timed(now, &firing_text(job, &run, last, standing)),
                     attachments: Vec::new(),
@@ -1081,6 +1082,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    said: None,
                     voice: None,
                     text: timed_from(ts, client, &heard),
                     attachments: attachments.unwrap_or_default(),
@@ -1170,6 +1172,7 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
+                    said: None,
                     voice: None,
                     text: timed(ts, &wire),
                     attachments: Vec::new(),

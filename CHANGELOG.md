@@ -8,6 +8,24 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate knows its own threads. Every turn opens with a short index of
+  its other threads (what is at work, what waits on you, what ended today),
+  told whole once and then only as what moved since its last turn there, so
+  it can say what is still out without reading anything.
+- Threads tell each other things with asides, a note or a nudge heard at the
+  start of the teammate's next turn and never posted in your chat. A nudge
+  that lands mid-turn wakes the teammate when that turn ends.
+- You can talk in a thread a teammate handed to a colleague, Loop in…
+  another colleague for one answer there, and End thread. A teammate's
+  asides are listed on a Noted page.
+- A colleague's question to a busy teammate is answered by a work thread
+  seeded with what it needs, which leaves the main conversation a note of
+  what it answered.
+
+Thread awareness builds on Kelviny Moura's work in #203. Thank you, Kelviny.
+
 ## [0.45.0] - 2026-10-29
 
 ### Added

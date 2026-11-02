@@ -1,4 +1,4 @@
-import { shownState } from "../activity";
+import { isWorking } from "../activity";
 import type { RosterEntry } from "../wire";
 
 /**
@@ -9,7 +9,6 @@ import type { RosterEntry } from "../wire";
 export function callWorking(roster: readonly Pick<RosterEntry, "persona" | "session" | "sides">[], personaId: string | undefined): boolean {
 	const rows = personaId === undefined ? roster : roster.filter((row) => row.persona.id === personaId);
 	return rows.some((row) => {
-		const state = shownState(row.session);
-		return state === "thinking" || state === "starting" || (row.sides ?? []).some((side) => side.working);
+		return isWorking(row.session) || (row.sides ?? []).some((side) => side.working);
 	});
 }

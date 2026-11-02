@@ -772,6 +772,48 @@ impl Drop for Session {
         self.cancel.cancel();
     }
 }
+/// What a reconnected socket is told before the app speaks again: the seat's
+/// `client.hello`, and only once the desk has answered it, the subscriptions.
+/// False when the socket failed or the desk did not answer in time.
+pub(super) async fn replay<S, E>(
+    socket: &mut S,
+    hello: Option<&(i64, String)>,
+    subscriptions: &std::collections::BTreeMap<i64, String>,
+    incoming: &tokio::sync::mpsc::Sender<String>,
+) -> bool
+where
+    S: futures_util::Stream<Item = Result<Message, E>> + futures_util::Sink<Message> + Unpin,
+{
+    if let Some((id, frame)) = hello {
+        if socket.send(Message::text(frame)).await.is_err() {
+            return false;
+        }
+        // The answer is the desk's, to a question the app asked long ago:
+        // it settles the seat's modes and is not passed on.
+        let answered = tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                if serde_json::from_str::<Value>(&text).is_ok_and(|v| v["id"].as_i64() == Some(*id))
+                {
+                    return true;
+                }
+                if incoming.send(text.to_string()).await.is_err() {
+                    return false;
+                }
+            }
+            false
+        })
+        .await;
+        if answered != Ok(true) {
+            return false;
+        }
+    }
+    for frame in subscriptions.values() {
+        if socket.send(Message::text(frame)).await.is_err() {
+            return false;
+        }
+    }
+    true
+}
 impl Client {
     pub fn connect(&self, desk: &PairedDesk) -> Session {
         let (send, outgoing) = tokio::sync::mpsc::channel(64);
@@ -809,6 +851,9 @@ impl Client {
         discovery: tokio::sync::watch::Sender<Option<Discovery>>,
     ) {
         let mut subscriptions = std::collections::BTreeMap::<i64, String>::new();
+        // The last `client.hello` the app sent: it decides what shape the desk
+        // streams in, so every new socket is told it before anything is replayed.
+        let mut hello_frame: Option<(i64, String)> = None;
         let mut delay = Duration::from_millis(250);
         loop {
             state.send_replace(State::Connecting);
@@ -850,13 +895,8 @@ impl Client {
                     if incoming.send(text.to_string()).await.is_err() {
                         return;
                     }
-                    let mut replayed = true;
-                    for frame in subscriptions.values() {
-                        if socket.send(Message::text(frame)).await.is_err() {
-                            replayed = false;
-                            break;
-                        }
-                    }
+                    let replayed =
+                        replay(&mut socket, hello_frame.as_ref(), &subscriptions, &incoming).await;
                     let mut pending = std::collections::BTreeSet::new();
                     loop {
                         if !replayed {
@@ -867,6 +907,7 @@ impl Client {
                                 let Some(frame) = frame else { return; };
                                 if let Ok(value) = serde_json::from_str::<Value>(&frame) {
                                     if let Some(id) = value["id"].as_i64() {
+                                        if value["cmd"] == "client.hello" { hello_frame = Some((id, frame.clone())); }
                                         if value.get("sub").is_some() { subscriptions.insert(id, frame.clone()); }
                                         if value.get("sub").is_none() { pending.insert(id); }
                                     }

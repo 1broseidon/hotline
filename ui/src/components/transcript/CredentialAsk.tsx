@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CredentialAnswer, TranscriptEvent } from "../../generated/contract";
 import { CheckIcon } from "../../icons";
+import { askKey, useAnswer } from "../../answering";
 import { wire } from "../../wire";
 
 type Ask = Extract<TranscriptEvent, { kind: "credential_ask" }>;
@@ -39,8 +40,11 @@ export function CredentialAsk({ event, teammate }: { event: Ask; teammate: strin
 
 function CaptureForm({ event, teammate }: { event: Ask; teammate: string }) {
 	const form = useRef<HTMLFormElement>(null);
-	const [answering, setAnswering] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const { answering, failure: error, answer: sendAnswer } = useAnswer(
+		askKey(event),
+		event.status !== "pending",
+		() => "Could not save this answer. Check whether the card is still waiting, then enter the fields again.",
+	);
 	useEffect(() => {
 		const fields = form.current;
 		return () => fields?.reset();
@@ -62,12 +66,7 @@ function CaptureForm({ event, teammate }: { event: Ask; teammate: string }) {
 			}
 		}
 		form.current.reset();
-		setAnswering(true);
-		setError(null);
-		void wire.command("secrets.capture.answer", answer).catch(() => {
-			setAnswering(false);
-			setError("Could not save this answer. Check whether the card is still waiting, then enter the fields again.");
-		});
+		sendAnswer(() => wire.command("secrets.capture.answer", answer));
 	};
 
 	return (

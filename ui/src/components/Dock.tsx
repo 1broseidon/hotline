@@ -4,6 +4,8 @@ import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../gene
 import { PaneClose } from "../ui/PaneClose";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
+import { sends, useReturned, useSends } from "../sends";
+import type { Refill } from "./Conversation";
 import {
 	clampDock,
 	DOCK_MAX,
@@ -37,7 +39,7 @@ import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
-import { shownState } from "../activity";
+import { isWorking, workingState } from "../activity";
 import { Composer } from "./Composer";
 import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
@@ -127,7 +129,7 @@ export function Dock({
 						blockId={work.blockId}
 						stepId={work.stepId}
 						name={entry.persona.name}
-						live={shownState(entry.session) === "thinking"}
+						live={isWorking(entry.session)}
 						onClose={onClose}
 					/>
 				) : at === null && noted === null && <DockBand onClose={onClose} />}
@@ -503,9 +505,14 @@ function ThreadView({
 	}, [listedWorking, newest]);
 
 	const refuse = (error: unknown) => setRefused(error instanceof Error ? error.message : String(error));
+	// A refused message goes back to this thread's field, even when the person has gone elsewhere before the refusal came.
+	const conv = `${id.kind}:${id.key}`;
+	const [refill, setRefill] = useState<Refill | null>(null);
+	const threadSends = useSends(conv);
+	useReturned(conv, (back) => setRefill({ text: back.text, attachments: back.attachments, nonce: back.nonce, merge: true }));
 	const send = (text: string, attachments: Attachment[]) => {
 		setRefused(null);
-		void carry(attachments).then((carried) => prompt(text, carried)).catch(refuse);
+		sends.send(conv, { text, attachments }, () => carry(attachments).then((carried) => prompt(text, carried)));
 	};
 	// End thread: closes it, and a handoff into it with it, as the person's decision.
 	const end = () => {
@@ -591,7 +598,7 @@ function ThreadView({
 					{...(speakers !== undefined ? { speakers } : {})}
 				/>
 			</div>
-			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
+			{(refused ?? threadSends.notice) !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused ?? threadSends.notice}</p>}
 			{opener !== undefined && asked === undefined && (
 				<HandoffBar opener={opener} teammate={self} ended={row?.handoffEnded === true} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
 			)}
@@ -608,7 +615,8 @@ function ThreadView({
 						embedded
 						personaId={`${id.kind}:${id.key}`}
 						name={self.name}
-						state={turning ? "thinking" : "ready"}
+						state={workingState(turning)}
+						{...(refill !== null ? { refill } : {})}
 						replyQuote={null}
 						onSend={send}
 						onCancel={() => void interrupt().catch(() => undefined)}

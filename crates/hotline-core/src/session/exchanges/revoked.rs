@@ -27,11 +27,11 @@ impl Room {
                 {
                     continue;
                 }
-                request.release(&mut ended);
-                self.stop_request(
+                self.end_request(
                     request,
+                    Ending::Stopped { revoked: persona },
                     "Collaboration was revoked or a participant stopped. Send again if still needed.",
-                    persona,
+                    &mut ended,
                 );
                 stopped.push(request.clone());
                 changed = true;

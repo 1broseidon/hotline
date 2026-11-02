@@ -115,7 +115,7 @@ async fn a_request_waiting_on_its_card_holds_up_nothing_else_between_the_two() {
     let pair = room.exchange_pair("ada~bob").unwrap();
     let waiting = pair.requests.iter().find(|r| r.id == handoff).unwrap();
     assert_eq!(
-        waiting.phase,
+        waiting.phase(),
         Phase::Queued,
         "the handoff still waits on its card"
     );

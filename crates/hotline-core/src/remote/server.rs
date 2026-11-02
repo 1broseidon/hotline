@@ -375,15 +375,24 @@ pub(super) async fn sealed_session<S>(
         let size = noise.read_message(&first, &mut payload).ok()?;
         let public = noise.get_remote_static()?.to_vec();
         let mut desk = None;
+        // A grant made for a phone whose confirmation does not get sent is
+        // taken back, whether the send fails or this future is dropped first.
+        let mut unanswered = None;
         let (phone, answer) = if matches!(purpose, Purpose::Pair) {
             let claimed = remote.claim_v2(&public, &payload[..size]).ok()?;
             let answer = match claimed {
-                super::v2::Claimed::Granted(role) => json!({
-                    "role": role,
-                    "deskName": desktop_name(),
-                    "deskId": remote.status_desktop_id(),
-                    "serves": remote.serves(),
-                }),
+                super::v2::Claimed::Granted(role, undo) => {
+                    unanswered = Some(Unanswered {
+                        remote: remote.clone(),
+                        undo: Some(undo),
+                    });
+                    json!({
+                        "role": role,
+                        "deskName": desktop_name(),
+                        "deskId": remote.status_desktop_id(),
+                        "serves": remote.serves(),
+                    })
+                }
                 super::v2::Claimed::Refused(invitation) => json!({"refused": invitation}),
             };
             (None, serde_json::to_vec(&answer).ok()?)
@@ -433,6 +442,9 @@ pub(super) async fn sealed_session<S>(
             .send(Message::Binary(response[..size].to_vec().into()))
             .await
             .ok()?;
+        if let Some(unanswered) = unanswered.as_mut() {
+            unanswered.undo = None;
+        }
         let phone = phone?;
         let state = noise.into_transport_mode().ok()?;
         if phone.cancel.is_cancelled() {
@@ -595,6 +607,19 @@ async fn sealed_computer<S>(
                 };
                 if phone.send(Message::Text(value.to_string().into())).await.is_err() { break; }
             }
+        }
+    }
+}
+
+/// A pairing grant that stands only once its confirmation has been sent.
+struct Unanswered {
+    remote: Arc<Remote>,
+    undo: Option<super::v2::Undo>,
+}
+impl Drop for Unanswered {
+    fn drop(&mut self) {
+        if let Some(undo) = self.undo.take() {
+            self.remote.unclaim_v2(undo);
         }
     }
 }

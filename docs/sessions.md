@@ -1566,23 +1566,34 @@ it still carries another. The person's Stop ends what it carries, as above;
 a close ends it as a turn that ended without a result, and the person's End
 thread as theirs. A restart settles it as any started request.
 
+**A line joins the turn in flight** (`Turns::steer_into`, the main
+conversation's and a work thread's one way). The person's line in a work
+thread, said while its turn runs, goes into that turn at once when the
+driver takes input mid-turn (`Room::steer_into_work`, also looked at between
+updates), so the agent changes course without starting over; what the driver
+took but never used goes back to the queue as it was said, first. A driver
+that cannot take it leaves the line queued, and the thread says it waits for
+the turn to end. The person's line does not join a turn answering a
+colleague's question, whose whole reply is theirs.
+
 **A follow-up steers** (`Room::steer_work`, `exchanges/stops.rs`). A
 colleague's handoff into a work thread (`message_teammate` with `thread`)
-while the thread's turn does another of that colleague's handoffs cuts the
-turn as the person's Interrupt does, after the follow-up is queued behind it:
-the handoff it was doing stays standing and carried, its sender is left no
-note of the cut pass, and the follow-up's turn runs next, its line opening
-"(Your last turn here was cut for the line below … That turn had said: "…")"
-after its time (`steered_text`, at most 600 characters of what the cut turn
-had said), so the agent carries the same work on with the change applied.
-As that turn begins, each handoff the thread carries from the same sender is
-settled as carried on by it (`Room::fold_carried`: done, its result consumed,
-never delivered), so the sender hears one result, the follow-up's, and the
+while the thread's turn does another of that colleague's handoffs joins that
+turn the same way, when the driver takes it: the follow-up becomes what the
+turn answers, and the handoff it was doing is settled as carried on by it
+(`Room::fold_carried`). A driver that cannot take it is cut as the person's
+Interrupt cuts it, after the follow-up is queued behind it: the handoff it
+was doing stays standing and carried, its sender is left no note of the cut
+pass, and the follow-up's turn runs next, its line opening "(Your last turn
+here was cut for the line below … That turn had said: "…")" after its time
+(`steered_text`, at most 600 characters of what the cut turn had said), so
+the agent carries the same work on with the change applied. As that turn
+begins, each handoff the thread carries from the same sender is settled as
+carried on by it (`Room::fold_carried`: done, its result consumed, never
+delivered). Either way the sender hears one result, the follow-up's, and the
 thread closes on it. A follow-up into a thread with no turn running, or one
-whose turn does someone else's work, waits as any line does, and so does
-the person's line: it is theirs, and steering would make their answer the
-colleague's result. A linked desk's sender is owed a result per handoff, so
-its follow-ups wait too. A cut that lands after the turn ended on its own
+whose turn does someone else's work, waits as any line does. A linked desk's
+sender is owed a result per handoff, so its follow-ups wait too. A cut that lands after the turn ended on its own
 changes nothing, and both results are delivered as before.
 
 **An answer cut by either.** A turn answering a colleague's question that

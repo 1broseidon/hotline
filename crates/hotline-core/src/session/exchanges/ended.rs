@@ -34,20 +34,19 @@ impl Room {
                 {
                     changed |= request.release(&mut ended);
                     if matches!(
-                        request.phase,
+                        request.phase(),
                         Phase::Queued | Phase::Running | Phase::WaitingHuman
                     ) {
                         // The thread is closed already, so this revokes the
                         // request's leases and stops nothing else.
-                        self.cancel_request(request);
-                        request.phase = Phase::Stopped;
-                        request.failed = true;
-                        request.reply = ENDED.into();
-                        if linked::is_linked(&request.from) {
-                            request.reply.clone_from(&text);
-                            request.stopped_by_person = true;
-                        }
-                        changed = true;
+                        let by_person = linked::is_linked(&request.from);
+                        let reply = if by_person { text.as_str() } else { ENDED };
+                        changed |= self.end_request(
+                            request,
+                            Ending::Closed { by_person },
+                            reply,
+                            &mut ended,
+                        );
                     }
                 }
                 if changed && let Err(error) = self.save_pair(&pair) {

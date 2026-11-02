@@ -75,8 +75,7 @@ impl ChildAgent {
         let failure = crate::driver::failure::Failure::startup(sentence);
         // The details, which are redacted: the stderr tail is the agent's.
         eprintln!("[acp] {}", failure.details);
-        *lock(&self.live.startup_failure) = Some(failure.notice());
-        self.live.failed.store(true, Ordering::SeqCst);
+        self.live.fail(Some(failure.notice()));
         {
             let mut session = lock(&self.live.session);
             session.id = None;
@@ -92,6 +91,24 @@ impl ChildAgent {
     /// agent over an in-memory duplex through exactly this path, and what it
     /// proves about the translation is true of a real harness on stdio.
     pub(crate) async fn handshake(
+        &self,
+        persona: &Persona,
+        transport: ByteStreams<
+            impl futures_util::AsyncWrite + Send + 'static,
+            impl futures_util::AsyncRead + Send + 'static,
+        >,
+    ) -> Result<DriverInfo, String> {
+        self.live.spawning();
+        let opened = self.handshake_steps(persona, transport).await;
+        if opened.is_err() {
+            // A connection that got this far and no further is not a state to
+            // sit in: it is failed, and the next prompt starts it again.
+            self.live.fail(None);
+        }
+        opened
+    }
+
+    async fn handshake_steps(
         &self,
         persona: &Persona,
         transport: ByteStreams<
@@ -139,7 +156,7 @@ impl ChildAgent {
         self.check_capability()?;
 
         lock(&self.live.auth_methods).clone_from(&initialized.auth_methods);
-        *lock(&self.live.startup_failure) = None;
+        self.live.initialized();
         let capabilities = capabilities_of(&initialized);
         self.live
             .steerable
@@ -185,8 +202,7 @@ impl ChildAgent {
             {
                 // The picker offers its sign-in until a session of it opens.
                 super::models::mark_sign_in(&self.root, &self.backend_id);
-                *lock(&self.live.startup_failure) = Some(failure.notice());
-                self.live.failed.store(true, Ordering::SeqCst);
+                self.live.fail(Some(failure.notice()));
                 lock(&self.live.session).id = None;
                 lock(&self.live.session).info.session_id = None;
                 return Ok(self.live.publish_info());
@@ -196,6 +212,7 @@ impl ChildAgent {
         self.check_capability()?;
         self.adopt_disposition(persona).await;
         self.check_capability()?;
+        self.live.session_opened();
         // Supersede notifications received during session restore with the
         // final handshake state before the room attaches its watcher.
         Ok(self.live.publish_info())
@@ -272,7 +289,7 @@ impl ChildAgent {
                 // sessions; `session/load` is still a valid fallback.
             }
             if capabilities.load_session {
-                self.live.replaying.store(true, Ordering::SeqCst);
+                let replay = Replay::begin(&self.live.replaying);
                 let loaded = connection
                     .send_request(
                         LoadSessionRequest::new(id.clone(), cwd.clone())
@@ -281,7 +298,7 @@ impl ChildAgent {
                     )
                     .block_task()
                     .await;
-                self.live.replaying.store(false, Ordering::SeqCst);
+                drop(replay);
                 if let Ok(response) = loaded {
                     self.adopt(
                         id,
@@ -750,6 +767,9 @@ async fn connect(
             eprintln!("an ACP connection ended: {error}");
         }
         live.settle_permissions();
+        // The child is gone, or hung up: the next prompt starts it again
+        // instead of finding out by failing.
+        live.fail(None);
     });
     *lock(&task_live.connection_task) = Some(task);
     started

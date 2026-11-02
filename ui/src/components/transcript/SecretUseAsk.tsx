@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SecretUseAnswer, SecretUseStatus, TranscriptEvent } from "../../generated/contract";
+import { askKey, useAnswer } from "../../answering";
 import { wire } from "../../wire";
 
 const outcomes: Record<SecretUseStatus, string> = {
@@ -7,8 +8,7 @@ const outcomes: Record<SecretUseStatus, string> = {
 };
 
 export function SecretUseAsk({ event, teammate }: { event: Extract<TranscriptEvent, { kind: "secret_use_ask" }>; teammate: string }) {
-	const [answering, setAnswering] = useState(false);
-	const [refusal, setRefusal] = useState<string | null>(null);
+	const { answering, failure: refusal, answer: send } = useAnswer(askKey(event), event.status !== "pending");
 	const [expired, setExpired] = useState(Date.now() >= event.expiresAt);
 	useEffect(() => {
 		setExpired(Date.now() >= event.expiresAt);
@@ -17,13 +17,8 @@ export function SecretUseAsk({ event, teammate }: { event: Extract<TranscriptEve
 	}, [event.expiresAt]);
 	const status = event.status === "pending" && expired ? "expired" : event.status;
 	const answer = (answer: SecretUseAnswer) => {
-		if (answering || status !== "pending" || Date.now() >= event.expiresAt) return;
-		setAnswering(true);
-		setRefusal(null);
-		void wire.command("secrets.use.answer", { personaId: event.teammate, useId: event.useId, answer }).catch((error: unknown) => {
-			setRefusal(error instanceof Error ? error.message : String(error));
-			setAnswering(false);
-		});
+		if (status !== "pending" || Date.now() >= event.expiresAt) return;
+		send(() => wire.command("secrets.use.answer", { personaId: event.teammate, useId: event.useId, answer }));
 	};
 	return <div className={`card mt-3${status === "pending" ? " card-live" : ""}`}>
 		<p className="eyebrow mb-1">{outcomes[status]} · {event.secretKind === "passkey" ? "Passkey" : "Login"}</p>

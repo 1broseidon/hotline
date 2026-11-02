@@ -102,8 +102,8 @@ fn idle(room: &Room, thread: &str) -> bool {
 async fn waiting_on_carol(handed: &HandedOff, ask: &str) {
     handed.bob_gate.add_permits(2);
     until("the handoff waits on Carol, who is answering", || {
-        request(&handed.room, "ada~bob", &handed.handoff).phase == Phase::WaitingHuman
-            && request(&handed.room, "bob~carol", ask).phase == Phase::Running
+        request(&handed.room, "ada~bob", &handed.handoff).phase() == Phase::WaitingHuman
+            && request(&handed.room, "bob~carol", ask).phase() == Phase::Running
             && idle(&handed.room, &handed.thread)
     })
     .await;
@@ -130,7 +130,7 @@ async fn a_handoff_that_asks_a_colleague_waits_for_the_answer_and_carries_on_wit
     let answer = delivered_in(room, &handed.thread, &ask).expect("the answer is in the thread");
     assert_eq!(answer["cause"]["kind"], "peer");
     assert_eq!(
-        request(room, "ada~bob", &handed.handoff).phase,
+        request(room, "ada~bob", &handed.handoff).phase(),
         Phase::Running,
         "the answer's turn is the handoff's"
     );
@@ -164,7 +164,7 @@ async fn carries_on_with_the_failure(handed: &HandedOff, ask: &str, name: &str, 
     assert_eq!(failure["text"], text);
     assert!(handed.bob.prompts()[1].contains(text));
     assert_eq!(
-        request(room, "ada~bob", &handed.handoff).phase,
+        request(room, "ada~bob", &handed.handoff).phase(),
         Phase::Running
     );
     handed.bob_gate.add_permits(2);
@@ -242,7 +242,7 @@ async fn a_question_to_a_desk_that_unlinks_carries_the_handoff_on_with_the_failu
     let ask = ask_from(room, &handed.thread, "grizzly-desk/lou").await;
     handed.bob_gate.add_permits(2);
     until("the handoff waits on Lou, whose desk is away", || {
-        request(room, "ada~bob", &handed.handoff).phase == Phase::WaitingHuman
+        request(room, "ada~bob", &handed.handoff).phase() == Phase::WaitingHuman
             && idle(room, &handed.thread)
     })
     .await;

@@ -27,7 +27,7 @@ impl Room {
                     let (Some(room), Some(side)) = (room.upgrade(), side.upgrade()) else {
                         break;
                     };
-                    if side.closed.load(Ordering::SeqCst) || !side.capability.is_current() {
+                    if side.closed.is_set() || !side.capability.is_current() {
                         break;
                     }
                     side.say(
@@ -49,6 +49,7 @@ impl Room {
                             from: None,
                             delivery: None,
                             wake: false,
+                            steer: false,
                         },
                     );
                 }
@@ -63,7 +64,7 @@ impl Room {
                     let (Some(room), Some(side)) = (room.upgrade(), side.upgrade()) else {
                         break;
                     };
-                    if side.closed.load(Ordering::SeqCst) || !side.capability.is_current() {
+                    if side.closed.is_set() || !side.capability.is_current() {
                         break;
                     }
                     let _ = room.info_changes.send(room.info(&side.persona_id));

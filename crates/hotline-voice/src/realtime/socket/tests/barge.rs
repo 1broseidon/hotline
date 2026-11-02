@@ -247,3 +247,39 @@ async fn a_spoken_line_leaves_no_instruction_behind() {
         finish(server).await;
     }
 }
+
+/// A noise opens the detector and the transcript comes back empty: the turn
+/// still ends, so the call is not left waiting for words.
+#[tokio::test]
+async fn an_empty_transcript_still_ends_the_callers_turn() {
+    for gpt in [false, true] {
+        let (listener, url) = listen().await;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = accept(&listener).await;
+            handshake(&mut socket).await;
+            send(
+                &mut socket,
+                json!({"type":"input_audio_buffer.speech_started","item_id":"cough"}),
+            )
+            .await;
+            send(&mut socket, json!({"type": "input_audio_buffer.committed"})).await;
+            send(
+                &mut socket,
+                json!({"type": "conversation.item.input_audio_transcription.completed", "transcript": "  "}),
+            )
+            .await;
+            closed(&mut socket).await;
+        });
+        let provider = if gpt { openai(&url) } else { voice(&url) };
+        let mut configuration = config();
+        configuration.input_rate = 24_000;
+        let mut session = provider.open(configuration).await.unwrap();
+        assert_eq!(next(&mut session).await, RealtimeEvent::SpeechStarted);
+        assert_eq!(
+            next(&mut session).await,
+            RealtimeEvent::Heard(String::new())
+        );
+        drop(session);
+        finish(server).await;
+    }
+}

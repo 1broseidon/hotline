@@ -802,10 +802,7 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
     std::fs::remove_file(root.join("state.pullgate")).unwrap();
     let downloaded = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            if lock(&room.computer_swaps)
-                .get("ada")
-                .is_some_and(|swap| swap.ready)
-            {
+            if room.computer_links.swap_waiting("ada") {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -833,9 +830,7 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
     assert!(Arc::ptr_eq(&room.session("ada").unwrap(), &session));
     assert_eq!(removes(&root), 0, "the admitted turn keeps its computer");
     assert!(
-        lock(&room.computer_swaps)
-            .get("ada")
-            .is_some_and(|swap| swap.ready),
+        room.computer_links.swap_waiting("ada"),
         "the swap waits for that turn instead"
     );
 
@@ -1385,4 +1380,111 @@ async fn a_slow_secret_use_poll_does_not_delay_another_computers_next_card() {
             .iter()
             .any(|event| event["useId"] == first && event["status"] == "expired")
     );
+}
+
+fn commands_starting(root: &std::path::Path, word: &str) -> usize {
+    runtime_commands(root)
+        .iter()
+        .filter(|line| line.starts_with(word))
+        .count()
+}
+
+/// A side thread or a job holding the computer's lease is using it with no
+/// main session behind it. The sweep leaves its computer running, and once
+/// the lease is let go the computer idles like any other.
+#[tokio::test]
+async fn a_computer_held_by_a_side_thread_survives_the_sweep() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-lease-sweep", Some("0.11.0"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    room.stop("ada").unwrap();
+    let holder = crate::computer::gate::Holder::new("side-1", "a side thread");
+    let call = room
+        .computer_leases
+        .take("ada", &holder, &|| true)
+        .await
+        .unwrap();
+    drop(call);
+
+    room.computers.mark_idle("ada", 0);
+    let before = commands_starting(&root, "stop") + commands_starting(&root, "rm");
+    room.sweep_computers().await;
+    assert_eq!(
+        commands_starting(&root, "stop") + commands_starting(&root, "rm"),
+        before,
+        "a held lease is not idle"
+    );
+
+    room.let_go_of_computer("ada", &holder);
+    room.computers.mark_idle("ada", 0);
+    room.sweep_computers().await;
+    assert_eq!(commands_starting(&root, "rm"), 1, "let go, it is swept");
+}
+
+/// An update's swap is claimed under the start gate, not before it: while it
+/// waits there, the teammate's phase still says a swap is under way, so a
+/// second update does not download another.
+#[tokio::test]
+async fn a_swap_waiting_at_the_start_gate_still_holds_the_teammates_update() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-swap-gate", Some("0.11.0"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    let session = room.session("ada").unwrap();
+    lock(&session.turns).running = true;
+    std::fs::write(root.join("state.noimage"), "").unwrap();
+    room.computer_update("ada").await.unwrap();
+    while !room.computer_links.swap_waiting("ada") {
+        tokio::task::yield_now().await;
+    }
+    lock(&session.turns).running = false;
+    let pulls = commands_starting(&root, "pull");
+
+    let held = room.start_gate("ada").lock_owned().await;
+    room.swap_computer_when_idle("ada");
+    assert!(
+        room.computer_links.swap_waiting("ada"),
+        "the swap is not claimed before it has the gate"
+    );
+    room.computer_update("ada").await.unwrap();
+    assert_eq!(
+        commands_starting(&root, "pull"),
+        pulls,
+        "no second download"
+    );
+    drop(held);
+
+    // The swap queued first, so this is behind it.
+    drop(room.start_gate("ada").lock_owned().await);
+    assert!(!Arc::ptr_eq(&room.session("ada").unwrap(), &session));
+    assert_eq!(
+        room.computer_links.phase("ada"),
+        crate::session::computer::ComputerPhase::None
+    );
+}
+
+/// A room that is closing starts nothing: the swap leaves the old computer
+/// where it is and waits.
+#[tokio::test]
+async fn a_swap_in_a_closing_room_leaves_the_old_computer_and_waits() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-swap-closing", Some("0.11.0"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    room.computer_restart("ada").await.unwrap();
+    while !matches!(
+        room.computer_links.phase("ada"),
+        crate::session::computer::ComputerPhase::None
+    ) {
+        tokio::task::yield_now().await;
+    }
+    // That restart landed. Ask for another with the room closing.
+    let removes = commands_starting(&root, "rm");
+    let held = room.start_gate("ada").lock_owned().await;
+    room.computer_links.restart("ada");
+    room.swap_computer_when_idle("ada");
+    room.closing
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    drop(held);
+    drop(room.start_gate("ada").lock_owned().await);
+    assert_eq!(commands_starting(&root, "rm"), removes, "nothing removed");
+    assert!(room.computer_links.swap_waiting("ada"), "the swap waits");
 }

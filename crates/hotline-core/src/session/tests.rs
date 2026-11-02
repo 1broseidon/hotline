@@ -33,6 +33,7 @@ mod plan;
 mod posting;
 mod preamble;
 mod reading;
+mod run_state;
 mod runs;
 mod scheduled;
 mod sent_files;
@@ -78,6 +79,8 @@ pub(crate) struct Scripted {
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
+    /// Steering the agent uses in the turn it joined, so nothing comes back.
+    consumes: bool,
     /// Each line steered into a turn in flight, by its words.
     steered: Arc<Mutex<Vec<String>>>,
     /// Each prompt exactly as handed over, stamp and all.
@@ -88,7 +91,7 @@ pub(crate) struct Scripted {
     /// harness is still coming up. `None` starts at once.
     start_gate: Option<Arc<Semaphore>>,
     /// Why every start is refused, for a harness that cannot come up.
-    start_error: Option<String>,
+    start_error: Mutex<Option<String>>,
     /// What reading a login's plan answers, how often it was read, and
     /// which logins, in order. The room reads it through [`Fake`].
     pub(super) plan: Arc<Mutex<Option<crate::contract::PlanUsage>>>,
@@ -127,11 +130,12 @@ impl Scripted {
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
+            consumes: false,
             steered: Arc::new(Mutex::new(Vec::new())),
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
             start_gate: None,
-            start_error: None,
+            start_error: Mutex::new(None),
             plan: Arc::new(Mutex::new(None)),
             plan_reads: Arc::default(),
             plan_logins: Arc::default(),
@@ -149,8 +153,8 @@ impl Scripted {
     }
 
     /// An agent that cannot be started, and says why.
-    pub(super) fn failing_to_start(mut self, reason: &str) -> Self {
-        self.start_error = Some(reason.to_string());
+    pub(super) fn failing_to_start(self, reason: &str) -> Self {
+        *lock(&self.start_error) = Some(reason.to_string());
         self
     }
 
@@ -178,6 +182,13 @@ impl Scripted {
     pub(super) fn steerable(mut self) -> Self {
         self.unconsumed = Some(Arc::new(Mutex::new(Vec::new())));
         self
+    }
+
+    /// A steerable agent that uses each line in the turn it joined, as one
+    /// does when the line arrives before the turn's last request.
+    pub(super) fn consuming(mut self) -> Self {
+        self.consumes = true;
+        self.steerable()
     }
 
     pub(super) fn with_room_models(mut self) -> (Self, Arc<Mutex<Vec<ConfigChoice>>>) {
@@ -228,8 +239,8 @@ impl Driver for Scripted {
         if let Some(gate) = &self.start_gate {
             gate.acquire().await.expect("the gate closed").forget();
         }
-        if let Some(reason) = &self.start_error {
-            return Err(reason.clone());
+        if let Some(reason) = lock(&self.start_error).clone() {
+            return Err(reason);
         }
         Ok(self.reported())
     }
@@ -299,7 +310,9 @@ impl Driver for Scripted {
             return false;
         };
         lock(&self.steered).push(words_of(&text));
-        lock(unconsumed).push((text, attachments));
+        if !self.consumes {
+            lock(unconsumed).push((text, attachments));
+        }
         true
     }
 
@@ -420,6 +433,11 @@ impl Fake {
 
     pub(super) fn cancel_count(&self) -> usize {
         *lock(&self.driver.cancels)
+    }
+
+    /// From now on every start is refused, for a harness that stops coming up.
+    pub(super) fn fail_starts(&self, reason: &str) {
+        *lock(&self.driver.start_error) = Some(reason.to_string());
     }
 
     /// Makes the agents stand in for a child that issues this session id, and

@@ -797,3 +797,119 @@ async fn no_runtime_is_the_install_sentence() {
         "No container runtime was found; install Docker or Podman."
     );
 }
+
+fn creates(root: &Path) -> usize {
+    log_text(&root.join("argv.log"))
+        .lines()
+        .filter(|line| line.starts_with("create "))
+        .count()
+}
+
+/// Two callers wake the same teammate at once, with the runtime holding the
+/// first create open. The second waits its turn and finds the container the
+/// first made, instead of making the name again and being refused.
+#[tokio::test]
+async fn two_callers_for_one_teammate_make_the_container_once() {
+    let root = scratch("serial");
+    let cwd = root.join("work");
+    fs::create_dir_all(&cwd).unwrap();
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    fs::write(root.join("state"), "absent").unwrap();
+    fs::write(root.join("state.creategate"), "").unwrap();
+    let computers = Computer::with_path(root.as_os_str());
+    let ada = persona("ada", cwd.to_str().unwrap());
+    let call = |computers: Computer, ada: Persona, cwd: String| {
+        tokio::spawn(async move {
+            computers
+                .ensure_running(&ada, &cwd, None, None, |_| {})
+                .await
+        })
+    };
+    let first = call(computers.clone(), ada.clone(), cwd.to_str().unwrap().into());
+    while creates(&root) == 0 {
+        tokio::task::yield_now().await;
+    }
+    let second = call(computers.clone(), ada.clone(), cwd.to_str().unwrap().into());
+    // Either the second is queued behind the first, or it has gone on to
+    // make the name itself.
+    while computers.queued("ada") < 2 && creates(&root) < 2 {
+        tokio::task::yield_now().await;
+    }
+    fs::remove_file(root.join("state.creategate")).unwrap();
+    first.await.unwrap().expect("first");
+    second.await.unwrap().expect("second");
+    assert_eq!(creates(&root), 1, "{}", log_text(&root.join("argv.log")));
+}
+
+/// A container the previous desk left running is in no map. The sweep finds
+/// it, and from then on it idles like any other.
+#[tokio::test]
+async fn a_container_left_by_a_previous_desk_is_adopted_and_idled() {
+    let root = scratch("adopt");
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    fs::write(root.join("state"), "running").unwrap();
+    fs::write(root.join("state.token"), "").unwrap();
+    let log = root.join("argv.log");
+    let computers = Computer::with_path(root.as_os_str());
+    let now = now_ms();
+    computers
+        .sweep(now + COMPUTER_IDLE_STOP_MS + 1, &HashSet::new())
+        .await;
+    assert!(!log_text(&log).contains("stop "), "nothing is known yet");
+
+    computers.adopt(&["ada".to_string()], None, now).await;
+    computers
+        .sweep(now + COMPUTER_IDLE_STOP_MS + 1, &HashSet::new())
+        .await;
+    assert!(
+        log_text(&log)
+            .lines()
+            .any(|line| line == "stop hotline-computer-ada"),
+        "{}",
+        log_text(&log)
+    );
+    computers
+        .sweep(now + COMPUTER_HIBERNATE_MS + 1, &HashSet::new())
+        .await;
+    assert!(
+        log_text(&log)
+            .lines()
+            .any(|line| line == "rm -f hotline-computer-ada")
+    );
+}
+
+/// A teammate in use is not idle: the sweep leaves its container running
+/// and its idle clock starts over from the sweep.
+#[tokio::test]
+async fn a_teammate_in_use_is_not_swept_and_its_clock_starts_over() {
+    let root = scratch("in-use");
+    let cwd = root.join("work");
+    fs::create_dir_all(&cwd).unwrap();
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    fs::write(root.join("state"), "absent").unwrap();
+    let computers = Computer::with_path(root.as_os_str());
+    let ada = persona("ada", cwd.to_str().unwrap());
+    computers
+        .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
+        .await
+        .unwrap();
+    let log = root.join("argv.log");
+    fs::write(&log, "").unwrap();
+    let now = now_ms();
+    let late = now + COMPUTER_HIBERNATE_MS + 1;
+    computers
+        .sweep(late, &HashSet::from(["ada".to_string()]))
+        .await;
+    assert_eq!(log_text(&log), "");
+    computers
+        .sweep(late + COMPUTER_IDLE_STOP_MS - 1, &HashSet::new())
+        .await;
+    assert_eq!(
+        log_text(&log),
+        "",
+        "its clock began at the sweep that saw it used"
+    );
+}

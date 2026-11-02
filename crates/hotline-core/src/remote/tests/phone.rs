@@ -1011,3 +1011,30 @@ async fn a_pairing_queued_before_desktop_disconnect_cannot_outlive_its_socket() 
     serving.abort();
     h.remote.configure(false, network::ALL).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_pairing_whose_reply_never_left_is_rolled_back_and_can_be_claimed_again() {
+    let h = Harness::new().await;
+    let pairing = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let (_, public) = sealed::keypair().unwrap();
+    let claim =
+        serde_json::to_vec(&json!({"secret": pairing.payload.secret, "name": "Phone"})).unwrap();
+    let Ok(v2::Claimed::Granted(_, undo)) = h.remote.claim_v2(&public, &claim) else {
+        panic!("the claim is granted");
+    };
+    assert!(h.remote.authenticate_v2(&public).is_some());
+    // The Noise reply failed to send: dropping the undo is the guard's job.
+    h.remote.unclaim_v2(undo);
+    assert!(h.remote.authenticate_v2(&public).is_none());
+    assert!(h.remote.pairing_result(&pairing.id).unwrap().is_none());
+    let saved: Saved =
+        serde_json::from_slice(&fs::read(h.root.path().join("remote.json")).unwrap()).unwrap();
+    assert!(saved.grants.is_empty());
+    // The phone, which never heard back, tries again with the same invitation.
+    assert!(matches!(
+        h.remote.claim_v2(&public, &claim),
+        Ok(v2::Claimed::Granted(..))
+    ));
+    assert!(h.remote.pairing_result(&pairing.id).unwrap().is_some());
+    h.remote.configure(false, network::ALL).await.unwrap();
+}

@@ -252,6 +252,17 @@ impl Leases {
         self.freed.notify_waiters();
     }
 
+    /// The teammates whose computer someone holds now, in a call or between
+    /// calls of a turn that has not let go. A sweep leaves these running.
+    pub(crate) fn held_ids(&self) -> std::collections::HashSet<String> {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     /// Who has this teammate's computer now, for a test and for the log.
     #[cfg(test)]
     pub(crate) fn holder(&self, persona_id: &str) -> Option<String> {

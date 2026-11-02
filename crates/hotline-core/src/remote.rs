@@ -204,10 +204,23 @@ pub struct Remote {
     state: Mutex<Live>,
     server: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     lifecycle: AsyncMutex<()>,
+    /// Serialises receipt reads and attachment chunks; never held across a room call.
     prompts: AsyncMutex<()>,
+    /// Operations a phone's prompt is working on now, so a duplicate does not send twice.
+    sending: Mutex<std::collections::HashSet<String>>,
     /// The desk behind this Remote's wire, computer and link: absent on a
     /// server that runs only a relay (ADR 0006), whose room is never opened.
     agents: Option<Agents>,
+}
+/// Marks an operation as being sent until the call ends, however it ends.
+struct Sending<'a> {
+    remote: &'a Remote,
+    key: String,
+}
+impl Drop for Sending<'_> {
+    fn drop(&mut self) {
+        lock(&self.remote.sending).remove(&self.key);
+    }
 }
 /// Why a relay-only server answers nothing that needs the room.
 pub const RELAY_ONLY: &str = "This server runs only a relay: it has no teammates, links or wire. Serve it with --capabilities agents,relay to use them.";
@@ -293,7 +306,7 @@ impl Phone {
             return Err("Supply a message and a valid operation id (maximum 32 KiB).".into());
         }
         let room = &self.remote.agents()?.room;
-        let _held = self.remote.prompts.lock().await;
+        let held = self.remote.prompts.lock().await;
         if self.cancel.is_cancelled() {
             return Err("This phone has been disconnected.".into());
         }
@@ -331,17 +344,32 @@ impl Phone {
             Err(_) => return Err("Could not read message acceptance.".into()),
         }
         let attachments = attachments::resolve(&self.remote.root, &self.id, attachment_ids)?;
-        fs::create_dir_all(&dir).map_err(message)?;
+        // Another call for this very operation is sending it now; it answers.
+        let key = format!("{}/{operation}", self.id);
+        if !lock(&self.remote.sending).insert(key.clone()) {
+            return Ok(json!({"state":"unknown"}));
+        }
+        let _sending = Sending {
+            remote: &self.remote,
+            key,
+        };
+        drop(held);
+        // The desktop opens a session when its conversation pane mounts. A
+        // phone may be the first client to speak to a teammate after restart.
+        // A receipt exists only from the moment the line is handed over, so a
+        // drop before that leaves the operation unsent and retryable.
         let mut receipt = Receipt {
             digest,
             result: None,
         };
-        atomic_write(&path, &serde_json::to_vec(&receipt).map_err(message)?).map_err(message)?;
-        // The desktop opens a session when its conversation pane mounts. A
-        // phone may be the first client to speak to a teammate after restart.
+        let commit = |receipt: &Receipt| -> Result<(), String> {
+            fs::create_dir_all(&dir).map_err(message)?;
+            atomic_write(&path, &serde_json::to_vec(receipt).map_err(message)?).map_err(message)
+        };
         let result = async {
             if let Some(side) = side {
                 // A work thread brings its own agent up; the main session is not started for it.
+                commit(&receipt)?;
                 return room
                     .side_prompt(side, text, reply_to.map(str::to_owned), Some(attachments))
                     .await;
@@ -350,6 +378,7 @@ impl Phone {
             if self.cancel.is_cancelled() {
                 return Err("This phone has been disconnected.".into());
             }
+            commit(&receipt)?;
             room.prompt(
                 persona,
                 text,
@@ -360,7 +389,7 @@ impl Phone {
         }
         .await;
         receipt.result = Some(result.clone());
-        if atomic_write(&path, &serde_json::to_vec(&receipt).map_err(message)?).is_err() {
+        if commit(&receipt).is_err() {
             // The command may already have reached the core. A refusal would
             // wrongly tell the composer it is safe to issue a new operation.
             return Ok(json!({"state":"unknown"}));
@@ -482,6 +511,7 @@ impl Remote {
             server: AsyncMutex::new(None),
             lifecycle: AsyncMutex::new(()),
             prompts: AsyncMutex::new(()),
+            sending: Mutex::default(),
             agents,
         }))
     }
@@ -606,6 +636,18 @@ impl Remote {
         if self.served.is_some() {
             return self.configure_served(enabled, host).await;
         }
+        let result = self.configure_local(enabled, host).await;
+        if let (true, Err(e)) = (enabled, &result) {
+            // The saved intent stays on; the pane and the next boot see why it is not serving.
+            lock(&self.state).error = Some(e.clone());
+        }
+        result
+    }
+    async fn configure_local(
+        self: &Arc<Self>,
+        enabled: bool,
+        host: &str,
+    ) -> Result<RemoteStatus, String> {
         let _held = self.lifecycle.lock().await;
         let addresses = self.addresses();
         if host != network::ALL && !host.parse::<IpAddr>().is_ok_and(network::reachable) {
@@ -643,7 +685,9 @@ impl Remote {
             s.endpoints.clear();
             s.sealed_pairing = None;
             s.devices.clear();
-            s.saved.enabled = false;
+            // Tearing down is not a choice to be off: only the caller's intent is saved,
+            // so a start that fails below is tried again at the next boot.
+            s.saved.enabled = enabled;
             s.saved.host = host.into();
             s.error = None;
             self.save(&s.saved)?;

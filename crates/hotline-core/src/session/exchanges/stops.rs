@@ -131,8 +131,8 @@ impl Room {
         let stoppable = |r: &Request| {
             r.id == id
                 && r.intent == Intent::Handoff
-                && match r.phase {
-                    Phase::Running => begun || !r.started,
+                && match r.phase() {
+                    Phase::Running => begun || !r.begun(),
                     Phase::WaitingHuman => true,
                     _ => false,
                 }
@@ -152,19 +152,14 @@ impl Room {
                 .iter_mut()
                 .find(|r| stoppable(r))
                 .expect("the pair was found by it");
-            if let Some((caller, target)) = lock(&self.exchange_leases).get(&stopped.id) {
-                caller.revoke();
-                target.revoke();
-            }
-            stopped.phase = Phase::Stopped;
-            stopped.failed = true;
-            stopped.reply = if linked::is_linked(&stopped.from) {
+            let reply = if linked::is_linked(&stopped.from) {
                 stopped_text(words)
             } else {
                 peers::HANDOFF_STOPPED_BY_THE_PERSON.into()
             };
-            stopped.stopped_by_person = true;
-            stopped.release(&mut ended);
+            if !self.end_request(stopped, Ending::Person, reply, &mut ended) {
+                return false;
+            }
             let stopped = stopped.clone();
             if let Err(error) = self.save_pair(&pair) {
                 eprintln!("save a handoff the person stopped: {error}");
@@ -245,8 +240,8 @@ impl Room {
             .into_iter()
             .flat_map(|pair| pair.requests)
             .filter(|r| {
-                r.phase == Phase::Running
-                    && r.started
+                r.phase() == Phase::Running
+                    && r.begun()
                     && r.thread.as_deref() == Some(side_id)
                     && answering != Some(r.id.as_str())
             })
@@ -261,9 +256,18 @@ impl Room {
         self.exchange_pairs()
             .into_iter()
             .flat_map(|pair| pair.requests)
-            .find(|r| r.id == id && r.intent == Intent::Handoff && r.phase == Phase::Running)
+            .find(|r| r.id == id && r.intent == Intent::Handoff && r.phase() == Phase::Running)
             .map(|r| r.from)
             .filter(|from| !linked::is_linked(from))
+    }
+
+    /// Whether `id` is a colleague's question, whose turn's whole reply is
+    /// theirs.
+    pub(in crate::session) fn is_question(&self, id: &str) -> bool {
+        self.exchange_pairs()
+            .into_iter()
+            .flat_map(|pair| pair.requests)
+            .any(|r| r.id == id && r.intent == Intent::Ask)
     }
 
     /// Settles each handoff `side_id` carries from the sender of `into`, the
@@ -284,11 +288,11 @@ impl Room {
             for r in pair.requests.iter_mut().filter(|r| {
                 carried.contains(&r.id) && r.from == sender && r.intent == Intent::Handoff
             }) {
-                r.phase = Phase::Done;
-                r.reply = format!("Carried on by the follow-up {into}.");
-                r.answer.clear();
-                r.result_consumed = true;
-                folded = true;
+                if r.advance(Event::Folded).is_ok() {
+                    r.reply = format!("Carried on by the follow-up {into}.");
+                    r.answer.clear();
+                    folded = true;
+                }
             }
             if folded && let Err(error) = self.save_pair(&pair) {
                 eprintln!("settle a handoff its follow-up carried on: {error}");

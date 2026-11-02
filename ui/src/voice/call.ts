@@ -18,6 +18,7 @@ import { hearOnThisMac, subscribeHearing } from "./hearing";
 import { hearsWithDeskModel } from "./desk";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmResampler, PcmTurn } from "./stream";
+import { LIVE, type Link, type LinkEvent, move } from "./link";
 import { useModelsRevision, useRawSetting } from "../room";
 
 /**
@@ -204,7 +205,8 @@ export class Call {
 	private unwatch: (() => void) | null = null;
 	/** Whether the desk has made the call; before it, there is nothing to hang up there. */
 	private started = false;
-	private providerReconnecting = false;
+	/** Where the call stands with the desk: held, reconnecting, closing, or live. Moved only by `go`. */
+	private link: Link = LIVE;
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	/** The desk's own word on where the call stands. */
 	private desk: "listening" | "thinking" | "speaking" | "held" = "listening";
@@ -222,14 +224,29 @@ export class Call {
 	private deferred: { id: string; mimeType: string; data: string }[] = [];
 	/** An utterance is on its way and the desk has not answered with a state yet. */
 	private awaiting = false;
-	private held = false;
+	private get held(): boolean {
+		return this.link.kind === "held" || (this.link.kind === "reconnecting" && this.link.held);
+	}
+	private get closing(): EndReason | null {
+		return this.link.kind === "closing" ? this.link.reason : null;
+	}
+	private get frontMuted(): boolean {
+		return this.link.kind === "live" && this.link.muted;
+	}
+
+	/** The one place the link moves; the socket timer follows it, so a link that is no longer down never leaves the timer running. */
+	private go(event: LinkEvent): void {
+		this.link = move(this.link, event);
+		if (this.reconnectTimer !== null && !(this.link.kind === "reconnecting" && this.link.socket)) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+	}
 	/** Sentences from a turn that was cut in on: their late clips are not played. */
 	private readonly muted = new Set<string>();
 	private readonly seen = new Set<string>();
 	private readonly clipIndices = new Map<string, number>();
 	private pendingFrom: string | undefined;
-	/** The desk has ended the call; this waits for the last clip to finish first. */
-	private closing: EndReason | null = null;
 	private level = 0;
 	private shown = 0;
 	private raf = 0;
@@ -389,11 +406,10 @@ export class Call {
 			{
 				// A snapshot is where the call stands, never audio to play again.
 				snapshot: (items) => {
-					if (this.reconnectTimer !== null && items.some((item) => (item as CallEvent).type === "state")) {
-						clearTimeout(this.reconnectTimer);
-						this.reconnectTimer = null;
-					}
+					// Whatever it holds, a snapshot means the desk has the call again.
+					this.go({ type: "attached" });
 					for (const item of items) if ((item as CallEvent).type === "state") this.receive(item as CallEvent);
+					this.settle();
 				},
 				event: (item) => this.receive(item as CallEvent),
 			},
@@ -437,7 +453,7 @@ export class Call {
 		void this.transport.command("voice.hold", { callId: this.id, hold: on }).catch(() => {});
 		if (on) {
 			this.holdGeneration++;
-			this.held = true;
+			this.go({ type: "hold" });
 			this.cancelInput();
 			this.endpoint = null;
 			this.awaiting = false;
@@ -462,7 +478,7 @@ export class Call {
 			}
 		}
 		if (this.ended || generation !== this.holdGeneration) return;
-		this.held = false;
+		this.go({ type: "release" });
 		this.resumeClock();
 		this.settle();
 	}
@@ -504,10 +520,10 @@ export class Call {
 		if (this.ended) return;
 		switch (event.type) {
 			case "state": {
-				this.providerReconnecting = event.reconnecting === true;
+				this.go({ type: "provider", reconnecting: event.reconnecting === true });
 				if (event.liveError) {
 					this.set({ trouble: event.liveError, turnByTurnOffered: true });
-					if (this.audio.playing || this.outputLines.size > 0) { this.closing = "error"; this.settle(); }
+					if (this.audio.playing || this.outputLines.size > 0) { this.go({ type: "closing", reason: "error" }); this.settle(); }
 					else this.end("error");
 					return;
 				}
@@ -525,7 +541,7 @@ export class Call {
 					}
 					const reason = event.reason ?? "error";
 					// A goodbye, a spent budget or a failure is said before the line goes: let the last sentence finish.
-					if ((reason === "goodbye" || reason === "budget" || reason === "error") && (this.audio.playing || this.outputLines.size > 0)) this.closing = reason;
+					if ((reason === "goodbye" || reason === "budget" || reason === "error") && (this.audio.playing || this.outputLines.size > 0)) this.go({ type: "closing", reason });
 					else this.end(reason);
 					return;
 				}
@@ -535,7 +551,7 @@ export class Call {
 				return;
 			}
 			case "heard":
-				this.frontMuted = false;
+				this.go({ type: "heard" });
 				this.line({ kind: "you", id: `heard-${event.seq}`, text: event.text });
 				return;
 			case "delivery":
@@ -594,10 +610,8 @@ export class Call {
 		}
 	}
 
-	private frontMuted = false;
-
 	private bargeFront(): void {
-		this.frontMuted = true;
+		this.go({ type: "barge" });
 		const playedMs = this.audio.playedMs();
 		this.audio.stopPlayback();
 		void this.transport.command("voice.front_barge", { callId: this.id, playedMs }).catch(() => {});
@@ -625,7 +639,7 @@ export class Call {
 		if (this.closing !== null && !this.audio.playing && this.outputLines.size === 0) return this.end(this.closing);
 		// Until the desk has made the call and it is watched, it is still connecting.
 		if (this.unsubscribe === null) return;
-		if (this.reconnectTimer !== null || this.providerReconnecting) return this.set({ phase: "reconnecting" });
+		if (this.link.kind === "reconnecting") return this.set({ phase: "reconnecting" });
 		if (this.held) return this.set({ phase: "held" });
 		if (this.audio.playing) {
 			// Turn by turn does not listen while a reply plays, so the reply is
@@ -658,6 +672,7 @@ export class Call {
 		if (this.ended) return;
 		if (state === "gone") return this.fail("This desk is no longer paired with this computer.");
 		if (state === "closed" && this.reconnectTimer === null) {
+			this.go({ type: "socket", open: false });
 			this.cancelInput();
 			this.audio.stopPlayback();
 			this.deferred = [];

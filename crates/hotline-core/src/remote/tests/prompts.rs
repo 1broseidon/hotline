@@ -78,3 +78,66 @@ async fn a_prompt_for_a_work_thread_is_said_there_and_is_its_own_operation() {
     assert!(reused.contains("another message"), "{reused}");
     h.remote.configure(false, network::ALL).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_prompt_dropped_before_it_is_dispatched_leaves_no_receipt_and_a_hung_start_blocks_no_other_phone()
+ {
+    let (h, room) = Harness::with_computer().await;
+    let grant = h.pair().await;
+    let phone = h.remote.authenticate_v2(&grant.public).unwrap();
+    let (entered, release) = (CancellationToken::new(), CancellationToken::new());
+    *room.start_gate.lock().unwrap() = Some((entered.clone(), release.clone()));
+    let operation = Uuid::new_v4().to_string();
+    let hung = {
+        let phone = phone.clone();
+        let operation = operation.clone();
+        tokio::spawn(async move {
+            phone
+                .prompt(&operation, "persona", "hello", &[], None, None)
+                .await
+        })
+    };
+    tokio::time::timeout(ANSWER, entered.cancelled())
+        .await
+        .unwrap();
+    // One start that never finishes does not hold up another operation.
+    let other = {
+        let phone = phone.clone();
+        tokio::spawn(async move {
+            phone
+                .prompt(
+                    &Uuid::new_v4().to_string(),
+                    "persona",
+                    "other",
+                    &[],
+                    None,
+                    Some(&ThreadId::side("s1")),
+                )
+                .await
+        })
+    };
+    let other = tokio::time::timeout(PROMPTLY, other).await;
+    assert!(other.is_ok(), "a hung start held every phone's prompts");
+    // The phone drops while the start is awaited: nothing was dispatched.
+    hung.abort();
+    let _ = hung.await;
+    let receipt = h
+        .root
+        .path()
+        .join("remote-receipts")
+        .join(&phone.id)
+        .join(format!("{operation}.json"));
+    assert!(!receipt.exists(), "a receipt was written before dispatch");
+    // The retry with the same id sends now; it is never answered "unknown".
+    release.cancel();
+    let before = room.starts.load(std::sync::atomic::Ordering::SeqCst);
+    let retried = phone
+        .prompt(&operation, "persona", "hello", &[], None, None)
+        .await;
+    assert!(room.starts.load(std::sync::atomic::Ordering::SeqCst) > before);
+    assert_ne!(
+        retried.ok().map(|v| v["state"].clone()),
+        Some(json!("unknown"))
+    );
+    h.remote.configure(false, network::ALL).await.unwrap();
+}

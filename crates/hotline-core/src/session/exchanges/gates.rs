@@ -28,7 +28,7 @@ impl Room {
         };
         for mut pair in self.exchange_pairs() {
             let Some(request) = pair.requests.iter_mut().find(|r| {
-                r.id == handoff && r.intent == Intent::Handoff && r.phase == Phase::Running
+                r.id == handoff && r.intent == Intent::Handoff && r.phase() == Phase::Running
             }) else {
                 continue;
             };
@@ -54,7 +54,7 @@ impl Room {
         key: &str,
         request: &Request,
     ) -> Result<(String, DeliveryCause, DeliveryFrom, String), String> {
-        let stopped = request.phase == Phase::Stopped;
+        let stopped = request.phase() == Phase::Stopped;
         let (persona_id, name) = match self.participant(&request.to) {
             Ok(target) => (target.id, target.name),
             Err(_) if stopped => (request.to.clone(), "That teammate".to_string()),
@@ -65,13 +65,13 @@ impl Room {
             persona_id,
             name,
             thread_key: key.into(),
-            status: if request.failed {
+            status: if request.failed() {
                 PeerStatus::Failed
             } else {
                 PeerStatus::Done
             },
             about: peers::about(&request.message),
-            answer: (!stopped && !request.failed && !request.answer.is_empty())
+            answer: (!stopped && !request.failed() && !request.answer.is_empty())
                 .then(|| request.gist()),
         };
         if stopped {
@@ -117,7 +117,7 @@ impl Room {
         self.exchange_pairs().into_iter().find_map(|pair| {
             pair.requests
                 .into_iter()
-                .find(|r| r.id == id && matches!(r.phase, Phase::Done | Phase::Stopped))
+                .find(|r| r.id == id && matches!(r.phase(), Phase::Done | Phase::Stopped))
                 .map(|r| (pair.id, r))
         })
     }
@@ -130,7 +130,7 @@ impl Room {
             .flat_map(|pair| pair.requests)
             .find(|r| {
                 r.to == ask.from
-                    && matches!(r.phase, Phase::Running | Phase::WaitingHuman)
+                    && matches!(r.phase(), Phase::Running | Phase::WaitingHuman)
                     && r.human_actions.iter().any(|gate| gate.id == ask.id)
             })
             .map(|handoff| RequestLine {
@@ -145,7 +145,7 @@ impl Room {
     /// is someone there to hear it. Asked before the ask's leases are revoked.
     pub(super) fn owes_thread(&self, request: &Request, revoked: Option<&str>) -> bool {
         request.intent == Intent::Ask
-            && request.phase != Phase::Done
+            && request.phase() != Phase::Done
             && (request.reply_thread.is_some() || request.reply_job.is_some())
             && !linked::is_linked(&request.from)
             && revoked != Some(request.from.as_str())
@@ -189,15 +189,14 @@ impl Room {
             let _guard = lock(&self.exchange_lock);
             let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
             if let Some(told) = pair.requests.iter_mut().find(|r| r.id == ask.id) {
-                told.owed_to_thread = false;
+                let _ = told.advance(Event::Told);
             }
             self.save_pair(&pair)?;
         }
         if handed.is_err() {
-            self.exchange_notices(&[Request {
-                owed_to_thread: false,
-                ..ask.clone()
-            }]);
+            let mut told = ask.clone();
+            let _ = told.advance(Event::Told);
+            self.exchange_notices(&[told]);
         }
         Ok(())
     }
@@ -227,12 +226,11 @@ impl Room {
                 let mut changed = false;
                 for r in &mut pair.requests {
                     if r.intent == Intent::Ask
-                        && r.phase == Phase::Running
-                        && !r.started
+                        && r.phase() == Phase::Running
+                        && !r.begun()
                         && dropped.contains(&r.id.as_str())
+                        && r.advance(Event::Answered { failed: true }).is_ok()
                     {
-                        r.phase = Phase::Reply;
-                        r.failed = true;
                         r.reply.clone_from(&reply);
                         changed = true;
                     }

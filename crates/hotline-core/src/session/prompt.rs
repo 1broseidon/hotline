@@ -443,7 +443,18 @@ impl Room {
         // Joining the queue and claiming an idle driver are one decision under
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.
-        let Some(wire) = lock(&session.turns).claim(wire) else {
+        let claimed = {
+            let mut turns = lock(&session.turns);
+            // Under the queue's lock, so the stop's drain of it is either
+            // before this (and `closing` is seen) or after (and takes it).
+            if self.closing() {
+                drop(turns);
+                self.keep_late(&session.persona_id, vec![wire]);
+                return;
+            }
+            turns.claim(wire)
+        };
+        let Some(wire) = claimed else {
             session.input_ready.notify_one();
             return;
         };

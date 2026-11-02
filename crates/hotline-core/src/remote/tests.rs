@@ -79,6 +79,8 @@ impl Harness {
                     desk,
                     viewer: std::sync::Mutex::new(None),
                     pending_stop: std::sync::Mutex::new(None),
+                    start_gate: std::sync::Mutex::new(None),
+                    starts: std::sync::atomic::AtomicUsize::new(0),
                     infos: broadcast::channel(16).0,
                     deltas: broadcast::channel(16).0,
                 });
@@ -245,6 +247,9 @@ struct Computered {
     desk: Arc<Desk>,
     viewer: std::sync::Mutex<Option<String>>,
     pending_stop: std::sync::Mutex<Option<Arc<BlockedStop>>>,
+    /// While set, `start` announces itself on `.0` and waits for `.1`.
+    start_gate: std::sync::Mutex<Option<(CancellationToken, CancellationToken)>>,
+    starts: std::sync::atomic::AtomicUsize,
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
 }
@@ -261,6 +266,13 @@ impl RoomHandle for Computered {
         self.desk.policy_update_lock()
     }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
+        self.starts
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let gate = self.start_gate.lock().unwrap().clone();
+        if let Some((entered, release)) = gate {
+            entered.cancel();
+            release.cancelled().await;
+        }
         self.desk.start(persona_id).await
     }
     fn stop(&self, persona_id: &str) -> Result<(), String> {

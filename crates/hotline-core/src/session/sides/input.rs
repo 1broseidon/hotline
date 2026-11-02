@@ -36,7 +36,7 @@ impl Room {
         let _admission = self.sides.waking.lock().await;
         let (side, launch) = match self.live_side(&thread.key) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(&thread.key, false, None)?,
+            Err(_) => self.wake_work(&thread.key, false, None).await?,
         };
         let stream = StreamId::of_thread(thread).ok_or("The call has no transcript.")?;
         let transcript = self.log.load(&stream);
@@ -75,6 +75,7 @@ impl Room {
                     from: None,
                     delivery: None,
                     wake: false,
+                    steer: false,
                 },
             );
         }
@@ -116,7 +117,7 @@ impl Room {
         }
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(side_id, false, None)?,
+            Err(_) => self.wake_work(side_id, false, None).await?,
         };
         self.say_in_side(&side, text, reply_to, attachments);
         if let Some(launch) = launch {
@@ -173,13 +174,52 @@ impl Room {
         Ok(())
     }
 
+    /// Each line marked to steer that waits behind a work thread's turn joins
+    /// that turn, in the order said, while its driver takes input mid-turn
+    /// ([`Turns::steer_into`], the main conversation's way too). A colleague's
+    /// follow-up taken in becomes what the turn answers, and the handoff the
+    /// turn was doing is carried on by it, so its sender hears one result.
+    pub(in crate::session) fn steer_into_work(&self, side: &LiveSide) {
+        if side.closed.is_set() || side.capability.check().is_err() {
+            return;
+        }
+        let Some(driver) = side.driver() else {
+            return;
+        };
+        let taken = lock(&side.turns).steer_into(
+            driver.as_ref(),
+            |line| line.steer,
+            |line| (line.text.clone(), line.attachments.clone()),
+        );
+        for line in &taken {
+            if let Some(id) = &line.delivery {
+                side.heard(self, id);
+            }
+            if let Some(request) = &line.request
+                && self.begin_request(&request.request).is_ok()
+            {
+                self.fold_carried(&side.id, &request.request);
+                *lock(&side.request) = Some(request.request.clone());
+            }
+        }
+        lock(&side.steered).extend(taken);
+    }
+
+    /// Whether the person's line in `side` may join its turn in flight: not
+    /// when that turn answers a colleague's question, whose whole reply is
+    /// theirs, as in the main conversation.
+    pub(super) fn person_steers(&self, side: &LiveSide) -> bool {
+        side.request().is_none_or(|doing| !self.is_question(&doing))
+    }
+
     /// A colleague's follow-up into `side` (`follow_up`, the request of
     /// `from`) steers the turn in flight when that turn does another of that
-    /// colleague's handoffs: the turn is cut as the person's Interrupt cuts
-    /// it, so the handoff stays standing, and the follow-up, already queued
-    /// behind it, carries the work on (`exchanges/stops.rs`). Any other line
-    /// waits for the turn to end; the person's own line among them, which is
-    /// theirs and never becomes a colleague's result.
+    /// colleague's handoffs. It joins the turn when the driver takes input
+    /// mid-turn, and carries the handoff on from there. A driver that does
+    /// not is cut as the person's Interrupt cuts it, so the handoff stays
+    /// standing, and the follow-up, already queued behind it, carries the work
+    /// on in the next turn (`exchanges/stops.rs`). Any other line from a
+    /// colleague waits for the turn to end.
     pub(in crate::session) fn steer_work(&self, side: &LiveSide, from: &str, follow_up: &str) {
         let Some(doing) = side.request().filter(|doing| doing != follow_up) else {
             return;
@@ -188,6 +228,40 @@ impl Room {
             return;
         }
         // The person's own Stop or Interrupt of the turn stands.
+        if lock(&side.cut).is_some() {
+            return;
+        }
+        let marked = {
+            let mut turns = lock(&side.turns);
+            turns
+                .waiting
+                .iter_mut()
+                .find(|line| {
+                    line.request
+                        .as_ref()
+                        .is_some_and(|request| request.request == follow_up)
+                })
+                .map(|line| line.steer = true)
+                .is_some()
+        };
+        if marked {
+            self.steer_into_work(side);
+            let mut waiting = false;
+            // Not taken: it waits as before, for the cut below.
+            for line in &mut lock(&side.turns).waiting {
+                if line
+                    .request
+                    .as_ref()
+                    .is_some_and(|request| request.request == follow_up)
+                {
+                    line.steer = false;
+                    waiting = true;
+                }
+            }
+            if !waiting {
+                return;
+            }
+        }
         let mut cut = lock(&side.cut);
         if cut.is_some() {
             return;

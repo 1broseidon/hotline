@@ -95,16 +95,18 @@ impl Occupant for Session {
         // read off the id they were written under.
         *lock(&session.voice_origin) = call_origin(&wired);
         // A result that came back from a colleague is heard once: it is
-        // consumed as its turn begins, and one the exchange has since
-        // stopped is never heard.
-        if wired
+        // consumed once its turn is certain to run, and one the exchange has
+        // since stopped is never heard. A turn refused below leaves it to be
+        // heard by the one that is not.
+        let result = wired
             .from
             .as_ref()
             .filter(|from| matches!(from.kind, ThreadKind::Pair | ThreadKind::Side))
-            .and_then(|from| from.request.as_deref())
-            .is_some_and(|request| {
-                room.is_exchange_request(request) && !room.begin_exchange_result(request)
-            })
+            .and_then(|from| from.request.clone())
+            .filter(|request| room.is_exchange_request(request));
+        if result
+            .as_deref()
+            .is_some_and(|request| !room.exchange_result_waits(request))
         {
             return Begin::Skip;
         }
@@ -121,6 +123,11 @@ impl Occupant for Session {
         let reach = room.reach_of(&session.persona_id);
         if !session.answering(room) {
             session.abandon();
+            // A question begun is ended with the turn that would have
+            // answered it, not left running as begun.
+            if let Some(request) = &request {
+                room.refuse_request(request, super::peers::NOT_TAKEN_UP);
+            }
             return Begin::Stop;
         }
         if let Some(said) = wired.said.clone() {
@@ -171,6 +178,12 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         };
+        // Nothing refuses the turn from here: the result it hears is spent.
+        if let Some(result) = &result
+            && !room.begin_exchange_result(result)
+        {
+            return Begin::Skip;
+        }
         // The person's Stop or Interrupt from here on is this turn's.
         lock(&session.cut).take();
         Begin::Go(Hold {
@@ -216,6 +229,7 @@ impl Occupant for Session {
                 .expire_asked(&session.thread(), &session.persona_id);
         }
         let mut steered = held.steered;
+        let mut handed_back = Vec::new();
         for (text, attachments) in session.driver.take_unconsumed().into_iter().rev() {
             // Drivers return the input's contents, not its tape identity.
             // Match from the end because replay is requeued in reverse;
@@ -230,7 +244,20 @@ impl Occupant for Session {
                 wire.attachments = attachments;
                 wire
             };
-            lock(&session.turns).waiting.push_front(wire);
+            handed_back.push(wire);
+        }
+        {
+            let mut turns = lock(&session.turns);
+            if room.closing() {
+                drop(turns);
+                // `handed_back` is last line first.
+                handed_back.reverse();
+                room.keep_late(&session.persona_id, handed_back);
+            } else {
+                for wire in handed_back {
+                    turns.waiting.push_front(wire);
+                }
+            }
         }
         let cut = lock(&session.cut).take();
         if let Some(request) = &held.request {
@@ -438,34 +465,24 @@ impl Room {
         if !session.capability.is_current() || !self.current_session(session) {
             return;
         }
-        let mut turns = lock(&session.turns);
-        let mut steered = false;
-        while let Some(index) = turns.waiting.iter().position(|wire| wire.steer) {
-            let wire = &turns.waiting[index];
-            if !session
-                .driver
-                .steer(wire.text.clone(), wire.attachments.clone())
-            {
-                break;
-            }
+        let taken = lock(&session.turns).steer_into(
+            session.driver.as_ref(),
+            |wire| wire.steer,
+            |wire| (wire.text.clone(), wire.attachments.clone()),
+        );
+        if taken.is_empty() {
+            return;
+        }
+        for wire in &taken {
             *lock(&session.voice_origin) = call_origin(wire);
             if let Some(said) = wire.said.clone() {
                 lock(&session.unread).push(said);
             }
-            steered_inputs.push(
-                turns
-                    .waiting
-                    .remove(index)
-                    .expect("steered input is queued"),
-            );
-            steered = true;
         }
-        drop(turns);
-        if steered {
-            // A turn that was only waiting on its subagents has a line to
-            // answer now, so it is working again.
-            self.await_subagents(session, false);
-        }
+        steered_inputs.extend(taken);
+        // A turn that was only waiting on its subagents has a line to
+        // answer now, so it is working again.
+        self.await_subagents(session, false);
     }
 }
 

@@ -443,3 +443,56 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
     }
     h.remote.configure(false, network::ALL).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_reconnect_tells_the_desk_the_seat_hello_and_waits_for_its_answer_before_replaying_subscriptions()
+ {
+    use tokio_tungstenite::tungstenite::protocol::Role;
+    let (near, far) = tokio::io::duplex(64 * 1024);
+    let mut client_side = WebSocketStream::from_raw_socket(near, Role::Client, None).await;
+    let mut desk_side = WebSocketStream::from_raw_socket(far, Role::Server, None).await;
+    let hello = (
+        7,
+        json!({"id":7,"cmd":"client.hello","capabilities":["threads2"]}).to_string(),
+    );
+    let subs =
+        std::collections::BTreeMap::from([(9, json!({"id":9,"sub":{"roster":true}}).to_string())]);
+    let (incoming, mut seen) = tokio::sync::mpsc::channel(8);
+    let replay = tokio::spawn(async move {
+        client::replay(&mut client_side, Some(&hello), &subs, &incoming).await
+    });
+    let first = desk_side
+        .next()
+        .await
+        .unwrap()
+        .unwrap()
+        .into_text()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&first).unwrap()["cmd"],
+        "client.hello",
+        "the first thing a reconnected seat says is its hello"
+    );
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        futures_util::FutureExt::now_or_never(desk_side.next()).is_none(),
+        "a subscription was replayed before the hello was answered"
+    );
+    desk_side
+        .send(Message::text(json!({"id":7,"ok":true}).to_string()))
+        .await
+        .unwrap();
+    let second = desk_side
+        .next()
+        .await
+        .unwrap()
+        .unwrap()
+        .into_text()
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&second).unwrap()["id"], 9);
+    assert!(replay.await.unwrap());
+    // The app was not told of an answer to a hello it sent long ago.
+    assert!(seen.try_recv().is_err());
+}

@@ -385,6 +385,7 @@ impl Room {
                     thread: &thread,
                     persona_id: &spec.persona_id,
                     driver: agent.driver.as_ref(),
+                    steer: None,
                 },
                 Line {
                     voice: None,
@@ -394,6 +395,7 @@ impl Room {
                     from: None,
                     delivery: None,
                     wake: false,
+                    steer: false,
                 },
                 reach,
                 Some(cancel),

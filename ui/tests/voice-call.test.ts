@@ -254,6 +254,31 @@ describe("a call with the desk", () => {
 		r.call.hangUp();
 	});
 
+	test("a fresh snapshot of any kind ends Reconnecting, not only one carrying a state", async () => {
+		const r = rig();
+		await r.call.start();
+		r.connection("closed");
+		expect(r.call.current.phase).toBe("reconnecting");
+		r.connection("open");
+		r.snapshot([]);
+		expect(r.call.current.phase).toBe("listening");
+		r.snapshot([{ type: "card", personaId: "ada", requestId: "q1", kind: "human_action" }]);
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("a hold survives a reconnect and ends with the person's word", async () => {
+		const r = rig();
+		await r.call.start();
+		await r.call.hold(true);
+		r.connection("closed");
+		expect(r.call.current.phase).toBe("reconnecting");
+		r.snapshot([{ type: "state", state: "held" }]);
+		expect(r.call.current.phase).toBe("held");
+		await r.call.hold(false);
+		expect(r.call.current.phase).toBe("listening");
+	});
+
 	test("provider recovery clears Reconnecting when it succeeds or offers Turn by turn on failure", async () => {
 		const r = rig();
 		await r.call.start();
@@ -985,6 +1010,25 @@ describe("a call through a voice front", () => {
 		r.desk({ type: "heard", seq: 1, text: "Actually, the beacon." });
 		r.desk({ type: "frontAudio", seq: 2, data: "new" });
 		expect(r.pcm).toHaveLength(2);
+	});
+
+	test("a front's speech is heard again after a hold or a reconnect that followed a barge-in", async () => {
+		const r = fronted();
+		await r.call.start();
+		r.desk({ type: "frontAudio", seq: 0, data: "one" });
+		r.desk({ type: "frontStop" });
+		r.desk({ type: "frontAudio", seq: 1, data: "dropped" });
+		expect(r.pcm).toHaveLength(1);
+		await r.call.hold(true);
+		await r.call.hold(false);
+		r.desk({ type: "frontAudio", seq: 2, data: "after the hold" });
+		expect(r.pcm.map((one) => one.data)).toEqual(["one", "after the hold"]);
+		r.desk({ type: "frontStop" });
+		r.connection("closed");
+		r.connection("open");
+		r.snapshot([{ type: "state", state: "listening" }]);
+		r.desk({ type: "frontAudio", seq: 3, data: "after the reconnect" });
+		expect(r.pcm.map((one) => one.data)).toEqual(["one", "after the hold", "after the reconnect"]);
 	});
 
 	test("Stop barges in on the front without the pipeline's interrupt", async () => {

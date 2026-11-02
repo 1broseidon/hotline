@@ -1,4 +1,5 @@
 mod asides;
+mod ending;
 mod files;
 mod gates;
 mod handed_over;
@@ -59,7 +60,7 @@ async fn done(room: &Room, id: &str) {
         room.exchange_pair("ada~bob").is_some_and(|p| {
             p.requests
                 .iter()
-                .any(|r| r.id == id && r.phase == Phase::Done)
+                .any(|r| r.id == id && r.phase() == Phase::Done)
         })
     })
     .await;
@@ -82,29 +83,21 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         to: "bob".into(),
         message: "saved work".into(),
         intent,
-        phase,
+        state: State::of(phase),
         reply: String::new(),
         answer: String::new(),
-        failed: false,
-        reply_counted: false,
         request_counted: false,
-        inline: false,
-        started: false,
-        result_consumed: false,
         human_actions: vec![],
         thread: None,
         reply_thread: None,
         reply_job: None,
-        returned: false,
         lead_call: None,
         continues: None,
         released: false,
         about: None,
         own_thread: false,
-        owed_to_thread: false,
         looped_in: false,
         files: Vec::new(),
-        stopped_by_person: false,
         crossing: Vec::new(),
     }
 }
@@ -239,7 +232,7 @@ async fn twelve_messages_include_replies_and_switching_intent_does_not_reset_the
             .requests
             .last()
             .unwrap()
-            .phase,
+            .phase(),
         Phase::Queued
     );
     room.resume_exchange("ada", "bob").unwrap();
@@ -260,7 +253,7 @@ async fn the_twelfth_request_keeps_its_reply_queued_until_keep_going() {
     );
     room.recover_queued_exchanges();
     until("the ada~bob request is at Reply", || {
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Reply
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase() == Phase::Reply
     })
     .await;
     let pair = room.exchange_pair("ada~bob").unwrap();
@@ -298,7 +291,7 @@ async fn restart_preserves_a_paused_queue_and_unstarted_handoff_without_counting
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert_eq!(agents.prompts(), [] as [String; 0]);
     assert_eq!(
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
         Phase::Queued
     );
     room.resume_exchange("ada", "bob").unwrap();
@@ -314,7 +307,7 @@ async fn restart_preserves_a_paused_queue_and_unstarted_handoff_without_counting
 async fn restart_never_replays_started_work_and_delivers_an_explicit_failure() {
     let (room, agents) = setup("restart-started-exchange");
     let mut request = saved_request("started", Intent::Handoff, Phase::Running);
-    request.started = true;
+    request.state = State::Running { begun: true };
     request.request_counted = true;
     seed(&room, request, 1, false);
     room.reconcile_exchanges();
@@ -349,7 +342,7 @@ async fn stop_and_revocation_settle_saved_work_and_resume_cannot_resurrect_it() 
     room.resume_exchange("ada", "bob").unwrap();
     room.recover_queued_exchanges();
     assert_eq!(
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
         Phase::Stopped
     );
     seed(
@@ -362,7 +355,7 @@ async fn stop_and_revocation_settle_saved_work_and_resume_cannot_resurrect_it() 
     room.resume_exchange("ada", "bob").unwrap();
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert_eq!(
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
         Phase::Stopped
     );
     assert_eq!(agents.prompts(), [] as [String; 0]);
@@ -500,7 +493,7 @@ async fn a_handoff_runs_beside_the_persons_turn_and_stop_leaves_that_turn_alone(
     assert_eq!(room.sides("bob").len(), 1);
     room.stop_exchange("ada", "bob").unwrap();
     assert_eq!(
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
         Phase::Stopped
     );
     assert!(room.sides("bob").is_empty(), "{thread} closed");
@@ -540,7 +533,12 @@ async fn recovery_and_the_result_worker_dispatch_a_saved_reply_only_once() {
     let (room, agents) = setup("reply-recovery-dedup");
     let mut request = saved_request("result-restart", Intent::Ask, Phase::Reply);
     request.reply = "saved answer".into();
-    request.reply_counted = true;
+    request.state = State::Reply {
+        counted: true,
+        sending: false,
+        heard: false,
+        failed: false,
+    };
     request.request_counted = true;
     seed(&room, request, 2, false);
     room.write_value(
@@ -689,13 +687,13 @@ async fn delayed_boot_recovery_preserves_a_new_long_running_handoff_and_its_real
     // Cross the real startup recovery deadline, not a substitute recovery path.
     tokio::time::sleep(Duration::from_millis(5300)).await;
     let pair = room.exchange_pair("ada~bob").unwrap();
-    assert_eq!(pair.requests[0].phase, Phase::Running);
-    assert!(pair.requests[0].started);
+    assert_eq!(pair.requests[0].phase(), Phase::Running);
+    assert!(pair.requests[0].begun());
     agents.drivers["bob"].updates.add_permits(2);
     done(&room, &id).await;
     let pair = room.exchange_pair("ada~bob").unwrap();
     assert_eq!(pair.requests[0].reply, "true result");
-    assert!(!pair.requests[0].failed);
+    assert!(!pair.requests[0].failed());
     agents.drivers["ada"].updates.add_permits(2);
 }
 
@@ -715,7 +713,7 @@ async fn stop_at_twelfth_reply_invalidates_dispatched_result_without_cancelling_
     room.recover_queued_exchanges();
     done(&room, "twelfth-reply").await;
     assert!(room.exchange_pair("ada~bob").unwrap().paused);
-    assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].result_consumed);
+    assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].heard());
     room.stop_exchange("ada", "bob").unwrap();
     assert!(room.mid_turn("ada"));
     assert_eq!(agents.drivers["ada"].cancels(), 0);
@@ -771,7 +769,7 @@ async fn stop_settles_pending_approval_and_the_next_request_does_not_wait_for_it
             .iter()
             .find(|r| r.id == old)
             .unwrap()
-            .phase,
+            .phase(),
         Phase::Stopped
     );
 }
@@ -796,7 +794,7 @@ async fn stop_during_the_recipients_startup_never_runs_the_ask_and_releases_the_
             .iter()
             .find(|r| r.id == old)
             .unwrap()
-            .phase,
+            .phase(),
         Phase::Stopped
     );
     agents.drivers["bob"].startup.add_permits(1);
@@ -842,7 +840,7 @@ async fn turn_admission_refuses_expired_dependency_before_the_worker_observes_it
     );
     origin.revoke();
     assert!(room.begin_request("expired-at-admission").is_err());
-    assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].started);
+    assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].begun());
 }
 
 #[tokio::test]
@@ -860,7 +858,7 @@ async fn revocation_invalidates_a_dispatched_result_waiting_behind_the_person() 
     done(&room, "revoked-result").await;
     room.invalidate("bob").unwrap();
     assert_eq!(
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
         Phase::Stopped
     );
     assert_eq!(agents.drivers["ada"].cancels(), 0);
@@ -875,7 +873,7 @@ async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
     let (room, id, action, gate) = handoff_asking(name).await;
     gate.add_permits(2);
     until("the request waits on a person and bob's turn ends", || {
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase() == Phase::WaitingHuman
             && !room.mid_turn("bob")
     })
     .await;
@@ -1047,7 +1045,7 @@ async fn a_saved_human_answer_recovers_the_gap_before_delivery() {
         room.recover_exchanges().await;
         if paused {
             until("the ada~bob request is at Reply", || {
-                room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Reply
+                room.exchange_pair("ada~bob").unwrap().requests[0].phase() == Phase::Reply
             })
             .await;
             assert_eq!(
@@ -1141,7 +1139,7 @@ async fn a_result_queued_for_a_busy_work_thread_is_stopped_with_its_exchange() {
     done(&room, "stopped-work-result").await;
     room.invalidate("bob").unwrap();
     assert_eq!(
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
         Phase::Stopped,
         "a result that has not begun a turn can still be stopped"
     );
@@ -1171,7 +1169,7 @@ async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(agents.prompts(), [] as [String; 0]);
         assert_eq!(
-            room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+            room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
             Phase::Stopped
         );
         assert!(
@@ -1368,7 +1366,7 @@ async fn a_target_answers_the_person_while_its_handoff_is_still_working() {
     })
     .await;
     assert_eq!(
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase(),
         Phase::Running,
         "the handoff is still working"
     );
@@ -1422,7 +1420,7 @@ async fn a_handoff_to_a_teammate_with_every_thread_mid_turn_waits_its_place() {
     tokio::time::sleep(Duration::from_millis(400)).await;
     let request = room.exchange_pair("ada~bob").unwrap().requests.remove(0);
     assert_eq!(
-        request.phase,
+        request.phase(),
         Phase::Queued,
         "nothing is interrupted or refused"
     );
@@ -1443,7 +1441,7 @@ async fn a_saved_desk_handoff_cannot_recreate_a_live_calls_grant() {
     room.wake_exchange("ada~bob");
     done(&room, "desk-request").await;
     let request = room.exchange_pair("ada~bob").unwrap().requests.remove(0);
-    assert!(request.failed);
+    assert!(request.failed());
     assert!(request.reply.contains("lead grant has ended"));
     assert!(request.thread.is_none(), "no work thread was created");
 }
@@ -1571,7 +1569,7 @@ async fn a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread() {
     done(&room, "cut-off").await;
     let pair = room.exchange_pair("ada~bob").unwrap();
     let request = pair.requests.iter().find(|r| r.id == "cut-off").unwrap();
-    assert!(!request.failed, "{}", request.reply);
+    assert!(!request.failed(), "{}", request.reply);
     assert_eq!(request.thread.as_deref(), Some(thread.as_str()));
 }
 
@@ -1629,7 +1627,7 @@ async fn a_handoff_at_work_holds_up_nothing_else_between_the_two() {
             .iter()
             .find(|r| r.id == handoff)
             .unwrap()
-            .phase,
+            .phase(),
         Phase::Running,
         "the handoff was still at work when the ask was answered"
     );

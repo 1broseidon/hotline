@@ -603,8 +603,9 @@ impl Driver {
                     .trim();
                 if !words.is_empty() {
                     self.carry.push("Caller", words);
-                    self.emit(RealtimeEvent::Heard(words.into())).await?;
                 }
+                // Empty words still end the caller's turn.
+                self.emit(RealtimeEvent::Heard(words.into())).await?;
             }
             "response.function_call_arguments.done" => {
                 let field = |name: &str| event[name].as_str().map(str::to_string);

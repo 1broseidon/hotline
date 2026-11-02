@@ -75,7 +75,7 @@ pub(super) use brief::{OpenedBy, work_preamble};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The most work threads one teammate may have live at once, whoever opened
@@ -131,7 +131,7 @@ pub(super) struct LiveSide {
     /// again is heard once. A restart or a wake is a new agent, with none.
     dispatched: Mutex<std::collections::HashSet<String>>,
     /// Set once the thread is archived; nothing more is written after it.
-    closed: AtomicBool,
+    closed: Phase,
     /// Held while the thread's link is written. A live mark reads `closed`
     /// under it and the link that ends the thread is written under it, so a
     /// mark decided on before the end lands before that link, never after.
@@ -146,6 +146,44 @@ pub(super) struct LiveSide {
     saved: Mutex<Option<String>>,
     /// The thread index this agent was last told (`session/index.rs`).
     indexed: super::index::Seen,
+}
+
+/// How far a thread has gone from open to ended, which only moves forward and
+/// is decided once: the first ending to claim it is the one that happens.
+#[derive(Default)]
+pub(super) struct Phase(AtomicU8);
+
+impl Phase {
+    const OPEN: u8 = 0;
+    const PARKING: u8 = 1;
+    const CLOSING: u8 = 2;
+
+    /// Whether the thread is ending or ended, either way.
+    pub(super) fn is_set(&self) -> bool {
+        self.0.load(Ordering::SeqCst) != Self::OPEN
+    }
+
+    /// Whether the thread is being let go of and stays open: a line said to
+    /// it is for its next agent, not for nobody.
+    fn is_parking(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == Self::PARKING
+    }
+
+    /// Whether the thread is being archived: nothing more is written to it.
+    fn is_closing(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == Self::CLOSING
+    }
+
+    /// Claims the ending, and says whether this call was the one to.
+    fn claim(&self, ending: &Ending) -> bool {
+        let to = match ending {
+            Ending::Park => Self::PARKING,
+            Ending::Close(..) | Ending::Restore(_) => Self::CLOSING,
+        };
+        self.0
+            .compare_exchange(Self::OPEN, to, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
 }
 
 /// What a thread holds once its agent is up.
@@ -203,6 +241,11 @@ impl LiveSide {
         turns.running && (self.up.get().is_some() || !turns.waiting.is_empty())
     }
 
+    /// Whether the thread is being let go of or archived.
+    pub(super) fn is_ending(&self) -> bool {
+        self.closed.is_set()
+    }
+
     pub(super) fn last_used(&self) -> i64 {
         *lock(&self.last_used)
     }
@@ -215,7 +258,7 @@ impl LiveSide {
     /// One event onto the thread, through the room's write path. Once the
     /// thread is archived nothing more lands.
     fn say(&self, room: &Room, event: &impl serde::Serialize) {
-        if self.closed.load(Ordering::SeqCst) {
+        if self.closed.is_closing() {
             return;
         }
         room.threads()
@@ -254,7 +297,7 @@ impl Occupant for LiveSide {
     }
 
     fn answering(self: &Arc<Self>, _room: &Room) -> bool {
-        !self.closed.load(Ordering::SeqCst) && self.capability.check().is_ok()
+        !self.closed.is_set() && self.capability.check().is_ok()
     }
 
     /// A request's turn is the exchange's: it begins only while the request
@@ -354,7 +397,7 @@ impl Occupant for LiveSide {
                 room.reach_of(&self.persona_id),
                 None,
                 None,
-                || !self.closed.load(Ordering::SeqCst),
+                || !self.closed.is_set(),
             )
             .await
     }
@@ -362,7 +405,7 @@ impl Occupant for LiveSide {
     fn end(self: &Arc<Self>, room: &Arc<Room>, _held: WorkTurn, driven: Driven) -> Then {
         let side = self;
         *lock(&side.last_used) = now_ms();
-        if side.closed.load(Ordering::SeqCst) {
+        if side.closed.is_set() {
             // A thread ended under a turn still settles the request it
             // answered.
             if let Some(request) = lock(&side.request).take() {
@@ -465,6 +508,10 @@ struct Inner {
     starting: HashMap<String, usize>,
 }
 
+/// What a test runs at a named point of a transition.
+#[cfg(test)]
+pub(super) type Hook = Arc<dyn Fn(&'static str) + Send + Sync>;
+
 /// Every live side thread the room holds.
 #[derive(Default)]
 pub(super) struct Sides {
@@ -472,15 +519,55 @@ pub(super) struct Sides {
     /// One thread is brought back at a time, so two lines said to the same
     /// parked thread at once start one agent between them.
     pub(super) waking: tokio::sync::Mutex<()>,
+    /// Told when a thread has left the map, its ending written, for whoever
+    /// found it mid-ending and needs to know what it came to
+    /// ([`Room::standing`]).
+    ended: tokio::sync::Notify,
+    /// Held across every write of a thread's link, and across the read of the
+    /// link a change to it is made from, so a change is made to the link as it
+    /// is and not as it was.
+    pub(super) links: Mutex<()>,
+    /// A test's way to stop the room at a named point of a transition, so an
+    /// interleaving is driven by a gate and not by a sleep.
+    #[cfg(test)]
+    pub(super) hook: Mutex<Option<Hook>>,
+}
+
+/// Where a work thread stands: with its agent, or with only what it stored.
+enum Standing {
+    Live(Arc<LiveSide>),
+    Stored(Box<Option<Link>>),
+}
+
+/// What a start is given when it asks for a place.
+enum Place {
+    /// A place is taken for the start.
+    Granted,
+    /// Every place is held: this one is the idlest, to be parked if it still
+    /// is, and then the start asks again.
+    Evict(Arc<LiveSide>),
 }
 
 impl Sides {
+    /// A named point in a transition, where a test may be waiting.
+    #[cfg(test)]
+    pub(super) fn at(&self, point: &'static str) {
+        let hook = lock(&self.hook).clone();
+        if let Some(hook) = hook {
+            hook(point);
+        }
+    }
+
+    #[cfg(not(test))]
+    #[inline]
+    pub(super) fn at(&self, _point: &'static str) {}
+
     /// Takes one of a teammate's places for a start that is under way. When
     /// they are all taken, the thread that has waited longest for the person
     /// is handed back to be parked: parking loses nothing, so it is the
     /// kinder answer than a refusal. Only when every place is mid-turn, with
     /// nothing to let go of, is there no place to be had.
-    fn reserve(&self, persona_id: &str, kind: ThreadKind) -> Result<Option<Arc<LiveSide>>, String> {
+    fn reserve(&self, persona_id: &str, kind: ThreadKind) -> Result<Place, String> {
         let mut inner = lock(&self.inner);
         let limit = if kind == ThreadKind::Call {
             1
@@ -495,10 +582,13 @@ impl Sides {
             .cloned()
             .collect();
         let starting = inner.starting.get(&reservation).copied().unwrap_or(0);
-        let freed = if live.len() + starting >= limit {
+        if live.len() + starting >= limit {
+            // Only picked here: whether it is still idle is decided where it
+            // is parked ([`Room::park_if_idle`]), and it stays in the map until
+            // its link says it is parked.
             let idlest = live
                 .iter()
-                .filter(|side| !side.working())
+                .filter(|side| !side.closed.is_set() && !side.working())
                 .min_by_key(|side| (*lock(&side.last_used), side.started))
                 .cloned()
                 .ok_or_else(|| {
@@ -506,13 +596,10 @@ impl Sides {
                         "That teammate already has {limit} threads working. Let one finish, then try again."
                     )
                 })?;
-            inner.live.remove(&idlest.id);
-            Some(idlest)
-        } else {
-            None
-        };
+            return Ok(Place::Evict(idlest));
+        }
         *inner.starting.entry(reservation).or_default() += 1;
-        Ok(freed)
+        Ok(Place::Granted)
     }
 
     /// Whether a thread could be opened for this teammate now: a place is free,
@@ -548,8 +635,21 @@ impl Sides {
         lock(&self.inner).live.get(side_id).cloned()
     }
 
-    fn remove(&self, side_id: &str) {
-        lock(&self.inner).live.remove(side_id);
+    /// Takes an ended thread out of the map, once its ending is written, and
+    /// tells those who waited for it. By pointer: the id may be a newer
+    /// thread's already.
+    fn leave(&self, side: &Arc<LiveSide>) {
+        {
+            let mut inner = lock(&self.inner);
+            if inner
+                .live
+                .get(&side.id)
+                .is_some_and(|held| Arc::ptr_eq(held, side))
+            {
+                inner.live.remove(&side.id);
+            }
+        }
+        self.ended.notify_waiters();
     }
 
     fn of(&self, persona_id: &str) -> Vec<Arc<LiveSide>> {
@@ -653,7 +753,20 @@ pub(super) struct Launch {
     /// the agent to hear, not to be seeded with.
     requested: i64,
     fresh: bool,
+    /// The link an archived thread had before it was continued, which is what
+    /// it goes back to if its agent cannot start.
+    prior: Option<Link>,
     handoff: Option<HandoffStart>,
+}
+
+impl Launch {
+    /// How the thread is put away when its start does not happen.
+    fn put_away(&self) -> Ending {
+        match &self.prior {
+            Some(prior) => Ending::Restore(Box::new(prior.clone())),
+            None => Ending::Park,
+        }
+    }
 }
 
 /// How a live thread comes to an end.
@@ -663,6 +776,9 @@ pub(super) enum Ending {
     /// The thread is over, `by` whom or what, with `outcome` in a line if it
     /// was said.
     Close(End, Option<String>),
+    /// A start that could not come up puts back the link an archived thread
+    /// had before it was continued.
+    Restore(Box<Link>),
 }
 
 impl Room {
@@ -760,14 +876,28 @@ impl Room {
         let requested = now_ms();
         let persona_lease = self.capability_lease(persona_id);
         persona_lease.check()?;
-        if let Some(parked) = self.sides.reserve(persona_id, start.thread.kind)? {
-            self.park_side(&parked);
-        }
-        let _reserved = Reserved {
-            sides: &self.sides,
-            persona_id,
-            kind: start.thread.kind,
+        let _reserved = loop {
+            match self.sides.reserve(persona_id, start.thread.kind)? {
+                Place::Granted => {
+                    break Reserved {
+                        sides: &self.sides,
+                        persona_id,
+                        kind: start.thread.kind,
+                    };
+                }
+                Place::Evict(idlest) => {
+                    self.sides.at("evict");
+                    // A line that landed in it first keeps it: the next ask
+                    // finds it working and picks another, or none.
+                    self.park_if_idle(&idlest, None);
+                }
+            }
         };
+        // What the thread was before, for a start that fails: an archived one
+        // stays archived.
+        let prior = self
+            .link_of(&start.thread)
+            .filter(|link| matches!(link.state, ThreadState::Closed(_)));
 
         // The thread is its own authority, not the session's: whatever the
         // teammate is granted now is what it gets, however long ago it began.
@@ -804,7 +934,7 @@ impl Room {
             }),
             last_used: Mutex::new(now_ms()),
             dispatched: Mutex::new(HashSet::default()),
-            closed: AtomicBool::new(false),
+            closed: Phase::default(),
             marking: Mutex::default(),
             archive_note: Mutex::new(None),
             reported: Mutex::new(None),
@@ -828,6 +958,7 @@ impl Room {
             persona,
             requested,
             fresh: start.fresh,
+            prior,
             handoff: start.handoff,
         };
         Ok((live, launch))
@@ -841,7 +972,7 @@ impl Room {
         let Ok(working) = self.lease() else {
             // The desk is stopping for an update: the thread keeps its place
             // as a parked one, and saying something in it starts it after.
-            room.end_side(&launch.side, Ending::Park);
+            room.end_side(&launch.side, launch.put_away());
             return;
         };
         tokio::spawn(async move {
@@ -894,7 +1025,7 @@ impl Room {
         // The thread may have been ended while its agent was starting. The
         // agent is set before this looks, and `end_side` marks the thread
         // closed before it looks for the agent, so one of the two stops it.
-        if side.closed.load(Ordering::SeqCst) {
+        if side.closed.is_set() {
             self.let_go_of_computer(&side.persona_id, &agent.holder);
             return Err("This thread ended before its agent was ready.".to_string());
         }
@@ -916,11 +1047,12 @@ impl Room {
     /// An agent that could not be started: the thread says so, and is put
     /// away rather than left waiting for one. A thread that had never run is
     /// closed as failed; one that had is parked, since its stream is whole and
-    /// the next line said in it tries again. A handoff's sender is told too,
+    /// the next line said in it tries again, and one that was archived and
+    /// being continued is archived again as it was. A handoff's sender is told too,
     /// as a handoff that could not start a thread would be.
     fn start_failed(&self, launch: &Launch, error: &str) {
         let side = &launch.side;
-        if side.closed.load(Ordering::SeqCst) {
+        if side.closed.is_set() {
             // Ended on purpose while it started, and already put away.
             return;
         }
@@ -941,7 +1073,7 @@ impl Room {
         if launch.fresh {
             self.end_side(side, Ending::Close(End::Failed, Some(reason)));
         } else {
-            self.end_side(side, Ending::Park);
+            self.end_side(side, launch.put_away());
         }
         if let Some(handoff) = &launch.handoff {
             let _ = self.set_exchange_reply(
@@ -973,21 +1105,43 @@ impl Room {
         handoff: Option<HandoffStart>,
     ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         let _one_at_a_time = self.sides.waking.lock().await;
-        self.wake_work(side_id, continuing, handoff)
+        self.wake_work(side_id, continuing, handoff).await
     }
 
-    fn wake_work(
+    /// Where a work thread stands, once it has stopped moving: live with its
+    /// agent, or with only what it stored. A thread that is ending is waited
+    /// for, so a thread that is let go of while this looks is found parked
+    /// (or archived), never as a link that says live with nothing behind it.
+    async fn standing(&self, side_id: &str) -> Standing {
+        loop {
+            let ended = self.sides.ended.notified();
+            tokio::pin!(ended);
+            ended.as_mut().enable();
+            match self.sides.get(side_id) {
+                Some(side) if side.closed.is_set() => ended.await,
+                Some(side) => return Standing::Live(side),
+                None => {
+                    return Standing::Stored(Box::new(self.link_of(&self.work_thread(side_id))));
+                }
+            }
+        }
+    }
+
+    async fn wake_work(
         self: &Arc<Self>,
         side_id: &str,
         continuing: bool,
         handoff: Option<HandoffStart>,
     ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
-        if let Ok(side) = self.live_side(side_id) {
-            return Ok((side, None));
-        }
-        let link = self
-            .link_of(&self.work_thread(side_id))
-            .ok_or_else(|| "There is no such side thread.".to_string())?;
+        let link = match self.standing(side_id).await {
+            Standing::Live(side) if side.capability.check().is_ok() => {
+                return Ok((side, None));
+            }
+            Standing::Live(_) => return Err("That side thread is not live.".to_string()),
+            Standing::Stored(link) => {
+                (*link).ok_or_else(|| "There is no such side thread.".to_string())?
+            }
+        };
         match link.state {
             ThreadState::Parked => {}
             ThreadState::Closed(_) if continuing => {}
@@ -1041,21 +1195,44 @@ impl Room {
         by: SideEnd,
         result: Option<String>,
     ) -> Result<bool, String> {
-        if let Some(side) = self.sides.get(side_id) {
-            self.finish_side(&side, by.into(), result);
-            return Ok(true);
-        }
-        let Some(link) = self.link_of(&self.work_thread(side_id)) else {
-            return Err("There is no such side thread.".to_string());
-        };
-        match link.state {
-            ThreadState::Closed(_) => Ok(false),
-            ThreadState::Parked => {
-                self.archive_parked(link, by.into(), result);
-                Ok(true)
+        // A thread that woke or ended between the look and the archive is
+        // looked at again.
+        for _ in 0..3 {
+            if let Some(side) = self.sides.get(side_id) {
+                if side.closed.is_parking() {
+                    // Being let go of: it is archived once it is parked.
+                    self.archive_once_parked(side_id, by, result);
+                } else {
+                    self.finish_side(&side, by.into(), result);
+                }
+                return Ok(true);
             }
-            ThreadState::Live => Err("There is no such side thread.".to_string()),
+            let Some(link) = self.link_of(&self.work_thread(side_id)) else {
+                return Err("There is no such side thread.".to_string());
+            };
+            match link.state {
+                ThreadState::Closed(_) => return Ok(false),
+                ThreadState::Parked => {
+                    if self.archive_parked(link, by.into(), result.clone()) {
+                        return Ok(true);
+                    }
+                }
+                ThreadState::Live => return Err("There is no such side thread.".to_string()),
+            }
         }
+        Err("That side thread kept changing; try again.".to_string())
+    }
+
+    fn archive_once_parked(&self, side_id: &str, by: SideEnd, result: Option<String>) {
+        let Some(room) = lock(&self.me).upgrade() else {
+            return;
+        };
+        let side_id = side_id.to_string();
+        tokio::spawn(async move {
+            // The park is done when the thread is no longer the one ending.
+            room.standing(&side_id).await;
+            let _ = room.close_side(&side_id, by, result);
+        });
     }
 
     /// Lets go of a side thread's agent and keeps the thread open, as the
@@ -1066,11 +1243,13 @@ impl Room {
         if let Some(side) = self.sides.get(side_id) {
             // Parking lets go of the agent mid-thought, which would cut a turn
             // in flight: the person stops it or waits for its turn to end
-            // first.
-            if side.working() {
+            // first. Whether one runs is decided where the park is.
+            if !self.park_if_idle(&side, None) {
                 return Err("That thread is working; stop or wait for its turn first.".into());
             }
-            self.park_side(&side);
+            if side.closed.is_closing() {
+                return Err("That side thread is archived, so it cannot be parked.".to_string());
+            }
             return Ok(());
         }
         match self
@@ -1260,7 +1439,7 @@ impl Room {
         let side = self
             .sides
             .get(side_id)
-            .filter(|side| !side.closed.load(Ordering::SeqCst))
+            .filter(|side| !side.closed.is_set())
             .ok_or_else(|| "That side thread is not live.".to_string())?;
         side.capability.check()?;
         Ok(side)
@@ -1327,8 +1506,20 @@ impl Room {
     }
 
     /// Hands a line to the thread's agent now, or behind the turn in flight.
+    ///
+    /// A thread that is being let go of when the line reaches it is not run
+    /// in, and not refused: the line is carried to the thread's next agent.
     fn queue_in_side(self: &Arc<Self>, side: &Arc<LiveSide>, line: Line) {
-        let Some(queued) = lock(&side.turns).claim(line) else {
+        let queued = {
+            let mut turns = lock(&side.turns);
+            if side.closed.is_parking() {
+                drop(turns);
+                self.reopen_with(side, line);
+                return;
+            }
+            turns.claim(line)
+        };
+        let Some(queued) = queued else {
             return;
         };
         let Ok(working) = self.lease() else {
@@ -1341,6 +1532,34 @@ impl Room {
         tokio::spawn(async move {
             let _working = working;
             room.run_queue(side, queued).await;
+        });
+    }
+
+    /// Brings a thread that was parked under a line back for it, once it is
+    /// parked, and hands it the line. A line that cannot be handed over fails
+    /// to whoever asked, as one dropped by an ending does.
+    fn reopen_with(self: &Arc<Self>, side: &Arc<LiveSide>, line: Line) {
+        let room = self.clone();
+        let side_id = side.id.clone();
+        let persona_id = side.persona_id.clone();
+        tokio::spawn(async move {
+            let Ok(_working) = room.working() else {
+                room.fail_dropped_lines(&persona_id, [line]);
+                return;
+            };
+            let _admission = room.sides.waking.lock().await;
+            match room.wake_work(&side_id, false, None).await {
+                Ok((next, launch)) => {
+                    room.queue_in_side(&next, line);
+                    if let Some(launch) = launch {
+                        room.launch(launch);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("a line said as a thread was let go of was not carried: {error}");
+                    room.fail_dropped_lines(&persona_id, [line]);
+                }
+            }
         });
     }
 
@@ -1370,7 +1589,7 @@ impl Room {
         let _admission = self.sides.waking.lock().await;
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_work(side_id, true, None)?,
+            Err(_) => self.wake_work(side_id, true, None).await?,
         };
         // What came back is queued before the agent is started, so it is the
         // first thing the agent hears however fast the start goes.

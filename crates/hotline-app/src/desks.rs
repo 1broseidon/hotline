@@ -142,21 +142,46 @@ impl Host {
     fn settle(self: &Arc<Self>, desk: &PairedDesk, opened: Result<Bridge, String>) {
         let generation = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
         match opened {
-            Ok(bridge) => self.install(desk, generation, bridge),
+            Ok(bridge) => {
+                self.install(desk, generation, bridge, false);
+            }
             Err(error) => {
                 eprintln!("[desks] {}: {error}", desk.name);
-                self.lock_bridges().insert(
-                    desk.desk_id.clone(),
-                    Live {
-                        bridge: None,
-                        state: State::Unreachable,
-                        error: Some(error),
-                        generation,
-                    },
-                );
-                self.retry(desk.clone(), generation);
+                let live = Live {
+                    bridge: None,
+                    state: State::Unreachable,
+                    error: Some(error),
+                    generation,
+                };
+                if self.place(desk, live, false) {
+                    self.retry(desk.clone(), generation);
+                }
             }
         }
+    }
+
+    /// The one way a `Live` enters the registry, decided under the bridge
+    /// lock and the paired list together: a desk that was forgotten, or
+    /// paired again with another key, stays so, and a start that finishes
+    /// after a newer one never replaces it. A retry (`replacing`) also needs
+    /// its own `Live` still in place. Whether it was placed.
+    fn place(&self, desk: &PairedDesk, live: Live, replacing: bool) -> bool {
+        let mut bridges = self.lock_bridges();
+        let paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
+        if !paired
+            .iter()
+            .any(|known| known.desk_id == desk.desk_id && known.desk_key == desk.desk_key)
+        {
+            return false;
+        }
+        match bridges.get(&desk.desk_id) {
+            Some(known) if known.generation > live.generation => return false,
+            Some(known) if replacing && known.generation != live.generation => return false,
+            None if replacing => return false,
+            _ => {}
+        }
+        bridges.insert(desk.desk_id.clone(), live);
+        true
     }
 
     fn lock_bridges(&self) -> std::sync::MutexGuard<'_, HashMap<String, Live>> {
@@ -170,19 +195,25 @@ impl Host {
             .is_some_and(|live| live.generation == generation)
     }
 
-    fn install(self: &Arc<Self>, desk: &PairedDesk, generation: u64, bridge: Bridge) {
+    fn install(
+        self: &Arc<Self>,
+        desk: &PairedDesk,
+        generation: u64,
+        bridge: Bridge,
+        replacing: bool,
+    ) -> bool {
         let mut watch = bridge.state.clone();
         let mut relay = bridge.relay.clone();
         let state = *watch.borrow();
-        self.lock_bridges().insert(
-            desk.desk_id.clone(),
-            Live {
-                bridge: Some(bridge),
-                state,
-                error: None,
-                generation,
-            },
-        );
+        let live = Live {
+            bridge: Some(bridge),
+            state,
+            error: None,
+            generation,
+        };
+        if !self.place(desk, live, replacing) {
+            return false;
+        }
         let host = Arc::downgrade(self);
         let id = desk.desk_id.clone();
         let pin = desk.desk_key.clone();
@@ -215,6 +246,7 @@ impl Host {
                 }
             }
         });
+        true
     }
 
     /// Only this bridge generation's authenticated hello may update the
@@ -261,8 +293,7 @@ impl Host {
                 }
                 match Bridge::start(&desk).await {
                     Ok(bridge) => {
-                        if host.current(&desk.desk_id, generation) {
-                            host.install(&desk, generation, bridge);
+                        if host.install(&desk, generation, bridge, true) {
                             host.emit();
                         }
                         return;
@@ -503,14 +534,14 @@ impl Host {
 
     /// Stops reaching a desk from this window and forgets it.
     fn forget(&self, desk_id: &str) -> Result<(), String> {
-        self.bridges
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(desk_id);
-        self.paired
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|known| known.desk_id != desk_id);
+        {
+            // Both under one hold, as `place` takes them: a start still
+            // finishing finds the desk gone and installs nothing.
+            let mut bridges = self.lock_bridges();
+            let mut paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
+            bridges.remove(desk_id);
+            paired.retain(|known| known.desk_id != desk_id);
+        }
         self.save()?;
         self.emit();
         Ok(())
@@ -835,6 +866,41 @@ mod tests {
         // No endpoint, so the window dials nothing until the retry lands.
         assert_eq!(entry["origin"], "");
         assert_eq!(entry["token"], "");
+    }
+
+    fn unreachable_live(generation: u64) -> Live {
+        Live {
+            bridge: None,
+            state: State::Unreachable,
+            error: Some("down".into()),
+            generation,
+        }
+    }
+
+    #[test]
+    fn a_start_that_finishes_after_the_desk_was_forgotten_installs_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        host.paired.lock().unwrap().push(desk());
+        host.forget("d1").unwrap();
+        assert!(!host.place(&desk(), unreachable_live(1), false));
+        assert!(host.lock_bridges().is_empty());
+    }
+
+    #[test]
+    fn a_stale_start_or_retry_never_replaces_a_newer_bridge() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        host.paired.lock().unwrap().push(desk());
+        assert!(host.place(&desk(), unreachable_live(5), false));
+        // An older start finishing late, and an older generation's retry.
+        assert!(!host.place(&desk(), unreachable_live(4), false));
+        assert!(!host.place(&desk(), unreachable_live(4), true));
+        assert_eq!(host.lock_bridges()["d1"].generation, 5);
+        // Its own retry still lands; a retry whose entry was removed does not.
+        assert!(host.place(&desk(), unreachable_live(5), true));
+        host.lock_bridges().remove("d1");
+        assert!(!host.place(&desk(), unreachable_live(5), true));
     }
 
     #[test]

@@ -160,3 +160,36 @@ async fn served_listener_uses_supplied_pem_certificate_and_key() {
     assert!(remote.noise_identity.read().unwrap().is_some());
     remote.configure(false, &listen.to_string()).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_failed_start_at_boot_keeps_the_saved_intent_and_the_next_boot_tries_again() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
+    let listener = loopback();
+    fs::write(
+        root.path().join("remote.json"),
+        json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": listener.local_addr().unwrap().port(), "enabled": true, "grants": []}).to_string(),
+    )
+    .unwrap();
+    let remote = Remote::open_on(listener, root.path(), agents(&desk), store.clone()).unwrap();
+    // The socket is taken, as when the last process still holds it.
+    let held = remote.bound.as_ref().unwrap().listen().await.unwrap();
+    remote.restore().await;
+    assert!(!remote.status().enabled);
+    assert!(remote.status().error.is_some());
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("remote.json")).unwrap()).unwrap();
+    assert_eq!(
+        saved["enabled"], true,
+        "a failed start is not a choice to turn off"
+    );
+    // A deliberate disable still saves off.
+    drop(held);
+    remote.restore().await;
+    assert!(remote.status().enabled, "{:?}", remote.status().error);
+    remote.configure(false, network::ALL).await.unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("remote.json")).unwrap()).unwrap();
+    assert_eq!(saved["enabled"], false);
+}

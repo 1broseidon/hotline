@@ -448,7 +448,7 @@ async fn the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_ow
     let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
     let id = send(&room, "ask").await;
     until("Bob's question turn is running", || {
-        request(&room, "ada~bob", &id).started && agents.prompts().len() == 1
+        request(&room, "ada~bob", &id).begun() && agents.prompts().len() == 1
     })
     .await;
     room.prompt("bob", "what time is it?", None, None)
@@ -519,7 +519,7 @@ async fn the_persons_cancel_fails_a_question_still_waiting_behind_the_turn() {
     room.wake_exchange("ada~bob");
     done(&room, "queued-question").await;
     let asked = request(&room, "ada~bob", "queued-question");
-    assert!(asked.failed && !asked.started);
+    assert!(asked.failed() && !asked.begun());
     let name = room.persona("bob").unwrap().name;
     let failure = answer_to(&room, "queued-question").expect("Ada is told at once");
     assert_eq!(failure["cause"]["status"], "failed");
@@ -802,7 +802,7 @@ async fn a_question_waiting_behind_a_turn_outlives_a_chapter_swap() {
         gate.add_permits(50);
         done(&room, "behind-the-turn").await;
         let answer = request(&room, "ada~bob", "behind-the-turn");
-        assert!(!answer.failed, "{}", answer.reply);
+        assert!(!answer.failed(), "{}", answer.reply);
         assert_eq!(answer.reply, "Blue.");
     }
 }

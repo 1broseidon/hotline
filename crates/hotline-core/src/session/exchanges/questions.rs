@@ -144,7 +144,7 @@ impl Room {
             let r = pair
                 .requests
                 .iter_mut()
-                .find(|r| r.id == request.id && r.phase == Phase::Running)
+                .find(|r| r.id == request.id && r.phase() == Phase::Running)
                 .ok_or("This question was stopped before it was asked.")?;
             r.thread = Some(side_id.clone());
             r.own_thread = true;
@@ -235,7 +235,7 @@ impl Room {
             .is_some_and(|pair| {
                 pair.requests
                     .iter()
-                    .any(|r| r.id == id && r.phase == Phase::Running)
+                    .any(|r| r.id == id && r.phase() == Phase::Running)
             })
             .then_some(())
             .ok_or_else(|| "This question was stopped before it was asked.".to_string())
@@ -293,11 +293,7 @@ impl Room {
                     && r.to == request.from
                     && r.intent == Intent::Handoff
             })
-            .filter(|handoff| {
-                !handoff.released
-                    && handoff.phase != Phase::Stopped
-                    && self.exchange_lease_current(&handoff.id)
-            })
+            .filter(|handoff| handoff.stands() && self.exchange_lease_current(&handoff.id))
     }
 
     /// Where the sender hears what came of a request: the job it was sent
@@ -330,7 +326,7 @@ impl Room {
     /// for, so the swap's own start comes first.
     pub(super) fn dropped_by_a_swap(&self, request: &Request) -> bool {
         if request.intent != Intent::Ask
-            || request.started
+            || request.begun()
             || request.thread.is_some()
             || linked::is_linked(&request.to)
         {
@@ -350,7 +346,7 @@ impl Room {
         self.exchange_pair(key)?
             .requests
             .into_iter()
-            .find(|r| r.phase == Phase::Running && r.started)
+            .find(Request::begun)
             .map(|r| r.to)
     }
 

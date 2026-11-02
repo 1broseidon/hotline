@@ -75,12 +75,11 @@ impl Room {
         let Some(r) = pair
             .requests
             .iter_mut()
-            .find(|r| r.id == request.id && r.phase == Phase::Queued)
+            .find(|r| r.id == request.id && r.phase() == Phase::Queued)
         else {
             return Ok(());
         };
-        r.phase = Phase::Running;
-        r.started = true;
+        r.advance(Event::Forwarded)?;
         r.files.clear();
         if !r.request_counted {
             r.request_counted = true;
@@ -122,8 +121,8 @@ impl Room {
                 }
                 // Sent again after it was settled here: it is over, and says so.
                 return match pair.requests.iter().find(|r| r.id == id) {
-                    Some(r) if r.stopped_by_person && !r.returned => Ok(()),
-                    Some(r) if matches!(r.phase, Phase::Done | Phase::Stopped) => {
+                    Some(r) if r.stopped_by_person() && r.owed() == Owed::Desk => Ok(()),
+                    Some(r) if matches!(r.phase(), Phase::Done | Phase::Stopped) => {
                         Err(if r.reply.is_empty() {
                             "That message was already answered.".to_string()
                         } else {
@@ -170,29 +169,21 @@ impl Room {
                 to: to.to_string(),
                 message: outgoing.message.to_string(),
                 intent: outgoing.intent,
-                phase: Phase::Queued,
+                state: State::Queued,
                 reply: String::new(),
                 answer: String::new(),
-                failed: false,
-                reply_counted: false,
                 request_counted: false,
-                inline: false,
-                started: false,
-                result_consumed: false,
                 human_actions: vec![],
                 thread: None,
                 reply_thread: None,
                 reply_job: None,
-                returned: false,
                 lead_call: None,
                 continues,
                 released: false,
                 about,
                 own_thread: false,
-                owed_to_thread: false,
                 looped_in: false,
                 files: names,
-                stopped_by_person: false,
                 crossing: Vec::new(),
             });
             if let Err(error) = self.save_pair(&pair) {
@@ -232,12 +223,11 @@ impl Room {
                 .iter_mut()
                 .find(|r| r.id == id)
                 .expect("the pair was found by this request, under the exchange lock");
-            if !matches!(request.phase, Phase::Queued | Phase::Running) {
+            if !matches!(request.phase(), Phase::Queued | Phase::Running) {
                 return Ok(());
             }
-            request.phase = Phase::Reply;
+            request.advance(Event::Answered { failed })?;
             request.reply = reply;
-            request.failed = failed;
             self.save_pair(&pair)?;
             pair.id
         };
@@ -287,20 +277,19 @@ impl Room {
                 .find(|r| sent_there(r))
                 .expect("the pair was found by it");
             if !matches!(
-                request.phase,
+                request.phase(),
                 Phase::Queued | Phase::Running | Phase::WaitingHuman
             ) {
                 return Ok(());
             }
-            if let Some((caller, target)) = lock(&self.exchange_leases).get(&request.id) {
-                caller.revoke();
-                target.revoke();
+            if !self.end_request(
+                request,
+                Ending::Person,
+                peers::HANDOFF_STOPPED_BY_THE_PERSON,
+                &mut ended,
+            ) {
+                return Ok(());
             }
-            request.phase = Phase::Stopped;
-            request.failed = true;
-            request.reply = peers::HANDOFF_STOPPED_BY_THE_PERSON.into();
-            request.stopped_by_person = true;
-            request.release(&mut ended);
             let stopped = request.clone();
             self.save_pair(&pair)?;
             (pair.id, stopped)
@@ -335,13 +324,13 @@ impl Room {
                 let name = self
                     .participant(linked_side)
                     .map_or_else(|_| "That teammate".to_string(), |persona| persona.name);
-                self.stop_request(
-                    request,
-                    format!("{name} is on {desk_name}, which isn't linked any more."),
-                    None,
-                );
                 // Its desk is not linked to be told.
-                request.returned = true;
+                self.end_request(
+                    request,
+                    Ending::Unlinked,
+                    format!("{name} is on {desk_name}, which isn't linked any more."),
+                    &mut ended,
+                );
                 stopped.push(request.clone());
                 changed = true;
             }
@@ -358,7 +347,7 @@ impl Room {
         let _guard = lock(&self.exchange_lock);
         let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
         if let Some(request) = pair.requests.iter_mut().find(|r| r.id == id) {
-            request.returned = true;
+            request.advance(Event::Told)?;
         }
         self.save_pair(&pair)
     }
@@ -375,7 +364,7 @@ impl Room {
             let Some(request) = pair
                 .requests
                 .iter_mut()
-                .find(|r| r.id == request_id && !r.released && r.phase != Phase::Stopped)
+                .find(|r| r.id == request_id && r.stands())
             else {
                 return;
             };
@@ -491,10 +480,7 @@ impl Room {
             .find(|r| r.id == request_id && r.intent == Intent::Handoff && r.to == by)
             .filter(|r| linked::split(&r.to).is_some_and(|(desk, _)| desk == desk_id))
             .ok_or("This desk sent no such handoff.")?;
-        if handoff.released
-            || handoff.phase == Phase::Stopped
-            || !self.exchange_lease_current(&handoff.id)
-        {
+        if !handoff.stands() || !self.exchange_lease_current(&handoff.id) {
             return Ok(());
         }
         aside.to.clone_from(&handoff.from);

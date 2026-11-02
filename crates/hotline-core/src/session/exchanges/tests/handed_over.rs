@@ -71,7 +71,7 @@ async fn the_persons_words_answer_the_card_a_handoff_waits_on() {
     until(
         "the handoff waits on its card and bob's turn has ended",
         || {
-            room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
+            room.exchange_pair("ada~bob").unwrap().requests[0].phase() == Phase::WaitingHuman
                 && !room.mid_turn("bob")
         },
     )

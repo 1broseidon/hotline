@@ -46,7 +46,7 @@ impl Room {
             let Some(r) = pair
                 .requests
                 .iter_mut()
-                .find(|r| r.id == request.id && r.phase == Phase::Queued)
+                .find(|r| r.id == request.id && r.phase() == Phase::Queued)
             else {
                 return Ok(());
             };
@@ -59,14 +59,13 @@ impl Room {
                         r.files.clear();
                     }
                     Err(error) => {
-                        r.phase = Phase::Reply;
+                        r.advance(Event::Answered { failed: true })?;
                         r.reply = format!("The files did not reach them: {error}");
-                        r.failed = true;
                         return self.save_pair(&pair);
                     }
                 }
             }
-            r.phase = Phase::Running;
+            r.advance(Event::Admitted)?;
             if !r.request_counted {
                 r.request_counted = true;
                 pair.exchanges += 1;

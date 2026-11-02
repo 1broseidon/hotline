@@ -192,7 +192,7 @@ impl Room {
         let (pair, ask) = pairs.iter().find_map(|pair| {
             pair.requests
                 .iter()
-                .find(|r| r.id == ask && r.intent == Intent::Ask && r.phase == Phase::Queued)
+                .find(|r| r.id == ask && r.intent == Intent::Ask && r.phase() == Phase::Queued)
                 .map(|ask| (pair, ask))
         })?;
         let asker = self.participant(&ask.from).ok()?;
@@ -251,8 +251,7 @@ impl Room {
     /// Leaves the nudge of a handoff's result, for a sender on this desk that
     /// hears it later.
     pub(super) fn nudge_handoff_result(&self, key: &str, request: &Request) {
-        if request.intent == Intent::Handoff && !request.inline && !linked::is_linked(&request.from)
-        {
+        if request.intent == Intent::Handoff && !linked::is_linked(&request.from) {
             self.nudge_result(key, request);
         }
     }
@@ -264,9 +263,7 @@ impl Room {
             .into_iter()
             .flat_map(|pair| pair.requests)
             .rfind(|r| r.intent == Intent::Handoff && r.thread.as_deref() == Some(side_id))
-            .filter(|r| {
-                !r.released && r.phase != Phase::Stopped && self.exchange_lease_current(&r.id)
-            })
+            .filter(|r| r.stands() && self.exchange_lease_current(&r.id))
     }
 
     /// The sender's thread a request's answer goes back to, when it is not

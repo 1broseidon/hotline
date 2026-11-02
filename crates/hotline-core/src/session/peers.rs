@@ -448,6 +448,10 @@ pub(super) fn delivery_from(persona_id: &str, cause: &DeliveryCause) -> Delivery
 /// Why a request the person's Stop exchange ended failed.
 pub(super) const STOPPED_BY_THE_PERSON: &str = "The person stopped this exchange.";
 
+/// Why a question whose turn the teammate's conversation refused, having
+/// been replaced meanwhile, ended unanswered.
+pub(super) const NOT_TAKEN_UP: &str = "The teammate's conversation was replaced before it took this question up. Send it again if you still need it.";
+
 /// What a handoff the person's Stop ended tells its sender: their decision,
 /// not a failure to look into and send again.
 pub(super) const HANDOFF_STOPPED_BY_THE_PERSON: &str =

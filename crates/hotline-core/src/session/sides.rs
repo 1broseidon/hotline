@@ -261,17 +261,18 @@ impl Occupant for LiveSide {
     /// is still running, and what came of it is saved when it ends.
     async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: Line) -> Begin<WorkTurn> {
         // A result that came back from a colleague is heard once: it is
-        // consumed as its turn begins, and one the exchange has since stopped,
-        // or whose authority has been revoked, is never heard, however long
-        // it waited behind the turn in flight.
-        if line
+        // consumed once its turn is certain to run, and one the exchange has
+        // since stopped, or whose authority has been revoked, is never heard,
+        // however long it waited behind the turn in flight.
+        let result = line
             .from
             .as_ref()
             .filter(|from| matches!(from.kind, ThreadKind::Pair | ThreadKind::Side))
-            .and_then(|from| from.request.as_deref())
-            .is_some_and(|request| {
-                room.is_exchange_request(request) && !room.begin_exchange_result(request)
-            })
+            .and_then(|from| from.request.clone())
+            .filter(|request| room.is_exchange_request(request));
+        if result
+            .as_deref()
+            .is_some_and(|request| !room.exchange_result_waits(request))
         {
             return Begin::Skip;
         }
@@ -332,6 +333,12 @@ impl Occupant for LiveSide {
             room.thread_index(&self.persona_id, &self.thread, &asides, Some(&self.indexed))
         {
             line.text = format!("{index}\n\n{}", line.text);
+        }
+        // Nothing refuses the turn from here: the result it hears is spent.
+        if let Some(result) = &result
+            && !room.begin_exchange_result(result)
+        {
+            return Begin::Skip;
         }
         // The person's Stop or Interrupt from here on is this turn's.
         lock(&self.cut).take();

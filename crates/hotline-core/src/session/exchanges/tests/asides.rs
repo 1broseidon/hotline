@@ -324,7 +324,7 @@ async fn a_turn_waiting_only_on_a_question_to_its_sender_leaves_no_note() {
     let (room, _) = setup("aside-waits-on-the-sender");
     let mut handoff = saved_request("h", Intent::Handoff, Phase::WaitingHuman);
     handoff.thread = Some("t".into());
-    handoff.started = true;
+    handoff.state = State::Running { begun: true };
     handoff.human_actions = vec![HumanGate {
         id: "q".into(),
         consumed: false,
@@ -359,11 +359,11 @@ async fn an_aside_of_a_result_is_the_turns_last_message_in_plain_words() {
     let (room, _) = setup("aside-result-gist");
     let mut handoff = saved_request("h", Intent::Handoff, Phase::Running);
     handoff.thread = Some("t".into());
-    handoff.started = true;
+    handoff.state = State::Running { begun: true };
     let mut ask = saved_request("q", Intent::Ask, Phase::Running);
     ask.thread = Some("u".into());
     ask.own_thread = true;
-    ask.started = true;
+    ask.state = State::Running { begun: true };
     room.save_pair(&Pair {
         id: "ada~bob".into(),
         a: "ada".into(),

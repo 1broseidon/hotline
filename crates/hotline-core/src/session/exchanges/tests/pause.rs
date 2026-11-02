@@ -71,7 +71,7 @@ async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_the_queue(
                 .requests
                 .last()
                 .unwrap()
-                .phase,
+                .phase(),
             Phase::Queued
         );
         let mut updates = [
@@ -117,8 +117,8 @@ async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_the_queue(
             .await;
             let pair = room.exchange_pair("ada~bob").unwrap();
             let stopped = pair.requests.iter().find(|r| r.id == queued).unwrap();
-            assert_eq!(stopped.phase, Phase::Stopped);
-            assert!(stopped.failed);
+            assert_eq!(stopped.phase(), Phase::Stopped);
+            assert!(stopped.failed());
             assert!(
                 room.tape("bob")
                     .iter()
@@ -137,7 +137,7 @@ async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_the_queue(
     for id in completed {
         let pair = room.exchange_pair("ada~bob").unwrap();
         let request = pair.requests.iter().find(|r| r.id == id).unwrap();
-        assert_eq!(request.phase, Phase::Done);
+        assert_eq!(request.phase(), Phase::Done);
         assert_eq!(
             room.tape(&request.from)
                 .iter()

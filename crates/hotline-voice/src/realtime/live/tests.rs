@@ -148,6 +148,22 @@ fn the_person_talking_cuts_the_model_once_and_their_turn_is_heard() {
 }
 
 #[test]
+fn a_turn_with_no_words_still_ends() {
+    let mut heard = Heard::default();
+    let started = json!({"type": "turn.created", "turn": {"role": "user", "transcript": ""}});
+    assert_eq!(
+        heard.event(&started).unwrap(),
+        [RealtimeEvent::SpeechStarted]
+    );
+    assert_eq!(
+        heard
+            .event(&json!({"type": "turn.done", "turn": {"role": "user", "transcript": " "}}))
+            .unwrap(),
+        [RealtimeEvent::Heard(String::new())]
+    );
+}
+
+#[test]
 fn errors_reach_the_caller_as_a_code_never_a_message() {
     let mut heard = Heard::default();
     let error = json!({"type": "error", "error": {"code": "rate_limited", "message": "the person said secret"}});

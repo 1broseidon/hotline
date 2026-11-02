@@ -89,3 +89,11 @@ impl Calls {
         self.answer_card_words(call, words).await
     }
 }
+
+impl Calls {
+    /// Whether a person is mid-utterance on the call, as the front or the
+    /// phone last reported.
+    pub fn test_caller_speaking(&self, id: &str) -> bool {
+        self.change(id, |call| Ok(call.caller_speaking)).unwrap()
+    }
+}

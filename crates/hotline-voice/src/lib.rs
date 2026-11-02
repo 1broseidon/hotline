@@ -287,6 +287,20 @@ struct Input {
     stt: Arc<dyn speech::Speech>,
 }
 
+/// Why a call is held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Hold {
+    Off,
+    /// The person put the call on hold.
+    User,
+    /// The transport dropped. The call waits for the phone until `deadline`,
+    /// and goes back to a person's hold, if it was on one, when it returns.
+    Dropped {
+        user: bool,
+        deadline: tokio::time::Instant,
+    },
+}
+
 #[doc(hidden)]
 pub struct Call {
     conversation: spoken::CallContext,
@@ -301,6 +315,10 @@ pub struct Call {
     input: Option<Input>,
     spoken_events: VecDeque<String>,
     connection: Option<call::Connection>,
+    /// Whether the call is held, and why: the one record of a hold, by the
+    /// person or by a lost transport. The state is Held exactly when this is
+    /// not `Hold::Off`.
+    hold: Hold,
     reconnecting: bool,
     pub state: VoiceState,
     reason: Option<VoiceEndReason>,
@@ -381,6 +399,57 @@ impl Call {
             && self.input.is_none()
     }
 
+    /// The teammate has been handed turn `seq`. A turn still in flight keeps
+    /// its older number, so its own end clears the wait.
+    pub fn begin_answer(&mut self, seq: u32) {
+        self.answering.get_or_insert(seq);
+    }
+
+    /// Whether the phone's transport is down and the call waits for it.
+    fn dropped(&self) -> bool {
+        matches!(self.hold, Hold::Dropped { .. })
+    }
+
+    /// The person holds the call, or lets it go. A call held by a lost
+    /// transport stays held until the phone returns, whichever the person
+    /// chose meanwhile.
+    fn hold_by_person(&mut self, hold: bool) {
+        self.hold = match self.hold {
+            Hold::Dropped { deadline, .. } => Hold::Dropped {
+                user: hold,
+                deadline,
+            },
+            _ if hold => Hold::User,
+            _ => Hold::Off,
+        };
+        if hold {
+            self.caller_speaking = false;
+            self.state(VoiceState::Held, None);
+        } else if self.hold == Hold::Off && self.state == VoiceState::Held {
+            self.state(self.resting(), None);
+        }
+    }
+
+    /// The transport dropped: held until the deadline, remembering whether
+    /// the person was already holding.
+    fn drop_transport(&mut self, deadline: tokio::time::Instant) {
+        let user = match self.hold {
+            Hold::Off => false,
+            Hold::User => true,
+            Hold::Dropped { user, .. } => user,
+        };
+        self.hold = Hold::Dropped { user, deadline };
+        self.caller_speaking = false;
+        self.state(VoiceState::Held, None);
+    }
+
+    /// The phone is back: a person's hold stands, a lost transport's ends.
+    fn reattach(&mut self) {
+        if let Hold::Dropped { user, .. } = self.hold {
+            self.hold = if user { Hold::User } else { Hold::Off };
+        }
+    }
+
     fn snapshot(&self) -> VoiceEvent {
         VoiceEvent::State {
             state: self.state,
@@ -388,22 +457,24 @@ impl Call {
                 .live_error
                 .clone()
                 .filter(|_| self.state == VoiceState::Ended),
-            reconnecting: self.state != VoiceState::Ended
-                && (self.reconnecting || self.connection.as_ref().is_some_and(|c| c.dropped)),
+            reconnecting: self.state != VoiceState::Ended && (self.reconnecting || self.dropped()),
             reason: self.reason,
             listening: self.listening_while_thinking(),
         }
     }
     pub fn state(&mut self, state: VoiceState, reason: Option<VoiceEndReason>) {
+        // Ended is terminal, whoever writes the state.
+        if self.state == VoiceState::Ended {
+            return;
+        }
         if state == VoiceState::Ended {
             self.keep_front_speech();
         }
-        let ended = self.state == VoiceState::Ended;
         self.state = state;
         self.reason = reason;
         let _ = self.events.send(self.snapshot());
         if state == VoiceState::Ended {
-            if !ended && let Some(record) = &self.record {
+            if let Some(record) = &self.record {
                 record.ended(reason);
             }
             self.input = None;

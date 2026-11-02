@@ -500,11 +500,7 @@ impl Heard {
                     vec![RealtimeEvent::ResponseDone]
                 } else {
                     self.person = false;
-                    if words.is_empty() {
-                        Vec::new()
-                    } else {
-                        vec![RealtimeEvent::Heard(words.into())]
-                    }
+                    vec![RealtimeEvent::Heard(words.into())]
                 }
             }
             "delegation.created" => {
@@ -912,7 +908,7 @@ impl Driver {
                 let words = std::mem::take(&mut self.saying);
                 self.carry.push("You", &words);
             }
-            RealtimeEvent::Heard(words) => self.carry.push("Caller", words),
+            RealtimeEvent::Heard(words) if !words.is_empty() => self.carry.push("Caller", words),
             _ => {}
         }
     }

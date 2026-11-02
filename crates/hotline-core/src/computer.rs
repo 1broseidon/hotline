@@ -409,7 +409,7 @@ impl Computer {
     }
 
     /// Callers waiting on, or holding, a teammate's container lock.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn queued(&self, persona_id: &str) -> usize {
         self.lock()
             .turns

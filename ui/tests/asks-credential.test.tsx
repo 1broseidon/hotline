@@ -16,7 +16,7 @@ test("Asks capture sends one command and clears all typed fields on Save, declin
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
-	const render = async (event: Ask, key = "same") => act(async () => { root.render(<CredentialAsk key={key} event={event} teammate="Pork Chop" />); });
+	const render = async (event: Ask, key = "same") => act(async () => { root.render(<CredentialAsk key={key} event={{ ...event, id: `${event.id}:${key}` }} teammate="Pork Chop" />); });
 	const field = (name: string) => container.querySelector<HTMLInputElement>(`[name="${name}"]`)!;
 	const fill = () => {
 		field("username").value = "private-user";

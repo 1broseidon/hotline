@@ -10,8 +10,14 @@ export type Ask = Extract<
 	{ kind: "permission" | "human_action" | "credential_ask" | "passkey_ask" | "secret_use_ask" | "cookie_offer" }
 >;
 
+/** A card with a time limit that has run out on this clock: it can no longer be answered. */
+function lapsed(event: TranscriptEvent, now: number): boolean {
+	return (event.kind === "credential_ask" || event.kind === "secret_use_ask") && now >= event.expiresAt;
+}
+
 /** Whether a card still waits on the person. */
-function waits(event: TranscriptEvent): event is Ask {
+function waits(event: TranscriptEvent, now: number): event is Ask {
+	if (lapsed(event, now)) return false;
 	switch (event.kind) {
 		case "permission":
 			return event.decision === undefined;
@@ -27,9 +33,23 @@ function waits(event: TranscriptEvent): event is Ask {
 	}
 }
 
-/** The cards waiting on the person, oldest first: what the composer's chip opens to answer. */
-export function openAsks(events: readonly TranscriptEvent[]): Ask[] {
-	return events.filter(waits);
+/**
+ * The cards waiting on the person, oldest first: what the composer's chip
+ * opens to answer. A card whose time has run out on `now` no longer waits,
+ * whether or not the tape has said so.
+ */
+export function openAsks(events: readonly TranscriptEvent[], now: number = Date.now()): Ask[] {
+	return events.filter((event): event is Ask => waits(event, now));
+}
+
+/** When the next pending card with a time limit runs out after `now`, if any does: when the composer must count again. */
+export function nextLapse(events: readonly TranscriptEvent[], now: number): number | undefined {
+	let next: number | undefined;
+	for (const event of events) {
+		if ((event.kind !== "credential_ask" && event.kind !== "secret_use_ask") || event.status !== "pending") continue;
+		if (event.expiresAt > now && (next === undefined || event.expiresAt < next)) next = event.expiresAt;
+	}
+	return next;
 }
 
 /** A waiting card in a few words, for the chip. */

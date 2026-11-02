@@ -465,34 +465,24 @@ impl Room {
         if !session.capability.is_current() || !self.current_session(session) {
             return;
         }
-        let mut turns = lock(&session.turns);
-        let mut steered = false;
-        while let Some(index) = turns.waiting.iter().position(|wire| wire.steer) {
-            let wire = &turns.waiting[index];
-            if !session
-                .driver
-                .steer(wire.text.clone(), wire.attachments.clone())
-            {
-                break;
-            }
+        let taken = lock(&session.turns).steer_into(
+            session.driver.as_ref(),
+            |wire| wire.steer,
+            |wire| (wire.text.clone(), wire.attachments.clone()),
+        );
+        if taken.is_empty() {
+            return;
+        }
+        for wire in &taken {
             *lock(&session.voice_origin) = call_origin(wire);
             if let Some(said) = wire.said.clone() {
                 lock(&session.unread).push(said);
             }
-            steered_inputs.push(
-                turns
-                    .waiting
-                    .remove(index)
-                    .expect("steered input is queued"),
-            );
-            steered = true;
         }
-        drop(turns);
-        if steered {
-            // A turn that was only waiting on its subagents has a line to
-            // answer now, so it is working again.
-            self.await_subagents(session, false);
-        }
+        steered_inputs.extend(taken);
+        // A turn that was only waiting on its subagents has a line to
+        // answer now, so it is working again.
+        self.await_subagents(session, false);
     }
 }
 

@@ -49,6 +49,7 @@ impl Room {
                             from: None,
                             delivery: None,
                             wake: false,
+                            steer: false,
                         },
                     );
                 }

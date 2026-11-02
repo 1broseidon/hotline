@@ -261,6 +261,15 @@ impl Room {
             .filter(|from| !linked::is_linked(from))
     }
 
+    /// Whether `id` is a colleague's question, whose turn's whole reply is
+    /// theirs.
+    pub(in crate::session) fn is_question(&self, id: &str) -> bool {
+        self.exchange_pairs()
+            .into_iter()
+            .flat_map(|pair| pair.requests)
+            .any(|r| r.id == id && r.intent == Intent::Ask)
+    }
+
     /// Settles each handoff `side_id` carries from the sender of `into`, the
     /// follow-up whose turn is beginning there, as carried on by it: done,
     /// with its result consumed, so it is never delivered and the follow-up's

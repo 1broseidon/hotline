@@ -1495,3 +1495,102 @@ async fn a_link_change_is_made_to_the_link_as_it_stands_when_written() {
     assert!(link.handoff_ended);
     assert!(!room.amend_link(&thread, |_| None), "nothing to change");
 }
+
+// A line said into a work thread's turn in flight joins it, as in the main
+// conversation, when the agent takes input mid-turn.
+
+/// The person's line said while a thread's turn runs goes into that turn:
+/// the agent hears it at once, the turn is neither cut nor run again, and
+/// nothing says it waits.
+#[tokio::test]
+async fn a_persons_line_said_mid_turn_joins_the_turn_in_flight() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::new(vec![
+            say("m1", "Step 3 of 5."),
+            say("m2", "Done, in 4."),
+            turn(),
+        ])
+        .gated(gate.clone())
+        .consuming(),
+    );
+    let room = room("side-steer-joins", agents.clone());
+    let id = room
+        .start_side("ada", "Do it in 5 steps")
+        .await
+        .unwrap()
+        .side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "Make it 4 steps in all", None)
+        .await
+        .unwrap();
+    assert_eq!(agents.steered(), ["Make it 4 steps in all"]);
+    gate.add_permits(10);
+    settled(&room, &id).await;
+    assert_eq!(agents.prompts(), ["Do it in 5 steps"], "no second turn");
+    assert_eq!(agents.cancel_count(), 0, "the turn was not cut");
+    assert!(
+        side_stream(&room, &id)
+            .iter()
+            .all(|event| event["kind"] != "notice"),
+        "nothing says it waits"
+    );
+}
+
+/// An agent that cannot take a line mid-turn hears it when the turn ends,
+/// and the thread says so as it is said.
+#[tokio::test]
+async fn a_persons_line_waits_and_says_so_when_the_agent_cannot_take_it_mid_turn() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            vec![say("m1", "First."), turn()],
+            vec![say("m2", "Second."), turn()],
+        ])
+        .gated(gate.clone()),
+    );
+    let room = room("side-steer-waits", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "And another thing", None)
+        .await
+        .unwrap();
+    let notices: Vec<String> = side_stream(&room, &id)
+        .iter()
+        .filter(|event| event["kind"] == "notice")
+        .filter_map(|event| event["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(
+        notices[0].contains("waits for the turn in flight to end"),
+        "{notices:?}"
+    );
+    gate.add_permits(10);
+    until("the line gets its own turn", || agents.prompts().len() == 2).await;
+    assert_eq!(agents.prompts()[1], "And another thing");
+}
+
+/// A line the agent took into a turn but never used goes back first, as it
+/// was said, and is the next turn.
+#[tokio::test]
+async fn a_steered_line_the_agent_never_used_is_the_next_turn() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            vec![say("m1", "First."), turn()],
+            vec![say("m2", "Second."), turn()],
+        ])
+        .gated(gate.clone())
+        .steerable(),
+    );
+    let room = room("side-steer-unused", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "Use the other file", None)
+        .await
+        .unwrap();
+    assert_eq!(agents.steered(), ["Use the other file"]);
+    gate.add_permits(10);
+    until("the unused line runs next", || agents.prompts().len() == 2).await;
+    assert_eq!(agents.prompts()[1], "Use the other file");
+}

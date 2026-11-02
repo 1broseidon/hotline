@@ -4,7 +4,7 @@ import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
 import { ArrowUpIcon, ChevronDownIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
-import type { WorkMark } from "../activity";
+import { isWorking, type WorkMark } from "../activity";
 import { type TurnSummary, summaryWords } from "../turnFacts";
 import { Favicons } from "./Favicon";
 import { Glyph } from "../ui/Glyph";
@@ -29,11 +29,6 @@ import { setHearOnThisMac } from "../voice/hearing";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
-
-/** A session that is between turns and can be spoken to right now. */
-function isWorking(state: SessionState): boolean {
-	return state === "starting" || state === "thinking";
-}
 
 /** A session that is started on the way, before what was typed is said. */
 export function isDown(state: SessionState): boolean {
@@ -125,7 +120,7 @@ export function Composer({
 	useEffect(() => writeDraft(draftOf, { text, attachments }), [draftOf, text, attachments]);
 	const [pasteFailed, setPasteFailed] = useState<string | null>(null);
 	const area = useRef<HTMLTextAreaElement>(null);
-	const working = isWorking(state);
+	const working = isWorking({ state });
 	useEffect(() => {
 		if (focused) area.current?.focus();
 	}, [focused]);

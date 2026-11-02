@@ -37,7 +37,7 @@ import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
-import { shownState } from "../activity";
+import { isWorking, workingState } from "../activity";
 import { Composer } from "./Composer";
 import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
@@ -127,7 +127,7 @@ export function Dock({
 						blockId={work.blockId}
 						stepId={work.stepId}
 						name={entry.persona.name}
-						live={shownState(entry.session) === "thinking"}
+						live={isWorking(entry.session)}
 						onClose={onClose}
 					/>
 				) : at === null && noted === null && <DockBand onClose={onClose} />}
@@ -608,7 +608,7 @@ function ThreadView({
 						embedded
 						personaId={`${id.kind}:${id.key}`}
 						name={self.name}
-						state={turning ? "thinking" : "ready"}
+						state={workingState(turning)}
 						replyQuote={null}
 						onSend={send}
 						onCancel={() => void interrupt().catch(() => undefined)}

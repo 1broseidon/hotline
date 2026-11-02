@@ -1,6 +1,6 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Activity, processLabel, shownState } from "../activity";
+import { type Activity, isWorking, processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -310,7 +310,7 @@ export function Conversation({
 					people={people}
 					events={shown}
 					streaming={streaming}
-					live={state === "thinking"}
+					live={isWorking(session)}
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
 					workingSides={workingSides}
@@ -407,7 +407,6 @@ const ConversationBand = memo(function ConversationBand({
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
-	const state = shownState(session);
 	const sides = entry.sides ?? [];
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const [chapterBusy, setChapterBusy] = useState(false);
@@ -467,7 +466,7 @@ const ConversationBand = memo(function ConversationBand({
 		name: persona.name,
 		goal: persona.goal,
 		face: (size: number) => <Avatar id={persona.id} name={persona.name} size={size} hash={persona.avatar?.hash} />,
-		working: state === "thinking",
+		working: isWorking(session),
 		actions,
 	};
 

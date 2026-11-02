@@ -62,7 +62,7 @@ describe("the conversation's band", () => {
 		// No face of its own any more: the pill carries it and the teammate's actions.
 		expect(source).not.toContain("band-face");
 		expect(source).toMatch(/<SessionPickers[^>]*teammate=\{teammate\}/s);
-		expect(source).toMatch(/working: state === "thinking"/);
+		expect(source).toMatch(/working: isWorking\(session\)/);
 		expect(source).not.toContain("<MoreIcon");
 		// Every action the face menu had, its shortcut and Remove under a rule.
 		for (const id of ['id: "teammate"', 'id: "chapter"', 'id: "side-list"', 'id: "delete"']) expect(source).toContain(id);

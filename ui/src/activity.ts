@@ -13,6 +13,22 @@ export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagen
 }
 
 /**
+ * Whether a teammate is working: the one answer the composer (Interrupt, Esc),
+ * the band's beat, the transcript's mark and the work pane all take. A session
+ * that is `starting` is working, as the composer already read it; a turn held
+ * open only for subagents is not (see `shownState`).
+ */
+export function isWorking(session: Pick<SessionInfo, "state" | "awaitingSubagents">): boolean {
+	const state = shownState(session);
+	return state === "starting" || state === "thinking";
+}
+
+/** The state a thread pane's composer is given for a turn that runs or does not, so it reads `isWorking` too. */
+export function workingState(running: boolean): SessionState {
+	return running ? "thinking" : "ready";
+}
+
+/**
  * The few words a running process's chip says: the command the process is,
  * past the `cd` that got there and the interpreter that runs it, so
  * `cd site && python3 -m http.server 8770` reads "http.server 8770". The

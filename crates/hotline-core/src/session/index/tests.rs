@@ -869,6 +869,7 @@ async fn a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it() {
                 created_at: now - MINUTE,
                 last_post: None,
                 ended_at: None,
+                final_firing: None,
             },
         )
         .unwrap();

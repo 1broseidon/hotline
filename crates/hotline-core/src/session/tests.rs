@@ -79,6 +79,8 @@ pub(crate) struct Scripted {
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
+    /// Steering the agent uses in the turn it joined, so nothing comes back.
+    consumes: bool,
     /// Each line steered into a turn in flight, by its words.
     steered: Arc<Mutex<Vec<String>>>,
     /// Each prompt exactly as handed over, stamp and all.
@@ -128,6 +130,7 @@ impl Scripted {
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
+            consumes: false,
             steered: Arc::new(Mutex::new(Vec::new())),
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
@@ -179,6 +182,13 @@ impl Scripted {
     pub(super) fn steerable(mut self) -> Self {
         self.unconsumed = Some(Arc::new(Mutex::new(Vec::new())));
         self
+    }
+
+    /// A steerable agent that uses each line in the turn it joined, as one
+    /// does when the line arrives before the turn's last request.
+    pub(super) fn consuming(mut self) -> Self {
+        self.consumes = true;
+        self.steerable()
     }
 
     pub(super) fn with_room_models(mut self) -> (Self, Arc<Mutex<Vec<ConfigChoice>>>) {
@@ -300,7 +310,9 @@ impl Driver for Scripted {
             return false;
         };
         lock(&self.steered).push(words_of(&text));
-        lock(unconsumed).push((text, attachments));
+        if !self.consumes {
+            lock(unconsumed).push((text, attachments));
+        }
         true
     }
 

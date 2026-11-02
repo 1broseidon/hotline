@@ -527,6 +527,7 @@ impl Room {
                     from: None,
                     delivery: None,
                     wake: true,
+                    steer: false,
                 };
                 let Some(line) = claim_idle(side.queue(), line) else {
                     return false;

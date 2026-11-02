@@ -125,6 +125,9 @@ pub(super) struct LiveSide {
     /// agent holds.
     capability: CapabilityLease,
     turns: Mutex<Turns<Line>>,
+    /// Lines taken into the turn in flight ([`Turns::steer_into`]), until it
+    /// ends: what its driver never used goes back to the queue as it was said.
+    steered: Mutex<Vec<Line>>,
     /// When the person last said something, or the teammate last finished.
     last_used: Mutex<i64>,
     /// The deliveries this agent has been handed, so that handing one over
@@ -392,6 +395,7 @@ impl Occupant for LiveSide {
         let thread = self.thread();
         let line = held.line.take().expect("a turn is taken once");
         let driver = self.driver().expect("turns run only once the agent is up");
+        let steer = || room.steer_into_work(self);
         room.threads()
             .turn(
                 Seat {
@@ -399,6 +403,7 @@ impl Occupant for LiveSide {
                     thread: &thread,
                     persona_id: &self.persona_id,
                     driver: driver.as_ref(),
+                    steer: Some(&steer),
                 },
                 line,
                 room.reach_of(&self.persona_id),
@@ -421,6 +426,7 @@ impl Occupant for LiveSide {
             return Then::Stop;
         }
         let cut = lock(&side.cut).take().filter(|_| cut_short(&driven));
+        let mut steered = std::mem::take(&mut *lock(&side.steered));
         if let Some(driver) = side.driver() {
             let unconsumed = driver.take_unconsumed();
             // An Interrupt keeps what the person said into the turn it cut.
@@ -429,15 +435,26 @@ impl Occupant for LiveSide {
                     matches!(reason, "cancelled" | "canceled" | "aborted" | "revoked")
                 });
             for (text, attachments) in unconsumed.into_iter().rev().filter(|_| !cancelled) {
-                lock(&side.turns).waiting.push_front(Line {
-                    voice: room.attached_voice(&side.thread),
-                    text,
-                    attachments,
-                    request: None,
-                    from: None,
-                    delivery: None,
-                    wake: false,
-                });
+                // A line steered in goes back as it was said, with the request
+                // it carries; matched from the end, as the driver hands them
+                // back last first.
+                let line = match steered
+                    .iter()
+                    .rposition(|line| line.text == text && line.attachments == attachments)
+                {
+                    Some(index) => steered.remove(index),
+                    None => Line {
+                        voice: room.attached_voice(&side.thread),
+                        text,
+                        attachments,
+                        request: None,
+                        from: None,
+                        delivery: None,
+                        wake: false,
+                        steer: false,
+                    },
+                };
+                lock(&side.turns).waiting.push_front(line);
             }
         }
         room.remember_session(side, &driven);
@@ -931,6 +948,7 @@ impl Room {
             request: Mutex::new(None),
             cut: Mutex::new(None),
             steer: Mutex::new(Steer::None),
+            steered: Mutex::new(Vec::new()),
             backend_id: persona.backend_id.clone(),
             up: OnceLock::new(),
             capability: lease,
@@ -1489,27 +1507,52 @@ impl Room {
                     .take_interruption(&origin.call_id)
             })
             .unwrap_or_default();
+        let text = if voice.is_some() {
+            format!(
+                "{}\n\n{}\n\n{}",
+                timed_from(ts, client, &said),
+                interruption,
+                self.call_instruction(&side.thread)
+            )
+        } else {
+            timed_from(ts, client, &said)
+        };
+        let steer = self.person_steers(side);
         self.queue_in_side(
             side,
             Line {
-                voice: voice.clone(),
-                text: if voice.is_some() {
-                    format!(
-                        "{}\n\n{}\n\n{}",
-                        timed_from(ts, client, &said),
-                        interruption,
-                        self.call_instruction(&side.thread)
-                    )
-                } else {
-                    timed_from(ts, client, &said)
-                },
+                voice,
+                text: text.clone(),
                 attachments: attachments.unwrap_or_default(),
                 request: None,
                 from: None,
                 delivery: None,
                 wake: false,
+                steer,
             },
         );
+        // Said while a turn runs: it joins that turn now, or says it waits.
+        self.steer_into_work(side);
+        // A thread whose agent is still starting has no turn to join yet.
+        let waits = side.driver().is_some() && {
+            let turns = lock(&side.turns);
+            turns.running && turns.waiting.iter().any(|line| line.text == text)
+        };
+        if waits {
+            side.say(
+                self,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Info,
+                    text: if steer {
+                        "This waits for the turn in flight to end: its agent can't take a message mid-turn.".into()
+                    } else {
+                        "This waits for the turn in flight to end: that turn is answering a colleague's question.".into()
+                    },
+                },
+            );
+        }
     }
 
     /// Hands a line to the thread's agent now, or behind the turn in flight.
@@ -1646,6 +1689,7 @@ impl Room {
                     from: Some(from),
                     delivery: Some(id.to_string()),
                     wake: false,
+                    steer: false,
                 },
             );
             Ok(())

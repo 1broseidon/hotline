@@ -76,6 +76,36 @@ impl<T> Turns<T> {
     pub(super) fn clear(&mut self) {
         self.waiting.clear();
     }
+
+    /// Hands the turn in flight each waiting line `steers` picks, in the order
+    /// said, until its driver refuses one: the one way a line joins a turn
+    /// already running, in the main conversation and in a work thread alike.
+    /// The lines taken are the caller's, to hand back what the driver never
+    /// used when the turn ends. A turn not running takes nothing.
+    pub(super) fn steer_into(
+        &mut self,
+        driver: &dyn Driver,
+        steers: impl Fn(&T) -> bool,
+        words: impl Fn(&T) -> (String, Vec<Attachment>),
+    ) -> Vec<T> {
+        let mut taken = Vec::new();
+        if !self.running {
+            return taken;
+        }
+        let mut index = 0;
+        while index < self.waiting.len() {
+            if !steers(&self.waiting[index]) {
+                index += 1;
+                continue;
+            }
+            let (text, attachments) = words(&self.waiting[index]);
+            if !driver.steer(text, attachments) {
+                break;
+            }
+            taken.extend(self.waiting.remove(index));
+        }
+        taken
+    }
 }
 
 /// One line for a thread's agent: the words as the driver is to hear them,
@@ -99,6 +129,9 @@ pub(super) struct Line {
     /// The line only wakes the agent to hear the asides left for it, and is
     /// skipped at the door when a turn before it has heard them.
     pub wake: bool,
+    /// The line joins the turn in flight when its driver takes input mid-turn
+    /// ([`Turns::steer_into`]), and waits behind it when it does not.
+    pub steer: bool,
 }
 
 /// The exchange request a turn answers: a handoff, or a colleague's question.
@@ -118,6 +151,9 @@ pub(super) struct Seat<'a> {
     pub thread: &'a ThreadId,
     pub persona_id: &'a str,
     pub driver: &'a dyn Driver,
+    /// Looks at the lines waiting behind the turn, between one update and the
+    /// next, for a kind whose turns lines can steer.
+    pub steer: Option<&'a (dyn Fn() + Send + Sync)>,
 }
 
 /// What starts a turn: a line the driver is told, or the work the agent took
@@ -236,6 +272,14 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
             words.shown,
             muted,
         ));
+    }
+
+    fn steer(&mut self) {
+        if (self.open)()
+            && let Some(steer) = self.seat.steer
+        {
+            steer();
+        }
     }
 
     fn write(&mut self, event: TranscriptEvent, _asked: bool) {

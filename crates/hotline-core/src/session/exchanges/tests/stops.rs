@@ -498,6 +498,92 @@ async fn a_follow_up_into_a_running_handoff_steers_it_and_its_sender_hears_one_r
     );
 }
 
+/// Ada's change, sent into the thread while Bob's turn on her handoff runs,
+/// joins that turn when Bob's agent takes input mid-turn: nothing is cut or
+/// run again, the turn carries the change on, and Ada hears one result, the
+/// change's, with the handoff it took over settled.
+#[tokio::test]
+async fn a_follow_up_into_a_running_handoff_joins_its_turn_when_the_agent_takes_input() {
+    let ada = Fake::new(Scripted::new(turn("heard", "Heard.", "end_turn")));
+    let gate = Arc::new(Semaphore::new(0));
+    let mut work = turn(
+        "first",
+        "Writing it with winter hours from 1 December.",
+        "end_turn",
+    );
+    work.insert(
+        1,
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: "second".into(),
+            text: "Saved, with winter hours from 15 December.".into(),
+        },
+    );
+    let bob = Fake::new(
+        Scripted::new(work)
+            .on_cancel(cancelled())
+            .gated(gate.clone())
+            .consuming(),
+    );
+    let room = apart("a-follow-up-joins", &bob, &ada);
+    room.start("ada").await.unwrap();
+    let first = hand_off(&room, "ada", "bob", "Write the winter-hours notice.", None)
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("bob's handoff turn is running", || bob.prompts().len() == 1).await;
+    let thread = work_thread(&room, &first);
+    gate.add_permits(1);
+    until("bob has said what he is doing", || {
+        said(
+            &room,
+            &thread,
+            "Writing it with winter hours from 1 December.",
+        )
+    })
+    .await;
+
+    let change = "One change: winter hours start 15 December.";
+    let follow_up = hand_off(&room, "ada", "bob", change, Some(&first))
+        .await
+        .unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("the change joined the turn", || {
+        bob.steered().iter().any(|line| line.contains(change))
+    })
+    .await;
+    assert_eq!(bob.cancel_count(), 0, "the turn in flight was not cut");
+    gate.add_permits(5);
+    done(&room, &follow_up).await;
+    assert_eq!(bob.prompts().len(), 1, "nothing ran again");
+    assert_eq!(
+        results(&room, &[&first, &follow_up]),
+        std::slice::from_ref(&follow_up),
+        "one result, the change's"
+    );
+    let result = answer_to(&room, &follow_up).unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        result.ends_with("Saved, with winter hours from 15 December."),
+        "{result}"
+    );
+    let taken_over = request(&room, "ada~bob", &first);
+    assert_eq!(
+        (taken_over.phase(), taken_over.heard(), taken_over.failed()),
+        (Phase::Done, true, false)
+    );
+    until("the result closes the thread", || {
+        !room.work_is_open(&thread)
+    })
+    .await;
+}
+
 /// A follow-up into a thread whose turn is not running cuts nothing: the
 /// first turn ran to its own end and result, and the follow-up runs as its
 /// own turn, with its own result, as before.

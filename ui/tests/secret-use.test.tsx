@@ -49,7 +49,7 @@ test("Secret use card sends Approve, Allow 10 min and Deny once and settles or e
 	const pending: Extract<TranscriptEvent, { kind: "secret_use_ask" }> = { kind: "secret_use_ask", id: "card", ts: 1, useId: "opaque", secret: "GH_PASSKEY", secretKind: "passkey", site: "github.com", path: "/login", teammate: "ada", askedAt: Date.now(), expiresAt: Date.now() + 300_000, status: "pending" };
 	try {
 		for (const [label, answer] of [["Approve", "approve"], ["Allow 10 min", "allow"], ["Deny", "deny"]]) {
-			await act(async () => { root.render(<SecretUseAsk key={label} event={pending} teammate="Pork Chop" />); });
+			await act(async () => { root.render(<SecretUseAsk key={label} event={{ ...pending, id: `card:${label}` }} teammate="Pork Chop" />); });
 			expect(container.textContent).toContain("github.com/login");
 			expect(container.textContent).toContain("Pork Chop");
 			const button = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label)!;

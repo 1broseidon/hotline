@@ -23,7 +23,7 @@ import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
-import { AskCard, askLine, openAsks } from "./transcript/AskCard";
+import { AskCard, askLine, nextLapse, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
 /**
@@ -143,14 +143,27 @@ export function Conversation({
 	const [mark, setMark] = useState<{ activity: Activity; sleeping: boolean } | null>(null);
 	/* The cards waiting on the person, answered from the composer: which is open there, or none.
 	 * With nothing left waiting it closes, and does not open by itself for the next one. */
-	const asks = useMemo(() => openAsks(events), [events]);
-	const [askAt, setAskAt] = useState<number | null>(null);
+	const [clock, setClock] = useState(() => Date.now());
+	const lapseAt = nextLapse(events, clock);
+	useEffect(() => {
+		// A card with a time limit stops waiting when it runs out, tape or no tape.
+		if (lapseAt === undefined) return;
+		const timer = setTimeout(() => setClock(Date.now()), Math.min(Math.max(lapseAt - Date.now(), 0) + 5, 2 ** 31 - 1));
+		return () => clearTimeout(timer);
+	}, [lapseAt]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `clock` is what ages a card out.
+	const asks = useMemo(() => openAsks(events, clock), [events, clock]);
+	/* Which card is open is the card, not its place in the list: the list
+	 * shrinks from the front as cards settle, and the panel stays on the one
+	 * being read. When that one settles it falls to the first still waiting. */
+	const [askId, setAskId] = useState<string | null>(null);
 	const anyAsk = asks.length > 0;
 	useEffect(() => {
-		if (!anyAsk) setAskAt(null);
+		if (!anyAsk) setAskId(null);
 	}, [anyAsk]);
-	const askIndex = askAt === null || asks.length === 0 ? 0 : Math.min(askAt, asks.length - 1);
-	const asking = askAt !== null && asks.length > 0 ? asks[askIndex]! : null;
+	const found = askId === null ? -1 : asks.findIndex((one) => one.id === askId);
+	const askIndex = Math.max(found, 0);
+	const asking = askId !== null && asks.length > 0 ? asks[askIndex]! : null;
 
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
@@ -263,7 +276,7 @@ export function Conversation({
 						<span>
 							{askIndex + 1} of {asks.length}
 						</span>
-						<button type="button" className="composer-ask-next" onClick={() => setAskAt((at) => ((at ?? 0) + 1) % asks.length)}>
+						<button type="button" className="composer-ask-next" onClick={() => setAskId(asks[(askIndex + 1) % asks.length]?.id ?? null)}>
 							Next
 						</button>
 					</div>
@@ -349,7 +362,7 @@ export function Conversation({
 									},
 									sleeping: false,
 									open: asking !== null,
-									onToggle: () => setAskAt((at) => (at === null ? 0 : null)),
+									onToggle: () => setAskId((open) => (open === null ? (asks[0]?.id ?? null) : null)),
 								},
 							}
 						: mark !== null

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import type { Credential, CredentialKind, LoginPrompt, Provider, ProviderJob } from "../generated/contract";
+import { useEffect, useReducer, useRef, useState } from "react";
+import type { Credential, CredentialKind, Provider, ProviderJob } from "../generated/contract";
 import { ChevronRightIcon } from "../icons";
 import { openLink } from "../native";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
+import { formOf, restingAfter, signInBusy, signInStep } from "../signIn";
 import { wire } from "../wire";
 import { CustomProviderForm } from "./CustomProviderForm";
 
@@ -34,10 +35,12 @@ export function ConnectProvider({
 	onCancel(): void;
 }) {
 	const initial = provider.credentialKinds.length === 1 ? (provider.credentialKinds[0] ?? null) : null;
-	const [method, setMethod] = useState<CredentialKind | null>(initial);
-	const [login, setLogin] = useState<LoginPrompt | null>(null);
-	const [busy, setBusy] = useState(false);
-	const [refusal, setRefusal] = useState<Refused | null>(null);
+	const [flow, step] = useReducer(signInStep, initial === null || initial === "oauth" ? { k: "choosing" } : { k: "entering", kind: initial });
+	const busy = signInBusy(flow);
+	const login = flow.k === "waiting" ? flow.login : null;
+	const form = formOf(flow);
+	const refusal: Refused | null = flow.k === "refused" ? flow.refusal : null;
+	const back = restingAfter(initial);
 	const attempt = useRef(0);
 	const finished = useRef(false);
 
@@ -56,13 +59,14 @@ export function ConnectProvider({
 			await wire.command("credential.refresh_models", { providerId: made.providerId }).catch(() => {});
 		}
 		onConnected(made);
+		// Still mounted: the form is free again rather than busy for good.
+		finished.current = false;
+		step({ type: "reset" });
 	};
 
 	const signIn = async () => {
 		if (busy) return;
-		setBusy(true);
-		setRefusal(null);
-		setMethod("oauth");
+		step({ type: "begin" });
 		const mine = ++attempt.current;
 		try {
 			const prompt = await wire.command("credential.login", { providerId: provider.id });
@@ -70,12 +74,10 @@ export function ConnectProvider({
 				await wire.command("credential.login_cancel", { loginId: prompt.loginId });
 				return;
 			}
-			setLogin(prompt);
+			step({ type: "prompted", login: prompt });
 		} catch (error) {
 			if (mine !== attempt.current) return;
-			setRefusal(refused(SIGN_IN_FAILED, error));
-			setBusy(false);
-			setMethod(initial === "oauth" ? null : initial);
+			step({ type: "refused", refusal: refused(SIGN_IN_FAILED, error), back });
 		}
 	};
 
@@ -92,6 +94,7 @@ export function ConnectProvider({
 	useEffect(() => {
 		if (login === null) return;
 		let cancelled = false;
+		let ended = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const tick = () => {
 			void wire
@@ -99,38 +102,37 @@ export function ConnectProvider({
 				.then((status) => {
 					if (cancelled) return;
 					if (status.state === "done") {
-						setLogin(null);
+						ended = true;
 						if (status.credential) {
+							step({ type: "saving", form: { k: "choosing" } });
 							void finish(status.credential);
 						} else {
-							setBusy(false);
+							step({ type: "reset" });
 							onCancel();
 						}
 						return;
 					}
 					if (status.state === "failed") {
-						setRefusal(status.error === undefined ? { message: SIGN_IN_FAILED } : refused(SIGN_IN_FAILED, status.error));
-						setLogin(null);
-						setBusy(false);
-						setMethod(initial === "oauth" ? null : initial);
+						ended = true;
+						step({ type: "refused", refusal: status.error === undefined ? { message: SIGN_IN_FAILED } : refused(SIGN_IN_FAILED, status.error), back });
 						return;
 					}
 					timer = setTimeout(tick, 2000);
 				})
 				.catch((error: Error) => {
 					if (cancelled) return;
-					setRefusal(refused(SIGN_IN_FAILED, error));
-					setLogin(null);
-					setBusy(false);
+					// The poll gave up: leave the waiting state like the failed branch does.
+					step({ type: "refused", refusal: refused(SIGN_IN_FAILED, error), back });
 				});
 		};
 		timer = setTimeout(tick, 2000);
 		return () => {
 			cancelled = true;
 			if (timer !== undefined) clearTimeout(timer);
-			void wire.command("credential.login_cancel", { loginId: login.loginId }).catch(() => {});
+			// A login that finished or failed has nothing left to cancel.
+			if (!ended) void wire.command("credential.login_cancel", { loginId: login.loginId }).catch(() => {});
 		};
-	}, [login]);
+	}, [login?.loginId]);
 
 	const cancelLogin = async () => {
 		attempt.current += 1;
@@ -139,33 +141,28 @@ export function ConnectProvider({
 		} catch {
 			// Cancelled is cancelled; the core drops the login when the socket does.
 		} finally {
-			setLogin(null);
-			setBusy(false);
+			step({ type: "reset" });
 			onCancel();
 		}
 	};
 
 	const saveKey = async (secret: string) => {
 		if (busy) return;
-		setBusy(true);
-		setRefusal(null);
+		step({ type: "saving", form: { k: "entering", kind: "api_key" } });
 		try {
 			await finish(await wire.command("credential.create", { providerId: provider.id, label: provider.name, secret }));
 		} catch (error) {
-			setRefusal(refused("Connection failed", error));
-			setBusy(false);
+			step({ type: "refused", refusal: refused("Connection failed", error), back: { k: "entering", kind: "api_key" } });
 		}
 	};
 
 	const connectLocal = async (baseUrl: string) => {
 		if (busy) return;
-		setBusy(true);
-		setRefusal(null);
+		step({ type: "saving", form: { k: "entering", kind: "local" } });
 		try {
 			await finish(await wire.command("credential.connect_local", { baseUrl }));
 		} catch (error) {
-			setRefusal(refused("Connection failed", error));
-			setBusy(false);
+			step({ type: "refused", refusal: refused("Connection failed", error), back: { k: "entering", kind: "local" } });
 		}
 	};
 
@@ -175,7 +172,7 @@ export function ConnectProvider({
 
 	return (
 		<>
-			{method === null && (
+			{form.k === "choosing" && (flow.k === "choosing" || flow.k === "refused") && (
 				<section>
 					<h3 className="group-title">Connect {provider.name}</h3>
 					<div className="grouped">
@@ -185,7 +182,7 @@ export function ConnectProvider({
 								type="button"
 								className="group-row group-row-choice w-full text-left"
 								disabled={busy}
-								onClick={() => (kind === "oauth" ? void signIn() : setMethod(kind))}
+								onClick={() => (kind === "oauth" ? void signIn() : step({ type: "enter", kind }))}
 							>
 								<span className="group-row-text">
 									{provider.id === "xai" && kind === "oauth" ? "Sign in with SuperGrok or X Premium+" : connectionMethod(kind)}
@@ -201,14 +198,14 @@ export function ConnectProvider({
 					</div>
 				</section>
 			)}
-			{method === "local" && <LocalProviderForm busy={busy} onSave={(url) => void connectLocal(url)} onCancel={onCancel} />}
-			{method === "api_key" && <KeyForm provider={provider} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={onCancel} />}
-			{method === "oauth" && (
+			{form.k === "entering" && form.kind === "local" && <LocalProviderForm busy={busy} onSave={(url) => void connectLocal(url)} onCancel={onCancel} />}
+			{form.k === "entering" && form.kind === "api_key" && <KeyForm provider={provider} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={onCancel} />}
+			{(flow.k === "preparing" || flow.k === "waiting" || (flow.k === "finishing" && form.k === "choosing")) && (
 				<section>
 					<h3 className="group-title">Sign in to {provider.name}</h3>
 					<div className="grouped">
 						{login === null ? (
-							<p className="group-row text-sm text-ink-3">Preparing sign-in…</p>
+							<p className="group-row text-sm text-ink-3">{flow.k === "finishing" ? "Finishing sign-in…" : "Preparing sign-in…"}</p>
 						) : (
 							<>
 								{login.userCode !== "" && (

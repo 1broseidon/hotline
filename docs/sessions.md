@@ -307,39 +307,43 @@ is settled as `cancelled` on the next start, by the one settle
 [security.md](security.md#grant-lifecycle).
 
 An ACP harness's own subagents become runs too. Hotline offers
-`clientCapabilities.subagents` at `initialize`. An adapter that takes it
-announces each subagent on the parent session with `subagent_spawned`,
-sends the subagent's work on a session of its own, and ends it with
-`subagent_state_update`. These are the draft updates from
-agent-client-protocol#1992 that Claude's and Codex's adapters send. The
-Rust SDK does not carry them yet, so `driver/acp/session.rs` reads `session/update`
-raw: announcements, then updates on a known child session, then everything
-else as before. Each child is reported to the room as a `SubagentReport`
-(`Driver::subscribe_subagents`). `Room::watch_subagents` writes it as a run
-with the same marker, stream, roster entry and funnel as above, except the
-harness does the work and nothing in Hotline drives or cancels it. The
-child's own words never reach the parent's turn, and its mode and config
-updates are ignored. A subagent the harness never ends is settled as
-`cancelled` when its session ends or is replaced. An adapter that does not
-take the capability keeps showing subagents as tool calls on the
-teammate's turn.
+`clientCapabilities.subagents` at `initialize`. Claude's adapter (0.100 on)
+answers with the subagents RFD (agent-client-protocol#1992): a
+`subagent_update` on the parent names each child session, says it runs,
+and later says its work state, its end being `idle` with a stop reason
+(`end_turn` done, `error` failed, otherwise cancelled) or `unknown`. Its
+prompt comes as a `session_message` to the child session, and its work on
+that session. Older adapters, and Codex's, send the earlier draft's
+`subagent_spawned` and `subagent_state_update`, which are read too. The
+Rust SDK carries none of these, so `driver/acp/session.rs` reads
+`session/update` raw: announcements, then updates on a known child
+session, then everything else as before. Each child is reported to the room
+as a `SubagentReport` (`Driver::subscribe_subagents`). `Room::watch_subagents`
+writes it as a run with the same marker, stream, roster entry and funnel as
+above, except the harness does the work and nothing in Hotline drives or
+cancels it. The child's own words never reach the parent's turn, and its
+mode and config updates are ignored. A subagent the harness never ends is
+settled as `cancelled` when its session ends or is replaced. An adapter
+that does not take the capability keeps showing subagents as tool calls on
+the teammate's turn.
 
-Claude's adapter (0.100 on) sends the draft updates only to a client that
-names itself in the `jetbrains.air` extension of the client `_meta`, and
-otherwise sends the RFD's `subagent_update`, which Hotline does not read.
-So `client_meta` asks there, at version 1, for `nativeSubagentSessions`
-and `asyncTasks`. The second makes the adapter publish the work Claude
-leaves running past the tool call that started it: a backgrounded command,
-a workflow, a monitor, as `async_task_spawned` and
-`async_task_state_update` (its `async_task_progress` beats are not kept).
-`background` reads them, `Live::background` reports each as a run of its
-own `RunKind` (`shell`, `workflow`, `monitor`, `task`) through the same
-`SubagentReport`, and its end writes the adapter's summary and output path
-into the run. The roster entry carries the kind, so the key at the
-composer's corner says `Background`, `Workflow` or `Watching` rather than
-`Subagent`, and keeps showing after the turn that started it ends. The
-agent's own turn taken with no prompt open (`taskType: turn`) is the
-conversation's, and is not a run.
+A command a harness sends to the background is a run of its own too, of
+kind `shell`. Hotline asks for the terminal extension
+(`_meta.terminal_output`), under which Claude's adapter puts a command's
+output in `_meta.terminal_output` and closes its terminal with a
+`terminal_exit`. A command it sent to the background has its result with
+the terminal left open (`terminal_info` and no `terminal_exit`), and a
+`tool_call_update` carrying only the `terminal_exit` when it ends, often
+after the turn. `Live::backgrounded` reports the first as a run's start and
+`Live::background_ended` the second as its end, failed on a nonzero exit
+code. The roster entry carries the kind, so the key at the composer's
+corner says `Background` rather than `Subagent`, and stays after the turn
+that started the command ends. Hotline never names itself an editor's
+client (`_meta.jetbrains.air`): the adapter would then change the shape of
+much of what it sends. So the adapter's own task lifecycle
+(`async_task_*`), its workflows and monitors, and the summary and output
+file of a finished background command are not seen; a background command's
+output is what its result showed.
 
 ### Running processes
 

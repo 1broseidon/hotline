@@ -102,7 +102,6 @@ describe("the subagents at the composer's corner", () => {
 
 describe("background work at the composer's corner", () => {
 	const crawl: RunningSubagent = { runId: "r3", title: "Crawl 12 sites", startedAt: 3, kind: "shell" };
-	const watch: RunningSubagent = { runId: "r4", title: "npm run dev", startedAt: 4, kind: "monitor" };
 
 	test("says a command runs in the background, not that a subagent works", async () => {
 		const { SubagentChips } = await import("../src/components/Conversation");
@@ -117,13 +116,13 @@ describe("background work at the composer's corner", () => {
 	test("counts a mix as what is running, and names each one's kind", async () => {
 		const { SubagentChips } = await import("../src/components/Conversation");
 		await act(async () => {
-			root.render(<SubagentChips subagents={[edges, crawl, watch]} opened={() => false} onOpenThread={() => {}} />);
+			root.render(<SubagentChips subagents={[edges, crawl]} opened={() => false} onOpenThread={() => {}} />);
 		});
-		const chip = container.querySelector<HTMLButtonElement>('[aria-label="3 running"]');
-		expect(chip?.textContent).toBe("3 running");
+		const chip = container.querySelector<HTMLButtonElement>('[aria-label="2 running"]');
+		expect(chip?.textContent).toBe("2 running");
 		await act(async () => chip!.click());
 		const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-		expect(items.map((item) => item.textContent)).toEqual(["Subagent · Edge cases", "Background · Crawl 12 sites", "Watching · npm run dev"]);
+		expect(items.map((item) => item.textContent)).toEqual(["Subagent · Edge cases", "Background · Crawl 12 sites"]);
 	});
 });
 

@@ -587,3 +587,37 @@ fn a_subagents_roster_row_carries_no_kind() {
     };
     assert!(serde_json::to_value(&row).unwrap().get("kind").is_none());
 }
+
+/// A subagent told its task apart from its announcement, as the RFD tells
+/// it, has the task as its run's first line all the same.
+#[tokio::test]
+async fn a_subagents_task_said_after_its_start_opens_its_run() {
+    use crate::contract::RunKind;
+    use crate::driver::SubagentReport;
+    let room = room("harness-told", Fake::new(Scripted::new(Vec::new())));
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    reports
+        .send(SubagentReport::Started {
+            child: "child-1".to_string(),
+            kind: RunKind::Subagent,
+            title: "Edge cases".to_string(),
+            task: String::new(),
+        })
+        .unwrap();
+    reports
+        .send(SubagentReport::Told {
+            child: "child-1".to_string(),
+            text: "Find the edge cases.".to_string(),
+        })
+        .unwrap();
+    until("the run is listed", || !room.subagents("ada").is_empty()).await;
+    let run_id = room.subagents("ada")[0].run_id.clone();
+    until("its task is written", || {
+        run_stream(&room, &run_id).len() >= 2
+    })
+    .await;
+    let stream = run_stream(&room, &run_id);
+    assert_eq!(kinds(&stream), ["subagent", "user"]);
+    assert_eq!(stream[1]["text"], "Find the edge cases.");
+}

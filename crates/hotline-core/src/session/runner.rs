@@ -482,6 +482,27 @@ impl Room {
                     },
                 );
             }
+            SubagentReport::Told { child, text } => {
+                let Some(run) = runs.get(&child) else {
+                    return;
+                };
+                self.threads().write(
+                    &ThreadId::run(&run.running.run_id),
+                    persona_id,
+                    &TranscriptEvent::User {
+                        id: new_id(),
+                        ts: now_ms(),
+                        text,
+                        attachments: None,
+                        reactions: None,
+                        reply_to: None,
+                        scheduled: None,
+                        ring: None,
+                        receipt: None,
+                        client: None,
+                    },
+                );
+            }
             SubagentReport::Update { child, update } => {
                 let Some(run) = runs.get_mut(&child) else {
                     return;

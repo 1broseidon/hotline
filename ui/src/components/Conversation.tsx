@@ -629,13 +629,10 @@ export function teammateActions({
 	];
 }
 
-/** What the chip calls a run of each kind: a subagent works with a model of its own; the rest are work the harness left running past its turn. */
+/** What the chip calls a run of each kind: a subagent works with a model of its own; a shell run is a command the harness sent to the background. */
 const RUN_KIND: Record<NonNullable<RunningSubagent["kind"]>, { word: string; running: string }> = {
 	subagent: { word: "Subagent", running: "Subagent working" },
 	shell: { word: "Background", running: "Running in the background" },
-	task: { word: "Background", running: "Running in the background" },
-	workflow: { word: "Workflow", running: "Workflow running" },
-	monitor: { word: "Watching", running: "Watching" },
 };
 
 function runKind(run: RunningSubagent) {
@@ -643,8 +640,8 @@ function runKind(run: RunningSubagent) {
 }
 
 /**
- * Subagents, and work the teammate's harness left running in the background,
- * still going, wherever their lines have scrolled to, at the composer's top
+ * Subagents, and commands the teammate's harness left running in the
+ * background, still going, wherever their lines have scrolled to, at the composer's top
  * right: what the teammate left going is beside where you would speak to it,
  * after its turn as during it. One is named with its kind, several are
  * counted with a menu, and each opens its run in the pane. They go when they

@@ -247,8 +247,8 @@ pub struct RosterEntry {
     pub session: SessionInfo,
 }
 
-/// A subagent, or work its harness left running in the background, still
-/// running, as its teammate's roster row lists it.
+/// A subagent, or a command its harness left running in the background,
+/// still running, as its teammate's roster row lists it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -257,16 +257,17 @@ pub struct RunningSubagent {
     /// The short label the teammate gave the task.
     pub title: String,
     pub started_at: i64,
-    /// What runs: a subagent, or a harness's background task. Absent for a
-    /// subagent, so a client that predates it reads the row as it did.
+    /// What runs: a subagent, or a command its harness sent to the
+    /// background. Absent for a subagent, so a client that predates it reads
+    /// the row as it did.
     #[serde(default, skip_serializing_if = "RunKind::is_subagent")]
     #[ts(as = "Option<RunKind>", optional)]
     pub kind: RunKind,
 }
 
-/// What a run is. A subagent works the task with a model of its own; the
-/// others are work a harness started and left running past the turn that
-/// started it: a command, a workflow, or a watch on something.
+/// What a run is. A subagent works the task with a model of its own; a
+/// shell run is a command its harness sent to the background, running past
+/// the turn that started it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -274,9 +275,6 @@ pub enum RunKind {
     #[default]
     Subagent,
     Shell,
-    Workflow,
-    Monitor,
-    Task,
 }
 
 impl RunKind {

@@ -92,11 +92,17 @@ fn plain_name(name: &str) -> bool {
 }
 
 /// What the message or the aside says of the files: where each now is in
-/// the recipient's working directory.
+/// the recipient's working directory, written with `/` on every platform, as
+/// the recipient may be on another desk's.
 pub(super) fn files_line(sender: &str, paths: &[PathBuf]) -> String {
     let paths: Vec<String> = paths
         .iter()
-        .map(|path| path.display().to_string())
+        .map(|path| {
+            path.components()
+                .map(|part| part.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
         .collect();
     format!(
         "Files from {sender}, now in your working directory: {}",

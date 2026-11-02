@@ -64,9 +64,10 @@ test("a refused send is kept for its conversation until it is taken, after the p
 });
 
 test("a socket drop on a send the core may have run keeps it on screen and does not hand the words back", async () => {
-	const { Sends, DROPPED } = await import("../src/sends");
+	const { Sends } = await import("../src/sends");
+	const { Dropped } = await import("../src/wire");
 	const sends = new Sends(() => 10);
-	sends.send("ada", { text: "maybe", attachments: [] }, async () => { throw new Error(DROPPED); });
+	sends.send("ada", { text: "maybe", attachments: [] }, async () => { throw new Dropped(); });
 	await tick();
 	await tick();
 	const state = sends.get("ada");

@@ -1,8 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { Attachment, TranscriptEvent } from "./generated/contract";
-
-/** The message a dropped socket rejects every waiting command with (wire.ts): the core may have run it. */
-export const DROPPED = "The connection to Hotline dropped.";
+import { Dropped } from "./wire";
 
 const UNSURE = "The connection to Hotline dropped while that was sending. If it does not appear, send it again.";
 
@@ -75,7 +73,7 @@ export class Sends {
 			(error: unknown) => {
 				const message = error instanceof Error ? error.message : String(error);
 				const was = this.get(conv);
-				if (message === DROPPED) {
+				if (error instanceof Dropped) {
 					this.put(conv, { ...was, lines: was.lines.map((one) => (one.id === line.id ? { ...one, phase: "unsure" as const } : one)), notice: UNSURE });
 					return;
 				}

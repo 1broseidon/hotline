@@ -395,6 +395,17 @@ const BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
 export type Endpoint = { origin: string; token: string };
 
 /** One desk's connection. The window holds one per desk; see desks.ts. */
+/**
+ * A command the socket dropped under: it was sent, so the core may have run
+ * it. Told apart by type, not by its words.
+ */
+export class Dropped extends Error {
+	constructor() {
+		super("The connection to Hotline dropped.");
+		this.name = "Dropped";
+	}
+}
+
 export class Wire {
 	private socket: WebSocket | null = null;
 	private closed = false;
@@ -588,7 +599,7 @@ export class Wire {
 		this.socket = null;
 		this.setState(this.outdated ? "outdated" : "closed");
 		for (const waiting of this.pending.values()) {
-			waiting.reject(new Error("The connection to Hotline dropped."));
+			waiting.reject(new Dropped());
 		}
 		this.pending.clear();
 		if (this.closed || this.retry !== null) return;

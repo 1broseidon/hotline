@@ -9,7 +9,6 @@ pub(super) struct Live {
     pub(super) auth_succeeded: AtomicBool,
     pub(super) auth_methods: Mutex<Vec<acp::AuthMethod>>,
     pub(super) auth: Mutex<Option<Arc<crate::driver::auth::Attempt>>>,
-    pub(super) startup_failure: Mutex<Option<String>>,
     pub(super) terminal_done: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(super) connection: Mutex<Option<ConnectionTo<Agent>>>,
     pub(super) connection_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -46,7 +45,8 @@ pub(super) struct Live {
     /// Per-connection, so a restarted backend hears it again and a resumed one
     /// does not hear it twice in the same conversation.
     pub(super) briefed: AtomicBool,
-    pub(super) failed: AtomicBool,
+    /// Where this connection is in its life; see [`Lifecycle`].
+    pub(super) state: Mutex<Lifecycle>,
     pub(super) cancelled: AtomicBool,
     /// Whether the agent takes a line into a running turn. Offered at
     /// `initialize`, and withdrawn if the agent then refuses the method.
@@ -60,6 +60,46 @@ pub(super) struct Live {
     pub(super) unconsumed: Mutex<Vec<Line>>,
     pub(super) history: Mutex<Vec<String>>,
     pub(super) stderr: Mutex<VecDeque<String>>,
+}
+
+/// Where one connection to the child is in its life.
+///
+/// One state, moved only by the named methods on [`Live`], so no combination
+/// of flags can say a connection is both healthy and gone. Anything that is
+/// not `SessionOpen` and not mid-start is a state the next prompt restarts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) enum Lifecycle {
+    /// Nothing has been started.
+    #[default]
+    Unstarted,
+    /// The child exists and the handshake is running.
+    Spawning,
+    /// The agent answered `initialize`; no session is open yet.
+    Initialized,
+    /// A session is open: prompts go through.
+    SessionOpen,
+    /// The connection cannot take a prompt. `notice` is the sentence a person
+    /// reads when the start itself failed (a stalled start, a sign-in the
+    /// agent wants); `None` is a failure found while running.
+    Failed { notice: Option<String> },
+}
+
+/// Clears the replay flag when dropped, so a `session/load` whose future is
+/// dropped (the start bound, a cancelled sign-in) cannot leave the connection
+/// deaf to everything the agent says afterwards.
+pub(super) struct Replay<'a>(&'a AtomicBool);
+
+impl<'a> Replay<'a> {
+    pub(super) fn begin(flag: &'a AtomicBool) -> Self {
+        flag.store(true, Ordering::SeqCst);
+        Self(flag)
+    }
+}
+
+impl Drop for Replay<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Work the agent took up without being prompted: which one, and when it
@@ -132,6 +172,68 @@ impl Live {
             id: message.id,
             text: message.text,
         })
+    }
+
+    /// The handshake has begun.
+    pub(super) fn spawning(&self) {
+        *lock(&self.state) = Lifecycle::Spawning;
+    }
+
+    /// The agent answered `initialize`. Only a handshake in progress moves on.
+    pub(super) fn initialized(&self) {
+        let mut state = lock(&self.state);
+        if *state == Lifecycle::Spawning {
+            *state = Lifecycle::Initialized;
+        }
+    }
+
+    /// A session is open and prompts may go through.
+    pub(super) fn session_opened(&self) {
+        *lock(&self.state) = Lifecycle::SessionOpen;
+    }
+
+    /// The connection cannot take a prompt. A sentence already given for the
+    /// failure stays; `notice` replaces it when there is one.
+    pub(super) fn fail(&self, notice: Option<String>) {
+        let mut state = lock(&self.state);
+        let kept = match &*state {
+            Lifecycle::Failed { notice } => notice.clone(),
+            _ => None,
+        };
+        *state = Lifecycle::Failed {
+            notice: notice.or(kept),
+        };
+    }
+
+    /// The sentence for a start that failed, when there is one.
+    pub(super) fn notice(&self) -> Option<String> {
+        match &*lock(&self.state) {
+            Lifecycle::Failed { notice } => notice.clone(),
+            _ => None,
+        }
+    }
+
+    pub(super) fn is_failed(&self) -> bool {
+        matches!(*lock(&self.state), Lifecycle::Failed { .. })
+    }
+
+    /// Whether the next prompt starts the agent again rather than sending: a
+    /// failure, or a connection that was made and never got a session.
+    pub(super) fn needs_restart(&self) -> bool {
+        matches!(
+            *lock(&self.state),
+            Lifecycle::Failed { .. } | Lifecycle::Initialized
+        )
+    }
+
+    /// Takes the update sink only if it is still `mine`: a prompt's task ends
+    /// after its `Turn` is sent, by when the next prompt may have installed its
+    /// own.
+    pub(super) fn release_updates(&self, mine: &mpsc::Sender<Update>) {
+        let mut updates = lock(&self.updates);
+        if updates.as_ref().is_some_and(|sink| sink.same_channel(mine)) {
+            updates.take();
+        }
     }
 
     pub(super) fn subscribe_unprompted(&self) -> mpsc::UnboundedReceiver<mpsc::Receiver<Update>> {

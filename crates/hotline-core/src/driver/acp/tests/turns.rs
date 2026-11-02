@@ -162,7 +162,6 @@ async fn failed_acp_sessions_get_a_fresh_briefing_without_reissuing_the_old_prom
             .handshake(&fresh_persona, client_transport())
             .await
             .unwrap();
-        driver.live.failed.store(false, Ordering::SeqCst);
         let mut updates = driver
             .prompt("check the outcome".into(), vec![], Reach::Workspace)
             .await;

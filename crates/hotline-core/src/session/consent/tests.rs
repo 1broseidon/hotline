@@ -213,10 +213,19 @@ fn room_of_two(name: &str) -> Arc<Room> {
     ada.reach = Some(Reach::Workspace);
     enrol(&log, &ada);
     enrol(&log, &bob());
-    Room::with_agents(
+    room_on(log)
+}
+
+/// A room on `log` with no container runtime: Bob's computer fails at once.
+/// Where one is installed it would be pulled, and that pull outlives the
+/// room it started in, which then takes up the next room's handoffs from
+/// the log.
+fn room_on(log: crate::log::Log) -> Arc<Room> {
+    Room::with_agents_and_computers(
         log,
         Arc::new(DeskKeys),
         Fake::new(Scripted::new(finished())),
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
     )
 }
 
@@ -305,11 +314,7 @@ async fn an_always_grant_survives_reattaches_a_sign_out_and_a_restart() {
     drop(room);
     log.compact(&StreamId::Room).unwrap();
 
-    let room = Room::with_agents(
-        log.clone(),
-        Arc::new(DeskKeys),
-        Fake::new(Scripted::new(finished())),
-    );
+    let room = room_on(log.clone());
     assert_eq!(room.persona("bob").unwrap().allowed_senders, ["ada"]);
     hand_off(&room).await;
     until("the handoff ran", || result_heard(&room)).await;

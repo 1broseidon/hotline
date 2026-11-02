@@ -216,6 +216,7 @@ impl Occupant for Session {
                 .expire_asked(&session.thread(), &session.persona_id);
         }
         let mut steered = held.steered;
+        let mut handed_back = Vec::new();
         for (text, attachments) in session.driver.take_unconsumed().into_iter().rev() {
             // Drivers return the input's contents, not its tape identity.
             // Match from the end because replay is requeued in reverse;
@@ -230,7 +231,20 @@ impl Occupant for Session {
                 wire.attachments = attachments;
                 wire
             };
-            lock(&session.turns).waiting.push_front(wire);
+            handed_back.push(wire);
+        }
+        {
+            let mut turns = lock(&session.turns);
+            if room.closing() {
+                drop(turns);
+                // `handed_back` is last line first.
+                handed_back.reverse();
+                room.keep_late(&session.persona_id, handed_back);
+            } else {
+                for wire in handed_back {
+                    turns.waiting.push_front(wire);
+                }
+            }
         }
         let cut = lock(&session.cut).take();
         if let Some(request) = &held.request {

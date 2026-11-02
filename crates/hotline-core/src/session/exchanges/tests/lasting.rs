@@ -128,12 +128,12 @@ async fn a_handoff_outlives_either_teammates_chapter_turning_over() {
         let (room, gate, handoff) = handoff_at_work(&format!("lasting-chapter-{whose}")).await;
 
         next_chapter(&room, whose).await;
-        assert_eq!(request(&room, &handoff).phase, Phase::Running, "{whose}");
+        assert_eq!(request(&room, &handoff).phase(), Phase::Running, "{whose}");
         gate.add_permits(2);
         done(&room, &handoff).await;
         let result = request(&room, &handoff);
         assert_eq!(
-            (result.failed, result.reply.as_str()),
+            (result.failed(), result.reply.as_str()),
             (false, "Built it."),
             "{whose}"
         );
@@ -167,10 +167,10 @@ async fn each_explicit_end_still_ends_a_request_a_chapter_left_standing() {
             }
         }
         until("the request is stopped", || {
-            request(&room, &handoff).phase == Phase::Stopped
+            request(&room, &handoff).phase() == Phase::Stopped
         })
         .await;
-        assert!(request(&room, &handoff).failed, "{end}");
+        assert!(request(&room, &handoff).failed(), "{end}");
         gate.add_permits(10);
     }
 }
@@ -243,7 +243,7 @@ async fn a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_s
         done(&room, &handoff).await;
         let result = request(&room, &handoff);
         assert_eq!(
-            (result.failed, result.reply.as_str()),
+            (result.failed(), result.reply.as_str()),
             (false, "Built it."),
             "{rebuilt_by}"
         );

@@ -151,8 +151,8 @@ async fn the_persons_end_thread_releases_the_handoff_and_tells_its_opener_once_b
         .find(|r| r.id == id)
         .unwrap();
     assert!(request.released);
-    assert_eq!(request.phase, Phase::Stopped);
-    assert!(!request.owed_to_thread);
+    assert_eq!(request.phase(), Phase::Stopped);
+    assert_ne!(request.owed(), Owed::Thread);
 
     let ended: Vec<Aside> = asides(&room, "ada")
         .into_iter()

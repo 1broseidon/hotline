@@ -69,7 +69,7 @@ impl Pair {
         // it, and this follows; if none ever will, a handoff opens it.
         if before
             .iter()
-            .any(|r| matches!(r.phase, Phase::Queued | Phase::Running))
+            .any(|r| matches!(r.phase(), Phase::Queued | Phase::Running))
         {
             Ok(Place::Later)
         } else if request.intent == Intent::Ask {
@@ -90,7 +90,7 @@ impl Room {
             .flat_map(|pair| &pair.requests)
             .rev()
             .find(|r| r.intent == Intent::Handoff && r.thread.as_deref() == Some(side_id))
-            .is_some_and(|r| r.released || r.phase == Phase::Stopped)
+            .is_some_and(|r| !r.stands())
     }
 
     /// The work threads `from`'s handoffs to `to` run in and whose handoff
@@ -111,13 +111,13 @@ impl Room {
                 continue;
             }
             named.push(name.clone());
-            if r.released || r.phase == Phase::Stopped {
+            if !r.stands() {
                 continue;
             }
             threads.push(json!({
                 "thread": name,
                 "sideThreadId": r.thread,
-                "phase": r.phase,
+                "phase": r.phase(),
                 "lastRequestId": r.id,
             }));
         }

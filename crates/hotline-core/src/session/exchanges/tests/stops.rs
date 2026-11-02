@@ -154,7 +154,7 @@ async fn the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_send
 
     let stopped = request(&room, "ada~bob", &handoff);
     assert_eq!(
-        (stopped.phase, stopped.failed, stopped.released),
+        (stopped.phase(), stopped.failed(), stopped.released),
         (Phase::Stopped, true, true)
     );
     assert_eq!(stopped.reply, HANDOFF_STOPPED_BY_THE_PERSON);
@@ -195,7 +195,7 @@ async fn the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_send
         "the stopped work never runs again"
     );
     assert_eq!(bob.prompts().len(), 1);
-    assert_eq!(request(&room, "ada~bob", &handoff).phase, Phase::Stopped);
+    assert_eq!(request(&room, "ada~bob", &handoff).phase(), Phase::Stopped);
     assert!(answer_to(&room, &handoff).is_none());
     assert_eq!(stopped_notes(&room).len(), 1, "told once");
 }
@@ -224,7 +224,7 @@ async fn the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_run
 
     let stopped = request(&room, "ada~bob", &handoff);
     assert_eq!(
-        (stopped.phase, stopped.started, stopped.released),
+        (stopped.phase(), stopped.begun(), stopped.released),
         (Phase::Stopped, false, true)
     );
     let notes = stopped_notes(&room);
@@ -269,7 +269,7 @@ async fn the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_
         .unwrap();
     gate.add_permits(2);
     until("the handoff waits on the person", || {
-        request(&room, "ada~bob", &handoff).phase == Phase::WaitingHuman
+        request(&room, "ada~bob", &handoff).phase() == Phase::WaitingHuman
             && thread_open(&room, &thread)
     })
     .await;
@@ -299,7 +299,7 @@ async fn the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_
     room.cancel_side(&thread).unwrap();
 
     let stopped = request(&room, "ada~bob", &handoff);
-    assert_eq!((stopped.phase, stopped.released), (Phase::Stopped, true));
+    assert_eq!((stopped.phase(), stopped.released), (Phase::Stopped, true));
     assert_eq!(stopped_notes(&room).len(), 1);
     starts.add_permits(4);
     until("the thread's agent is up and idle", || {
@@ -311,7 +311,7 @@ async fn the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_
     gate.add_permits(4);
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(bob.prompts().len(), 1, "the stopped work never runs");
-    assert_eq!(request(&room, "ada~bob", &handoff).phase, Phase::Stopped);
+    assert_eq!(request(&room, "ada~bob", &handoff).phase(), Phase::Stopped);
     assert!(answer_to(&room, &handoff).is_none());
 }
 
@@ -348,7 +348,7 @@ async fn the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_car
 
     let carried = request(&room, "ada~bob", &handoff);
     assert_eq!(
-        (carried.phase, carried.started, carried.released),
+        (carried.phase(), carried.begun(), carried.released),
         (Phase::Running, true, false)
     );
     assert_eq!(
@@ -371,7 +371,7 @@ async fn the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_car
     room.wake_exchange("ada~bob");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(bob.prompts().len(), 1, "nothing hands it over again");
-    assert_eq!(request(&room, "ada~bob", &handoff).phase, Phase::Running);
+    assert_eq!(request(&room, "ada~bob", &handoff).phase(), Phase::Running);
 
     room.prompt_side(&thread, "Make it blue instead.", None)
         .await
@@ -479,11 +479,7 @@ async fn a_follow_up_into_a_running_handoff_steers_it_and_its_sender_hears_one_r
     );
     let taken_over = request(&room, "ada~bob", &first);
     assert_eq!(
-        (
-            taken_over.phase,
-            taken_over.result_consumed,
-            taken_over.failed
-        ),
+        (taken_over.phase(), taken_over.heard(), taken_over.failed()),
         (Phase::Done, true, false)
     );
     assert!(
@@ -573,7 +569,7 @@ async fn the_persons_stop_after_an_interrupt_ends_the_handoff_the_thread_carried
     room.cancel_side(&thread).unwrap();
 
     let stopped = request(&room, "ada~bob", &handoff);
-    assert_eq!((stopped.phase, stopped.released), (Phase::Stopped, true));
+    assert_eq!((stopped.phase(), stopped.released), (Phase::Stopped, true));
     assert_eq!(room.carried_into(&thread, None), Vec::<String>::new());
     let notes = stopped_notes(&room);
     assert_eq!(notes.len(), 1, "{notes:?}");
@@ -587,7 +583,7 @@ async fn the_persons_stop_after_an_interrupt_ends_the_handoff_the_thread_carried
     gate.add_permits(2);
     until("bob answers the person", || bob.prompts().len() == 2).await;
     until("bob's turn is over", || thread_open(&room, &thread)).await;
-    assert_eq!(request(&room, "ada~bob", &handoff).phase, Phase::Stopped);
+    assert_eq!(request(&room, "ada~bob", &handoff).phase(), Phase::Stopped);
     assert!(answer_to(&room, &handoff).is_none(), "no result for it");
     assert!(ada.prompts().is_empty(), "nothing woke ada");
 }
@@ -669,7 +665,7 @@ async fn a_restart_cutting_a_main_conversations_answer_is_not_the_persons_stop()
     room.stop_for_restart(Duration::from_millis(100)).await;
 
     let cut = request(&room, "ada~bob", &ask);
-    assert!(cut.failed);
+    assert!(cut.failed());
     assert_eq!(
         cut.reply,
         "The turn answering this question ended without a result; inspect before retrying."

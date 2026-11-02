@@ -466,6 +466,7 @@ fn independent(frame: &Value) -> bool {
             | Command::SearchAll { .. }
             | Command::ScheduleList {}
             | Command::BackendsList {}
+            | Command::HarnessUpdates {}
             | Command::ComputerRuntimes {}
             | Command::ComputerCapacity {}
             | Command::ComputerReleases {}

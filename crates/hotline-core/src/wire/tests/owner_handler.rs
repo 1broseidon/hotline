@@ -510,3 +510,56 @@ async fn a_call_subscription_cannot_resume_another_devices_transport() {
     assert_eq!(resumed["ok"], true);
     calls.end(&id).unwrap();
 }
+
+/// Harness updates run installers on the desk's machine, so only the desk
+/// and its owner reach them; a companion is refused before anything runs.
+/// Through the real handler, on a scripted machine.
+#[tokio::test]
+async fn harness_updates_are_the_owners_through_the_real_handler() {
+    use crate::credentials::MemoryStore;
+    use crate::driver::acp::updates::Scripted;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let world = Arc::new(Scripted::new());
+    desk.test_room().harness_world(world.clone());
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    for (command, params) in [
+        ("harness.updates", json!({})),
+        ("harness.updates.check", json!({})),
+        ("harness.update", json!({"backendId":"claude-acp"})),
+    ] {
+        let denied = remote_control_answer(
+            Seat::Phone,
+            &room,
+            &desk.log,
+            &desk.parts(),
+            json!({"id":1,"cmd":command,"params":params}),
+        )
+        .await;
+        assert_eq!(denied["code"], FORBIDDEN, "{command}: {denied}");
+    }
+    assert!(world.ran().is_empty(), "nothing ran for a companion");
+    for seat in [Seat::Desk, Seat::Owner] {
+        let checked = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            &desk.parts(),
+            json!({"id":2,"cmd":"harness.updates.check","params":{}}),
+        )
+        .await;
+        assert_eq!(checked["ok"], true, "{checked}");
+        assert!(checked["result"]["checkedAt"].is_number(), "{checked}");
+        let refused = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            &desk.parts(),
+            json!({"id":3,"cmd":"harness.update","params":{"backendId":"no-such-harness"}}),
+        )
+        .await;
+        assert_eq!(refused["ok"], false, "{refused}");
+    }
+}

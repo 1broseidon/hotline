@@ -466,6 +466,17 @@ pub enum Command {
     /// but cannot, with the reason.
     #[serde(rename = "backends.list")]
     BackendsList {},
+    /// Where each harness this desk runs stands on updates, as last checked;
+    /// a check runs in the background when the last is six hours old.
+    #[serde(rename = "harness.updates")]
+    HarnessUpdates {},
+    /// Checks every harness now, and answers when done.
+    #[serde(rename = "harness.updates.check")]
+    HarnessUpdatesCheck {},
+    /// Updates one harness, every part of it that is behind, and answers
+    /// with where it stands after. The person's action, from Updates.
+    #[serde(rename = "harness.update")]
+    HarnessUpdate { backend_id: String },
     /// The skills catalog: the built-ins, the gateway folder's entries valid
     /// or not, and — given a teammate — the skills in its own workspace.
     #[serde(rename = "skills.list")]

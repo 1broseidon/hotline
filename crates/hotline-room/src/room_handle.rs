@@ -440,6 +440,23 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Every harness a teammate could run on here, the built-in one first.
     async fn backends(&self) -> Vec<hotline_contract::BackendChoice>;
 
+    /// Where each harness this desk runs stands on updates, as last checked.
+    /// A room that runs no harnesses has none.
+    fn harness_updates(&self) -> hotline_contract::HarnessUpdates {
+        hotline_contract::HarnessUpdates::default()
+    }
+    /// Checks every harness now.
+    async fn harness_updates_check(&self) -> hotline_contract::HarnessUpdates {
+        hotline_contract::HarnessUpdates::default()
+    }
+    /// Updates one harness, every part of it that is behind.
+    async fn harness_update(
+        &self,
+        _backend_id: &str,
+    ) -> Result<hotline_contract::HarnessUpdate, String> {
+        Err("This desk runs no agent harnesses to update.".into())
+    }
+
     /// The skills catalog: built-ins, then the gateway folder and the
     /// person's own, then — for a named teammate — what is in its own
     /// workspace.

@@ -759,6 +759,7 @@ extend; when a change adds a boundary, it adds a row.
 | Must hold | Proof | Needs |
 | --- | --- | --- |
 | Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies stay on the call thread and retain their spoken version, with no new grants or remote STT spend | `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice/direct.rs` `device_text_uses_the_call_thread_and_preserves_its_spoken_reply`; `voice/room/tests/text.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`; `voice/room/tests/budgets.rs` `text_input_keeps_budget_gating_before_dispatch` | — |
+| Agent harness updates are the owner's: a companion can neither list, check nor update them; an update runs only the command that belongs to where the harness is installed, never a guessed package manager | `wire/tests/owner_handler.rs` `harness_updates_are_the_owners_through_the_real_handler`; `driver/acp/updates/tests.rs` `an_npm_package_whose_npm_is_not_beside_it_is_not_given_another`, `a_cli_installed_its_own_way_is_updated_by_itself_or_not_at_all` | — |
 | The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests/owner_handler.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `hotline-voice/src/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Running processes: a command still running when the teammate replies ends the turn at once and outlives it; a later turn is told of it and stops it; one that ends on its own wakes the teammate once, and on a live call the front says that turn's reply; a session stop and a grant change kill it; a fifth command is refused naming the four; a process is never waited on and a stop asked for wakes nobody, taking its whole process group; a call goes listening at the reply and is given no progress line while a process runs | `tests/processes.rs` `running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it`, `running_process_that_ends_on_its_own_wakes_the_teammate_once`, `running_process_dies_with_its_stopped_session`, `running_process_dies_when_its_grant_is_revoked`; `running_process_serve_open_and_stop_end_to_end`; `tests/voice/processes.rs` `running_process_that_ends_during_a_call_is_said_on_the_call`, `running_process_a_server_started_on_a_call_leaves_the_call_listening`; `session/jobs.rs` `running_process_a_fifth_command_is_refused_naming_the_four`, `running_process_is_inspected_and_cancelled_later_but_never_waited_on`, `running_process_that_ends_before_its_route_moves_still_wakes_once`; `tests/processes.rs` `process_chip_a_process_is_on_the_session_until_the_person_stops_it`, `process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it`, `process_chip_output_is_the_latest_of_what_it_wrote`; `wire/tests/seats.rs` `process_chip_only_the_desk_and_the_owner_reach_a_process` | Unix |
 | ChatGPT and Copilot sign-ins migrate to the vault without signing out; failed writes preserve plaintext; deletion removes chunks; concurrent refresh spends a token once; missing sign-ins never start device flow | `providers/rig_login/tests.rs` `rig_login_a_0_42_copilot_dir_migrates_to_copilot_json_and_stays_signed_in`, `rig_login_a_failed_copilot_write_keeps_the_0_42_files`, `rig_login_a_0_42_chatgpt_auth_json_keeps_its_tokens`, `rig_login_two_clients_refreshing_at_once_spend_the_refresh_token_once`; `providers/rig_login/tests/vault.rs` `rig_vault_plaintext_auth_becomes_a_reference_on_first_read`, `rig_vault_keychain_failure_keeps_plaintext_and_asks_to_unlock`, `rig_vault_delete_removes_every_chunk`, `rig_vault_abandon_removes_copilot_chunks_and_reference`, `rig_vault_0_42_copilot_migrates_straight_into_the_keychain`, `rig_vault_s1_plaintext_copilot_migrates_into_the_keychain`, `rig_vault_failed_legacy_copilot_migration_keeps_both_files`; `tests/rig_upgrade.rs` `rig_upgrade_a_042_profile_keeps_both_signins_and_leaves_no_plaintext_tokens`; `tests/desk/logins.rs` `rig_vault_deleting_a_login_over_the_wire_removes_its_chunks`; `vault.rs` `a_copilot_login_begins_with_no_record`; `driver/rig/tests.rs` `a_chatgpt_turn_without_a_login_refuses_instead_of_starting_one`, `a_copilot_turn_without_a_login_refuses_instead_of_starting_one` | file-permission failure: Unix; native macOS keychain: manual before release |
@@ -1534,6 +1535,36 @@ with a message or an aside, on one desk or across a link.
   installed agent runs with the host's permissions, the accepted risk of any
   ACP harness. The updater's and the speech engine build's copies of ZIP are
   older versions, behind their own signature and pinned hash.
+
+### Harness updates (task-341)
+
+- **Default:** nothing is installed or updated until the person presses
+  Update on a harness in Settings → Updates. A check only reads: each CLI's
+  `--version`, `npm view` or `brew info` for its newest version, the ACP
+  registry's catalogue, and which releases are on disk
+  (`driver::acp::updates`).
+- **Grant source:** the person, through `harness.update` on the desk's own
+  authority. It is an operator action, not an agent capability: no teammate
+  tool reaches it, and a companion seat is refused all three commands
+  before anything runs.
+- **Enforcement:** the command that updates a part is read off where that
+  part really lives, never guessed: the npm beside the npm prefix the CLI is
+  installed under (`npm install -g <package>@latest`), the `brew` of the
+  Homebrew prefix whose `Cellar` or `Caskroom` holds it (`brew upgrade`), or
+  the CLI's own updater (`claude update`, `cursor-agent update`,
+  `opencode upgrade`). An npm package with no npm beside it is given no
+  other. An adapter is fetched at the exact version the registry pins
+  (`npm cache add <package>@<version>`); a release goes through the
+  registry install path above, with its digest check. Commands run with the
+  desk's own environment, outside the model, each bounded in time, and are
+  ended by their own handle if they overrun.
+- **Tests:** `driver/acp/updates/tests.rs` `a_cli_under_an_npm_prefix_is_that_prefixs_package`, `a_cli_installed_its_own_way_is_updated_by_itself_or_not_at_all`, `an_npm_package_whose_npm_is_not_beside_it_is_not_given_another`, `an_update_is_refused_while_one_runs_and_for_a_harness_with_nothing_to_do`; `wire/tests/owner_handler.rs` `harness_updates_are_the_owners_through_the_real_handler`.
+- **Revocability:** an update is a new version on disk, as if the person
+  had run the same command in a terminal. A running session keeps the
+  version it started with; its teammate gets the new one at its next start.
+- **Residual risk:** the package managers and updaters are trusted as the
+  person already trusts them for these CLIs. `@latest` is whatever npm
+  publishes as latest.
 
 ## The owner phone changes a teammate's access (BRO-140, part)
 

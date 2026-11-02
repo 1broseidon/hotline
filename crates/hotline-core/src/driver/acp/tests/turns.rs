@@ -481,6 +481,7 @@ async fn a_subagent_session_is_reported_apart_from_the_turn() {
         [
             SubagentReport::Started {
                 child: child(),
+                kind: crate::contract::RunKind::Subagent,
                 title: "Test investigator".to_string(),
                 task: "Run the tests and report.".to_string(),
             },
@@ -999,5 +1000,232 @@ fn an_image_content_block_becomes_a_placeholder_and_is_carried() {
             data: "AAAA".into(),
             mime_type: "image/png".into(),
         }]
+    );
+}
+
+/// An agent that leaves a command running past its turn, as Claude's
+/// adapter tells a client that takes `asyncTasks`: the task is announced
+/// in the turn, and ends after the turn is answered. Its own turn taken
+/// with no prompt open is announced as a task too, and is not one.
+fn background_agent(
+    capabilities: Arc<Mutex<Option<Value>>>,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    let transport = agent_pipes();
+    async move {
+        let running = agent_client_protocol::Agent
+            .builder()
+            .name("background")
+            .on_receive_request(
+                async move |request: RawInitialize,
+                            responder: Responder<InitializeResponse>,
+                            _cx| {
+                    *capabilities.lock().unwrap() = request.0.get("clientCapabilities").cloned();
+                    responder.respond(
+                        InitializeResponse::new(ProtocolVersion::V1)
+                            .agent_info(Implementation::new("background", "1.0.0")),
+                    )
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: NewSessionRequest,
+                            responder: Responder<NewSessionResponse>,
+                            _cx| {
+                    responder.respond(NewSessionResponse::new(SessionId::new("parent")))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |_request: PromptRequest,
+                            responder: Responder<PromptResponse>,
+                            cx: ConnectionTo<Client>| {
+                    let say = |update: Value| {
+                        cx.send_notification(RawSessionUpdate {
+                            session_id: "parent".to_string(),
+                            update,
+                        })
+                    };
+                    say(serde_json::json!({
+                        "sessionUpdate": "async_task_spawned",
+                        "asyncTaskId": "t1",
+                        "name": "Crawl 12 sites",
+                        "taskType": "shell",
+                        "description": "python3 crawl.py sites2 300",
+                        "showInTranscript": true,
+                        "canStop": true,
+                        "toolCallId": "c1",
+                    }))?;
+                    // Spawned twice is still one task.
+                    say(serde_json::json!({
+                        "sessionUpdate": "async_task_spawned",
+                        "asyncTaskId": "t1",
+                        "name": "Crawl 12 sites",
+                        "taskType": "shell",
+                        "description": "python3 crawl.py sites2 300",
+                        "showInTranscript": true,
+                        "canStop": true,
+                    }))?;
+                    say(serde_json::json!({
+                        "sessionUpdate": "async_task_progress",
+                        "asyncTaskId": "t1",
+                        "summary": "4 of 12 sites",
+                    }))?;
+                    say(serde_json::json!({
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": { "type": "text", "text": "The crawl is running." },
+                    }))?;
+                    let answered = responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    say(serde_json::json!({
+                        "sessionUpdate": "async_task_spawned",
+                        "asyncTaskId": "turn-1",
+                        "name": "Claude is working",
+                        "taskType": "turn",
+                        "description": "A background task finished.",
+                        "showInTranscript": false,
+                        "canStop": true,
+                    }))?;
+                    say(serde_json::json!({
+                        "sessionUpdate": "async_task_state_update",
+                        "asyncTaskId": "t1",
+                        "state": "completed",
+                        "summary": "12 sites crawled",
+                        "outputFilePath": "/tmp/tasks/t1.output",
+                    }))?;
+                    say(serde_json::json!({
+                        "sessionUpdate": "async_task_state_update",
+                        "asyncTaskId": "turn-1",
+                        "state": "completed",
+                    }))?;
+                    answered
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(transport)
+            .await;
+        if let Err(error) = running {
+            eprintln!("the background agent ended: {error}");
+        }
+    }
+}
+
+/// Claude's adapter keeps its background tasks to itself unless the client
+/// asks for them in the `jetbrains.air` extension, and gives its subagents
+/// as `subagent_spawned` only to a client that asks there too. Hotline asks
+/// for both, and a command left running past its turn is reported as a run
+/// of its own, kind and all, that ends when the task does, with what came of
+/// it; the agent's own unprompted turn is not reported as one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_left_running_past_its_turn_is_reported_as_a_background_run() {
+    let capabilities = Arc::new(Mutex::new(None));
+    let agent = background_agent(capabilities.clone());
+    let held = room("background-room");
+    let ada = persona(&scratch_cwd(), Vec::new());
+    let driver = ChildAgent::new(
+        scratch("background"),
+        "claude".to_string(),
+        String::new(),
+        TeammateTools::new(&held, "ada"),
+    );
+    tokio::spawn(agent);
+    let mut reports = Driver::subscribe_subagents(&driver).unwrap();
+    driver.handshake(&ada, client_transport()).await.unwrap();
+    let asked = capabilities.lock().unwrap().clone().unwrap();
+    assert_eq!(asked["_meta"]["jetbrains"]["air"]["version"], 1);
+    let air: Vec<&str> = asked["_meta"]["jetbrains"]["air"]["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(air.contains(&"asyncTasks"), "{air:?}");
+    assert!(air.contains(&"nativeSubagentSessions"), "{air:?}");
+
+    let mut updates = driver
+        .prompt("crawl them".to_string(), Vec::new(), Reach::Workspace)
+        .await;
+    loop {
+        if matches!(next(&mut updates).await, Update::Turn { .. }) {
+            break;
+        }
+    }
+    let mut reported = Vec::new();
+    for _ in 0..500 {
+        while let Ok(report) = reports.try_recv() {
+            reported.push(report);
+        }
+        if reported
+            .iter()
+            .any(|report| matches!(report, SubagentReport::Ended { .. }))
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        reported,
+        [
+            SubagentReport::Started {
+                child: "t1".to_string(),
+                kind: crate::contract::RunKind::Shell,
+                title: "Crawl 12 sites".to_string(),
+                task: "python3 crawl.py sites2 300".to_string(),
+            },
+            SubagentReport::Update {
+                child: "t1".to_string(),
+                update: Update::Message {
+                    kind: MessageKind::Agent,
+                    id: "t1:summary".to_string(),
+                    text: "12 sites crawled\n\nOutput: /tmp/tasks/t1.output".to_string(),
+                },
+            },
+            SubagentReport::Ended {
+                child: "t1".to_string(),
+                status: SubagentStatus::Done,
+            },
+        ]
+    );
+}
+
+/// What a task update says, read the way the driver reads it.
+#[test]
+fn a_task_update_is_read_as_a_background_run_only_when_it_is_one() {
+    use super::super::session::{Background, background};
+    use crate::contract::RunKind;
+    let spawned = |task_type: &str| {
+        background(&serde_json::json!({
+            "sessionUpdate": "async_task_spawned",
+            "asyncTaskId": "t",
+            "name": "",
+            "taskType": task_type,
+            "description": "npm run dev",
+        }))
+    };
+    assert_eq!(
+        spawned("monitor"),
+        Some(Background::Spawned {
+            task: "t".into(),
+            kind: RunKind::Monitor,
+            title: "npm run dev".into(),
+            description: "npm run dev".into(),
+        }),
+        "a blank name falls back to the description"
+    );
+    assert_eq!(spawned("turn"), None, "the agent's own turn");
+    assert_eq!(spawned("local_agent"), None, "a subagent is a session");
+    let ended = |state: &str| {
+        background(&serde_json::json!({
+            "sessionUpdate": "async_task_state_update",
+            "asyncTaskId": "t",
+            "state": state,
+        }))
+    };
+    assert_eq!(ended("paused"), None, "still running");
+    assert_eq!(
+        ended("stopped"),
+        Some(Background::Ended {
+            task: "t".into(),
+            status: SubagentStatus::Cancelled,
+            summary: None,
+        })
     );
 }

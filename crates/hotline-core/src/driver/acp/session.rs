@@ -850,15 +850,105 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
     }
 }
 
-/// What Hotline says it can do when it meets an agent.
+/// A background task's comings and goings, as Claude's adapter publishes
+/// them to a client that takes `asyncTasks`: a command, workflow or watch
+/// the agent left running past the tool call that started it.
+#[derive(Debug, PartialEq)]
+pub(super) enum Background {
+    Spawned {
+        task: String,
+        kind: crate::contract::RunKind,
+        title: String,
+        description: String,
+    },
+    Ended {
+        task: String,
+        status: SubagentStatus,
+        /// What the harness said came of it, and where its output is.
+        summary: Option<String>,
+    },
+}
+
+/// The background task in an update, if it is one. The agent's own turn
+/// taken with no prompt open (`turn`) is the conversation's, which the tape
+/// shows already, and a subagent is announced as a session of its own, so
+/// neither is a task here. Progress beats are not kept: the task's end says
+/// how it went.
+pub(super) fn background(update: &Value) -> Option<Background> {
+    use crate::contract::RunKind;
+    let text = |key: &str| {
+        update
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    };
+    let task = text("asyncTaskId")?.to_string();
+    match text("sessionUpdate")? {
+        "async_task_spawned" => {
+            let kind = match text("taskType").unwrap_or("task") {
+                "turn" | "agent" | "local_agent" => return None,
+                "shell" => RunKind::Shell,
+                "workflow" => RunKind::Workflow,
+                "monitor" => RunKind::Monitor,
+                _ => RunKind::Task,
+            };
+            let description = text("description").unwrap_or_default().to_string();
+            Some(Background::Spawned {
+                title: clip(
+                    text("name")
+                        .or(Some(description.as_str()).filter(|d| !d.is_empty()))
+                        .unwrap_or("Background task"),
+                    TITLE_CHARS,
+                ),
+                description,
+                kind,
+                task,
+            })
+        }
+        "async_task_state_update" => {
+            let status = match text("state")? {
+                "running" | "paused" => return None,
+                "completed" => SubagentStatus::Done,
+                "failed" => SubagentStatus::Failed,
+                _ => SubagentStatus::Cancelled,
+            };
+            let summary = match (text("summary"), text("outputFilePath")) {
+                (Some(summary), Some(path)) => Some(format!("{summary}\n\nOutput: {path}")),
+                (Some(summary), None) => Some(summary.to_string()),
+                (None, Some(path)) => Some(format!("Output: {path}")),
+                (None, None) => None,
+            };
+            Some(Background::Ended {
+                task,
+                status,
+                summary,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// What Hotline asks of every agent in `initialize`'s client `_meta`:
 /// Cursor's parameterized model picker, its base models with effort, context
 /// and fast as settings of their own, in place of one model id per variant
-/// (`claude-opus-5-5[context=300k,effort=medium,fast=false]`). An agent that
-/// does not know it ignores it.
+/// (`claude-opus-5-5[context=300k,effort=medium,fast=false]`); and, in the
+/// extension Claude's adapter reads (`jetbrains.air`), subagents as sessions
+/// of their own (`subagent_spawned`, which `announced` reads) and the
+/// background tasks it otherwise keeps to itself (`async_task_*`, which
+/// `background` reads). An agent that does not know a key ignores it.
 pub(super) fn client_meta() -> acp::Meta {
     let mut meta = acp::Meta::new();
     meta.insert("parameterizedModelPicker".into(), Value::Bool(true));
+    meta.insert(
+        "jetbrains".into(),
+        serde_json::json!({
+            "air": {
+                "version": 1,
+                "capabilities": ["nativeSubagentSessions", "asyncTasks"],
+            }
+        }),
+    );
     meta
 }
 

@@ -629,12 +629,26 @@ export function teammateActions({
 	];
 }
 
+/** What the chip calls a run of each kind: a subagent works with a model of its own; the rest are work the harness left running past its turn. */
+const RUN_KIND: Record<NonNullable<RunningSubagent["kind"]>, { word: string; running: string }> = {
+	subagent: { word: "Subagent", running: "Subagent working" },
+	shell: { word: "Background", running: "Running in the background" },
+	task: { word: "Background", running: "Running in the background" },
+	workflow: { word: "Workflow", running: "Workflow running" },
+	monitor: { word: "Watching", running: "Watching" },
+};
+
+function runKind(run: RunningSubagent) {
+	return RUN_KIND[run.kind ?? "subagent"];
+}
+
 /**
- * Subagents still running, wherever their lines have scrolled to, at the
- * composer's top right: what the teammate left going is beside where you
- * would speak to it. One is named, several are counted with a menu, and each
- * opens its run in the pane. They go when they finish; their lines in the
- * conversation keep how each went.
+ * Subagents, and work the teammate's harness left running in the background,
+ * still going, wherever their lines have scrolled to, at the composer's top
+ * right: what the teammate left going is beside where you would speak to it,
+ * after its turn as during it. One is named with its kind, several are
+ * counted with a menu, and each opens its run in the pane. They go when they
+ * finish; their runs keep how each went.
  */
 export function SubagentChips({
 	subagents,
@@ -649,34 +663,38 @@ export function SubagentChips({
 	const open = (run: RunningSubagent) => onOpenThread({ thread: { kind: "run", key: run.runId }, title: run.title });
 	if (subagents.length === 1) {
 		const run = subagents[0]!;
+		const kind = runKind(run);
+		const subagent = (run.kind ?? "subagent") === "subagent";
 		return (
 			<button
 				type="button"
 				className="control btn btn-sm min-w-0 shrink gap-1.5"
-				title="Open the subagent's run"
-				aria-label={`Subagent working: ${run.title}`}
+				title={subagent ? "Open the subagent's run" : "Open its run"}
+				aria-label={`${kind.running}: ${run.title}`}
 				aria-pressed={opened(run.runId)}
 				onClick={() => open(run)}
 			>
 				<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-				<span className="truncate">{`Subagent · ${run.title}`}</span>
+				<span className="truncate">{`${kind.word} · ${run.title}`}</span>
 			</button>
 		);
 	}
+	const allSubagents = subagents.every((run) => (run.kind ?? "subagent") === "subagent");
+	const count = allSubagents ? `${subagents.length} subagents` : `${subagents.length} running`;
 	return (
 		<MenuButton
 			className="control btn btn-sm shrink-0 gap-1.5"
-			label={`${subagents.length} subagents working`}
+			label={allSubagents ? `${count} working` : count}
 			entries={subagents.map((run) => ({
 				kind: "item",
 				id: run.runId,
-				text: run.title,
+				text: allSubagents ? run.title : `${runKind(run).word} · ${run.title}`,
 				checked: opened(run.runId),
 				onSelect: () => open(run),
 			}))}
 		>
 			<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-			{`${subagents.length} subagents`}
+			{count}
 		</MenuButton>
 	);
 }

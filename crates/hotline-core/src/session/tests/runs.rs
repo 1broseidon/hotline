@@ -412,6 +412,7 @@ async fn a_harness_subagent_is_written_as_a_run() {
     reports
         .send(SubagentReport::Started {
             child: child(),
+            kind: crate::contract::RunKind::Subagent,
             title: "Test investigator".to_string(),
             task: "Run the tests and report.".to_string(),
         })
@@ -487,6 +488,7 @@ async fn a_harness_subagent_nobody_heard_end_is_cancelled() {
     reports
         .send(SubagentReport::Started {
             child: "child-1".to_string(),
+            kind: crate::contract::RunKind::Subagent,
             title: "Explorer".to_string(),
             task: String::new(),
         })
@@ -512,4 +514,76 @@ async fn a_harness_subagent_nobody_heard_end_is_cancelled() {
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
     panic!("the run was left running: {:?}", tape(&room, "ada"));
+}
+
+/// A command the harness left running past its turn is on the roster as a
+/// background run, said apart from a subagent, for as long as it runs; its
+/// end takes it off and leaves what came of it in the run.
+#[tokio::test]
+async fn a_harness_background_task_is_listed_by_its_kind_while_it_runs() {
+    use crate::contract::RunKind;
+    use crate::driver::SubagentReport;
+    let room = room("harness-background", Fake::new(Scripted::new(Vec::new())));
+    let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+    room.watch_subagents("ada".to_string(), received);
+    reports
+        .send(SubagentReport::Started {
+            child: "t1".to_string(),
+            kind: RunKind::Shell,
+            title: "Crawl 12 sites".to_string(),
+            task: "python3 crawl.py sites2 300".to_string(),
+        })
+        .unwrap();
+    until("the task is listed", || !room.subagents("ada").is_empty()).await;
+    let listed = room.subagents("ada");
+    assert_eq!(listed[0].kind, RunKind::Shell);
+    assert_eq!(listed[0].title, "Crawl 12 sites");
+    let run_id = listed[0].run_id.clone();
+    assert_eq!(
+        serde_json::to_value(&listed[0]).unwrap()["kind"],
+        "shell",
+        "the roster says the kind"
+    );
+
+    reports
+        .send(SubagentReport::Update {
+            child: "t1".to_string(),
+            update: Update::Message {
+                kind: MessageKind::Agent,
+                id: "t1:summary".to_string(),
+                text: "12 sites crawled".to_string(),
+            },
+        })
+        .unwrap();
+    reports
+        .send(SubagentReport::Ended {
+            child: "t1".to_string(),
+            status: SubagentStatus::Done,
+        })
+        .unwrap();
+    until("the task is off the roster", || {
+        room.subagents("ada").is_empty()
+    })
+    .await;
+    until("the run is done", || {
+        tape(&room, "ada")
+            .first()
+            .is_some_and(|line| line["status"] == "done")
+    })
+    .await;
+    let stream = run_stream(&room, &run_id);
+    assert_eq!(kinds(&stream), ["subagent", "user", "agent"]);
+    assert_eq!(stream[2]["text"], "12 sites crawled");
+}
+
+/// A subagent's row on the roster is as it always was: no kind.
+#[test]
+fn a_subagents_roster_row_carries_no_kind() {
+    let row = crate::contract::RunningSubagent {
+        run_id: "r".into(),
+        title: "Explorer".into(),
+        started_at: 1,
+        kind: crate::contract::RunKind::Subagent,
+    };
+    assert!(serde_json::to_value(&row).unwrap().get("kind").is_none());
 }

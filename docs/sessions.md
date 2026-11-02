@@ -324,6 +324,23 @@ updates are ignored. A subagent the harness never ends is settled as
 take the capability keeps showing subagents as tool calls on the
 teammate's turn.
 
+Claude's adapter (0.100 on) sends the draft updates only to a client that
+names itself in the `jetbrains.air` extension of the client `_meta`, and
+otherwise sends the RFD's `subagent_update`, which Hotline does not read.
+So `client_meta` asks there, at version 1, for `nativeSubagentSessions`
+and `asyncTasks`. The second makes the adapter publish the work Claude
+leaves running past the tool call that started it: a backgrounded command,
+a workflow, a monitor, as `async_task_spawned` and
+`async_task_state_update` (its `async_task_progress` beats are not kept).
+`background` reads them, `Live::background` reports each as a run of its
+own `RunKind` (`shell`, `workflow`, `monitor`, `task`) through the same
+`SubagentReport`, and its end writes the adapter's summary and output path
+into the run. The roster entry carries the kind, so the key at the
+composer's corner says `Background`, `Workflow` or `Watching` rather than
+`Subagent`, and keeps showing after the turn that started it ends. The
+agent's own turn taken with no prompt open (`taskType: turn`) is the
+conversation's, and is not a run.
+
 ### Running processes
 
 A **running process** is a shell job still running when a Hotline Agent turn

@@ -13,6 +13,10 @@ pub(super) async fn receive(live: &Arc<Live>, notification: RawSessionUpdate) {
         live.subagent(announced).await;
         return;
     }
+    if let Some(task) = background(&notification.update) {
+        live.background(task);
+        return;
+    }
     let Ok(update) = serde_json::from_value::<SessionUpdate>(notification.update) else {
         return;
     };

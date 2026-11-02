@@ -78,7 +78,9 @@ use futures_util::StreamExt;
 use live::{Live, Pen, Replay, Session, ToolLine};
 use oauth_proxy::{OAuthProxy, is_oauth_server, start_oauth_proxy};
 use serde_json::Value;
-use session::{Announced, RawSessionUpdate, announced, apply_configs_to_session};
+use session::{
+    Announced, Background, RawSessionUpdate, announced, apply_configs_to_session, background,
+};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -1697,6 +1697,13 @@ asides?: number,
 asidesNew?: number, session: SessionInfo, };
 
 /**
+ * What a run is. A subagent works the task with a model of its own; the
+ * others are work a harness started and left running past the turn that
+ * started it: a command, a workflow, or a watch on something.
+ */
+export type RunKind = "subagent" | "shell" | "workflow" | "monitor" | "task";
+
+/**
  * A side thread still live, as its teammate's roster row lists it.
  */
 export type RunningSide = { sideId: string, title: string, startedAt: number, 
@@ -1706,13 +1713,19 @@ export type RunningSide = { sideId: string, title: string, startedAt: number,
 working: boolean, };
 
 /**
- * A subagent still running, as its teammate's roster row lists it.
+ * A subagent, or work its harness left running in the background, still
+ * running, as its teammate's roster row lists it.
  */
 export type RunningSubagent = { runId: string, 
 /**
  * The short label the teammate gave the task.
  */
-title: string, startedAt: number, };
+title: string, startedAt: number, 
+/**
+ * What runs: a subagent, or a harness's background task. Absent for a
+ * subagent, so a client that predates it reads the row as it did.
+ */
+kind?: RunKind, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the

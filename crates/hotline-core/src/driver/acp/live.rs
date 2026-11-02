@@ -36,6 +36,9 @@ pub(super) struct Live {
     /// The subagent sessions the agent has announced and not yet ended, by
     /// their session id, each with its own open message and tool calls.
     pub(super) children: Mutex<HashMap<String, Arc<Scribe>>>,
+    /// The background tasks the agent has announced and not yet ended, by
+    /// their task id: each is reported as a run until it ends.
+    tasks: Mutex<std::collections::HashSet<String>>,
     /// Permission requests waiting on a person, by the id their card carries.
     pub(super) pending: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
     /// `session/load` replays the whole history; nothing is written while it
@@ -371,13 +374,60 @@ impl Live {
         }
     }
 
-    /// Ends every subagent still open, which is what a session that ended
-    /// or was replaced does to them: nobody will hear how they finished.
+    /// A background task the agent started or ended. One already announced
+    /// is not started twice, and one never announced has no end to tell.
+    pub(super) fn background(&self, task: Background) {
+        match task {
+            Background::Spawned {
+                task,
+                kind,
+                title,
+                description,
+            } => {
+                if lock(&self.tasks).insert(task.clone()) {
+                    self.report(SubagentReport::Started {
+                        child: task,
+                        kind,
+                        title,
+                        task: description,
+                    });
+                }
+            }
+            Background::Ended {
+                task,
+                status,
+                summary,
+            } => {
+                if !lock(&self.tasks).remove(&task) {
+                    return;
+                }
+                if let Some(summary) = summary {
+                    self.report(SubagentReport::Update {
+                        child: task.clone(),
+                        update: Update::Message {
+                            kind: MessageKind::Agent,
+                            id: format!("{task}:summary"),
+                            text: summary,
+                        },
+                    });
+                }
+                self.report(SubagentReport::Ended {
+                    child: task,
+                    status,
+                });
+            }
+        }
+    }
+
+    /// Ends every subagent and background task still open, which is what a
+    /// session that ended or was replaced does to them: nobody will hear how
+    /// they finished.
     pub(super) fn forget_subagents(&self) {
-        let children: Vec<String> = lock(&self.children)
+        let mut children: Vec<String> = lock(&self.children)
             .drain()
             .map(|(child, _)| child)
             .collect();
+        children.extend(lock(&self.tasks).drain());
         for child in children {
             self.report(SubagentReport::Ended {
                 child,
@@ -398,7 +448,12 @@ impl Live {
                     fresh
                 };
                 if fresh {
-                    self.report(SubagentReport::Started { child, title, task });
+                    self.report(SubagentReport::Started {
+                        child,
+                        kind: crate::contract::RunKind::Subagent,
+                        title,
+                        task,
+                    });
                 }
             }
             Announced::Ended { child, status } => {

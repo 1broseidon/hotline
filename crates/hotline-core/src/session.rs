@@ -95,7 +95,7 @@ mod threads;
 mod turns;
 mod web_search;
 use chapters::sweep_idle_chapters;
-use computer::{ComputerSetup, ComputerSwap};
+use computer::ComputerLinks;
 use driver_info::follow_model_changes;
 pub use hotline_room::provider_auth::ProviderAuth;
 use prompt::{PendingTool, stamped};
@@ -686,16 +686,9 @@ pub struct Room {
     /// Pictures `generate_image` posted lately, per teammate, by content and
     /// when: `send_file` of the same picture soon after is a repeat.
     drawn: Mutex<HashMap<String, Vec<files::Drawn>>>,
-    /// A computer being set up behind a session that started without it,
-    /// per teammate: downloading, ready to join once the turn ends, or
-    /// failed. Watched by `computer_status`, which can wait on it.
-    computer_setups: Mutex<HashMap<String, watch::Sender<ComputerSetup>>>,
-    /// Computers being updated behind a running session: the new release
-    /// downloads while the old computer keeps working, and the swap waits
-    /// for the turn in flight to end. Keyed by teammate.
-    /// Why a teammate's last pressed update did not land, for its pane.
-    computer_update_failures: Mutex<HashMap<String, String>>,
-    computer_swaps: Mutex<HashMap<String, ComputerSwap>>,
+    /// Where each teammate's computer set-up, update and swap stand: one
+    /// phase per teammate (see [`computer::ComputerPhase`]).
+    computer_links: ComputerLinks,
     keys: Arc<dyn ProviderKeys>,
     agents: Arc<dyn Agents>,
     /// The one writer of the search index. `None` when it could not be opened,
@@ -910,9 +903,7 @@ impl Room {
             pending_file: Mutex::new(()),
             resting: Mutex::new(HashMap::new()),
             starts: Mutex::new(HashMap::new()),
-            computer_setups: Mutex::new(HashMap::new()),
-            computer_swaps: Mutex::new(HashMap::new()),
-            computer_update_failures: Mutex::new(HashMap::new()),
+            computer_links: ComputerLinks::default(),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             drawing: Mutex::new(HashSet::new()),
             posting: Mutex::new(HashMap::new()),

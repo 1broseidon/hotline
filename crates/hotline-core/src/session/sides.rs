@@ -1517,7 +1517,11 @@ impl Room {
         } else {
             timed_from(ts, client, &said)
         };
-        let steer = self.person_steers(side);
+        // Speech on a call waits its turn, as it does in the main conversation:
+        // the call has its own pace, and words spoken over a turn are not an
+        // instruction typed into it.
+        let steer = voice.is_none() && self.person_steers(side);
+        let spoken = voice.is_some();
         self.queue_in_side(
             side,
             Line {
@@ -1538,7 +1542,7 @@ impl Room {
             let turns = lock(&side.turns);
             turns.running && turns.waiting.iter().any(|line| line.text == text)
         };
-        if waits {
+        if waits && !spoken {
             side.say(
                 self,
                 &TranscriptEvent::Notice {

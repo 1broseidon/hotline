@@ -192,6 +192,22 @@ async fn a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways(
         knows(&laptop, "Lou") && knows(&grizzly, "Clementine")
     })
     .await;
+    // The roster that opens the channel is its hello: each desk has heard
+    // that the other takes asides.
+    assert_eq!(
+        laptop
+            .room
+            .links()
+            .takes(&grizzly_id, crate::linked::ASIDES),
+        Some(true)
+    );
+    assert_eq!(
+        grizzly
+            .room
+            .links()
+            .takes(&laptop_id, crate::linked::ASIDES),
+        Some(true)
+    );
 
     let lou = ask(&laptop, "clementine", &grizzly, "lou", "Lou").await;
     assert_eq!(lou["cause"]["personaId"], format!("{grizzly_id}/lou"));

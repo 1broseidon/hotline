@@ -1954,6 +1954,98 @@
 		opacity: 1;
 	}
 
+	/* An aside: what one thread told another, as a quiet line under the
+	 * conversation's speech and never a bubble. The (·) mark, who and from
+	 * what in the instrument face, then the words. A `person` aside's level is
+	 * amber, as everything waiting on the person is. */
+	.aside-line {
+		display: flex;
+		max-width: 88%;
+		align-items: flex-start;
+		gap: 8px;
+		margin: 4px 0 8px -6px;
+		padding: 3px 6px;
+		border-radius: var(--radius-control);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		text-align: left;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	button.aside-line:hover {
+		background: var(--fill-hover);
+	}
+	.aside-line .aside-mark {
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+	.aside-line svg.aside-mark {
+		width: 14px;
+		height: 14px;
+	}
+	.aside-line > svg:last-child {
+		flex-shrink: 0;
+		align-self: center;
+		width: 12px;
+		height: 12px;
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.aside-line:hover > svg:last-child,
+	.aside-line:focus-visible > svg:last-child {
+		opacity: 1;
+	}
+	.aside-text {
+		display: block;
+		color: var(--ink-2);
+		overflow-wrap: anywhere;
+	}
+	.aside-line[data-level="person"] .aside-level,
+	.noted-level[data-level="person"] {
+		color: var(--warn-ink);
+	}
+
+	/* The Noted page's rows: a face, where it came from, its level, its time
+	 * and its words, a hairline apart in one group. */
+	.noted-group {
+		border-top: var(--hairline) solid var(--line);
+	}
+	.noted-row {
+		display: flex;
+		width: 100%;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 8px;
+		border-bottom: var(--hairline) solid var(--line);
+		text-align: left;
+		background: none;
+	}
+	button.noted-row:hover {
+		background: var(--fill-hover);
+	}
+	.noted-row > svg:last-child {
+		align-self: center;
+	}
+	.noted-level {
+		flex-shrink: 0;
+		padding: 0 5px;
+		border-radius: var(--radius-control);
+		background: var(--fill-hover);
+	}
+	.noted-level[data-level="person"] {
+		background: var(--warn-soft);
+	}
+	.noted-text {
+		display: -webkit-box;
+		margin-top: 2px;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+
 	/* One row per step once the caption is open: a status mark, an
 	 * instrument title, and the output behind a press. */
 	.step {
@@ -4299,9 +4391,10 @@
 	/* A thread in the list: the status dot leads the row. Running
 	 * breathes in the accent, waiting on you is the warning colour, parked is
 	 * a ring, closed is dim. */
-	/* Where the composer is in a handoff: the two faces, whose work it is, and
-	 * the way to where it is steered. Waiting on the person, it becomes the
-	 * one field they answer in, in the warning colour a waiting card has. */
+	/* Above the composer in a handoff: the two faces, whose work it is, and the
+	 * way to the conversation of the one who handed it over. Waiting on the
+	 * person, the bar and the composer give way to the one field they answer
+	 * in, in the warning colour a waiting card has. */
 	.handoff-bar {
 		display: flex;
 		flex-shrink: 0;
@@ -4769,6 +4862,12 @@
 	}
 	.md > :last-child {
 		margin-bottom: 0;
+	}
+	/* Your bubble keeps the newlines you typed, but markdown says its own
+	 * breaks: the newlines between the blocks it draws would show as blank
+	 * lines, a gap above every list. */
+	.said-me .md {
+		white-space: normal;
 	}
 	.md p {
 		margin: 0.6em 0;

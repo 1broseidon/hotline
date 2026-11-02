@@ -41,6 +41,17 @@ fn answers() -> Scripted {
 
 /// A desk with one teammate, linked with the other desk by record.
 fn desk(name: &str, teammate: (&str, &str), other: (&str, &str), dials: bool) -> Arc<Room> {
+    desk_with(name, teammate, other, dials, Fake::new(answers()))
+}
+
+/// [`desk`], its agents being `agents`.
+fn desk_with(
+    name: &str,
+    teammate: (&str, &str),
+    other: (&str, &str),
+    dials: bool,
+    agents: Arc<Fake>,
+) -> Arc<Room> {
     let log = scratch(name);
     let mut one = persona(teammate.0);
     one.name = teammate.1.to_string();
@@ -56,7 +67,7 @@ fn desk(name: &str, teammate: (&str, &str), other: (&str, &str), dials: bool) ->
         },
     )
     .unwrap();
-    Room::with_agents(log, Arc::new(DeskKeys), Fake::new(answers()))
+    Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
 
 /// The laptop with Clementine and grizzly with Lou, linked both ways.
@@ -86,7 +97,20 @@ fn pump(
     from_id: &str,
     to_id: &str,
 ) -> (u64, tokio::task::JoinHandle<()>) {
-    to.federation_roster(from_id, from.federation_roster_entries())
+    pump_saying(from, to, from_id, to_id, linked::FEATURES)
+}
+
+/// [`pump`], with `from`'s roster saying it takes `features`: none for a
+/// desk older than them.
+fn pump_saying(
+    from: &Arc<Room>,
+    to: &Arc<Room>,
+    from_id: &str,
+    to_id: &str,
+    features: &[&str],
+) -> (u64, tokio::task::JoinHandle<()>) {
+    let features = features.iter().map(ToString::to_string).collect();
+    to.federation_roster(from_id, from.federation_roster_entries(), features)
         .unwrap();
     let (calls, mut waiting) = mpsc::channel::<linked::Call>(32);
     let generation = from.links.opened(to_id, calls);
@@ -330,6 +354,40 @@ async fn a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_
         .find(|v| v["cause"]["kind"] == "handoff")
         .unwrap();
     assert_eq!(brief["cause"]["personaId"], format!("{LAPTOP}/clementine"));
+}
+
+#[tokio::test]
+async fn a_handoff_naming_its_thread_continues_it_on_the_recipients_desk() {
+    let (laptop, grizzly) = pair("handoff-continues");
+    let _channel = Channel::open(&laptop, &grizzly);
+    grizzly
+        .allow_sender("lou", &format!("{LAPTOP}/clementine"))
+        .unwrap();
+    let first = message(&laptop, "clementine", "Lou", "handoff")
+        .await
+        .unwrap();
+    until("the first result", || {
+        delivered(&laptop, "clementine", &first).is_some()
+    })
+    .await;
+    let sent = TeammateTools::new(&laptop, "clementine")
+        .call(
+            "message_teammate",
+            &json!({"to": "Lou", "message": "And the staging runners.", "intent": "handoff", "thread": first}),
+        )
+        .await
+        .unwrap();
+    let second = serde_json::from_str::<Value>(&sent).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until("the second result", || {
+        delivered(&laptop, "clementine", &second).is_some()
+    })
+    .await;
+    let thread = |id: &str| request(&grizzly, id).unwrap()["thread"].clone();
+    assert!(thread(&first).is_string());
+    assert_eq!(thread(&second), thread(&first));
 }
 
 #[tokio::test]
@@ -615,6 +673,9 @@ async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at
         to: "lou".into(),
         message: "Check the CI runners.".into(),
         intent: "ask".into(),
+        continues: None,
+        about: None,
+        files: Vec::new(),
     };
     assert_eq!(
         grizzly
@@ -643,7 +704,7 @@ async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at
 fn an_answer_is_cut_to_fit_one_of_the_links_frames_however_it_escapes() {
     let fits = |reply: &str| {
         let frame = json!({"id": 1, "cmd": "federation.deliver", "params": {"delivery":
-            LinkedDelivery::Result { request_id: "r".into(), reply: crossing(reply), failed: false }}});
+            LinkedDelivery::Result { request_id: "r".into(), reply: crossing(reply), failed: false, stopped_by_person: false }}});
         frame.to_string().len() < 1024 * 1024
     };
     assert_eq!(crossing("runner 3 is green"), "runner 3 is green");
@@ -652,3 +713,5 @@ fn an_answer_is_cut_to_fit_one_of_the_links_frames_however_it_escapes() {
         assert!(fits(&worst.repeat(REPLY_MAX)), "{worst:?}");
     }
 }
+
+mod across;

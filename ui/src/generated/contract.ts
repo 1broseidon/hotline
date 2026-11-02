@@ -19,6 +19,69 @@ export type Ability = "computer" | "folders" | "mcp_servers";
 export type AgentKind = "hotline" | "acp";
 
 /**
+ * One aside, as it is kept on its teammate's own stream (`asides/<id>`) and,
+ * as a `TranscriptEvent::Aside`, on the thread that left it. It lands in the
+ * teammate's context at the start of its next turn in the thread it is
+ * `about` (else its main conversation), and never in the person's chat.
+ * Rewritten under the same id once it is heard.
+ */
+export type Aside = { id: string, ts: number, 
+/**
+ * The teammate it is for.
+ */
+to: string, from: AsideSource, 
+/**
+ * The teammate it is from: whose words it is, or, for one Hotline says
+ * of the person's act (Loop in…, End thread), whose thread the person
+ * acted in. Absent for an inbound source.
+ */
+by?: string, 
+/**
+ * The sender's own words, or Hotline's, never the person's.
+ */
+text: string, 
+/**
+ * The thread of the teammate's it is about, which is where it is heard.
+ */
+about?: ThreadId, level: AsideLevel, 
+/**
+ * When a turn of the teammate's took it in. Absent until then.
+ */
+heard?: number, 
+/**
+ * When the person last opened the teammate's Noted page with it there
+ * (`aside.seen`): the person's reading, apart from the teammate's
+ * hearing. Absent until then.
+ */
+seen?: number, 
+/**
+ * The person looped the teammate into the work thread it came from
+ * (`thread.loop_in`), whose answer is written there once. It is the
+ * person's, and is said to be from them, by their name.
+ * `by` names the thread's teammate.
+ */
+loopedIn?: boolean, 
+/**
+ * For an aside from an inbound source, the source's name when it
+ * delivered it, so the record still says where it came from once the
+ * source is renamed or removed.
+ */
+sourceName?: string, };
+
+/**
+ * How much an aside asks of the teammate it is for, lowest first, which is
+ * the order they compare in.
+ */
+export type AsideLevel = "note" | "nudge" | "person";
+
+/**
+ * Where an aside came from: one of a teammate's threads, or an inbound
+ * source the person added to the desk (a webhook, a mailbox, a repository),
+ * by its id ([`InboundSource`]).
+ */
+export type AsideSource = { "thread": ThreadId } | { "inbound": string };
+
+/**
  * A file that rides with a message, either way.
  *
  * Handed to a teammate, everything is a path, pasted images included: a
@@ -381,7 +444,7 @@ mode?: VoiceCallMode,
  * The rate of the microphone audio a front call will send:
  * 16000 or 24000. Omitted, the front's own rate.
  */
-inputRate?: number, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.front_audio", "params": { callId: string, seq: number, data: string, } } | { "cmd": "voice.front_barge", "params": { callId: string, playedMs: number, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.input_state", "params": { callId: string, speaking: boolean, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+inputRate?: number, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.front_audio", "params": { callId: string, seq: number, data: string, } } | { "cmd": "voice.front_barge", "params": { callId: string, playedMs: number, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.input_state", "params": { callId: string, speaking: boolean, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.relays", "params": Record<symbol, never> } | { "cmd": "remote.become_relay", "params": Record<symbol, never> } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, features?: Array<string>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -392,7 +455,7 @@ size?: number, } } | { "cmd": "avatar.read", "params": { personaId: string, hash
  * The picture at most this many px wide, still a PNG, rather than
  * as kept: what a list row or a bubble's face needs.
  */
-size?: number, } } | { "cmd": "avatar.generate", "params": { personaId: string, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "mobile.persona_create", "params": { requestId: string, name: string, goal?: string, backendId?: string, modelId?: string, effortId?: string, } } | { "cmd": "mobile.persona_update", "params": { id: string, name?: string, goal?: string, } } | { "cmd": "mobile.persona_access", "params": { id: string, reach?: Reach, modeId?: string, backgroundWork?: boolean, } } | { "cmd": "mobile.persona_computer", "params": { id: string, enabled?: boolean, memory?: string, cpus?: number | null, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "persona.pin", "params": { id: string, slot?: number, } } | { "cmd": "persona.lead", "params": { id?: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "images.status", "params": Record<symbol, never> } | { "cmd": "websearch.status", "params": Record<symbol, never> } | { "cmd": "websearch.set_enabled", "params": { provider: WebSearchProvider, enabled: boolean, } } | { "cmd": "websearch.set_key", "params": { provider: WebSearchProvider, key?: string, } } | { "cmd": "link.preview", "params": { url: string, } } | { "cmd": "ping", "params": Record<symbol, never> } | { "cmd": "capabilities.options", "params": Record<symbol, never> } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.rename", "params": { id: string, label: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "agent.auth.start", "params": { personaId: string, methodId: string, } } | { "cmd": "agent.auth.poll", "params": { personaId: string, id: string, } } | { "cmd": "agent.auth.input", "params": { personaId: string, id: string, input: string, } } | { "cmd": "agent.auth.cancel", "params": { personaId: string, id: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.retry", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "process.stop", "params": { personaId: string, id: string, } } | { "cmd": "process.output", "params": { personaId: string, id: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_backend", "params": { personaId: string, backendId: string, modelId?: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "plan.refresh", "params": { personaId: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "teammates.exchange_resume", "params": { a: string, b: string, } } | { "cmd": "teammates.exchange_stop", "params": { a: string, b: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "tape.page", "params": { personaId: string, before: string, limit?: number, through?: string, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, reminder?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "side.start", "params": { personaId: string, text: string, } } | { "cmd": "side.prompt", "params": { sideId: string, text: string, attachments?: Array<Attachment>, } } | { "cmd": "side.cancel", "params": { sideId: string, } } | { "cmd": "side.archive", "params": { sideId: string, } } | { "cmd": "side.continue", "params": { sideId: string, } } | { "cmd": "side.list", "params": { personaId: string, } } | { "cmd": "side.answer_permission", "params": { sideId: string, requestId: string, optionId: string, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "peers.answer_permission", "params": { key: string, requestId: string, optionId: string, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.capacity", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "desk.looking", "params": { looking: boolean, } } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.start", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.restart", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.push", "params": { personaId: string, transfer: CookieTransfer, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.capture.answer", "params": CredentialAnswer } | { "cmd": "computer.cookies.offers", "params": { personaId: string, } } | { "cmd": "computer.cookies.settings", "params": Record<symbol, never> } | { "cmd": "computer.cookies.sites", "params": Record<symbol, never> } | { "cmd": "computer.cookies.answer", "params": { personaId: string, id: string, answer: CookieOfferAnswer, } } | { "cmd": "computer.cookies.remove", "params": { personaId: string, id: string, } } | { "cmd": "computer.cookies.blocked", "params": Record<symbol, never> } | { "cmd": "computer.cookies.reset", "params": { personaId: string, site: string, } } | { "cmd": "secrets.use.set", "params": { name: string, use: SecretUse, } } | { "cmd": "secrets.use.answer", "params": { personaId: string, useId: string, answer: SecretUseAnswer, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { use?: SecretUse, name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } } | { "cmd": "client.hello", "params": { capabilities: Array<string>, } } | { "cmd": "thread.list", "params": { personaId?: string, } } | { "cmd": "thread.open", "params": { personaId: string, text: string, } } | { "cmd": "thread.prompt", "params": { thread: ThreadId, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "thread.cancel", "params": { thread: ThreadId, } } | { "cmd": "thread.park", "params": { thread: ThreadId, } } | { "cmd": "thread.close", "params": { thread: ThreadId, } } | { "cmd": "thread.continue", "params": { thread: ThreadId, } } | { "cmd": "thread.answer", "params": { thread: ThreadId, answer: ThreadAnswer, } } | { "cmd": "thread.page", "params": { thread: ThreadId, before: string, limit?: number, through?: string, } };
+size?: number, } } | { "cmd": "avatar.generate", "params": { personaId: string, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "mobile.persona_create", "params": { requestId: string, name: string, goal?: string, backendId?: string, modelId?: string, effortId?: string, } } | { "cmd": "mobile.persona_update", "params": { id: string, name?: string, goal?: string, } } | { "cmd": "mobile.persona_access", "params": { id: string, reach?: Reach, modeId?: string, backgroundWork?: boolean, } } | { "cmd": "mobile.persona_computer", "params": { id: string, enabled?: boolean, memory?: string, cpus?: number | null, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "persona.pin", "params": { id: string, slot?: number, } } | { "cmd": "persona.lead", "params": { id?: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "images.status", "params": Record<symbol, never> } | { "cmd": "websearch.status", "params": Record<symbol, never> } | { "cmd": "websearch.set_enabled", "params": { provider: WebSearchProvider, enabled: boolean, } } | { "cmd": "websearch.set_key", "params": { provider: WebSearchProvider, key?: string, } } | { "cmd": "link.preview", "params": { url: string, } } | { "cmd": "ping", "params": Record<symbol, never> } | { "cmd": "capabilities.options", "params": Record<symbol, never> } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.rename", "params": { id: string, label: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "agent.auth.start", "params": { personaId: string, methodId: string, } } | { "cmd": "agent.auth.poll", "params": { personaId: string, id: string, } } | { "cmd": "agent.auth.input", "params": { personaId: string, id: string, input: string, } } | { "cmd": "agent.auth.cancel", "params": { personaId: string, id: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.retry", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, interrupt?: boolean, } } | { "cmd": "process.stop", "params": { personaId: string, id: string, } } | { "cmd": "process.output", "params": { personaId: string, id: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_backend", "params": { personaId: string, backendId: string, modelId?: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "plan.refresh", "params": { personaId: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "teammates.exchange_resume", "params": { a: string, b: string, } } | { "cmd": "teammates.exchange_stop", "params": { a: string, b: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "tape.page", "params": { personaId: string, before: string, limit?: number, through?: string, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, reminder?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "side.start", "params": { personaId: string, text: string, } } | { "cmd": "side.prompt", "params": { sideId: string, text: string, attachments?: Array<Attachment>, } } | { "cmd": "side.cancel", "params": { sideId: string, } } | { "cmd": "side.archive", "params": { sideId: string, } } | { "cmd": "side.continue", "params": { sideId: string, } } | { "cmd": "side.list", "params": { personaId: string, } } | { "cmd": "side.answer_permission", "params": { sideId: string, requestId: string, optionId: string, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.capacity", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "desk.looking", "params": { looking: boolean, } } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.start", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.restart", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.push", "params": { personaId: string, transfer: CookieTransfer, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.capture.answer", "params": CredentialAnswer } | { "cmd": "computer.cookies.offers", "params": { personaId: string, } } | { "cmd": "computer.cookies.settings", "params": Record<symbol, never> } | { "cmd": "computer.cookies.sites", "params": Record<symbol, never> } | { "cmd": "computer.cookies.answer", "params": { personaId: string, id: string, answer: CookieOfferAnswer, } } | { "cmd": "computer.cookies.remove", "params": { personaId: string, id: string, } } | { "cmd": "computer.cookies.blocked", "params": Record<symbol, never> } | { "cmd": "computer.cookies.reset", "params": { personaId: string, site: string, } } | { "cmd": "secrets.use.set", "params": { name: string, use: SecretUse, } } | { "cmd": "secrets.use.answer", "params": { personaId: string, useId: string, answer: SecretUseAnswer, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { use?: SecretUse, name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } } | { "cmd": "client.hello", "params": { capabilities: Array<string>, } } | { "cmd": "thread.list", "params": { personaId?: string, } } | { "cmd": "thread.open", "params": { personaId: string, text: string, } } | { "cmd": "thread.prompt", "params": { thread: ThreadId, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "thread.cancel", "params": { thread: ThreadId, interrupt?: boolean, } } | { "cmd": "thread.park", "params": { thread: ThreadId, } } | { "cmd": "thread.close", "params": { thread: ThreadId, } } | { "cmd": "thread.continue", "params": { thread: ThreadId, } } | { "cmd": "thread.answer", "params": { thread: ThreadId, answer: ThreadAnswer, } } | { "cmd": "thread.page", "params": { thread: ThreadId, before: string, limit?: number, through?: string, } } | { "cmd": "aside.list", "params": { personaId: string, } } | { "cmd": "aside.seen", "params": { personaId: string, } } | { "cmd": "thread.loop_in", "params": { thread: ThreadId, personaId: string, } } | { "cmd": "inbound.list", "params": Record<symbol, never> } | { "cmd": "inbound.add", "params": { draft: InboundDraft, } } | { "cmd": "inbound.update", "params": { id: string, muted?: boolean, teammates?: Array<string>, maxLevel?: AsideLevel, filesAllowed?: boolean, rate?: number, } } | { "cmd": "inbound.remove", "params": { id: string, } };
 
 /**
  * The resources available to a teammate's computer. Runtime limits take
@@ -646,11 +709,27 @@ export type DeliveryCause = { "kind": "peer", requestId?: string, personaId: str
 /**
  * The start of the message this answers, clipped to a line.
  */
-about: string, } | { "kind": "handoff", requestId: string, personaId: string, name: string, threadKey: string, 
+about: string, 
+/**
+ * The answer the colleague's turn ended on, its last message in
+ * plain words and short, which a quiet line shows in place of the
+ * first words of `text` (often what it said on the way there).
+ * Absent from a failure, from a delivery written before it was
+ * kept, and from an answer that came over a link.
+ */
+answer?: string, } | { "kind": "handoff", requestId: string, personaId: string, name: string, threadKey: string, 
 /**
  * The start of the message, clipped to a line.
  */
-about: string, } | { "kind": "answer", actionId: string, status: HumanActionStatus, 
+about: string, } | { "kind": "question", requestId: string, personaId: string, name: string, threadKey: string, 
+/**
+ * The start of the question, clipped to a line.
+ */
+about: string, 
+/**
+ * The start of the handoff the question is about, when it is about one.
+ */
+work?: string, } | { "kind": "answer", actionId: string, status: HumanActionStatus, 
 /**
  * The start of the card's reason, clipped to a line.
  */
@@ -807,6 +886,60 @@ export type ImageSettings = { provider?: string, model?: string, };
 export type ImagesStatus = { available: boolean, unavailable?: string, provider?: string, model?: string, spending?: SpendingSummary, spendingUnavailable?: string, };
 
 /**
+ * A source as the person adds it (`inbound.add`) or a teammate proposes it:
+ * everything but its kind, name and teammates has a default.
+ */
+export type InboundDraft = { type: InboundKind, name: string, teammates: Array<string>, maxLevel?: AsideLevel, filesAllowed?: boolean, rate?: number, secret?: string, };
+
+/**
+ * What kind of place a source is. A label only, for now: no transport is
+ * built for any of them.
+ */
+export type InboundKind = "webhook" | "mail" | "github" | "other";
+
+/**
+ * One inbound source as the room keeps it (`inbound` on the room stream,
+ * folded by id) and `inbound.list` answers it.
+ */
+export type InboundSource = { id: string, 
+/**
+ * `type` on the wire, as a tool source's is: on the room stream `kind`
+ * is the event's.
+ */
+type: InboundKind, name: string, 
+/**
+ * The teammates it may leave asides, by id. Nobody else.
+ */
+teammates: Array<string>, 
+/**
+ * The highest level it may use; a higher one is lowered to this.
+ */
+maxLevel: AsideLevel, 
+/**
+ * Whether it may carry files into a teammate's workspace.
+ */
+filesAllowed?: boolean, 
+/**
+ * Muted, it delivers nothing. The brake mutes it too.
+ */
+muted?: boolean, 
+/**
+ * The most asides it may leave in an hour, across its teammates.
+ */
+rate: number, 
+/**
+ * The name of a secret stored under Settings → Secrets that a transport
+ * for it will use (a webhook's signing key, a mailbox's password): a
+ * reference, never the value.
+ */
+secret?: string, 
+/**
+ * How many times its nudges have woken a teammate since the person last
+ * unmuted it: the brake, counted as a pair's is.
+ */
+wakes?: number, createdAt: number, };
+
+/**
  * A job's latest post to the chat, for the listing to draw.
  */
 export type JobPost = { at: number, 
@@ -829,13 +962,70 @@ export type LinkState = "live" | "parked" | "closed";
 
 /**
  * What crosses a link for the exchange queue: a teammate's message for one
- * of the other desk's, or the answer to one.
+ * of the other desk's, the answer to one, or an aside.
  */
 export type LinkedDelivery = { "kind": "request", requestId: string, fromPersonaId: string, to: string, message: string, 
 /**
  * ask or handoff.
  */
-intent: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, };
+intent: string, 
+/**
+ * For a handoff into the work thread an earlier one opened, or an
+ * ask answered in it: the request id of that earlier handoff, or the
+ * thread as the receiving desk names it (`side:<id>`). A desk that
+ * predates this opens a new thread for a handoff instead, and one
+ * that takes it only on a handoff refuses an ask that carries it.
+ */
+continues?: string, 
+/**
+ * For an ask from a work thread that a handoff of the receiving
+ * desk's teammate opened: that handoff's request id, which the
+ * receiving desk looks up in its own record. A desk older than this
+ * ignores it, and the ask meets the ordinary grant there.
+ */
+about?: string, 
+/**
+ * Files the sender sent with it, which reach the recipient's
+ * workspace once the request is let in there. A desk older than
+ * this ignores them.
+ */
+files?: Array<LinkedFile>, } | { "kind": "result", requestId: string, reply: string, failed: boolean, 
+/**
+ * The person on the desk that worked it stopped it, and `reply` is
+ * what its sender is told of that: heard as their decision, once and
+ * without a wake, never handed back as a failure to retry. An older
+ * desk ignores it and delivers the failure.
+ */
+stoppedByPerson?: boolean, } | { "kind": "aside", 
+/**
+ * The sending desk's id for it: the same id again is the same aside.
+ */
+id: string, fromPersonaId: string, 
+/**
+ * The recipient's id on the receiving desk.
+ */
+to: string, 
+/**
+ * The thread it was said in, as the sending desk names it.
+ */
+from: ThreadId, text: string, level: AsideLevel, 
+/**
+ * A thread of the recipient's, as the receiving desk names it.
+ */
+about?: ThreadId, 
+/**
+ * For what a work thread tells the teammate on the receiving desk
+ * whose handoff opened it: that handoff's request id, which the
+ * receiving desk looks up in its own record, and which is its grant.
+ */
+requestId?: string, files?: Array<LinkedFile>, };
+
+/**
+ * A file one teammate sent another across a link: its name and its bytes
+ * as standard base64. All of a message's or an aside's files together are
+ * at most `files::LINKED_FILES_MAX` bytes, so they cross in its one frame.
+ */
+export type LinkedFile = { name: string, data: string, };
 
 /**
  * What a linked desk publishes about one of its teammates: exactly what
@@ -1494,7 +1684,17 @@ workingJobs?: Array<string>,
  * Call threads with a turn in flight. An open call between turns is
  * not working. Absent when there are none.
  */
-workingCalls?: Array<string>, session: SessionInfo, };
+workingCalls?: Array<string>, 
+/**
+ * How many asides this teammate has been left that no turn of its has
+ * heard yet (`aside.list` lists them). Absent when there are none.
+ */
+asides?: number, 
+/**
+ * How many of them the person has not seen on its Noted page yet
+ * (`aside.seen` marks them). Absent when there are none.
+ */
+asidesNew?: number, session: SessionInfo, };
 
 /**
  * A side thread still live, as its teammate's roster row lists it.
@@ -2037,8 +2237,13 @@ export type ThreadEnd = "person" | "agent" | "idle" | "stopped" | "done" | "fail
  * Which thread: its kind and the key its stream is named by. A teammate's id
  * for a DM, the minted id for a side thread, run or call, the job's id for a
  * job, and the pair key (the core's `paths::thread_key`) for a pair.
+ *
+ * `desk` names a thread on a linked desk, by that desk's id: its kind and key
+ * are that desk's, and only that desk can resolve them. Absent, as on every
+ * thread of this desk's own, it is left out, so a local thread is written
+ * exactly as before it existed.
  */
-export type ThreadId = { kind: ThreadKind, key: string, };
+export type ThreadId = { desk?: string, kind: ThreadKind, key: string, };
 
 /**
  * What kind of conversation a thread is. The kind picks its [`Policy`].
@@ -2084,7 +2289,12 @@ end?: ThreadEnd,
 /**
  * The teammate that opened it, when one did: "from Mack" on the row.
  */
-opener?: SideOpener, startedAt: number, 
+opener?: SideOpener, 
+/**
+ * The handoff it serves no longer stands, as its link records: Stop
+ * exchange, a revocation or an unlink ended it. Absent while it stands.
+ */
+handoffEnded?: boolean, startedAt: number, 
 /**
  * The newest thing in the thread: what the window counts unread against.
  */
@@ -2431,7 +2641,19 @@ elapsedMs?: number,
 /**
  * The teammate that opened the thread, when one did.
  */
-openerId?: string, openerName?: string, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+openerId?: string, openerName?: string, 
+/**
+ * The latest handoff into the thread no longer stands, as the core
+ * recorded when Stop exchange, a revocation or an unlink ended it.
+ * Absent while it stands.
+ */
+handoffEnded?: boolean, 
+/**
+ * The pair's thread whose question opened this work thread: the
+ * teammate's main conversation was busy, so the thread answered
+ * for it. Its link is on that pair's thread too.
+ */
+askedIn?: string, } | { "kind": "aside" } & Aside | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

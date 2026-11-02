@@ -369,6 +369,14 @@ impl Room {
         agent.keep();
         running.driver = Some(agent.driver.clone());
         let reach = agent.view.reach.unwrap_or_default();
+        // A run is told its parent thread's line and the asides about it,
+        // and nothing else of the teammate's threads.
+        let asides = self.hear_asides(&spec.persona_id, &thread, &[]);
+        let task = timed(now_ms(), &handed(&spec.brief.task));
+        let task = match self.thread_index(&spec.persona_id, &thread, &asides, None) {
+            Some(index) => format!("{index}\n\n{task}"),
+            None => task,
+        };
         let driven = self
             .threads()
             .turn(
@@ -380,11 +388,12 @@ impl Room {
                 },
                 Line {
                     voice: None,
-                    text: timed(now_ms(), &handed(&spec.brief.task)),
+                    text: task,
                     attachments: Vec::new(),
-                    handoff: None,
+                    request: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 reach,
                 Some(cancel),
@@ -603,6 +612,8 @@ impl Running {
             binding: None,
             elapsed_ms,
             opener: None,
+            handoff_ended: false,
+            asked_in: None,
         });
         room.list_subagent(
             &self.persona_id,

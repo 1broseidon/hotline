@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::{AsideLevel, ThreadId};
+
 // ---------------------------------------------------------------------------
 // Spending and images
 // ---------------------------------------------------------------------------
@@ -233,7 +235,7 @@ pub struct Capabilities {
 }
 
 /// What crosses a link for the exchange queue: a teammate's message for one
-/// of the other desk's, or the answer to one.
+/// of the other desk's, the answer to one, or an aside.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",
@@ -253,13 +255,78 @@ pub enum LinkedDelivery {
         message: String,
         /// ask or handoff.
         intent: String,
+        /// For a handoff into the work thread an earlier one opened, or an
+        /// ask answered in it: the request id of that earlier handoff, or the
+        /// thread as the receiving desk names it (`side:<id>`). A desk that
+        /// predates this opens a new thread for a handoff instead, and one
+        /// that takes it only on a handoff refuses an ask that carries it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        continues: Option<String>,
+        /// For an ask from a work thread that a handoff of the receiving
+        /// desk's teammate opened: that handoff's request id, which the
+        /// receiving desk looks up in its own record. A desk older than this
+        /// ignores it, and the ask meets the ordinary grant there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        about: Option<String>,
+        /// Files the sender sent with it, which reach the recipient's
+        /// workspace once the request is let in there. A desk older than
+        /// this ignores them.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(as = "Option<Vec<LinkedFile>>", optional)]
+        files: Vec<LinkedFile>,
     },
     /// The answer to a request this desk sent, by its id.
     Result {
         request_id: String,
         reply: String,
         failed: bool,
+        /// The person on the desk that worked it stopped it, and `reply` is
+        /// what its sender is told of that: heard as their decision, once and
+        /// without a wake, never handed back as a failure to retry. An older
+        /// desk ignores it and delivers the failure.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        stopped_by_person: bool,
     },
+    /// An aside for one of the receiving desk's teammates, sent only to a
+    /// desk whose roster said it takes them (`features` has `asides`).
+    Aside {
+        /// The sending desk's id for it: the same id again is the same aside.
+        id: String,
+        from_persona_id: String,
+        /// The recipient's id on the receiving desk.
+        to: String,
+        /// The thread it was said in, as the sending desk names it.
+        from: ThreadId,
+        text: String,
+        level: AsideLevel,
+        /// A thread of the recipient's, as the receiving desk names it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        about: Option<ThreadId>,
+        /// For what a work thread tells the teammate on the receiving desk
+        /// whose handoff opened it: that handoff's request id, which the
+        /// receiving desk looks up in its own record, and which is its grant.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        request_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(as = "Option<Vec<LinkedFile>>", optional)]
+        files: Vec<LinkedFile>,
+    },
+}
+
+/// A file one teammate sent another across a link: its name and its bytes
+/// as standard base64. All of a message's or an aside's files together are
+/// at most `files::LINKED_FILES_MAX` bytes, so they cross in its one frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct LinkedFile {
+    pub name: String,
+    pub data: String,
 }
 
 /// How a link is doing, as the Desks section shows it.

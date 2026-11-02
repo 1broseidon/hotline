@@ -11,12 +11,14 @@
 //! when it is first taken up, and waits as running until the answer comes
 //! back the same way; on the recipient's desk it is queued like any other,
 //! under the recipient's `allowedSenders` and the person's first-contact card,
-//! and its result is sent back instead of being delivered to a tape.
+//! and its result is sent back instead of being delivered to a tape. Asides
+//! cross as their own delivery to a desk that says it takes them
+//! (`asides/across.rs`).
 
-use super::exchanges::Intent;
+use super::exchanges::{Intent, Outgoing};
 use super::{Room, TEAMMATE_MESSAGE_MAX, lock};
 use crate::contract::Persona;
-use crate::contract::{LinkedDelivery, LinkedTeammate, Profile};
+use crate::contract::{LinkedDelivery, LinkedFile, LinkedTeammate, Profile};
 use crate::linked::{self, CallError, Known, Record};
 use crate::room;
 use serde_json::{Value, json};
@@ -30,7 +32,7 @@ const REPLY_BYTES: usize = 768 * 1024;
 /// An answer cut to what crosses a link, on the side that sends it as on the
 /// side that takes it: an answer too large for a frame would otherwise be
 /// sent again every time the channel came back.
-fn crossing(reply: &str) -> String {
+pub(super) fn crossing(reply: &str) -> String {
     let mut bytes = 0;
     reply
         .chars()
@@ -153,16 +155,22 @@ impl Room {
         }))
     }
 
-    /// A linked desk published its teammates. Their ids and names are kept
-    /// on the link's record when they change, so a message can still be
-    /// addressed to one while that desk is away. The record is written only
-    /// while the link exists: a roster that lands as the link ends must not
-    /// bring it back.
+    /// A linked desk published its teammates, and with them what it takes
+    /// (`features`), kept only as far as this desk knows the words. Their ids
+    /// and names are kept on the link's record when they change, so a
+    /// message can still be addressed to one while that desk is away. The
+    /// record is written only while the link exists: a roster that lands as
+    /// the link ends must not bring it back.
     pub(crate) fn federation_roster(
         &self,
         desk_id: &str,
         teammates: Vec<LinkedTeammate>,
+        features: Vec<String>,
     ) -> Result<(), String> {
+        let features = features
+            .into_iter()
+            .filter(|said| linked::FEATURES.contains(&said.as_str()))
+            .collect();
         let teammates = linked::plausible(teammates);
         let known: Vec<Known> = teammates
             .iter()
@@ -179,7 +187,7 @@ impl Room {
             })?;
             self.links.names_written(desk_id, known);
         }
-        self.links.set_roster(desk_id, teammates);
+        self.links.set_roster(desk_id, teammates, features);
         Ok(())
     }
 
@@ -269,7 +277,7 @@ impl Room {
     }
 
     /// A linked desk's frame for the exchange queue: a request for one of
-    /// this desk's teammates, or the answer to one of theirs.
+    /// this desk's teammates, the answer to one of theirs, or an aside.
     pub(crate) fn federation_deliver(
         self: &Arc<Self>,
         desk_id: &str,
@@ -278,25 +286,24 @@ impl Room {
         let record =
             linked::record(&self.log, desk_id).ok_or("This desk is not linked with that one.")?;
         match delivery {
-            LinkedDelivery::Request {
-                request_id,
-                from_persona_id,
-                to,
-                message,
-                intent,
-            } => self.receive_linked_request(
-                &record,
-                &request_id,
-                &from_persona_id,
-                &to,
-                &message,
-                &intent,
-            ),
+            request @ LinkedDelivery::Request { .. } => {
+                self.receive_linked_request(&record, request)
+            }
             LinkedDelivery::Result {
                 request_id,
                 reply,
                 failed,
-            } => self.receive_linked_result(desk_id, &request_id, reply, failed),
+                stopped_by_person,
+            } => {
+                let reply = crossing(&reply);
+                if stopped_by_person {
+                    self.stop_linked_request(desk_id, &request_id, reply)?;
+                } else {
+                    self.settle_linked_request(desk_id, &request_id, reply, failed)?;
+                }
+                Ok(Value::Null)
+            }
+            aside @ LinkedDelivery::Aside { .. } => self.receive_linked_aside(&record, aside),
         }
     }
 
@@ -309,21 +316,46 @@ impl Room {
     fn receive_linked_request(
         self: &Arc<Self>,
         record: &Record,
-        request_id: &str,
-        from_persona_id: &str,
-        to: &str,
-        message: &str,
-        intent: &str,
+        request: LinkedDelivery,
     ) -> Result<Value, String> {
-        let intent = match intent {
+        let LinkedDelivery::Request {
+            request_id,
+            from_persona_id,
+            to,
+            message,
+            intent,
+            continues,
+            about,
+            files,
+        } = request
+        else {
+            return Err("That is not a message for a teammate.".into());
+        };
+        let intent = match intent.as_str() {
             "ask" => Intent::Ask,
             "handoff" => Intent::Handoff,
             _ => return Err("intent must be ask or handoff".into()),
         };
-        if !linked::valid_persona_id(request_id) || !linked::valid_persona_id(from_persona_id) {
+        if !linked::valid_persona_id(&request_id) || !linked::valid_persona_id(&from_persona_id) {
             return Err("That message does not say plainly who sent it.".into());
         }
-        let from = linked::qualified(&record.desk_id, from_persona_id);
+        // The thread a handoff continues, or an ask is answered in, and the
+        // handoff a question back is about, are named by a request's id, or
+        // the thread by this desk's own name for it, and looked up in this
+        // desk's own record of the pair.
+        if continues
+            .as_deref()
+            .is_some_and(|id| !linked::valid_persona_id(id.strip_prefix("side:").unwrap_or(id)))
+        {
+            return Err("A work thread is named by a request's id or as side:<id>.".into());
+        }
+        if about.as_deref().is_some_and(|id| {
+            intent != Intent::Ask || continues.is_some() || !linked::valid_persona_id(id)
+        }) {
+            return Err("Only an ask names the handoff it is about, by a request's id.".into());
+        }
+        let files = super::files_between::from_link(&files)?;
+        let from = linked::qualified(&record.desk_id, &from_persona_id);
         self.participant(&from).map_err(|_| {
             "That teammate is not on the roster its desk published here.".to_string()
         })?;
@@ -334,50 +366,47 @@ impl Room {
             ));
         }
         let target = self
-            .persona(to)
+            .persona(&to)
             .map_err(|_| "There is no such teammate on this desk.".to_string())?;
-        self.accept_linked_request(request_id, &from, &target.id, message, intent)?;
+        let outgoing = Outgoing {
+            to: &target.id,
+            message,
+            intent,
+            thread: continues.as_deref(),
+            files: None,
+        };
+        self.accept_linked_request(&request_id, &from, &outgoing, about, &files)?;
         Ok(json!({"accepted": true}))
     }
 
-    /// The answer to a request this desk forwarded, saved so the queue
-    /// delivers it as it would a local colleague's. An answer that arrives
-    /// twice, or after the person stopped the exchange, changes nothing.
-    fn receive_linked_result(
-        self: &Arc<Self>,
-        desk_id: &str,
-        request_id: &str,
-        reply: String,
-        failed: bool,
-    ) -> Result<Value, String> {
-        self.settle_linked_request(desk_id, request_id, crossing(&reply), failed)?;
-        Ok(Value::Null)
-    }
-
-    /// Sends a request this desk's teammate made to a linked teammate. Not
-    /// yet sent while the link is down, so it waits queued; refused, it
-    /// fails with the other desk's sentence.
+    /// Sends a request this desk's teammate made to a linked teammate, with
+    /// the handoff a question back is `about` and its `files`. Not yet sent
+    /// while the link is down, so it waits queued; refused, it fails with the
+    /// other desk's sentence.
     pub(super) async fn forward_linked(
         &self,
         request_id: &str,
         from: &str,
-        to: &str,
-        message: &str,
-        intent: Intent,
+        outgoing: &Outgoing<'_>,
+        about: Option<&str>,
+        files: Vec<LinkedFile>,
     ) -> Result<bool, String> {
         let (desk_id, persona_id) =
-            linked::split(to).ok_or("That teammate is not on a linked desk.")?;
+            linked::split(outgoing.to).ok_or("That teammate is not on a linked desk.")?;
         let caller = self.persona(from)?;
         let delivery = LinkedDelivery::Request {
             request_id: request_id.to_string(),
             from_persona_id: caller.id,
             to: persona_id.to_string(),
-            message: message.to_string(),
-            intent: match intent {
+            message: outgoing.message.to_string(),
+            intent: match outgoing.intent {
                 Intent::Ask => "ask",
                 Intent::Handoff => "handoff",
             }
             .to_string(),
+            continues: outgoing.thread.map(str::to_string),
+            about: about.map(str::to_string),
+            files,
         };
         match self
             .links
@@ -394,15 +423,16 @@ impl Room {
         }
     }
 
-    /// Sends the answer to a linked teammate's request back over the link.
-    /// False while the link is down: the answer waits, saved, and goes when
-    /// it is up again.
+    /// Sends the answer to a linked teammate's request back over the link,
+    /// marked as the person's when they stopped it. False while the link is
+    /// down: the answer waits, saved, and goes when it is up again.
     pub(super) async fn return_linked(
         &self,
         request_id: &str,
         from: &str,
         reply: &str,
         failed: bool,
+        stopped_by_person: bool,
     ) -> bool {
         let Some((desk_id, _)) = linked::split(from) else {
             return true;
@@ -415,6 +445,7 @@ impl Room {
             request_id: request_id.to_string(),
             reply: crossing(reply),
             failed,
+            stopped_by_person,
         };
         match self
             .links
@@ -455,7 +486,7 @@ impl Room {
         }
         self.links.forget(desk_id);
         // Every lease a teammate of that desk was holding here — a
-        // collaboration card's, a session grant's, a peer session's — ends.
+        // collaboration card's, a session grant's — ends.
         let theirs: Vec<String> = lock(&self.capabilities)
             .keys()
             .filter(|id| linked::split(id).is_some_and(|(desk, _)| desk == desk_id))
@@ -463,7 +494,7 @@ impl Room {
             .collect();
         for id in theirs {
             self.capability_epoch(&id).invalidate();
-            self.peers.invalidate(&id);
+            self.peers.expire_grants(&id);
         }
         self.settle_invalid_collaboration();
         self.forget_linked_grants(desk_id).await

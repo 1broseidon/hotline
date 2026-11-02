@@ -391,6 +391,12 @@ fn roster_entry(
         sides: room.sides(&persona.id),
         working_jobs: room.working_jobs(&persona.id),
         working_calls: room.working_calls(&persona.id),
+        asides: u32::try_from(room.asides_unheard(&persona.id))
+            .ok()
+            .filter(|unheard| *unheard > 0),
+        asides_new: u32::try_from(room.asides_unseen(&persona.id))
+            .ok()
+            .filter(|unseen| *unseen > 0),
         session,
         preview,
         latest,

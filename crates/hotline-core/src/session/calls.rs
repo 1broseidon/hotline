@@ -88,6 +88,8 @@ impl Room {
             binding: None,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
+            asked_in: None,
         });
     }
 

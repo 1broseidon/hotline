@@ -608,16 +608,17 @@ question the change must answer in its PR description.
 
 1. **Inventory the paths.** List every way the new thing executes or
    reads: Hotline Agent tool closures, the in-process MCP server, ACP file
-   callbacks, the scheduler's queued turns, cached peer sessions, and the
-   wire. If a path is missed, the boundary has a hole in exactly that
+   callbacks, the scheduler's queued turns, the threads a colleague's
+   question or handoff is answered in, and the wire. If a path is missed, the boundary has a hole in exactly that
    place; the collaboration and background-work steps each found one in
    the built-in tools because those are always registered rather than
    granted.
 2. **Name whose authority a request uses.** The caller's? The recipient's?
-   The person's (only through the authenticated desk wire)? A request that
-   arrives through a peer session carries the caller's lease as a
-   dependency, so revoking the caller kills work done on its behalf. Never
-   let a request borrow the authority of the process it happens to run in.
+   The person's (only through the authenticated desk wire)? A request
+   between teammates holds both sides' lasting leases, so revoking either
+   ends it, and the turn that answers it runs under the lease of the
+   recipient's thread it is answered in. Never let a request borrow the
+   authority of the process it happens to run in.
 3. **Choose the default and the migration.** The default grants nothing
    beyond the workspace. Decide explicitly what an existing record without
    the field means, and write it down beside the field in `contract`;
@@ -631,7 +632,7 @@ question the change must answer in its PR description.
 5. **Make revocation reach it.** A new handle is cloned from the session's
    lease or scoped from it; it is never a fresh lease of its own. Confirm
    the change is covered by the lifecycle below, including queued work and
-   sessions cached for a peer.
+   the requests between teammates.
 6. **Tell the truth in three places.** The ledger row, the Reach or Tools
    card, and the preamble say what the code enforces, and distinguish what
    Hotline enforces from what a grantee enforces for itself.
@@ -663,21 +664,35 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   the append is durable. In between, every lease — existing or newly
   captured — is dead, and a failed append leaves the teammate visibly
   stopped and refusing work until a retry succeeds. The wire holds one
-  room-wide `policy_update_lock` across invalidate, append and reattach so
-  a second socket cannot reactivate a generation between the steps.
-- **Stop.** Advances the generation and leaves the epoch open: old handles
-  are permanently dead, a later explicit start uses the current policy. A
-  stop also invalidates a replacement session captured before its startup
-  began.
-- **Delegation.** A peer session holds a lease `scoped()` from the caller's
-  and dependent on the target's. Peer teardown revokes only the scoped
-  lease; a stop or policy change on either side revokes the peer through
-  the shared epoch. Third-party sessions delegated from a peer follow the
-  same chain and stop when the original request's authority goes, while
-  each teammate's independent main session stays usable.
-- **Caching.** Cached peer sessions are revoked whether the changed
-  teammate was caller or recipient, including peer-only sessions whose
-  main session is stopped.
+  room-wide `policy_update_lock` across invalidate and append so a second
+  socket cannot reactivate a generation between the steps, and lets it go
+  before the reattach, which takes each teammate's start gate: the one lock
+  order is `start_gate -> policy_update_lock`. `Room::reattach_held` takes
+  the policy lock again under the gate for its own invalidate and
+  activation, so it waits out an update still being written.
+- **Stop.** Advances the generation and the authority and leaves the epoch
+  open: old handles, lasting ones included, are permanently dead, a later
+  explicit start uses the current policy. A stop also invalidates a
+  replacement session captured before its startup began.
+- **Session replacement.** A chapter's swap (`replace_session`, through
+  `stop_with_capability`) ends the old session's handles the same way, but
+  not the teammate's authority: a lasting lease (`CapabilityEpoch::lasting`)
+  follows only stops and policy changes. So does a rebuild for what changes
+  the session and not what the teammate may do (`Room::rebuild`): its
+  computer joining once downloaded or made again, and a sign-in to an MCP
+  server completing, which adds reach the policies already granted, each
+  between turns. A sign-out, a server removed and a policy change narrow
+  reach and revoke as above. A job's agent whose lease went stale is let go
+  of before its next line, whatever else waits for it.
+- **Requests.** Each request between two teammates holds two leases, each
+  teammate's lasting authority `scoped()` to the request
+  (`Room::request_lease`), checked before it is taken up and while it runs,
+  so only Stop exchange or a revocation of either teammate ends it. There is
+  no session of a pair's own and so no delegated lease: a question is
+  answered by a turn of the recipient's DM, of a work thread of the
+  recipient's or of the thread it names, each under that thread's own lease,
+  and a temporary collaboration grant is dropped whether the changed teammate
+  was caller or recipient.
 - **Active and queued work.** Revocation cancels the activity's shell jobs
   and settles their results, clears queued turns, and releases collaboration
   and human waits so a late answer cannot establish a grant. Stale turns
@@ -692,8 +707,8 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   (`session/jobs.rs` `Processes`), so it outlives the turn. Default: nothing
   new is granted; the command was launched under the shell grant and the
   turn's lease, and only the DM session, the one that subscribes to its
-  wakes, takes processes (a subagent run, side thread or peer session still
-  waits on its own commands). Enforcement: the driver holds them and
+  wakes, takes processes (a subagent run or side thread still waits on its
+  own commands). Enforcement: the driver holds them and
   `invalidate` kills every one, so a stop, a removal, a grant change
   (which rebuilds the session, by design) or a revoked lease kills them with
   their whole process group; dropping the driver or quitting the desk drops
@@ -764,7 +779,18 @@ extend; when a change adds a boundary, it adds a row.
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
-| Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
+| `persona.update`, `settings.update` and `mcp.auth_sign_out` let go of the policy lock before the reattach that waits on a start gate, so a message closing a quiet chapter (start gate, then policy lock) and a policy update or an MCP sign-in never wait on each other | `wire/tests/lock_order.rs` `a_persona_update_lets_go_of_the_policy_lock_before_its_reattach`, `a_settings_update_lets_go_of_the_policy_lock_before_its_reattach`, `an_mcp_sign_out_lets_go_of_the_policy_lock_before_its_reattach`; `session/tests/chapters.rs` `a_sign_in_and_a_message_closing_a_quiet_chapter_both_finish`, `a_policy_update_and_a_message_closing_a_quiet_chapter_both_finish` | — |
+| A lasting lease outlives a session replacement and not a stop or a policy update; a request outlives either teammate's chapter turning over, and Stop exchange, a stop, a policy change or a room-wide invalidation still end it | `hotline-tools/src/capability.rs` `a_lasting_lease_outlives_a_session_replacement_but_not_a_stop_or_a_policy_update`, `replacing_a_session_during_quarantine_does_not_reopen_it`; `session/exchanges/tests/lasting.rs` `a_handoff_outlives_either_teammates_chapter_turning_over`, `each_explicit_end_still_ends_a_request_a_chapter_left_standing` | — |
+| A computer joining once downloaded, a computer made again between turns and an MCP sign-in completing rebuild the running main session the way a chapter's swap does (`Room::rebuild`), ending none of the teammate's threads or requests, so a handoff at work goes on to its result; the sign-in's rebuild waits for the turn in flight; a job's stale agent is rebuilt for its next line | `session/exchanges/tests/lasting.rs` `a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in`, `an_mcp_sign_in_rebuilds_a_main_conversation_only_once_its_turn_is_over`; `session/tests/scheduled.rs` `a_stale_job_agent_is_rebuilt_for_the_next_line_whatever_waits_behind_it` | the computer's own runtime path: Unix (`session/tests/computer.rs`) |
+| Standing collaboration consent is cleared only by the recipient's access growing, each widening named and nothing else (goal, model, agent, narrowing) counting; clearing takes the caller off `allowedSenders` too, counts at once and after compaction, and the next card says what grew; it survives reattaches, a room-wide reattach and a restart with the room stream compacted | `session/consent/tests.rs` `each_widening_of_the_recipients_access_is_named`, `nothing_that_leaves_the_recipient_reaching_as_far_clears_consent`, `a_cleared_consent_counts_at_once_and_after_compaction`, `a_cleared_grant_asks_again_and_the_card_says_why`, `an_always_grant_survives_reattaches_a_sign_out_and_a_restart`; `wire/tests/consent.rs` `a_persona_update_clears_always_only_when_the_recipients_access_grows`, `a_server_added_to_the_desk_clears_always_for_a_teammate_granted_all` | — |
+| Asides: a colleague may aside a teammate only as it may ask it (card, `allowedSenders`, implicit Whole machine Hotline Agent), and a denied card leaves nothing; an aside is kept on the recipient's stream and the sender's thread and found by `search_thread`, heard once at the next turn as fenced data and never written to the person's chat; a nudge wakes an idle teammate once for many and counts on the pair's brake, and wakes nobody at the brake or mid-turn; a `person` aside raises the person's card; a handed-over thread's notes carry the colleague's words, never the person's, and say what a waiting turn waits on, the card up named in its own words and where it is | `session/asides/tests.rs` `an_aside_needs_the_grant_an_ask_needs`, `an_aside_is_kept_on_its_teammates_stream_and_the_senders_thread_and_search_finds_it`, `a_note_waits_for_the_next_turn_and_opens_its_line_never_the_chat`, `nudges_wake_an_idle_teammate_once_and_count_once_on_the_brake`, `a_nudge_at_the_brake_or_to_a_busy_teammate_waits_for_the_next_turn`, `a_person_aside_raises_a_card_on_the_teammates_conversation_and_is_heard_too`, `the_block_says_who_where_and_fences_their_words_as_data`; `session/exchanges/tests/asides.rs` `a_persons_turn_in_a_handed_over_thread_leaves_its_opener_the_colleagues_words`, `a_turn_that_waits_on_the_person_leaves_its_opener_a_note_and_no_message`, `a_turn_waiting_on_a_question_the_person_must_allow_names_the_card`, `a_turn_waiting_on_a_question_its_paused_pair_holds_names_the_pause`, `a_turn_waiting_on_a_colleagues_answer_says_so`, `a_turn_waiting_only_on_a_question_to_its_sender_leaves_no_note`; `wire/tests/asides.rs` `aside_list_reads_a_teammates_asides_newest_first_and_the_row_counts_the_unheard` | — |
+| Loop in… and End thread: the person may loop any colleague on this desk into an open work thread, which leaves it a nudge aside the thread draws and asks it once with no card, its answer delivered into the thread; never the thread's own teammate or an ended thread; the phone may loop in on a work thread only, and mark asides seen; the person's End thread on a handed-over thread releases and stops its handoff with no result and no failure, and tells the opener once by a note aside, never a wake | `session/exchanges/tests/loop_in.rs` `a_looped_in_colleague_is_nudged_and_answers_once_in_the_thread`, `loop_in_is_refused_for_the_threads_own_teammate_and_an_ended_thread`, `the_persons_end_thread_releases_the_handoff_and_tells_its_opener_once_by_a_note`; `wire/tests/asides.rs` `aside_seen_marks_the_persons_reading_and_the_row_counts_the_new` | — |
+| Stop and Interrupt: the person's Stop on a handoff's turn, on a handoff's line it drops, or on what an Interrupt left a thread carrying ends that handoff for good, released and stopped with its leases revoked, never handed over or run again, and tells its sender once by a note aside, never a wake and nothing delivered; Interrupt only cuts the turn and the person's next line there carries the handoff to its result; an answer either cuts fails to its asker in the person's words, never followed by "send it again", and only Stop says not to ask again; a restart's cut is not the person's; the main conversation's Interrupt leaves a first-contact card up and the Stop expires it; a colleague's follow-up cuts a work thread's turn as an Interrupt only while that turn does its own earlier handoff, and its sender hears one result; `session.cancel` and `thread.cancel` are the Stop without `interrupt`, as the phone and an older window send them, and the Interrupt with it, over the wire | `session/exchanges/tests/stops.rs` `the_persons_stop_on_a_handoffs_turn_ends_it_for_good_and_tells_its_sender_once_by_a_note`, `the_persons_stop_while_a_handoffs_agent_starts_ends_it_and_it_never_runs`, `the_persons_stop_that_drops_a_cards_answer_ends_the_handoff_waiting_on_it`, `the_persons_interrupt_only_cuts_a_handoffs_turn_and_their_next_line_carries_it_on`, `the_persons_stop_after_an_interrupt_ends_the_handoff_the_thread_carried`, `a_follow_up_into_a_running_handoff_steers_it_and_its_sender_hears_one_result`, `a_follow_up_into_an_idle_thread_interrupts_nothing`, `the_persons_stop_or_interrupt_of_a_main_conversations_answer_fails_it_in_their_words`, `a_restart_cutting_a_main_conversations_answer_is_not_the_persons_stop`, `send_it_again_is_never_said_after_the_persons_word`; `session/peers/tests.rs` `an_interrupt_of_either_main_conversation_leaves_a_first_contact_card_up`; `hotline-contract/src/tests.rs` `a_cancel_is_a_stop_unless_it_says_it_interrupts`; `tests/threads/together.rs` `the_main_conversations_interrupt_over_the_wire_fails_a_colleagues_answer_as_interrupted` | — |
+| Threads, asides and files across a link: a thread on a linked desk is named with its `desk` and resolved only there, among the sender's own handoffs; an aside crosses only to a desk whose roster takes asides and lands there only under that desk's grant for an ask, never a card; a handed-over thread's note and question back reach a sender on another desk only for a handoff that desk sent that teammate and that still stands, a note as a note; an older desk keeps its messages and results and only loses asides; the person's Stop of a linked colleague's handoff crosses as theirs with the cut turn's words, told once by a note and never a wake, even to a desk still holding it queued; a file is sent only from where the sender's read tools reach, at most 25 MB together on one desk and 512 KB across a link, each refused with why, lands only once its message is let in or its aside's grant holds, under `inbox/<sender>/` in the recipient's working directory and never over a file or out through a link, and a linked desk's file names are checked as this desk's are | `hotline-contract/src/tests.rs` `a_thread_names_its_desk_only_when_it_is_on_a_linked_one`, `what_crosses_a_link_grows_only_by_fields_an_older_desk_leaves_out`; `session/links/tests/across.rs` `a_work_threads_note_crosses_as_an_aside_and_its_thread_is_named_back_across_the_link`, `an_aside_crosses_only_under_the_grant_an_ask_needs_there_and_raises_no_card`, `an_older_desk_keeps_its_messages_and_only_loses_asides`, `files_cross_the_link_into_the_recipients_inbox_and_over_the_cap_are_refused`, `the_persons_stop_on_a_linked_handoff_reaches_its_sender_as_a_note_without_waking_it`, `the_persons_stop_reaches_a_sender_still_holding_its_request_as_queued`, `a_linked_desk_asks_back_and_notes_only_by_this_desks_own_handoffs`; `session/exchanges/tests/files.rs` `a_message_carries_files_into_the_recipients_inbox_once_it_is_let_in`, `an_aside_carries_files_into_the_recipients_inbox_and_names_where`, `files_outside_the_senders_reach_or_over_the_cap_are_refused_with_a_reason`; `session/files_between.rs` `a_linked_desks_files_are_checked_as_this_desk_sends_them`; `hotline-tools/src/workspace/tests.rs` `a_received_file_lands_in_the_working_directory_and_overwrites_nothing`; `remote/tests/link.rs` `a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways`; `ui/tests/asides.test.ts` | — |
+| The thread index: a turn is told only its own teammate's threads, fenced and labelled as Hotline's note with each title, last line and aside quoted as data; a job's firing and a run are told only their parent thread and the asides about them; work handed to a colleague is quoted to its sender in the colleague's words, never the person's | `session/index/tests.rs` `the_main_conversation_opens_each_turn_with_the_index_of_its_threads`, `a_jobs_firing_hears_only_its_parent_thread_and_the_asides_about_it`, `a_run_hears_only_its_parent_thread`, `handed_over_work_is_listed_for_its_sender_in_the_colleagues_words_only` | — |
+| Inbound sources: nothing outside Hotline reaches a teammate but through a source the person added; a muted or removed source delivers nothing, a teammate it does not name is refused, the level is lowered to the source's highest, its hourly rate holds, files are refused unless allowed and then meet a colleague's cap and path rules, taken only from the source's own staging folder and landing under `inbox/inbound-<source>/`, its words are one line with no control characters or tokens, fenced as untrusted data from outside Hotline and never among a colleague's, and found by search under the source's name; a nudge's wake counts on its brake, which mutes it at the cap; a teammate adds none but by the person's yes on its card, which names no secret; only the owner adds, widens or removes one, a phone only lists and mutes, and a secret is held by the name of a stored one, never its value | `session/inbound/tests.rs` `a_muted_or_missing_source_delivers_nothing`, `a_teammate_the_source_does_not_name_is_refused`, `the_level_is_lowered_to_the_sources_highest`, `the_rate_limit_holds_for_the_hour`, `files_are_refused_unless_the_source_allows_them_and_then_meet_the_file_rules`, `inbound_words_are_fenced_as_untrusted_data_from_outside_and_searchable`, `a_sources_nudges_wake_an_idle_teammate_and_its_brake_mutes_it_at_the_cap`, `a_teammate_adds_no_source_without_the_persons_yes`; `wire/tests/inbound.rs` `only_the_owner_adds_widens_and_removes_a_source_and_a_phone_only_mutes_it`, `a_source_names_a_stored_secret_and_never_holds_a_value`, `the_phone_seat_reads_and_mutes_sources_and_nothing_more`; `hotline-room/src/inbound.rs` `untrusted_text_is_one_line_with_no_control_characters_or_keys` | — |
+| Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes queued work; a dropped wait cannot be answered later | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later` | — |
+| A colleague's question is answered where the memory is, by a turn of the recipient's own threads under that thread's lease, and no session or agent of the pair's own is built: an idle main conversation answers it in a turn that takes in nothing the person says; a busy one is answered for at once by a work thread of the recipient's, seeded with its tail, its recent asides and its thread index, which closes with its answer and leaves the main conversation a note aside, nothing in the person's chat; an ask names only a thread its sender's handoff opened on that recipient and is answered there, which stays open; a question back from a handed-over thread to the teammate that handed it over needs no card while the delegation stands, and meets the ordinary grant once it has ended; a question stopped before its answer, or whose teammate was deleted or unlinked, hands its failure to the thread that asked it and a handoff waiting on it carries on; the person's Stop fails a question waiting behind the turn at once and once; a question a chapter's swap dropped is answered in the next chapter | `session/exchanges/tests/questions.rs` `an_ask_to_an_idle_main_conversation_is_answered_there`, `no_peer_session_or_peer_agent_is_built_for_an_ask`, `a_busy_main_conversation_is_answered_for_by_a_seeded_work_thread_that_asides_back`, `the_persons_line_waits_behind_a_question_turn_and_is_answered_on_its_own`, `an_ask_naming_a_thread_is_answered_in_it_and_leaves_it_open`, `an_ask_naming_a_thread_not_its_own_is_refused`, `a_delegated_threads_question_to_its_opener_reaches_the_dm_without_a_card`, `the_persons_cancel_fails_a_question_still_waiting_behind_the_turn`, `a_question_waiting_behind_a_turn_outlives_a_chapter_swap`; `session/exchanges/tests/gates.rs` `a_handoff_that_asks_a_colleague_waits_for_the_answer_and_carries_on_with_it`, `a_question_stopped_before_its_answer_carries_the_handoff_on_with_the_failure`, `a_question_to_a_deleted_teammate_carries_the_handoff_on_with_the_failure`, `a_question_to_a_desk_that_unlinks_carries_the_handoff_on_with_the_failure`; `session/agent.rs` `a_pair_has_no_agent_of_its_own` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests/door.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`; `wire/tests/seats.rs` `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests/linked.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `hotline-room/src/linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
 | A linked sender is never implicitly trusted: the recipient's `allowedSenders` by qualified id or the person's card on the recipient's desk decide it, the sender's desk cannot answer the card, a denial runs nothing, and ending the link fails waiting work with a sentence and withdraws the card; only roster-row fields cross | `session/links/tests.rs` `an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_comes_back`, `a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread`, `a_denied_linked_sender_hears_so_and_nothing_ran`, `ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on`, `an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone`, `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
@@ -775,8 +801,8 @@ extend; when a change adds a boundary, it adds a row.
 | An agent from the ACP registry is unpacked only whole: a link, an entry out of its folder, or a set-id or world-writable mode installs nothing and leaves no scratch, in zip and tar; a checksum mismatch is never unpacked; ordinary archives and bare binaries still install | `driver/acp/install.rs` `a_symlink_out_of_the_scratch_folder_is_refused`, `a_write_through_a_symlink_lands_nowhere`, `an_entry_that_climbs_out_of_its_folder_is_refused`, `a_set_id_or_world_writable_mode_is_refused`, `a_checksum_mismatch_installs_nothing`, `a_zip_without_modes_still_starts`, `a_tarball_is_unpacked_into_place_and_its_command_made_runnable` | — |
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only the reading tools, starts no runs of its own and never reopens the teammate's session; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
 | Clones: a subagent and a job each reach back into the home thread with `search_thread` and `list_chapters` and read the granted folder, and one the home agent made `without` folders cannot read it; a run is not offered the doors to the person; a job's card is raised on its own thread, not the DM, and the answer comes back to it as a turn; a job's thread is found by `search_thread` after the index is rebuilt; a clone is built with the computer unless it was left out, on the model the home session is on, and on its teammate's own harness, ACP included; a run whose home lease is revoked never starts; a job is offered the home thread's tools but `JOB_WITHOUT`, and `schedule` writes what was left out on the job | `tests/schedule/clones.rs` `a_subagent_is_a_clone_that_reaches_back_and_is_narrowed_when_asked`, `a_job_is_a_clone_on_its_own_thread_and_reaches_back_after_a_restart`; `session/tests/runs.rs` `a_run_has_the_computer_unless_the_home_agent_leaves_it_out`, `a_run_is_a_clone_on_its_teammates_own_harness`, `a_run_refuses_a_brief_that_is_a_jobs`; `session/tests/scheduled.rs` `a_jobs_card_is_raised_and_answered_on_its_own_thread`, `a_job_has_the_computer_unless_it_was_made_without_it`; `session/agent.rs` `a_clone_is_narrowed_by_what_the_home_agent_left_out`, `a_clone_is_on_the_model_and_effort_its_home_session_is_on`; `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`; `hotline-store/src/search.rs` `a_rebuild_keeps_what_the_teammates_jobs_said`; `tests/threads/together.rs` `every_thread_reaches_the_chat_through_one_door_on_both_drivers`, `a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart` | Unix for the computer rows |
-| `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a pair posts to its target's chat, never the asker's; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_pair_posts_to_its_own_chat`, `an_acp_pair_posts_to_its_own_chat`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
-| A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
+| `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a question answered in the target's main conversation may not post, its reply being the chat already, and lands in neither chat; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_question_turn_may_not_post`, `an_acp_question_turn_may_not_post`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
+| A receipt cannot move machinery | `session/peers/tests.rs` `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
 | What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests/computer.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `hotline-room/src/room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests/seats.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
@@ -832,25 +858,98 @@ made it so.
   answered by the person over `permission.answer`, explains main-context
   handoffs as well as workspace/tool delegation. Session consent is bound to
   both live leases; a standing approval records the sender's stable id and an
-  informed-consent room record. Phone seats may answer session consent but
-  not standing consent. Keep going and Stop exchange are person-seat commands,
+  informed-consent room record. A standing approval is cleared, both records
+  together, only when the recipient's access grows (whole-machine reach, a
+  new workspace, a folder or mount added or made writable, a computer secret,
+  the computer turned on, an MCP server granted); the next card names what
+  grew. A reattach, a restart or a sign-out does not clear it, and the check
+  reads the room fold by id, so a clearing counts at once. Phone seats may
+  answer session consent but not standing consent. Keep going and Stop exchange are person-seat commands,
   not teammate tools, and do not grant collaboration authority.
 - **Enforcement:** `session/exchanges.rs` persists acceptance and checks live
-  leases and `authorize_collaboration` before starting either intent. Handoff
-  uses the recipient's existing main session and permissions; Ask uses its
-  isolated peer session. `invalidate`, stop and grant revocation settle queued
-  work; turn dispatch rejects stopped handoffs/results. A cap counts requests
-  and automatic replies together, never receipts, and survives restart.
-- **Tests:** `session/exchanges/tests.rs` covers default Ask isolation, main
+  leases and `authorize_collaboration` before starting either intent, except
+  for a question a handed-over thread asks the teammate that handed it over,
+  whose standing delegation (`Room::about_live`, read off this desk's own
+  record) is its grant. Handoff runs in a work thread of the recipient's own;
+  Ask is answered by a turn of the recipient's own threads
+  (`exchanges/questions.rs`): its main conversation when idle, claimed under
+  the start gate, with no line of the person's steered into it, else a work
+  thread opened for it under the recipient's current authority, or the thread
+  it names, validated against the pair's record (`Pair::place`). There is no
+  session of the pair's own and no delegated lease. `invalidate`, stop and
+  grant revocation settle queued work; turn dispatch (`Room::begin_request`)
+  rejects stopped handoffs, questions and results. A cap counts requests and
+  automatic replies together, never receipts, and survives restart.
+- **Tests:** `session/exchanges/tests.rs` covers main
   context Handoff and automatic request correlation, cross-intent counting,
   a held twelfth-message reply, paused restart, started-work crash settlement,
   Stop/revocation and legacy informed approval. `wire/tests.rs` covers both
   person seats' resume/stop authority and existing permission-card handling.
 - **Residual risk:** a recipient may use every permission it already has and
-  disclose context in its answer. A crash after work starts but before its
+  disclose context in its answer, and since an ask is answered from the
+  recipient's main conversation, or a thread seeded with its tail and asides,
+  that context is what the person said there; the card says so, but a standing
+  grant given before this version was given when an ask had none of it and is
+  not asked again. A crash after work starts but before its
   result is saved produces an explicit uncertain failure, not replayed work;
   inspect side effects before retrying. Stopping a handoff cancels its active
   turn but cannot undo completed effects.
+
+### Continuing a handoff's work thread
+
+- **Default:** a handoff without `thread` opens a new work thread, as before.
+  Old requests have no `continues` and old desks ignore it, so a continuation
+  sent to an older desk opens a new thread there.
+- **Grant source:** none new. A continuation is a handoff and passes the same
+  directional collaboration check, against the same live leases, before it
+  runs.
+- **Enforcement:** `send_intent` refuses a `thread`, on a handoff or an ask,
+  that names no handoff from the same sender to the same recipient in the
+  pair's record, by its request id or its work thread's id (`Pair::thread_named`);
+  `list_teammates` lists to a caller only the threads its own handoffs opened. On the recipient's desk `Pair::place` resolves the name
+  against that desk's own record, scoped to the request's sender and
+  recipient, and fails the request when it names none; a linked desk's id is
+  never used as a thread id or a path. The thread is brought back under the
+  recipient's current authority (`Room::bring_up`), never the one it had
+  before.
+- **Tests:** `session/exchanges/tests.rs`
+  `a_handoff_naming_its_thread_continues_it_and_one_without_opens_another`,
+  `only_the_teammate_that_opened_a_thread_continues_it`,
+  `a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread`;
+  `session/exchanges/tests/threads.rs`
+  `a_handoffs_thread_is_listed_for_its_sender_and_named_by_its_own_id_too`;
+  `session/links/tests.rs`
+  `a_handoff_naming_its_thread_continues_it_on_the_recipients_desk`; over the
+  wire, `tests/threads/together.rs`
+  `a_follow_up_handoff_lands_in_the_thread_the_first_ran_in`.
+- **Residual risk:** the recipient hears everything said in the thread before,
+  including what an earlier brief carried (a password, say), for as long as
+  the thread lasts; that is the point of continuing it, and a sender that wants
+  a clean context opens a new one.
+
+### The person in a handed-over thread
+
+- **Default:** the person talks in a thread a teammate handed over and
+  continues it once it has closed, as in any work thread. The person's End
+  thread ends it and its handoff (below, Loop in… and End thread).
+- **Grant source:** the person's own seat. Their words grant the teammate
+  nothing and carry nothing to the teammate that handed the work over.
+- **Enforcement:** only a turn begun by a request's own line (`RequestLine`,
+  set by the exchange, never read off the person's words) returns a result to
+  the opener; a turn the person's line starts keeps its reply in the thread. A
+  line said during the handoff's turn waits behind it. While the handoff
+  waits on a card in the thread, the person's words are that card's answer,
+  with no files (`Room::prompt_side_replying`), checked as any answer is
+  (`resume_handoff_answer`).
+- **Tests:** `session/exchanges/tests/handed_over.rs`
+  `the_persons_line_in_a_handed_over_thread_never_reaches_its_opener`,
+  `the_persons_words_answer_the_card_a_handoff_waits_on`,
+  `words_in_a_continued_thread_are_a_line_once_its_handoff_is_over`;
+  `session/sides/tests.rs`
+  `a_handed_over_thread_takes_the_persons_words_and_their_end_and_continues`.
+- **Residual risk:** the teammate hears the person's words in the thread with
+  everything else said there, and a later handoff turn's result may reflect
+  them; what reaches the opener is what the teammate chooses to say in it.
 
 
 ### Human-gated handoff continuation (BRO-128)
@@ -877,6 +976,212 @@ made it so.
   that cannot be undone; the caller receives an uncertain failure and must
   inspect those effects before retrying. Pre-fix requests have no saved gate
   association and cannot have one safely reconstructed.
+
+## Asides (epic-28, task-320)
+
+An aside is a short line one thread leaves in a teammate's context, heard at
+the start of its next turn, never a message in the person's chat
+(`docs/design/thread-awareness.md` §2). It informs; it is no reach.
+
+- **Default and old records:** nobody has any. A teammate's asides are its own
+  stream (`asides/<id>.jsonl`); the line on the sender's thread is an
+  `aside` event clients that predate it skip. An aside from an inbound
+  source passes that source's grant instead (Inbound sources, below).
+- **Grant source:** a colleague's `aside` passes exactly the check an ask
+  does, `authorize_collaboration` with the same two live leases: the
+  recipient's `allowedSenders`, the person's first-contact card, implicit
+  for a Whole machine Hotline Agent on this desk. A denied or expired card
+  leaves nothing. A teammate on a linked desk is decided by its own desk
+  ([Threads, asides and files across a link](#threads-asides-and-files-across-a-link-epic-28-task-325)).
+  What a handed-over thread leaves its opener (a note per turn, a nudge
+  beside the result) rides on the handoff the opener sent, as the result
+  does, and stops once that handoff no longer stands (stopped, revoked,
+  unlinked); an opener on another desk is sent its notes there.
+- **Enforcement points:** `session/asides.rs` `Room::aside_from` (the grant,
+  the length cap, `about` resolved only to a thread of the recipient's own,
+  the sender's lease checked after the card); `Room::keep_aside` is the one
+  writer of both copies; `Room::hear_asides` hands each one to one turn,
+  fenced as its sender's words and labelled data, never an instruction. An
+  aside carries only the sender's words: the tool's `text`, or what a
+  handed-over thread's turn last said (`exchanges/asides.rs` `turn_note`),
+  never the person's line. A `nudge` wakes only an idle thread, once for any
+  number that arrive together, and counts each wake on the pair's brake; at
+  the brake it wakes nobody. A `person` aside raises the same card as
+  `request_human`, on the recipient's own conversation. `aside.list` and the
+  roster's count are reads the phone seat may make, as it reads threads.
+- **Tests:** the regression matrix row for asides.
+- **Residual risk:** an aside's text is whatever the sender chose to say, and
+  a sender that was told something by the person can repeat it; what is
+  enforced is that Hotline never forwards the person's words itself. A
+  recipient hears an aside in its next turn's context and may act on it with
+  every permission it already has, as with an ask's answer. The person sees
+  them as the window draws them: quiet lines in the recipient's main
+  conversation, read from `aside.list` and never written there, and its Noted
+  page. `aside.seen` only marks the person's reading, on the desk, owner and
+  phone seats, and changes nothing a turn hears.
+
+## Loop in… and End thread (epic-28, task-323)
+
+The person's two acts on a work thread from its header
+(`docs/design/thread-awareness.md`, decision 5).
+
+- **Default and old records:** nothing is looped in, and a request saved
+  before carries no `looped_in` and is granted as it always was. A thread a
+  teammate handed over was refused the person's Archive before; End thread now
+  closes it.
+- **Grant source:** the person's seat, the desk's, an owner's or the phone's
+  (`thread.loop_in` on a work thread only). Loop in… is the person's grant for
+  one question from the thread's teammate to the colleague, so it asks no card
+  and passes neither `allowedSenders` nor the first-contact consent. End thread
+  is the person ending a request, which phase 1 says only someone does.
+- **Enforcement points:** `session/exchanges/loop_in.rs` `Room::loop_in` (an
+  open work thread, a colleague on this desk that is not its own teammate);
+  the ask is an ordinary request marked `looped_in`, and `authorize_exchange`
+  still checks both teammates' lasting leases before it is granted, so a
+  revoked or removed teammate is not asked. It carries the thread's title and
+  last eight lines, the person's among them: the person chose to show the
+  colleague the thread. The pair's brake counts it and its answer. The
+  colleague is left a `nudge` aside, kept and searchable, which wakes nothing
+  by itself: the question does. `session/exchanges/ended.rs`
+  `Room::person_ended`, run by `Room::archive_side` only when the person's
+  close actually closed the thread: every handoff into it is released, one
+  still queued, running or waiting on the person is stopped with its leases
+  revoked and nothing owed anywhere, and the opener standing there is left one
+  `note` aside, not a wake and nothing in its chat.
+- **Tests:** the regression matrix row for Loop in… and End thread.
+- **Residual risk:** the colleague reads what the thread's tail says, which
+  may include something the person said there; the colleague's answer goes to
+  the thread's teammate as any answer does. A question in flight when the
+  person ends the thread still brings its answer back, which reopens the
+  thread as any delivery to a closed work thread does.
+
+## Stop and Interrupt (epic-28, task-324)
+
+The person cutting a turn that was doing a colleague's work (#203 group E;
+`docs/sessions.md`, "Stop and Interrupt").
+
+- **Default and old records:** `session.cancel` and `thread.cancel` without
+  `interrupt`, as the phone, an older window and `side.cancel` send them, are
+  the Stop. An older desk ignores the flag, so a new window's Interrupt is a
+  Stop there. A request record gains no field: what a thread carries after an
+  Interrupt is read off its record (running, begun, in that thread, with no
+  turn on it), which a restart settles as any started request.
+- **Grant source:** the person's own seat. A Stop ends the request, one of
+  the ends phase 1 says only someone makes; an Interrupt ends nothing and
+  grants nothing: the request goes on under the grant and leases it already
+  had, checked again as its next turn begins (`begin_request`).
+- **Enforcement points:** `session/exchanges/stops.rs`
+  `Room::stop_handoff_for_the_person` (stopped, released, the request's leases
+  revoked, a note aside to a sender on this desk, and to one on a linked
+  desk the same words as its result with `stoppedByPerson`, which
+  `Room::stop_linked_request` ends there as the person's stop) and
+  `Room::carried_into`; `session/sides/input.rs`
+  `Room::cancel_side` and `Room::interrupt_side`; `session/prompt.rs`
+  `Room::cancel`, `Room::interrupt` and `Room::cut_turn`, where only the
+  Stop settles first-contact waits (`settle_collaboration`) and the Interrupt
+  expires the other open cards only (`settle_permissions_of_a_redirect`);
+  `Room::finish_request` reads the person's cut only when the turn ended
+  because it was cut. A restart's cut is never the person's.
+- **A follow-up steers:** a colleague's handoff naming a work thread, let in
+  under the ordinary grant (`admit_request`), cuts that thread's turn only
+  while the turn does another handoff of that same colleague's, from this
+  desk, and only as an Interrupt cuts it (`Room::steer_work` in
+  `session/sides/input.rs`): nothing is stopped, released or revoked, a cut
+  the person already made stands, and the person's own line never steers.
+  The handoff it took over is settled as done with its result consumed
+  (`Room::fold_carried`), never delivered, so its sender hears the
+  follow-up's result alone. A colleague gains no cut over work it did not
+  hand over.
+- **Tests:** the regression matrix row for Stop and Interrupt.
+- **Residual risk:** a turn the person cuts may already have had effects,
+  which the Stop does not undo; the sender is told the person stopped it,
+  with what the cut turn last said, and not to send it again unless asked,
+  which is an instruction to the sender's model rather than an enforced
+  block: a later handoff the sender makes passes the ordinary grant. A
+  handoff an Interrupt left carried stands until the person's next line, a
+  Stop, a close or a restart, and a parked thread keeps it meanwhile. A
+  first-contact card left up by an Interrupt can still be answered, which is
+  the person's decision as any answer to it is. Across a link, the person's
+  stop of a linked colleague's handoff reaches that desk as their stop and is
+  told there by a note; a desk older than that tells it as a failure.
+
+## The thread index (epic-28, task-321)
+
+Each turn of a teammate's main conversation, work threads and calls opens with
+an index of its other threads (`docs/design/thread-awareness.md` §1). It is a
+read of records the teammate already has, told to its own agents; it grants
+nothing.
+
+- **Default and old records:** every teammate gets it; there is nothing to
+  turn on and no record is written. It rides on the turn's line, not the
+  preamble, and the line kept on the tape is the person's words alone.
+- **Grant source:** none. What is listed is `ThreadStore::list` for the
+  teammate: its own threads, the pairs it is one side of, and the work threads
+  it handed a colleague, which it is a participant of already.
+- **Enforcement points:** `session/index.rs` `Room::thread_index` and
+  `Room::index_of`. Titles, last lines and asides are fenced (`hotline_threads`,
+  `hotline_asides`) under a line saying they are Hotline's note and data, never
+  instructions. A work thread handed to a colleague is quoted to its sender in
+  the colleague's last words or the thread's outcome, never a line the person
+  said there, as the notes such a thread leaves its opener are. A work thread
+  of the teammate's own is told as its own work, in the second person, with
+  the ask that opened it (the colleague's delivery's `about`) and what came of
+  it quoted inside the same fence. A job's firing and a run, which act
+  without the person, are told only their parent thread's line and the asides
+  about them.
+- **Tests:** the regression matrix row for the thread index.
+- **Residual risk:** a title or last line is whatever a thread said, and an
+  agent may act on it with the permissions it already has; the fence keeps it
+  from reading as Hotline or the person.
+
+## Inbound sources (epic-28, task-326)
+
+A place outside Hotline (a webhook, a mailbox, a GitHub repository) may leave
+a teammate asides only through a source the person added
+(`docs/design/thread-awareness.md`, "Inbound sources"). Only the grant and
+its checks exist: no webhook endpoint, mailbox or GitHub poller is built.
+
+- **Default and old records:** nothing. A desk has no sources until the person
+  adds one, and nothing outside reaches any teammate. A new source asides only
+  the teammates it names, at `note`, ten an hour, with no files, unmuted.
+- **Grant source:** the person alone: `inbound.add`, `inbound.update` and
+  `inbound.remove` from the desk or owner seat, and a phone may only list them
+  and mute or unmute one (`wire/seat.rs`). A teammate's `propose_inbound`
+  only raises a card showing the source as it would be added, bound to a
+  core-generated `inbound-source:` id and the session's lease; the person's
+  yes writes exactly that record (`Room::settle_inbound_source`, which checks
+  the lease, the expiry and that its teammates are still here), and a no, a
+  stale card or a revoked session writes nothing. The proposal cannot name a
+  secret, and is not offered to a job, a run or a voice front. A source keeps
+  a transport's secret only as the name of a secret stored under Settings →
+  Secrets, checked against the vault's list when it is added, never a value.
+- **Enforcement points:** `session/inbound.rs` `Room::inbound_aside`, the one
+  door a transport will call: the source must exist and not be muted, `to`
+  must be among its teammates and on this desk, the level is lowered to its
+  `maxLevel`, and its rate is counted from the asides its teammates hold and
+  checked with the keeping under the lock hearing takes. Files are refused
+  unless the source allows them, and then meet a colleague's file rules
+  (`files_between.rs` `take_staged`, `deliver_inbound`): only plain files of
+  plain names directly in the source's own staging folder on the desk
+  (`inbound/<source id>/`), never through a link, at most 10 coming to at
+  most 25 MB together, landing in the teammate's working directory under
+  `inbox/inbound-<source id>/` only once nothing else refuses the aside, which
+  names where. The words are
+  made one line, every control character a space, with tokens and keys cut
+  (`hotline_room::inbound::untrusted_text`), clipped to an aside, and heard
+  in their own `hotline_inbound` fence headed as untrusted data from outside
+  Hotline that never says what to do, labelled "from <source> (outside
+  Hotline)" (`session/asides.rs` `fenced_lines`). A nudge that wakes its
+  teammate counts on the source's brake, which mutes it at a pair's twelve
+  until the person unmutes it; a `person` aside's card names it as outside.
+- **Tests:** the regression matrix row for inbound sources.
+- **Residual risk:** what a source delivers is written by whoever can reach it
+  outside, so it can carry a prompt injection; the fence, the label and the
+  level clamp keep it from reading as Hotline, a colleague or the person, and
+  from waking or carding anyone the person did not allow, but a teammate may
+  still act on it with every permission it already has. Redaction knows
+  token shapes (`Bearer`, `sk-`, `ghp_`, …), not every secret. Files cross no
+  boundary until phase 8's rules are wired in.
 
 ## What a colleague sees
 
@@ -930,7 +1235,7 @@ it lets a colleague use another's tools.
   desk the channel proved; every other command and every subscription is
   `forbidden`, and the desk and owner seats may not send a federation
   command. A published roster is cut to `LinkedTeammate`'s fields
-  (`linked::plausible`). A delivered request is checked for size and a known
+  (`linked::plausible`), and its `features` to the words this desk knows. A delivered request is checked for size and a known
   recipient (`session/links.rs`), queued in `exchange_pair`, and decided by
   `authorize_collaboration` like a local one — except that a linked caller
   is never implicitly trusted (`caller.node.is_none()`), and its card is on
@@ -945,7 +1250,7 @@ it lets a colleague use another's tools.
   goes, the channel and dialing stop, waiting requests to or from that desk
   fail with a sentence, every capability epoch of that desk's teammates is
   invalidated — which withdraws their pending cards, ends session grants and
-  peer sessions and stops their handoffs — and they leave `list_teammates`.
+  stops their requests — and they leave `list_teammates`.
   The standing grants the person gave them here end too: their qualified ids
   leave every `allowedSenders` and their informed consent is withdrawn, so a
   link made again starts from nothing.
@@ -981,6 +1286,80 @@ it lets a colleague use another's tools.
   link that never dials again, shown offline, until it is ended there too.
   Stopping an exchange on the sender's desk does not stop work already
   running for it on the other.
+
+## Threads, asides and files across a link (epic-28, task-325)
+
+What crosses a link besides messages and their answers
+(`docs/design/thread-awareness.md` §3, #203 group H): asides, a handed-over
+thread's notes, the person's stop, threads named by a desk, and files sent
+with a message or an aside, on one desk or across a link.
+
+- **Default and old records:** a `ThreadId` without `desk` is a thread of this
+  desk's, as every one written before; a request record without `files`,
+  `stopped_by_person` or `crossing` carries no file, no stop of the person's
+  and no note to send. A desk names what it takes in its roster's `features`;
+  one older than that names nothing and is sent no aside, while every request,
+  result and stop still crosses as before, a stop as a failure. Nothing is
+  sent to an inbox unless a teammate names the file.
+- **Grant source:** the grant an ask needs, and nothing new to approve. An
+  aside across a link is decided on the recipient's desk by that desk's grant
+  for an ask from that sender, `allowedSenders` by its qualified id or a
+  session grant the person gave there, never implicit and never a card. A
+  handoff's note and a question back ride on the handoff that desk sent and
+  need no other grant, and are honoured only for a handoff that desk sent to
+  that very teammate and that still stands. A file goes only where the
+  message or aside carrying it goes: a message's files reach the recipient
+  only once the message is let in, past `authorize_exchange` and the person's
+  first-contact card; an aside's only past the aside's grant.
+- **What may be sent:** only what the sender's own read tools reach, by the
+  check `send_file` makes (`session/files.rs` `from_workspace`,
+  `Workspace::open_to_send`): its working directory and the folders granted
+  it, or anywhere under whole-machine reach. Anything else is refused with
+  the tool's reason. At most 10 files of plain names, coming to at most 25 MB
+  together on one desk (`files_between::FILES_MAX`) and 512 KB across a link
+  (`files_between::LINKED_FILES_MAX`, so they cross in the one frame of what
+  carries them), each refused over its cap with why, before anything is held,
+  queued or sent.
+- **Where it lands:** in the recipient's working directory under
+  `inbox/<sender id>/` (`personaId@deskId` for a linked sender), through
+  `Workspace::receive_file`: confined to that directory by its own handle
+  whatever the recipient's reach, through no symbolic link out, under a plain
+  name, never over a file there, under the recipient's live lease. A message's
+  files wait on the desk, `files-between/<request id>/`, until then, and are let
+  go of once copied or forwarded, or at the next start for one stopped first.
+- **Enforcement points:** `session/files_between.rs` (`take_files`,
+  `from_link`, `deliver_files`, `deliver_held`); `exchanges/handover.rs`
+  `Room::admit_request` copies a request's files only after its grant;
+  `session/asides/across.rs` `Room::aside_across` (sent only to a desk whose
+  roster named `asides`, while the channel is open) and
+  `Room::receive_linked_aside` (sender on the published roster, length cap,
+  `collaboration_granted`, `about` resolved among the recipient's own
+  threads, kept under `deskId:id` so a desk cannot reach this desk's asides by
+  id); `exchanges/across.rs` `Room::receive_linked_note` (a handoff this
+  desk sent to that teammate, standing, kept as a note), `send_crossing`,
+  `stop_linked_request` (a handoff this desk sent that desk, including one
+  still held as queued; said of an ask it is only the failure) and
+  `accept_linked_request`, which resolves a thread a desk names (`side:<id>`)
+  only among that sender's own handoffs; `session/links.rs`
+  `receive_linked_request` checks `continues`, `about` and `files`. A thread
+  on another desk is only a name here: `keep_aside` writes no line to a
+  thread with `desk` set, and refuses an aside for a linked teammate, which
+  has no stream here.
+- **Tests:** the regression matrix row for threads, asides and files across a
+  link.
+- **Residual risk:** a file is whatever the sender could read, and the
+  recipient may read it with every permission it has, as it would a file the
+  sender pasted into a message; the person sees the message or aside that
+  names it, not the bytes. A linked desk can send files only with a request
+  or an aside it is allowed, at most 512 KB in each, and at most 48 of its
+  requests wait here at once, so it holds at most 24 MB of this desk's disk
+  until they are let in or the desk restarts. A compromised linked desk can
+  say the person there stopped a handoff this desk sent it, which ends it as
+  such a stop does here and tells the sender its words once; it can send a
+  standing handoff's notes as often as its frame budget allows, each a note
+  that wakes nobody. An aside's words, files and paths are the sender's data,
+  heard fenced as such. A note or aside cut off while crossing may be sent
+  again; the receiving desk keeps one per id.
 
 ## Add a teammate from the phone (BRO-127)
 
@@ -1781,7 +2160,7 @@ thread, and reaching back into it with the home agent's own reading tools.
   | verb | companion may | because |
   | --- | --- | --- |
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
-  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, `peers.answer_permission` is the owner's |
+  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, and a pair raises no card |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
   | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |

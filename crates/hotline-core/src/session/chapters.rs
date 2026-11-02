@@ -93,6 +93,11 @@ Reply with exactly one JSON object and no other text — no prose before or afte
 
 Be concrete and brief. Write "the user" for the person. Do not include greetings, small talk, or the teammate's tool chatter."#;
 
+/// What a work thread's closing note is told besides: its outcome is quoted
+/// back to the teammate as work it did itself (`session/index.rs`), so it is
+/// written as the teammate would say it, and never about "the teammate".
+pub(super) const OWN_VOICE: &str = r#"This chapter is one of the teammate's work threads, and its outcome is quoted back to the teammate as its own work. Write the outcome in the teammate's own voice, starting with the verb or with "I": "Wrote release-plan.md with three steps." or "I wrote release-plan.md with three steps." Never write "the teammate", "the agent", or the teammate's name in the outcome."#;
+
 /// The handoff note a chapter closes with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Note {
@@ -638,11 +643,12 @@ impl Room {
     /// from three weeks ago brings back sludge. The current chapter closes as
     /// "Back to: …" without asking a model for a note — it is a turning point,
     /// not a stretch of work — and a new marker opens carrying that earlier
-    /// chapter's note under `resumedFrom`. The session is stopped and started
-    /// again: Hotline Agent is seeded from the previous chapter's tape slice,
-    /// an ACP child from the checkpoint the marker still names. The user
-    /// lines said in the meantime arrive as a [`Room::nudge`], Hotline's words,
-    /// never a line of the tape. If the restore itself fails, the new session
+    /// chapter's note under `resumedFrom`. The session is replaced as a
+    /// chapter's swap replaces it, which leaves the requests the teammate sent
+    /// or was given standing. Hotline Agent is seeded from the previous
+    /// chapter's tape slice, an ACP child from the checkpoint the marker still
+    /// names. The user lines said in the meantime arrive as a
+    /// [`Room::nudge`], Hotline's words, never a line of the tape. If the restore itself fails, the new session
     /// still starts and reads the note the wake block already carries.
     pub async fn resume_chapter(
         self: &Arc<Self>,
@@ -684,7 +690,7 @@ impl Room {
             .filter(|title| !title.is_empty())
             .unwrap_or("the previous chapter");
 
-        self.stop_session(persona_id);
+        self.stop_with_capability(persona_id);
         if let Some(open) = open {
             self.close_marker(
                 persona_id,
@@ -779,13 +785,11 @@ impl Room {
         let open = chapter_view::open_chapter(&events)?.clone();
         // A chapter replacement is a session boundary for collaboration
         // authority even when the existing driver remains alive until the
-        // next user line reaches it. Peer sessions are dropped with the
-        // chapter so an active or cached conversation cannot keep using the
-        // old chapter's temporary authority.
+        // next user line reaches it. Temporary grants are dropped with the
+        // chapter so a later request cannot use the old chapter's authority.
         {
             let _lifecycle = lock(&self.lifecycle);
             self.peers.advance_generation(persona_id);
-            self.drop_peer_sessions(persona_id);
         }
         self.settle_collaboration(persona_id);
         let persona = self.persona(persona_id).ok()?;
@@ -914,6 +918,14 @@ impl Room {
     /// them.
     pub(super) async fn note(&self, persona: &Persona, slice: &[Value]) -> Option<Note> {
         self.note_with(persona, slice, INSTRUCTIONS)
+            .await
+            .and_then(|answer| parse_note(&answer))
+    }
+
+    /// A work thread's closing note: a chapter's, with its outcome in the
+    /// teammate's own voice ([`OWN_VOICE`]).
+    pub(super) async fn work_note(&self, persona: &Persona, slice: &[Value]) -> Option<Note> {
+        self.note_with(persona, slice, &format!("{INSTRUCTIONS}\n\n{OWN_VOICE}"))
             .await
             .and_then(|answer| parse_note(&answer))
     }

@@ -23,10 +23,12 @@
 //! why the core's store tests (`store/tests.rs`) feed its own output through
 //! these types and back out again.
 
+mod asides;
 mod capture;
 mod command;
 mod computer;
 mod credentials;
+mod inbound;
 mod payloads;
 mod persona;
 mod remote;
@@ -37,10 +39,12 @@ mod tests;
 mod transcript;
 mod views;
 
+pub use asides::*;
 pub use capture::*;
 pub use command::*;
 pub use computer::*;
 pub use credentials::*;
+pub use inbound::*;
 pub use payloads::*;
 pub use persona::*;
 pub use remote::*;

@@ -46,9 +46,10 @@
 //! colleague's answer, lands on its own thread.
 
 use super::agent::{Opening, clone_of, lease_of};
+use super::exchanges::Cut;
 use super::runner::Driven;
 use super::schedule::{self, MIN_LOOP, run_of};
-use super::turns::{Begin, Line, Occupant, Seat, Then, Turns};
+use super::turns::{Begin, Line, Occupant, RequestLine, Seat, Then, Turns};
 use super::{POST_CHARS, Post, Room, lock, new_id, now_ms, timed, timed_from};
 use crate::computer::gate::Holder;
 use crate::contract::{
@@ -161,6 +162,8 @@ pub(super) struct JobTurn {
     last: bool,
     /// The job as its posts are stamped.
     run: ScheduledRun,
+    /// The colleague's question this turn answers.
+    request: Option<String>,
 }
 
 impl LiveJob {
@@ -188,20 +191,28 @@ impl LiveJob {
     /// Lets go of the agent and parks the thread, unless a line already waits
     /// for it: then the agent stays for that line.
     fn let_go(&self, room: &Room) {
-        let up = {
-            let turns = lock(&self.turns);
-            if !turns.waiting.is_empty() {
-                return;
-            }
-            lock(&self.up).take()
-        };
-        let Some(up) = up else {
-            return;
+        if lock(&self.turns).waiting.is_empty() {
+            self.release(room);
+        }
+    }
+
+    /// Lets go of the agent and parks the thread whatever waits: a line still
+    /// waiting gets an agent of its own, under the authority there is then.
+    fn release(&self, room: &Room) {
+        if self.drop_agent(room) {
+            room.mark_job(self, ThreadState::Parked, None);
+        }
+    }
+
+    /// Stops the agent, its processes and its lease, if there is one.
+    fn drop_agent(&self, room: &Room) -> bool {
+        let Some(up) = lock(&self.up).take() else {
+            return false;
         };
         up.lease.revoke();
         up.driver.invalidate();
         room.let_go_of_computer(&self.persona_id, &lock(&self.holder));
-        room.mark_job(self, ThreadState::Parked, None);
+        true
     }
 
     /// A delivery's turn has begun: it is read, and is not handed over again.
@@ -219,9 +230,20 @@ impl LiveJob {
         self.say(room, &super::peers::stamped(event, Receipt::Read));
     }
 
+    /// Drops what waits behind the turn in flight: a colleague's question
+    /// among it fails to its asker.
+    fn drop_waiting(&self, room: &Room) {
+        let dropped: Vec<Line> = lock(&self.turns)
+            .waiting
+            .drain(..)
+            .map(|line| line.line)
+            .collect();
+        room.fail_dropped_lines(&self.persona_id, dropped);
+    }
+
     /// Stops the turn in flight and drops what waited behind it.
-    fn interrupt(&self) {
-        lock(&self.turns).clear();
+    fn interrupt(&self, room: &Room) {
+        self.drop_waiting(room);
         if let Some(up) = lock(&self.up).as_ref() {
             up.driver.cancel();
         }
@@ -307,7 +329,7 @@ impl Occupant for LiveJob {
         !self.stopped.load(Ordering::SeqCst) && room.persona(&self.persona_id).is_ok()
     }
 
-    async fn begin(self: &Arc<Self>, room: &Arc<Room>, line: JobLine) -> Begin<JobTurn> {
+    async fn begin(self: &Arc<Self>, room: &Arc<Room>, mut line: JobLine) -> Begin<JobTurn> {
         let Some(job) = room::all_jobs(&room.log)
             .into_iter()
             .find(|job| job.id == self.job_id)
@@ -333,7 +355,7 @@ impl Occupant for LiveJob {
             .as_ref()
             .is_some_and(|up| !up.lease.is_current());
         if stale {
-            self.let_go(room);
+            self.release(room);
         }
         if lock(&self.up).is_none() {
             room.mark_job(self, ThreadState::Live, None);
@@ -351,14 +373,40 @@ impl Occupant for LiveJob {
                 }
             }
         }
+        // A colleague's question is answered only while its request still
+        // runs: one stopped while it waited here is never taken up.
+        let request = line.line.request.as_ref().map(|line| line.request.clone());
+        if let Some(request) = &request
+            && let Err(error) = room.begin_request(request)
+        {
+            eprintln!("question not taken up: {error}");
+            return Begin::Skip;
+        }
         if let Some(id) = &line.line.delivery {
             self.heard(room, id);
+        }
+        // The job's parent thread, and what other threads left the teammate
+        // about this job, open the line: a job hears nothing of the rest.
+        let told: Vec<String> = line
+            .line
+            .from
+            .as_ref()
+            .filter(|from| from.kind == ThreadKind::Side)
+            .and_then(|from| from.request.as_deref())
+            .map(super::asides::result_aside)
+            .into_iter()
+            .collect();
+        let thread = Occupant::thread(&**self);
+        let asides = room.hear_asides(&self.persona_id, &thread, &told);
+        if let Some(index) = room.thread_index(&self.persona_id, &thread, &asides, None) {
+            line.line.text = format!("{index}\n\n{}", line.line.text);
         }
         Begin::Go(JobTurn {
             line: Some(line.line),
             firing: line.firing,
             last: line.last,
             run: run_of(&job),
+            request,
         })
     }
 
@@ -393,7 +441,13 @@ impl Occupant for LiveJob {
     fn end(self: &Arc<Self>, room: &Arc<Room>, held: JobTurn, driven: Driven) -> Then {
         *lock(&self.last_used) = now_ms();
         lock(&self.firing_since).take();
+        if let Some(request) = &held.request {
+            // The person's cancel of a job's turn is their Stop.
+            let halted = self.halted.load(Ordering::SeqCst);
+            room.finish_request(request, &driven, halted.then_some(Cut::Stop));
+        }
         if self.stopped.load(Ordering::SeqCst) {
+            self.drop_agent(room);
             return Then::Stop;
         }
         self.remember_session(room, &driven);
@@ -445,7 +499,7 @@ impl Occupant for LiveJob {
             if let Some(final_word) = &final_word {
                 self.post_as_job(room, &held.run, final_word);
             }
-            lock(&self.turns).clear();
+            self.drop_waiting(room);
             room.close_job(self, End::Done, final_word);
             return Then::Stop;
         }
@@ -752,9 +806,10 @@ impl Room {
                     voice: None,
                     text: timed(now, &firing_text(job, &run, last, standing)),
                     attachments: Vec::new(),
-                    handoff: None,
+                    request: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 firing: Some(run),
                 last,
@@ -880,9 +935,10 @@ impl Room {
                     voice: None,
                     text: timed_from(ts, client, &heard),
                     attachments: attachments.unwrap_or_default(),
-                    handoff: None,
+                    request: None,
                     from: None,
                     delivery: None,
+                    wake: false,
                 },
                 firing: None,
                 last: false,
@@ -898,10 +954,11 @@ impl Room {
             .any(|job| job.id == job_id && job.ended_at.is_none())
     }
 
-    /// Something the job asked for came back (the person's answer to its
-    /// card, a colleague's answer to its message): written to its thread
-    /// and handed to its agent as a turn, as a line the person says there
-    /// is. Handing the same delivery over twice hands it over once.
+    /// Something for the job (the person's answer to its card, a colleague's
+    /// answer to its message or question to it): written to its thread and
+    /// handed to its agent as a turn, as a line the person says there is.
+    /// Handing the same delivery over twice hands it over once. `request` is
+    /// the question its turn answers.
     pub(super) fn deliver_into_job(
         self: &Arc<Self>,
         job_id: &str,
@@ -909,6 +966,7 @@ impl Room {
         cause: DeliveryCause,
         from: DeliveryFrom,
         text: String,
+        request: Option<RequestLine>,
     ) -> Result<(), String> {
         let job = room::all_jobs(&self.log)
             .into_iter()
@@ -957,9 +1015,10 @@ impl Room {
                     voice: None,
                     text: timed(ts, &wire),
                     attachments: Vec::new(),
-                    handoff: None,
+                    request,
                     from: Some(from),
                     delivery: Some(id.to_string()),
+                    wake: false,
                 },
                 firing: None,
                 last: false,
@@ -980,6 +1039,11 @@ impl Room {
                 .into_iter()
                 .filter(|event| event["kind"] == "delivery" && event["receipt"] != "read")
                 .filter_map(|event| match serde_json::from_value(event) {
+                    // The pair hands a question over again, with its request.
+                    Ok(TranscriptEvent::Delivery {
+                        cause: DeliveryCause::Question { .. },
+                        ..
+                    }) => None,
                     Ok(TranscriptEvent::Delivery {
                         id,
                         cause,
@@ -993,7 +1057,7 @@ impl Room {
             for (id, cause, from, text) in unread {
                 let handed = match from {
                     Some(from) if job.ended_at.is_none() => {
-                        self.deliver_into_job(&job.id, &id, cause, from, text)
+                        self.deliver_into_job(&job.id, &id, cause, from, text, None)
                     }
                     _ => {
                         self.deliver_identified(&job.persona_id, &id, cause, text)
@@ -1086,8 +1150,9 @@ impl Room {
     }
 
     /// Stops the turn in flight in a job's thread, a firing's or the
-    /// person's, and drops what waited behind it. The job goes on firing:
-    /// its next time is the one it already had.
+    /// person's, and drops what waited behind it, a colleague's question
+    /// included, which fails to its asker. The job goes on firing: its next
+    /// time is the one it already had.
     pub fn cancel_job_turn(&self, job_id: &str) -> Result<(), String> {
         let live = lock(&self.job_threads)
             .get(job_id)
@@ -1095,7 +1160,7 @@ impl Room {
             .filter(|live| lock(&live.turns).running)
             .ok_or_else(|| "That job has no turn running.".to_string())?;
         live.halted.store(true, Ordering::SeqCst);
-        live.interrupt();
+        live.interrupt(self);
         Ok(())
     }
 
@@ -1148,13 +1213,13 @@ impl Room {
             Some(live) if report.is_some() && lock(&live.turns).running => {
                 // The turn that ended it closes the thread when it is over.
                 live.done.store(true, Ordering::SeqCst);
-                lock(&live.turns).clear();
+                live.drop_waiting(self);
                 self.mark_job(&live, ThreadState::Closed(by), final_word);
             }
             Some(live) => {
                 live.stopped.store(true, Ordering::SeqCst);
-                live.interrupt();
-                live.let_go(self);
+                live.interrupt(self);
+                live.release(self);
                 lock(&self.job_threads).remove(&job.id);
                 self.mark_job(&live, ThreadState::Closed(by), final_word);
             }
@@ -1175,7 +1240,7 @@ impl Room {
     /// agent and closes its thread with what came of it, unless the end
     /// already closed it.
     fn close_job(&self, live: &LiveJob, end: End, outcome: Option<String>) {
-        live.let_go(self);
+        live.release(self);
         lock(&self.job_threads).remove(&live.job_id);
         let closed = self
             .link_of(&live.thread())
@@ -1218,6 +1283,8 @@ impl Room {
             binding,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
+            asked_in: None,
         });
     }
 
@@ -1245,8 +1312,9 @@ impl Room {
     }
 
     /// Stops every job agent a teammate has, or every one in the room: its
-    /// authority changed or it was stopped. The jobs go on firing, each on an
-    /// agent built under whatever the teammate has next.
+    /// authority changed or it was stopped. What waited behind a job's turn
+    /// is dropped with it. The jobs go on firing, each on an agent built
+    /// under whatever the teammate has next.
     pub(super) fn let_go_of_jobs(&self, persona_id: Option<&str>) {
         let live: Vec<Arc<LiveJob>> = lock(&self.job_threads)
             .values()
@@ -1254,8 +1322,8 @@ impl Room {
             .cloned()
             .collect();
         for live in live {
-            live.interrupt();
-            live.let_go(self);
+            live.interrupt(self);
+            live.release(self);
         }
     }
 
@@ -1267,7 +1335,7 @@ impl Room {
             if !lock(&live.turns).running {
                 continue;
             }
-            live.interrupt();
+            live.interrupt(self);
             live.notice(
                 self,
                 NoticeLevel::Warn,

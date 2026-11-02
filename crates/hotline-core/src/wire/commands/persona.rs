@@ -8,6 +8,7 @@ use crate::contract::{
 };
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::Log;
+use crate::session::consent;
 use crate::wire::RoomHandle;
 use crate::{paths, room};
 use serde_json::{Map, Value, json};
@@ -274,8 +275,7 @@ pub(super) async fn mobile_persona_computer(
     if enabled.is_none() && memory.is_none() && cpus.is_none() {
         return Err("Nothing to change: name enabled, memory or CPUs.".into());
     }
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
+    let held = room.policy_update_lock().lock_owned().await;
     let persona = living(log, id)?;
     // Enabling, disabling and clearing a CPU limit do not need a probe.
     if memory.is_some() || cpus.flatten().is_some() {
@@ -305,7 +305,7 @@ pub(super) async fn mobile_persona_computer(
     if let Some(cpus) = cpus {
         computer.cpus = cpus;
     }
-    apply_persona_update_locked(log, room, id, &json!({ "computer": computer })).await
+    apply_persona_update_locked(log, room, id, &json!({ "computer": computer }), held).await
 }
 
 fn validate_computer_cpus(cpus: f64, capacity: u32) -> Result<(), String> {
@@ -414,19 +414,25 @@ pub(super) async fn apply_persona_update(
     id: &str,
     patch: &Value,
 ) -> Result<Value, String> {
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
-    apply_persona_update_locked(log, room, id, patch).await
+    let held = room.policy_update_lock().lock_owned().await;
+    apply_persona_update_locked(log, room, id, patch, held).await
 }
 
-/// The caller holds `policy_update_lock` for read/merge/write and effects.
+/// The caller hands over its held `policy_update_lock` guard. The read, merge
+/// and write run under it (the invalidate and the durable append), and then
+/// it is dropped before the reattach or computer rebuild, which take the start
+/// gate. The one lock order is `start_gate -> policy_update_lock`, so those
+/// effects run with the policy lock let go: a chapter close takes the two in
+/// that order and would deadlock against this otherwise.
 async fn apply_persona_update_locked(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     id: &str,
     patch: &Value,
+    held: tokio::sync::OwnedMutexGuard<()>,
 ) -> Result<Value, String> {
     let (updated, reattaches) = update_persona(log, room, id, patch)?;
+    drop(held);
     if reattaches {
         room.reattach(id).await?;
     } else if patch.get("computer").is_some() {
@@ -471,6 +477,12 @@ pub(super) fn update_persona(
     let reattaches = persona_update_reattaches(patch, &previous, &updated);
     if reattaches {
         room.invalidate(id)?;
+    }
+    // Reaching more than the person agreed to when they chose "Always allow"
+    // takes that consent away, with the reason for the next card.
+    let servers = super::settings::server_ids(log);
+    if let Some(why) = consent::widened(&previous, &updated, &servers, &servers) {
+        consent::clear(log, &mut updated, why)?;
     }
     room::append_persona(log, &updated)?;
     if updated.avatar.is_none() {

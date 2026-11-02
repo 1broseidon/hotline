@@ -591,6 +591,41 @@ async fn a_queued_firing_is_dropped_when_background_work_is_revoked() {
     );
 }
 
+/// A job's agent whose lease went stale while it ran (its teammate's main
+/// conversation turned over, say) is not handed the next line because more
+/// lines wait behind it: that line gets an agent of its own, under the
+/// authority there is then.
+#[tokio::test]
+async fn a_stale_job_agent_is_rebuilt_for_the_next_line_whatever_waits_behind_it() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(saying("said", "Noted."));
+    driver.gate = Some(gate.clone());
+    let agents = Fake::new(driver);
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job("job-stale", ScheduleKind::Loop, "check the crane", true, 0);
+    job.next_at = now_ms() + 3_600_000;
+    let room = room_due("schedule-stale-agent", agents.clone(), job);
+
+    room.prompt_job("job-stale", "first", None).await.unwrap();
+    heard(&prompts, 1).await;
+    for line in ["second", "third"] {
+        room.prompt_job("job-stale", line, None).await.unwrap();
+    }
+    assert_eq!(agents.tools().len(), 1);
+    room.stop_with_capability("ada");
+    // The first turn's three updates, and no more: the second waits at the
+    // gate once it has begun.
+    gate.add_permits(3);
+    heard(&prompts, 2).await;
+    assert_eq!(
+        agents.tools().len(),
+        2,
+        "the second line's turn runs on a fresh agent"
+    );
+    gate.add_permits(10);
+    heard(&prompts, 3).await;
+}
+
 /// What a message answers is on the line it is written as, and a mark that has
 /// gone stale is claimed by nothing.
 #[tokio::test]

@@ -10,8 +10,10 @@
 //!   line it was written as (so the tape can be told when the agent has read
 //!   it), and the thread it came from.
 //! - **The door of a turn.** A colleague's result is heard once, and one the
-//!   exchange has since stopped never; work the agent took up by itself is
-//!   read, not prompted.
+//!   exchange has since stopped never; a colleague's question is answered
+//!   only while its request still runs, in a turn that takes in nothing the
+//!   person says, and its reply goes back to the asker; work the agent took
+//!   up by itself is read, not prompted.
 //! - **The witness.** [`Heard`] writes what the agent does onto the tape,
 //!   through the stamps a prompt left, marks
 //!   the person's lines read, keeps the session's checkpoint, says a reply to a
@@ -31,6 +33,7 @@
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
+use super::asides::{result_aside, result_of};
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
@@ -51,6 +54,8 @@ pub(super) struct Hold {
     from_voice: bool,
     /// The lines the driver took mid-turn, in the order it took them.
     steered: Vec<Wired>,
+    /// The colleague's question this turn answers.
+    request: Option<String>,
 }
 
 impl Occupant for Session {
@@ -103,6 +108,15 @@ impl Occupant for Session {
         {
             return Begin::Skip;
         }
+        // A colleague's question is answered only while its request still
+        // runs: one stopped while it waited here is never taken up.
+        let request = wired.request.as_ref().map(|line| line.request.clone());
+        if let Some(request) = &request
+            && let Err(error) = room.begin_request(request)
+        {
+            eprintln!("question not taken up: {error}");
+            return Begin::Skip;
+        }
         room.set_state(session, SessionState::Thinking);
         let reach = room.reach_of(&session.persona_id);
         if !session.answering(room) {
@@ -124,16 +138,47 @@ impl Occupant for Session {
                 attachments: wired.attachments,
             }
         } else {
+            // Colleagues' results that came back together are one turn: the
+            // ones queued behind this result are heard with it.
+            let mut told: Vec<String> = result_of(&wired).map(result_aside).into_iter().collect();
+            let mut text = wired.text;
+            if !told.is_empty() {
+                for behind in room.results_behind(session) {
+                    told.extend(result_of(&behind).map(result_aside));
+                    if let Some(said) = behind.said {
+                        lock(&session.unread).push(said);
+                    }
+                    text = format!("{text}\n\n{}", behind.text);
+                }
+            }
+            // Where the teammate's other threads stand, and what they left it,
+            // open the line. A line that only woke it to hear asides is spent
+            // once a turn before it has.
+            let asides = room.hear_asides(&session.persona_id, &session.thread(), &told);
+            if asides.is_empty() && wired.wake {
+                return Begin::Skip;
+            }
+            if let Some(index) = room.thread_index(
+                &session.persona_id,
+                &session.thread(),
+                &asides,
+                Some(&session.indexed),
+            ) {
+                text = format!("{index}\n\n{text}");
+            }
             Source::Say {
-                text: wired.text,
+                text,
                 attachments: wired.attachments,
             }
         };
+        // The person's Stop or Interrupt from here on is this turn's.
+        lock(&session.cut).take();
         Begin::Go(Hold {
             source: Some(source),
             reach,
             from_voice,
             steered: Vec::new(),
+            request,
         })
     }
 
@@ -146,6 +191,7 @@ impl Occupant for Session {
             steered: &mut held.steered,
             from_voice: held.from_voice,
             card: None,
+            answering_a_question: held.request.is_some(),
         };
         room.threads()
             .drive(
@@ -165,10 +211,7 @@ impl Occupant for Session {
         room.turn_ended(session);
         room.read_plan_after_turn(session);
         if driven.asked {
-            // A permission the turn left open is a button nobody is
-            // behind. A `request_human` wait is not: the tool is still
-            // parked on it, and only the person, the deadline, or a
-            // session stop settles that card.
+            // A permission the turn left open is a button nobody is behind.
             room.threads()
                 .expire_asked(&session.thread(), &session.persona_id);
         }
@@ -189,6 +232,10 @@ impl Occupant for Session {
             };
             lock(&session.turns).waiting.push_front(wire);
         }
+        let cut = lock(&session.cut).take();
+        if let Some(request) = &held.request {
+            room.finish_request(request, &driven, cut);
+        }
         Then::Next
     }
 
@@ -200,6 +247,7 @@ impl Occupant for Session {
         room.set_state(self, SessionState::Ready);
         room.attach_computer_when_idle(&self.persona_id);
         room.swap_computer_when_idle(&self.persona_id);
+        room.rebuild_for_sign_in_when_idle(self);
     }
 }
 
@@ -213,6 +261,9 @@ struct Heard<'a> {
     from_voice: bool,
     /// The card the update in hand raises, until its event is written.
     card: Option<(String, crate::push::Waiting)>,
+    /// Whether the turn answers a colleague's question, whose whole reply
+    /// goes to them: nothing the person says is steered into it.
+    answering_a_question: bool,
 }
 
 impl Heard<'_> {
@@ -366,7 +417,9 @@ impl Witness for Heard<'_> {
     }
 
     fn steer(&mut self) {
-        self.room.steer_waiting(self.session, self.steered);
+        if !self.answering_a_question {
+            self.room.steer_waiting(self.session, self.steered);
+        }
     }
 }
 
@@ -409,9 +462,6 @@ impl Room {
         }
         drop(turns);
         if steered {
-            // A new instruction is neither an answer nor permission. Release
-            // an obsolete human wait so the model can reconsider the request.
-            self.release_human_waits(&session.persona_id);
             // A turn that was only waiting on its subagents has a line to
             // answer now, so it is working again.
             self.await_subagents(session, false);

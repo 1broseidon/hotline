@@ -277,9 +277,17 @@ pub enum ThreadKind {
 /// Which thread: its kind and the key its stream is named by. A teammate's id
 /// for a DM, the minted id for a side thread, run or call, the job's id for a
 /// job, and the pair key (the core's `paths::thread_key`) for a pair.
+///
+/// `desk` names a thread on a linked desk, by that desk's id: its kind and key
+/// are that desk's, and only that desk can resolve them. Absent, as on every
+/// thread of this desk's own, it is left out, so a local thread is written
+/// exactly as before it existed.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts")]
 pub struct ThreadId {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub desk: Option<String>,
     pub kind: ThreadKind,
     pub key: String,
 }
@@ -342,15 +350,49 @@ impl ThreadId {
 
     fn of(kind: ThreadKind, key: impl Into<String>) -> Self {
         Self {
+            desk: None,
             kind,
             key: key.into(),
         }
     }
+
+    /// The same thread, as a desk linked with the one it is on names it.
+    pub fn on_desk(self, desk_id: impl Into<String>) -> Self {
+        Self {
+            desk: Some(desk_id.into()),
+            ..self
+        }
+    }
+
+    /// A thread as [`Display`](std::fmt::Display) writes it: `kind:key`, or
+    /// `deskId/kind:key` for one on a linked desk. The desk is not checked
+    /// here; whoever resolves the thread does that.
+    pub fn parse(named: &str) -> Option<Self> {
+        let (desk, local) = match named.split_once('/') {
+            Some((desk, local)) if !desk.contains(':') => (Some(desk), local),
+            _ => (None, named),
+        };
+        let (kind, key) = local.split_once(':')?;
+        if key.is_empty() {
+            return None;
+        }
+        let thread = Self::new(ThreadKind::parse(kind)?, key);
+        Some(match desk {
+            Some(desk) if !desk.is_empty() => thread.on_desk(desk),
+            Some(_) => return None,
+            None => thread,
+        })
+    }
 }
 
-/// `side:<id>`, the way a log line or a search hit names a thread.
+/// `side:<id>`, the way a log line or a search hit names a thread, and
+/// `deskId/side:<id>` for one on a linked desk, as a linked teammate's id is
+/// `deskId/personaId`.
 impl std::fmt::Display for ThreadId {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(desk) = &self.desk {
+            write!(formatter, "{desk}/")?;
+        }
         write!(formatter, "{}:{}", self.kind.name(), self.key)
     }
 }

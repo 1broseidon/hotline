@@ -1,4 +1,13 @@
+mod asides;
+mod files;
+mod gates;
+mod handed_over;
+mod lasting;
+mod loop_in;
 mod pause;
+mod questions;
+mod stops;
+mod threads;
 
 use super::*;
 use crate::driver::{MessageKind, Update};
@@ -75,6 +84,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         intent,
         phase,
         reply: String::new(),
+        answer: String::new(),
         failed: false,
         reply_counted: false,
         request_counted: false,
@@ -87,7 +97,33 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         reply_job: None,
         returned: false,
         lead_call: None,
+        continues: None,
+        released: false,
+        about: None,
+        own_thread: false,
+        owed_to_thread: false,
+        looped_in: false,
+        files: Vec::new(),
+        stopped_by_person: false,
+        crossing: Vec::new(),
     }
+}
+/// A handoff from `from` to `to`, into the thread `thread` names when it does.
+async fn hand_off(
+    room: &Arc<Room>,
+    from: &str,
+    to: &str,
+    message: &str,
+    thread: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let mut arguments = json!({"to": to, "message": message, "intent": "handoff"});
+    if let Some(thread) = thread {
+        arguments["thread"] = json!(thread);
+    }
+    let sent = TeammateTools::new(room, from)
+        .call("message_teammate", &arguments)
+        .await?;
+    Ok(serde_json::from_str(&sent).unwrap())
 }
 fn seed(room: &Room, request: Request, count: i64, paused: bool) {
     room.save_pair(&Pair {
@@ -182,32 +218,6 @@ async fn aborted_or_revoked_handoff_turns_return_failure_not_success() {
                 .contains("inspect before retrying")
         );
     }
-}
-
-#[tokio::test]
-async fn default_ask_never_enters_or_reads_the_recipient_main_conversation() {
-    let (room, agents) = setup("ask-isolated");
-    room.write_value(
-        "bob",
-        &json!({"kind":"user","id":"private","ts":1,"text":"PRIVATE MAIN CONTEXT"}),
-    );
-    let response = TeammateTools::new(&room, "ada")
-        .call(
-            "message_teammate",
-            &json!({"to":"bob","message":"bounded review"}),
-        )
-        .await
-        .unwrap();
-    let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-    done(&room, response["requestId"].as_str().unwrap()).await;
-    assert_eq!(response["intent"], "ask");
-    assert!(room.tape("bob").iter().all(|v| v["kind"] != "delivery"));
-    assert!(
-        lock(&agents.seeds)[0]
-            .iter()
-            .all(|s| !format!("{s:?}").contains("PRIVATE MAIN CONTEXT"))
-    );
-    assert!(lock(&agents.preambles)[0].contains("replying privately"));
 }
 
 #[tokio::test]
@@ -439,7 +449,11 @@ async fn a_legacy_grant_requires_informed_handoff_approval_but_still_allows_ask(
             .unwrap()
             .contains("handoffs in a work thread of its own")
     );
-    assert!(room.tape("bob").iter().all(|v| v["kind"] != "delivery"));
+    assert!(
+        room.tape("bob")
+            .iter()
+            .all(|v| v["cause"]["kind"] != "handoff")
+    );
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow_always")
         .await
         .unwrap();
@@ -685,88 +699,6 @@ async fn delayed_boot_recovery_preserves_a_new_long_running_handoff_and_its_real
     agents.drivers["ada"].updates.add_permits(2);
 }
 
-async fn nested_handoff(active: bool, expire_dependency_only: bool) {
-    let (room, agents) = controlled(if active {
-        if expire_dependency_only {
-            "nested-scope-active"
-        } else {
-            "nested-revoke-active"
-        }
-    } else {
-        "nested-revoke-queued"
-    });
-    room.allow_sender("bob", "ada").unwrap();
-    room.allow_sender("cara", "bob").unwrap();
-    if !active {
-        room.start("cara").await.unwrap();
-        room.prompt("cara", "person's task", None, None)
-            .await
-            .unwrap();
-        until("cara is prompted", || agents.drivers["cara"].prompts() == 1).await;
-    }
-    let _outer = send(&room, "ask").await;
-    until("bob is prompted", || agents.drivers["bob"].prompts() == 1).await;
-    // These are the actual delegated tools issued to B's side session for A.
-    let tools = lock(&agents.tools)["bob"].clone();
-    let nested = tokio::spawn(async move {
-        tools
-            .call(
-                "message_teammate",
-                &json!({"to":"cara", "message":"nested task", "intent":"handoff"}),
-            )
-            .await
-    });
-    until("the bob~cara request is at Running", || {
-        room.exchange_pair("bob~cara")
-            .is_some_and(|p| p.requests[0].phase == Phase::Running)
-    })
-    .await;
-    if active {
-        until("cara is prompted", || agents.drivers["cara"].prompts() == 1).await;
-    }
-    if expire_dependency_only {
-        // Stopping A-B revokes the scoped delegated authority without changing
-        // A's room epoch. B-C's running worker must notice that dependency too.
-        room.stop_exchange("ada", "bob").unwrap();
-    } else {
-        room.invalidate("ada").unwrap();
-    }
-    until("the bob~cara request is at Stopped", || {
-        room.exchange_pair("bob~cara").unwrap().requests[0].phase == Phase::Stopped
-    })
-    .await;
-    assert!(
-        tokio::time::timeout(Duration::from_secs(1), nested)
-            .await
-            .unwrap()
-            .unwrap()
-            .is_err()
-    );
-    if active {
-        assert!(agents.drivers["cara"].cancels() > 0);
-        until("cara's turn ends", || !room.mid_turn("cara")).await;
-    } else {
-        // The handoff had its own thread beside the person's turn, and
-        // stopping it closed that thread (this fake shares one driver between
-        // threads, so it cannot tell whose turn a cancel reached).
-        assert_eq!(room.sides("cara"), [] as [crate::contract::RunningSide; 0]);
-        agents.drivers["cara"].updates.add_permits(2);
-        until("cara's turn ends", || !room.mid_turn("cara")).await;
-    }
-}
-#[tokio::test]
-async fn three_party_revocation_refuses_a_handoff_waiting_behind_the_person() {
-    nested_handoff(false, false).await;
-}
-#[tokio::test]
-async fn three_party_revocation_cancels_only_the_active_handoff() {
-    nested_handoff(true, false).await;
-}
-#[tokio::test]
-async fn a_running_handoff_continuously_checks_its_scoped_dependency() {
-    nested_handoff(true, true).await;
-}
-
 #[tokio::test]
 async fn stop_at_twelfth_reply_invalidates_dispatched_result_without_cancelling_persons_turn() {
     let (room, agents) = controlled("stop-dispatched-result");
@@ -844,9 +776,12 @@ async fn stop_settles_pending_approval_and_the_next_request_does_not_wait_for_it
     );
 }
 
+/// The question's turn is the recipient's main conversation's: stopping the
+/// exchange while that conversation is still starting leaves its start alone,
+/// and the question is never taken up once it is up.
 #[tokio::test]
-async fn stop_during_uncached_peer_startup_never_executes_ask_and_releases_the_worker() {
-    let (room, agents) = controlled("stop-slow-peer-startup");
+async fn stop_during_the_recipients_startup_never_runs_the_ask_and_releases_the_worker() {
+    let (room, agents) = controlled("stop-slow-recipient-startup");
     agents.drivers["bob"].startup.forget_permits(100);
     let old = send(&room, "ask").await;
     until("bob's driver starts", || {
@@ -854,11 +789,6 @@ async fn stop_during_uncached_peer_startup_never_executes_ask_and_releases_the_w
     })
     .await;
     room.stop_exchange("ada", "bob").unwrap();
-    until("bob's driver is cancelled", || {
-        agents.drivers["bob"].cancels() > 0
-    })
-    .await;
-    assert_eq!(agents.drivers["bob"].prompts(), 0);
     assert_eq!(
         room.exchange_pair("ada~bob")
             .unwrap()
@@ -869,11 +799,23 @@ async fn stop_during_uncached_peer_startup_never_executes_ask_and_releases_the_w
             .phase,
         Phase::Stopped
     );
+    agents.drivers["bob"].startup.add_permits(1);
     until("no exchange worker is left", || {
         lock(&room.exchange_workers).is_empty()
     })
     .await;
-    agents.drivers["bob"].startup.add_permits(1);
+    until("bob's conversation is up and idle", || {
+        room.session("bob").is_ok() && !room.mid_turn("bob")
+    })
+    .await;
+    assert_eq!(agents.drivers["bob"].prompts(), 0);
+    assert_eq!(agents.drivers["bob"].cancels(), 0);
+    assert!(
+        room.tape("bob")
+            .iter()
+            .all(|v| v["cause"]["kind"] != "question"),
+        "a question stopped before it was handed over is not written"
+    );
     agents.drivers["bob"].updates.add_permits(10);
     agents.drivers["ada"].updates.add_permits(10);
     let next = send(&room, "ask").await;
@@ -887,7 +829,7 @@ async fn stop_during_uncached_peer_startup_never_executes_ask_and_releases_the_w
 async fn turn_admission_refuses_expired_dependency_before_the_worker_observes_it() {
     let (room, _) = setup("handoff-admission-lease");
     let origin = room.capability_lease("ada");
-    let delegated = room.capability_lease("bob").with_dependency(&origin);
+    let delegated = origin.scoped();
     seed(
         &room,
         saved_request("expired-at-admission", Intent::Handoff, Phase::Running),
@@ -899,7 +841,7 @@ async fn turn_admission_refuses_expired_dependency_before_the_worker_observes_it
         (delegated, room.capability_lease("bob")),
     );
     origin.revoke();
-    assert!(room.begin_handoff("expired-at-admission").is_err());
+    assert!(room.begin_request("expired-at-admission").is_err());
     assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].started);
 }
 
@@ -1248,7 +1190,7 @@ async fn a_human_answer_does_not_replace_collaboration_consent_after_restart() {
     let mut target = old.persona("bob").unwrap();
     target.allowed_senders.clear();
     crate::room::append_persona(&old.log, &target).unwrap();
-    old.forget_informed_collaboration("bob");
+    crate::session::consent::forget(&old.log, "bob");
     let mut caller = old.persona("ada").unwrap();
     caller.reach = Some(crate::contract::Reach::Workspace);
     crate::room::append_persona(&old.log, &caller).unwrap();
@@ -1504,4 +1446,193 @@ async fn a_saved_desk_handoff_cannot_recreate_a_live_calls_grant() {
     assert!(request.failed);
     assert!(request.reply.contains("lead grant has ended"));
     assert!(request.thread.is_none(), "no work thread was created");
+}
+
+#[tokio::test]
+async fn a_handoff_naming_its_thread_continues_it_and_one_without_opens_another() {
+    let (room, agents) = setup("handoff-continues");
+    room.allow_sender("bob", "ada").unwrap();
+    let first = hand_off(&room, "ada", "bob", "The password is hunter2.", None)
+        .await
+        .unwrap();
+    let first_id = first["requestId"].as_str().unwrap().to_string();
+    assert_eq!(first["thread"], first_id.as_str());
+    done(&room, &first_id).await;
+    let thread = work_thread(&room, &first_id);
+
+    let second = hand_off(
+        &room,
+        "ada",
+        "bob",
+        "Run the test with it.",
+        Some(&first_id),
+    )
+    .await
+    .unwrap();
+    let second_id = second["requestId"].as_str().unwrap().to_string();
+    assert_eq!(
+        second["thread"],
+        first_id.as_str(),
+        "a thread is named by the handoff that opened it"
+    );
+    done(&room, &second_id).await;
+    assert_eq!(work_thread(&room, &second_id), thread);
+    assert!(
+        lock(&agents.seeds)
+            .iter()
+            .any(|seed| format!("{seed:?}").contains("hunter2")),
+        "the thread came back with what was said in it"
+    );
+    // Any handoff that ran in a thread names it.
+    let third = hand_off(&room, "ada", "bob", "Clean up.", Some(&second_id))
+        .await
+        .unwrap();
+    let third_id = third["requestId"].as_str().unwrap().to_string();
+    assert_eq!(third["thread"], first_id.as_str());
+    done(&room, &third_id).await;
+    assert_eq!(work_thread(&room, &third_id), thread);
+
+    let other = hand_off(&room, "ada", "bob", "Something else.", None)
+        .await
+        .unwrap();
+    let other_id = other["requestId"].as_str().unwrap().to_string();
+    done(&room, &other_id).await;
+    assert_ne!(work_thread(&room, &other_id), thread);
+    // Each request still has its own result, back where it was sent from.
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    for id in [&first_id, &second_id, &third_id, &other_id] {
+        let results: Vec<_> = room
+            .tape("ada")
+            .into_iter()
+            .filter(|v| v["kind"] == "delivery" && v["cause"]["requestId"] == id.as_str())
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["cause"]["status"], "done");
+        assert_eq!(
+            results[0]["text"],
+            pair.requests.iter().find(|r| &r.id == id).unwrap().reply
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_follow_up_cut_off_by_a_restart_carries_on_in_its_thread() {
+    let (old, _) = setup("handoff-continues-restart");
+    old.allow_sender("bob", "ada").unwrap();
+    let first = hand_off(&old, "ada", "bob", "The password is hunter2.", None)
+        .await
+        .unwrap();
+    let first_id = first["requestId"].as_str().unwrap().to_string();
+    done(&old, &first_id).await;
+    let thread = work_thread(&old, &first_id);
+    // The desk stopped with a follow-up handed into the thread before its
+    // turn began: the thread's link still says live, on its stream and tape.
+    let stream = StreamId::Side(thread.clone());
+    let mut link = old
+        .log
+        .load(&stream)
+        .into_iter()
+        .find(|v| v["kind"] == "link")
+        .unwrap();
+    link["state"] = json!("live");
+    for ended in ["end", "at", "outcome"] {
+        link.as_object_mut().unwrap().remove(ended);
+    }
+    old.log.append(&stream, &link).unwrap();
+    old.log
+        .append(&StreamId::Tape("bob".into()), &link)
+        .unwrap();
+    let mut pair = old.exchange_pair("ada~bob").unwrap();
+    let mut follow_up = saved_request("cut-off", Intent::Handoff, Phase::Running);
+    follow_up.request_counted = true;
+    follow_up.thread = Some(thread.clone());
+    follow_up.continues = Some(first_id);
+    pair.requests.push(follow_up);
+    old.save_pair(&pair).unwrap();
+    let log = old.log.clone();
+    drop(old);
+
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "a".into(),
+                text: "picked it up".into(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            },
+        ])),
+    );
+    room.recover_queued_exchanges();
+    done(&room, "cut-off").await;
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    let request = pair.requests.iter().find(|r| r.id == "cut-off").unwrap();
+    assert!(!request.failed, "{}", request.reply);
+    assert_eq!(request.thread.as_deref(), Some(thread.as_str()));
+}
+
+#[tokio::test]
+async fn only_the_teammate_that_opened_a_thread_continues_it() {
+    let log = scratch("handoff-continue-refused");
+    for id in ["ada", "bob", "cara"] {
+        enrol(&log, &persona(id));
+    }
+    let room = Room::with_agents(log, Arc::new(DeskKeys), Fake::new(Scripted::new(vec![])));
+    for (to, from) in [("bob", "ada"), ("cara", "ada"), ("bob", "cara")] {
+        room.allow_sender(to, from).unwrap();
+    }
+    let first = hand_off(&room, "ada", "bob", "Fix the build.", None)
+        .await
+        .unwrap();
+    let first_id = first["requestId"].as_str().unwrap().to_string();
+    for (from, to, thread) in [
+        ("cara", "bob", first_id.as_str()),
+        ("ada", "cara", first_id.as_str()),
+        ("ada", "bob", "no-such-request"),
+    ] {
+        let refused = hand_off(&room, from, to, "Carry on.", Some(thread)).await;
+        assert!(refused.is_err(), "{from} to {to} in {thread}");
+    }
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    assert_eq!(pair.requests.len(), 1, "nothing refused was queued");
+}
+
+#[tokio::test]
+async fn a_handoff_at_work_holds_up_nothing_else_between_the_two() {
+    let (room, agents) = controlled("handoff-holds-up-nothing");
+    room.allow_sender("bob", "ada").unwrap();
+    let handoff = send(&room, "handoff").await;
+    until("bob is at work on it", || {
+        agents.drivers["bob"].prompts() == 1
+    })
+    .await;
+    agents.drivers["ada"].updates.add_permits(10);
+    let asked = TeammateTools::new(&room, "bob")
+        .call(
+            "message_teammate",
+            &json!({"to":"ada","message":"Which branch?","intent":"ask"}),
+        )
+        .await
+        .unwrap();
+    let asked = serde_json::from_str::<serde_json::Value>(&asked).unwrap()["requestId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    done(&room, &asked).await;
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    assert_eq!(
+        pair.requests
+            .iter()
+            .find(|r| r.id == handoff)
+            .unwrap()
+            .phase,
+        Phase::Running,
+        "the handoff was still at work when the ask was answered"
+    );
+    agents.drivers["bob"].updates.add_permits(10);
+    done(&room, &handoff).await;
 }

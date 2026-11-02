@@ -1,4 +1,5 @@
 import type {
+	Aside,
 	BackendChoice,
 	CatalogModel,
 	ChapterSummary,
@@ -21,6 +22,7 @@ import type {
 	HostBrowser,
 	CapabilityOptions,
 	ImagesStatus,
+	InboundSource,
 	LinkPreview,
 	LoginPrompt,
 	LoginStatus,
@@ -252,7 +254,6 @@ type Results = {
 	"side.answer_permission": null;
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
-	"peers.answer_permission": null;
 	/** What this core can do for the seat; declares `threads2` when it names it. */
 	"client.hello": { capabilities: string[] };
 	/** Every kind of thread as one list: live first, then parked, then closed. */
@@ -268,6 +269,17 @@ type Results = {
 	"thread.answer": null;
 	/** Older lines of any thread than its window, oldest first. */
 	"thread.page": { events: TranscriptEvent[]; more: boolean };
+	/** What a teammate's threads told it without telling the person, newest first. */
+	"aside.list": Aside[];
+	/** The person has seen them: the row's `asidesNew` goes. */
+	"aside.seen": null;
+	/** The colleague has its nudge, and its one answer is on its way. */
+	"thread.loop_in": null;
+	/** The desk's inbound sources, oldest first. */
+	"inbound.list": InboundSource[];
+	"inbound.add": InboundSource;
+	"inbound.update": InboundSource;
+	"inbound.remove": null;
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;

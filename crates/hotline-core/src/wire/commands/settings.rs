@@ -4,6 +4,7 @@ use super::{append, now};
 use crate::contract::WebSearchProvider;
 use crate::log::Log;
 use crate::room;
+use crate::session::consent;
 use crate::wire::RoomHandle;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
@@ -63,8 +64,7 @@ pub(super) async fn apply_update(
             }
         }
     }
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
+    let held = room.policy_update_lock().lock_owned().await;
     if let Some(value) = patch.get_mut("mcpServers")
         && !value.is_null()
     {
@@ -72,15 +72,14 @@ pub(super) async fn apply_update(
     }
     let servers = patch.contains_key("mcpServers");
     let cookie_offers = patch.contains_key("cookieOffers");
+    let before = server_ids(log);
     if servers {
         room.invalidate_all()?;
     }
     let updated = update_settings(log, patch)?;
-    if cookie_offers {
-        room.cookie_offer_settings_changed().await?;
-    }
     if servers {
         forget_removed_servers(log)?;
+        clear_consent_for_new_servers(log, &before)?;
         // Replacing or deleting legacy sources also removes their
         // superseded plaintext values from the room's history.
         log.migrate_mcp_settings(|value| {
@@ -88,6 +87,16 @@ pub(super) async fn apply_update(
                 .map_err(std::io::Error::other)
         })
         .map_err(|error| error.to_string())?;
+    }
+    // The invalidate and every durable append are done; let go of the policy
+    // lock before the reattach, which takes each teammate's start gate. The
+    // one order is `start_gate -> policy_update_lock`, so a message closing a
+    // chapter under the start gate cannot deadlock against this.
+    drop(held);
+    if cookie_offers {
+        room.cookie_offer_settings_changed().await?;
+    }
+    if servers {
         room.reattach_all().await?;
     }
     Ok(updated)
@@ -139,7 +148,7 @@ pub(super) fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Va
 }
 
 /// The ids of the room's tool sources, as settings hold them now.
-fn server_ids(log: &Log) -> Vec<String> {
+pub(super) fn server_ids(log: &Log) -> Vec<String> {
     room::settings(log)
         .get("mcpServers")
         .and_then(Value::as_array)
@@ -147,6 +156,21 @@ fn server_ids(log: &Log) -> Vec<String> {
         .flatten()
         .filter_map(|server| server["id"].as_str().map(String::from))
         .collect()
+}
+
+/// A server added to the desk reaches every teammate whose policy grants all
+/// of them, which takes away the person's standing consent to hand each of
+/// those work (see [`consent`]).
+fn clear_consent_for_new_servers(log: &Log, before: &[String]) -> Result<(), String> {
+    let after = server_ids(log);
+    for mut persona in room::roster(log) {
+        if let Some(why) = consent::widened(&persona, &persona, before, &after) {
+            consent::clear(log, &mut persona, why)?;
+            persona.updated_at = now();
+            room::append_persona(log, &persona)?;
+        }
+    }
+    Ok(())
 }
 
 /// A tool source removed from settings leaves every teammate's grant with

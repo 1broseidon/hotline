@@ -32,6 +32,7 @@
 //! work before a live session is rebuilt.
 
 mod agent;
+mod asides;
 mod asking;
 pub(crate) mod avatar;
 mod call_cards;
@@ -42,7 +43,10 @@ mod dm;
 mod driver_info;
 pub(crate) mod exchanges;
 pub(crate) mod files;
+pub(crate) mod files_between;
 pub(crate) mod generate;
+mod inbound;
+mod index;
 mod job_thread;
 pub(crate) mod jobs;
 pub(crate) use hotline_room::tool_ledger as ledger;
@@ -57,6 +61,7 @@ mod person_name;
 mod plan;
 mod post;
 mod preamble;
+pub(crate) use asides::{ASIDE_CHARS, Leaving};
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::preamble;
 
@@ -73,6 +78,7 @@ pub(crate) fn events_of_updates(
         .collect()
 }
 pub(crate) mod capture;
+pub(crate) mod consent;
 mod cookie_offers;
 #[cfg(all(test, unix))]
 pub(crate) use cookie_offers::NOT_NOW_QUIET_MS;
@@ -88,7 +94,6 @@ mod stopping;
 mod threads;
 mod turns;
 mod web_search;
-use asking::HumanWait;
 use chapters::sweep_idle_chapters;
 use computer::{ComputerSetup, ComputerSwap};
 use driver_info::follow_model_changes;
@@ -166,8 +171,7 @@ const SWEEP_EVERY: Duration = Duration::from_secs(60);
 /// While a turn is running at the idle mark, look again after this long.
 const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 
-/// How long a `request_human` card waits for the person. Tests pass a
-/// shorter deadline; the tool uses this.
+/// How long a collaboration card waits for the person before it expires.
 pub const HUMAN_DEADLINE: Duration = Duration::from_mins(10);
 
 /// How long a `request_human` card that delivers stays up unanswered before
@@ -506,6 +510,12 @@ struct Session {
     info: Mutex<SessionInfo>,
     /// Queued lines and the claim on the active driver share one lock.
     turns: Mutex<Turns>,
+    /// An MCP sign-in completed while this session ran, and it is rebuilt to
+    /// connect with it once its turn is over.
+    rebuild_for_sign_in: std::sync::atomic::AtomicBool,
+    /// The person's Stop or Interrupt of the turn in flight, which decides
+    /// what becomes of a colleague's question it was answering.
+    cut: Mutex<Option<exchanges::Cut>>,
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
@@ -538,6 +548,9 @@ struct Session {
     /// restored from a checkpoint has nothing to write: the id is already on
     /// the record.
     pending_checkpoint: Mutex<Option<String>>,
+    /// The thread index this session's agent was last told
+    /// (`session/index.rs`). A new chapter is a new session, told it whole.
+    indexed: index::Seen,
 }
 
 /// Pacing keeps this ID on the first bubble, while narration needs the full reply.
@@ -608,6 +621,11 @@ struct Wired {
     /// The person's Retry of the turn that failed on this line: the driver
     /// runs it again rather than taking a new line.
     retry: bool,
+    /// The line only wakes the agent to hear the asides left for it, and is
+    /// skipped at the door when a turn before it has heard them.
+    wake: bool,
+    /// The colleague's question this line's turn answers.
+    request: Option<turns::RequestLine>,
 }
 
 /// The call a queued line came from, if it came from one: the thread it says
@@ -633,6 +651,8 @@ impl Wired {
             spoken: false,
             unprompted: None,
             retry: false,
+            wake: false,
+            request: None,
         }
     }
 
@@ -721,14 +741,10 @@ pub struct Room {
     /// fire never holds this across its session start or prompt: it takes the
     /// lock only when it is ready to re-fold and append the next durable word.
     schedule_mutations: Mutex<()>,
-    /// The sessions teammates answer each other out of.
+    /// The collaboration grants, and the cards waiting to give one.
     peers: peers::Peers,
     /// The side threads that are live: second conversations with a teammate.
     sides: sides::Sides,
-    /// A `request_human` wait, by the card's action id. The tool parks on
-    /// the oneshot; the person's answer, the deadline, or a settle (session
-    /// stop, room restart) is what sends.
-    human_waits: Mutex<HashMap<String, HumanWait>>,
     voice_questions: Mutex<HashMap<String, asking::Question>>,
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
@@ -738,8 +754,16 @@ pub struct Room {
     links: Arc<crate::linked::Links>,
     /// Serializes each durable exchange queue and its pair-wide brake.
     exchange_lock: Mutex<()>,
+    /// Held while asides are heard, so two turns of one teammate starting
+    /// together never both take the same one; and while an inbound source's
+    /// hour is counted and one more aside kept, or a wake counted on its
+    /// brake (`session/inbound.rs`).
+    asides_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
+    /// Requests being taken up on a task of their own, by id: each may wait
+    /// on the person's first-contact card while its pair's others go on.
+    exchange_admitting: Mutex<HashSet<String>>,
     /// Who is driving each teammate's computer: one thread at a time, whichever
     /// of the teammate's threads asked first (`computer/gate.rs`).
     computer_leases: Arc<crate::computer::gate::Leases>,
@@ -888,13 +912,14 @@ impl Room {
             schedule_mutations: Mutex::new(()),
             peers: peers::Peers::default(),
             sides: sides::Sides::default(),
-            human_waits: Mutex::new(HashMap::new()),
             voice_questions: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
+            asides_lock: Mutex::new(()),
             exchange_workers: Mutex::new(HashSet::default()),
             exchange_leases: Mutex::new(HashMap::default()),
+            exchange_admitting: Mutex::new(HashSet::default()),
             computer_leases: crate::computer::gate::Leases::new(),
             push,
             computers,
@@ -971,8 +996,15 @@ impl Room {
     }
 
     /// The room-wide gate used by the wire around policy updates. A caller
-    /// holds it across invalidate, the log append, and reattach so another
-    /// socket cannot reactivate a generation between those steps.
+    /// holds it across the invalidate and the durable log append, so another
+    /// socket cannot reactivate a generation between those steps, then lets it
+    /// go before the reattach or rebuild that starts the new generation: those
+    /// take each teammate's start gate, and the one lock order is
+    /// `start_gate -> policy_update_lock` (see [`Room::in_this_chapter`], whose
+    /// chapter close takes the policy lock while holding the start gate).
+    /// [`Room::reattach_held`] runs under the start gate and takes this lock
+    /// for its own invalidate and epoch activation, so a reattach cannot start
+    /// a change another update is still half-writing.
     pub(crate) fn policy_update_lock(&self) -> Arc<TokioMutex<()>> {
         self.policy_updates.clone()
     }
@@ -1321,10 +1353,7 @@ impl Room {
             && event["from"]["kind"] == "call"
             && let Some(key) = event["from"]["thread"].as_str()
         {
-            let thread = ThreadId {
-                kind: crate::contract::ThreadKind::Call,
-                key: key.to_string(),
-            };
+            let thread = ThreadId::new(crate::contract::ThreadKind::Call, key.to_string());
             let stream = StreamId::of_thread(&thread).expect("a call has a stream");
             self.log.append(&stream, event)?;
         }

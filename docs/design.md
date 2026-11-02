@@ -179,8 +179,9 @@ resolves vault connections and their discovery/manual records once per request,
 using one room snapshot for credentials and enabled models. No secret survives
 in a listing cache. Thread listing scans the side and pair directories once,
 reads each selected tape once, and asks the shared fold for thread links without
-copying unrelated side histories. Pair working state comes from live sessions,
-not from rebuilding the peer history list.
+copying unrelated side histories. A pair's thread has no agent of its own: its
+summary names the teammate answering one of its questions, from the room's
+record of its requests, and the list reads it as live from that record.
 
 ### 2. A wire of commands and subscriptions
 
@@ -529,7 +530,7 @@ caller and recipient and offers a session grant, a standing sender grant, or
 denial. A standing grant is an `allowedSenders` id on the recipient; it
 survives rename and restart, while a session grant is tied to both live
 capability leases and expires on session or chapter replacement. Revocation
-clears waits, queued work and cached peer sessions. An authorized reply does
+clears waits, queued work and temporary grants. An authorized reply does
 not grant the reverse direction or any third party.
 
 A card a teammate raised to ask the person is the teammate's to take back.
@@ -1078,12 +1079,24 @@ is read-only reference and is not modified by work here.
 
 ### Teammate messages: ask or hand off
 
-`message_teammate(to, message, intent)` defaults to `ask`: a bounded answer or
-review in a side session with none of the recipient's main conversation. Ask
-is not tool-free: the recipient uses its own workspace and granted tools.
+`message_teammate(to, message, intent)` defaults to `ask`: an answer or review
+from where the memory is (decision 1 of
+[design/thread-awareness.md](design/thread-awareness.md)): the recipient's main
+conversation when it is idle, else a work thread of the recipient's, seeded
+with what that conversation knows, which answers at once and leaves it an
+aside saying what it answered. There is no session of the pair's own. Ask is
+not tool-free: the recipient uses its own workspace and granted tools.
 `handoff` opens a work thread of the recipient's own, which starts from its
 main conversation's context, to implement or continue work there; the main
 conversation is never interrupted by it.
+The handoff's request id names that thread to its sender, the way an agent's
+id does in Claude Code. A later handoff that passes it as `thread` lands in the
+same thread, behind any turn in flight there, and the recipient takes it up
+with everything said in the thread before; a handoff without `thread` opens a
+new one. Asking the sender to choose, rather than guessing from timing or
+topic, keeps a colleague's unrelated work out of a thread and a follow-up out
+of a fresh one. Only the teammate that opened a thread on that recipient
+continues it; an ask that passes it is answered in that thread.
 The recipient never silently promotes an Ask. Neither intent overrides the
 person or expands the recipient's permissions.
 
@@ -1102,6 +1115,19 @@ intents, pause the pair. Receipts do not count. Queued requests and completed
 results wait without loss. The person's Keep going resets the counter; Stop
 exchange settles outstanding work and writes an explicit notice. Hearing from
 the person also resets the pair. These actions do not create new grants.
+A handoff stands until Stop exchange, a revocation or an unlink releases it,
+its result back or not, and its thread's link says when it no longer does
+(`handoffEnded`): the window shows only that, never inferring it. The request's
+`released` and the link's `handoffEnded` are optional and left out while
+false, so a record or a link without them, the reference tree's included, is a
+handoff that stands, and the segment layout and the importer are unchanged.
+
+The queue is not single file. Each time the pair is looked at, every request
+goes as far as it can, so a handoff at work in its thread, or one waiting on
+the person or on a linked desk, holds up nothing behind it, in either
+direction. Neither does a request still being taken up, which may wait on the
+person's first-contact card: it waits on a task of its own. Asks still take
+turns on the pair's thread: one waits while another is taken up or answered.
 
 Restart recovery preserves paused queues and completed results. Work known to
 have started is not blindly replayed: an interrupted turn returns an explicit
@@ -1122,6 +1148,28 @@ answer even if the desk stopped before dispatch. Starting that continuation
 is recorded before calling the driver, so an interrupted continuation is still
 uncertain work, never a replay. Old requests without action ids retain the old
 settlement rules; no route is guessed from conversation text.
+
+A request ends only when someone ends it: Stop exchange, or a revocation of
+either teammate (a policy change, a stop or a removal). A chapter turning over
+or reopened, and a rebuild of the main session for what changes the session
+and not what the teammate may do (its computer joining or made again, an MCP
+sign-in completing, each between turns), leave it standing, so its result
+still comes back (decided with Kelviny Moura's #203, 2026-10-30; before, any
+of these ended every request the teammate had sent or been given). Its leases
+are each teammate's lasting authority: `CapabilityEpoch` keeps an `authority`
+beside its `generation`, a swap or rebuild advances the generation only, and a
+stop or a policy update advances both. A sign-out, a server removed and a
+policy change narrow reach and still revoke.
+
+The person's "Always allow" is consent, not a session's authority, so no
+reattach, restart or sign-out ends it (decided 2026-10-30, task-316; before,
+every reattach tombstoned it and the next restart asked again while the
+settings still said Always). Only the recipient's access growing clears it,
+because the work agreed to could then do more than the person agreed to:
+reach to the whole machine, a new workspace, a folder or mount added or made
+writable, a secret given to its computer, its computer turned on, or an MCP
+server granted. Clearing takes the caller off `allowedSenders` as well, and
+the next card names what grew.
 
 ### The team lead
 

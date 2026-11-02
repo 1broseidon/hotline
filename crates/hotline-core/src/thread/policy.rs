@@ -84,8 +84,6 @@ pub enum Tools {
     /// asks and is answered lands there, and it can end itself with its
     /// report.
     Job,
-    /// What a peer session answers a colleague with.
-    Peer,
     /// None: the thread has no agent of its own.
     None,
 }
@@ -121,7 +119,7 @@ pub enum Restart {
 /// back after lunch.
 pub const SIDE_IDLE_MS: i64 = 3 * 60 * 60_000;
 
-/// How long a peer session or a call may go quiet.
+/// How long a job's agent or a call may go quiet.
 pub const QUIET_MS: i64 = 10 * 60_000;
 
 /// How a thread's authority derives from the one it hangs off. Never wider.
@@ -199,20 +197,10 @@ impl Policy {
                 resume: Resume::Binding,
                 ..Self::asked_of_the_person()
             },
-            ThreadKind::Pair => Self {
-                tools: Tools::Peer,
-                lease: Lease::Scoped,
-                seed: Seed {
-                    parent_tail: false,
-                    own_history: true,
-                    chapters: false,
-                },
-                computer: Computer::Lease,
-                resume: Resume::Binding,
-                idle: Idle::Park(QUIET_MS),
-                restart: Restart::Park,
-                ..Self::asked_of_the_person()
-            },
+            // What two teammates said to each other: a colleague's question
+            // is answered in the recipient's own conversations, so the pair's
+            // thread has no agent.
+            ThreadKind::Pair => Self::asked_of_the_person(),
             ThreadKind::Call => Self {
                 idle: Idle::Park(30_000),
                 ..Self::of(ThreadKind::Side)

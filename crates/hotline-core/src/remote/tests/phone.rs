@@ -426,7 +426,8 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
             "lean",
             "thumbnails",
             "turnRetry",
-            "agentSwitch"
+            "agentSwitch",
+            "asides"
         ])
     );
 

@@ -66,11 +66,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn federation_roster_entries(&self) -> Vec<hotline_contract::LinkedTeammate> {
         Vec::new()
     }
-    /// A linked desk published its teammates.
+    /// A linked desk published its teammates, and what it takes.
     fn federation_roster(
         &self,
         _desk_id: &str,
         _teammates: Vec<hotline_contract::LinkedTeammate>,
+        _features: Vec<String>,
     ) -> Result<(), String> {
         Err(NOT_LINKED.into())
     }
@@ -148,7 +149,8 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     /// Revokes existing execution before a new policy is written to the log.
     fn invalidate(&self, persona_id: &str) -> Result<(), String>;
-    /// A gateway change revokes every session, including cached peer sessions.
+    /// A gateway change revokes every session, with every teammate's threads,
+    /// job agents and exchanges.
     fn invalidate_all(&self) -> Result<(), String>;
     /// Rebuilds a live session from the teammate's current record.
     async fn reattach(&self, persona_id: &str) -> Result<(), String>;
@@ -162,6 +164,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         attachments: Option<Vec<hotline_contract::Attachment>>,
     ) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
+    /// Cuts the main conversation's turn for the person to say something
+    /// instead: an answer it was giving a colleague ends as interrupted,
+    /// never as their stop. A room that tells no Interrupt apart stops it.
+    fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        self.cancel(persona_id)
+    }
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
     async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String>;
     async fn set_config(
@@ -265,6 +273,29 @@ pub trait RoomHandle: Send + Sync + 'static {
         false
     }
 
+    /// How many asides this teammate has been left that it has not heard,
+    /// for the roster row.
+    fn asides_unheard(&self, _persona_id: &str) -> usize {
+        0
+    }
+
+    /// How many of this teammate's asides the person has not seen on its
+    /// Noted page, for the roster row.
+    fn asides_unseen(&self, _persona_id: &str) -> usize {
+        0
+    }
+
+    /// The person has seen this teammate's asides.
+    fn asides_seen(&self, _persona_id: &str) -> Result<(), String> {
+        Err("Asides are unavailable on this room.".to_string())
+    }
+
+    /// Loops a colleague into a work thread: a nudge aside, and one answer
+    /// written in the thread.
+    async fn side_loop_in(&self, _side_id: &str, _persona_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
     /// Starts a side thread: a second conversation with this teammate.
     async fn side_start(
         &self,
@@ -287,6 +318,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
 
     fn side_cancel(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    /// Cuts a work thread's turn for the person to say something instead:
+    /// the work the turn was doing goes on in the next one.
+    fn side_interrupt(&self, _side_id: &str) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
@@ -343,15 +380,6 @@ pub trait RoomHandle: Send + Sync + 'static {
         _option_id: &str,
     ) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
-    }
-
-    async fn peers_answer_permission(
-        &self,
-        _key: &str,
-        _request_id: &str,
-        _option_id: &str,
-    ) -> Result<(), String> {
-        Err("Peer threads are unavailable on this room.".to_string())
     }
 
     /// Text as an agent writes it, for a tape subscription to forward. Never
@@ -487,8 +515,9 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Manual model IDs are unavailable on this room.".into())
     }
 
-    /// A teammate is gone: its agent is stopped, every peer session it was a
-    /// side of is dropped, and nothing is kept for its id.
+    /// A teammate is gone: its agent, its threads and its jobs' agents are
+    /// stopped, every exchange it was a side of is stopped, and nothing is
+    /// kept for its id.
     fn forget(&self, persona_id: &str);
 
     /// Test harnesses without a runtime return conservative, explicit defaults.

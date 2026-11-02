@@ -33,6 +33,14 @@ const KIND: &str = "desk_link";
 /// The most teammates one linked desk may publish.
 const TEAMMATES_MAX: usize = 200;
 
+/// What of the link's traffic this desk takes beyond requests and their
+/// answers, said in the roster that opens every channel: `asides`, the
+/// `aside` delivery. A desk older than this says nothing, and is sent none.
+pub const FEATURES: &[&str] = &["asides"];
+
+/// The one feature asides cross a link under.
+pub const ASIDES: &str = "asides";
+
 /// One linked desk, as the room stream keeps it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,6 +293,9 @@ struct Peer {
     cancel: CancellationToken,
     live: Option<Live>,
     roster: Option<Vec<LinkedTeammate>>,
+    /// What the other desk said it takes, in the roster that opened the
+    /// channel that is open now.
+    features: Vec<String>,
     error: Option<String>,
     /// When its teammates' names were last written to the link's record.
     names_saved: Option<std::time::Instant>,
@@ -400,6 +411,7 @@ impl Links {
             // What it published was live; while it is away it is offline.
             peer.live = None;
             peer.roster = None;
+            peer.features.clear();
         }
         peer.error = error;
     }
@@ -459,8 +471,23 @@ impl Links {
             .spend(std::time::Instant::now())
     }
 
-    pub fn set_roster(&self, desk_id: &str, roster: Vec<LinkedTeammate>) {
-        self.peers().entry(desk_id.to_string()).or_default().roster = Some(roster);
+    pub fn set_roster(&self, desk_id: &str, roster: Vec<LinkedTeammate>, features: Vec<String>) {
+        let mut peers = self.peers();
+        let peer = peers.entry(desk_id.to_string()).or_default();
+        peer.roster = Some(roster);
+        peer.features = features;
+    }
+
+    /// Whether the other desk takes `feature`, as the roster that opened
+    /// the channel open now said: none while no channel is open or its
+    /// roster has not come yet, since only that says it, and then whether
+    /// it named the feature. A desk older than features names none.
+    pub fn takes(&self, desk_id: &str, feature: &str) -> Option<bool> {
+        let peers = self.peers();
+        let peer = peers.get(desk_id)?;
+        peer.live.as_ref()?;
+        peer.roster.as_ref()?;
+        Some(peer.features.iter().any(|said| said == feature))
     }
 
     /// This desk's rows, each made again only when what it is made from

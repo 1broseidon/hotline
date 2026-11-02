@@ -38,6 +38,7 @@ import { CookieOfferCard } from "./transcript/CookieOfferCard";
 import { SecretUseAsk } from "./transcript/SecretUseAsk";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
 import { ComputerFrame } from "./transcript/ComputerFrame";
+import { AnswerUnderFace, AsideLine } from "./transcript/AsideLine";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -95,6 +96,7 @@ export function Transcript({
 	live,
 	cornered = false,
 	workingCalls,
+	workingSides,
 	focus,
 	speakers,
 	onReply,
@@ -134,6 +136,8 @@ export function Transcript({
 	cornered?: boolean;
 	/** Call thread IDs with a turn in flight, from the roster. */
 	workingCalls?: readonly string[] | undefined;
+	/** Work thread IDs running a turn or with a line waiting for one, from the roster. */
+	workingSides?: readonly string[] | undefined;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
@@ -209,6 +213,8 @@ export function Transcript({
 		return lines;
 	}, [events]);
 	const answered = useMemo(() => superseded(events), [events]);
+	/* Who the person looped in here: their answers are said whole, under their faces. */
+	const looped = useMemo(() => new Set(events.flatMap((event) => (event.kind === "aside" && event.loopedIn === true ? [event.to] : []))), [events]);
 	const reacted = useMemo(() => foldReactions(events), [events]);
 	const written = useMemo(() => toBlocks(heardOnce(events, thread?.kind === "call"), thread?.kind === "call"), [events, thread?.kind]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
@@ -380,7 +386,7 @@ export function Transcript({
 				),
 		),
 	)), [arrived, hidden, answered, reacted, onOpenThreads, personaId]);
-	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId), [onOpenThreads, events, personaId]);
+	const underway = useMemo(() => onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId, workingSides ?? []), [onOpenThreads, events, personaId, workingSides]);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -463,6 +469,7 @@ export function Transcript({
 									ownerName={name}
 									event={block.event}
 									working={block.event.kind === "link" && block.event.threadKind === "call" && (workingCalls?.includes(block.event.thread) ?? false)}
+									loopedIn={block.event.kind === "delivery" && block.event.cause.kind === "peer" && looped.has(block.event.cause.personaId)}
 									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
 									top={run.top}
 									bottom={run.bottom}
@@ -553,6 +560,7 @@ const Row = memo(function Row({
 	ownerName,
 	event,
 	working,
+	loopedIn,
 	quote,
 	top,
 	bottom,
@@ -574,6 +582,8 @@ const Row = memo(function Row({
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
 	working: boolean;
+	/** A delivery from a colleague the person looped into this thread: its one answer. */
+	loopedIn: boolean;
 	/** What the message this one replies to said, when it is on the tape. */
 	quote: string | undefined;
 	top: boolean;
@@ -620,7 +630,8 @@ const Row = memo(function Row({
 	}
 	switch (event.kind) {
 		case "user":
-			if (thread.kind === "call") return <>
+			// Only a pair's user lines are a teammate's; a call, and a thread a teammate handed over, are spoken in by the person.
+			if (thread.kind === "call" || (thread.kind === "side" && speakers !== undefined)) return <>
                 <p className="said-name text-right">You</p>
                 <UserBubble personaId={personaId} event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
             </>;
@@ -746,20 +757,25 @@ const Row = memo(function Row({
 
 		/* A colleague's answer or handoff, in their voice: their face, their
 		 * name and the start of what they said, hung under the row before
-		 * it. It opens the originating thread, with the handoff's request and
-		 * reply route. Your own answer never gets here: it is on its card. */
+		 * it. A result from a work thread opens that thread; any other opens
+		 * the pair's, with the handoff's request and reply route. Your own
+		 * answer never gets here: it is on its card. */
 		case "delivery": {
 			const cause = event.cause;
 			const line = deliveryLine(event);
 			if (cause.kind === "answer" || line === null) return null;
 			// Where both sides are named, a colleague's words are the conversation: said whole, in their voice.
 			if (speakers !== undefined) return <NamedSay name={cause.name} mine={false} text={event.text} />;
+			if (loopedIn && cause.kind === "peer") return <AnswerUnderFace cause={cause} text={event.text} ts={event.ts} people={people} />;
 			return (
 				<button
 					type="button"
 					className="hung-line"
 					data-missed={deliveryMissed(event) || undefined}
-					onClick={() => onOpenThread?.({
+					onClick={() => onOpenThread?.(event.from?.kind === "side" ? {
+						thread: { kind: "side", key: event.from.thread },
+						...(cause.about !== "" ? { title: cause.about } : {}),
+					} : {
 						thread: { kind: "pair", key: cause.threadKey },
 						withName: cause.name,
 						...(cause.kind === "handoff" ? { handoff: cause } : {}),
@@ -797,6 +813,9 @@ const Row = memo(function Row({
 		case "subagent":
 		case "call":
 			return null;
+
+		case "aside":
+			return <AsideLine aside={event} personaId={personaId} here={thread} people={people} onOpenThread={onOpenThread} />;
 
 		case "computer_frame":
 			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;

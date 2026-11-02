@@ -71,14 +71,18 @@ export function handedIn(link: LinkEvent, owner: string): boolean {
 }
 
 /**
- * What colleagues have handed this teammate that is not finished yet, from
+ * What colleagues have handed this teammate that it is working on now, from
  * the newest line of each, and who handed it: the one line the person's
- * conversation keeps for all of them.
+ * conversation keeps for all of them. `working` is the roster's word on which
+ * of its work threads run a turn or have a line waiting for one: a thread
+ * that is only open, as Continue leaves it, is not being worked on. A handoff
+ * the core recorded as no longer standing is not one the teammate works on
+ * for anybody.
  */
-export function handoffsUnderway(events: readonly TranscriptEvent[], owner: string): { count: number; from: string[] } {
+export function handoffsUnderway(events: readonly TranscriptEvent[], owner: string, working: readonly string[]): { count: number; from: string[] } {
 	const newest = new Map<string, LinkEvent>();
 	for (const event of events) if (event.kind === "link" && handedIn(event, owner)) newest.set(event.id, event);
-	const open = [...newest.values()].filter((link) => link.state !== "closed");
+	const open = [...newest.values()].filter((link) => link.state !== "closed" && link.handoffEnded !== true && working.includes(link.thread));
 	const from = [...new Set(open.map((link) => link.openerName ?? "a teammate"))];
 	return { count: open.length, from };
 }

@@ -439,6 +439,21 @@ fn work_result(event: &Value) -> Option<Value> {
     )
 }
 
+/// An aside is found by its words, as something said to or by the teammate,
+/// on its teammate's own stream and on the thread it was left from alike.
+fn aside_line(event: &Value) -> Option<Value> {
+    let aside = crate::asides::read(event)?;
+    Some(serde_json::json!({
+        "kind": "agent",
+        "id": aside.id,
+        "ts": aside.ts,
+        "text": match &aside.source_name {
+            Some(source) => format!("Aside from {source} (outside Hotline): {}", aside.text),
+            None => format!("Aside: {}", aside.text),
+        },
+    }))
+}
+
 fn index_message(
     database: &Connection,
     persona_id: &str,
@@ -446,7 +461,9 @@ fn index_message(
     thread: Option<&str>,
     event: &Value,
 ) -> rusqlite::Result<()> {
-    let synthetic = side_line(event).or_else(|| work_result(event));
+    let synthetic = side_line(event)
+        .or_else(|| work_result(event))
+        .or_else(|| aside_line(event));
     let replaces = synthetic.is_some();
     let event = synthetic.as_ref().unwrap_or(event);
     let kind = event
@@ -569,21 +586,10 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
     Ok(())
 }
 
-/// The side threads, runs and calls a teammate's tape carries a link for, and
-/// the pair threads it carries a marker for. A job's thread has no line on
-/// the tape: see [`jobs_of`].
+/// The side threads, runs and calls a teammate's tape carries a link for. A
+/// pair's thread and a job's have no line of their own on the tape: see
+/// [`pairs_of`] and [`jobs_of`].
 fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
-    let pairs = events
-        .iter()
-        .filter(|event| event.get("kind").and_then(Value::as_str) == Some("peer"))
-        .filter_map(|event| event.get("threadKey").and_then(Value::as_str))
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .map(ThreadId::pair)
-        .filter_map(|thread| {
-            let stream = StreamId::of_thread(&thread)?;
-            Some((thread, stream))
-        });
     events
         .iter()
         .filter_map(Link::read)
@@ -597,7 +603,14 @@ fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
             let stream = StreamId::of_thread(&link.thread)?;
             Some((link.thread, stream))
         })
-        .chain(pairs)
+        .collect()
+}
+
+/// The pair threads a teammate is one side of, as their files name them.
+fn pairs_of(log: &Log, persona_id: &str) -> Vec<(ThreadId, StreamId)> {
+    crate::log::thread::keys_for(log.root(), persona_id)
+        .into_iter()
+        .map(|key| (ThreadId::pair(&key), StreamId::Pair(key)))
         .collect()
 }
 
@@ -621,7 +634,7 @@ fn jobs_of(log: &Log, persona_id: &str) -> Vec<(ThreadId, StreamId)> {
 fn said_in_thread(event: &Value) -> bool {
     matches!(
         event.get("kind").and_then(Value::as_str),
-        Some("user" | "agent")
+        Some("user" | "agent" | "aside")
     ) || event["toolKind"] == "work_result"
 }
 
@@ -662,11 +675,12 @@ fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Resu
             index_message(database, persona_id, id, None, event)?;
         }
     }
-    // The threads the tape holds a marker for, and the teammate's jobs, come
-    // after it, so a rebuild keeps what the write path indexed as they were
-    // said.
+    // The threads the tape holds a link for, the teammate's pairs and its
+    // jobs come after it, so a rebuild keeps what the write path indexed as
+    // they were said.
     for (thread, stream) in threads_on(&events)
         .into_iter()
+        .chain(pairs_of(log, persona_id))
         .chain(jobs_of(log, persona_id))
     {
         for event in log.load(&stream) {
@@ -679,6 +693,13 @@ fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Resu
                     &event,
                 )?;
             }
+        }
+    }
+    // What other threads left the teammate, named by where each came from.
+    for event in log.load(&StreamId::Asides(persona_id.to_string())) {
+        if let Some(aside) = crate::asides::read(&event) {
+            let source = crate::asides::source_name(&aside.from);
+            index_message(database, persona_id, None, Some(&source), &event)?;
         }
     }
     stamp(database, log.root(), persona_id)?;
@@ -790,7 +811,7 @@ impl Indexer {
                 .insert(persona_id.to_string(), id.filter(|_| still_open));
             return stamp(&self.database, self.log.root(), persona_id);
         }
-        if !matches!(kind, "user" | "agent" | "side" | "link") {
+        if !matches!(kind, "user" | "agent" | "side" | "link" | "aside") {
             return Ok(());
         }
         if !self.open_chapters.contains_key(persona_id) {
@@ -827,6 +848,18 @@ impl Indexer {
             Some(&thread.to_string()),
             event,
         )?;
+        transaction.commit()
+    }
+
+    /// Indexes an aside the teammate was left, as it lands on its own
+    /// stream. The hit names the thread it came from.
+    pub fn index_aside(&mut self, persona_id: &str, event: &Value) -> rusqlite::Result<()> {
+        let Some(aside) = crate::asides::read(event) else {
+            return Ok(());
+        };
+        let source = crate::asides::source_name(&aside.from);
+        let transaction = self.database.transaction()?;
+        index_message(&transaction, persona_id, None, Some(&source), event)?;
         transaction.commit()
     }
 

@@ -85,10 +85,10 @@ pub(super) struct Line {
     pub voice: Option<crate::voice::Origin>,
     pub text: String,
     pub attachments: Vec<Attachment>,
-    /// Set when the turn this line starts is a handoff's: the exchange's
-    /// request it answers. Said by whoever produced the line, never read back
-    /// off an id.
-    pub handoff: Option<HandoffLine>,
+    /// Set when the turn this line starts answers a colleague's request, a
+    /// handoff or a question: the exchange's request it answers. Said by
+    /// whoever produced the line, never read back off an id.
+    pub request: Option<RequestLine>,
     /// Where the line came from, when something came back for the thread: a
     /// colleague's result carries the exchange request it answers, which is
     /// checked again as the turn begins.
@@ -96,11 +96,15 @@ pub(super) struct Line {
     /// The delivery this line is, which is stamped read once its turn has
     /// begun: until then a restart finds it still to be heard.
     pub delivery: Option<String>,
+    /// The line only wakes the agent to hear the asides left for it, and is
+    /// skipped at the door when a turn before it has heard them.
+    pub wake: bool,
 }
 
-/// The handoff a turn of a work thread belongs to.
-pub(super) struct HandoffLine {
-    /// The exchange request that opened the thread.
+/// The exchange request a turn answers: a handoff, or a colleague's question.
+#[derive(Clone)]
+pub(super) struct RequestLine {
+    /// The exchange request the turn answers.
     pub request: String,
     /// The card this line is the person's answer to, when the handoff had
     /// stopped to wait on one.
@@ -333,7 +337,7 @@ impl Threads<'_> {
             .voice
             .clone()
             .or_else(|| self.room.attached_voice(&thread));
-        let subject = line.text.clone();
+        let subject = super::index::asked(&line.text).to_string();
         let mut told = Told {
             replies: Vec::new(),
             files: Vec::new(),
@@ -546,6 +550,8 @@ impl Room {
             next = lock(occupant.queue()).next_line();
         }
         occupant.rest(&self);
+        // A nudge that landed while a turn ran waited; the thread is idle now.
+        self.rewake(occupant.persona_id(), &occupant.thread());
     }
 }
 

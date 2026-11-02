@@ -464,7 +464,24 @@ pub enum TranscriptEvent {
         opener_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         opener_name: Option<String>,
+        /// The latest handoff into the thread no longer stands, as the core
+        /// recorded when Stop exchange, a revocation or an unlink ended it.
+        /// Absent while it stands.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        handoff_ended: bool,
+        /// The pair's thread whose question opened this work thread: the
+        /// teammate's main conversation was busy, so the thread answered
+        /// for it. Its link is on that pair's thread too.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        asked_in: Option<String>,
     },
+    /// An aside this thread's teammate left a colleague: written on the
+    /// thread it was said from, so the thread's record shows what it said.
+    /// A quiet line, never a bubble; clients that do not know the kind skip
+    /// it.
+    Aside(Aside),
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.
@@ -649,6 +666,14 @@ pub enum DeliveryCause {
         status: PeerStatus,
         /// The start of the message this answers, clipped to a line.
         about: String,
+        /// The answer the colleague's turn ended on, its last message in
+        /// plain words and short, which a quiet line shows in place of the
+        /// first words of `text` (often what it said on the way there).
+        /// Absent from a failure, from a delivery written before it was
+        /// kept, and from an answer that came over a link.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        answer: Option<String>,
     },
     /// Work explicitly handed to this teammate, in a work thread of its own.
     /// The result returns automatically to requestId on the sender's tape.
@@ -659,6 +684,21 @@ pub enum DeliveryCause {
         thread_key: String,
         /// The start of the message, clipped to a line.
         about: String,
+    },
+    /// A colleague's question, in the conversation that answers it: the
+    /// recipient's main conversation, a work thread of its own, or the thread
+    /// it names. The reply of the turn it starts goes back to them by itself.
+    Question {
+        request_id: String,
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        /// The start of the question, clipped to a line.
+        about: String,
+        /// The start of the handoff the question is about, when it is about one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        work: Option<String>,
     },
     /// The person answered a `request_human` card the teammate did not wait
     /// on, or its lifetime ran out without an answer (`expired`). `text` is the

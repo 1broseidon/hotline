@@ -267,7 +267,7 @@ impl Room {
     /// Whether one of the teammate's threads other than its DM has a card
     /// waiting on the person, for the roster row.
     pub fn threads_waiting(&self, persona_id: &str) -> bool {
-        self.side_cards_waiting(persona_id) || self.peer_cards_waiting(persona_id)
+        self.side_cards_waiting(persona_id)
     }
 }
 
@@ -581,10 +581,7 @@ mod tests {
         agents.awaiting("r1");
         let room = room("call-home-permission", agents.clone());
         pair_a_phone(&room);
-        let thread = ThreadId {
-            kind: ThreadKind::Call,
-            key: "call-home".into(),
-        };
+        let thread = ThreadId::new(ThreadKind::Call, "call-home");
         let (_live, launch) = room
             .bring_up(
                 "ada",
@@ -596,6 +593,7 @@ mod tests {
                     fresh: true,
                     saved: None,
                     handoff: None,
+                    asked: None,
                 },
             )
             .unwrap();

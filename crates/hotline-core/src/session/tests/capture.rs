@@ -397,10 +397,7 @@ async fn capture_passkey_unused_arming_expires_and_call_card_stays_on_the_desk()
     );
 
     // A call's card is core-stamped into home chat; spoken yes has no authority.
-    let call = ThreadId {
-        kind: ThreadKind::Call,
-        key: "capture-call".into(),
-    };
+    let call = ThreadId::new(ThreadKind::Call, "capture-call");
     let _turn = room.open_posting(&call, None);
     let tool = tools(&room, CapabilityEpoch::default().lease()).for_call(call.clone());
     tool.call("request_credential", &request("login"))

@@ -25,8 +25,8 @@
 //! colleague's question is answered in the recipient's own threads.
 
 use super::computer::{
-    COMPUTER_DOWNLOADING, ComputerAtStart, ComputerSetup, Driving, computer_failed_note,
-    computer_unavailable, with_note, without_computer,
+    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, computer_failed_note, computer_unavailable,
+    with_note, without_computer,
 };
 use super::prompt::said;
 use super::sides::OpenedBy;
@@ -316,7 +316,7 @@ impl Room {
                     eprintln!("{}", computer_unavailable(&view.name, &reason));
                     // Kept where the pane's Start, and the teammate's own
                     // computer_status, can say why.
-                    self.set_computer_setup(&view.id, ComputerSetup::Failed(reason.clone()));
+                    self.computer_links.failed(&view.id, reason.clone());
                     computer_note = Some(computer_failed_note(&reason));
                     view = without_computer(view);
                     Vec::new()

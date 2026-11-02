@@ -182,7 +182,6 @@ async fn each_explicit_end_still_ends_a_request_a_chapter_left_standing() {
 #[tokio::test]
 async fn a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_sign_in() {
     use crate::contract::PersonaComputer;
-    use crate::session::computer::ComputerSetup;
     for rebuilt_by in ["computer-joins", "computer-made-again", "mcp-sign-in"] {
         let log = scratch(&format!("lasting-rebuilt-{rebuilt_by}"));
         enrol(&log, &persona("ada"));
@@ -224,10 +223,10 @@ async fn a_request_outlives_its_recipients_session_rebuilt_for_a_computer_or_a_s
 
         match rebuilt_by {
             "computer-joins" => {
-                lock(&room.computer_setups).insert(
-                    "bob".into(),
-                    tokio::sync::watch::channel(ComputerSetup::Ready).0,
-                );
+                // The start that found no runtime left its failure; this
+                // download is a later one that landed.
+                room.computer_links.end_start("bob");
+                room.computer_links.downloaded("bob");
                 room.attach_computer_when_idle("bob");
             }
             "computer-made-again" => room.computer_restart("bob").await.unwrap(),

@@ -75,7 +75,7 @@ use axum::http::{
 use axum::response::Response;
 use axum::routing::any;
 use futures_util::StreamExt;
-use live::{Live, Pen, Session, ToolLine};
+use live::{Live, Pen, Replay, Session, ToolLine};
 use oauth_proxy::{OAuthProxy, is_oauth_server, start_oauth_proxy};
 use serde_json::Value;
 use session::{Announced, RawSessionUpdate, announced, apply_configs_to_session};
@@ -432,7 +432,7 @@ impl ChildAgent {
         let configs = lock(&self.live.session).info.configs.clone();
         let persona = self.abandon_failed_session().await?;
         self.start(&persona).await?;
-        if lock(&self.live.startup_failure).is_some() {
+        if self.live.notice().is_some() {
             return Ok(());
         }
         for config in configs {
@@ -440,7 +440,6 @@ impl ChildAgent {
                 self.set_config(&config.id, &value).await?;
             }
         }
-        self.live.failed.store(false, Ordering::SeqCst);
         Ok(())
     }
 
@@ -566,7 +565,7 @@ impl Driver for ChildAgent {
         self.live.auth_succeeded.swap(false, Ordering::SeqCst)
     }
     fn startup_failure(&self) -> Option<String> {
-        lock(&self.live.startup_failure).clone()
+        self.live.notice()
     }
 
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
@@ -587,9 +586,13 @@ impl Driver for ChildAgent {
         } else {
             self.start_bounds.first
         };
+        self.live.spawning();
         let Ok(result) = tokio::time::timeout(bound, self.spawn(persona, &launch)).await else {
             return Ok(self.stalled(&launch, bound));
         };
+        if result.is_err() {
+            self.live.fail(None);
+        }
         if result.is_ok() {
             registry::mark_started(&self.root, &launch, true);
         }
@@ -623,7 +626,7 @@ impl Driver for ChildAgent {
             fail(&sender, error).await;
             return receiver;
         }
-        if self.live.failed.load(Ordering::SeqCst)
+        if self.live.needs_restart()
             && let Err(error) = self.restart_after_failure().await
         {
             fail(&sender, error).await;
@@ -654,11 +657,12 @@ impl Driver for ChildAgent {
             return receiver;
         }
         let Some(connection) = lock(&self.live.connection).clone() else {
-            self.live.failed.store(true, Ordering::SeqCst);
+            self.live.fail(None);
             fail(&sender, "That agent is not connected.".to_string()).await;
             return receiver;
         };
         let Some(session_id) = lock(&self.live.session).id.clone() else {
+            self.live.fail(None);
             fail(&sender, "That agent has no open session.".to_string()).await;
             return receiver;
         };
@@ -701,7 +705,7 @@ impl Driver for ChildAgent {
                 && let Err(error) = capability.check()
             {
                 fail(&sender, error).await;
-                *lock(&live.updates) = None;
+                live.release_updates(&sender);
                 return;
             }
             if live.cancelled.load(Ordering::SeqCst) {
@@ -712,7 +716,7 @@ impl Driver for ChildAgent {
                         usage: None,
                     })
                     .await;
-                *lock(&live.updates) = None;
+                live.release_updates(&sender);
                 return;
             }
             let request = connection.send_request(PromptRequest::new(session_id.clone(), blocks));
@@ -756,7 +760,7 @@ impl Driver for ChildAgent {
             // `between_turns`). A line still on its way in is either taken into
             // this turn or handed back before the turn is written as over,
             // which is when the session looks for it.
-            *lock(&live.updates) = None;
+            live.release_updates(&sender);
             if let Some(lane) = lane {
                 lock(&live.steering).take();
                 let refused = lane.await.unwrap_or_default();
@@ -774,7 +778,7 @@ impl Driver for ChildAgent {
                         .await;
                 }
                 Err(error) => {
-                    live.failed.store(true, Ordering::SeqCst);
+                    live.fail(None);
                     live.briefed.store(false, Ordering::SeqCst);
                     let cancelled = live.cancelled.load(Ordering::SeqCst);
                     if !cancelled {
@@ -798,7 +802,7 @@ impl Driver for ChildAgent {
                         .await;
                 }
             }
-            *lock(&live.updates) = None;
+            live.release_updates(&sender);
         });
         receiver
     }
@@ -856,7 +860,7 @@ impl Driver for ChildAgent {
     }
 
     fn checkpoint_valid(&self) -> bool {
-        !self.live.failed.load(Ordering::SeqCst)
+        !self.live.is_failed()
     }
 
     fn invalidate(&self) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 /** Where a card's answer stands: nothing out, or one on its way and the tape not yet showing it. */
 export type AnswerState = { k: "idle"; failure?: string } | { k: "answering" };
@@ -6,7 +6,7 @@ export type AnswerState = { k: "idle"; failure?: string } | { k: "answering" };
 const IDLE: AnswerState = { k: "idle" };
 
 /** Longer than a command takes to land and the tape to show it; past it the card is let go. */
-export const ANSWER_WATCHDOG_MS = 10_000;
+const ANSWER_WATCHDOG_MS = 10_000;
 
 const NOT_SEEN = "Hotline did not confirm that answer. Check whether the card is still waiting, then try again.";
 
@@ -91,7 +91,7 @@ export function askKey(event: { kind: string; id: string }): string {
 }
 
 /** The desk's answers: one store, so a card mounted twice is one card. */
-export const answers = new Answers();
+const answers = new Answers();
 
 /**
  * A card's answering state, shared by every mount of it. `settled` is true
@@ -102,10 +102,6 @@ export function useAnswer(key: string, settled: boolean, describe?: (error: unkn
 	useEffect(() => {
 		if (settled) answers.settle(key);
 	}, [key, settled]);
-	const answer = useCallback(
-		(send: () => Promise<unknown>) => !settled && answers.begin(key, send, describe),
-		// biome-ignore lint/correctness/useExhaustiveDependencies: `describe` is a literal per card kind.
-		[key, settled],
-	);
+	const answer = (send: () => Promise<unknown>) => !settled && answers.begin(key, send, describe);
 	return { answering: state.k === "answering", failure: state.k === "idle" ? (state.failure ?? null) : null, answer };
 }

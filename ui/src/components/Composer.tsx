@@ -333,8 +333,9 @@ export function Composer({
 	useEffect(() => {
 		if (refill === undefined || refill.nonce === filled.current) return;
 		filled.current = refill.nonce;
-		setText(refill.text);
-		setAttachments(refill.attachments);
+		// Words handed back by a refused send keep what was typed since, after them.
+		setText((typed) => (refill.merge === true && typed.trim() !== "" ? (refill.text === "" ? typed : `${refill.text}\n\n${typed}`) : refill.text));
+		setAttachments((held) => (refill.merge === true ? [...refill.attachments, ...held.filter((one) => !refill.attachments.some((back) => back.path === one.path))] : refill.attachments));
 		area.current?.focus();
 	}, [refill]);
 

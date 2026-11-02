@@ -11,7 +11,7 @@ export type Ask = Extract<
 >;
 
 /** A card with a time limit that has run out on this clock: it can no longer be answered. */
-export function lapsed(event: TranscriptEvent, now: number): boolean {
+function lapsed(event: TranscriptEvent, now: number): boolean {
 	return (event.kind === "credential_ask" || event.kind === "secret_use_ask") && now >= event.expiresAt;
 }
 

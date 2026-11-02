@@ -86,13 +86,15 @@ impl Room {
             ThreadKind::Call,
             ThreadKind::Job,
         ] {
-            for quiet in self.quiet(kind) {
+            let quiets = self.quiet(kind);
+            self.sides.at("swept");
+            for quiet in quiets {
                 if quiet.working {
                     continue;
                 }
                 match Policy::of(kind).idle {
                     Idle::Park(after) if now - quiet.since >= after => {
-                        self.end_thread(&quiet.thread, Ending::Park);
+                        self.park_when_quiet(&quiet.thread, now - after);
                     }
                     Idle::Park(_) | Idle::Chapters | Idle::Never => {}
                 }
@@ -141,6 +143,22 @@ impl Room {
                 })
                 .collect(),
             ThreadKind::Dm => Vec::new(),
+        }
+    }
+
+    /// Lets go of a live thread's agent when nothing has been said in it since
+    /// `cutoff` and no turn runs: the look the sweep took is old by the time it
+    /// acts, so this looks again where it acts.
+    fn park_when_quiet(&self, thread: &ThreadId, cutoff: i64) {
+        match thread.kind {
+            ThreadKind::Side | ThreadKind::Call => {
+                if let Some(side) = self.sides.get(&thread.key) {
+                    self.park_if_idle(&side, Some(cutoff));
+                }
+            }
+            ThreadKind::Job | ThreadKind::Run | ThreadKind::Dm | ThreadKind::Pair => {
+                self.end_thread(thread, Ending::Park);
+            }
         }
     }
 
@@ -270,7 +288,29 @@ impl Room {
                     .opener
                     .as_ref()
                     .is_some_and(|opener| opener.persona_id == owner);
-            if link.state != ThreadState::Live || (whose && !handed_over) {
+            if whose && !handed_over {
+                continue;
+            }
+            // The thread's own stream is where its state is, and a tape copy
+            // can lag it: the process died between the two writes. The copy
+            // is brought to the stream before anything else is decided.
+            let link = match self.link_of(&link.thread) {
+                Some(own) if own.state != link.state => {
+                    let lagging = Link {
+                        state: own.state,
+                        outcome: own.outcome,
+                        at: own.at,
+                        ..link
+                    };
+                    if lagging.state != ThreadState::Live {
+                        settled.push(lagging.event());
+                        continue;
+                    }
+                    lagging
+                }
+                _ => link,
+            };
+            if link.state != ThreadState::Live {
                 continue;
             }
             let state = match Policy::of(link.thread.kind).restart {
@@ -332,14 +372,43 @@ impl Room {
             .map_or_else(|| Link::fresh_id(thread), |link| link.id)
     }
 
-    /// Writes the link on the thread's parent, when its kind has one, and at
-    /// the head of its own stream, through the shared write path.
+    /// Writes the link at the head of the thread's own stream, which is where
+    /// the thread's state is, and then on the parent it hangs off, through
+    /// the shared write path. The stream goes first: a crash between the two
+    /// leaves a tape that lags the thread, which startup settles to the
+    /// stream ([`Room::settle_links`]), and never a thread that is live under
+    /// a tape that says it is not.
     pub(super) fn write_link(&self, link: &Link) {
+        let _writing = lock(&self.sides.links);
+        self.write_link_held(link);
+    }
+
+    /// Changes a thread's link as it stands now, not as it was read before:
+    /// `change` is given the link under the lock every link write takes and
+    /// answers the one to write, or none to leave it. Says whether one was
+    /// written.
+    pub(super) fn amend_link(
+        &self,
+        thread: &ThreadId,
+        change: impl FnOnce(Link) -> Option<Link>,
+    ) -> bool {
+        let _writing = lock(&self.sides.links);
+        match self.link_of(thread).and_then(change) {
+            Some(link) => {
+                self.write_link_held(&link);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn write_link_held(&self, link: &Link) {
         let Some(persona_id) = &link.persona_id else {
             return;
         };
         let event = link.event();
         let threads = self.threads();
+        threads.write(&link.thread, persona_id, &event);
         if Policy::of(link.thread.kind).surface.link {
             threads.write(&ThreadId::dm(persona_id), persona_id, &event);
             // A thread opened to answer a colleague's question hangs off the
@@ -352,12 +421,11 @@ impl Room {
             // A thread a colleague opened is on the colleague's tape too, under
             // an id of its own, so each DM shows how the work is going.
             if let Some(opener) = &link.opener {
-                let mut copy = event.clone();
+                let mut copy = event;
                 copy["id"] = format!("{}@{}", link.id, opener.persona_id).into();
                 threads.write(&ThreadId::dm(&opener.persona_id), &opener.persona_id, &copy);
             }
         }
-        threads.write(&link.thread, persona_id, &event);
     }
 
     // The closing note.

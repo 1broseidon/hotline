@@ -1199,3 +1199,299 @@ async fn cancelling_stops_the_turn_and_keeps_the_thread() {
             .any(|event| event["stopReason"] == "aborted")
     );
 }
+
+// The work thread's lifecycle is one fact, however many readers ask for it.
+
+/// A test's hold on a named point of a transition: the room stops there, on
+/// whichever thread reaches it, until the test lets it go.
+struct Held {
+    entered: std::sync::mpsc::Receiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+impl Held {
+    fn entered(&self) {
+        self.entered
+            .recv_timeout(crate::test_support::PATIENCE)
+            .expect("the room never reached the point");
+    }
+
+    fn release(&self) {
+        let _ = self.release.send(());
+    }
+}
+
+fn hold(room: &Room, point: &'static str) -> Held {
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let once = std::sync::atomic::AtomicBool::new(false);
+    *lock(&room.sides.hook) = Some(Arc::new(move |at| {
+        if at == point && !once.swap(true, Ordering::SeqCst) {
+            let _ = entered_tx.send(());
+            let _ = lock(&release_rx).recv_timeout(crate::test_support::PATIENCE);
+        }
+    }));
+    Held { entered, release }
+}
+
+/// Ends a thread on a thread of its own, so the test can stand inside the end.
+fn end_apart(room: &Arc<Room>, side: Arc<LiveSide>, ending: Ending) -> std::thread::JoinHandle<()> {
+    let handle = tokio::runtime::Handle::current();
+    let room = room.clone();
+    std::thread::spawn(move || {
+        let _in_the_runtime = handle.enter();
+        room.end_side(&side, ending);
+    })
+}
+
+fn poll_once<F: std::future::Future>(future: std::pin::Pin<&mut F>) -> std::task::Poll<F::Output> {
+    future.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+}
+
+async fn two_turns(name: &str) -> (Arc<Room>, Arc<Fake>, String) {
+    let agents = Fake::new(Scripted::turns(vec![
+        vec![say("m1", "One."), turn()],
+        vec![say("m2", "Two."), turn()],
+    ]));
+    let room = room(name, agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    settled(&room, &id).await;
+    (room, agents, id)
+}
+
+/// A line said while a thread is let go of finds the thread parked, not a link
+/// that says live with nothing behind it: it waits for the end and wakes the
+/// thread, and is never refused as "not live".
+#[tokio::test]
+async fn a_line_said_while_a_thread_is_being_parked_waits_for_it_and_wakes_it() {
+    let (room, agents, id) = two_turns("side-park-window").await;
+    let side = room.sides.get(&id).unwrap();
+    let held = hold(&room, "ending");
+    let ending = end_apart(&room, side, Ending::Park);
+    held.entered();
+
+    let mut prompt = Box::pin(room.prompt_side(&id, "Now two", None));
+    assert!(
+        poll_once(prompt.as_mut()).is_pending(),
+        "the line waits for the thread to finish parking"
+    );
+    held.release();
+    prompt.await.expect("a line is never refused as not live");
+    ending.join().unwrap();
+    settled(&room, &id).await;
+    assert!(agents.prompts().iter().any(|text| text.contains("Now two")));
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+}
+
+/// A line that reaches a thread already decided on for parking, from a caller
+/// that looked it up before, reopens the thread and is heard.
+#[tokio::test]
+async fn a_line_that_reaches_a_thread_as_it_parks_reopens_it_and_is_heard() {
+    let (room, agents, id) = two_turns("side-park-late").await;
+    let side = room.sides.get(&id).unwrap();
+    let held = hold(&room, "ending");
+    let ending = end_apart(&room, side.clone(), Ending::Park);
+    held.entered();
+
+    room.say_in_side(&side, "a late line", None, None);
+    held.release();
+    ending.join().unwrap();
+    until("the late line is heard by an agent again", || {
+        agents
+            .prompts()
+            .iter()
+            .any(|text| text.contains("a late line"))
+    })
+    .await;
+    assert!(
+        room.sides
+            .get(&id)
+            .is_some_and(|side| !side.closed.is_set())
+    );
+}
+
+/// The idle sweep looked at the thread, found it quiet, and a line landed
+/// before it acted: the thread is left alone.
+#[tokio::test]
+async fn the_sweep_leaves_a_thread_a_line_landed_in_after_it_looked() {
+    let (room, _agents, id) = two_turns("side-sweep-race").await;
+    let side = room.sides.get(&id).unwrap();
+    let landing = side.clone();
+    *lock(&room.sides.hook) = Some(Arc::new(move |at| {
+        if at == "swept" {
+            lock(&landing.turns).running = true;
+        }
+    }));
+    room.sweep_threads(now_ms() + SIDE_IDLE_MS + 60_000);
+    assert!(room.sides.get(&id).is_some(), "still live");
+    assert!(!side.closed.is_set(), "its authority is not revoked");
+    assert!(side.capability.check().is_ok());
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+}
+
+/// A place is made for a new thread by parking the idlest one; when a line
+/// lands in it first, that one is left alone and the next idlest is parked.
+#[tokio::test]
+async fn a_thread_a_line_landed_in_is_not_the_one_let_go_of_for_a_new_one() {
+    let agents = Fake::new(Scripted::new(vec![turn()]));
+    let room = room("side-evict-race", agents);
+    let mut ids = Vec::new();
+    for task in ["One", "Two", "Three"] {
+        let id = room.start_side("ada", task).await.unwrap().side_id;
+        settled(&room, &id).await;
+        a_millisecond_passes().await;
+        ids.push(id);
+    }
+    let first = room.sides.get(&ids[0]).unwrap();
+    let landing = first.clone();
+    *lock(&room.sides.hook) = Some(Arc::new(move |at| {
+        if at == "evict" {
+            lock(&landing.turns).running = true;
+        }
+    }));
+    let four = room.start_side("ada", "Four").await.unwrap().side_id;
+    assert!(room.sides.get(&ids[0]).is_some(), "the busy one stays");
+    assert!(!first.closed.is_set());
+    assert_eq!(
+        room.link_of(&ThreadId::side(&ids[0])).unwrap().state,
+        ThreadState::Live
+    );
+    assert!(
+        room.sides.get(&ids[1]).is_none(),
+        "the next idlest is parked"
+    );
+    assert_eq!(
+        room.link_of(&ThreadId::side(&ids[1])).unwrap().state,
+        ThreadState::Parked
+    );
+    assert!(room.sides.get(&four).is_some());
+}
+
+/// Continuing an archived thread whose agent will not start leaves it
+/// archived, with what it ended with, not parked for the next line to wake.
+#[tokio::test]
+async fn a_continue_that_cannot_start_leaves_the_thread_archived() {
+    let (room, agents, id) = two_turns("side-continue-fails").await;
+    room.archive_side(&id, SideEnd::Person, Some("Done.".into()))
+        .unwrap();
+    let archived = room.link_of(&ThreadId::side(&id)).unwrap();
+    agents.fail_starts("the harness is gone");
+    room.continue_side(&id).await.unwrap();
+    until("the failed start is put away", || {
+        room.sides.get(&id).is_none()
+    })
+    .await;
+    let now = room.link_of(&ThreadId::side(&id)).unwrap();
+    assert_eq!(now.state, ThreadState::Closed(End::Person));
+    assert_eq!(now.outcome, archived.outcome);
+    assert!(!room.work_is_open(&id));
+    assert!(
+        room.prompt_side(&id, "again", None)
+            .await
+            .unwrap_err()
+            .contains("Continue")
+    );
+}
+
+/// Archiving a thread from a link read before it woke does not close the
+/// thread that is live now.
+#[tokio::test]
+async fn archiving_from_a_stale_parked_read_leaves_a_woken_thread_live() {
+    let (room, _agents, id) = two_turns("side-stale-archive").await;
+    room.park_side_thread(&id).unwrap();
+    let stale = room.link_of(&ThreadId::side(&id)).unwrap();
+    assert_eq!(stale.state, ThreadState::Parked);
+    room.prompt_side(&id, "Now two", None).await.unwrap();
+    settled(&room, &id).await;
+
+    let _ = room.archive_parked(stale, End::Person, None);
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+    assert!(
+        room.sides
+            .get(&id)
+            .is_some_and(|side| !side.closed.is_set())
+    );
+}
+
+/// The thread's own stream is the truth, and the tape's copy follows it. A
+/// restart after a crash between the two settles the tape to the stream, so a
+/// thread that was archived is not parked by a tape copy that still said live.
+#[tokio::test]
+async fn startup_settles_a_tape_copy_that_lags_its_threads_own_stream() {
+    let (room, _agents, id) = two_turns("side-settle-lag").await;
+    let tape_id = StreamId::Tape("ada".to_string());
+    let live_copy = room.log.load(&tape_id).last().cloned().unwrap();
+    room.archive_side(&id, SideEnd::Person, None).unwrap();
+    room.log.append(&tape_id, &live_copy).unwrap();
+
+    room.settle();
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Closed(End::Person),
+        "archived stays archived"
+    );
+    let last = room
+        .log
+        .load(&tape_id)
+        .into_iter()
+        .rev()
+        .find_map(|e| Link::read(&e));
+    assert_eq!(last.unwrap().state, ThreadState::Closed(End::Person));
+}
+
+/// A crash that left the stream live under a tape that says parked (the order
+/// links were once written in) is repaired at startup, not left live forever
+/// with nothing behind it.
+#[tokio::test]
+async fn startup_repairs_a_stream_left_live_under_a_tape_that_says_parked() {
+    let (room, _agents, id) = two_turns("side-settle-stream-live").await;
+    let live = room.link_of(&ThreadId::side(&id)).unwrap();
+    room.park_side_thread(&id).unwrap();
+    room.log
+        .append(&StreamId::Side(id.clone()), &live.event())
+        .unwrap();
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+
+    room.settle();
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Parked
+    );
+}
+
+/// A change to a link is made to the link as it is when it is written: a
+/// thread that woke after the change was decided on keeps what it woke to.
+#[tokio::test]
+async fn a_link_change_is_made_to_the_link_as_it_stands_when_written() {
+    let (room, _agents, id) = two_turns("side-amend").await;
+    let thread = ThreadId::side(&id);
+    room.park_side_thread(&id).unwrap();
+    room.prompt_side(&id, "Now two", None).await.unwrap();
+    settled(&room, &id).await;
+
+    let wrote = room.amend_link(&thread, |fresh| {
+        assert_eq!(fresh.state, ThreadState::Live, "read under the lock");
+        Some(Link {
+            handoff_ended: true,
+            ..fresh
+        })
+    });
+    assert!(wrote);
+    let link = room.link_of(&thread).unwrap();
+    assert_eq!(link.state, ThreadState::Live);
+    assert!(link.handoff_ended);
+    assert!(!room.amend_link(&thread, |_| None), "nothing to change");
+}

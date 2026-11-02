@@ -497,8 +497,11 @@ impl Calls {
             let _ = self.change(&id, |call| {
                 call.reconnecting = true;
                 let _ = call.events.send(call.snapshot());
+                call.caller_speaking = false;
                 if let Some(front) = &mut call.front {
                     front.input = None;
+                    front.interrupted = false;
+                    front.responding = false;
                 }
                 let _ = call.events.send(VoiceEvent::FrontStop {});
                 Ok(())
@@ -584,7 +587,6 @@ impl Calls {
             let _ = input.say("We're back on the same call.").await;
         }
         let mut saying = String::new();
-        let mut awaiting_transcript = false;
         let mut pending_work = Vec::<(String, String)>::new();
         // Subscribe before reading, so a post racing the snapshot is refreshed.
         // Idle calls must not parse the whole home tape twice a second.
@@ -696,25 +698,27 @@ impl Calls {
                     }
                     self.front_speaks(id, &pcm)
                 }
-                RealtimeEvent::SpeechStarted => {
-                    awaiting_transcript = true;
-                    self.change(id, |call| {
-                        call.caller_speaking = true;
-                        if call.front.as_ref().is_some_and(|front| front.responding) {
-                            call.cut_speech(None);
-                        }
-                        if let Some(front) = &mut call.front {
-                            front.interrupted = front.responding;
-                        }
-                        let _ = call.events.send(VoiceEvent::FrontStop {});
-                        if call.state == VoiceState::Speaking {
-                            call.state(call.resting(), None);
-                        }
-                        Ok(())
-                    })
-                }
+                RealtimeEvent::SpeechStarted => self.change(id, |call| {
+                    call.caller_speaking = true;
+                    if call.front.as_ref().is_some_and(|front| front.responding) {
+                        call.cut_speech(None);
+                    }
+                    if let Some(front) = &mut call.front {
+                        front.interrupted = front.responding;
+                    }
+                    let _ = call.events.send(VoiceEvent::FrontStop {});
+                    if call.state == VoiceState::Speaking {
+                        call.state(call.resting(), None);
+                    }
+                    Ok(())
+                }),
+                // The detector opened and no words came: nobody said anything,
+                // and nothing is coming to wait for.
+                RealtimeEvent::Heard(text) if text.trim().is_empty() => self.change(id, |call| {
+                    call.caller_speaking = false;
+                    Ok(())
+                }),
                 RealtimeEvent::Heard(text) => {
-                    awaiting_transcript = false;
                     bridge.heard(&text);
                     let _ = self.change(id, |call| {
                         call.conversation.begin_turn();
@@ -844,7 +848,10 @@ impl Calls {
                                     .await;
                             }
                         }
-                        if awaiting_transcript && !front::stops_work(&arguments) {
+                        let awaiting = self
+                            .change(id, |call| Ok(call.caller_speaking))
+                            .unwrap_or(false);
+                        if awaiting && !front::stops_work(&arguments) {
                             pending_work.push((call_id, arguments));
                         } else {
                             work(bridge, &input, &call_id, &arguments).await;
@@ -861,6 +868,11 @@ impl Calls {
                 }
                 RealtimeEvent::Reconnecting => self.change(id, |call| {
                     call.reconnecting = true;
+                    call.caller_speaking = false;
+                    if let Some(front) = &mut call.front {
+                        front.interrupted = false;
+                        front.responding = false;
+                    }
                     let _ = call.events.send(VoiceEvent::FrontStop {});
                     let _ = call.events.send(call.snapshot());
                     Ok(())
@@ -879,6 +891,17 @@ impl Calls {
                     recovered.map(|_| ())
                 }
             };
+            // Work held back for a transcript goes on once the caller is no
+            // longer mid-turn, however the turn ended: words, nothing, a hold.
+            if !pending_work.is_empty()
+                && !self
+                    .change(id, |call| Ok(call.caller_speaking))
+                    .unwrap_or(false)
+            {
+                for (call_id, arguments) in pending_work.drain(..) {
+                    work(bridge, &input, &call_id, &arguments).await;
+                }
+            }
             if refresh_now {
                 let fresh = self.front_context(id, base, Some(carry));
                 if renewed || fresh != last_instructions {

@@ -32,7 +32,7 @@ impl Calls {
         self.change(id, |call| {
             if call.state == VoiceState::Held
                 || call.reconnecting
-                || call.connection.as_ref().is_some_and(|c| c.dropped)
+                || call.dropped()
                 || !(call.desk || call.target.as_deref() == Some(persona))
             {
                 return Err("This call cannot answer that teammate's card.".into());
@@ -109,7 +109,7 @@ impl Calls {
         lock(&self.calls).iter().any(|call| {
             !matches!(call.state, VoiceState::Ended | VoiceState::Held)
                 && !call.reconnecting
-                && !call.connection.as_ref().is_some_and(|c| c.dropped)
+                && !call.dropped()
                 && (call.desk || call.target.as_deref() == Some(persona))
         })
     }
@@ -123,7 +123,7 @@ impl Calls {
                         || call.utterance_pending
                         || matches!(call.state, VoiceState::Held | VoiceState::Speaking)
                         || call.reconnecting
-                        || call.connection.as_ref().is_some_and(|c| c.dropped)
+                        || call.dropped()
                         || call.front.as_ref().is_some_and(|front| front.responding)
                         || (call.cards.active.is_some() && call.cards.awaiting_answer)
                     {

@@ -372,7 +372,9 @@ mod desk_calls;
 mod direct;
 mod failures;
 mod front_calls;
+mod front_turns;
 mod handoffs;
+mod holds;
 mod streaming;
 mod text;
 

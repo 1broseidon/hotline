@@ -87,7 +87,7 @@ impl Calls {
             let target = call.target.clone().zip(call.thread.clone());
             if target.is_some() {
                 call.seq = Some(seq);
-                call.answering.get_or_insert(seq);
+                call.begin_answer(seq);
                 call.words = words.into();
                 call.activity = Instant::now();
                 call.state(VoiceState::Thinking, None);

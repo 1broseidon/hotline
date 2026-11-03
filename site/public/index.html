@@ -26,10 +26,9 @@
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script>document.documentElement.classList.add("js")</script>
-<link rel="preload" href="/screens/desk-film.webp" as="image" media="(min-width: 40.01rem)">
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261103i">
+<link rel="stylesheet" href="/page.css?v=20261103j">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -60,11 +59,15 @@
   <p class="fine">Free. Version <span data-version>0.47.0</span><span data-size-wrap>, <span data-size="mac">42 MB</span></span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
   <figure class="stage">
     <div class="shot stage-desk">
-      <video id="desk" width="1248" height="584" poster="/screens/desk-film.webp" autoplay muted loop playsinline controls preload="metadata" aria-label="The Hotline desk at work: one message to Goldie, her ask to let Huck and Quill work, the work handed to each, Kit’s check, the fixes sent back, and Goldie’s report with the finished launch post."><source src="/screens/desk-film.mp4" type="video/mp4" media="(min-width: 40.01rem)"><source src="/screens/desk-film.webm" type="video/webm" media="(min-width: 40.01rem)"></video>
-      <button class="clip-toggle clip-toggle--desk" type="button" data-clip-toggle="desk" aria-controls="desk" hidden>Pause</button>
+      <picture><source media="(max-width: 40rem)" srcset="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1"><img src="/screens/hero-desk.webp?v=2" width="1332" height="605" alt="The Hotline desk: five teammates in the rail, Goldie’s thread with the card Allow Goldie to ask Kit to work, and the work she handed to Quill, Kit and Huck." fetchpriority="high" decoding="async"></picture>
+      <button class="watch" type="button" data-watch hidden><span class="watch-play" aria-hidden="true"></span>Watch the desk in action</button>
+      <div class="film" data-film hidden>
+        <video id="desk" width="1248" height="584" playsinline preload="none" aria-label="The Hotline desk at work: one message to Goldie, her ask to let Huck and Quill work, the work handed to each, Kit’s check, the fixes sent back, and Goldie’s report with the finished launch post."><source src="/screens/desk-film.mp4" type="video/mp4"><source src="/screens/desk-film.webm" type="video/webm"></video>
+        <button class="clip-toggle" type="button" data-film-close>Close</button>
+      </div>
     </div>
     <div class="shot stage-phone"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="(max-width: 40rem) 92vw, 300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." fetchpriority="high" decoding="async"></div>
-    <figcaption class="caption">Fifty seconds of the room, as it happened: one message to Goldie, her work handed to Huck and Quill, Kit’s check, and the report.</figcaption>
+    <figcaption class="caption">Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck.</figcaption>
   </figure>
 </section>
 
@@ -245,8 +248,6 @@ const ua = navigator.userAgent, onPhone = /iPhone|iPad|iPod|Android/.test(ua);
   if (!onPhone) return;
   const url = "https://hotline.dev/";
   document.querySelectorAll("[data-cmd]").forEach((c) => { c.hidden = true; });
-  // The desk film is not shown on a phone, so it is not fetched there either.
-  document.querySelectorAll(".stage-desk video").forEach((v) => { v.removeAttribute("autoplay"); v.preload = "none"; v.querySelectorAll("source").forEach((s) => s.remove()); v.load(); });
   document.querySelectorAll("[data-also]").forEach((s) => { s.innerHTML = others(Object.keys(names)); });
   document.querySelectorAll("[data-dl-auto]").forEach((a) => {
     delete a.dataset.dl; a.href = url; a.textContent = "Send to your computer";
@@ -266,7 +267,7 @@ document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("clic
 
 // Each film plays only while it is on screen, never for someone who asked for less
 // motion, and the visitor can stop or start it at any time.
-document.querySelectorAll("video[id]").forEach((v) => {
+document.querySelectorAll("video#run").forEach((v) => {
   const b = document.querySelector(`[data-clip-toggle][aria-controls="${v.id}"]`);
   let held = reduce;
   const show = () => { if (b) b.textContent = v.paused ? "Play" : "Pause"; };
@@ -368,6 +369,20 @@ const typing = (() => {
   addEventListener("resize", () => { const s = scrollY; scrollTo(0, 0); measure(); scrollTo(0, s); });
   if (document.fonts) document.fonts.ready.then(measure);
   measure();
+})();
+
+// The desk at rest is the still; asked, it dims and plays the room at work in its place.
+(() => {
+  const w = document.querySelector("[data-watch]"), f = document.querySelector("[data-film]"); if (!w || !f) return;
+  const v = f.querySelector("video"), stage = w.closest(".stage-desk");
+  w.hidden = false;
+  const open = () => { stage.classList.add("is-film"); f.hidden = false; v.currentTime = 0; v.play().catch(() => {}); f.querySelector("[data-film-close]").focus({ preventScroll: true }); };
+  const close = () => { v.pause(); stage.classList.remove("is-film"); f.hidden = true; w.focus({ preventScroll: true }); };
+  w.addEventListener("click", open);
+  f.querySelector("[data-film-close]").addEventListener("click", close);
+  v.addEventListener("ended", close);
+  v.addEventListener("click", () => (v.paused ? v.play() : v.pause()));
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && !f.hidden) close(); });
 })();
 
 // The masthead's Download arrives once the hero's own has scrolled away, so the two never compete.

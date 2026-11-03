@@ -1,5 +1,5 @@
 /* Hallmark · shape: Introduction, then the room at work · genre: modern-minimal · theme: custom · job: try · idea: "The page introduces itself the way a teammate would: by name, in the first person, then shows the room at work." · vibe: "dark desk, one green toad, plain facts"
- * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · hero: the toad on the headline talking while it types its name, the owner's sentence, one download and its install line, then the room at work: fifty seconds of the real desk, filmed, with the phone over its empty side · nav: empty at rest, the toad and its name dock into it on scroll, Docs and the GitHub mark, a Download that arrives once the hero's has gone · footer: one hairline row, the toad and name, four links, the licence · imagery: the product, real captures · signature: the toad and its name gliding up from the headline into the masthead · copy: verbatim (hero sentence, the owner's words)
+ * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · hero: the toad on the headline talking while it types its name, the owner's sentence, one download and its install line, then Goldie's thread twice, the desk window with the phone over its empty side; asked, the desk plays the room at work · nav: empty at rest, the toad and its name dock into it on scroll, Docs and the GitHub mark, a Download that arrives once the hero's has gone · footer: one hairline row, the toad and name, four links, the licence · imagery: the product, real captures · signature: the toad and its name gliding up from the headline into the masthead · copy: verbatim (hero sentence, the owner's words)
  * axes: dark/grotesk-sans/chromatic-green · posture: restrained · contrast: pass · fold: pass · v2.0.0 */
 /* Hallmark · pre-emit critique: P4 H5 E4 S5 R4 V4 · weakest: E, the desk captures are 1x; cropped to their native size so they never scale up, recaptured at 2x when the desk can be shot */
 /* Hallmark · waive 38iii · the name hotline in the toad's green, once, in the hero · it is the product saying its own name, the same green as the mark it docks beside */
@@ -88,10 +88,19 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .shot img, .shot video { width: 100%; height: 100%; object-fit: cover; object-position: 0 0; }
 /* The stage: Goldie's thread twice, the desk window and, over its empty side, the phone. */
 .stage { position: relative; margin: var(--space-xl) 0 0; aspect-ratio: 2.1 / 1; }
-.stage-desk { position: absolute; left: 0; top: 0; width: 86%; aspect-ratio: 1248 / 584; }
-.stage-desk video { width: 100%; height: 100%; display: block; }
-.stage-phone { position: absolute; right: 0; bottom: 0; width: 22%; aspect-ratio: 603 / 975; border: 0; border-radius: var(--radius-device); box-shadow: var(--shadow-lift); }
-.stage .caption { position: absolute; left: 0; top: calc(86% / (1248 / 584) * 2.1 + var(--space-sm)); max-width: 60%; margin: 0; }
+.stage-desk { position: absolute; left: 0; top: 0; width: 86%; aspect-ratio: 2.2 / 1; }
+/* Asked, the still dims and offers the film; the film then plays in its place. */
+.watch { position: absolute; inset: 0; z-index: var(--z-raised); display: flex; align-items: center; justify-content: center; gap: var(--space-sm); border: 0; padding: 0; background: color-mix(in oklab, var(--color-paper) 0%, transparent); color: var(--color-ink); font-weight: 600; font-size: var(--text-lg); cursor: pointer; opacity: 0; transition: opacity var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out); }
+.watch:hover, .watch:focus-visible { opacity: 1; background: color-mix(in oklab, var(--color-paper) 62%, transparent); }
+.watch:focus-visible { outline-offset: calc(-1 * var(--space-xs)); }
+.watch:active { background: color-mix(in oklab, var(--color-paper) 72%, transparent); }
+.watch-play { position: relative; width: 44px; height: 44px; border-radius: var(--radius-pill); background: var(--color-ink); }
+.watch-play::after { content: ""; position: absolute; left: 17px; top: 13px; border-style: solid; border-width: 9px 0 9px 14px; border-color: transparent transparent transparent var(--color-paper); }
+.film { position: absolute; inset: 0; z-index: calc(var(--z-raised) + 1); background: var(--color-paper); }
+.film video { width: 100%; height: 100%; object-fit: contain; display: block; cursor: pointer; }
+.stage-desk.is-film { z-index: var(--z-raised); }
+.stage-phone { position: absolute; right: 0; bottom: 0; width: 25%; aspect-ratio: 603 / 975; border: 0; border-radius: var(--radius-device); box-shadow: var(--shadow-lift); }
+.stage .caption { position: absolute; left: 0; top: calc(86% / 2.2 * 2.1 + var(--space-sm)); max-width: 56%; margin: 0; }
 .shot--window { aspect-ratio: 2 / 1; }
 /* The two pieces sit on one shelf at their own pixels, centred on one line, so their titles line up. */
 .shot--piece { display: flex; align-items: center; height: 402px; border: 0; border-radius: 0; background: none; overflow: visible; }

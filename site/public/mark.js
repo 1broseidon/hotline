@@ -1,11 +1,10 @@
-// The masthead mark, at work. A port of the window's own working glyph
-// (ui/src/ui/Glyph.tsx and ui/src/ui/receiver.ts): the same poses, the
-// same handset, the same line. Here it runs one turn on a loop: thinking,
-// reading, searching, editing, running, the reply down the line, the
-// hang-up and the wink, then a rest on the cradle.
-(() => {
-  const svg = document.getElementById("mglyph"); if (!svg) return;
-
+// The toad, at work. A port of the window's own working glyph
+// (ui/src/ui/Glyph.tsx and ui/src/ui/receiver.ts): the same poses, the same
+// handset, the same line. Each toad on the page gets its own:
+//   talk()    lifts the handset and keeps talking down the line until told to stop
+//   hangUp()  reels the line in, drops the handset on the cradle and winks
+//   turn()    one whole turn: thinking, reading, searching, editing, running, the reply, the hang-up
+window.hotlineMark = (() => {
   // receiver.ts: the brow, the small drawing the working glyph moves.
   const G = { gap: 3.4, thick: 3.8, lips: 156, sag: 0 };
   const LEFT = 20, RIGHT = 44, Y = 30, EYE = 10.5;
@@ -34,7 +33,6 @@
     const top = Y - r - g.thick, bottom = Y - mid * Math.sin(rad(g.lips)) + g.thick / 2;
     return { points, centre: [32, (top + bottom) / 2] };
   };
-  svg.querySelector(".g-receiver").setAttribute("d", receiverPath(G));
 
   // Glyph.tsx: the poses.
   const REST = { pupil: 0, pupilY: 0, eyeL: 1, eyeR: 1, wide: 1, body: 1, rot: 0, dy: 0, lift: 0, tilt: 0, hx: 0, hy: 0, ht: 0 };
@@ -82,81 +80,90 @@
     return HANDSET.points.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s + hx, cy + (x - cx) * s + (y - cy) * c - lift]);
   };
   const mix = (a, b, m) => a.map(([x, y], i) => [x + (b[i][0] - x) * m, y + (b[i][1] - y) * m]);
-  // At rest the toad sits alone, as the app's own chrome wears it; the handset is only in hand during a turn.
-  let hand = false;
-  const set = (sel, name, v) => svg.querySelector(sel).setAttribute(name, v);
-  const paint = (pose, held, line) => {
-    const w = pose.wide, f = (v) => Math.max(0.001, v).toFixed(3);
-    set(".g-all", "transform", `translate(0 ${pose.dy.toFixed(2)}) rotate(${pose.rot.toFixed(2)} 32 34)`);
-    set(".g-body", "transform", `scale(1 ${f(pose.body)})`);
-    set(".g-eyeL", "transform", `scale(${f(w)} ${f(pose.eyeL * w)})`);
-    set(".g-eyeR", "transform", `scale(${f(w)} ${f(pose.eyeR * w)})`);
-    set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} ${pose.pupilY.toFixed(2)}) scale(1 ${f(Math.max(pose.eyeL, pose.eyeR) * w)})`);
-    set(".g-hand", "transform", `translate(${held.hx.toFixed(2)} ${(pose.hy - held.lift).toFixed(2)})`);
-    set(".g-receiver", "transform", `rotate(${(held.tilt + pose.ht).toFixed(2)})`);
-    set(".g-hand", "opacity", line || !hand ? "0" : "1");
-    set(".g-line", "opacity", line ? "1" : "0");
-    if (line) { set(".g-line", "d", `M${line.points.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L")}`); set(".g-line", "stroke-width", line.width.toFixed(2)); }
-  };
-
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { paint({ ...REST }, { lift: 0, tilt: 0, hx: 0 }, null); return; }
-
-  // One turn, on a loop. Each kind of work opens with a blink, as in the window.
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const TURN = [["rest", 1.8], ["thinking", 3.0], ["read", 3.4], ["search", 2.6], ["edit", 3.45], ["execute", 2.48], ["writing", 3.2], ["landed", REEL + DROP + CLUNK + WINK + 0.1]];
-  const LEN = TURN.reduce((a, [, d]) => a + d, 0);
-  const pin = new URLSearchParams(location.search).get("mt"); // ?mt=seconds holds one moment, for frame checks
-  const held = { lift: 0, tilt: 0, hx: 0 };
-  let entry = { ...held }, spoken = 0, current = null, last = 0, blinkAt = -1, nextBlink = 0.7;
-    const draw = (clock, dt) => {
-    const tl = clock % LEN;
-    let acc = 0, phase = "rest", t = 0;
-    for (const [p, d] of TURN) { if (tl < acc + d) { phase = p; t = tl - acc; break; } acc += d; }
-    hand = phase !== "rest";
-    if (phase !== current) { current = phase; entry = { ...held }; if (phase !== "writing" && phase !== "landed" && phase !== "rest") blinkAt = clock; }
-    if (clock > nextBlink) { blinkAt = clock; nextBlink = clock + 2.4 + Math.random() * 4; }
-    const gap = clock - blinkAt, blink = gap >= 0 && gap < 0.18 ? 0.08 + 0.92 * Math.abs(gap / 0.09 - 1) : 1;
-    const pose = poseOf(phase, t);
-    pose.eyeL = Math.min(pose.eyeL, blink); pose.eyeR = Math.min(pose.eyeR, blink);
-    const k = 1 - Math.exp(-dt / 0.08);
-    let line = null;
-    if (phase === "writing") {
-      const m = ease(clamp01(t / MORPH));
-      line = { points: mix(heldLine(entry.lift, entry.tilt, entry.hx), voiceLine(t), m), width: LINE_WIDTH };
-      watching(pose, t, m); spoken = t;
-    } else if (phase === "landed") {
-      if (t < REEL) {
-        const m = ease(t / REEL);
-        line = { points: mix(voiceLine(spoken + t), heldLine(3, 0, 0), m), width: LINE_WIDTH };
-        watching(pose, spoken + t, 1 - m);
-        Object.assign(held, { lift: 3, tilt: 0, hx: 0 });
+  const TURN_LEN = TURN.reduce((a, [, d]) => a + d, 0), LANDED = REEL + DROP + CLUNK + WINK + 0.1;
+
+  return (svg) => {
+    if (!svg) return { talk() {}, hangUp() {}, turn() {} };
+    const set = (sel, name, v) => svg.querySelector(sel).setAttribute(name, v);
+    set(".g-receiver", "d", receiverPath(G));
+    // At rest the toad sits alone, as the app's own chrome wears it; the handset is only in hand at work.
+    let hand = false;
+    const paint = (pose, held, line) => {
+      const w = pose.wide, f = (v) => Math.max(0.001, v).toFixed(3);
+      set(".g-all", "transform", `translate(0 ${pose.dy.toFixed(2)}) rotate(${pose.rot.toFixed(2)} 32 34)`);
+      set(".g-body", "transform", `scale(1 ${f(pose.body)})`);
+      set(".g-eyeL", "transform", `scale(${f(w)} ${f(pose.eyeL * w)})`);
+      set(".g-eyeR", "transform", `scale(${f(w)} ${f(pose.eyeR * w)})`);
+      set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} ${pose.pupilY.toFixed(2)}) scale(1 ${f(Math.max(pose.eyeL, pose.eyeR) * w)})`);
+      set(".g-hand", "transform", `translate(${held.hx.toFixed(2)} ${(pose.hy - held.lift).toFixed(2)})`);
+      set(".g-receiver", "transform", `rotate(${(held.tilt + pose.ht).toFixed(2)})`);
+      set(".g-hand", "opacity", line || !hand ? "0" : "1");
+      set(".g-line", "opacity", line ? "1" : "0");
+      if (line) { set(".g-line", "d", `M${line.points.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L")}`); set(".g-line", "stroke-width", line.width.toFixed(2)); }
+    };
+    const rest = () => { hand = false; paint({ ...REST }, { lift: 0, tilt: 0, hx: 0 }, null); };
+    rest();
+    if (reduce) return { talk() {}, hangUp() {}, turn() {} };
+
+    const held = { lift: 0, tilt: 0, hx: 0 };
+    let entry = { ...held }, spoken = 0, current = null, blinkAt = -1, nextBlink = 0.7;
+    const draw = (phase, t, clock, dt) => {
+      hand = phase !== "rest";
+      if (phase !== current) { current = phase; entry = { ...held }; if (phase !== "writing" && phase !== "landed" && phase !== "rest") blinkAt = clock; }
+      if (clock > nextBlink) { blinkAt = clock; nextBlink = clock + 2.4 + Math.random() * 4; }
+      const gap = clock - blinkAt, blink = gap >= 0 && gap < 0.18 ? 0.08 + 0.92 * Math.abs(gap / 0.09 - 1) : 1;
+      const pose = poseOf(phase, t);
+      pose.eyeL = Math.min(pose.eyeL, blink); pose.eyeR = Math.min(pose.eyeR, blink);
+      const k = 1 - Math.exp(-dt / 0.08);
+      let line = null;
+      if (phase === "writing") {
+        const m = ease(clamp01(t / MORPH));
+        line = { points: mix(heldLine(entry.lift, entry.tilt, entry.hx), voiceLine(t), m), width: LINE_WIDTH };
+        watching(pose, t, m); spoken = t;
+      } else if (phase === "landed") {
+        if (t < REEL) {
+          const m = ease(t / REEL);
+          line = { points: mix(voiceLine(spoken + t), heldLine(3, 0, 0), m), width: LINE_WIDTH };
+          watching(pose, spoken + t, 1 - m);
+          Object.assign(held, { lift: 3, tilt: 0, hx: 0 });
+        } else {
+          const c = t - REEL;
+          held.lift = c < DROP ? 3 * (1 - easeIn(c / DROP)) : 0;
+          const d = c - DROP;
+          if (d >= 0 && d < CLUNK) pose.body = 1 - 0.1 * Math.sin((d / CLUNK) * Math.PI);
+          else if (d >= CLUNK && d < CLUNK + WINK) pose.eyeL = Math.min(pose.eyeL, winkAt((d - CLUNK) / WINK));
+        }
+      } else if (phase === "search" && t > 0.25) {
+        Object.assign(held, { lift: pose.lift, tilt: pose.tilt, hx: pose.hx });
       } else {
-        const c = t - REEL;
-        held.lift = c < DROP ? 3 * (1 - easeIn(c / DROP)) : 0;
-        const d = c - DROP;
-        if (d >= 0 && d < CLUNK) pose.body = 1 - 0.1 * Math.sin((d / CLUNK) * Math.PI);
-        else if (d >= CLUNK && d < CLUNK + WINK) pose.eyeL = Math.min(pose.eyeL, winkAt((d - CLUNK) / WINK));
+        held.lift += (pose.lift - held.lift) * k; held.tilt += (pose.tilt - held.tilt) * k; held.hx += (pose.hx - held.hx) * k;
       }
-    } else if (phase === "search" && t > 0.25) {
-      Object.assign(held, { lift: pose.lift, tilt: pose.tilt, hx: pose.hx });
-    } else {
-      held.lift += (pose.lift - held.lift) * k; held.tilt += (pose.tilt - held.tilt) * k; held.hx += (pose.hx - held.hx) * k;
-    }
-    paint(pose, held, line);
+      paint(pose, held, line);
+    };
+
+    // One clock per toad, 20 frames a second on a timer, as in the window.
+    // `script` says, for a time on that clock, which phase it is and how far in;
+    // it returns null when the work is over and the toad goes back to rest.
+    let script = null, t0 = 0, last = 0, timer = 0, landing = false;
+    const tick = () => {
+      const clock = (performance.now() - t0) / 1000, at = script && script(clock);
+      if (!at) { timer = 0; current = null; rest(); return; }
+      timer = setTimeout(tick, 50);
+      if (document.hidden) return;
+      draw(at[0], at[1], clock, Math.min(0.1, clock - last)); last = clock;
+    };
+    const run = (s) => { script = s; if (!timer) { t0 = performance.now(); last = 0; nextBlink = 0.7; Object.assign(held, { lift: 0, tilt: 0, hx: 0 }); tick(); } };
+    const now = () => (performance.now() - t0) / 1000;
+
+    return {
+      talk() { landing = false; if (!timer) run(null); const from = now(); script = (c) => ["writing", c - from]; if (!timer) tick(); },
+      hangUp() { if (!timer || landing) return; landing = true; const from = now(); script = (c) => (c - from < LANDED ? ["landed", c - from] : null); },
+      turn() {
+        if (timer) return;
+        run((c) => { if (c >= TURN_LEN) return null; let acc = 0; for (const [p, d] of TURN) { if (c < acc + d) return [p, c - acc]; acc += d; } return null; });
+      },
+    };
   };
-  if (pin !== null) { for (let c = 0; c <= +pin; c += 0.05) draw(c, 0.05); return; }
-  // 20 frames a second on a timer, as in the window. When the page opens the
-  // mark only sends its reply down the line, hangs up and winks (under five
-  // seconds, so it needs no pause control); pointing at it plays the whole turn.
-  let t0 = performance.now(), timer = 0;
-  const tick = () => {
-    const clock = (performance.now() - t0) / 1000;
-    if (clock >= LEN) { last = 0; current = null; hand = false; paint({ ...REST }, { lift: 0, tilt: 0, hx: 0 }, null); timer = 0; return; }
-    timer = setTimeout(tick, 50);
-    if (document.hidden) return;
-    draw(clock, Math.min(0.1, clock - last)); last = clock;
-  };
-  const play = (from = 0) => { if (timer) return; t0 = performance.now() - from * 1000; last = 0; Object.assign(held, { lift: 0, tilt: 0, hx: 0 }); nextBlink = from + 0.7; tick(); };
-  const brand = svg.closest("a");
-  if (brand) { brand.addEventListener("pointerenter", () => play()); brand.addEventListener("focus", () => play()); }
-  play(TURN.slice(0, -2).reduce((a, [, d]) => a + d, 0));
 })();

@@ -17,15 +17,17 @@
 .mast { position: sticky; top: 0; z-index: var(--z-sticky-nav); background: color-mix(in oklab, var(--color-paper) 84%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 .mast-in { display: flex; align-items: center; justify-content: space-between; height: var(--mast-h); }
 .brand { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--color-ink); text-decoration: none; }
-.brand svg { width: 34px; height: 24px; overflow: visible; color: var(--color-accent); }
-.brand .g-all, .brand .g-body, .brand .g-eyeL, .brand .g-eyeR, .brand .g-hand { fill: currentColor; }
-.brand .g-pupils { fill: var(--color-paper); }
-.brand .g-body, .brand .g-eyeL, .brand .g-eyeR, .brand .g-pupils, .brand .g-receiver { transform-box: fill-box; transform-origin: center; }
-.brand .g-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
-.brand .g-hand { transition: opacity var(--dur-short) var(--ease-out); }
+/* The toad: one drawing, in the masthead and on the headline. */
+.toad { overflow: visible; color: var(--color-accent); }
+.toad .g-all, .toad .g-body, .toad .g-eyeL, .toad .g-eyeR, .toad .g-hand { fill: currentColor; }
+.toad .g-pupils { fill: var(--color-paper); }
+.toad .g-body, .toad .g-eyeL, .toad .g-eyeR, .toad .g-pupils, .toad .g-receiver { transform-box: fill-box; transform-origin: center; }
+.toad .g-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.toad .g-hand { transition: opacity var(--dur-short) var(--ease-out); }
+.toad--mast { width: 34px; height: 24px; }
 .brand-word { font-weight: 600; font-size: var(--text-lg); line-height: normal; letter-spacing: -0.01em; }
-.js .brand-word { opacity: 0; transition: opacity var(--dur-micro) linear; }
-.js .mast.is-docked .brand-word { opacity: 1; }
+.js .mast .brand-word, .js .mast .toad--mast { opacity: 0; transition: opacity var(--dur-micro) linear; }
+.js .mast.is-docked .brand-word, .js .mast.is-docked .toad--mast { opacity: 1; }
 
 .mast-nav { position: relative; display: flex; align-items: center; gap: var(--space-lg); }
 .mast-links { display: flex; align-items: center; gap: var(--space-lg); transition: transform var(--dur-long) var(--ease-out); }
@@ -40,16 +42,19 @@
 .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-lg)))); }
 
 /* The name in flight between the headline and the masthead. */
+
 .morph { position: fixed; left: 0; top: 0; z-index: calc(var(--z-sticky-nav) + 1); transform-origin: 0 0; font-weight: 600; line-height: normal; white-space: nowrap; pointer-events: none; will-change: transform; color: color-mix(in oklab, var(--color-ink) calc(var(--morph, 0) * 100%), var(--color-accent)); }
+.morph--toad { display: block; color: var(--color-accent); }
 
 /* Hero: it says its name, says what it is, and offers itself. */
 .hero { padding-top: var(--space-xl); }
-.hero h1 { font-size: min(var(--text-display), 10.5vw); line-height: 1.05; letter-spacing: var(--tracking-display); font-weight: 600; white-space: nowrap; }
+.hero h1 { font-size: min(var(--text-display), 9vw); line-height: 1.05; letter-spacing: var(--tracking-display); font-weight: 600; white-space: nowrap; }
 .hello .name, .hello .stop { color: var(--color-accent); }
 .hello .name { line-height: normal; }
 .hero h1.is-guess .name { color: var(--color-ink); }
-.js .hero h1:not(.is-done) .stop { display: none; }
-.hero h1.is-morphing .name { visibility: hidden; }
+.js .hero h1:not(.is-done):not(.is-own) .stop { display: none; }
+.hero h1.is-morphing .name, .hero h1.is-morphing .toad--hero { visibility: hidden; }
+.toad--hero { display: inline-block; width: 1.4em; height: 1em; margin-right: 0.24em; vertical-align: baseline; }
 .hello .hi, .hello .stop { opacity: calc(1 - var(--morph, 0) * 1.6); }
 .caret { display: inline-block; width: 0.07em; height: 0.8em; margin-left: 0.05em; vertical-align: -0.04em; background: var(--color-accent); opacity: 0; }
 .is-typing .caret { opacity: 1; animation: caret 1s steps(1) infinite; }

@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-11-03
+
 ### Added
 
 - An accent of your own: Settings › Appearance › Accent picks one of six

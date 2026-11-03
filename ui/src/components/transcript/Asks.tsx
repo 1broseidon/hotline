@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { askKey, useAnswer } from "../../answering";
 import type {
 	ExchangePauseStatus,
 	HumanActionStatus,
@@ -25,13 +26,11 @@ export function Permission({
 	thread: ThreadId;
 	event: Extract<TranscriptEvent, { kind: "permission" }>;
 }) {
-	const [answering, setAnswering] = useState(false);
 	const chosen = chosenOption(event);
+	const { answering, failure, answer: send } = useAnswer(askKey(event), event.decision !== undefined);
 
 	const answer = (optionId: string) => {
-		if (answering || event.decision !== undefined) return;
-		setAnswering(true);
-		void answerCard(thread, { kind: "permission", requestId: event.requestId, optionId }).catch(() => setAnswering(false));
+		send(() => answerCard(thread, { kind: "permission", requestId: event.requestId, optionId }));
 	};
 
 	return (
@@ -58,6 +57,7 @@ export function Permission({
 					))}
 				</div>
 			)}
+			{failure !== null && chosen === undefined && <p role="alert" className="mt-2 text-sm text-danger">{failure}</p>}
 		</div>
 	);
 }
@@ -99,15 +99,13 @@ export function HumanAction({
 	event: Extract<TranscriptEvent, { kind: "human_action" }>;
 	onOpenScreen?(): void;
 }) {
-	const [answering, setAnswering] = useState(false);
 	const [noting, setNoting] = useState(false);
 	const [note, setNote] = useState("");
+	const { answering, failure, answer: send } = useAnswer(askKey(event), event.status !== "pending");
 
 	const answer = (status: HumanAnswer) => {
-		if (answering || event.status !== "pending") return;
-		setAnswering(true);
 		const trimmed = note.trim();
-		void answerCard(thread, { kind: "human", actionId: event.actionId, status, ...(trimmed ? { note: trimmed } : {}) }).catch(() => setAnswering(false));
+		send(() => answerCard(thread, { kind: "human", actionId: event.actionId, status, ...(trimmed ? { note: trimmed } : {}) }));
 	};
 
 	if (event.status !== "pending") {
@@ -171,6 +169,7 @@ export function HumanAction({
 					</button>
 				)}
 			</div>
+			{failure !== null && <p role="alert" className="mt-2 text-sm text-danger">{failure}</p>}
 		</div>
 	);
 }
@@ -191,20 +190,13 @@ const PASSKEY_AFTERLIFE: Record<PasskeyAskStatus, string> = {
  * decided card is the outcome on the tape.
  */
 export function PasskeyAskCard({ personaId, event }: { personaId: string; event: Extract<TranscriptEvent, { kind: "passkey_ask" }> }) {
-	const [answering, setAnswering] = useState(false);
-	const [refusal, setRefusal] = useState<string | null>(null);
+	const { answering, failure: refusal, answer: send } = useAnswer(askKey(event), event.status !== "pending");
 	const who = askedFor(event);
 	const site = event.rpName !== undefined ? `${event.rpName} (${event.rpId})` : event.rpId;
 	const asks = `${site} asks to make a passkey${who !== null ? ` for ${who}` : ""}.`;
 
 	const answer = (approved: boolean) => {
-		if (answering || event.status !== "pending") return;
-		setAnswering(true);
-		setRefusal(null);
-		void wire.command("secrets.passkey.answer", { personaId, askId: event.askId, approved }).catch((error: unknown) => {
-			setRefusal(error instanceof Error ? error.message : String(error));
-			setAnswering(false);
-		});
+		send(() => wire.command("secrets.passkey.answer", { personaId, askId: event.askId, approved }));
 	};
 
 	if (event.status !== "pending") {
@@ -261,21 +253,18 @@ export function ExchangePaused({
 	event: Extract<TranscriptEvent, { kind: "exchange_paused" }>;
 	ownerName: string;
 }) {
-	const [answering, setAnswering] = useState(false);
-	const [refusal, setRefusal] = useState<string | null>(null);
+	const { answering, failure: refusal, answer: send } = useAnswer(
+		askKey(event),
+		event.status !== "pending",
+		() => "Could not update this exchange. Try again.",
+	);
 
 	if (event.status !== "pending") {
 		return <p className="rule-line rule-line-plain">{EXCHANGE_SETTLED[event.status]}</p>;
 	}
 
 	const act = (cmd: "teammates.exchange_resume" | "teammates.exchange_stop") => {
-		if (answering) return;
-		setAnswering(true);
-		setRefusal(null);
-		void wire.command(cmd, { a: personaId, b: event.withPersonaId }).catch(() => {
-			setAnswering(false);
-			setRefusal("Could not update this exchange. Try again.");
-		});
+		send(() => wire.command(cmd, { a: personaId, b: event.withPersonaId }));
 	};
 
 	return (

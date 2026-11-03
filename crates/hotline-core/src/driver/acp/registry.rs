@@ -381,6 +381,35 @@ pub fn named(backend_id: &str) -> bool {
         || ADAPTED.iter().any(|adapted| adapted.id == backend_id)
 }
 
+/// The CLI a harness Hotline knows by name is installed as: a native agent's
+/// own command, or the client an adapter translates for. `None` for an agent
+/// that is only an adapter, a runner package or a fetched release.
+pub(crate) fn cli_of(backend_id: &str) -> Option<&'static str> {
+    NATIVE
+        .iter()
+        .find(|native| native.id == backend_id)
+        .map(|native| native.command)
+        .or_else(|| {
+            ADAPTED
+                .iter()
+                .find(|adapted| adapted.id == backend_id)
+                .map(|adapted| adapted.client)
+        })
+}
+
+/// Every launch that has answered on this machine, oldest first: what an
+/// update compares an adapter's newest pin with.
+pub(crate) fn started_lines(root: &Path) -> Vec<String> {
+    read_started(root)
+}
+
+/// Fetches the catalogue now, whatever the age of the cached copy: a check
+/// for updates wants the pins the registry publishes today. A fetch that
+/// fails leaves the cached copy, as every fetch does.
+pub(crate) async fn refresh_now(root: &Path) {
+    refresh_catalogue(root, REGISTRY_URL).await;
+}
+
 /// The command that starts this backend, or the sentence saying why nothing
 /// can.
 pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {

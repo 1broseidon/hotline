@@ -25,17 +25,10 @@ impl Room {
         {
             return ComputerAtStart::NotWanted;
         }
-        {
-            let mut setups = lock(&self.computer_setups);
-            if setups
-                .get(&persona.id)
-                .is_some_and(|setup| matches!(*setup.borrow(), ComputerSetup::Downloading { .. }))
-            {
-                // A download already under way joins when it lands; a second
-                // one would race it for the same container.
-                return ComputerAtStart::Downloading;
-            }
-            setups.remove(&persona.id);
+        if self.computer_links.begin_start(&persona.id) {
+            // A download already under way joins when it lands; a second
+            // one would race it for the same container.
+            return ComputerAtStart::Downloading;
         }
         let settings = room::settings(&self.log);
         let prefer = crate::computer::preferred_runtime(&settings);
@@ -60,18 +53,18 @@ impl Room {
         tokio::select! {
             result = &mut bringing_up => match result {
                 Ok(Ok(ready)) => {
-                    lock(&self.computer_setups).remove(&persona.id);
+                    self.computer_links.end_start(&persona.id);
                     match self.finish_grant(persona, &ready, driving).await {
                         Ok(extra_mcp) => ComputerAtStart::Attached(extra_mcp),
                         Err(reason) => ComputerAtStart::Unavailable(reason),
                     }
                 }
                 Ok(Err(reason)) => {
-                    lock(&self.computer_setups).remove(&persona.id);
+                    self.computer_links.end_start(&persona.id);
                     ComputerAtStart::Unavailable(reason)
                 }
                 Err(error) => {
-                    lock(&self.computer_setups).remove(&persona.id);
+                    self.computer_links.end_start(&persona.id);
                     ComputerAtStart::Unavailable(error.to_string())
                 }
             },
@@ -92,32 +85,12 @@ impl Room {
 
     /// Records a download's progress where `computer_status` can see it.
     fn computer_download_progress(&self, persona_id: &str, report: &crate::computer::PullReport) {
-        let setup = ComputerSetup::Downloading {
-            image: report.image.clone(),
-            layers_done: report.layers_done,
-            layers_total: report.layers_total,
-        };
-        let mut setups = lock(&self.computer_setups);
-        match setups.get(persona_id) {
-            Some(watching) => {
-                watching.send_replace(setup);
-            }
-            None => {
-                setups.insert(persona_id.to_string(), watch::channel(setup).0);
-            }
-        }
-    }
-
-    pub(super) fn set_computer_setup(&self, persona_id: &str, setup: ComputerSetup) {
-        let mut setups = lock(&self.computer_setups);
-        match setups.get(persona_id) {
-            Some(watching) => {
-                watching.send_replace(setup);
-            }
-            None => {
-                setups.insert(persona_id.to_string(), watch::channel(setup).0);
-            }
-        }
+        self.computer_links.progress(
+            persona_id,
+            &report.image,
+            report.layers_done,
+            report.layers_total,
+        );
     }
 
     /// A download that ran behind a session has finished, one way or the
@@ -130,11 +103,11 @@ impl Room {
     ) {
         match result {
             Ok(_) => {
-                self.set_computer_setup(persona_id, ComputerSetup::Ready);
+                self.computer_links.downloaded(persona_id);
                 self.attach_computer_when_idle(persona_id);
             }
             Err(reason) => {
-                self.set_computer_setup(persona_id, ComputerSetup::Failed(reason.clone()));
+                self.computer_links.failed(persona_id, reason.clone());
                 if let Ok(persona) = self.persona(persona_id) {
                     eprintln!("{}", computer_unavailable(&persona.name, &reason));
                 }
@@ -148,10 +121,7 @@ impl Room {
     /// session running there is nothing to restart; the next start finds
     /// the computer up and grants it at once.
     pub(super) fn attach_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
-        if !lock(&self.computer_setups)
-            .get(persona_id)
-            .is_some_and(|setup| matches!(*setup.borrow(), ComputerSetup::Ready))
-        {
+        if self.computer_links.phase(persona_id) != ComputerPhase::Ready {
             return;
         }
         let wanted = self.persona(persona_id).ok().filter(|persona| {
@@ -162,22 +132,41 @@ impl Room {
         });
         let session = lock(&self.sessions).get(persona_id).cloned();
         let (Some(_), Some(session)) = (wanted, session) else {
-            lock(&self.computer_setups).remove(persona_id);
+            self.computer_links.end_start(persona_id);
             return;
         };
         if session.computer {
-            lock(&self.computer_setups).remove(persona_id);
+            self.computer_links.end_start(persona_id);
             return;
         }
         if lock(&session.turns).running {
             return;
         }
-        lock(&self.computer_setups).remove(persona_id);
         let room = self.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
-            // A restart that fails says why on the teammate's band itself.
-            let _ = room.reattach(&persona_id).await;
+            // Behind the start gate a message has either claimed its turn
+            // already, which brings this back when it ends, or waits and
+            // lands on the session this brings up.
+            let Ok(_working) = room.working() else {
+                return;
+            };
+            let gate = room.start_gate(&persona_id);
+            let _held = gate.lock().await;
+            let Some(session) = lock(&room.sessions).get(&persona_id).cloned() else {
+                room.computer_links.end_start(&persona_id);
+                return;
+            };
+            if session.computer {
+                room.computer_links.end_start(&persona_id);
+                return;
+            }
+            if lock(&session.turns).running {
+                return;
+            }
+            room.computer_links.end_start(&persona_id);
+            // A rebuild that fails says why on the teammate's band itself.
+            let _ = room.rebuild_held(&persona_id).await;
         });
     }
 
@@ -237,20 +226,12 @@ impl Room {
                 "note": "Your computer is attached: its `computer__` tools are yours to use.",
             });
         }
-        let watching = lock(&self.computer_setups)
-            .get(persona_id)
-            .map(watch::Sender::subscribe);
-        let Some(mut watching) = watching else {
-            return json!({
-                "state": "unavailable",
-                "note": "Your computer did not start for this session; the notice on your tape says why. Work without it, and tell the person if the task needs it.",
-            });
-        };
-        if !wait.is_zero() && matches!(*watching.borrow(), ComputerSetup::Downloading { .. }) {
+        let mut watching = self.computer_links.watch(persona_id);
+        if !wait.is_zero() && matches!(*watching.borrow(), ComputerPhase::Downloading { .. }) {
             let _ = tokio::time::timeout(wait, async {
                 while matches!(
                     *watching.borrow_and_update(),
-                    ComputerSetup::Downloading { .. }
+                    ComputerPhase::Downloading { .. }
                 ) {
                     if watching.changed().await.is_err() {
                         break;
@@ -259,9 +240,9 @@ impl Room {
             })
             .await;
         }
-        let setup = watching.borrow().clone();
-        match setup {
-            ComputerSetup::Downloading {
+        let phase = self.computer_links.phase(persona_id);
+        match phase {
+            ComputerPhase::Downloading {
                 image,
                 layers_done,
                 layers_total,
@@ -272,21 +253,29 @@ impl Room {
                 "layersTotal": layers_total,
                 "note": "Your computer's image is still downloading. Keep working without it, or call again with `wait_seconds` to wait for it. When it lands, your session restarts with the computer once your current turn ends, and this conversation carries over.",
             }),
-            ComputerSetup::Ready => json!({
+            ComputerPhase::Ready => json!({
                 "state": "ready",
                 "note": "Your computer has finished downloading. Its `computer__` tools arrive when this turn ends: finish or pause here, and they are yours from the next message.",
             }),
-            ComputerSetup::Failed(reason) => json!({
+            ComputerPhase::Failed { reason, .. } => json!({
                 "state": "failed",
                 "reason": reason,
                 "note": "Your computer could not start. The person has been told on your tape; work without it, and say so if the task needs it.",
+            }),
+            ComputerPhase::None
+            | ComputerPhase::Preparing { .. }
+            | ComputerPhase::Swap { .. }
+            | ComputerPhase::Swapping { .. }
+            | ComputerPhase::UpdateFailed(_) => json!({
+                "state": "unavailable",
+                "note": "Your computer did not start for this session; the notice on your tape says why. Work without it, and tell the person if the task needs it.",
             }),
         }
     }
 
     /// Starts the teammate's computer, waiting for it however long it
-    /// takes, and grants it. Peer sessions use this: a colleague asked to
-    /// work on its own machine either has it or refuses the request.
+    /// takes, and grants it to a thread that shares it: a work thread, a
+    /// call, a run or a job, which goes on without it when this fails.
     pub(super) async fn grant_computer(
         &self,
         persona: &Persona,
@@ -411,9 +400,10 @@ impl Room {
                 status.available = Some(wanted);
             }
         }
-        status.update_failed = lock(&self.computer_update_failures)
-            .get(persona_id)
-            .cloned();
+        status.update_failed = match self.computer_links.phase(persona_id) {
+            ComputerPhase::UpdateFailed(reason) => Some(reason),
+            _ => None,
+        };
         Ok(status)
     }
 
@@ -427,20 +417,16 @@ impl Room {
     /// makes the new one.
     pub async fn computer_update(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let persona = self.persona(persona_id)?;
-        lock(&self.computer_update_failures).remove(persona_id);
+        self.computer_links.forget_update_failure(persona_id);
         let old = self.computer_status(persona_id).await?.release;
         if !lock(&self.sessions).contains_key(persona_id) {
             self.computer_remove(persona_id).await?;
             self.forget_release(old).await;
             return Ok(());
         }
-        {
-            let mut swaps = lock(&self.computer_swaps);
-            if swaps.contains_key(persona_id) {
-                // One update at a time; the one under way lands the same release.
-                return Ok(());
-            }
-            swaps.insert(persona_id.to_string(), ComputerSwap { old, ready: false });
+        if !self.computer_links.begin_update(persona_id, old) {
+            // One update at a time; the one under way lands the same release.
+            return Ok(());
         }
         let room = self.clone();
         tokio::spawn(async move {
@@ -456,18 +442,15 @@ impl Room {
                 .await;
             match prepared {
                 Ok(()) => {
-                    if let Some(swap) = lock(&room.computer_swaps).get_mut(&persona.id) {
-                        swap.ready = true;
-                    }
+                    room.computer_links.prepared(&persona.id);
                     room.swap_computer_when_idle(&persona.id);
                 }
                 Err(reason) => {
-                    lock(&room.computer_swaps).remove(&persona.id);
                     eprintln!(
                         "{}'s computer could not be updated, and keeps the one it has: {reason}",
                         persona.name
                     );
-                    lock(&room.computer_update_failures).insert(persona.id.clone(), reason);
+                    room.computer_links.update_failed(&persona.id, reason);
                 }
             }
         });
@@ -485,12 +468,7 @@ impl Room {
         if !lock(&self.sessions).contains_key(persona_id) {
             return self.computer_stop(persona_id).await;
         }
-        lock(&self.computer_swaps)
-            .entry(persona_id.to_string())
-            .or_insert(ComputerSwap {
-                old: None,
-                ready: true,
-            });
+        self.computer_links.restart(persona_id);
         self.swap_computer_when_idle(persona_id);
         Ok(())
     }
@@ -498,30 +476,22 @@ impl Room {
     /// Swaps in a computer whose new release has downloaded, between turns.
     /// A turn in flight keeps the old computer to its end, which calls this
     /// again (see [`Room::run_queue`]). The swap is the old container going and the
-    /// session reattaching, which makes and grants the new one.
+    /// session rebuilt as a chapter's swap rebuilds it, which makes and grants
+    /// the new one and leaves the teammate's threads and requests standing.
+    ///
+    /// The swap stays on the teammate's phase until it holds the start gate
+    /// and finds no turn claimed, so an update pressed meanwhile is told one
+    /// is under way, and a claimed turn leaves it standing for its own end.
     pub(super) fn swap_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
-        if !lock(&self.computer_swaps)
-            .get(persona_id)
-            .is_some_and(|swap| swap.ready)
-        {
+        if !self.computer_links.swap_waiting(persona_id) {
             return;
         }
-        let session = lock(&self.sessions).get(persona_id).cloned();
-        if session
-            .as_ref()
+        if lock(&self.sessions)
+            .get(persona_id)
             .is_some_and(|session| lock(&session.turns).running)
         {
             return;
         }
-        let Some(swap) = lock(&self.computer_swaps).remove(persona_id) else {
-            return;
-        };
-        let wanted = self.persona(persona_id).ok().filter(|persona| {
-            persona
-                .computer
-                .as_ref()
-                .is_some_and(|computer| computer.enabled)
-        });
         let room = self.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
@@ -529,27 +499,50 @@ impl Room {
             // already, or waits and lands on the session this brings up.
             let gate = room.start_gate(&persona_id);
             let held = gate.lock().await;
-            let busy = lock(&room.sessions)
-                .get(&persona_id)
-                .is_some_and(|session| lock(&session.turns).running);
-            if busy {
+            // The session as it is under the gate, not as it was before it.
+            let session = lock(&room.sessions).get(&persona_id).cloned();
+            if session
+                .as_ref()
+                .is_some_and(|session| lock(&session.turns).running)
+            {
                 // Admitted in the gap: that turn's end brings the swap back,
                 // unless it has ended already, which this looks for once more.
                 drop(held);
-                lock(&room.computer_swaps)
-                    .entry(persona_id.clone())
-                    .or_insert(swap);
                 room.swap_computer_when_idle(&persona_id);
                 return;
             }
-            let _ = room.computer_remove(&persona_id).await;
-            if wanted.is_some() && session.is_some() {
-                // A restart that fails says why on the teammate's band itself.
-                let _working = room.working();
-                let _ = room.reattach_held(&persona_id).await;
+            let Some(old) = room.computer_links.claim_swap(&persona_id) else {
+                return;
+            };
+            // A room that is closing or pausing for an update starts nothing
+            // new: the swap waits, and the container is still the old one.
+            let working = match room.working() {
+                Ok(working) => working,
+                Err(reason) => {
+                    eprintln!("A computer swap waits: {reason}");
+                    room.computer_links.unclaim_swap(&persona_id, old);
+                    return;
+                }
+            };
+            if let Err(reason) = room.computer_remove(&persona_id).await {
+                eprintln!("A computer swap waits, its old computer would not go: {reason}");
+                room.computer_links.unclaim_swap(&persona_id, old);
+                return;
             }
+            let wanted = room.persona(&persona_id).is_ok_and(|persona| {
+                persona
+                    .computer
+                    .as_ref()
+                    .is_some_and(|computer| computer.enabled)
+            });
+            if wanted && session.is_some() {
+                // A rebuild that fails says why on the teammate's band itself.
+                let _ = room.rebuild_held(&persona_id).await;
+            }
+            drop(working);
             drop(held);
-            room.forget_release(swap.old).await;
+            room.computer_links.finish_swap(&persona_id);
+            room.forget_release(old).await;
         });
     }
 
@@ -579,7 +572,8 @@ impl Room {
     /// Brings a teammate's computer up from its pane. A computer serves its
     /// teammate's session, which is what makes and grants it: a teammate at
     /// rest starts, computer and all, and a running one whose computer was
-    /// stopped from the pane is attached to it again, which starts it. Mid
+    /// stopped from the pane is rebuilt with it, which starts it and leaves
+    /// its threads and requests standing. Mid
     /// turn the session is left alone: the turn's tools are its own.
     pub async fn computer_start(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let persona = self.persona(persona_id)?;
@@ -601,7 +595,7 @@ impl Room {
                     persona.name
                 ));
             }
-            Some(_) => self.reattach(persona_id).await?,
+            Some(_) => self.rebuild(persona_id).await?,
         }
         // A session goes ahead without a computer that cannot start; the key
         // that asked for the computer says why rather than nothing.
@@ -611,18 +605,21 @@ impl Room {
         {
             return Ok(());
         }
-        let setup = lock(&self.computer_setups)
-            .get(persona_id)
-            .map(|setup| setup.borrow().clone());
-        match setup {
-            Some(ComputerSetup::Failed(reason)) => Err(format!(
+        match self.computer_links.phase(persona_id) {
+            ComputerPhase::Failed { reason, .. } => Err(format!(
                 "{}'s computer could not start: {}.",
                 persona.name,
                 reason.trim().trim_end_matches('.')
             )),
             // Still downloading: it joins the session when it lands.
-            Some(ComputerSetup::Downloading { .. } | ComputerSetup::Ready) => Ok(()),
-            None => Err(format!("{}'s computer did not start.", persona.name)),
+            ComputerPhase::Downloading { .. } | ComputerPhase::Ready => Ok(()),
+            ComputerPhase::None
+            | ComputerPhase::Preparing { .. }
+            | ComputerPhase::Swap { .. }
+            | ComputerPhase::Swapping { .. }
+            | ComputerPhase::UpdateFailed(_) => {
+                Err(format!("{}'s computer did not start.", persona.name))
+            }
         }
     }
 
@@ -876,24 +873,43 @@ impl Room {
     }
 
     pub(super) async fn sweep_computers(&self) {
-        let live: HashSet<String> = lock(&self.sessions).keys().cloned().collect();
-        self.computers.sweep(now_ms(), &live).await;
+        let settings = room::settings(&self.log);
+        let ids: Vec<String> = room::personas(&self.log.load(&StreamId::Room))
+            .into_iter()
+            .map(|persona| persona.id)
+            .collect();
+        self.computers
+            .adopt(
+                &ids,
+                crate::computer::preferred_runtime(&settings),
+                now_ms(),
+            )
+            .await;
+        // In use is a main session running, or any thread — a side thread, a
+        // call, a job — holding the gate's lease.
+        let mut in_use: HashSet<String> = lock(&self.sessions).keys().cloned().collect();
+        in_use.extend(self.computer_leases.held_ids());
+        self.computers.sweep(now_ms(), &in_use).await;
         // The newest release is looked up on this clock too: once when the
         // room opens, then every six hours.
         self.computers.refresh_releases(now_ms()).await;
     }
 }
 
-/// An update waiting to be swapped in: the release it replaces, whose image
-/// goes once nothing is on it, and whether the new one has downloaded.
-pub(super) struct ComputerSwap {
-    old: Option<String>,
-    pub(super) ready: bool,
-}
+/// How long a failed set-up is remembered. The teammate's next start or
+/// press of Start replaces it sooner; after this it is not news.
+const FAILED_FOR_MS: i64 = 10 * 60 * 1000;
 
-/// Where a teammate's computer set-up stands, for `computer_status`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum ComputerSetup {
+/// Where one teammate's computer set-up, update and swap stand: the one
+/// answer `computer_status`, `computer_start` and the attach and swap steps
+/// read. Whether the session has the computer is the session's own
+/// (`Session.computer`); this is what is happening behind it.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub(super) enum ComputerPhase {
+    /// Nothing under way.
+    #[default]
+    None,
+    /// The image behind a session that started without it is downloading.
     Downloading {
         image: String,
         layers_done: u32,
@@ -901,7 +917,215 @@ pub(super) enum ComputerSetup {
     },
     /// Downloaded and up: joins the session when its turn ends.
     Ready,
-    Failed(String),
+    /// It could not start. Forgotten after [`FAILED_FOR_MS`], or by the
+    /// next start.
+    Failed { reason: String, at_ms: i64 },
+    /// A new release is downloading while the old computer keeps working;
+    /// `old` is the release whose image goes after the swap.
+    Preparing { old: Option<String> },
+    /// The new release is here, or only new limits are wanted: the old
+    /// container goes between turns.
+    Swap { old: Option<String> },
+    /// The swap holds the start gate and is under way.
+    Swapping { old: Option<String> },
+    /// The last update did not download: why, for the pane, until the
+    /// next press of update.
+    UpdateFailed(String),
+}
+
+/// Every teammate's [`ComputerPhase`], changed only by the named moves below,
+/// each of which decides and acts under the one lock.
+#[derive(Default)]
+pub(super) struct ComputerLinks {
+    phases: Mutex<HashMap<String, watch::Sender<ComputerPhase>>>,
+}
+
+impl ComputerLinks {
+    fn with<R>(&self, persona_id: &str, change: impl FnOnce(&mut ComputerPhase) -> R) -> R {
+        let mut phases = lock(&self.phases);
+        let phase = phases
+            .entry(persona_id.to_string())
+            .or_insert_with(|| watch::channel(ComputerPhase::None).0);
+        let mut out = None;
+        phase.send_if_modified(|phase| {
+            let before = phase.clone();
+            out = Some(change(phase));
+            *phase != before
+        });
+        out.expect("the change ran")
+    }
+
+    /// The phase now. A failure past its time is forgotten here.
+    pub(super) fn phase(&self, persona_id: &str) -> ComputerPhase {
+        self.with(persona_id, |phase| {
+            if matches!(phase, ComputerPhase::Failed { at_ms, .. } if now_ms().saturating_sub(*at_ms) >= FAILED_FOR_MS)
+            {
+                *phase = ComputerPhase::None;
+            }
+            phase.clone()
+        })
+    }
+
+    fn watch(&self, persona_id: &str) -> watch::Receiver<ComputerPhase> {
+        self.with(persona_id, |_| ());
+        lock(&self.phases)[persona_id].subscribe()
+    }
+
+    /// A start begins. True when a download is already under way, which the
+    /// start joins; a finished or failed set-up is forgotten.
+    fn begin_start(&self, persona_id: &str) -> bool {
+        self.with(persona_id, |phase| match phase {
+            ComputerPhase::Downloading { .. } => true,
+            ComputerPhase::Ready | ComputerPhase::Failed { .. } => {
+                *phase = ComputerPhase::None;
+                false
+            }
+            _ => false,
+        })
+    }
+
+    /// A start's set-up is over, one way or the other. An update under way
+    /// is not the start's to clear.
+    pub(super) fn end_start(&self, persona_id: &str) {
+        self.with(persona_id, |phase| {
+            if matches!(
+                phase,
+                ComputerPhase::Downloading { .. }
+                    | ComputerPhase::Ready
+                    | ComputerPhase::Failed { .. }
+            ) {
+                *phase = ComputerPhase::None;
+            }
+        });
+    }
+
+    fn progress(&self, persona_id: &str, image: &str, layers_done: u32, layers_total: u32) {
+        self.with(persona_id, |phase| {
+            if matches!(
+                phase,
+                ComputerPhase::None | ComputerPhase::Downloading { .. }
+            ) {
+                *phase = ComputerPhase::Downloading {
+                    image: image.to_string(),
+                    layers_done,
+                    layers_total,
+                };
+            }
+        });
+    }
+
+    /// The download behind a session has landed.
+    pub(super) fn downloaded(&self, persona_id: &str) {
+        self.with(persona_id, |phase| {
+            if matches!(
+                phase,
+                ComputerPhase::None | ComputerPhase::Downloading { .. }
+            ) {
+                *phase = ComputerPhase::Ready;
+            }
+        });
+    }
+
+    /// The computer could not start.
+    pub(super) fn failed(&self, persona_id: &str, reason: String) {
+        self.with(persona_id, |phase| {
+            if matches!(
+                phase,
+                ComputerPhase::None
+                    | ComputerPhase::Downloading { .. }
+                    | ComputerPhase::Ready
+                    | ComputerPhase::Failed { .. }
+            ) {
+                *phase = ComputerPhase::Failed {
+                    reason,
+                    at_ms: now_ms(),
+                };
+            }
+        });
+    }
+
+    fn forget_update_failure(&self, persona_id: &str) {
+        self.with(persona_id, |phase| {
+            if matches!(phase, ComputerPhase::UpdateFailed(_)) {
+                *phase = ComputerPhase::None;
+            }
+        });
+    }
+
+    /// An update begins: false when something is already under way that
+    /// lands the newest release anyway.
+    fn begin_update(&self, persona_id: &str, old: Option<String>) -> bool {
+        self.with(persona_id, |phase| match phase {
+            ComputerPhase::None | ComputerPhase::Failed { .. } | ComputerPhase::UpdateFailed(_) => {
+                *phase = ComputerPhase::Preparing { old };
+                true
+            }
+            _ => false,
+        })
+    }
+
+    /// The update's image is here.
+    fn prepared(&self, persona_id: &str) {
+        self.with(persona_id, |phase| {
+            if let ComputerPhase::Preparing { old } = phase {
+                *phase = ComputerPhase::Swap { old: old.take() };
+            }
+        });
+    }
+
+    fn update_failed(&self, persona_id: &str, reason: String) {
+        self.with(persona_id, |phase| {
+            if matches!(phase, ComputerPhase::Preparing { .. }) {
+                *phase = ComputerPhase::UpdateFailed(reason);
+            }
+        });
+    }
+
+    /// New limits are wanted: the computer is made again between turns.
+    /// Anything already under way lands them.
+    pub(super) fn restart(&self, persona_id: &str) {
+        self.with(persona_id, |phase| {
+            if matches!(
+                phase,
+                ComputerPhase::None | ComputerPhase::Failed { .. } | ComputerPhase::UpdateFailed(_)
+            ) {
+                *phase = ComputerPhase::Swap { old: None };
+            }
+        });
+    }
+
+    pub(super) fn swap_waiting(&self, persona_id: &str) -> bool {
+        matches!(self.phase(persona_id), ComputerPhase::Swap { .. })
+    }
+
+    /// The swap takes its turn. `None` when another already has.
+    fn claim_swap(&self, persona_id: &str) -> Option<Option<String>> {
+        self.with(persona_id, |phase| match phase {
+            ComputerPhase::Swap { old } => {
+                let old = old.take();
+                *phase = ComputerPhase::Swapping { old: old.clone() };
+                Some(old)
+            }
+            _ => None,
+        })
+    }
+
+    /// A swap that could not go ahead waits for the next idle moment.
+    fn unclaim_swap(&self, persona_id: &str, old: Option<String>) {
+        self.with(persona_id, |phase| {
+            if matches!(phase, ComputerPhase::Swapping { .. }) {
+                *phase = ComputerPhase::Swap { old };
+            }
+        });
+    }
+
+    fn finish_swap(&self, persona_id: &str) {
+        self.with(persona_id, |phase| {
+            if matches!(phase, ComputerPhase::Swapping { .. }) {
+                *phase = ComputerPhase::None;
+            }
+        });
+    }
 }
 
 /// Which agent is being handed the teammate's computer, and the authority it
@@ -993,4 +1217,50 @@ pub(super) fn without_computer(mut persona: Persona) -> Persona {
         computer.enabled = false;
     }
     persona
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A failure nobody is told about again is forgotten, and only a
+    /// start's own set-up is a start's to clear.
+    #[test]
+    fn a_failed_setup_expires_and_a_start_leaves_an_update_alone() {
+        let links = ComputerLinks::default();
+        links.failed("ada", "no runtime".into());
+        assert!(matches!(links.phase("ada"), ComputerPhase::Failed { .. }));
+        links.with("ada", |phase| {
+            *phase = ComputerPhase::Failed {
+                reason: "no runtime".into(),
+                at_ms: now_ms() - FAILED_FOR_MS,
+            };
+        });
+        assert_eq!(links.phase("ada"), ComputerPhase::None);
+
+        assert!(links.begin_update("ada", Some("0.1".into())));
+        links.progress("ada", "image", 1, 2);
+        links.end_start("ada");
+        links.downloaded("ada");
+        links.failed("ada", "late".into());
+        assert_eq!(
+            links.phase("ada"),
+            ComputerPhase::Preparing {
+                old: Some("0.1".into())
+            },
+            "a start's moves do not touch an update"
+        );
+        assert!(!links.begin_update("ada", None), "one at a time");
+    }
+
+    /// A claimed swap cannot be claimed twice, and one handed back can.
+    #[test]
+    fn a_swap_is_claimed_once() {
+        let links = ComputerLinks::default();
+        links.restart("ada");
+        assert_eq!(links.claim_swap("ada"), Some(None));
+        assert_eq!(links.claim_swap("ada"), None);
+        links.unclaim_swap("ada", None);
+        assert!(links.swap_waiting("ada"));
+    }
 }

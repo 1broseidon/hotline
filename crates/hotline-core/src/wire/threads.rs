@@ -73,10 +73,18 @@ pub(super) async fn prompt(
 }
 
 /// Stops the turn in flight. For a pair that is the automatic exchange between
-/// its two teammates.
-pub(super) fn cancel(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Value, String> {
+/// its two teammates. The person's `interrupt` of a work thread's turn only
+/// cuts it, and one of the main conversation's ends an answer it was giving
+/// a colleague as interrupted, never as their stop.
+pub(super) fn cancel(
+    room: &Arc<dyn RoomHandle>,
+    thread: &ThreadId,
+    interrupt: bool,
+) -> Result<Value, String> {
     match thread.kind {
+        ThreadKind::Dm if interrupt => room.interrupt(&thread.key)?,
         ThreadKind::Dm => room.cancel(&thread.key)?,
+        ThreadKind::Side | ThreadKind::Call if interrupt => room.side_interrupt(&thread.key)?,
         ThreadKind::Side | ThreadKind::Call => room.side_cancel(&thread.key)?,
         ThreadKind::Job => room.job_cancel(&thread.key)?,
         ThreadKind::Pair => {
@@ -103,6 +111,20 @@ pub(super) fn close(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Val
         ThreadKind::Side => room.side_archive(&thread.key)?,
         ThreadKind::Job => room.schedule_cancel(&thread.key)?,
         _ => return Err(not_here(thread, "Closing")),
+    }
+    Ok(Value::Null)
+}
+
+/// Loops a colleague into a work thread: a nudge aside from the thread, and
+/// one answer written there.
+pub(super) async fn loop_in(
+    room: &Arc<dyn RoomHandle>,
+    thread: &ThreadId,
+    persona_id: &str,
+) -> Result<Value, String> {
+    match thread.kind {
+        ThreadKind::Side => room.side_loop_in(&thread.key, persona_id).await?,
+        _ => return Err(not_here(thread, "Looping in")),
     }
     Ok(Value::Null)
 }
@@ -188,16 +210,6 @@ pub(super) async fn answer(
                 .await?;
         }
         (
-            ThreadKind::Pair,
-            ThreadAnswer::Permission {
-                request_id,
-                option_id,
-            },
-        ) => {
-            room.peers_answer_permission(&thread.key, &request_id, &option_id)
-                .await?;
-        }
-        (
             ThreadKind::Job,
             ThreadAnswer::Permission {
                 request_id,
@@ -218,12 +230,13 @@ pub(super) async fn answer(
             let persona_id = owner_of(log, thread)?;
             room.answer_human(&persona_id, &action_id, status, note)?;
         }
-        // A pair and a job raise permissions and nothing else. A run and a
-        // call are refused above, by their policy.
+        // A job raises permissions and nothing else, and a pair, which has
+        // no agent of its own, raises none. A run and a call are refused
+        // above, by their policy.
         (_, ThreadAnswer::Human { .. }) => {
             return Err(not_here(thread, "A request for the person"));
         }
-        (ThreadKind::Run, _) => {
+        (ThreadKind::Pair | ThreadKind::Run, _) => {
             return Err(not_here(thread, "Answering a card"));
         }
     }
@@ -389,9 +402,10 @@ fn summarize(
         ThreadKind::Side => running
             .iter()
             .any(|side| side.side_id == thread.id.key && side.working),
-        ThreadKind::Pair => room.thread_working(&thread.id),
         ThreadKind::Job => room.working_jobs(&persona_id).contains(&thread.id.key),
-        ThreadKind::Run => state == LinkState::Live,
+        // A pair is live, in the room's own record, while a request of it
+        // is being answered.
+        ThreadKind::Pair | ThreadKind::Run => state == LinkState::Live,
         ThreadKind::Call => room.thread_working(&thread.id),
     };
 
@@ -407,6 +421,7 @@ fn summarize(
             .as_ref()
             .and_then(|link| link.opener.clone())
             .map(SideOpener::from),
+        handoff_ended: link.as_ref().is_some_and(|link| link.handoff_ended),
         started_at,
         updated_at,
         working,

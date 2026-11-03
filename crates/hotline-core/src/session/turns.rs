@@ -76,6 +76,36 @@ impl<T> Turns<T> {
     pub(super) fn clear(&mut self) {
         self.waiting.clear();
     }
+
+    /// Hands the turn in flight each waiting line `steers` picks, in the order
+    /// said, until its driver refuses one: the one way a line joins a turn
+    /// already running, in the main conversation and in a work thread alike.
+    /// The lines taken are the caller's, to hand back what the driver never
+    /// used when the turn ends. A turn not running takes nothing.
+    pub(super) fn steer_into(
+        &mut self,
+        driver: &dyn Driver,
+        steers: impl Fn(&T) -> bool,
+        words: impl Fn(&T) -> (String, Vec<Attachment>),
+    ) -> Vec<T> {
+        let mut taken = Vec::new();
+        if !self.running {
+            return taken;
+        }
+        let mut index = 0;
+        while index < self.waiting.len() {
+            if !steers(&self.waiting[index]) {
+                index += 1;
+                continue;
+            }
+            let (text, attachments) = words(&self.waiting[index]);
+            if !driver.steer(text, attachments) {
+                break;
+            }
+            taken.extend(self.waiting.remove(index));
+        }
+        taken
+    }
 }
 
 /// One line for a thread's agent: the words as the driver is to hear them,
@@ -85,10 +115,10 @@ pub(super) struct Line {
     pub voice: Option<crate::voice::Origin>,
     pub text: String,
     pub attachments: Vec<Attachment>,
-    /// Set when the turn this line starts is a handoff's: the exchange's
-    /// request it answers. Said by whoever produced the line, never read back
-    /// off an id.
-    pub handoff: Option<HandoffLine>,
+    /// Set when the turn this line starts answers a colleague's request, a
+    /// handoff or a question: the exchange's request it answers. Said by
+    /// whoever produced the line, never read back off an id.
+    pub request: Option<RequestLine>,
     /// Where the line came from, when something came back for the thread: a
     /// colleague's result carries the exchange request it answers, which is
     /// checked again as the turn begins.
@@ -96,11 +126,22 @@ pub(super) struct Line {
     /// The delivery this line is, which is stamped read once its turn has
     /// begun: until then a restart finds it still to be heard.
     pub delivery: Option<String>,
+    /// The line only wakes the agent to hear the asides left for it, and is
+    /// skipped at the door when a turn before it has heard them.
+    pub wake: bool,
+    /// The line joins the turn in flight when its driver takes input mid-turn
+    /// ([`Turns::steer_into`]), and waits behind it when it does not.
+    pub steer: bool,
+    /// The person's line this is, by the id it was written under on the
+    /// thread's stream: read once its turn begins, and kept for the next start
+    /// when a restart finds it still waiting.
+    pub said: Option<String>,
 }
 
-/// The handoff a turn of a work thread belongs to.
-pub(super) struct HandoffLine {
-    /// The exchange request that opened the thread.
+/// The exchange request a turn answers: a handoff, or a colleague's question.
+#[derive(Clone)]
+pub(super) struct RequestLine {
+    /// The exchange request the turn answers.
     pub request: String,
     /// The card this line is the person's answer to, when the handoff had
     /// stopped to wait on one.
@@ -114,6 +155,9 @@ pub(super) struct Seat<'a> {
     pub thread: &'a ThreadId,
     pub persona_id: &'a str,
     pub driver: &'a dyn Driver,
+    /// Looks at the lines waiting behind the turn, between one update and the
+    /// next, for a kind whose turns lines can steer.
+    pub steer: Option<&'a (dyn Fn() + Send + Sync)>,
 }
 
 /// What starts a turn: a line the driver is told, or the work the agent took
@@ -234,6 +278,14 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         ));
     }
 
+    fn steer(&mut self) {
+        if (self.open)()
+            && let Some(steer) = self.seat.steer
+        {
+            steer();
+        }
+    }
+
     fn write(&mut self, event: TranscriptEvent, _asked: bool) {
         if !(self.open)() {
             return;
@@ -333,7 +385,7 @@ impl Threads<'_> {
             .voice
             .clone()
             .or_else(|| self.room.attached_voice(&thread));
-        let subject = line.text.clone();
+        let subject = super::index::asked(&line.text).to_string();
         let mut told = Told {
             replies: Vec::new(),
             files: Vec::new(),
@@ -546,6 +598,8 @@ impl Room {
             next = lock(occupant.queue()).next_line();
         }
         occupant.rest(&self);
+        // A nudge that landed while a turn ran waited; the thread is idle now.
+        self.rewake(occupant.persona_id(), &occupant.thread());
     }
 }
 

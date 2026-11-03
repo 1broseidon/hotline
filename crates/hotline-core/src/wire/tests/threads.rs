@@ -507,9 +507,11 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
     }));
     assert!(!Seat::Phone.permits(&Command::ThreadCancel {
         thread: thread(ThreadKind::Job),
+        interrupt: false,
     }));
     assert!(Seat::Desk.permits(&Command::ThreadCancel {
         thread: thread(ThreadKind::Job),
+        interrupt: false,
     }));
     // `peers.answer_permission` is the owner's, so a pair's card is.
     for kind in [
@@ -530,6 +532,7 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
         },
         Command::ThreadCancel {
             thread: thread(ThreadKind::Side),
+            interrupt: true,
         },
         Command::ThreadPark {
             thread: thread(ThreadKind::Side),

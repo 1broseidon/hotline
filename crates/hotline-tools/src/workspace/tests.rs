@@ -753,3 +753,57 @@ fn machine_reach_ignores_the_overflow_root() {
     let description = ReadFile::new(workspace).description();
     assert!(!description.contains("long tool result"), "{description}");
 }
+
+/// A colleague's file lands under the working directory, beside any of the
+/// same name rather than over it, and never through a link that leads out.
+#[test]
+fn a_received_file_lands_in_the_working_directory_and_overwrites_nothing() {
+    let directory = TestDirectory::new();
+    let workspace = opened(directory.path(), Reach::Machine);
+    let inbox = Path::new("inbox/ada");
+    assert_eq!(
+        workspace.receive_file(inbox, "q3.csv", b"first").unwrap(),
+        inbox.join("q3.csv")
+    );
+    assert_eq!(
+        workspace.receive_file(inbox, "q3.csv", b"second").unwrap(),
+        inbox.join("q3 (2).csv")
+    );
+    assert_eq!(
+        workspace.receive_file(inbox, "notes", b"third").unwrap(),
+        inbox.join("notes")
+    );
+    assert_eq!(
+        fs::read(directory.path().join("inbox/ada/q3.csv")).unwrap(),
+        b"first"
+    );
+    assert_eq!(
+        fs::read(directory.path().join("inbox/ada/q3 (2).csv")).unwrap(),
+        b"second"
+    );
+    for (folder, name) in [
+        ("inbox/../..", "x"),
+        ("inbox/ada", "../x"),
+        ("inbox/ada", ".."),
+        ("/tmp", "x"),
+        ("inbox/ada", "a/b"),
+    ] {
+        assert!(
+            workspace
+                .receive_file(Path::new(folder), name, b"x")
+                .is_err(),
+            "{folder} {name}"
+        );
+    }
+    #[cfg(unix)]
+    {
+        let outside = TestDirectory::new();
+        std::os::unix::fs::symlink(outside.path(), directory.path().join("away")).unwrap();
+        assert!(
+            workspace
+                .receive_file(Path::new("away/inbox"), "x", b"x")
+                .is_err()
+        );
+        assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
+    }
+}

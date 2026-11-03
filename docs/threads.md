@@ -110,17 +110,33 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 
 | | DM | Side (work thread) | Pair (ask) | Call | Run | Job |
 | --- | --- | --- | --- | --- | --- | --- |
-| Parent | — | DM, and the opener's DM when a teammate opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
-| Agent | main session | the teammate's own agent, full tools | target's peer agent | Turn by turn: the teammate on the shared work-thread occupant; live front delegation waits for S6 | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
-| Lease | the teammate's | the teammate's; the computer through an exclusive lease | dual, scoped; the same computer lease | the teammate’s own lease, including the exclusive computer lease | scoped child of the asking session's; the same computer lease | scoped child of the teammate's, revoked when its agent is let go of; the same computer lease |
-| Idle | chapters (setting) | park at 3 h | park at 10 min (`Room::sweep` row) | voice detaches at 10 min; thread parks after the closing note, at least 30 s after hang-up | ends with the run | park after each firing; a person's turn parks at 10 min |
-| Restart | resume | park | park; cut-off told to the sender | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
-| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | one turn in flight per pair | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
-| Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
+| Parent | — | DM, and the opener's DM when a teammate opened it; also the pair when a question opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
+| Agent | main session | the teammate's own agent, full tools | none: a question is answered in the target's own threads, its DM when idle, else a work thread of its own seeded with the index and recent asides, or the thread the question names | Turn by turn: the teammate on the shared work-thread occupant; live front delegation waits for S6 | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
+| Lease | the teammate's | the teammate's; the computer through an exclusive lease | none of its own: each request holds both teammates' lasting leases, and the turn answering it runs under its thread's | the teammate’s own lease, including the exclusive computer lease | scoped child of the asking session's; the same computer lease | scoped child of the teammate's, revoked when its agent is let go of; the same computer lease |
+| Idle | chapters (setting) | park at 3 h; a thread a question opened closes with its answer | nothing to park | voice detaches at 10 min; thread parks after the closing note, at least 30 s after hang-up | ends with the run | park after each firing; a person's turn parks at 10 min |
+| Restart | resume | park | a question whose turn never began is handed over again; one cut mid-turn fails, to inspect before retrying | park, transcript and binding kept | cancel | park; what came back and was not yet heard is handed over again, or to the DM once the job has ended |
+| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | none per pair; the brake counts every request and reply | one live call agent per teammate | job limits | one firing at a time; an overlapping one is skipped and said |
+| Cards | person | person, pushed; `request_human` lands here | none: a card is raised in the thread answering | person, on the thread | expire | person, pushed, `thread.answer`; `request_human` lands here |
 | Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
+| Thread index | each turn, whole or "unchanged" | each turn, whole or "unchanged" | none: no turns of its own | each turn, as a work thread | its parent's line and the asides about it | its parent's line and the asides about it |
 
 A handoff is a side thread: opened by a teammate instead of the person, with the
-sender as its opener. Its result returns to the opener as a delivery.
+sender as its opener. Its result returns to the opener as a delivery. A later
+handoff from the same opener that names the thread (`message_teammate`'s
+`thread`) continues it rather than opening another, and an ask that names it
+is answered there by the teammate doing the work, without closing it.
+
+An ask goes where the memory is (decision 1 of
+`design/thread-awareness.md`). The recipient's main conversation answers it
+when idle, as a turn of its own that takes in nothing the person says. While
+that conversation is busy, a work thread of the recipient's answers at once:
+it is opened for the question alone, with no opener and `askedIn` naming the
+pair on its link (which is written on the pair's thread too), seeded as any
+work thread is with the DM's tail and told the asides the teammate was left
+lately, and it closes with its answer and leaves the DM a `note` aside,
+"Answered Ada for you: …". A question a handed-over thread asks the teammate
+that handed it over reaches the conversation that did, by the handoff's reply
+route, with no card while the delegation stands.
 
 Chapters stay specific to the DM. A side thread long enough to need chapters
 should become a teammate.
@@ -137,6 +153,15 @@ The stream files stay where they are, and no history is migrated:
 | Run | `runs/<id>.jsonl` |
 | Call | `calls/<id>.jsonl` (new) |
 | Job | `jobs/<id>.jsonl`, under the job's id on the room stream (new) |
+
+A teammate's asides, `asides/<id>.jsonl`, are a stream of the teammate's but
+no thread: what its threads and colleagues left it, heard at the start of its
+next turn in a thread ([sessions.md](sessions.md#asides)). The line an aside
+leaves on the thread it was said in is an `aside` event of that thread. The
+files a message carries wait in `files-between/<request id>/` on the desk
+until it is let in, and are then copied into the recipient's working
+directory ([sessions.md](sessions.md#files-between-teammates)); no thread
+holds them.
 
 The thread records themselves (state, binding, title, note) live where each
 kind keeps them today: the marker line, the sidecar, the persona record. They
@@ -285,7 +310,9 @@ Where this differs from the design above:
   the start. `Room::launch` builds the agent on its own task, and when it is up
   the first turn runs (`Room::run_queue`), so the first line is delivered the
   moment the agent is ready. Until then the thread is `working` on the roster and
-  in its summary, which is how the window and the phone show it starting. Lines
+  in its summary only while a line waits for the agent, which is how the window
+  and the phone show it starting; one brought back, or opened, with nothing to
+  say runs no turn and is not `working`, though it holds its queue. Lines
   written meanwhile are left out of the history the agent is seeded with
   (`Opening::heard_from`), so it hears each once. A start that fails writes an
   error notice in the thread and puts it away: a thread that had never run is
@@ -297,10 +324,9 @@ Where this differs from the design above:
 - **The run's one turn is `Threads::turn`, not a loop.** A run has no queue, so
   there is one `Turns` and no second turn loop for it to use; the loop over a
   queue is `Room::run_queue`, which the DM and a side share (below).
-- **Not moved:** `start_now` (phase 7) and `peer_session` (phase 6) still build
-  their own agents. The builder already grants the computer when a kind's policy
-  says so, which is the part of `start_now` and `peer_session` they share, but
-  that branch has no caller and no test until one of them moves. The skills
+- **Not moved:** `start_now` (phase 7) still built its own agent. The builder
+  already granted the computer when a kind's policy said so, but that branch
+  had no caller and no test until it moved. The skills
   index is not materialised by the builder: a side and a run share the main
   session's folder, where `start_now` already wrote it.
 - **Resume is not tested beyond a thread's own record.** The existing
@@ -309,8 +335,8 @@ Where this differs from the design above:
 
 **Phase 4.** `session/lifecycle.rs` holds the lifecycle once. `Room::sweep`
 applies each kind's `idle` policy (`Policy::idle`): a side thread is parked
-there, and a run has none. It calls `sweep_chapters` and `sweep_peers` for the
-DM and the pairs. `Room::settle` replaces `settle_tapes`,
+there, and a run has none. It calls `sweep_chapters` for the DM; a pair has no
+agent to park. `Room::settle` replaces `settle_tapes`,
 `settle_orphaned_sides` and `settle_orphaned_subagents`: it expires dead cards on
 every tape and pair, moves each live thread by the kind's `restart` policy, and
 calls `reconcile_exchanges`. `Room::queue_closing_note` is the one closing-note
@@ -406,7 +432,9 @@ Where this differs from the design above:
   copy of the link on the opener's tape (`<id>@<opener>`), so both DMs carry a
   marker with title, state and outcome.
 - **Result.** When the handoff turn ends and no human gate is open, the thread
-  closes (`End::Agent` or `End::Failed`) and the result is delivered to the
+  closes (`End::Agent` or `End::Failed`), unless a follow-up handoff is already
+  waiting in it (see [sessions.md](sessions.md); one from the same sender
+  while the turn runs steers it, and the two end in one result), and the result is delivered to the
   sender's DM, or to the sender's work thread when it was sent from one
   (`reply_thread`), from the work thread (`delivery_source`). The `handoff:` and
   `exchange-result:` ids are only idempotency keys; the turn loop reads
@@ -428,15 +456,13 @@ Where this differs from the design above:
   teammate's lease (`Leases::take`), waiting up to 20 s and otherwise telling the
   caller who has it; `tools/list` and `initialize` pass through. A thread keeps
   it until its turn ends, until it has been idle 30 s with no call in flight, or
-  until its capability lease is revoked (the gate then closes). The main DM and
-  peer sessions take part under the keys `dm` and `pair:<key>`. It never widens a
+  until its capability lease is revoked (the gate then closes). The main DM
+  takes part under the key `dm`. It never widens a
   grant: the gate only forwards to the URL the thread was already granted.
-- **Asks.** `Threads::write` takes Pair. A peer card is pushed and counted for
-  the answering teammate (`threads_waiting`), and `peers.answer_permission`
-  (owner seat only) answers it while the turn is behind it. Pair lines are
-  indexed under both teammates, tagged `pair:<key>`, and a rebuild finds them
-  from the `peer` markers on the tape. `sweep_peers` is a Pair row of
-  `Room::sweep`.
+- **Asks.** `Threads::write` takes Pair: the core writes each question and
+  its answer there, indexed under both teammates, tagged `pair:<key>`, and a
+  rebuild finds them from the pair files that name the teammate. A pair has no
+  agent, so it raises no card and has nothing to sweep.
 
 Where this differs from the design above:
 
@@ -506,12 +532,10 @@ Where this differs from the design above:
 - **The two live handles are not one.** `Session` and `LiveSide` each hold their
   own driver and lease and close through their own door; `Occupant` is the
   seam where they meet, not a shared handle.
-- **A peer session uses the shared builder and turn** (ADR 0008 slice 4).
-  `peer_session` calls `Room::thread_agent` with the target and the caller as
-  opener; `Threads::drive` reads its turn with a witness that keeps directional
-  receipts and the waiting marker. First contact, the exchange cap and the
-  dual leases remain the pair's. It has one turn in flight, so it needs no
-  `Room::run_queue` occupant.
+- **A pair has no session of its own** (threads phase 5, #203 group C). A
+  question is answered in the recipient's own threads, each through its
+  `Room::run_queue` occupant: the DM, a work thread or a job. First contact,
+  the exchange cap and the dual leases remain the pair's.
 
 **Phase 8.** The wire (BRO-203). The wire's part is in `wire/threads.rs`; the
 protocol is in [wire.md](wire.md#threads) and the seats in
@@ -526,8 +550,7 @@ protocol is in [wire.md](wire.md#threads) and the seats in
   a person could archive a work thread but not park it. The old commands that
   have the same effect (`session.prompt`, `session.cancel`,
   `session.answer_permission`, `human.answer`, `side.prompt`, `side.cancel`,
-  `side.archive`, `side.answer_permission`, `peers.answer_permission`,
-  `tape.page`) are these handlers; `side.start`, `side.continue`, `side.list`
+  `side.archive`, `side.answer_permission`, `tape.page`) are these handlers; `side.start`, `side.continue`, `side.list`
   and `peers.list` answer their own kind's summary and still do.
 - **The subscription.** `{"threadId": {kind, key}}`. `{"thread": key}` stays a
   pair's, because a phone on an older build sends it; a new variant is additive,
@@ -617,15 +640,30 @@ has one hook and one view.
   on a DM is that same command.
 - **One view.** `Dock.tsx`'s `ThreadView` renders every kind with `Transcript`
   and `Composer`; `powersOf(kind, state)` (in `dock.ts`) is the one place that
-  says what a kind allows: a work thread has the composer, Archive and Continue,
-  a pair, a run and a call are read-only. A work thread a teammate handed over
-  is read along: it is drawn like a pair, the brief said whole in the
-  opener's voice, with a bar naming the two of them and a way to the opener's
-  conversation, where it is steered; only its turn may be stopped. While its
-  teammate waits on the person, the bar is the one field they answer in. The
-  desk refuses the rest (`refuse_handed_over`), whatever the window shows. The
+  says what a kind allows: a work thread has the composer, Loop in…, End thread
+  (Archive, before epic-28's phase 6) and Continue, a pair, a run and a call are
+  read-only. Stop in a thread's header is the person's Stop (`thread.cancel`);
+  the composer's Interrupt and Esc send it with `interrupt`, which only cuts
+  the turn, and the main conversation's send `session.cancel` with it
+  (sessions.md, "Stop and Interrupt"). A work thread a teammate handed over has
+  the same: Stop there ends the handoff for good, Interrupt leaves it to the
+  person's next line, and End thread there ends the handoff too:
+  the brief is said whole in the opener's voice, the person's own lines are
+  drawn as theirs on the right, the thread's teammate's on the left under its
+  name as any colleague's are (the person is the one talking there, in
+  whichever teammate's pane it is open), and a bar above the message box names who handed it over,
+  says when the handoff no longer stands (`handoffEnded` on its row or link),
+  and leads to the opener's conversation. While its teammate waits on the
+  person, the bar and the composer give way to the one field they answer in.
+  Whether a thread runs a turn is the word of the roster row of the teammate
+  whose agent it is (`turnRunning`), so a handoff open in its sender's pane goes
+  idle when the receiver's turn ends; a pair, which no roster row follows, is
+  the list's. The
   person's conversation with the teammate that took a handoff keeps one line
-  for all the unfinished ones, not a link each (`handoffsUnderway`). A pair keeps its two named chairs
+  for all the ones it is working on, not a link each (`handoffsUnderway`):
+  a handoff counts while its roster row says its thread runs a turn or has a
+  line waiting (`sides[].working`), so a thread Continue only opened, a parked
+  one and one waiting on the person are not "Working on". A pair keeps its two named chairs
   (`speakers`) and sends `peers.mark_read` as it did; a handoff opened from its
   delivery line keeps its sender, request and reply-route note (`HandoffNote`).
   `Thread.tsx` (the peer aside) and the work card's run view (`RunWork`,
@@ -678,6 +716,103 @@ Notes for phase 10:
   that needs them is in use; the window no longer sends or reads any of them
   except `peers.list` and `peers.mark_read`.
 
+**Thread awareness: the index** (epic-28 phase 4,
+[thread-awareness.md](design/thread-awareness.md) §1). Each turn of the main
+conversation, a work thread or a call opens with the teammate's thread index,
+built from `ThreadStore::list` and the tape's chapters by `Room::thread_index`
+(`session/index.rs`) and carrying the asides the turn hears; a job's firing and
+a run are told their parent thread's line and the asides about them. The
+shape, the cap and the "unchanged" line are in
+[sessions.md](sessions.md#the-thread-index).
+
+Where this differs from the design above:
+
+- **Open idle work threads are active.** The design's sections are working,
+  waiting on the person, ended; a live work thread or call with no turn running
+  is neither ended nor older, so it is listed under Active as `open`.
+- **"Today" is the last 24 hours**, for threads and chapters alike.
+- **A teammate's own work threads are told as its own**, in the second person
+  ("you did … for Quill"), with what the work was and what came of it, not
+  as a kind, key, title and last line: a teammate listed its own handed-over
+  work like a colleague's and said it had not read it.
+- **The main conversation is listed only when it is working or has a card
+  up**, since it never ends and every turn knows it is there; a job and a run
+  are always told its line, as their parent.
+- **A key is a `read_thread` key** (`side:<id>`, `run:<id>`); a chapter has none
+  and is found by `search_thread`. A work thread the teammate handed a colleague
+  is listed for the sender too, as "handed to Quill: …".
+- **No unchanged line for a job or a run.** They keep no hash: a job's agent is
+  let go between firings, and a run has one turn.
+
+**Thread awareness: the window** (epic-28 phase 6, decisions 2 and 5). An
+aside is a quiet line, never a bubble (`AsideLine`): in the recipient's main
+conversation, where the window draws it from `aside.list` at its time, the
+`(·)` mark, "from Goldie · work thread · 9:41 PM" in the instrument face and
+the words, opening the thread it came from (a result's nudge, `result:<request>`,
+is not drawn where the delivery it wakes the teammate for is, since that
+delivery says the result already; Noted still lists it); on the thread that left it, "to
+Quill · nudge · …", and for the person's Loop in… "Quill was looped in". The
+teammate's menu has Noted between Threads and Remove, with how many the person
+has not seen (`asidesNew`); it opens the pane's Noted page (`NotedPage`,
+`DockState.noted`), New then Earlier, each newest first, with the face and the
+kind of thread, the level ("to you" in amber), the time and the words, and
+opening it marks them seen (`aside.seen`). A work thread's header has Loop in…
+(`LoopIn`: the colleagues on this desk, "Idle · a nudge wakes it" or "Working
+· a thread answers", which sends `thread.loop_in`), and End thread where
+Archive was; the looped-in colleague's one answer is drawn whole under its
+face. How the core does both is in
+[sessions.md](sessions.md#asides).
+
+Where this differs from the design above:
+
+- **The desk's Noted has no Search beside it**, since the teammate's menu has
+  none: it stands between Threads and Remove.
+- **The menu counts what is new to the person**, not what the teammate has not
+  heard: opening Noted clears it, as the phone frame's "3 new" reads.
+- **A looped-in colleague answers as a question.** Its one answer is an ask
+  from the thread's teammate that the person's act grants, answered where the
+  colleague's memory is (its main conversation when idle, a work thread of its
+  own while busy) and delivered into the thread; it is not a turn of the
+  colleague's run in the thread itself. So a busy colleague answers at once,
+  not "next turn", and its words reach the thread's teammate as "Quill answered
+  the message you sent them".
+
+**Thread awareness: across a link** (epic-28 phase 8,
+[thread-awareness.md](design/thread-awareness.md) §3, #203 group H). A
+`ThreadId` may carry a `desk`, naming a thread on a linked desk by that desk's
+kind and key, written `deskId/side:<id>`; only that desk resolves it. Asides
+cross a link as their own delivery under the receiving desk's grant, a
+handed-over thread's notes reach a sender on another desk the same way, its
+question back reaches that sender with no card while the handoff stands, and
+the person's Stop or End thread of a linked colleague's handoff crosses as
+theirs. A message or an aside may carry files, copied into the recipient's
+working directory under `inbox/<sender>/`, over the link too up to a cap. How
+the core does it is in [sessions.md](sessions.md#asides) and
+[Files between teammates](sessions.md#files-between-teammates); the frames
+are in [wire.md](wire.md#linked-desks).
+
+Where this differs from the design above:
+
+- **Turn reports are asides.** #203 sent a delegator every turn of a work
+  thread on another desk as a report; here they are the notes a local opener
+  is left, sent its desk and kept there, each resolved in that desk's own
+  record and honoured only for a handoff it sent.
+- **A desk says what it takes in its roster.** The link has no hello of its
+  own, so the roster that opens every channel carries `features`; a desk that
+  names no `asides` is sent none, and keeps every message and answer.
+- **An aside across a link never raises a card.** It lands only under a grant
+  that already stands there, `allowedSenders` or the person's session grant,
+  so a linked desk cannot fill the person's view with cards by leaving
+  asides; the sender is told to message first, which asks.
+- **A linked thread is learned, not listed.** A teammate names a thread on
+  another desk as an aside from it said it, or by the handoff id it was given;
+  the thread index lists only this desk's threads.
+- **Files across a link are capped at 512 KB together**, not the 25 MB a
+  file on one desk may come to, because they cross in the one frame of what
+  carries them and a link's frame is 1 MiB.
+
+## Today
+
 ## Today
 
 The map this design replaces, as of `qa/sides-voice` (main, plus side
@@ -688,13 +823,13 @@ the phases built so far.
 | --- | --- | --- | --- | --- | --- |
 | Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | `Call`; desk calls on a `voice-dispatcher` tape | `Run` |
 | Write helper | `write_value` | `Threads::write` | `Threads::write` (`write_thread`) | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
-| Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | `Room::thread_agent` (from `peer_session`) | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
-| Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | `Threads::drive` | voice `run` | `Threads::turn` |
-| Resume | persona checkpoints | marker `sessionId` | reseed from thread | none: each front starts from the DM's recent lines (`front_prompt`) | none |
-| Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
+| Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | none: the recipient's DM or work thread answers | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
+| Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | the answering thread's | voice `run` | `Threads::turn` |
+| Resume | persona checkpoints | marker `sessionId` | nothing to resume | none: each front starts from the DM's recent lines (`front_prompt`) | none |
+| Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | nothing to park | `Room::sweep` (10 min) | `Room::sweep` (none) |
 | Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |
 | Marker | — | link | `xthread:`, `exchange-paused:` | link (`call`); `voice:` id for desk calls | link |
-| Cards answered by | `thread.answer` (`session.answer_permission`) | `thread.answer` (`side.answer_permission`) | `thread.answer` (`peers.answer_permission`) | never | nobody (expired) |
+| Cards answered by | `thread.answer` (`session.answer_permission`) | `thread.answer` (`side.answer_permission`) | none raised | never | nobody (expired) |
 | Push / waiting | yes | yes | yes | fallback push | no |
 | Search | indexed | indexed | indexed | indexed | indexed |
 | Desktop hook | `useTape` | `useSide` | `useThread` | `voice/call.ts` | `useRun` |

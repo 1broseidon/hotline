@@ -8,6 +8,83 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-11-02
+
+### Added
+
+- A teammate knows its own threads. Every turn opens with a short index of
+  its other threads (what is at work, what waits on you, what ended today),
+  told whole once and then only as what moved since its last turn there, so
+  it can say what is still out without reading anything.
+- Threads tell each other things with asides, a note or a nudge heard at the
+  start of the teammate's next turn and never posted in your chat. A nudge
+  that lands mid-turn wakes the teammate when that turn ends.
+- You can talk in a thread a teammate handed to a colleague, Loop in…
+  another colleague for one answer there, and End thread. A teammate's
+  asides are listed on a Noted page.
+- A colleague's question to a busy teammate is answered by a work thread
+  seeded with what it needs, which leaves the main conversation a note of
+  what it answered.
+- A line you send into a work thread while its turn runs joins that turn,
+  when the agent takes input mid-turn, so "make it four steps" at step three
+  changes the rest instead of waiting for the turn or starting it over. A
+  colleague's follow-up to its own handoff joins the turn the same way and
+  still gets one result. When the agent can't take it, the thread says the
+  line waits for the turn to end. Words spoken on a call still wait their
+  turn.
+- Settings → Updates lists each agent harness the desk runs, one row each,
+  and says when it has an update, whether that is the CLI, its ACP adapter
+  or both. Update installs it in the app with whatever the CLI was installed
+  with (npm, Homebrew, mise or its own updater); a teammate gets the new
+  version at its next start.
+- A Claude Code teammate's background commands and subagents show at the
+  composer's corner while they run ("Background · …", "Subagent · …"), and
+  keep showing after the turn ends until they finish.
+
+### Changed
+
+- The lifecycles behind requests between teammates, threads, a teammate's
+  session, its agent, its computer, jobs, calls, the phone link and the
+  window's own sends, cards and sign-in are each one explicit state, moved
+  one way. What you see: a teammate reads as working from the moment it
+  starts, alike in the band, the composer and the transcript; a message is
+  kept per teammate and thread until it lands, and refused words come back
+  to their own field wherever you went; a card is answered once, lets go if
+  its status never moves, and an expired one stops counting as Needs you; a
+  provider sign-in that fails goes back to the method list with the reason.
+
+### Fixed
+
+- Claude Code's model list no longer narrows to the model in use after
+  subagents have run; a subagent's own picker never becomes the teammate's.
+- An agent whose saved conversation took longer than its start allows to
+  load no longer goes quiet: its replies are heard again.
+- Remote stays on after a start that fails at boot, and tries again on the
+  next one.
+- A phone's message retried after its connection dropped is sent, or said
+  sent, never answered "unknown"; one hung agent start no longer holds up
+  every phone.
+- A desk restart keeps every line waiting in the main conversation and in
+  work threads, including one a turn had taken in, and runs each once.
+- A line said into a work thread as it parks wakes it, instead of "That side
+  thread is not live".
+- A job that ends itself keeps its report, and a job's last firing is not
+  refused while it runs.
+- A call recovers when the voice detector fires and nobody speaks, a hold
+  survives a reconnect, and Reconnecting ends with the next update.
+- A teammate's computer is made once when two things wake it at once, and
+  the idle sweep leaves one a thread or job is using; a computer left
+  running by the last desk is idled.
+- Where files carried between teammates landed is written with `/` on
+  Windows too.
+- On Windows, a teammate's computer starts with a plain bind path and mounts
+  a granted folder despite its drive letter's colon, and a field that saves
+  as you leave it keeps what you typed when it leaves the screen instead
+  (#211, thanks to gt0wn).
+- `async-executor` is 1.14.1, as 1.14.0 was yanked.
+
+Thread awareness builds on Kelviny Moura's work in #203. Thank you, Kelviny.
+
 ## [0.45.0] - 2026-10-29
 
 ### Added

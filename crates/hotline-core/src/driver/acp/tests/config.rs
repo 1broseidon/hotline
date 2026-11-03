@@ -604,3 +604,59 @@ async fn a_mode_chosen_at_rest_is_set_before_the_first_prompt() {
     assert_eq!(turn_end(&mut updates).await, "end_turn");
     assert_eq!(*asked.lock().unwrap(), ["mode = plan", "prompt"]);
 }
+
+/// Claude's adapter gives each subagent a model picker of one entry, its own
+/// model, under the subagent's session id, and sends it again after a load
+/// or once the subagent has ended, when this driver no longer counts it as a
+/// child. Only the conversation's own session sets the teammate's pickers:
+/// a picker from any other session never narrows them to that one model.
+#[tokio::test]
+async fn a_subagents_one_model_picker_never_narrows_the_teammates() {
+    let live = Arc::new(Live::default());
+    lock(&live.session).id = Some(acp::SessionId::new("own"));
+    let full =
+        SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+            "model",
+            "Model",
+            acp::SessionConfigOptionCategory::Model,
+            "opus",
+            &[("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")],
+        )]));
+    receive(
+        &live,
+        RawSessionUpdate {
+            session_id: "own".into(),
+            update: serde_json::to_value(&full).unwrap(),
+        },
+    )
+    .await;
+    assert_eq!(lock(&live.session).info.models.len(), 3);
+
+    let child =
+        SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+            "model",
+            "Model",
+            acp::SessionConfigOptionCategory::Model,
+            "haiku",
+            &[("haiku", "Haiku")],
+        )]));
+    receive(
+        &live,
+        RawSessionUpdate {
+            session_id: "a-subagent-no-longer-tracked".into(),
+            update: serde_json::to_value(&child).unwrap(),
+        },
+    )
+    .await;
+    let session = lock(&live.session);
+    assert_eq!(
+        session
+            .info
+            .models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["opus", "sonnet", "haiku"]
+    );
+    assert_eq!(session.info.current_model_id, "opus");
+}

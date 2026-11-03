@@ -147,6 +147,7 @@ fn due_job(
         created_at: now - overdue_by - 60_000,
         last_post: None,
         ended_at: None,
+        final_firing: None,
     }
 }
 
@@ -272,12 +273,15 @@ async fn a_one_shot_fires_once_and_ends() {
     let events = job_thread(&room, "job-once", 3).await;
     assert_eq!(events[0]["text"], "say the word");
     assert_eq!(events[0]["scheduled"]["kind"], "schedule");
-    assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
     until("the one-shot's thread is closed", || {
         matches!(
             job_state(&room, "job-once"),
             Some(crate::thread::ThreadState::Closed(End::Done))
         )
+    })
+    .await;
+    until("the one-shot's record ends", || {
+        crate::room::schedules(&room.log).is_empty()
     })
     .await;
     let listed = crate::room::all_jobs(&room.log);
@@ -591,6 +595,41 @@ async fn a_queued_firing_is_dropped_when_background_work_is_revoked() {
     );
 }
 
+/// A job's agent whose lease went stale while it ran (its teammate's main
+/// conversation turned over, say) is not handed the next line because more
+/// lines wait behind it: that line gets an agent of its own, under the
+/// authority there is then.
+#[tokio::test]
+async fn a_stale_job_agent_is_rebuilt_for_the_next_line_whatever_waits_behind_it() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(saying("said", "Noted."));
+    driver.gate = Some(gate.clone());
+    let agents = Fake::new(driver);
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job("job-stale", ScheduleKind::Loop, "check the crane", true, 0);
+    job.next_at = now_ms() + 3_600_000;
+    let room = room_due("schedule-stale-agent", agents.clone(), job);
+
+    room.prompt_job("job-stale", "first", None).await.unwrap();
+    heard(&prompts, 1).await;
+    for line in ["second", "third"] {
+        room.prompt_job("job-stale", line, None).await.unwrap();
+    }
+    assert_eq!(agents.tools().len(), 1);
+    room.stop_with_capability("ada");
+    // The first turn's three updates, and no more: the second waits at the
+    // gate once it has begun.
+    gate.add_permits(3);
+    heard(&prompts, 2).await;
+    assert_eq!(
+        agents.tools().len(),
+        2,
+        "the second line's turn runs on a fresh agent"
+    );
+    gate.add_permits(10);
+    heard(&prompts, 3).await;
+}
+
 /// What a message answers is on the line it is written as, and a mark that has
 /// gone stale is claimed by nothing.
 #[tokio::test]
@@ -682,4 +721,115 @@ async fn a_nudge_reaches_the_driver_and_never_the_tape() {
         ["turn"],
         "the turn it ran is on the tape; the words that started it are not"
     );
+}
+
+/// The job's latest link event, as the stream holds it.
+fn job_link(room: &Room, job_id: &str) -> Value {
+    room.log
+        .load(&StreamId::Job(job_id.to_string()))
+        .into_iter()
+        .rfind(|event| event["kind"] == "link")
+        .unwrap_or_default()
+}
+
+/// A job that ends itself in the middle of its first firing, on an agent that
+/// reports a session of its own: the turn that finishes afterwards must not
+/// reopen the thread the end closed, and the agent's report stays in the link.
+#[tokio::test]
+async fn a_job_that_ends_itself_on_its_first_firing_keeps_its_report_in_its_closing_link() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(Scripted::new(saying("s", "wrapping up")).gated(gate.clone()));
+    agents.reporting("child-1", false);
+    let prompts = agents.driver.prompts.clone();
+    let log = scratch("job-self-end");
+    let mut teammate = persona("ada");
+    teammate.backend_id = "claude".to_string();
+    enrol(&log, &teammate);
+    let job = due_job("job-self", ScheduleKind::Loop, "watch the order", false, 1);
+    crate::room::append_schedule(&log, &job).unwrap();
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+
+    heard(&prompts, 1).await;
+    room.schedule_done("job-self", "The order shipped.")
+        .unwrap();
+    gate.add_permits(3);
+    until("the turn that ended it is written", || {
+        room.log
+            .load(&StreamId::Job("job-self".to_string()))
+            .iter()
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
+    until("the job lets go of its thread", || {
+        lock(&room.job_threads).is_empty()
+    })
+    .await;
+
+    let last = job_link(&room, "job-self");
+    assert_eq!(last["state"], "closed", "{last:#}");
+    assert_eq!(
+        last["end"], "agent",
+        "the end the job made is the end the link keeps: {last:#}"
+    );
+    assert_eq!(last["outcome"], "The order shipped.", "{last:#}");
+}
+
+/// A one-shot is not ended while its one firing runs: the person can still
+/// talk to its thread, and the record ends when the firing does.
+#[tokio::test]
+async fn a_jobs_last_firing_is_not_ended_until_it_is_over() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![saying("a", "working"), saying("b", "ok")]).gated(gate.clone()),
+    );
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-last", ScheduleKind::Schedule, "do the thing", false, 1);
+    let room = room_due("schedule-last-running", agents, job);
+
+    heard(&prompts, 1).await;
+    let running = crate::room::all_jobs(&room.log);
+    assert_eq!(running[0].ended_at, None, "the firing is still running");
+    room.prompt_job("job-last", "how is it going?", None)
+        .await
+        .expect("a job whose last firing runs still hears the person");
+    assert!(room.job_lives("job-last"));
+
+    gate.add_permits(10);
+    until("the record ends with the last firing", || {
+        crate::room::all_jobs(&room.log)[0].ended_at.is_some()
+    })
+    .await;
+    assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
+}
+
+/// A record written before the last firing was marked loads as it did.
+#[test]
+fn a_job_record_from_before_the_final_firing_marker_loads() {
+    let old = json!({
+        "kind": "schedule", "id": "old", "personaId": "ada", "prompt": "p",
+        "nextAt": 5, "createdAt": 1, "every": 60000,
+    });
+    let jobs = crate::room::jobs(&[old]);
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].ended_at, None);
+}
+
+/// The sweep found a job idle, but a turn was claimed before it acted: the
+/// agent of that turn is not let go of.
+#[tokio::test]
+async fn the_sweep_does_not_park_an_agent_whose_turn_has_begun() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(Scripted::new(saying("s", "working")).gated(gate.clone()));
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-sweep", ScheduleKind::Loop, "check", false, 1);
+    let room = room_due("schedule-sweep-recheck", agents, job);
+
+    heard(&prompts, 1).await;
+    room.park_job("job-sweep");
+    let live = lock(&room.job_threads).get("job-sweep").cloned().unwrap();
+    assert!(
+        live.has_agent(),
+        "a turn that has begun keeps the agent it runs on"
+    );
+    gate.add_permits(10);
 }

@@ -586,9 +586,9 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.14.0"
+version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -4215,7 +4215,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-app"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -4246,7 +4246,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-cli"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -4269,7 +4269,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-contract"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -4280,7 +4280,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-core"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "agent-client-protocol",
  "async-trait",
@@ -4343,7 +4343,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-mcp"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "chrono",
  "hotline-contract",
@@ -4364,7 +4364,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-room"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4384,7 +4384,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-store"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4402,7 +4402,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-support"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "getrandom 0.3.4",
  "hex",
@@ -4420,7 +4420,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-tools"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "cap-std",
  "dunce",
@@ -4441,7 +4441,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-voice"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4480,7 +4480,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-websearch"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "async-trait",
  "axum",

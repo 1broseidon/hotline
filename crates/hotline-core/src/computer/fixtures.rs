@@ -110,6 +110,13 @@ printf '[{"Config":{"Env":%s,"Labels":{"hotline.release":"%s"},"Image":"%s"},"St
 exit 0
 ;;
   create)
+# A test holds the create open for as long as this file exists.
+while [ -f "${STATE}.creategate" ]; do sleep 0.05; done
+# A runtime refuses a name that is taken.
+if [ "$(cat "$STATE")" != absent ]; then
+  echo "Error: the container name is already in use" >&2
+  exit 1
+fi
 rm -f "${STATE}.folders" "${STATE}.limits" "${STATE}.release"
 for a in "$@"; do
   case "$a" in

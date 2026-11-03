@@ -1,14 +1,16 @@
 import { type ReactNode, type ComponentProps, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
-import { type Activity, processLabel, shownState } from "../activity";
+import { type Activity, isWorking, processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, ProgressRing, WarningIcon } from "../icons";
 import { type Call as CallSession, useCall, useCallSnapshot } from "../voice/call";
 import { carry } from "../serverFiles";
+import { sends, unlanded, useReturned, useSends } from "../sends";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
+import { useAsides, withAsides } from "../asides";
 import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -22,7 +24,7 @@ import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { PlanGauge } from "./PlanGauge";
 import { Starters, untouched } from "./Starters";
-import { AskCard, askLine, openAsks } from "./transcript/AskCard";
+import { AskCard, askLine, nextLapse, openAsks } from "./transcript/AskCard";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
 /**
@@ -38,11 +40,8 @@ import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type Thr
  * while they work, and a message to a resting teammate starts the session
  * on its way. Stopping is the one deliberate act, under More.
  */
-/** A message on screen before the core has written it down. */
-type Saying = { text: string; at: number; replyTo?: string };
-
-/** The words and files a refused send hands back to the composer. */
-export type Refill = { text: string; attachments: Attachment[]; nonce: number };
+/** The words and files a refused send hands back to the composer. `merge` puts them ahead of what has been typed since, rather than over it. */
+export type Refill = { text: string; attachments: Attachment[]; nonce: number; merge?: boolean };
 
 export function Conversation({
 	entry,
@@ -56,6 +55,7 @@ export function Conversation({
 	onDelete,
 	onOpenThread,
 	onOpenThreadList,
+	onOpenNoted,
 	onOpenWork,
 	workOpen,
 	onOpenProcess,
@@ -97,6 +97,8 @@ export function Conversation({
 	onOpenThread(thread: ThreadRef): void;
 	/** Opens the right-hand pane on this teammate's list of threads. */
 	onOpenThreadList(): void;
+	/** Opens the right-hand pane on what this teammate's threads told it: its Noted page. */
+	onOpenNoted(): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
@@ -129,7 +131,8 @@ export function Conversation({
 	/* What was said, from the moment it was said. The core writes the line
 	 * only once a session is up, and starting one is a second or two in which
 	 * a composer that has already emptied looks like it did nothing. */
-	const [saying, setSaying] = useState<Saying | null>(null);
+	const convSends = useSends(personaId);
+	const saying = convSends.lines.length > 0;
 	const [refill, setRefill] = useState<Refill | null>(null);
 	const [draftHasContent, setDraftHasContent] = useState(false);
 	/* A refusal the core handed up: a chapter that would not open, a message
@@ -139,91 +142,102 @@ export function Conversation({
 	const [mark, setMark] = useState<{ activity: Activity; sleeping: boolean } | null>(null);
 	/* The cards waiting on the person, answered from the composer: which is open there, or none.
 	 * With nothing left waiting it closes, and does not open by itself for the next one. */
-	const asks = useMemo(() => openAsks(events), [events]);
-	const [askAt, setAskAt] = useState<number | null>(null);
+	const [clock, setClock] = useState(() => Date.now());
+	const lapseAt = nextLapse(events, clock);
+	useEffect(() => {
+		// A card with a time limit stops waiting when it runs out, tape or no tape.
+		if (lapseAt === undefined) return;
+		const timer = setTimeout(() => setClock(Date.now()), Math.min(Math.max(lapseAt - Date.now(), 0) + 5, 2 ** 31 - 1));
+		return () => clearTimeout(timer);
+	}, [lapseAt]);
+	const asks = useMemo(() => openAsks(events, clock), [events, clock]);
+	/* Which card is open is the card, not its place in the list: the list
+	 * shrinks from the front as cards settle, and the panel stays on the one
+	 * being read. When that one settles it falls to the first still waiting. */
+	const [askId, setAskId] = useState<string | null>(null);
 	const anyAsk = asks.length > 0;
 	useEffect(() => {
-		if (!anyAsk) setAskAt(null);
+		if (!anyAsk) setAskId(null);
 	}, [anyAsk]);
-	const askIndex = askAt === null || asks.length === 0 ? 0 : Math.min(askAt, asks.length - 1);
-	const asking = askAt !== null && asks.length > 0 ? asks[askIndex]! : null;
+	const found = askId === null ? -1 : asks.findIndex((one) => one.id === askId);
+	const askIndex = Math.max(found, 0);
+	const asking = askId !== null && asks.length > 0 ? asks[askIndex]! : null;
 
+	/* A teammate that is not running is started on the way, and the words
+	 * wait for it: a start that is refused is the reason shown, where a send
+	 * racing it could only say the teammate is not running. Sends that ask
+	 * while a start is out share it. */
+	const startThen = useCallback(
+		<T,>(then: () => Promise<T>): Promise<T> =>
+			(isDown(session.state) ? sends.once(`start:${personaId}`, () => wire.command("session.start", { personaId })) : Promise.resolve()).then(then),
+		[personaId, session.state],
+	);
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
 			const answered = replying;
-			const at = Date.now();
-			setSaying({ text, at, ...(answered ? { replyTo: answered.eventId } : {}) });
 			setReplying(null);
-			// A teammate that is not running is started on the way, and the
-			// words wait for it: a start that is refused is the reason shown,
-			// where a send racing it could only say the teammate is not running.
-			const started = isDown(session.state)
-				? wire.command("session.start", { personaId }).then(() => setRefused(null))
-				: Promise.resolve();
-			// On a desk on a server, what is attached goes up first.
-			void started
-				.then(() => carry(attachments))
-				.then((carried) =>
+			sends.send(personaId, { text, attachments, ...(answered ? { reply: answered } : {}) }, () =>
+				// On a desk on a server, what is attached goes up first.
+				startThen(() => carry(attachments)).then((carried) =>
 					wire.command("session.prompt", {
 						personaId,
 						text,
 						...(answered ? { replyTo: answered.eventId } : {}),
 						...(carried.length > 0 ? { attachments: carried } : {}),
 					}),
-				)
-				.then(
-					() => setSaying(null),
-					(error: unknown) => {
-						// Nothing was said after all: the words go back where
-						// they came from, with what was attached to them.
-						setSaying(null);
-						setRefill({ text, attachments, nonce: at });
-						if (answered) setReplying(answered);
-						setRefused(error instanceof Error ? error.message : String(error));
-					},
-				);
+				),
+			);
 		},
-		[personaId, replying, session.state],
+		[personaId, replying, startThen],
 	);
+	/* Words a refused send gives back, from this conversation or from a
+	 * visit to another teammate that ended before the refusal came. */
+	useReturned(personaId, (back) => {
+		setRefill({ text: back.text, attachments: back.attachments, nonce: back.nonce, merge: true });
+		if (back.reply !== undefined) setReplying(back.reply);
+	});
+	useEffect(() => sends.landed(personaId, events), [personaId, events]);
+	/* What the teammate's threads and colleagues told it, drawn as quiet lines
+	 * at their times; the core never writes them into this conversation. */
+	const asides = useAsides(personaId, entry);
+	const told = useMemo(() => withAsides(events, asides ?? [], olderOnDesk), [events, asides, olderOnDesk]);
+	/* The work threads at work now, by the roster: what a handoff's line counts as under way. */
+	const workingIds = (entry.sides ?? []).filter((side) => side.working).map((side) => side.sideId).join(" ");
+	const workingSides = useMemo(() => (workingIds === "" ? [] : workingIds.split(" ")), [workingIds]);
 	/* The line the core will write, standing in until it does: the same words
 	 * at or after the moment they were sent. */
 	const shown = useMemo(() => {
-		if (!saying) return events;
-		const landed = events.some(
-			(event) => event.kind === "user" && event.ts >= saying.at - 1000 && event.text === saying.text,
-		);
-		if (landed) return events;
+		const waiting = unlanded(convSends.lines, events);
+		if (waiting.length === 0) return told;
 		return [
-			...events,
-			{
+			...told,
+			...waiting.map((line) => ({
 				kind: "user" as const,
-				id: `saying:${saying.at}`,
-				ts: saying.at,
-				text: saying.text,
-				...(saying.replyTo !== undefined ? { replyTo: saying.replyTo } : {}),
-			},
+				id: `saying:${line.id}`,
+				ts: line.at,
+				text: line.text,
+				...(line.reply !== undefined ? { replyTo: line.reply.eventId } : {}),
+			})),
 		];
-	}, [events, saying]);
+	}, [events, told, convSends.lines]);
 	/* A reaction is a line of its own, the shape the phone sends: the quoted
 	 * line and the emoji, answering it. The teammate reads it as a reply; both
 	 * windows fold it onto the bubble. */
 	const react = useCallback(
 		(target: ReactTarget, emoji: string) => {
-			const started = isDown(session.state)
-				? wire.command("session.start", { personaId }).then(() => setRefused(null))
-				: Promise.resolve();
-			void started
-				.then(() =>
-					wire.command("session.prompt", { personaId, text: `${reactionQuote(target.text)}\n\n${emoji}`, replyTo: target.eventId }),
-				)
+			void startThen(() =>
+				wire.command("session.prompt", { personaId, text: `${reactionQuote(target.text)}\n\n${emoji}`, replyTo: target.eventId }),
+			)
+				.then(() => setRefused(null))
 				.catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
 		},
-		[personaId, session.state],
+		[personaId, startThen],
 	);
-	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
+	// The composer's Interrupt and Esc redirect the turn; they are never the person's Stop of a colleague's answer.
+	const cancel = useCallback(() => void wire.command("session.cancel", { personaId, interrupt: true }), [personaId]);
 	/* The first conversation, before a word: what the starter card reads.
 	 * A line on its way (`saying`) already ends it. */
-	const fresh = loaded && saying === null && untouched(events, olderOnDesk);
+	const fresh = loaded && !saying && untouched(events, olderOnDesk);
 
 	// Escape clears a quote that is up even when the field is not focused.
 	// Chips are put down first, on the window in capture, so this listener
@@ -251,7 +265,7 @@ export function Conversation({
 						<span>
 							{askIndex + 1} of {asks.length}
 						</span>
-						<button type="button" className="composer-ask-next" onClick={() => setAskAt((at) => ((at ?? 0) + 1) % asks.length)}>
+						<button type="button" className="composer-ask-next" onClick={() => setAskId(asks[(askIndex + 1) % asks.length]?.id ?? null)}>
 							Next
 						</button>
 					</div>
@@ -273,11 +287,11 @@ export function Conversation({
 	 * reopened is a standing fact rather than an event, so it stays on the
 	 * greyed menu item, read at the moment somebody goes looking for it. */
 
-	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
+	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused ?? convSends.notice);
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<ConversationBand {...{ entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+				onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNoted, threadOpen, paneOpen, callBar,
 				pulling, openScreen, setRefused, onProviders, railOpen }} />
 
 			{notice !== null && (
@@ -298,9 +312,10 @@ export function Conversation({
 					people={people}
 					events={shown}
 					streaming={streaming}
-					live={state === "thinking"}
+					live={isWorking(session)}
 					onMark={setMark}
 					workingCalls={entry.workingCalls}
+					workingSides={workingSides}
 					cornered={cornered}
 					focus={focus}
 					onReply={setReplying}
@@ -336,7 +351,7 @@ export function Conversation({
 									},
 									sleeping: false,
 									open: asking !== null,
-									onToggle: () => setAskAt((at) => (at === null ? 0 : null)),
+									onToggle: () => setAskId((open) => (open === null ? (asks[0]?.id ?? null) : null)),
 								},
 							}
 						: mark !== null
@@ -383,10 +398,10 @@ export function Conversation({
 /** The header follows room state and controls, independently of streamed body changes. */
 const ConversationBand = memo(function ConversationBand({
 	entry, roster, jobs, models, onSaid, inspectorOpen, onToggleInspector,
-	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, threadOpen, paneOpen, callBar,
+	onOpenSchedules, onDelete, onOpenThread, onOpenThreadList, onOpenNoted, threadOpen, paneOpen, callBar,
 	pulling, openScreen, setRefused, onProviders, railOpen,
 }: Pick<ComponentProps<typeof Conversation>, "entry" | "roster" | "jobs" | "models" | "onSaid" | "inspectorOpen"
-	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList"
+	| "onToggleInspector" | "onOpenSchedules" | "onDelete" | "onOpenThread" | "onOpenThreadList" | "onOpenNoted"
 	| "threadOpen" | "paneOpen" | "callBar" | "onProviders" | "railOpen"> & {
 	pulling: { done: number; total: number } | null;
 	openScreen: (() => void) | undefined;
@@ -394,7 +409,6 @@ const ConversationBand = memo(function ConversationBand({
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
-	const state = shownState(session);
 	const sides = entry.sides ?? [];
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const [chapterBusy, setChapterBusy] = useState(false);
@@ -437,22 +451,24 @@ const ConversationBand = memo(function ConversationBand({
 		});
 	}
 
-	// The teammate's own actions, under who it is and what it runs on in the
-	// pill's menu. Four words, as the board's label rule asks (decision
-	// ui.tooltip-length): the rest lives where it is used, not in this menu.
-	const actions: MenuEntry[] = [
+	const actions = [
 		...folded,
-		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
-		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: startChapter },
-		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
-		{ kind: "rule" },
-		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
+		...teammateActions({
+			inspectorOpen,
+			chapterBusy,
+			unseen: entry.asidesNew ?? 0,
+			onToggleInspector,
+			onStartChapter: startChapter,
+			onOpenThreadList,
+			onOpenNoted,
+			onDelete,
+		}),
 	];
 	const teammate = {
 		name: persona.name,
 		goal: persona.goal,
 		face: (size: number) => <Avatar id={persona.id} name={persona.name} size={size} hash={persona.avatar?.hash} />,
-		working: state === "thinking",
+		working: isWorking(session),
 		actions,
 	};
 
@@ -561,7 +577,7 @@ const ConversationBand = memo(function ConversationBand({
 					{/* One pill in the corner: the model, its effort and the teammate's
 					 * face, which beats while it works. Its menu is who the teammate
 					 * is, what it runs on, and its actions: Settings, New chapter,
-					 * Threads, Remove. */}
+					 * Threads, Noted, Remove. */}
 					<SessionPickers
 						key={persona.id}
 						entry={entry}
@@ -578,11 +594,58 @@ const ConversationBand = memo(function ConversationBand({
 });
 
 /**
- * Subagents still running, wherever their lines have scrolled to, at the
- * composer's top right: what the teammate left going is beside where you
- * would speak to it. One is named, several are counted with a menu, and each
- * opens its run in the pane. They go when they finish; their lines in the
- * conversation keep how each went.
+ * The teammate's own actions, under who it is and what it runs on in the
+ * pill's menu: Settings, New chapter, Threads, Noted with how many asides the
+ * person has not seen, and Remove under a rule. Four words, as the board's
+ * label rule asks (decision ui.tooltip-length): the rest lives where it is
+ * used, not in this menu.
+ */
+export function teammateActions({
+	inspectorOpen,
+	chapterBusy,
+	unseen,
+	onToggleInspector,
+	onStartChapter,
+	onOpenThreadList,
+	onOpenNoted,
+	onDelete,
+}: {
+	inspectorOpen: boolean;
+	chapterBusy: boolean;
+	unseen: number;
+	onToggleInspector(): void;
+	onStartChapter(): void;
+	onOpenThreadList(): void;
+	onOpenNoted(): void;
+	onDelete(): void;
+}): MenuEntry[] {
+	return [
+		{ kind: "item", id: "teammate", text: "Settings", checked: inspectorOpen, shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
+		{ kind: "item", id: "chapter", text: "New chapter", disabled: chapterBusy, onSelect: onStartChapter },
+		{ kind: "item", id: "side-list", text: "Threads", onSelect: onOpenThreadList },
+		{ kind: "item", id: "noted", text: "Noted", ...(unseen > 0 ? { detail: `${unseen} new` } : {}), onSelect: onOpenNoted },
+		{ kind: "rule" },
+		{ kind: "item", id: "delete", text: "Remove", danger: true, onSelect: onDelete },
+	];
+}
+
+/** What the chip calls a run of each kind: a subagent works with a model of its own; a shell run is a command the harness sent to the background. */
+const RUN_KIND: Record<NonNullable<RunningSubagent["kind"]>, { word: string; running: string }> = {
+	subagent: { word: "Subagent", running: "Subagent working" },
+	shell: { word: "Background", running: "Running in the background" },
+};
+
+function runKind(run: RunningSubagent) {
+	return RUN_KIND[run.kind ?? "subagent"];
+}
+
+/**
+ * Subagents, and commands the teammate's harness left running in the
+ * background, still going, wherever their lines have scrolled to, at the composer's top
+ * right: what the teammate left going is beside where you would speak to it,
+ * after its turn as during it. One is named with its kind, several are
+ * counted with a menu, and each opens its run in the pane. They go when they
+ * finish; their runs keep how each went.
  */
 export function SubagentChips({
 	subagents,
@@ -597,34 +660,38 @@ export function SubagentChips({
 	const open = (run: RunningSubagent) => onOpenThread({ thread: { kind: "run", key: run.runId }, title: run.title });
 	if (subagents.length === 1) {
 		const run = subagents[0]!;
+		const kind = runKind(run);
+		const subagent = (run.kind ?? "subagent") === "subagent";
 		return (
 			<button
 				type="button"
 				className="control btn btn-sm min-w-0 shrink gap-1.5"
-				title="Open the subagent's run"
-				aria-label={`Subagent working: ${run.title}`}
+				title={subagent ? "Open the subagent's run" : "Open its run"}
+				aria-label={`${kind.running}: ${run.title}`}
 				aria-pressed={opened(run.runId)}
 				onClick={() => open(run)}
 			>
 				<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-				<span className="truncate">{`Subagent · ${run.title}`}</span>
+				<span className="truncate">{`${kind.word} · ${run.title}`}</span>
 			</button>
 		);
 	}
+	const allSubagents = subagents.every((run) => (run.kind ?? "subagent") === "subagent");
+	const count = allSubagents ? `${subagents.length} subagents` : `${subagents.length} running`;
 	return (
 		<MenuButton
 			className="control btn btn-sm shrink-0 gap-1.5"
-			label={`${subagents.length} subagents working`}
+			label={allSubagents ? `${count} working` : count}
 			entries={subagents.map((run) => ({
 				kind: "item",
 				id: run.runId,
-				text: run.title,
+				text: allSubagents ? run.title : `${runKind(run).word} · ${run.title}`,
 				checked: opened(run.runId),
 				onSelect: () => open(run),
 			}))}
 		>
 			<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-			{`${subagents.length} subagents`}
+			{count}
 		</MenuButton>
 	);
 }

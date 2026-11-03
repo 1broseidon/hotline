@@ -1,7 +1,8 @@
 //! The room as everything above the core sees it, and the plain pieces the
 //! core's next crates need below them: the roster and settings folded out of
 //! the room stream (`room`, with the `mcpServers` setting's reading beside it
-//! in `mcp_servers`), linked desks' records and live links (`linked`), the
+//! in `mcp_servers`, and the inbound sources the person added in `inbound`),
+//! linked desks' records and live links (`linked`), the
 //! seam the wire calls the live room through (`room_handle`), the tool ledger
 //! every session publishes (`tool_ledger`), voice's settings, spend and
 //! spoken replies (`voice`), and a handful of items that hold no state:
@@ -18,6 +19,7 @@
 //! `wire::RoomHandle`), so the core's callers did not move.
 
 pub mod computer;
+pub mod inbound;
 pub mod linked;
 pub mod mcp_servers;
 pub mod provider_auth;

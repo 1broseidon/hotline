@@ -116,7 +116,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
 | `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
-| `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
+| `persona.delete` | `{id}` | none — the agent is stopped, its exchanges stopped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
@@ -154,7 +154,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `session.stop` | `{personaId}` | none |
 | `session.retry` | `{personaId}` | none; runs the last turn again when it failed and nothing was said after it, without writing the person's message again; otherwise refused |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
-| `session.cancel` | `{personaId}` | none |
+| `session.cancel` | `{personaId, interrupt?}` | none; stops the turn in flight and drops what waited behind it, failing at once a colleague's question among that. Without `interrupt`, as the phone and an older window send it, it is the person's Stop: a question the turn was answering fails to its asker with "The person stopped the answer to this question. Do not ask it again unless they ask.", and a first-contact card up expires. `interrupt` is the window's Interrupt and Esc: that answer fails with "The person interrupted the answer to this question. Ask it again if you still need it.", and a first-contact card stays up. An older desk ignores the flag and stops |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
 | `plan.refresh` | `{personaId}` | none, at once; the model picker opened on that teammate. Its login's plan (one reading per harness login, kept across restarts) is read again, out of band, when the reading is over two minutes old, whether or not the teammate is running: Claude Code by its CLI's `get_usage` control request, Codex by `codex app-server`'s `account/rateLimits/read` (its session logs when that cannot be reached), Grok Build by xAI's billing endpoint; none sends a prompt (see security.md, "A harness login's plan, read out of band"). The reading arrives on `SessionInfo.planUsage` of every teammate on that login. An agent whose plan the desk does not read does nothing; an unknown teammate is refused |
@@ -188,13 +188,12 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner or local desk only |
 | `teammates.exchange_resume` | `{a, b}` | none; answers a pair's `exchange_paused` card with Keep going (below) |
 | `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop exchange (below) |
-| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
-| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
-| `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
-| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
+| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then; one opened without a task runs no turn and is not `working` while its agent starts. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
+| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued. In a thread a teammate handed over, while its handoff waits on a card there, the words are that card's answer (and attachments are refused) |
+| `side.cancel` | `{sideId}` | none; the person's Stop, as `thread.cancel` without `interrupt` |
+| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none. Ending one a teammate handed over is the person's End thread: the handoff into it is released and stopped with no result, and its opener is left one `note` aside, never woken |
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
@@ -202,12 +201,19 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
-| `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs) |
-| `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none |
-| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`), or cancels a job (`schedule.cancel`) |
+| `thread.cancel` | `{thread, interrupt?}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs). Without `interrupt`, as the phone and an older window send it, it is the person's Stop: on a work thread it drops what waited behind the turn and ends for good a colleague's handoff it reaches (the cut turn's, a dropped line's, or one an Interrupt left the thread carrying), whose sender is left one `note` aside and never woken; the thread closes as `stopped` when the handoff's own turn was cut. `interrupt` is the window's Interrupt and Esc: on a work or call thread it only cuts the turn, what waited behind it is heard next, and a handoff or question the turn was answering goes on in the turn the person's next line there starts; on the main conversation it is `session.cancel`'s; elsewhere it changes nothing ([Stop and Interrupt](sessions.md#stop-and-interrupt)) |
+| `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none; one mid-turn is refused, since parking would cut the turn |
+| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`: on one a teammate handed over, the person's End thread, which ends the handoff too), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
+| `aside.list` | `{personaId}` | `Aside[]`, newest first, heard or not: what the teammate's colleagues and threads left it without telling the person ([Asides](#asides)). The desk, owner and phone seats |
+| `aside.seen` | `{personaId}` | none; the person has read the teammate's asides (its Noted page opened): each not yet `seen` is marked so, and the row's `asidesNew` goes. Whether a turn has heard them does not change. The desk, owner and phone seats |
+| `thread.loop_in` | `{thread, personaId}` | none; the person's Loop in… on a work thread that is open: the colleague is left a `nudge` aside from the thread with `loopedIn`, and the thread asks it once, as a question from the thread's teammate that the person's act grants, with the thread's last lines; its answer comes back into the thread as a delivery under the colleague's name. Refused for the thread's own teammate, a teammate on a linked desk and a closed thread. The desk, owner and phone seats, on a work thread only |
+| `inbound.list` | `{}` | `InboundSource[]`, oldest first: the desk's inbound sources ([Inbound sources](#inbound-sources)). The desk, owner and phone seats |
+| `inbound.add` | `{draft}` | the new `InboundSource`; `draft` is an `InboundDraft` (`{type, name, teammates, maxLevel?, filesAllowed?, rate?, secret?}`). Refused for a teammate not on this desk, no teammates, a rate outside 1–120, or a `secret` that names no stored secret. The desk and owner seats |
+| `inbound.update` | `{id, muted?, teammates?, maxLevel?, filesAllowed?, rate?}` | the `InboundSource`, each given field changed and checked as `inbound.add` checks it; unmuting releases its brake (`wakes` back to 0). The desk and owner seats; the phone seat with `muted` alone |
+| `inbound.remove` | `{id}` | none; the source delivers nothing more, and what it delivered stays. The desk and owner seats |
 | `tape.page` | `{personaId, before, limit?, through?}` | `{events, more}`: the `limit` lines of a tape before the line `before` (400 by default, at most 2,000), oldest first, or, with `through`, every line from 40 above `through` up to `before`, so a search hit or a quoted reply can be scrolled to. `more` is whether older lines are left. A `before` the tape does not hold is an empty page. A phone's page is cut as its snapshot is |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only, for the desk, owner and phone seats |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
@@ -379,10 +385,9 @@ commands, not teammate tools. There are no link commands or roster links.
 `human.answer` is the same fact for a `request_human` card: `done` or
 `declined`, with an optional `note` the agent receives word for word. A card
 that `delivers` is answered off the tape at any time until it is settled,
-across restarts, and the answer reaches the teammate as a `delivery`. A card
-a tool is waiting on (a colleague's side session asked it) is refused once
-the deadline passed, the session stopped, the room restarted, or somebody
-else answered first, or the teammate withdrew the card (`withdrawn`). The
+across restarts, and the answer reaches the teammate as a `delivery`. No tool
+waits on a card. One that expired, that somebody else answered first, or that
+the teammate withdrew (`withdrawn`) is refused. The
 tape still writes `dismissed` for a decline, which is the previous edition's
 word for that afterlife.
 
@@ -719,7 +724,10 @@ and no answer repeats the address, which carries the code. `mcp.auth_status` rep
 `failed`; its result never includes an access token, refresh token or client
 secret. `mcp.auth_sign_out` revokes the live gateway capability before it
 deletes the registration and tokens from the protected vault. Signing in
-does not change a teammate's MCP policy.
+does not change a teammate's MCP policy: once it completes, each running
+main session is rebuilt to connect with it when its turn is over, and
+nothing a teammate holds or was given ends
+([sessions.md](sessions.md#reattaching)).
 
 `mcp.secret_set` is the other credential: the token a server in `bearer` or
 `header` auth mode sends on every request. The window saves it before it
@@ -786,9 +794,10 @@ that loads a thread. `peers.mark_read` says that
 those messages have been read and answers how many actually moved: an id
 naming nothing, an event that is not a message, and a message that is
 already read all move nothing, which is what makes a repeated receipt
-harmless. `peers.answer_permission` answers a permission card in a peer
-thread (`perm:<requestId>` on the pair stream) and is refused once its turn is
-over. A message's `receipt` is `sent` when it enters the thread and
+harmless. A pair has no agent of its own, so no card is raised in it: a
+question is answered, and its cards raised, in a conversation of the
+recipient's. (`peers.answer_permission`, which answered a card in an older
+version's peer turn, is gone.) A message's `receipt` is `sent` when it enters the thread and
 `read` once the recipient's session has proved a turn on it; nothing ever
 un-reads a message.
 
@@ -910,7 +919,10 @@ A thread is any conversation the room keeps: the main conversation (`dm`), a
 work thread (`side`, the name it is stored and sent under), a thread between
 two teammates (`pair`), a voice call (`call`) and a subagent's run (`run`). One
 `ThreadId` names any of them, `{kind, key}`: a teammate's id for a `dm`, the
-side, run or call id, and the pair key. [threads.md](threads.md) is the design.
+side, run or call id, and the pair key. One on a linked desk also has `desk`,
+that desk's id ([Linked desks](#linked-desks)); a thread of this desk's never
+does, so it is written as it always was. [threads.md](threads.md) is the
+design.
 
 **The subscription's name.** `{"thread": "<key>"}` already meant a pair, and a
 phone on an older build still sends it, so it keeps meaning that. A thread of
@@ -937,16 +949,23 @@ needs a newer core.
 
 A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
 state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
-backendId?, elapsedMs?, openerId?, openerName?}`; `end` is how a closed thread
-ended (`person`, `agent`, `idle`, `stopped`, `done`, `failed`, `cancelled`).
+backendId?, elapsedMs?, openerId?, openerName?, handoffEnded?, askedIn?}`; `end`
+is how a closed thread ended (`person`, `agent`, `idle`, `stopped`, `done`,
+`failed`, `cancelled`). `handoffEnded` is `true` on a thread a teammate handed
+over once the handoff it serves no longer stands (Stop exchange, a revocation
+or an unlink ended it; see [sessions.md](sessions.md)), and absent while it
+stands. `askedIn` is the pair key of the question that opened a work thread
+while its teammate's main conversation was busy; such a link is on the pair's
+stream too, under its id with `@pair` added.
 It is rewritten under the same id as the thread goes. A `thread_delta` is
 `{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never
 written down. The room broadcasts only that; the older four are what the door
 turns it into for a socket that did not declare.
 
 **`ThreadSummary`**, one shape for every kind: `{thread, personaId,
-withPersonaId?, withName?, title?, state, end?, opener?, startedAt, updatedAt,
-working, waiting, preview?, outcome?}`. `personaId` is the teammate whose thread it is
+withPersonaId?, withName?, title?, state, end?, opener?, handoffEnded?,
+startedAt, updatedAt, working, waiting, preview?, outcome?}`; `handoffEnded` is
+what the thread's link records. `personaId` is the teammate whose thread it is
 (a pair is listed with the first of its two, and `withPersonaId` is the other;
 `withName` is what to call the other when it is on a linked desk, in no roster
 here, [Linked desks](#linked-desks));
@@ -971,9 +990,9 @@ refused in a sentence, never silently:
 **Seats.** The local desk and an owner may run all of it. A companion phone
 may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
-`mobile.prompt`, as before), `thread.answer` in anything but a pair
-(`peers.answer_permission` is the owner's and the desk's), neither
-`thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.page` and `{"threadId": …}`
+`mobile.prompt`, as before), `thread.answer` in anything but a pair (which
+raises no card), neither
+`thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.loop_in` on a work thread only, `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
 pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
@@ -986,12 +1005,58 @@ main conversation is never parked or closed: its chapters are its lifecycle.
 `session.prompt`, `session.cancel`, `session.answer_permission`,
 `human.answer` (a DM's `thread.answer`, which also finds a card raised in one of
 its work threads), `side.prompt`, `side.cancel`, `side.archive`,
-`side.answer_permission`, `peers.answer_permission` and `tape.page` run
+`side.answer_permission` and `tape.page` run
 `thread.prompt`, `cancel`, `answer`, `close` and `page` on the matching
 `ThreadId`, and answer what they always did. `side.start`, `side.continue`,
 `side.list` and `peers.list` answer their own summaries (`SideThreadSummary`,
 `PeerThreadSummary`) and are left as they were; `peers.mark_read` is a pair's
 read receipts and stays one too. `voice.*` is still the call's control surface.
+
+## Asides
+
+An aside is a short line one of a teammate's threads, or a colleague, left in
+its context: heard at the start of its next turn, never a message in the
+person's chat ([sessions.md](sessions.md#asides)). Each is an `Aside`:
+
+```json
+{"id": "…", "ts": 5, "to": "bob", "from": {"thread": {"kind": "pair", "key": "ada~bob"}},
+ "by": "ada", "text": "The Q3 numbers are in /shared/q3.csv",
+ "about": {"kind": "side", "key": "…"}, "level": "note", "heard": 9}
+```
+
+`from` is `{"thread": ThreadId}`, the thread it was said in, or
+`{"inbound": "<source id>"}` for an inbound source, with `sourceName`, the
+source's name when it delivered it; an aside from a teammate on a linked desk
+has that desk's thread, with `desk` set, which a client cannot open. `by` is
+the teammate whose words it is, absent for an inbound source.
+`about` is the recipient's thread it is heard in, absent for its main
+conversation. `level` is `note`, `nudge` (it woke the teammate if it was idle)
+or `person` (a card was raised for the person too). `heard` is when a turn
+took it in, absent until then; `seen` is when the person last opened the
+teammate's Noted page with it there (`aside.seen`), absent until then.
+`loopedIn: true` marks the nudge the person's Loop in… left (`by` is then the
+thread's teammate, and the words are Hotline's). The thread it was said in
+carries the same object as a quiet `{kind: "aside", …}` event, which a client
+that predates it skips. `aside.list` reads them, and the roster row counts the
+unheard (`asides`) and the unseen (`asidesNew`). The window draws the
+recipient's asides into its main conversation from `aside.list`, as quiet
+lines; they are never written there.
+
+## Inbound sources
+
+An `InboundSource` is a standing grant the person gives a place outside
+Hotline to leave teammates asides (`hotline_room::inbound`; the design is
+[thread-awareness.md](design/thread-awareness.md), "Inbound sources"):
+`{id, type, name, teammates, maxLevel, filesAllowed?, muted?, rate, secret?,
+wakes?, createdAt}`. `type` is `webhook`, `mail`, `github` or `other`, a label
+only: no transport delivers through any yet. `teammates` are the ids it may
+aside, `maxLevel` the highest level it may use (`note` unless the person
+allows more), `rate` how many asides an hour across them, `secret` the name of
+a stored secret a transport will use, never a value, and `wakes` the count on
+its brake. It is an `inbound` event on the room stream, folded by id, which
+only the `inbound.*` commands and a teammate's `propose_inbound` card, on the
+person's yes, write. Its asides carry `{"inbound": "<id>"}` as `from`
+([Asides](#asides)).
 
 ## The roster view
 
@@ -1033,7 +1098,10 @@ between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)
 `subagents` lists the runs still going, oldest first, and `sides` the work
 threads live, `{sideId, title, startedAt, working}`, oldest first, and
 `workingJobs` the ids of the jobs with a turn running, which is when a job
-can be stopped; each is absent when there are none. A phone that declared `lean` is sent each row
+can be stopped; each is absent when there are none. `asides` is how many
+asides the teammate has been left that no turn of its has heard yet, absent
+when none, and `asidesNew` how many of them the person has not seen on its
+Noted page; the row is sent again when one is left, heard or seen. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
@@ -1151,14 +1219,15 @@ The phone's socket opens with a hello before any answer:
 ```json
 {"type": "hello", "protocolVersion": 2, "desktopId": "…", "mode": "team",
  "capabilities": ["personaCreate", "personaEdit", "schedules", "threads", "runs", "threads2",
-                  "lean", "thumbnails", "turnRetry"]}
+                  "lean", "thumbnails", "turnRetry", "asides"]}
 ```
 
 `capabilities` names the optional features this desk supports, so a phone
 asks only for what the desk it reached understands. `personaCreate` is
 `mobile.persona_create`; `personaEdit` is `mobile.persona_update` and
 `persona.delete`; `turnRetry` is `session.retry`, so a phone offers Try
-again on a failed turn only where the desk can run it; `schedules` is the schedules view; `threads` is
+again on a failed turn only where the desk can run it; `asides` is
+`aside.list` and the roster's `asides` ([Asides](#asides)); `schedules` is the schedules view; `threads` is
 reading a thread between two teammates the way a tape is read; `threads2` is
 the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
 them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads));
@@ -1444,7 +1513,10 @@ record, gets the authenticated `{"error":"device_not_authorized"}`, which
 the dialer takes as the link having ended. The channel then takes an
 authenticated admission seat named `link:<deskId>`.
 
-After the handshake the channel is symmetric and has no hello. Either side
+After the handshake the channel is symmetric. Its hello is the roster each
+side sends before anything else, whose `features` say what that desk takes;
+a desk sends an `aside` delivery only to one whose roster on the channel open
+now named `asides`, and waits until that roster has come. Either side
 sends `{id, cmd, params}` and answers the other's with `{id, ok, result?,
 error?, code?}`; a frame with `ok` is an answer. Each side's commands are
 answered under the link seat, for the desk the handshake proved:
@@ -1452,8 +1524,8 @@ answered under the link seat, for the desk the handshake proved:
 | cmd | params | result |
 | --- | --- | --- |
 | `ping` | `{}` | none; sent every 25 s, and a channel that has heard nothing for three is closed |
-| `federation.roster` | `{teammates: LinkedTeammate[]}` | none; the sender's teammates, sent when they change (looked at every 2 s). Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}, goal, agent, model, effort, capabilities}`, the `list_teammates` row, and nothing more; rows are cut to plausible ids, known states and capability words, and bounded text, and a row from a desk older than the profile reads as the narrowest one |
-| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request — or `{kind:"result", requestId, reply, failed}` for a request the receiver sent |
+| `federation.roster` | `{teammates: LinkedTeammate[], features?: string[]}` | none; the sender's teammates, sent first on every channel and then when they change (looked at every 2 s), with `features`, what of the link's traffic it takes beyond requests and their answers: `asides` for now. A desk older than features sends none and is sent no aside; words the receiver does not know are dropped. Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}, goal, agent, model, effort, capabilities}`, the `list_teammates` row, and nothing more; rows are cut to plausible ids, known states and capability words, and bounded text, and a row from a desk older than the profile reads as the narrowest one |
+| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, `{woke}` for an aside left by a teammate's `aside`, none for a result or a handoff's note. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent, continues?, about?, files?}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request, one the receiver's person stopped included while that stop has still to cross; `continues`, on an ask or a handoff, names the work thread it continues or is answered in, by the request id of the sender's handoff that opened it or as the receiver names it (`side:<id>`), which the receiver looks up among that sender's handoffs to that teammate and refuses when none opened it (a desk older than asks naming a thread refuses an ask that carries it, and one older still ignores it); `about`, on an ask without `continues`, is the request id of the receiver's handoff whose thread is asking back, honoured without a card only for a handoff the receiver sent that teammate and that still stands (a desk older than it ignores it, and the ask meets the ordinary grant); `files` are `{name, data}` with `data` standard base64, at most 10 of plain names and 512 KB together, held until the request is let in and then copied into the recipient's working directory under `inbox/<personaId>@<deskId>/` — or `{kind:"result", requestId, reply, failed, stoppedByPerson?}` for a request the receiver sent, `stoppedByPerson` on a handoff saying the person on the sending desk stopped it and `reply` being what its sender is told of that (the cut turn's last words and the person's sentence), which the receiver ends the request with as its own person's stop, one it still holds as queued included, told by one note aside without a wake and never handed back as a failure (a desk older than it delivers the failure; said of an ask it is the ask's failure) — or `{kind:"aside", id, fromPersonaId, to, from, text, level, about?, requestId?, files?}`, sent only to a desk that takes `asides`: `from` is the thread it was said in and `about` a thread of the recipient's, each a `ThreadId` as its own desk names it; with `requestId` it is a note from the work thread a handoff of the receiver's opened, kept only for a handoff the receiver sent that teammate and that still stands, as a `note`, with no `about` or `files`; without, it passes the receiver's grant for an ask from that sender, `allowedSenders` or a session grant, never a card, and its `files` land as a request's do. The receiver keeps it under `<deskId>:<id>`, and the same id again is the one kept. A note is sent once its thread's turn ends, or when the link comes back; one cut off before it was answered is sent again |
 | `federation.unlink` | `{}` | none; the sender ended the link |
 
 Everything else, a subscription included, is answered `forbidden`. The desk
@@ -1461,7 +1533,10 @@ and owner seats are refused the `federation.*` commands.
 
 On the desk that holds them, a linked desk's teammates are named
 `<deskId>/<personaId>`, in `list_teammates`, in deliveries' `cause.personaId`
-and in pair thread keys (`ada~<deskId>/lou`). A `ThreadSummary` for such a
+and in pair thread keys (`ada~<deskId>/lou`). A thread on a linked desk is a
+`ThreadId` with `desk` set, `{desk, kind, key}`, written `<deskId>/side:<id>`:
+an aside that came from there has it as `from.thread`, and only that desk can
+open or resolve it. A `ThreadSummary` for such a
 pair is listed with this desk's teammate as `personaId` and names the other
 in `withName` ("Lou on grizzly").
 

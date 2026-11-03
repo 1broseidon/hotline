@@ -33,6 +33,7 @@ mod plan;
 mod posting;
 mod preamble;
 mod reading;
+mod run_state;
 mod runs;
 mod scheduled;
 mod sent_files;
@@ -78,6 +79,10 @@ pub(crate) struct Scripted {
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
+    /// Steering the agent uses in the turn it joined, so nothing comes back.
+    consumes: bool,
+    /// Each line steered into a turn in flight, by its words.
+    steered: Arc<Mutex<Vec<String>>>,
     /// Each prompt exactly as handed over, stamp and all.
     heard: Arc<Mutex<Vec<String>>>,
     /// Each retry, by its words, apart from the prompts it also counts as.
@@ -86,7 +91,7 @@ pub(crate) struct Scripted {
     /// harness is still coming up. `None` starts at once.
     start_gate: Option<Arc<Semaphore>>,
     /// Why every start is refused, for a harness that cannot come up.
-    start_error: Option<String>,
+    start_error: Mutex<Option<String>>,
     /// What reading a login's plan answers, how often it was read, and
     /// which logins, in order. The room reads it through [`Fake`].
     pub(super) plan: Arc<Mutex<Option<crate::contract::PlanUsage>>>,
@@ -125,10 +130,12 @@ impl Scripted {
             room_models: None,
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
+            consumes: false,
+            steered: Arc::new(Mutex::new(Vec::new())),
             heard: Arc::new(Mutex::new(Vec::new())),
             retried: Arc::new(Mutex::new(Vec::new())),
             start_gate: None,
-            start_error: None,
+            start_error: Mutex::new(None),
             plan: Arc::new(Mutex::new(None)),
             plan_reads: Arc::default(),
             plan_logins: Arc::default(),
@@ -146,8 +153,8 @@ impl Scripted {
     }
 
     /// An agent that cannot be started, and says why.
-    pub(super) fn failing_to_start(mut self, reason: &str) -> Self {
-        self.start_error = Some(reason.to_string());
+    pub(super) fn failing_to_start(self, reason: &str) -> Self {
+        *lock(&self.start_error) = Some(reason.to_string());
         self
     }
 
@@ -168,6 +175,20 @@ impl Scripted {
     pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
         self.gate = Some(gate);
         self
+    }
+
+    /// An agent that takes lines into the turn in flight, as a driver with
+    /// active input does.
+    pub(super) fn steerable(mut self) -> Self {
+        self.unconsumed = Some(Arc::new(Mutex::new(Vec::new())));
+        self
+    }
+
+    /// A steerable agent that uses each line in the turn it joined, as one
+    /// does when the line arrives before the turn's last request.
+    pub(super) fn consuming(mut self) -> Self {
+        self.consumes = true;
+        self.steerable()
     }
 
     pub(super) fn with_room_models(mut self) -> (Self, Arc<Mutex<Vec<ConfigChoice>>>) {
@@ -218,8 +239,8 @@ impl Driver for Scripted {
         if let Some(gate) = &self.start_gate {
             gate.acquire().await.expect("the gate closed").forget();
         }
-        if let Some(reason) = &self.start_error {
-            return Err(reason.clone());
+        if let Some(reason) = lock(&self.start_error).clone() {
+            return Err(reason);
         }
         Ok(self.reported())
     }
@@ -261,14 +282,19 @@ impl Driver for Scripted {
                 if let Some(gate) = &gate {
                     let stop = cancelled.notified();
                     tokio::pin!(stop);
+                    // A cancel made before a permit arrived wins over it. Left
+                    // unchosen, the notified `stop` passes its wake on to the
+                    // next turn to wait, which may be another session's on
+                    // this same agent, as a chapter's swap leaves it.
                     tokio::select! {
-                        permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
+                        biased;
                         () = &mut stop => {
                             for update in on_cancel {
                                 let _ = sender.send(update).await;
                             }
                             return;
                         }
+                        permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
                     }
                 }
                 if sender.send(update).await.is_err() {
@@ -283,7 +309,10 @@ impl Driver for Scripted {
         let Some(unconsumed) = &self.unconsumed else {
             return false;
         };
-        lock(unconsumed).push((text, attachments));
+        lock(&self.steered).push(words_of(&text));
+        if !self.consumes {
+            lock(unconsumed).push((text, attachments));
+        }
         true
     }
 
@@ -333,6 +362,16 @@ impl Driver for Scripted {
 /// time it was said: every line reaches a driver timed, so every test that
 /// reads what a driver heard checks that, and reads the words.
 pub(super) fn words_of(heard: &str) -> String {
+    let words = stamped(heard);
+    match super::index::split(&words) {
+        Some((_, rest)) => words_of(rest),
+        None => words,
+    }
+}
+
+/// The words of a line a driver heard, the thread index it opens with kept:
+/// what a test of the index or an aside reads.
+pub(super) fn stamped(heard: &str) -> String {
     let (stamp, words) = heard
         .strip_prefix('[')
         .and_then(|rest| rest.split_once("] "))
@@ -374,12 +413,11 @@ pub(crate) struct Fake {
     views: Arc<Mutex<Vec<Persona>>>,
     tools: Arc<Mutex<Vec<TeammateTools>>>,
     answer: Result<String, String>,
+    /// The instructions the summariser was asked each note with, in order.
+    pub(super) summarised: Arc<Mutex<Vec<String>>>,
     /// When set, the summariser does not answer until this is notified.
     hold_note: Arc<tokio::sync::Notify>,
     holding: std::sync::atomic::AtomicBool,
-    /// Run once, the next time an agent is built: a test's way into the
-    /// moment between a session being looked for and being kept.
-    on_agent: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Fake {
@@ -395,6 +433,11 @@ impl Fake {
 
     pub(super) fn cancel_count(&self) -> usize {
         *lock(&self.driver.cancels)
+    }
+
+    /// From now on every start is refused, for a harness that stops coming up.
+    pub(super) fn fail_starts(&self, reason: &str) {
+        *lock(&self.driver.start_error) = Some(reason.to_string());
     }
 
     /// Makes the agents stand in for a child that issues this session id, and
@@ -424,9 +467,23 @@ impl Fake {
         lock(&self.driver.waiting).clone()
     }
 
-    /// Every line any driver in this room has been handed, in order.
+    /// Every line any driver in this room has been handed, in order, without
+    /// the thread index it opened with.
     pub(super) fn prompts(&self) -> Vec<String> {
         lock(&self.driver.prompts).clone()
+    }
+
+    /// The same lines whole: the thread index and its asides, then the words.
+    pub(super) fn told(&self) -> Vec<String> {
+        lock(&self.driver.heard)
+            .iter()
+            .map(|heard| stamped(heard))
+            .collect()
+    }
+
+    /// Every line steered into a turn in flight, in order.
+    pub(super) fn steered(&self) -> Vec<String> {
+        lock(&self.driver.steered).clone()
     }
 
     /// A room whose summariser is asked and refused, which is the shape of
@@ -443,15 +500,10 @@ impl Fake {
             views: Arc::new(Mutex::new(Vec::new())),
             tools: Arc::new(Mutex::new(Vec::new())),
             answer,
+            summarised: Arc::new(Mutex::new(Vec::new())),
             hold_note: Arc::new(tokio::sync::Notify::new()),
             holding: std::sync::atomic::AtomicBool::new(false),
-            on_agent: Mutex::new(None),
         })
-    }
-
-    /// Runs `then` once, as the next agent is built.
-    pub(super) fn when_building(&self, then: impl FnOnce() + Send + 'static) {
-        *lock(&self.on_agent) = Some(Box::new(then));
     }
 }
 
@@ -469,19 +521,16 @@ impl Agents for Fake {
         lock(&self.seeds).push(said);
         lock(&self.views).push(persona.clone());
         lock(&self.tools).push(tools);
-        let then = lock(&self.on_agent).take();
-        if let Some(then) = then {
-            then();
-        }
         Ok(self.driver.clone())
     }
 
     async fn complete(
         &self,
         _model_id: &str,
-        _system: &str,
+        system: &str,
         _prompt: &str,
     ) -> Result<String, String> {
+        lock(&self.summarised).push(system.to_string());
         if self.holding.load(std::sync::atomic::Ordering::SeqCst) {
             self.hold_note.notified().await;
         }

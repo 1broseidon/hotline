@@ -3,7 +3,7 @@
 use super::dispatcher::Context;
 use super::duplex::Front;
 use super::record::Record;
-use super::{CALLS_OFF, Call, CallSpeech, Calls, THINKING_AGAIN, lock, paid_kinds};
+use super::{CALLS_OFF, Call, CallSpeech, Calls, Hold, THINKING_AGAIN, lock, paid_kinds};
 use hotline_contract::{
     VoiceCall, VoiceCallMode, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceState,
 };
@@ -30,9 +30,6 @@ pub(super) struct Connection {
     owner: String,
     replaced: CancellationToken,
     disconnected: CancellationToken,
-    pub(super) dropped: bool,
-    deadline: Option<tokio::time::Instant>,
-    was_held: bool,
 }
 
 impl Calls {
@@ -185,6 +182,7 @@ impl Calls {
                 input: None,
                 spoken_events: VecDeque::new(),
                 connection: None,
+                hold: Hold::Off,
                 reconnecting: false,
                 state: VoiceState::Listening,
                 reason: None,
@@ -309,9 +307,7 @@ impl Calls {
                 if connection.owner != owner {
                     return Err("Only the device that started this call can resume it.".into());
                 }
-                if connection
-                    .deadline
-                    .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+                if matches!(call.hold, Hold::Dropped { deadline, .. } if tokio::time::Instant::now() >= deadline)
                 {
                     call.state(VoiceState::Ended, Some(VoiceEndReason::Client));
                     return Ok(None);
@@ -323,27 +319,17 @@ impl Calls {
                 }
                 connection.replaced.cancel();
             }
-            let resumed = call
-                .connection
-                .as_ref()
-                .is_some_and(|c| c.dropped || c.disconnected.is_cancelled());
-            let held = call
-                .connection
-                .as_ref()
-                .map_or(call.state == VoiceState::Held, |c| {
-                    if c.dropped {
-                        c.was_held
-                    } else {
-                        call.state == VoiceState::Held
-                    }
-                });
+            let resumed = call.dropped()
+                || call
+                    .connection
+                    .as_ref()
+                    .is_some_and(|c| c.disconnected.is_cancelled());
+            call.reattach();
+            let held = call.hold != Hold::Off;
             call.connection = Some(Connection {
                 owner: owner.into(),
                 replaced: generation.clone(),
                 disconnected: disconnected.clone(),
-                dropped: false,
-                deadline: None,
-                was_held: held,
             });
             if resumed && !held {
                 call.state(call.resting(), None);
@@ -385,12 +371,6 @@ impl Calls {
                     if generation.is_cancelled() {
                         return Ok(());
                     }
-                    if let Some(connection) = &mut call.connection {
-                        connection.dropped = true;
-                        connection.deadline =
-                            Some(tokio::time::Instant::now() + std::time::Duration::from_secs(20));
-                        connection.was_held = call.state == VoiceState::Held;
-                    }
                     call.input = None;
                     call.speech.cancel();
                     call.deliveries.cancel();
@@ -398,7 +378,9 @@ impl Calls {
                     call.cut_speech(None);
 
                     call.stop_streams(true);
-                    call.state(VoiceState::Held, None);
+                    call.drop_transport(
+                        tokio::time::Instant::now() + std::time::Duration::from_secs(20),
+                    );
                     Ok(())
                 });
             }
@@ -479,10 +461,8 @@ impl Calls {
                 call.deliveries.cancel();
                 call.deliveries = CancellationToken::new();
                 call.stop_streams(true);
-                call.state(VoiceState::Held, None);
-            } else if call.state == VoiceState::Held {
-                call.state(call.resting(), None);
             }
+            call.hold_by_person(hold);
             Ok(())
         })
     }
@@ -502,6 +482,7 @@ impl Calls {
             call.interrupted_through = call.seq;
             call.stop_streams(true);
             call.answering = None;
+            call.caller_speaking = false;
             if call.state != VoiceState::Held {
                 call.state(call.resting(), None);
             }

@@ -89,10 +89,10 @@ async fn a_millisecond_passes() {
     until("the clock moves on", || now_ms() > before).await;
 }
 
-/// A handoff is read along: the person cannot type into it, live or
-/// archived, and cannot bring it back; the desk says who to talk to.
+/// The person talks in a handoff, ends it with End thread, and brings it back.
+/// What ending it does to the handoff is `exchanges/tests/loop_in.rs`'s.
 #[tokio::test]
-async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
+async fn a_handed_over_thread_takes_the_persons_words_and_their_end_and_continues() {
     let agents = Fake::new(Scripted::new(vec![say("m1", "On it."), turn()]));
     let room = room("side-handed-over", agents.clone());
     let (live, launch) = room
@@ -109,27 +109,50 @@ async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
                 fresh: true,
                 saved: None,
                 handoff: None,
+                asked: None,
             },
         )
         .unwrap();
     room.launch(launch);
-    let refused = room
-        .prompt_side(&live.id, "do it my way", None)
+    room.prompt_side(&live.id, "do it my way", None)
         .await
-        .unwrap_err();
-    assert!(
-        refused.starts_with("Mack handed this thread over"),
-        "{refused}"
-    );
-    assert!(
-        !kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()),
-        "a refused line is never written"
-    );
+        .unwrap();
+    assert!(kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()));
 
     room.archive_side(&live.id, SideEnd::Person, None).unwrap();
-    let refused = room.continue_side(&live.id).await.unwrap_err();
-    assert!(refused.contains("Talk to Mack about it"), "{refused}");
-    assert!(room.prompt_side(&live.id, "and now?", None).await.is_err());
+    assert_eq!(
+        room.link_of(&ThreadId::side(&live.id)).unwrap().state,
+        ThreadState::Closed(End::Person),
+        "the person's End thread closes it"
+    );
+    let back = room.continue_side(&live.id).await.unwrap();
+    assert_eq!(back.status, SideStatus::Live);
+    assert!(room.sides.get(&live.id).is_some());
+}
+
+/// What the teammate is told in a thread it was handed: the person can talk
+/// to it there, and only the reply that ends a turn of the handoff goes to
+/// whoever handed it over.
+#[test]
+fn a_handed_over_threads_brief_says_the_persons_words_stay_in_it() {
+    let mut mack = persona("mack");
+    mack.name = "Mack".to_string();
+    let brief = work_preamble(
+        &persona("ada"),
+        None,
+        &[],
+        OpenedBy::Handoff(&mack),
+        None,
+        None,
+    );
+    assert!(
+        brief.contains("The person can read this thread and talk in it at any time"),
+        "{brief}"
+    );
+    assert!(
+        brief.contains("what you answer them stays here and does not go to Mack"),
+        "{brief}"
+    );
 }
 
 #[tokio::test]
@@ -139,8 +162,8 @@ async fn a_side_thread_opened_empty_waits_and_is_named_by_the_first_line() {
     let summary = room.start_side("ada", "  ").await.unwrap();
     assert_eq!(summary.title, "");
     assert_eq!(summary.status, SideStatus::Live);
-    // Its agent is still being brought up, which is a thread at work.
-    assert!(summary.working);
+    // Its agent is still being brought up with nothing to say: no turn runs.
+    assert!(!summary.working);
     assert_eq!(kinds(&side_stream(&room, &summary.side_id)), ["side"]);
     settled(&room, &summary.side_id).await;
     assert!(!room.sides("ada")[0].working);
@@ -165,6 +188,33 @@ async fn a_side_thread_opened_empty_waits_and_is_named_by_the_first_line() {
         .unwrap();
     assert_eq!(said["text"], "Also the README");
     assert_eq!(said["replyTo"], "m1");
+}
+
+/// A thread brought back with nothing to say holds its queue while its agent
+/// starts, and runs no turn: the roster and the lists say it is not working
+/// until a line is said in it.
+#[tokio::test]
+async fn a_thread_brought_back_runs_no_turn_until_a_line_is_said() {
+    let starts = Arc::new(Semaphore::new(1));
+    let agents =
+        Fake::new(Scripted::new(vec![say("m1", "Done."), turn()]).slow_to_start(starts.clone()));
+    let room = room("side-continued-starting", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    settled(&room, &id).await;
+    room.archive_side(&id, SideEnd::Person, None).unwrap();
+
+    let back = room.continue_side(&id).await.unwrap();
+    assert!(!back.working, "its agent is only starting");
+    assert!(!room.sides("ada")[0].working);
+    assert!(room.side_threads("ada").iter().all(|side| !side.working));
+    assert!(room.sides.get(&id).unwrap().working(), "it holds its queue");
+
+    room.prompt_side(&id, "One more thing", None).await.unwrap();
+    assert!(room.sides("ada")[0].working, "a line waits for the start");
+    starts.add_permits(1);
+    until("the line is answered", || agents.prompts().len() == 2).await;
+    settled(&room, &id).await;
+    assert!(!room.sides("ada")[0].working);
 }
 
 #[tokio::test]
@@ -537,11 +587,38 @@ async fn a_chapter_changing_in_the_main_conversation_leaves_a_side_thread_alone(
     let agents = Fake::new(Scripted::new(vec![turn()]));
     let room = room("side-chapter", agents);
     let summary = room.start_side("ada", "Task").await.unwrap();
-    room.stop_session("ada");
+    room.stop_with_capability("ada");
     assert_eq!(room.sides("ada").len(), 1);
     room.prompt_side(&summary.side_id, "still here?", None)
         .await
         .unwrap();
+}
+
+/// A live mark decided on before a thread ended (a turn's end, the thread's
+/// name, a delegation that ended) lands before the end or not at all, so a
+/// thread that was parked or archived is never written back as live.
+#[tokio::test]
+async fn a_live_mark_that_comes_after_a_thread_ended_leaves_it_ended() {
+    let agents = Fake::new(Scripted::new(vec![turn()]));
+    let room = room("side-mark-after-end", agents);
+    for ending in [Ending::Park, Ending::Close(End::Agent, None)] {
+        let summary = room.start_side("ada", "Task").await.unwrap();
+        settled(&room, &summary.side_id).await;
+        let side = room.sides.get(&summary.side_id).unwrap();
+        room.end_side(&side, ending);
+        let ended = room
+            .link_of(&ThreadId::side(&summary.side_id))
+            .unwrap()
+            .state;
+
+        room.mark_side(&side, ThreadState::Live, None);
+        assert_eq!(
+            room.link_of(&ThreadId::side(&summary.side_id))
+                .unwrap()
+                .state,
+            ended
+        );
+    }
 }
 
 #[tokio::test]
@@ -591,6 +668,31 @@ async fn the_person_parks_a_live_thread_and_only_an_open_one() {
         "an archived one is not open"
     );
     assert!(room.park_side_thread("ghost").is_err());
+}
+
+/// Parking lets go of the agent, which would cut a turn in flight: a thread
+/// whose turn is working is refused the park and left live and working, for
+/// the person to stop it or wait for its turn first.
+#[tokio::test]
+async fn the_person_cannot_park_a_thread_mid_turn() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(Scripted::new(vec![say("m1", "Working."), turn()]).gated(gate.clone()));
+    let room = room("side-park-working", agents);
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the side thread's turn is in flight", || {
+        room.sides.get(&id).is_some_and(|side| side.working())
+    })
+    .await;
+
+    let refused = room.park_side_thread(&id).unwrap_err();
+    assert_eq!(
+        refused,
+        "That thread is working; stop or wait for its turn first."
+    );
+    let side = room.sides.get(&id).expect("the thread is still live");
+    assert!(side.working(), "its turn is left running");
+
+    gate.add_permits(100);
 }
 
 #[tokio::test]
@@ -806,6 +908,37 @@ async fn a_closing_note_is_written_on_archive_and_found_by_search() {
     let hits = crate::store::search::search(room.log.root(), "ada", "winch", Some(5)).unwrap();
     let text = serde_json::to_string(&hits).unwrap();
     assert!(text.contains(&format!("side:{id}")), "{text}");
+}
+
+/// A work thread's closing note is a chapter's note asked for its outcome in
+/// the teammate's own voice ("Wrote…", "I wrote…"), never "the teammate":
+/// the teammate's index quotes that outcome back to it as its own work.
+#[tokio::test]
+async fn a_work_threads_closing_note_is_asked_in_the_teammates_own_voice() {
+    let agents = Fake::answering(
+        Scripted::new(vec![say("m1", "Wrote release-plan.md."), turn()]),
+        crate::session::tests::note_json("Release plan"),
+    );
+    let room = room("side-note-voice", agents.clone());
+    let summary = room.start_side("ada", "Write the plan").await.unwrap();
+    settled(&room, &summary.side_id).await;
+    room.archive_side(&summary.side_id, SideEnd::Person, None)
+        .unwrap();
+    until("the tape's marker has its note", || {
+        tape(&room)[0].get("note").is_some()
+    })
+    .await;
+    let asked = lock(&agents.summarised).clone();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(
+        asked[0].starts_with(crate::session::chapters::INSTRUCTIONS),
+        "{}",
+        asked[0]
+    );
+    let voice = crate::session::chapters::OWN_VOICE;
+    assert!(asked[0].ends_with(voice), "{}", asked[0]);
+    assert!(voice.contains("own voice"), "{voice}");
+    assert!(voice.contains("Never write \"the teammate\""), "{voice}");
 }
 
 fn listed_title(room: &Room) -> String {
@@ -1065,4 +1198,510 @@ async fn cancelling_stops_the_turn_and_keeps_the_thread() {
             .iter()
             .any(|event| event["stopReason"] == "aborted")
     );
+}
+
+// The work thread's lifecycle is one fact, however many readers ask for it.
+
+/// A test's hold on a named point of a transition: the room stops there, on
+/// whichever thread reaches it, until the test lets it go.
+struct Held {
+    entered: std::sync::mpsc::Receiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+impl Held {
+    fn entered(&self) {
+        self.entered
+            .recv_timeout(crate::test_support::PATIENCE)
+            .expect("the room never reached the point");
+    }
+
+    fn release(&self) {
+        let _ = self.release.send(());
+    }
+}
+
+fn hold(room: &Room, point: &'static str) -> Held {
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let once = std::sync::atomic::AtomicBool::new(false);
+    *lock(&room.sides.hook) = Some(Arc::new(move |at| {
+        if at == point && !once.swap(true, Ordering::SeqCst) {
+            let _ = entered_tx.send(());
+            let _ = lock(&release_rx).recv_timeout(crate::test_support::PATIENCE);
+        }
+    }));
+    Held { entered, release }
+}
+
+/// Ends a thread on a thread of its own, so the test can stand inside the end.
+fn end_apart(room: &Arc<Room>, side: Arc<LiveSide>, ending: Ending) -> std::thread::JoinHandle<()> {
+    let handle = tokio::runtime::Handle::current();
+    let room = room.clone();
+    std::thread::spawn(move || {
+        let _in_the_runtime = handle.enter();
+        room.end_side(&side, ending);
+    })
+}
+
+fn poll_once<F: std::future::Future>(future: std::pin::Pin<&mut F>) -> std::task::Poll<F::Output> {
+    future.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+}
+
+async fn two_turns(name: &str) -> (Arc<Room>, Arc<Fake>, String) {
+    let agents = Fake::new(Scripted::turns(vec![
+        vec![say("m1", "One."), turn()],
+        vec![say("m2", "Two."), turn()],
+    ]));
+    let room = room(name, agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    settled(&room, &id).await;
+    (room, agents, id)
+}
+
+/// A line said while a thread is let go of finds the thread parked, not a link
+/// that says live with nothing behind it: it waits for the end and wakes the
+/// thread, and is never refused as "not live".
+#[tokio::test]
+async fn a_line_said_while_a_thread_is_being_parked_waits_for_it_and_wakes_it() {
+    let (room, agents, id) = two_turns("side-park-window").await;
+    let side = room.sides.get(&id).unwrap();
+    let held = hold(&room, "ending");
+    let ending = end_apart(&room, side, Ending::Park);
+    held.entered();
+
+    let mut prompt = Box::pin(room.prompt_side(&id, "Now two", None));
+    assert!(
+        poll_once(prompt.as_mut()).is_pending(),
+        "the line waits for the thread to finish parking"
+    );
+    held.release();
+    prompt.await.expect("a line is never refused as not live");
+    ending.join().unwrap();
+    settled(&room, &id).await;
+    assert!(agents.prompts().iter().any(|text| text.contains("Now two")));
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+}
+
+/// A line that reaches a thread already decided on for parking, from a caller
+/// that looked it up before, reopens the thread and is heard.
+#[tokio::test]
+async fn a_line_that_reaches_a_thread_as_it_parks_reopens_it_and_is_heard() {
+    let (room, agents, id) = two_turns("side-park-late").await;
+    let side = room.sides.get(&id).unwrap();
+    let held = hold(&room, "ending");
+    let ending = end_apart(&room, side.clone(), Ending::Park);
+    held.entered();
+
+    room.say_in_side(&side, "a late line", None, None);
+    held.release();
+    ending.join().unwrap();
+    until("the late line is heard by an agent again", || {
+        agents
+            .prompts()
+            .iter()
+            .any(|text| text.contains("a late line"))
+    })
+    .await;
+    assert!(
+        room.sides
+            .get(&id)
+            .is_some_and(|side| !side.closed.is_set())
+    );
+}
+
+/// The idle sweep looked at the thread, found it quiet, and a line landed
+/// before it acted: the thread is left alone.
+#[tokio::test]
+async fn the_sweep_leaves_a_thread_a_line_landed_in_after_it_looked() {
+    let (room, _agents, id) = two_turns("side-sweep-race").await;
+    let side = room.sides.get(&id).unwrap();
+    let landing = side.clone();
+    *lock(&room.sides.hook) = Some(Arc::new(move |at| {
+        if at == "swept" {
+            lock(&landing.turns).running = true;
+        }
+    }));
+    room.sweep_threads(now_ms() + SIDE_IDLE_MS + 60_000);
+    assert!(room.sides.get(&id).is_some(), "still live");
+    assert!(!side.closed.is_set(), "its authority is not revoked");
+    assert!(side.capability.check().is_ok());
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+}
+
+/// A place is made for a new thread by parking the idlest one; when a line
+/// lands in it first, that one is left alone and the next idlest is parked.
+#[tokio::test]
+async fn a_thread_a_line_landed_in_is_not_the_one_let_go_of_for_a_new_one() {
+    let agents = Fake::new(Scripted::new(vec![turn()]));
+    let room = room("side-evict-race", agents);
+    let mut ids = Vec::new();
+    for task in ["One", "Two", "Three"] {
+        let id = room.start_side("ada", task).await.unwrap().side_id;
+        settled(&room, &id).await;
+        a_millisecond_passes().await;
+        ids.push(id);
+    }
+    let first = room.sides.get(&ids[0]).unwrap();
+    let landing = first.clone();
+    *lock(&room.sides.hook) = Some(Arc::new(move |at| {
+        if at == "evict" {
+            lock(&landing.turns).running = true;
+        }
+    }));
+    let four = room.start_side("ada", "Four").await.unwrap().side_id;
+    assert!(room.sides.get(&ids[0]).is_some(), "the busy one stays");
+    assert!(!first.closed.is_set());
+    assert_eq!(
+        room.link_of(&ThreadId::side(&ids[0])).unwrap().state,
+        ThreadState::Live
+    );
+    assert!(
+        room.sides.get(&ids[1]).is_none(),
+        "the next idlest is parked"
+    );
+    assert_eq!(
+        room.link_of(&ThreadId::side(&ids[1])).unwrap().state,
+        ThreadState::Parked
+    );
+    assert!(room.sides.get(&four).is_some());
+}
+
+/// Continuing an archived thread whose agent will not start leaves it
+/// archived, with what it ended with, not parked for the next line to wake.
+#[tokio::test]
+async fn a_continue_that_cannot_start_leaves_the_thread_archived() {
+    let (room, agents, id) = two_turns("side-continue-fails").await;
+    room.archive_side(&id, SideEnd::Person, Some("Done.".into()))
+        .unwrap();
+    let archived = room.link_of(&ThreadId::side(&id)).unwrap();
+    agents.fail_starts("the harness is gone");
+    room.continue_side(&id).await.unwrap();
+    until("the failed start is put away", || {
+        room.sides.get(&id).is_none()
+    })
+    .await;
+    let now = room.link_of(&ThreadId::side(&id)).unwrap();
+    assert_eq!(now.state, ThreadState::Closed(End::Person));
+    assert_eq!(now.outcome, archived.outcome);
+    assert!(!room.work_is_open(&id));
+    assert!(
+        room.prompt_side(&id, "again", None)
+            .await
+            .unwrap_err()
+            .contains("Continue")
+    );
+}
+
+/// Archiving a thread from a link read before it woke does not close the
+/// thread that is live now.
+#[tokio::test]
+async fn archiving_from_a_stale_parked_read_leaves_a_woken_thread_live() {
+    let (room, _agents, id) = two_turns("side-stale-archive").await;
+    room.park_side_thread(&id).unwrap();
+    let stale = room.link_of(&ThreadId::side(&id)).unwrap();
+    assert_eq!(stale.state, ThreadState::Parked);
+    room.prompt_side(&id, "Now two", None).await.unwrap();
+    settled(&room, &id).await;
+
+    let _ = room.archive_parked(stale, End::Person, None);
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+    assert!(
+        room.sides
+            .get(&id)
+            .is_some_and(|side| !side.closed.is_set())
+    );
+}
+
+/// The thread's own stream is the truth, and the tape's copy follows it. A
+/// restart after a crash between the two settles the tape to the stream, so a
+/// thread that was archived is not parked by a tape copy that still said live.
+#[tokio::test]
+async fn startup_settles_a_tape_copy_that_lags_its_threads_own_stream() {
+    let (room, _agents, id) = two_turns("side-settle-lag").await;
+    let tape_id = StreamId::Tape("ada".to_string());
+    let live_copy = room.log.load(&tape_id).last().cloned().unwrap();
+    room.archive_side(&id, SideEnd::Person, None).unwrap();
+    room.log.append(&tape_id, &live_copy).unwrap();
+
+    room.settle();
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Closed(End::Person),
+        "archived stays archived"
+    );
+    let last = room
+        .log
+        .load(&tape_id)
+        .into_iter()
+        .rev()
+        .find_map(|e| Link::read(&e));
+    assert_eq!(last.unwrap().state, ThreadState::Closed(End::Person));
+}
+
+/// A crash that left the stream live under a tape that says parked (the order
+/// links were once written in) is repaired at startup, not left live forever
+/// with nothing behind it.
+#[tokio::test]
+async fn startup_repairs_a_stream_left_live_under_a_tape_that_says_parked() {
+    let (room, _agents, id) = two_turns("side-settle-stream-live").await;
+    let live = room.link_of(&ThreadId::side(&id)).unwrap();
+    room.park_side_thread(&id).unwrap();
+    room.log
+        .append(&StreamId::Side(id.clone()), &live.event())
+        .unwrap();
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Live
+    );
+
+    room.settle();
+    assert_eq!(
+        room.link_of(&ThreadId::side(&id)).unwrap().state,
+        ThreadState::Parked
+    );
+}
+
+/// A change to a link is made to the link as it is when it is written: a
+/// thread that woke after the change was decided on keeps what it woke to.
+#[tokio::test]
+async fn a_link_change_is_made_to_the_link_as_it_stands_when_written() {
+    let (room, _agents, id) = two_turns("side-amend").await;
+    let thread = ThreadId::side(&id);
+    room.park_side_thread(&id).unwrap();
+    room.prompt_side(&id, "Now two", None).await.unwrap();
+    settled(&room, &id).await;
+
+    let wrote = room.amend_link(&thread, |fresh| {
+        assert_eq!(fresh.state, ThreadState::Live, "read under the lock");
+        Some(Link {
+            handoff_ended: true,
+            ..fresh
+        })
+    });
+    assert!(wrote);
+    let link = room.link_of(&thread).unwrap();
+    assert_eq!(link.state, ThreadState::Live);
+    assert!(link.handoff_ended);
+    assert!(!room.amend_link(&thread, |_| None), "nothing to change");
+}
+
+// A line said into a work thread's turn in flight joins it, as in the main
+// conversation, when the agent takes input mid-turn.
+
+/// The person's line said while a thread's turn runs goes into that turn:
+/// the agent hears it at once, the turn is neither cut nor run again, and
+/// nothing says it waits.
+#[tokio::test]
+async fn a_persons_line_said_mid_turn_joins_the_turn_in_flight() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::new(vec![
+            say("m1", "Step 3 of 5."),
+            say("m2", "Done, in 4."),
+            turn(),
+        ])
+        .gated(gate.clone())
+        .consuming(),
+    );
+    let room = room("side-steer-joins", agents.clone());
+    let id = room
+        .start_side("ada", "Do it in 5 steps")
+        .await
+        .unwrap()
+        .side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "Make it 4 steps in all", None)
+        .await
+        .unwrap();
+    assert_eq!(agents.steered(), ["Make it 4 steps in all"]);
+    gate.add_permits(10);
+    settled(&room, &id).await;
+    assert_eq!(agents.prompts(), ["Do it in 5 steps"], "no second turn");
+    assert_eq!(agents.cancel_count(), 0, "the turn was not cut");
+    assert!(
+        side_stream(&room, &id)
+            .iter()
+            .all(|event| event["kind"] != "notice"),
+        "nothing says it waits"
+    );
+}
+
+/// An agent that cannot take a line mid-turn hears it when the turn ends,
+/// and the thread says so as it is said.
+#[tokio::test]
+async fn a_persons_line_waits_and_says_so_when_the_agent_cannot_take_it_mid_turn() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            vec![say("m1", "First."), turn()],
+            vec![say("m2", "Second."), turn()],
+        ])
+        .gated(gate.clone()),
+    );
+    let room = room("side-steer-waits", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "And another thing", None)
+        .await
+        .unwrap();
+    let notices: Vec<String> = side_stream(&room, &id)
+        .iter()
+        .filter(|event| event["kind"] == "notice")
+        .filter_map(|event| event["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(
+        notices[0].contains("waits for the turn in flight to end"),
+        "{notices:?}"
+    );
+    gate.add_permits(10);
+    until("the line gets its own turn", || agents.prompts().len() == 2).await;
+    assert_eq!(agents.prompts()[1], "And another thing");
+}
+
+/// A line the agent took into a turn but never used goes back first, as it
+/// was said, and is the next turn.
+#[tokio::test]
+async fn a_steered_line_the_agent_never_used_is_the_next_turn() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![
+            vec![say("m1", "First."), turn()],
+            vec![say("m2", "Second."), turn()],
+        ])
+        .gated(gate.clone())
+        .steerable(),
+    );
+    let room = room("side-steer-unused", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "Use the other file", None)
+        .await
+        .unwrap();
+    assert_eq!(agents.steered(), ["Use the other file"]);
+    gate.add_permits(10);
+    until("the unused line runs next", || agents.prompts().len() == 2).await;
+    assert_eq!(agents.prompts()[1], "Use the other file");
+}
+
+/// What a stop kept in `pending.json` for the next start.
+fn kept_for_next_start(room: &Room) -> Vec<Value> {
+    std::fs::read(room.log.root().join(crate::session::stopping::PENDING_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// The next desk on the same data.
+fn reopened(root: std::path::PathBuf, agents: Arc<Fake>) -> Arc<Room> {
+    Room::with_agents_and_computers(
+        crate::log::Log::open(root),
+        Arc::new(crate::session::tests::DeskKeys),
+        agents,
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    )
+}
+
+/// The person's line waiting behind a thread's turn when the desk restarts
+/// is kept, and the next desk hands it to that thread once: not the line
+/// the cut turn was running, and not twice.
+#[tokio::test]
+async fn a_persons_line_waiting_in_a_thread_is_handed_to_it_once_after_a_restart() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents =
+        Fake::new(Scripted::turns(vec![vec![say("m1", "First."), turn()]]).gated(gate.clone()));
+    let room = room("side-restart-keeps", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "And another thing", None)
+        .await
+        .unwrap();
+
+    let stopped = room.stop_for_restart(Duration::ZERO).await;
+    let kept = kept_for_next_start(&room);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(
+        kept[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("And another thing"),
+        "{kept:?}"
+    );
+    assert_eq!(kept[0]["thread"], id.as_str());
+    let root = room.log.root().to_path_buf();
+    drop(room);
+
+    let next_agents = Fake::new(Scripted::new(vec![say("m2", "Done."), turn()]));
+    let next = reopened(root.clone(), next_agents.clone());
+    until("the kept line is heard in its thread", || {
+        next_agents
+            .prompts()
+            .iter()
+            .any(|prompt| prompt.contains("And another thing"))
+    })
+    .await;
+    until("pending.json is spent", || {
+        !root.join(crate::session::stopping::PENDING_FILE).exists()
+    })
+    .await;
+    settled(&next, &id).await;
+    assert_eq!(
+        next_agents.prompts().len(),
+        1,
+        "{:?}",
+        next_agents.prompts()
+    );
+    assert!(
+        !next_agents.prompts()[0].contains("Task"),
+        "the cut line is not run again"
+    );
+    let said: Vec<Value> = side_stream(&next, &id)
+        .into_iter()
+        .filter(|event| event["kind"] == "user" && event["text"] == "And another thing")
+        .collect();
+    assert_eq!(said.len(), 1, "written once: {said:?}");
+    drop(stopped);
+}
+
+/// A line the agent took into the turn a restart cuts, and never used, is
+/// kept for the next start rather than dropped with the cut.
+#[tokio::test]
+async fn a_line_steered_into_a_thread_turn_the_restart_cuts_is_kept() {
+    let gate = Arc::new(Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::turns(vec![vec![say("m1", "First."), turn()]])
+            .gated(gate.clone())
+            .steerable(),
+    );
+    let room = room("side-restart-steered", agents.clone());
+    let id = room.start_side("ada", "Task").await.unwrap().side_id;
+    until("the turn is running", || agents.prompts().len() == 1).await;
+    room.prompt_side(&id, "Use the other file", None)
+        .await
+        .unwrap();
+    assert_eq!(agents.steered(), ["Use the other file"]);
+
+    let stopped = room.stop_for_restart(Duration::ZERO).await;
+    let kept = kept_for_next_start(&room);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(
+        kept[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Use the other file"),
+        "{kept:?}"
+    );
+    assert_eq!(kept[0]["thread"], id.as_str());
+    drop(stopped);
 }

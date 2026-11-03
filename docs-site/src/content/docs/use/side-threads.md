@@ -27,7 +27,7 @@ the main conversation has one line for it with **Open**.
 A side thread lasts as long as the topic does:
 
 - **The teammate never closes it by itself.** It is archived when you tell
-  the teammate you are done, or press **Archive** in the thread.
+  the teammate you are done, or press **End thread** in the thread.
 - **A quiet thread is parked.** After three quiet hours, or a restart, no
   agent is running for it, but it stays in the list. Saying something in it
   picks it back up where it left off.

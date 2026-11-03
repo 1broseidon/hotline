@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useCommitOnLeave } from "../../commitOnLeave";
 import { openLink } from "../../native";
 import type { CapabilityOptions, CatalogModel, Credential, Provider } from "../../generated/contract";
 import { ChevronRightIcon, PlusIcon } from "../../icons";
@@ -259,6 +260,7 @@ function AccountName({
 			setDraft(credential.label);
 		});
 	};
+	useCommitOnLeave(save);
 	return (
 		<label className="flex items-center gap-3 text-sm">
 			<span className="w-24 shrink-0 text-ink-2">Name</span>

@@ -63,7 +63,8 @@ pub enum RealtimeEvent {
     /// playback and report how much of it was heard with
     /// [`RealtimeInput::truncate`].
     SpeechStarted,
-    /// What the person said in one turn, as the model heard it.
+    /// What the person said in one turn, as the model heard it. Empty when
+    /// the turn held no words, which still ends it.
     Heard(String),
     /// The next piece of what the model is saying.
     Saying(String),

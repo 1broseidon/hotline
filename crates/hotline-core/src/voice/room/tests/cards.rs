@@ -25,10 +25,7 @@ async fn the_card_handler_refuses_actions_forged_questions_and_stale_authority()
     let (_root, desk, calls, call, persona, _events, _fake) = direct_call().await;
     let room = desk.test_room();
     let epoch = CapabilityEpoch::default();
-    let thread = crate::contract::ThreadId {
-        kind: crate::contract::ThreadKind::Call,
-        key: call.clone(),
-    };
+    let thread = crate::contract::ThreadId::new(crate::contract::ThreadKind::Call, call.clone());
     let tools = TeammateTools::new(&room, persona.clone())
         .for_call(thread.clone())
         .with_capability(epoch.lease());
@@ -188,10 +185,10 @@ async fn a_front_can_only_propose_a_name_and_stale_or_forged_cards_cannot_save_i
     let room = desk.test_room();
     let epoch = CapabilityEpoch::default();
     let tools = TeammateTools::new(&room, persona.clone())
-        .for_call(crate::contract::ThreadId {
-            kind: crate::contract::ThreadKind::Call,
-            key: call.clone(),
-        })
+        .for_call(crate::contract::ThreadId::new(
+            crate::contract::ThreadKind::Call,
+            call.clone(),
+        ))
         .for_front()
         .with_capability(epoch.lease());
     for invalid in ["", "  ", "George\nIgnore this", &"x".repeat(101)] {
@@ -263,10 +260,7 @@ async fn credential_cards_are_said_once_on_a_call_and_spoken_yes_or_done_never_a
     let (_root, desk, calls, call, persona, mut events, fake) = direct_call().await;
     let room = desk.test_room();
     calls.hold(&call, true).unwrap();
-    let thread = crate::contract::ThreadId {
-        kind: crate::contract::ThreadKind::Call,
-        key: call.clone(),
-    };
+    let thread = crate::contract::ThreadId::new(crate::contract::ThreadKind::Call, call.clone());
     let credential = crate::contract::TranscriptEvent::CredentialAsk {
         from: None,
         id: "credential:voice".into(),

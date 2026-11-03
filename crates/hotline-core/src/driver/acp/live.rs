@@ -9,7 +9,6 @@ pub(super) struct Live {
     pub(super) auth_succeeded: AtomicBool,
     pub(super) auth_methods: Mutex<Vec<acp::AuthMethod>>,
     pub(super) auth: Mutex<Option<Arc<crate::driver::auth::Attempt>>>,
-    pub(super) startup_failure: Mutex<Option<String>>,
     pub(super) terminal_done: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(super) connection: Mutex<Option<ConnectionTo<Agent>>>,
     pub(super) connection_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -37,6 +36,13 @@ pub(super) struct Live {
     /// The subagent sessions the agent has announced and not yet ended, by
     /// their session id, each with its own open message and tool calls.
     pub(super) children: Mutex<HashMap<String, Arc<Scribe>>>,
+    /// The commands the agent sent to the background and that have not yet
+    /// ended, by their tool call id: each is reported as a run until its
+    /// terminal closes (see [`Live::backgrounded`]).
+    tasks: Mutex<std::collections::HashSet<String>>,
+    /// The last title each subagent was announced under, by its session:
+    /// one resumed later is announced again, often with no title.
+    titles: Mutex<HashMap<String, String>>,
     /// Permission requests waiting on a person, by the id their card carries.
     pub(super) pending: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
     /// `session/load` replays the whole history; nothing is written while it
@@ -46,7 +52,8 @@ pub(super) struct Live {
     /// Per-connection, so a restarted backend hears it again and a resumed one
     /// does not hear it twice in the same conversation.
     pub(super) briefed: AtomicBool,
-    pub(super) failed: AtomicBool,
+    /// Where this connection is in its life; see [`Lifecycle`].
+    pub(super) state: Mutex<Lifecycle>,
     pub(super) cancelled: AtomicBool,
     /// Whether the agent takes a line into a running turn. Offered at
     /// `initialize`, and withdrawn if the agent then refuses the method.
@@ -60,6 +67,46 @@ pub(super) struct Live {
     pub(super) unconsumed: Mutex<Vec<Line>>,
     pub(super) history: Mutex<Vec<String>>,
     pub(super) stderr: Mutex<VecDeque<String>>,
+}
+
+/// Where one connection to the child is in its life.
+///
+/// One state, moved only by the named methods on [`Live`], so no combination
+/// of flags can say a connection is both healthy and gone. Anything that is
+/// not `SessionOpen` and not mid-start is a state the next prompt restarts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) enum Lifecycle {
+    /// Nothing has been started.
+    #[default]
+    Unstarted,
+    /// The child exists and the handshake is running.
+    Spawning,
+    /// The agent answered `initialize`; no session is open yet.
+    Initialized,
+    /// A session is open: prompts go through.
+    SessionOpen,
+    /// The connection cannot take a prompt. `notice` is the sentence a person
+    /// reads when the start itself failed (a stalled start, a sign-in the
+    /// agent wants); `None` is a failure found while running.
+    Failed { notice: Option<String> },
+}
+
+/// Clears the replay flag when dropped, so a `session/load` whose future is
+/// dropped (the start bound, a cancelled sign-in) cannot leave the connection
+/// deaf to everything the agent says afterwards.
+pub(super) struct Replay<'a>(&'a AtomicBool);
+
+impl<'a> Replay<'a> {
+    pub(super) fn begin(flag: &'a AtomicBool) -> Self {
+        flag.store(true, Ordering::SeqCst);
+        Self(flag)
+    }
+}
+
+impl Drop for Replay<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Work the agent took up without being prompted: which one, and when it
@@ -132,6 +179,68 @@ impl Live {
             id: message.id,
             text: message.text,
         })
+    }
+
+    /// The handshake has begun.
+    pub(super) fn spawning(&self) {
+        *lock(&self.state) = Lifecycle::Spawning;
+    }
+
+    /// The agent answered `initialize`. Only a handshake in progress moves on.
+    pub(super) fn initialized(&self) {
+        let mut state = lock(&self.state);
+        if *state == Lifecycle::Spawning {
+            *state = Lifecycle::Initialized;
+        }
+    }
+
+    /// A session is open and prompts may go through.
+    pub(super) fn session_opened(&self) {
+        *lock(&self.state) = Lifecycle::SessionOpen;
+    }
+
+    /// The connection cannot take a prompt. A sentence already given for the
+    /// failure stays; `notice` replaces it when there is one.
+    pub(super) fn fail(&self, notice: Option<String>) {
+        let mut state = lock(&self.state);
+        let kept = match &*state {
+            Lifecycle::Failed { notice } => notice.clone(),
+            _ => None,
+        };
+        *state = Lifecycle::Failed {
+            notice: notice.or(kept),
+        };
+    }
+
+    /// The sentence for a start that failed, when there is one.
+    pub(super) fn notice(&self) -> Option<String> {
+        match &*lock(&self.state) {
+            Lifecycle::Failed { notice } => notice.clone(),
+            _ => None,
+        }
+    }
+
+    pub(super) fn is_failed(&self) -> bool {
+        matches!(*lock(&self.state), Lifecycle::Failed { .. })
+    }
+
+    /// Whether the next prompt starts the agent again rather than sending: a
+    /// failure, or a connection that was made and never got a session.
+    pub(super) fn needs_restart(&self) -> bool {
+        matches!(
+            *lock(&self.state),
+            Lifecycle::Failed { .. } | Lifecycle::Initialized
+        )
+    }
+
+    /// Takes the update sink only if it is still `mine`: a prompt's task ends
+    /// after its `Turn` is sent, by when the next prompt may have installed its
+    /// own.
+    pub(super) fn release_updates(&self, mine: &mpsc::Sender<Update>) {
+        let mut updates = lock(&self.updates);
+        if updates.as_ref().is_some_and(|sink| sink.same_channel(mine)) {
+            updates.take();
+        }
     }
 
     pub(super) fn subscribe_unprompted(&self) -> mpsc::UnboundedReceiver<mpsc::Receiver<Update>> {
@@ -269,13 +378,48 @@ impl Live {
         }
     }
 
-    /// Ends every subagent still open, which is what a session that ended
-    /// or was replaced does to them: nobody will hear how they finished.
+    /// A command the agent ran whose result came while it goes on running:
+    /// Claude's adapter keeps the call's terminal open past its result, and
+    /// closes it with a `terminal_exit` when the command ends. It is reported
+    /// as a background run of its own until then. One already reported is
+    /// not started twice.
+    pub(super) fn backgrounded(&self, call_id: &str, title: &str) {
+        if lock(&self.tasks).insert(call_id.to_string()) {
+            self.report(SubagentReport::Started {
+                child: call_id.to_string(),
+                kind: crate::contract::RunKind::Shell,
+                title: title.to_string(),
+                task: title.to_string(),
+            });
+        }
+    }
+
+    /// The terminal of a command sent to the background closed: the command
+    /// ended, failed if it said a failing exit code. Whether `call_id` was
+    /// one, so its update is not taken for the call starting again.
+    pub(super) fn background_ended(&self, call_id: &str, exit_code: Option<i64>) -> bool {
+        if !lock(&self.tasks).remove(call_id) {
+            return false;
+        }
+        self.report(SubagentReport::Ended {
+            child: call_id.to_string(),
+            status: match exit_code {
+                Some(code) if code != 0 => SubagentStatus::Failed,
+                _ => SubagentStatus::Done,
+            },
+        });
+        true
+    }
+
+    /// Ends every subagent and background task still open, which is what a
+    /// session that ended or was replaced does to them: nobody will hear how
+    /// they finished.
     pub(super) fn forget_subagents(&self) {
-        let children: Vec<String> = lock(&self.children)
+        let mut children: Vec<String> = lock(&self.children)
             .drain()
             .map(|(child, _)| child)
             .collect();
+        children.extend(lock(&self.tasks).drain());
         for child in children {
             self.report(SubagentReport::Ended {
                 child,
@@ -288,7 +432,20 @@ impl Live {
     /// session it names says from now until it ends is the subagent's.
     pub(super) async fn subagent(&self, announced: Announced) {
         match announced {
-            Announced::Spawned { child, title, task } => {
+            Announced::Spawned {
+                child,
+                mut title,
+                task,
+            } => {
+                {
+                    let mut titles = lock(&self.titles);
+                    if title == "Subagent"
+                        && let Some(known) = titles.get(&child)
+                    {
+                        title.clone_from(known);
+                    }
+                    titles.insert(child.clone(), title.clone());
+                }
                 let fresh = {
                     let mut children = lock(&self.children);
                     let fresh = !children.contains_key(&child);
@@ -296,7 +453,12 @@ impl Live {
                     fresh
                 };
                 if fresh {
-                    self.report(SubagentReport::Started { child, title, task });
+                    self.report(SubagentReport::Started {
+                        child,
+                        kind: crate::contract::RunKind::Subagent,
+                        title,
+                        task,
+                    });
                 }
             }
             Announced::Ended { child, status } => {
@@ -305,6 +467,11 @@ impl Live {
                 };
                 Pen::child(self, &child, &scribe).flush().await;
                 self.report(SubagentReport::Ended { child, status });
+            }
+            Announced::Told { child, text } => {
+                if !text.trim().is_empty() && lock(&self.children).contains_key(&child) {
+                    self.report(SubagentReport::Told { child, text });
+                }
             }
         }
     }

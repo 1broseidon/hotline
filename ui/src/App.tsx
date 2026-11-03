@@ -287,6 +287,7 @@ export function App() {
         } else openDock({ open });
     }, [openDock, select, setDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
+	const openNoted = useCallback(() => openDock({ open: null, noted: true }), [openDock]);
 
 	/* A turn's work is read in one place, the right-hand pane: its caption
 	 * or the composer's activity row opens it there, and pressed again with
@@ -592,7 +593,12 @@ export function App() {
 				<div className="relative flex min-h-0 min-w-0 flex-1">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
-						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
+						<Settings
+							section={settingsSection}
+							onSection={setSettingsSection}
+							onAddDesk={() => togglePane("add-desk")}
+							team={roster.map((entry) => entry.persona)}
+						/>
 					</Suspense>
 				) : pane === "add-desk" ? (
 					<AddDesk onClose={closePane} />
@@ -631,6 +637,7 @@ export function App() {
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
+							onOpenNoted={openNoted}
 							onOpenWork={(blockId) => toggleWorkPane(selected.persona.id, blockId)}
 							workOpen={dock?.work?.personaId === selected.persona.id ? dock.work.blockId : undefined}
 							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}

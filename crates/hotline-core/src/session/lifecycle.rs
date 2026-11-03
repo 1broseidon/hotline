@@ -67,9 +67,9 @@ impl Room {
     }
 
     /// The idle policy of the kinds whose live threads the room holds in
-    /// memory. A thread with a turn running is left alone. A peer session that
-    /// has gone quiet is the same kind of fact as a chapter that has: nothing
-    /// to arm when a message lands and nothing to cancel when a teammate is
+    /// memory. A thread with a turn running is left alone. A thread that has
+    /// gone quiet is the same kind of fact as a chapter that has: nothing to
+    /// arm when a message lands and nothing to cancel when a teammate is
     /// deleted.
     pub(super) fn sweep_threads(&self, now: i64) {
         // Silence detaches the voice, never the agent doing its work.
@@ -84,22 +84,25 @@ impl Room {
             ThreadKind::Side,
             ThreadKind::Run,
             ThreadKind::Call,
-            ThreadKind::Pair,
             ThreadKind::Job,
         ] {
-            for quiet in self.quiet(kind) {
+            let quiets = self.quiet(kind);
+            self.sides.at("swept");
+            for quiet in quiets {
                 if quiet.working {
                     continue;
                 }
                 match Policy::of(kind).idle {
                     Idle::Park(after) if now - quiet.since >= after => {
-                        self.end_thread(&quiet.thread, Ending::Park);
+                        self.park_when_quiet(&quiet.thread, now - after);
                     }
                     Idle::Park(_) | Idle::Chapters | Idle::Never => {}
                 }
             }
         }
-        self.tidy_peers();
+        // A collaboration grant or card whose leases have gone has nobody
+        // behind it.
+        self.tidy_grants();
     }
 
     fn quiet(&self, kind: ThreadKind) -> Vec<Quiet> {
@@ -128,17 +131,8 @@ impl Room {
                 .collect(),
             // A call that nobody has spoken on for a while: the voice keeps the
             // time, and the room's clock reads it. A desk call is here too,
-            // with no thread behind it.
-            ThreadKind::Call => Vec::new(),
-            ThreadKind::Pair => self
-                .quiet_peers()
-                .into_iter()
-                .map(|(thread, since, working)| Quiet {
-                    thread,
-                    since,
-                    working,
-                })
-                .collect(),
+            // with no thread behind it. A pair's thread has no agent.
+            ThreadKind::Call | ThreadKind::Pair => Vec::new(),
             ThreadKind::Job => self
                 .idle_jobs()
                 .into_iter()
@@ -152,6 +146,22 @@ impl Room {
         }
     }
 
+    /// Lets go of a live thread's agent when nothing has been said in it since
+    /// `cutoff` and no turn runs: the look the sweep took is old by the time it
+    /// acts, so this looks again where it acts.
+    fn park_when_quiet(&self, thread: &ThreadId, cutoff: i64) {
+        match thread.kind {
+            ThreadKind::Side | ThreadKind::Call => {
+                if let Some(side) = self.sides.get(&thread.key) {
+                    self.park_if_idle(&side, Some(cutoff));
+                }
+            }
+            ThreadKind::Job | ThreadKind::Run | ThreadKind::Dm | ThreadKind::Pair => {
+                self.end_thread(thread, Ending::Park);
+            }
+        }
+    }
+
     /// Lets go of a live thread's agent, or closes it. A kind with no live
     /// handle in the room has nothing to end here.
     pub(super) fn end_thread(&self, thread: &ThreadId, ending: Ending) {
@@ -161,12 +171,9 @@ impl Room {
                     self.end_side(&side, ending);
                 }
             }
-            // A pair's agent is stopped; the thread is the stream, and the next
-            // exchange reads it again.
-            ThreadKind::Pair => self.park_peer(&thread.key),
             // A job's agent is let go of; the job goes on firing.
             ThreadKind::Job => self.park_job(&thread.key),
-            ThreadKind::Run | ThreadKind::Dm => {}
+            ThreadKind::Run | ThreadKind::Dm | ThreadKind::Pair => {}
         }
     }
 
@@ -281,7 +288,29 @@ impl Room {
                     .opener
                     .as_ref()
                     .is_some_and(|opener| opener.persona_id == owner);
-            if link.state != ThreadState::Live || (whose && !handed_over) {
+            if whose && !handed_over {
+                continue;
+            }
+            // The thread's own stream is where its state is, and a tape copy
+            // can lag it: the process died between the two writes. The copy
+            // is brought to the stream before anything else is decided.
+            let link = match self.link_of(&link.thread) {
+                Some(own) if own.state != link.state => {
+                    let lagging = Link {
+                        state: own.state,
+                        outcome: own.outcome,
+                        at: own.at,
+                        ..link
+                    };
+                    if lagging.state != ThreadState::Live {
+                        settled.push(lagging.event());
+                        continue;
+                    }
+                    lagging
+                }
+                _ => link,
+            };
+            if link.state != ThreadState::Live {
                 continue;
             }
             let state = match Policy::of(link.thread.kind).restart {
@@ -343,25 +372,60 @@ impl Room {
             .map_or_else(|| Link::fresh_id(thread), |link| link.id)
     }
 
-    /// Writes the link on the thread's parent, when its kind has one, and at
-    /// the head of its own stream, through the shared write path.
+    /// Writes the link at the head of the thread's own stream, which is where
+    /// the thread's state is, and then on the parent it hangs off, through
+    /// the shared write path. The stream goes first: a crash between the two
+    /// leaves a tape that lags the thread, which startup settles to the
+    /// stream ([`Room::settle_links`]), and never a thread that is live under
+    /// a tape that says it is not.
     pub(super) fn write_link(&self, link: &Link) {
+        let _writing = lock(&self.sides.links);
+        self.write_link_held(link);
+    }
+
+    /// Changes a thread's link as it stands now, not as it was read before:
+    /// `change` is given the link under the lock every link write takes and
+    /// answers the one to write, or none to leave it. Says whether one was
+    /// written.
+    pub(super) fn amend_link(
+        &self,
+        thread: &ThreadId,
+        change: impl FnOnce(Link) -> Option<Link>,
+    ) -> bool {
+        let _writing = lock(&self.sides.links);
+        match self.link_of(thread).and_then(change) {
+            Some(link) => {
+                self.write_link_held(&link);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn write_link_held(&self, link: &Link) {
         let Some(persona_id) = &link.persona_id else {
             return;
         };
         let event = link.event();
         let threads = self.threads();
+        threads.write(&link.thread, persona_id, &event);
         if Policy::of(link.thread.kind).surface.link {
             threads.write(&ThreadId::dm(persona_id), persona_id, &event);
+            // A thread opened to answer a colleague's question hangs off the
+            // pair's thread it was asked in too.
+            if let Some(key) = &link.asked_in {
+                let mut copy = event.clone();
+                copy["id"] = format!("{}@pair", link.id).into();
+                threads.write(&ThreadId::pair(key), persona_id, &copy);
+            }
             // A thread a colleague opened is on the colleague's tape too, under
             // an id of its own, so each DM shows how the work is going.
             if let Some(opener) = &link.opener {
-                let mut copy = event.clone();
+                let mut copy = event;
                 copy["id"] = format!("{}@{}", link.id, opener.persona_id).into();
                 threads.write(&ThreadId::dm(&opener.persona_id), &opener.persona_id, &copy);
             }
         }
-        threads.write(&link.thread, persona_id, &event);
     }
 
     // The closing note.
@@ -373,7 +437,8 @@ impl Room {
     ///
     /// The note is produced the way a chapter's is ([`Room::note`]): the same
     /// summariser over the thread's stream, so it reads goal, what got done,
-    /// what is still open and the key files. It replaces the link's title with
+    /// what is still open and the key files, with the outcome in the
+    /// teammate's own voice, since its index quotes it back as its own work. It replaces the link's title with
     /// the note's, and its outcome becomes the one-line outcome unless the
     /// teammate wrote one itself. A link that has moved on since — the thread
     /// was continued, or closed again — is left alone.
@@ -409,7 +474,7 @@ impl Room {
             if !slice.iter().any(crate::store::chapters::is_message) {
                 return;
             }
-            let Some(note) = room.note(&persona, &slice).await else {
+            let Some(note) = room.work_note(&persona, &slice).await else {
                 eprintln!("the {thread} was closed without a closing note: no model answered");
                 return;
             };
@@ -496,6 +561,7 @@ mod tests {
                 run_id: "r1".into(),
                 title: "Check the crane".into(),
                 started_at: 1,
+                kind: crate::contract::RunKind::Subagent,
             },
             true,
         );
@@ -557,6 +623,8 @@ mod tests {
             binding: None,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
+            asked_in: None,
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
             log.append(&tape, &link.event()).unwrap();
@@ -742,6 +810,8 @@ mod tests {
             binding: None,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
+            asked_in: None,
         };
         let tape = StreamId::Tape("ada".into());
         let stream = StreamId::of_thread(&call).unwrap();
@@ -805,6 +875,8 @@ mod tests {
                 persona_id: "ada".into(),
                 name: "Ada".into(),
             }),
+            handoff_ended: false,
+            asked_in: None,
         };
         let mut copy = live.event();
         copy["id"] = format!("{}@ada", live.id).into();

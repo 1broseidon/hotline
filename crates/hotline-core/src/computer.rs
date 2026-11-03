@@ -211,6 +211,14 @@ pub struct Computer {
 
 struct Inner {
     containers: HashMap<String, Live>,
+    /// One turn at a time per teammate's container: whoever makes, starts,
+    /// stops or removes it holds this teammate's lock, so two callers can
+    /// never both `create --name` it or `rm -f` what the other just made.
+    turns: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// Teammates whose container the runtime has been asked about since the
+    /// desk started, so a container a previous desk left behind is found once
+    /// (see [`Computer::adopt`]).
+    looked: HashSet<String>,
     /// The newest release the desk has heard of, and when to ask again.
     known: releases::Known,
     /// The runtime `status` last picked, for [`PICK_FOR_STATUS`].
@@ -239,6 +247,8 @@ impl Computer {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 containers: HashMap::new(),
+                turns: HashMap::new(),
+                looked: HashSet::new(),
                 known: releases::Known::default(),
                 picked: None,
             })),
@@ -258,6 +268,8 @@ impl Computer {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 containers: HashMap::new(),
+                turns: HashMap::new(),
+                looked: HashSet::new(),
                 known: releases::Known::default(),
                 picked: None,
             })),
@@ -387,7 +399,41 @@ impl Computer {
         Ok(())
     }
 
+    /// The lock for one teammate's container.
+    fn turn_of(&self, persona_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.lock()
+            .turns
+            .entry(persona_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Callers waiting on, or holding, a teammate's container lock.
+    #[cfg(all(test, unix))]
+    fn queued(&self, persona_id: &str) -> usize {
+        self.lock()
+            .turns
+            .get(persona_id)
+            .map_or(0, |turn| Arc::strong_count(turn) - 1)
+    }
+
+    /// Makes the teammate's computer and starts it, or finds it running.
+    /// Calls for one teammate go one at a time: the second sees what the
+    /// first made.
     pub async fn ensure_running(
+        &self,
+        persona: &Persona,
+        workspace_cwd: &str,
+        prefer: Option<Runtime>,
+        room_image: Option<&str>,
+        report: impl FnMut(PullReport),
+    ) -> Result<Ready, String> {
+        let _turn = self.turn_of(&persona.id).lock_owned().await;
+        self.ensure_running_held(persona, workspace_cwd, prefer, room_image, report)
+            .await
+    }
+
+    async fn ensure_running_held(
         &self,
         persona: &Persona,
         workspace_cwd: &str,
@@ -504,6 +550,7 @@ impl Computer {
     }
 
     pub async fn stop(&self, persona_id: &str, prefer: Option<Runtime>) -> Result<(), String> {
+        let _turn = self.turn_of(persona_id).lock_owned().await;
         let name = container_name(persona_id);
         let known = self.lock().containers.get(persona_id).cloned();
         if let Some(live) = known {
@@ -524,6 +571,7 @@ impl Computer {
     }
 
     pub async fn remove(&self, persona_id: &str, prefer: Option<Runtime>) -> Result<(), String> {
+        let _turn = self.turn_of(persona_id).lock_owned().await;
         let name = container_name(persona_id);
         let cmd = self
             .lock()
@@ -626,30 +674,108 @@ impl Computer {
         Ok(status)
     }
 
+    /// Finds the containers a previous desk left behind. A container is in no
+    /// map after a restart, so nothing would ever idle or hibernate it; each
+    /// teammate in `ids` is asked about once, and one that exists is taken
+    /// into the map with its idle clock starting at `now_ms`. A container
+    /// whose bearer cannot be read cannot be talked to: it is stopped, and
+    /// the next start of that teammate makes it again.
+    pub async fn adopt(&self, ids: &[String], prefer: Option<Runtime>, now_ms: i64) {
+        let todo: Vec<String> = {
+            let inner = self.lock();
+            ids.iter()
+                .filter(|id| !inner.containers.contains_key(*id) && !inner.looked.contains(*id))
+                .cloned()
+                .collect()
+        };
+        if todo.is_empty() {
+            return;
+        }
+        let Ok((runtime, cmd)) = pick_runtime(prefer, &self.bins).await else {
+            return;
+        };
+        for id in todo {
+            // A teammate being brought up is not left over from anything.
+            let Ok(_turn) = self.turn_of(&id).try_lock_owned() else {
+                continue;
+            };
+            if self.lock().containers.contains_key(&id) {
+                continue;
+            }
+            let name = container_name(&id);
+            let Ok(seen) = inspect(&cmd, runtime, &name).await else {
+                continue;
+            };
+            let unreachable = {
+                let mut inner = self.lock();
+                inner.looked.insert(id.clone());
+                match (seen.exists, seen.token) {
+                    (false, _) => false,
+                    (true, Some(token)) => {
+                        inner.containers.insert(
+                            id,
+                            Live {
+                                runtime,
+                                cmd: cmd.clone(),
+                                token,
+                                mcp_port: seen.mcp_port.unwrap_or(0),
+                                last_activity_ms: now_ms,
+                                release: seen.release,
+                            },
+                        );
+                        false
+                    }
+                    (true, None) => seen.running,
+                }
+            };
+            if unreachable {
+                let _ = run(&cmd, &["stop", &name], STOP_TIMEOUT).await;
+            }
+        }
+    }
+
     /// Stop containers idle longer than [`COMPUTER_IDLE_STOP_MS`]; remove
-    /// ones idle longer than [`COMPUTER_HIBERNATE_MS`]. Live sessions are
-    /// skipped: a teammate still talking is not idle.
-    pub async fn sweep(&self, now_ms: i64, live: &HashSet<String>) {
-        let ids: Vec<(String, i64, PathBuf, Runtime)> = self
-            .lock()
-            .containers
-            .iter()
-            .filter(|(id, _)| !live.contains(id.as_str()))
-            .map(|(id, live)| {
-                (
-                    id.clone(),
-                    live.last_activity_ms,
-                    live.cmd.clone(),
-                    live.runtime,
-                )
-            })
-            .collect();
+    /// ones idle longer than [`COMPUTER_HIBERNATE_MS`]. `in_use` are the
+    /// teammates still using theirs — a session running, or any thread
+    /// holding the gate's lease — and their idle clock starts over now: a
+    /// teammate still working is not idle. One being brought up is skipped.
+    pub async fn sweep(&self, now_ms: i64, in_use: &HashSet<String>) {
+        let ids: Vec<(String, i64, PathBuf, Runtime)> = {
+            let mut inner = self.lock();
+            for id in in_use {
+                if let Some(live) = inner.containers.get_mut(id) {
+                    live.last_activity_ms = now_ms;
+                }
+            }
+            inner
+                .containers
+                .iter()
+                .filter(|(id, _)| !in_use.contains(id.as_str()))
+                .map(|(id, live)| {
+                    (
+                        id.clone(),
+                        live.last_activity_ms,
+                        live.cmd.clone(),
+                        live.runtime,
+                    )
+                })
+                .collect()
+        };
         for (id, last, cmd, runtime) in ids {
             let idle = now_ms.saturating_sub(last);
             let name = container_name(&id);
+            let Ok(_turn) = self.turn_of(&id).try_lock_owned() else {
+                continue;
+            };
             if idle >= COMPUTER_HIBERNATE_MS {
-                let _ = run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await;
-                self.lock().containers.remove(&id);
+                // A container the runtime would not remove is still ours to
+                // try again at the next sweep.
+                if run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT)
+                    .await
+                    .is_ok()
+                {
+                    self.lock().containers.remove(&id);
+                }
             } else if idle >= COMPUTER_IDLE_STOP_MS
                 && let Ok(seen) = inspect(&cmd, runtime, &name).await
                 && seen.running
@@ -795,8 +921,10 @@ pub fn release_of(image: &str) -> String {
     }
 }
 
+/// `dunce` rather than `std::fs`: on Windows the latter returns a `\\?\`
+/// verbatim path, which `docker create -v` rejects as not a valid path.
 fn abs_cwd(cwd: &str) -> String {
-    std::fs::canonicalize(cwd).map_or_else(
+    dunce::canonicalize(cwd).map_or_else(
         |_| cwd.to_string(),
         |path| path.to_string_lossy().into_owned(),
     )

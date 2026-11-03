@@ -435,7 +435,7 @@ impl Calls {
             let room = self.live_room().ok_or("The desk has closed.")?;
             room.call_prompt(&target, &thread, &text).await?;
             return self.change(id, |call| {
-                call.answering = Some(seq);
+                call.begin_answer(seq);
                 Ok(())
             });
         }

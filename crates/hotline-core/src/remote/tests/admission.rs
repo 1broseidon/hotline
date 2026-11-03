@@ -320,12 +320,12 @@ async fn paired_devices_reconnect_through_a_proxy_while_anonymous_sockets_rotate
         drop(anonymous);
         drop(stalled);
         counts(&h, (0, 1)).await;
-        sealed_network::send_sealed(
-            &mut established,
-            &mut state,
-            json!({"id":1,"cmd":"backends.list"}),
-        )
-        .await;
+        // The established session still answers. `ping` answers from nothing,
+        // where `backends.list` would scan PATH, fetch the agent catalogue and
+        // start each installed agent to read its models, all on this test's
+        // one thread: work for the machine, not for the seat being proven.
+        sealed_network::send_sealed(&mut established, &mut state, json!({"id":1,"cmd":"ping"}))
+            .await;
         assert_eq!(
             sealed_network::read_sealed(&mut established, &mut state).await["ok"],
             true

@@ -1,4 +1,5 @@
 import type {
+	Aside,
 	BackendChoice,
 	CatalogModel,
 	ChapterSummary,
@@ -18,9 +19,12 @@ import type {
 	EffortChoices,
 	FileChunk,
 	GlobalSearchHit,
+	HarnessUpdate,
+	HarnessUpdates,
 	HostBrowser,
 	CapabilityOptions,
 	ImagesStatus,
+	InboundSource,
 	LinkPreview,
 	LoginPrompt,
 	LoginStatus,
@@ -178,6 +182,9 @@ type Results = {
 	"mcp.auth_sign_out": null;
 	"mcp.secret_set": null;
 	"backends.list": BackendChoice[];
+	"harness.updates": HarnessUpdates;
+	"harness.updates.check": HarnessUpdates;
+	"harness.update": HarnessUpdate;
 	"skills.list": SkillEntry[];
 	"skills.add": SkillEntry;
 	"skills.remove": null;
@@ -252,7 +259,6 @@ type Results = {
 	"side.answer_permission": null;
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
-	"peers.answer_permission": null;
 	/** What this core can do for the seat; declares `threads2` when it names it. */
 	"client.hello": { capabilities: string[] };
 	/** Every kind of thread as one list: live first, then parked, then closed. */
@@ -268,6 +274,17 @@ type Results = {
 	"thread.answer": null;
 	/** Older lines of any thread than its window, oldest first. */
 	"thread.page": { events: TranscriptEvent[]; more: boolean };
+	/** What a teammate's threads told it without telling the person, newest first. */
+	"aside.list": Aside[];
+	/** The person has seen them: the row's `asidesNew` goes. */
+	"aside.seen": null;
+	/** The colleague has its nudge, and its one answer is on its way. */
+	"thread.loop_in": null;
+	/** The desk's inbound sources, oldest first. */
+	"inbound.list": InboundSource[];
+	"inbound.add": InboundSource;
+	"inbound.update": InboundSource;
+	"inbound.remove": null;
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;
@@ -383,6 +400,17 @@ const BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
 export type Endpoint = { origin: string; token: string };
 
 /** One desk's connection. The window holds one per desk; see desks.ts. */
+/**
+ * A command the socket dropped under: it was sent, so the core may have run
+ * it. Told apart by type, not by its words.
+ */
+export class Dropped extends Error {
+	constructor() {
+		super("The connection to Hotline dropped.");
+		this.name = "Dropped";
+	}
+}
+
 export class Wire {
 	private socket: WebSocket | null = null;
 	private closed = false;
@@ -576,7 +604,7 @@ export class Wire {
 		this.socket = null;
 		this.setState(this.outdated ? "outdated" : "closed");
 		for (const waiting of this.pending.values()) {
-			waiting.reject(new Error("The connection to Hotline dropped."));
+			waiting.reject(new Dropped());
 		}
 		this.pending.clear();
 		if (this.closed || this.retry !== null) return;

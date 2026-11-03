@@ -177,9 +177,16 @@ pub enum Command {
     DesksUnlink { desk_id: String },
     /// Federation: a linked desk's teammates, as it publishes them. Only a
     /// linked desk's seat sends the `federation.*` commands, and they are
-    /// all it may send.
+    /// all it may send. The first one on a channel is its hello: `features`
+    /// says what of the link's traffic the sending desk takes (`asides`),
+    /// and a desk older than features sends none.
     #[serde(rename = "federation.roster")]
-    FederationRoster { teammates: Vec<LinkedTeammate> },
+    FederationRoster {
+        teammates: Vec<LinkedTeammate>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(as = "Option<Vec<String>>", optional)]
+        features: Vec<String>,
+    },
     /// Federation: a message for one of this desk's teammates, or the answer
     /// to one of theirs, for the exchange queue.
     #[serde(rename = "federation.deliver")]
@@ -459,6 +466,17 @@ pub enum Command {
     /// but cannot, with the reason.
     #[serde(rename = "backends.list")]
     BackendsList {},
+    /// Where each harness this desk runs stands on updates, as last checked;
+    /// a check runs in the background when the last is six hours old.
+    #[serde(rename = "harness.updates")]
+    HarnessUpdates {},
+    /// Checks every harness now, and answers when done.
+    #[serde(rename = "harness.updates.check")]
+    HarnessUpdatesCheck {},
+    /// Updates one harness, every part of it that is behind, and answers
+    /// with where it stands after. The person's action, from Updates.
+    #[serde(rename = "harness.update")]
+    HarnessUpdate { backend_id: String },
     /// The skills catalog: the built-ins, the gateway folder's entries valid
     /// or not, and — given a teammate — the skills in its own workspace.
     #[serde(rename = "skills.list")]
@@ -569,8 +587,19 @@ pub enum Command {
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     },
+    /// Stops the main conversation's turn in flight and drops what waited
+    /// behind it. `interrupt` is the window's Interrupt (and Esc) rather than
+    /// the person's Stop: an answer the turn was giving a colleague ends with
+    /// the person having interrupted it, to be asked again if still needed,
+    /// never as their stop of it, and a first-contact card stays up. Without
+    /// it, as from the phone or an older window, it is the Stop.
     #[serde(rename = "session.cancel")]
-    SessionCancel { persona_id: String },
+    SessionCancel {
+        persona_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        interrupt: bool,
+    },
     /// Stops one command the teammate left running. The teammate is not
     /// woken by its end: the person stopped it.
     #[serde(rename = "process.stop")]
@@ -755,14 +784,6 @@ pub enum Command {
     /// or an id naming nothing, moves nothing.
     #[serde(rename = "peers.mark_read")]
     PeersMarkRead { key: String, event_ids: Vec<String> },
-    /// Answers a permission card raised in a peer thread, while the teammate
-    /// who raised it is still answering there. Owner seat only.
-    #[serde(rename = "peers.answer_permission")]
-    PeersAnswerPermission {
-        key: String,
-        request_id: String,
-        option_id: String,
-    },
     /// Every runtime this machine knows how to drive, rootless-available first.
     #[serde(rename = "computer.runtimes")]
     ComputerRuntimes {},
@@ -978,15 +999,27 @@ pub enum Command {
         attachments: Option<Vec<Attachment>>,
     },
     /// Stops the turn in flight and drops what waited behind it; the thread
-    /// stays as it was. On a pair it stops the automatic exchange.
+    /// stays as it was. On a pair it stops the automatic exchange. Without
+    /// `interrupt` it is the person's Stop, which ends a colleague's handoff
+    /// or answer the turn was working on. `interrupt` is the window's
+    /// Interrupt (and Esc): in a work thread it only cuts the turn, what
+    /// waited behind it is heard next, and the work the turn was doing goes
+    /// on in the next one; in the main conversation it is `session.cancel`'s.
+    /// Elsewhere it changes nothing.
     #[serde(rename = "thread.cancel")]
-    ThreadCancel { thread: ThreadId },
+    ThreadCancel {
+        thread: ThreadId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        interrupt: bool,
+    },
     /// Lets go of a work thread's agent and keeps the thread open: saying
     /// something in it brings one back.
     #[serde(rename = "thread.park")]
     ThreadPark { thread: ThreadId },
     /// Ends a work thread: its agent is stopped and its transcript is kept,
-    /// read-only until it is continued.
+    /// read-only until it is continued. The person ending one a teammate
+    /// handed over releases the handoff, and its opener is left a note aside.
     #[serde(rename = "thread.close")]
     ThreadClose { thread: ThreadId },
     /// Brings a parked or closed work thread back, as a `ThreadSummary`. On a
@@ -1011,6 +1044,44 @@ pub enum Command {
         limit: Option<i64>,
         through: Option<String>,
     },
+    /// The asides a teammate has been left, newest first, heard or not, as
+    /// `Aside`s: what other threads told it without telling the person.
+    #[serde(rename = "aside.list")]
+    AsideList { persona_id: String },
+    /// The person has read the teammate's asides: each not yet seen is marked
+    /// seen, which the roster row's `asidesNew` counts. The teammate's
+    /// hearing of them is its own and does not change.
+    #[serde(rename = "aside.seen")]
+    AsideSeen { persona_id: String },
+    /// Loops a colleague into a work thread: it is left a nudge aside from
+    /// the thread, and may answer once there, under its own name.
+    #[serde(rename = "thread.loop_in")]
+    ThreadLoopIn {
+        thread: ThreadId,
+        persona_id: String,
+    },
+    /// The desk's inbound sources, oldest first, as `InboundSource`s.
+    #[serde(rename = "inbound.list")]
+    InboundList {},
+    /// The person adds an inbound source: who it may aside, how loudly, with
+    /// files or not, how often, and the stored secret a transport will use,
+    /// by name. Answers the new `InboundSource`. The owner's alone.
+    #[serde(rename = "inbound.add")]
+    InboundAdd { draft: InboundDraft },
+    /// Changes what is given of a source. Unmuting it releases its brake. A
+    /// phone may only mute and unmute. Answers the `InboundSource`.
+    #[serde(rename = "inbound.update")]
+    InboundUpdate {
+        id: String,
+        muted: Option<bool>,
+        teammates: Option<Vec<String>>,
+        max_level: Option<AsideLevel>,
+        files_allowed: Option<bool>,
+        rate: Option<u32>,
+    },
+    /// Removes a source: it delivers nothing more. What it delivered stays.
+    #[serde(rename = "inbound.remove")]
+    InboundRemove { id: String },
 }
 
 /// With `default`, absence is None; a present null is Some(None).

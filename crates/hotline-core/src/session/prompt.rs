@@ -1,6 +1,7 @@
 //! Words into a session: the chapter a message lands in, the prompt funnel,
 //! deliveries, nudges and retries, and how driver updates become tape events.
 
+use super::exchanges::Cut;
 use super::*;
 
 impl Room {
@@ -127,27 +128,14 @@ impl Room {
                     spoken: crate::wire::commands::from_voice(),
                     unprompted: None,
                     retry: false,
+                    wake: false,
+                    request: None,
                 },
                 attachments,
             },
         )
         .await;
         Ok(())
-    }
-
-    /// Something that came back for a teammate, into its own conversation:
-    /// written to its tape first, so it survives a restart and is heard once,
-    /// and then handed to the driver behind the turn in flight, or on a turn
-    /// of its own if there is none. It never cuts into a turn, and a teammate
-    /// that is not running is started for it.
-    pub(crate) async fn deliver_into(
-        self: &Arc<Self>,
-        persona_id: &str,
-        cause: DeliveryCause,
-        text: String,
-    ) -> Result<(), String> {
-        self.deliver_identified(persona_id, &new_id(), cause, text)
-            .await
     }
 
     pub(super) fn handoff_queued(&self, persona_id: &str, id: &str) -> bool {
@@ -160,6 +148,11 @@ impl Room {
         })
     }
 
+    /// Something for a teammate, into its own conversation: written to its
+    /// tape first, so it survives a restart and is heard once, and then handed
+    /// to the driver behind the turn in flight, or on a turn of its own if
+    /// there is none. It never cuts into a turn, and a teammate that is not
+    /// running is started for it.
     pub(super) async fn deliver_identified(
         self: &Arc<Self>,
         persona_id: &str,
@@ -167,18 +160,45 @@ impl Room {
         cause: DeliveryCause,
         text: String,
     ) -> Result<(), String> {
+        self.deliver_to_main(persona_id, id, cause, text, None, false)
+            .await
+            .map(|_| ())
+    }
+
+    /// [`Self::deliver_identified`], for a line whose turn answers a
+    /// colleague's `request`. With `idle_only` it is handed over only while no
+    /// turn holds the conversation: the queue is claimed for it under the
+    /// start gate, before its line is written, so nothing lands between the
+    /// look and the claim. Says whether it was handed over; one handed over
+    /// already was.
+    pub(super) async fn deliver_to_main(
+        self: &Arc<Self>,
+        persona_id: &str,
+        id: &str,
+        cause: DeliveryCause,
+        text: String,
+        request: Option<turns::RequestLine>,
+        idle_only: bool,
+    ) -> Result<bool, String> {
         let _working = self.working()?;
         if self.handoff_queued(persona_id, id) {
-            return Ok(());
+            return Ok(true);
         }
         let existing = self.tape(persona_id).into_iter().find(|v| v["id"] == id);
         if existing.as_ref().is_some_and(|v| v["receipt"] == "read") {
-            return Ok(());
+            return Ok(true);
         }
         self.start(persona_id).await?;
         let (session, _held) = self.in_this_chapter(persona_id).await?;
         if lock(&session.dispatched_deliveries).contains(id) {
-            return Ok(());
+            return Ok(true);
+        }
+        if idle_only {
+            let mut turns = lock(&session.turns);
+            if turns.running {
+                return Ok(false);
+            }
+            turns.running = true;
         }
         let ts = existing
             .as_ref()
@@ -195,17 +215,39 @@ impl Room {
                 text,
                 receipt: Some(Receipt::Sent),
             };
-            let value = serde_json::to_value(event).map_err(|e| e.to_string())?;
-            self.log
-                .append(&StreamId::Tape(persona_id.into()), &value)
-                .map_err(|e| e.to_string())?;
+            let written = serde_json::to_value(event)
+                .map_err(|e| e.to_string())
+                .and_then(|value| {
+                    self.log
+                        .append(&StreamId::Tape(persona_id.into()), &value)
+                        .map_err(|e| e.to_string())
+                });
+            if let Err(error) = written {
+                if idle_only {
+                    lock(&session.turns).running = false;
+                }
+                return Err(error);
+            }
         }
         let mut wired = Wired::words(timed(ts, &wire));
         wired.said = Some(id.into());
         wired.from = Some(from);
+        wired.request = request;
         lock(&session.dispatched_deliveries).insert(id.into());
-        self.dispatch(session, wired);
-        Ok(())
+        if idle_only {
+            // The queue is this line's already: its turn starts now.
+            let working = self.lease().expect(
+                "a dispatch caller holds a read lease, so restart cannot hold the write lease",
+            );
+            let room = self.clone();
+            tokio::spawn(async move {
+                let _working = working;
+                room.run_queue(session, wired).await;
+            });
+        } else {
+            self.dispatch(session, wired);
+        }
+        Ok(true)
     }
 
     /// Hotline's own words to a running teammate — a reopened chapter told what
@@ -401,7 +443,18 @@ impl Room {
         // Joining the queue and claiming an idle driver are one decision under
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.
-        let Some(wire) = lock(&session.turns).claim(wire) else {
+        let claimed = {
+            let mut turns = lock(&session.turns);
+            // Under the queue's lock, so the stop's drain of it is either
+            // before this (and `closing` is seen) or after (and takes it).
+            if self.closing() {
+                drop(turns);
+                self.keep_late(&session.persona_id, vec![wire]);
+                return;
+            }
+            turns.claim(wire)
+        };
+        let Some(wire) = claimed else {
             session.input_ready.notify_one();
             return;
         };
@@ -412,23 +465,55 @@ impl Room {
         });
     }
 
-    /// Stops the turn in flight and drops whatever was waiting behind it.
-    ///
-    /// A `request_human` the cancelled turn was parked on dies with it: the
-    /// tool call is inside the turn, so nothing is reading the answer any
-    /// more. The card is superseded and the wait released here, because
-    /// otherwise the transcript keeps a live button for ten minutes and
-    /// pressing it writes `done` for an agent that stopped listening.
+    /// The person's Stop of the turn in flight: as [`Room::cut_turn`], and a
+    /// colleague's question the turn was answering fails with their word
+    /// not to ask it again (`exchanges/stops.rs`).
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
-        lock(&session.turns).waiting.clear();
+        *lock(&session.cut) = Some(Cut::Stop);
+        self.cut_turn(&session, Cut::Stop);
+        Ok(())
+    }
+
+    /// The person's Interrupt of the turn in flight, to say something
+    /// instead: as [`Room::cut_turn`], and a question the turn was answering
+    /// fails as interrupted, to be asked again if still needed, never as
+    /// their stop. The main conversation has no thread to carry the answer
+    /// on, and the person's next line must never become it.
+    pub fn interrupt(&self, persona_id: &str) -> Result<(), String> {
+        let session = self.session(persona_id)?;
+        *lock(&session.cut) = Some(Cut::Interrupt);
+        self.cut_turn(&session, Cut::Interrupt);
+        Ok(())
+    }
+
+    /// Stops the turn in flight and drops whatever was waiting behind it, a
+    /// colleague's question included, which fails to its asker at once and
+    /// is never handed over again. A permission card the turn left open
+    /// expires; a first-contact card expires only with a Stop, since an
+    /// Interrupt redirects the turn and decides nothing about a colleague.
+    /// A restart's cut is a Stop that is not the person's: the session's
+    /// `cut` is left unset, so an answer it cuts fails as uncertain.
+    pub(super) fn cut_turn(&self, session: &Session, how: Cut) {
+        let persona_id = session.persona_id.as_str();
+        let dropped: Vec<Wired> = lock(&session.turns).waiting.drain(..).collect();
         lock(&session.unread).clear();
         lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();
-        self.settle_collaboration(persona_id);
-        self.settle_permissions(persona_id);
-        self.release_human_waits(persona_id);
-        Ok(())
+        match how {
+            Cut::Stop => {
+                self.settle_collaboration(persona_id);
+                self.settle_permissions(persona_id);
+            }
+            Cut::Interrupt => self.settle_permissions_of_a_redirect(persona_id),
+        }
+        self.fail_dropped_questions(
+            persona_id,
+            dropped
+                .iter()
+                .filter_map(|line| line.request.as_ref())
+                .map(|line| line.request.as_str()),
+        );
     }
 }
 

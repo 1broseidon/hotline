@@ -217,6 +217,21 @@ impl ProviderKeys for NoKeys {
 
 #[async_trait]
 impl RoomHandle for CoreHandle {
+    fn harness_updates(&self) -> crate::contract::HarnessUpdates {
+        self.room.harness_updates()
+    }
+
+    async fn harness_updates_check(&self) -> crate::contract::HarnessUpdates {
+        self.room.harness_updates_check().await
+    }
+
+    async fn harness_update(
+        &self,
+        backend_id: &str,
+    ) -> Result<crate::contract::HarnessUpdate, String> {
+        self.room.harness_update(backend_id).await
+    }
+
     async fn secrets_capture_answer(
         &self,
         answer: crate::contract::CredentialAnswer,
@@ -226,6 +241,18 @@ impl RoomHandle for CoreHandle {
 
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.room.threads_waiting(persona_id)
+    }
+
+    fn asides_unheard(&self, persona_id: &str) -> usize {
+        self.room.asides_unheard(persona_id)
+    }
+
+    fn asides_unseen(&self, persona_id: &str) -> usize {
+        self.room.asides_unseen(persona_id)
+    }
+
+    fn asides_seen(&self, persona_id: &str) -> Result<(), String> {
+        self.room.mark_asides_seen(persona_id)
     }
 
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
@@ -254,6 +281,17 @@ impl RoomHandle for CoreHandle {
 
     async fn reattach_all(&self) -> Result<(), String> {
         self.room.reattach_all().await
+    }
+
+    /// The room keeps no vault, so there is nothing to forget: the sign-out
+    /// is the revocation and the reattach around it.
+    async fn mcp_auth_sign_out(&self, _server_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// The room keeps no vault, and a test's servers carry no secret to seal.
+    fn protect_mcp_settings(&self, value: &Value) -> Result<Value, String> {
+        Ok(value.clone())
     }
 
     async fn prompt(
@@ -1220,15 +1258,19 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
     assert_eq!(read["ok"], false, "{read}");
 }
 
+mod asides;
 mod asks;
 mod capabilities;
 mod capture;
+mod consent;
 #[cfg(unix)]
 mod cookie_offers;
 mod deltas;
 mod door;
 mod files;
+mod inbound;
 mod linked;
+mod lock_order;
 mod mobile_computer;
 mod models;
 mod owner_handler;

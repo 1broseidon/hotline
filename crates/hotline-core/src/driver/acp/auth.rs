@@ -140,7 +140,7 @@ pub(super) async fn start(
             // Closing authenticate is the only protocol-independent cancellation.
             // Terminal work observes the same token and confirms process exit.
             let _ = runner.abandon_failed_session().await;
-            runner.live.failed.store(true, Ordering::SeqCst);
+            runner.live.fail(None);
         }
         // A terminal's blocking worker must be reaped even if the outer request
         // was cancelled. authenticate owns that wait through terminal_done.
@@ -211,15 +211,14 @@ async fn authenticate(
             agent.restart_after_failure().await.map_err(|_| {
                 "Signed in, but the harness could not restart. Try again.".to_string()
             })?;
-            if lock(&agent.live.startup_failure).is_some() {
+            if agent.live.notice().is_some() {
                 return Err("The harness still requires sign-in. You can try again.".into());
             }
         }
         _ => return Err("This authentication method is not supported.".into()),
     }
     agent.check_capability()?;
-    *lock(&agent.live.startup_failure) = None;
-    agent.live.failed.store(false, Ordering::SeqCst);
+    agent.live.session_opened();
     agent.live.briefed.store(false, Ordering::SeqCst);
     agent.live.publish_info();
     Ok(())

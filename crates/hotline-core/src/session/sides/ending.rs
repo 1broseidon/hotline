@@ -18,24 +18,80 @@ impl Room {
         let Some(side) = self.sides.get(side_id) else {
             return;
         };
-        lock(&side.turns).clear();
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
         if let Some(driver) = side.driver() {
             driver.cancel();
         }
         self.finish_side(&side, End::Stopped, Some(outcome.to_string()));
     }
 
-    /// Lets go of a thread's agent and leaves the thread open.
-    pub(super) fn park_side(&self, side: &Arc<LiveSide>) {
-        self.end_side(side, Ending::Park);
+    /// Cancels the turn in flight in a live thread when it is the one
+    /// answering `request`, and nothing else: the thread stays open, and the
+    /// lines waiting behind the turn stay queued.
+    pub(in crate::session) fn cancel_turn_answering(&self, side_id: &str, request: &str) {
+        let Some(side) = self.sides.get(side_id) else {
+            return;
+        };
+        if side.request().as_deref() != Some(request) {
+            return;
+        }
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
     }
 
     pub(in crate::session) fn end_side(&self, side: &Arc<LiveSide>, ending: Ending) {
-        if side.closed.swap(true, Ordering::SeqCst) {
+        if !side.closed.claim(&ending) {
             return;
         }
-        self.sides.remove(&side.id);
-        lock(&side.turns).clear();
+        self.carry_out(side, ending);
+    }
+
+    /// Lets go of a thread's agent only if it is idle, and says whether it is
+    /// let go of (or already gone). The look and the claim of the ending are
+    /// one step under the thread's turn lock, so a line that began a turn
+    /// first is never cut by a park decided on a look taken before it, and
+    /// one that comes after finds the thread ending and reopens it
+    /// ([`Room::queue_in_side`]). `quiet_since` also refuses a thread said to
+    /// since that time.
+    pub(in crate::session) fn park_if_idle(
+        &self,
+        side: &Arc<LiveSide>,
+        quiet_since: Option<i64>,
+    ) -> bool {
+        {
+            let turns = lock(&side.turns);
+            if turns.running {
+                return false;
+            }
+            if quiet_since.is_some_and(|cutoff| side.last_used() > cutoff) {
+                return false;
+            }
+            if !side.closed.claim(&Ending::Park) {
+                return true;
+            }
+        }
+        self.carry_out(side, Ending::Park);
+        true
+    }
+
+    /// What an ending claimed does. The thread stays in the room's map, ending,
+    /// until its link says where it went, so nothing that asks sees a live
+    /// link with no thread behind it, or a thread with a link that still says
+    /// live: whoever needs it settled waits for [`Sides::ended`].
+    fn carry_out(&self, side: &Arc<LiveSide>, ending: Ending) {
+        // A colleague's question still waiting here fails to its asker.
+        let dropped: Vec<Line> = lock(&side.turns).waiting.drain(..).collect();
+        self.fail_dropped_lines(&side.persona_id, dropped);
+        // A parked thread leaves what an Interrupt left it carrying to the
+        // agent that brings it back: only a close ends that, and the
+        // person's End thread ends it as theirs (`Room::person_ended`).
+        if let Ending::Close(by, _) = &ending
+            && *by != End::Person
+        {
+            self.end_carried(&side.id, side.request().as_deref());
+        }
         side.capability.revoke();
         // A thread ended while its agent is still starting has none to stop
         // here: the start sees that it is closed and stops it itself.
@@ -49,23 +105,35 @@ impl Room {
             self.threads()
                 .write(&side.thread.clone(), &side.persona_id, &expired);
         }
+        self.sides.at("ending");
+        let mut note = None;
         match ending {
             Ending::Park => self.mark_side(side, ThreadState::Parked, None),
             Ending::Close(by, result) => {
                 let said_so = result.is_some();
                 let result = result.or_else(|| last_words(&events));
                 self.mark_side(side, ThreadState::Closed(by), result);
-                self.queue_closing_note(&side.thread.clone(), said_so);
+                note = Some(said_so);
             }
+            Ending::Restore(prior) => self.write_link(&prior),
+        }
+        // Only now does the thread leave the map: its link and its place in
+        // the room change together, as far as anyone asking can tell.
+        self.sides.leave(side);
+        if let Some(said_so) = note {
+            self.queue_closing_note(&side.thread.clone(), said_so);
         }
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
-    /// Archives a thread that has no agent: the person ended a parked one.
-    pub(super) fn archive_parked(&self, link: Link, by: End, result: Option<String>) {
+    /// Archives a thread that has no agent: a parked one ended, and with it
+    /// what an Interrupt left it carrying, as a live thread's close ends it.
+    /// Says whether it did: a thread that woke or was archived since `link`
+    /// was read is left as it is now, and the caller looks again.
+    pub(super) fn archive_parked(&self, link: Link, by: End, result: Option<String>) -> bool {
         let thread = link.thread.clone();
-        let Some(persona_id) = link.persona_id.clone() else {
-            return;
+        let Some(persona_id) = link.persona_id else {
+            return false;
         };
         let said_so = result.is_some();
         let result = result.or_else(|| {
@@ -75,14 +143,25 @@ impl Room {
                     .load(&StreamId::of_thread(&thread).expect("work has a stream")),
             )
         });
-        self.write_link(&Link {
-            state: ThreadState::Closed(by),
-            outcome: result,
-            at: Some(now_ms()),
-            ..link
+        let archived = self.amend_link(&thread, |fresh| {
+            (fresh.state == ThreadState::Parked && self.sides.get(&thread.key).is_none()).then(
+                || Link {
+                    state: ThreadState::Closed(by),
+                    outcome: result,
+                    at: Some(now_ms()),
+                    ..fresh
+                },
+            )
         });
+        if !archived {
+            return false;
+        }
+        if by != End::Person {
+            self.end_carried(&thread.key, None);
+        }
         self.queue_closing_note(&thread, said_so);
         let _ = self.info_changes.send(self.info(&persona_id));
+        true
     }
 
     /// Keeps the agent's session id on the marker once a turn has completed on
@@ -129,7 +208,13 @@ impl Room {
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
+    /// A live mark on a thread that has ended writes nothing: the end's own
+    /// link stands.
     pub(super) fn mark_side(&self, side: &LiveSide, state: ThreadState, outcome: Option<String>) {
+        let _marking = lock(&side.marking);
+        if state == ThreadState::Live && side.closed.is_set() {
+            return;
+        }
         let thread = side.thread.clone();
         let saved = lock(&side.saved).clone();
         self.write_link(&Link {
@@ -148,7 +233,42 @@ impl Room {
             }),
             elapsed_ms: None,
             opener: side.opener.clone(),
+            handoff_ended: side.opener.is_some() && self.handoff_ended(&side.id),
+            asked_in: side.asked_in.clone(),
         });
+    }
+
+    /// Writes on each thread's link whether the delegation it serves still
+    /// stands, where that has changed ([`Room::handoff_ended`]): a live
+    /// thread's from its agent's record, one with no agent from its link.
+    pub(in crate::session) fn mark_handoffs(&self, threads: &[String]) {
+        for side_id in threads {
+            let thread = self.work_thread(side_id);
+            let Some(link) = self.link_of(&thread) else {
+                continue;
+            };
+            let ended = link.opener.is_some() && self.handoff_ended(side_id);
+            self.sides.at("handoffs");
+            if link.handoff_ended == ended {
+                continue;
+            }
+            if let Some(side) = self.sides.get(side_id) {
+                self.mark_side(&side, ThreadState::Live, None);
+            } else {
+                // Changed on the link as it stands when it is written, not as
+                // it was read: the thread may have woken or ended since.
+                self.amend_link(&thread, |fresh| {
+                    (fresh.handoff_ended != ended).then_some(Link {
+                        handoff_ended: ended,
+                        ..fresh
+                    })
+                });
+                // It woke meanwhile: its own mark says where it stands.
+                if let Some(side) = self.sides.get(side_id) {
+                    self.mark_side(&side, ThreadState::Live, None);
+                }
+            }
+        }
     }
 
     pub(super) fn side_summary(&self, side: &LiveSide) -> SideThreadSummary {
@@ -162,7 +282,7 @@ impl Room {
             status: SideStatus::Live,
             started_at: side.started,
             last_at: last_at(&events).max(side.started),
-            working: side.working(),
+            working: side.turn_running(),
             waiting: waiting_on(&events),
             preview: preview_line(&events),
             result: None,

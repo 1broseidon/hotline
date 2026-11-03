@@ -75,8 +75,7 @@ impl ChildAgent {
         let failure = crate::driver::failure::Failure::startup(sentence);
         // The details, which are redacted: the stderr tail is the agent's.
         eprintln!("[acp] {}", failure.details);
-        *lock(&self.live.startup_failure) = Some(failure.notice());
-        self.live.failed.store(true, Ordering::SeqCst);
+        self.live.fail(Some(failure.notice()));
         {
             let mut session = lock(&self.live.session);
             session.id = None;
@@ -92,6 +91,24 @@ impl ChildAgent {
     /// agent over an in-memory duplex through exactly this path, and what it
     /// proves about the translation is true of a real harness on stdio.
     pub(crate) async fn handshake(
+        &self,
+        persona: &Persona,
+        transport: ByteStreams<
+            impl futures_util::AsyncWrite + Send + 'static,
+            impl futures_util::AsyncRead + Send + 'static,
+        >,
+    ) -> Result<DriverInfo, String> {
+        self.live.spawning();
+        let opened = self.handshake_steps(persona, transport).await;
+        if opened.is_err() {
+            // A connection that got this far and no further is not a state to
+            // sit in: it is failed, and the next prompt starts it again.
+            self.live.fail(None);
+        }
+        opened
+    }
+
+    async fn handshake_steps(
         &self,
         persona: &Persona,
         transport: ByteStreams<
@@ -139,7 +156,7 @@ impl ChildAgent {
         self.check_capability()?;
 
         lock(&self.live.auth_methods).clone_from(&initialized.auth_methods);
-        *lock(&self.live.startup_failure) = None;
+        self.live.initialized();
         let capabilities = capabilities_of(&initialized);
         self.live
             .steerable
@@ -185,8 +202,7 @@ impl ChildAgent {
             {
                 // The picker offers its sign-in until a session of it opens.
                 super::models::mark_sign_in(&self.root, &self.backend_id);
-                *lock(&self.live.startup_failure) = Some(failure.notice());
-                self.live.failed.store(true, Ordering::SeqCst);
+                self.live.fail(Some(failure.notice()));
                 lock(&self.live.session).id = None;
                 lock(&self.live.session).info.session_id = None;
                 return Ok(self.live.publish_info());
@@ -196,6 +212,7 @@ impl ChildAgent {
         self.check_capability()?;
         self.adopt_disposition(persona).await;
         self.check_capability()?;
+        self.live.session_opened();
         // Supersede notifications received during session restore with the
         // final handshake state before the room attaches its watcher.
         Ok(self.live.publish_info())
@@ -272,7 +289,7 @@ impl ChildAgent {
                 // sessions; `session/load` is still a valid fallback.
             }
             if capabilities.load_session {
-                self.live.replaying.store(true, Ordering::SeqCst);
+                let replay = Replay::begin(&self.live.replaying);
                 let loaded = connection
                     .send_request(
                         LoadSessionRequest::new(id.clone(), cwd.clone())
@@ -281,7 +298,7 @@ impl ChildAgent {
                     )
                     .block_task()
                     .await;
-                self.live.replaying.store(false, Ordering::SeqCst);
+                drop(replay);
                 if let Ok(response) = loaded {
                     self.adopt(
                         id,
@@ -750,6 +767,9 @@ async fn connect(
             eprintln!("an ACP connection ended: {error}");
         }
         live.settle_permissions();
+        // The child is gone, or hung up: the next prompt starts it again
+        // instead of finding out by failing.
+        live.fail(None);
     });
     *lock(&task_live.connection_task) = Some(task);
     started
@@ -787,17 +807,49 @@ pub(super) enum Announced {
         child: String,
         status: SubagentStatus,
     },
+    /// What the subagent was told, as the RFD sends it: a `session_message`
+    /// to the child session, apart from its announcement.
+    Told { child: String, text: String },
 }
 
-/// The announcement in an update, if it is one. Claude's and Codex's
-/// adapters send `subagent_spawned` and `subagent_state_update`; ACP's RFD
-/// describes a `subagent_update` that neither sends yet.
+/// The announcement in an update, if it is one. A client that takes
+/// `clientCapabilities.subagents` gets the subagents RFD's
+/// (agent-client-protocol#1992) `subagent_update`, as Claude's adapter sends
+/// it from 0.100: the first names the child and says it runs, later ones its
+/// work state, and `idle` with its stop reason is its end. Older adapters,
+/// and Codex's, send the earlier draft's `subagent_spawned` and
+/// `subagent_state_update`. The child's prompt comes as a `session_message`
+/// on the child's own session, which is read only for a child announced here
+/// (see [`Live::subagent`]).
 pub(super) fn announced(update: &Value) -> Option<Announced> {
     let text = |key: &str| update.get(key).and_then(Value::as_str).map(str::trim);
-    let child = text("subagentSessionId")
-        .filter(|child| !child.is_empty())?
-        .to_string();
-    match text("sessionUpdate")? {
+    let kind = text("sessionUpdate")?;
+    if kind == "session_message" {
+        // A message into a child session: what it was told. One the child
+        // sent is its own report, which its turn already said.
+        let child = text("recipientSessionId").filter(|child| !child.is_empty())?;
+        if text("senderSessionId") == Some(child) {
+            return None;
+        }
+        let words: Vec<&str> = update
+            .get("content")
+            .and_then(Value::as_array)?
+            .iter()
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect();
+        return Some(Announced::Told {
+            child: child.to_string(),
+            text: words.join("\n\n"),
+        });
+    }
+    let child = text(if kind == "subagent_update" {
+        "sessionId"
+    } else {
+        "subagentSessionId"
+    })
+    .filter(|child| !child.is_empty())?
+    .to_string();
+    match kind {
         "subagent_spawned" => {
             let task = text("task").unwrap_or_default();
             Some(Announced::Spawned {
@@ -816,6 +868,46 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
                 child,
             })
         }
+        "subagent_update" => {
+            let state = update
+                .get("state")
+                .and_then(|state| state.get("state"))
+                .and_then(Value::as_str);
+            let stop = update
+                .get("state")
+                .and_then(|state| state.get("stopReason"))
+                .and_then(Value::as_str);
+            match state {
+                // Its work ended: how is the stop reason, and an end nobody
+                // explained is an outcome nobody saw.
+                Some("idle") => Some(Announced::Ended {
+                    status: match stop {
+                        Some("end_turn") => SubagentStatus::Done,
+                        Some("error") => SubagentStatus::Failed,
+                        _ => SubagentStatus::Cancelled,
+                    },
+                    child,
+                }),
+                Some("unknown") => Some(Announced::Ended {
+                    status: SubagentStatus::Cancelled,
+                    child,
+                }),
+                // Running, waiting on the person, or only new labels or a
+                // directory: a child not yet known starts here.
+                _ => Some(Announced::Spawned {
+                    title: clip(
+                        text("title")
+                            .filter(|title| !title.is_empty())
+                            .or_else(|| text("description").filter(|d| !d.is_empty()))
+                            .unwrap_or("Subagent"),
+                        TITLE_CHARS,
+                    ),
+                    // The task comes as the child's own first message.
+                    task: String::new(),
+                    child,
+                }),
+            }
+        }
         "subagent_state_update" => Some(Announced::Ended {
             status: match text("state")? {
                 "completed" => SubagentStatus::Done,
@@ -830,15 +922,20 @@ pub(super) fn announced(update: &Value) -> Option<Announced> {
     }
 }
 
-/// What Hotline says it can do when it meets an agent.
 /// What Hotline asks of every agent in `initialize`'s client `_meta`:
 /// Cursor's parameterized model picker, its base models with effort, context
 /// and fast as settings of their own, in place of one model id per variant
-/// (`claude-opus-5-5[context=300k,effort=medium,fast=false]`). An agent that
-/// does not know it ignores it.
+/// (`claude-opus-5-5[context=300k,effort=medium,fast=false]`); and the
+/// terminal extension (`terminal_output`), under which Claude's adapter says
+/// of each command whether it is still running: a command it sent to the
+/// background keeps its terminal open past its result, and closes it with a
+/// `terminal_exit` when it ends (`backgrounded`). Hotline never names itself
+/// as an editor's client here: that changes far more than these keys. An
+/// agent that does not know a key ignores it.
 pub(super) fn client_meta() -> acp::Meta {
     let mut meta = acp::Meta::new();
     meta.insert("parameterizedModelPicker".into(), Value::Bool(true));
+    meta.insert("terminal_output".into(), Value::Bool(true));
     meta
 }
 

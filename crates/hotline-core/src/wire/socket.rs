@@ -466,6 +466,7 @@ fn independent(frame: &Value) -> bool {
             | Command::SearchAll { .. }
             | Command::ScheduleList {}
             | Command::BackendsList {}
+            | Command::HarnessUpdates {}
             | Command::ComputerRuntimes {}
             | Command::ComputerCapacity {}
             | Command::ComputerReleases {}
@@ -891,6 +892,8 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// `agentSwitch`: `session.set_backend`, moving a teammate to another agent,
 /// and `backends.list` naming each agent's last reported models; a phone
 /// offers the agents in its picker only where the desk says this.
+/// `asides`: `aside.list` and the roster row's `asides`, what a teammate's
+/// threads told it without telling the person.
 pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "personaCreate",
     "personaEdit",
@@ -903,6 +906,7 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "thumbnails",
     "turnRetry",
     "agentSwitch",
+    "asides",
 ];
 
 /// The capability a client names in `client.hello` to be sent `link` events
@@ -984,8 +988,11 @@ pub(crate) async fn federation(
         return Some(forbidden());
     }
     let result = match command {
-        Command::FederationRoster { teammates } => room
-            .federation_roster(desk_id, teammates)
+        Command::FederationRoster {
+            teammates,
+            features,
+        } => room
+            .federation_roster(desk_id, teammates, features)
             .map(|()| Value::Null),
         Command::FederationDeliver { delivery } => room.federation_deliver(desk_id, delivery).await,
         Command::FederationUnlink {} => room.unlinked(desk_id).await.map(|()| Value::Null),

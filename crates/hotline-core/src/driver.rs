@@ -18,8 +18,8 @@ pub(crate) mod failure;
 pub mod rig;
 
 use crate::contract::{
-    Attachment, ConfigChoice, NoticeLevel, PermissionOption, Persona, Reach, SessionCapabilities,
-    SessionConfig, SubagentStatus, TokenUsage,
+    Attachment, ConfigChoice, NoticeLevel, PermissionOption, Persona, Reach, RunKind,
+    SessionCapabilities, SessionConfig, SubagentStatus, TokenUsage,
 };
 use async_trait::async_trait;
 pub(crate) use hotline_room::text::clip;
@@ -151,19 +151,26 @@ pub enum Update {
     },
 }
 
-/// A subagent a harness runs on its own, as it reports it: an agent that
-/// shows its subagents as sessions of their own rather than as tool calls.
-/// `child` is the harness's name for the subagent's session; the reports for
-/// one child arrive in order, beginning with `Started`.
+/// A subagent a harness runs on its own, or a command it left running in
+/// the background, as it reports it: an agent that shows its subagents as
+/// sessions of their own rather than as tool calls, and says which of its
+/// commands run on past their result. `child` is the harness's name for the
+/// subagent's session, or the command's tool call; the reports for one child
+/// arrive in order, beginning with `Started`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SubagentReport {
     Started {
         child: String,
+        /// A subagent, or which kind of background task.
+        kind: RunKind,
         title: String,
         /// What it was asked to do, as near the words it was handed as the
         /// harness says.
         task: String,
     },
+    /// What the subagent was told, when the harness says it apart from
+    /// `Started`.
+    Told { child: String, text: String },
     /// Something the subagent did, in the vocabulary of a turn.
     Update { child: String, update: Update },
     Ended {

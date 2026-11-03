@@ -59,6 +59,11 @@ pub struct ThreadSummary {
     /// The teammate that opened it, when one did: "from Mack" on the row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub opener: Option<SideOpener>,
+    /// The handoff it serves no longer stands, as its link records: Stop
+    /// exchange, a revocation or an unlink ended it. Absent while it stands.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub handoff_ended: bool,
     pub started_at: i64,
     /// The newest thing in the thread: what the window counts unread against.
     pub updated_at: i64,
@@ -231,10 +236,19 @@ pub struct RosterEntry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<String>>", optional)]
     pub working_calls: Vec<String>,
+    /// How many asides this teammate has been left that no turn of its has
+    /// heard yet (`aside.list` lists them). Absent when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asides: Option<u32>,
+    /// How many of them the person has not seen on its Noted page yet
+    /// (`aside.seen` marks them). Absent when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asides_new: Option<u32>,
     pub session: SessionInfo,
 }
 
-/// A subagent still running, as its teammate's roster row lists it.
+/// A subagent, or a command its harness left running in the background,
+/// still running, as its teammate's roster row lists it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -243,6 +257,30 @@ pub struct RunningSubagent {
     /// The short label the teammate gave the task.
     pub title: String,
     pub started_at: i64,
+    /// What runs: a subagent, or a command its harness sent to the
+    /// background. Absent for a subagent, so a client that predates it reads
+    /// the row as it did.
+    #[serde(default, skip_serializing_if = "RunKind::is_subagent")]
+    #[ts(as = "Option<RunKind>", optional)]
+    pub kind: RunKind,
+}
+
+/// What a run is. A subagent works the task with a model of its own; a
+/// shell run is a command its harness sent to the background, running past
+/// the turn that started it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum RunKind {
+    #[default]
+    Subagent,
+    Shell,
+}
+
+impl RunKind {
+    pub fn is_subagent(&self) -> bool {
+        *self == RunKind::Subagent
+    }
 }
 
 /// A side thread still live, as its teammate's roster row lists it.

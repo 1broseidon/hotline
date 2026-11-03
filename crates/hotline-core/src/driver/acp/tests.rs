@@ -1,4 +1,5 @@
 mod config;
+mod lifecycle;
 mod oauth_proxy;
 mod session_new;
 mod steering;

@@ -74,12 +74,13 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
     // The state the roster shows: ready when it started, thinking while the
     // turn ran, ready again when it was over.
     let mut states = Vec::new();
-    for _ in 0..3 {
+    for _ in 0..4 {
         states.push(infos.recv().await.unwrap().state);
     }
     assert_eq!(
         states,
         [
+            SessionState::Starting,
             SessionState::Ready,
             SessionState::Thinking,
             SessionState::Ready
@@ -608,8 +609,9 @@ async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver
     );
     assert_eq!(room.info("ada"), switched);
 
+    // A stopped teammate reads as the push said it did.
     room.stop("ada").unwrap();
-    assert_eq!(room.info("ada").state, SessionState::Idle);
+    assert_eq!(room.info("ada").state, SessionState::Stopped);
     assert!(
         room.prompt("ada", "anyone there?", None, None)
             .await
@@ -623,6 +625,7 @@ async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
     let room = room("driver-info", Fake::new(driver));
     let mut infos = room.subscribe_info();
     room.start("ada").await.unwrap();
+    assert_eq!(infos.recv().await.unwrap().state, SessionState::Starting);
     assert_eq!(infos.recv().await.unwrap().state, SessionState::Ready);
 
     let updated = DriverInfo {
@@ -694,13 +697,13 @@ async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
     // Once the session is stopped, a late notification from its driver cannot
     // update the idle roster or resurrect a picker.
     room.stop("ada").unwrap();
-    assert_eq!(room.info("ada").state, SessionState::Idle);
+    assert_eq!(room.info("ada").state, SessionState::Stopped);
     changes.send_replace(DriverInfo {
         current_model_id: "stale-model".to_string(),
         ..updated
     });
     tokio::time::sleep(Duration::from_millis(25)).await;
-    assert_eq!(room.info("ada").state, SessionState::Idle);
+    assert_eq!(room.info("ada").state, SessionState::Stopped);
     assert_eq!(room.info("ada").current_model_id, None);
 }
 
@@ -911,5 +914,49 @@ async fn a_link_opens_only_for_a_person_at_this_computer() {
     for refused in ["file:///etc/passwd", "javascript:alert(1)", "ketch.run", ""] {
         let refused = room.open_link("ada", refused).await.unwrap_err();
         assert!(refused.contains("http or https"), "{refused}");
+    }
+}
+
+/// One agent can stand behind two sessions in these tests, as a chapter's swap
+/// leaves it: the cancel that stops the old session's turn stops that turn,
+/// and never the next one, however close the permits that would have let the
+/// old turn go on arrive behind it.
+#[tokio::test]
+async fn a_cancel_stops_its_own_turn_and_never_the_next() {
+    let said = |text: &str| {
+        vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: text.to_string(),
+                text: text.to_string(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            },
+        ]
+    };
+    for _ in 0..50 {
+        let gate = Arc::new(Semaphore::new(0));
+        let agent = Scripted::turns(vec![said("old"), said("new")]).gated(gate.clone());
+        let line = |words: &str| crate::session::timed(crate::session::now_ms(), words);
+        let mut old = agent.prompt(line("old"), Vec::new(), Reach::Machine).await;
+        // The old turn is waiting on its first update when it is cancelled,
+        // and the permits come in before it is woken.
+        tokio::task::yield_now().await;
+        agent.cancel();
+        gate.add_permits(10);
+        let mut new = agent.prompt(line("new"), Vec::new(), Reach::Machine).await;
+        while old.recv().await.is_some() {}
+        let mut heard = Vec::new();
+        while let Some(update) = new.recv().await {
+            heard.push(update);
+        }
+        assert!(
+            heard
+                .iter()
+                .any(|update| matches!(update, Update::Turn { .. })),
+            "the next turn was cut by the old turn's cancel: {heard:?}"
+        );
     }
 }

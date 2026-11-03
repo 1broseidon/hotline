@@ -7,7 +7,7 @@
 //! keeps its place, so the fold is the whole state of a stream, and a
 //! compaction is that fold written back over the file.
 //!
-//! Seven streams, one rule for all of them:
+//! Eight streams, one rule for all of them:
 //!
 //! - [`StreamId::Room`] is the room itself — the roster, the settings, the
 //!   schedules — in `room.jsonl`. One file, no epochs.
@@ -28,6 +28,9 @@
 //! - [`StreamId::Job`] is one job's thread, in `jobs/<id>.jsonl`: each firing
 //!   of a scheduled job is a turn on it, and the person can talk in it. Its
 //!   first line is the thread's own marker.
+//! - [`StreamId::Asides`] is what other threads have left one teammate, in
+//!   `asides/<id>.jsonl`: one line per aside, rewritten once a turn has
+//!   heard it. Not a conversation, and no thread's stream.
 //!
 //! [`Log`] is the only door to all of them, and the only writer. A reader that
 //! wants history calls [`Log::load`]; a reader that wants to keep up calls
@@ -75,6 +78,7 @@ pub enum StreamId {
     Side(String),
     Call(String),
     Job(String),
+    Asides(String),
 }
 
 impl StreamId {
@@ -123,7 +127,7 @@ pub struct Log {
     /// file to say where its bytes landed and may relocate a legacy flat file
     /// on the way, and a compaction rewrites the file it just read. A tape has
     /// several writers above it — the line a person typed, the turn it
-    /// started, the idle sweep, a colleague's peer session — and this is where
+    /// started, the idle sweep, a colleague's delivery — and this is where
     /// they become one.
     writer: Arc<Mutex<cache::Cache>>,
 }
@@ -172,6 +176,12 @@ impl Log {
                 .or_default() += 1;
         }
         self.with_fold(stream, false, |fold| fold.events.clone())
+            .expect("a tolerant load skips unreadable files")
+    }
+
+    /// Whether an event with this id is on the stream, without copying it.
+    pub fn contains(&self, stream: &StreamId, id: &str) -> bool {
+        self.with_fold(stream, false, |fold| fold.contains(id))
             .expect("a tolerant load skips unreadable files")
     }
 
@@ -597,6 +607,13 @@ impl Log {
                 fs::create_dir_all(hotline_support::paths::jobs_dir(&self.root))?;
                 Ok((file, 1))
             }
+            StreamId::Asides(persona_id) => {
+                let file = hotline_support::paths::asides_path(&self.root, persona_id).ok_or_else(
+                    || io::Error::other(format!("Invalid teammate id: {persona_id}")),
+                )?;
+                fs::create_dir_all(hotline_support::paths::asides_dir(&self.root))?;
+                Ok((file, 1))
+            }
         }
     }
 
@@ -623,6 +640,11 @@ impl Log {
             StreamId::Job(id) => hotline_support::paths::job_path(&self.root, id)
                 .into_iter()
                 .collect(),
+            StreamId::Asides(persona_id) => {
+                hotline_support::paths::asides_path(&self.root, persona_id)
+                    .into_iter()
+                    .collect()
+            }
         }
     }
 }
@@ -817,7 +839,7 @@ mod tests {
     }
 
     /// A tape has several writers above it — the line a person typed, the turn
-    /// it started, the idle sweep, a colleague's peer session — and the
+    /// it started, the idle sweep, a colleague's delivery — and the
     /// offsets the log answers with are what a mirror will ship the bytes by.
     /// Two of them measuring the same file before either has written would
     /// each be told the same place.

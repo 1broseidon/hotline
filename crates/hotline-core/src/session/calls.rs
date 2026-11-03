@@ -88,6 +88,8 @@ impl Room {
             binding: None,
             elapsed_ms: None,
             opener: None,
+            handoff_ended: false,
+            asked_in: None,
         });
     }
 
@@ -328,9 +330,17 @@ impl Room {
 
     fn park_after_call(&self, thread: &ThreadId, note: Option<super::chapters::Note>) {
         self.end_thread(thread, super::sides::Ending::Park);
-        if let Some(mut link) = self.link_of(thread)
-            && !matches!(link.state, ThreadState::Closed(_))
-        {
+        // The link as it is when it is written: a call that was spoken on
+        // again meanwhile has an agent, and is not parked under it.
+        self.amend_link(thread, |mut link| {
+            if matches!(link.state, ThreadState::Closed(_))
+                || self
+                    .sides
+                    .get(&thread.key)
+                    .is_some_and(|side| !side.is_ending())
+            {
+                return None;
+            }
             link.state = ThreadState::Parked;
             if let Some(note) = note {
                 if thread.kind == ThreadKind::Call {
@@ -338,8 +348,8 @@ impl Room {
                 }
                 link.note = Some(note.note);
             }
-            self.write_link(&link);
-        }
+            Some(link)
+        });
     }
 }
 

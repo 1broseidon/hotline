@@ -4,6 +4,8 @@ import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../gene
 import { PaneClose } from "../ui/PaneClose";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
+import { sends, useReturned, useSends } from "../sends";
+import type { Refill } from "./Conversation";
 import {
 	clampDock,
 	DOCK_MAX,
@@ -24,8 +26,10 @@ import {
 	type ThreadDot,
 	threadDot,
 	threadOwnerId,
+	turnRunning,
 	withLinks,
 	withoutWords,
+	withTurns,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
 import { firstLine, nextText } from "../room";
@@ -35,16 +39,19 @@ import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
-import { shownState } from "../activity";
+import { isWorking, workingState } from "../activity";
 import { Composer } from "./Composer";
 import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
+import { NotedPage } from "./Noted";
+import { LoopIn } from "./LoopIn";
 
 /**
- * What the right-hand pane shows: the list, one thread open in it, or a
- * teammate's turn of work (`work`), opened from the peek at the line pressed.
+ * What the right-hand pane shows: the list, one thread open in it, a
+ * teammate's turn of work (`work`), opened from the peek at the line pressed,
+ * or its Noted page (`noted`), which a thread opened from it goes back to.
  */
-export type DockState = { open: ThreadRef | null; work?: { personaId: string; blockId: string | null; stepId?: string } };
+export type DockState = { open: ThreadRef | null; work?: { personaId: string; blockId: string | null; stepId?: string }; noted?: true };
 
 /**
  * The right-hand pane: this teammate's threads as a list, like the team on the
@@ -88,7 +95,9 @@ export function Dock({
 	}, []);
 
 	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
-	const { rows, list, reload } = useThreadRows(entry);
+	const { rows: listed, list, reload } = useThreadRows(entry);
+	const listedFor = entry?.persona.id ?? "";
+	const rows = useMemo(() => withTurns(listed, roster, listedFor), [listed, roster, listedFor]);
 	const jobs = useJobs(entry?.persona.id);
 	/* A teammate on a linked desk is in no roster here; its pair's row names it ("Lou on grizzly"). */
 	const nameOf = useCallback(
@@ -100,13 +109,19 @@ export function Dock({
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
 	const at = state.open;
+	// Opened from a line in the conversation too, not only from the list.
+	if (at !== null) opened.current = `${at.thread.kind}:${at.thread.key}`;
 	/* A turn's work, for the teammate it belongs to; another teammate open shows its list. */
 	const work = state.work !== undefined && entry !== null && entry.persona.id === state.work.personaId ? state.work : undefined;
+	const row = at === null ? undefined : rows.find((one) => sameThread(one.thread, at.thread));
+	const owner = roster.find((one) => one.persona.id === threadOwnerId(row, listedFor));
+	const noted = state.noted === true && entry !== null ? entry : null;
+	const back = noted !== null ? { open: null, noted: true as const } : { open: null };
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
-			<aside ref={root} className="dock" aria-label={work !== undefined ? "Work" : "Threads"}>
+			<aside ref={root} className="dock" aria-label={work !== undefined ? "Work" : noted !== null && at === null ? "Noted" : "Threads"}>
 				{work !== undefined && entry !== null ? (
 					<WorkPage
 						key={`${work.blockId ?? "now"}:${work.stepId ?? ""}`}
@@ -114,11 +129,13 @@ export function Dock({
 						blockId={work.blockId}
 						stepId={work.stepId}
 						name={entry.persona.name}
-						live={shownState(entry.session) === "thinking"}
+						live={isWorking(entry.session)}
 						onClose={onClose}
 					/>
-				) : at === null && <DockBand onClose={onClose} />}
-				{work !== undefined ? null : at === null ? (
+				) : at === null && noted === null && <DockBand onClose={onClose} />}
+				{work !== undefined ? null : at === null && noted !== null ? (
+					<NotedPage key={noted.persona.id} entry={noted} people={people} onOpen={(open) => onState({ open, noted: true })} onClose={onClose} />
+				) : at === null ? (
 					<ThreadList
 						teammate={teammate}
 						rows={rows}
@@ -134,15 +151,16 @@ export function Dock({
 						<ThreadView
 							key={`${at.thread.kind}:${at.thread.key}`}
 							open={at}
-							row={rows.find((row) => sameThread(row.thread, at.thread))}
+							row={row}
 							job={at.thread.kind === "job" ? jobs.find((one) => one.id === at.thread.key) : undefined}
 							teammate={teammate}
 							nameOf={nameOf}
 							people={people}
-							working={entry !== null && workingNow(entry, at)}
+							working={turnRunning(owner, at.thread, row)}
+							roster={roster}
 							onChanged={reload}
 							onOpen={(open) => onState({ open })}
-							onBack={() => onState({ open: null })}
+							onBack={() => onState(back)}
 							onClose={onClose}
 							onOpenTeammate={onOpenTeammate}
 						/>
@@ -156,15 +174,6 @@ export function Dock({
 /** How soon after a line in a running thread its list is read again, and how often while it runs. */
 const LIST_AFTER_LINE_MS = 1500;
 const LIST_WHILE_WORKING_MS = 5000;
-
-/** Whether a turn of this thread is running, as the roster, which hears of it first, says. */
-function workingNow(entry: RosterEntry, open: ThreadRef): boolean {
-	if (open.thread.kind === "side") return entry.sides?.find((side) => side.sideId === open.thread.key)?.working ?? false;
-	if (open.thread.kind === "run") return entry.subagents?.some((run) => run.runId === open.thread.key) ?? false;
-	if (open.thread.kind === "job") return entry.workingJobs?.includes(open.thread.key) ?? false;
-	if (open.thread.kind === "call") return entry.workingCalls?.includes(open.thread.key) ?? false;
-	return false;
-}
 
 /** The pane's header: what it holds, and the way out. */
 function DockBand({ onClose }: { onClose(): void }) {
@@ -206,9 +215,9 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 	const [revision, setRevision] = useState(0);
 	const { events } = useThread(personaId === undefined ? null : dmOf(personaId));
 	const links = useMemo(() => events.filter((event): event is LinkEvent => event.kind === "link"), [events]);
-	// A thread that started, parked or ended is a link rewritten; a turn starting or a card landing is the roster's word.
+	// A thread that started, parked or ended, or whose handoff ended, is a link rewritten; a turn starting or a card landing is the roster's word.
 	const signature =
-		links.map((link) => `${link.thread}:${link.state}`).join(",") +
+		links.map((link) => `${link.thread}:${link.state}${link.handoffEnded === true ? ":ended" : ""}`).join(",") +
 		"|" +
 		(entry?.sides ?? []).map((side) => `${side.sideId}:${side.working ? 1 : 0}`).join(",") +
 		"|" +
@@ -405,8 +414,10 @@ export function HandoffNote({ handoff }: { handoff: NonNullable<ThreadRef["hando
  * A thread, open in the pane, whatever its kind: the same conversation view the
  * main chat is, and below it a composer only where it can be spoken in. A work
  * thread is the same teammate in a second conversation, answerable, and a
- * parked one says so: saying something in it brings its agent back. Archive
- * ends it; once closed the page is the thread, read-only, with a Continue where
+ * parked one says so: saying something in it brings its agent back. Loop in…
+ * brings a colleague in for one answer, and End thread ends it, and the
+ * handoff into it when a teammate handed it over; once closed the page is the
+ * thread, read-only, with a Continue where
  * the composer was. A pair, a subagent's run and a call are read, not spoken
  * in: a run is told its task once and reports once. A job's thread is spoken
  * in until the job ends, and its header can stop a turn or end the job.
@@ -419,6 +430,7 @@ function ThreadView({
 	nameOf,
 	people,
 	working,
+	roster,
 	onChanged,
 	onOpen,
 	onBack,
@@ -426,6 +438,8 @@ function ThreadView({
 	onOpenTeammate,
 }: {
 	open: ThreadRef;
+	/** The team, for Loop in…'s colleagues. */
+	roster: RosterEntry[];
 	/** What the list knows of it: its state and its title. */
 	row: ThreadSummary | undefined;
 	/** The job this thread is, as the schedules view says, when it is one's. */
@@ -433,7 +447,7 @@ function ThreadView({
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
 	nameOf(personaId: string): string | undefined;
 	people: ReadonlyMap<string, Person>;
-	/** A turn of this thread is running, as the roster says. */
+	/** A turn of this thread is running: see `turnRunning`. */
 	working: boolean;
 	/** The thread was archived or continued: the list reads itself again. */
 	onChanged(): void;
@@ -443,10 +457,10 @@ function ThreadView({
 	onOpenTeammate(personaId: string): void;
 }) {
 	const id = open.thread;
-	const { events, streaming, more, earlier, prompt, cancel, close, resume } = useThread(id);
+	const { events, streaming, more, earlier, prompt, cancel, interrupt, close, resume } = useThread(id);
 	// A job ends on the schedules view before the list is read again.
 	const state = job?.endedAt !== undefined ? "closed" : (row?.state ?? "live");
-	// A teammate's handoff is the two teammates' work, read along and steered through whoever handed it over.
+	// A teammate's handoff is the two teammates' work: the person speaks in it, and only its result ends it.
 	const opener = openerOf(row);
 	// Opened from the pane of whoever handed it over, a handoff is still the receiver's: its lines and its bar name them.
 	const ownerId = threadOwnerId(row, teammate.id);
@@ -454,7 +468,7 @@ function ThreadView({
 	const powers = powersOf(id.kind, state, opener !== undefined);
 	const closed = state === "closed";
 	const parked = state === "parked";
-	const turning = (working || row?.working === true) && !closed;
+	const turning = working && !closed;
 	const other = id.kind === "pair" ? pairWith(id.key, self.id) : undefined;
 	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
 	const title = row !== undefined ? rowTitle(row, self.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));
@@ -491,11 +505,17 @@ function ThreadView({
 	}, [listedWorking, newest]);
 
 	const refuse = (error: unknown) => setRefused(error instanceof Error ? error.message : String(error));
+	// A refused message goes back to this thread's field, even when the person has gone elsewhere before the refusal came.
+	const conv = `${id.kind}:${id.key}`;
+	const [refill, setRefill] = useState<Refill | null>(null);
+	const threadSends = useSends(conv);
+	useReturned(conv, (back) => setRefill({ text: back.text, attachments: back.attachments, nonce: back.nonce, merge: true }));
 	const send = (text: string, attachments: Attachment[]) => {
 		setRefused(null);
-		void carry(attachments).then((carried) => prompt(text, carried)).catch(refuse);
+		sends.send(conv, { text, attachments }, () => carry(attachments).then((carried) => prompt(text, carried)));
 	};
-	const archive = () => {
+	// End thread: closes it, and a handoff into it with it, as the person's decision.
+	const end = () => {
 		setRefused(null);
 		void close().then(onChanged, refuse);
 	};
@@ -503,12 +523,13 @@ function ThreadView({
 		setRefused(null);
 		void resume().then(onChanged, refuse);
 	};
-	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right. In a handoff, this teammate's.
+	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right. A handoff is
+	// the person's to talk in: their lines are on the right, and this teammate's, like the opener's, on the left under its name.
 	const speakers =
 		id.kind === "pair"
 			? { me: self.name, them: withName, mine: (id.key.split("~")[0] === self.id ? "user" : "agent") as "user" | "agent" }
 			: opener !== undefined
-				? { me: self.name, them: opener.name, mine: "agent" as const }
+				? { me: "You", them: self.name, mine: "user" as const }
 				: undefined;
 	// What a handoff asks the person, the oldest first: the one thing they say in it.
 	const asked = opener === undefined ? undefined : lines.find((event): event is Extract<typeof event, { kind: "human_action" }> => event.kind === "human_action" && event.status === "pending");
@@ -516,7 +537,7 @@ function ThreadView({
 	return (
 		<section ref={root} className="dock-page" aria-label={`Thread with ${self.name}: ${title}`}>
 			<Band>
-				<button type="button" className="control btn-icon -ml-1" title="Back to threads" aria-label="Back to threads" onClick={onBack}>
+				<button type="button" className="control btn-icon -ml-1" title="Back" aria-label="Back" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
 				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 text-lg font-semibold">
@@ -531,9 +552,12 @@ function ThreadView({
 						Continue
 					</button>
 				)}
+				{powers.loopIn && (
+					<LoopIn thread={id} owner={self.id} roster={roster} people={people} onRefused={refuse} />
+				)}
 				{powers.close && (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Archive this thread" onClick={archive}>
-						Archive
+					<button type="button" className="control btn-quiet px-2 text-sm" title="End this thread" onClick={end}>
+						End thread
 					</button>
 				)}
 				{powers.stop && turning && (
@@ -574,13 +598,12 @@ function ThreadView({
 					{...(speakers !== undefined ? { speakers } : {})}
 				/>
 			</div>
-			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
-			{opener !== undefined ? (
-				asked !== undefined ? (
-					<AnswerField thread={id} name={self.name} actionId={asked.actionId} onRefused={refuse} />
-				) : (
-					<HandoffBar opener={opener} teammate={self} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
-				)
+			{(refused ?? threadSends.notice) !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused ?? threadSends.notice}</p>}
+			{opener !== undefined && asked === undefined && (
+				<HandoffBar opener={opener} teammate={self} ended={row?.handoffEnded === true} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
+			)}
+			{opener !== undefined && asked !== undefined ? (
+				<AnswerField thread={id} name={self.name} actionId={asked.actionId} onRefused={refuse} />
 			) : powers.say ? (
 				<>
 					{parked && (
@@ -592,10 +615,11 @@ function ThreadView({
 						embedded
 						personaId={`${id.kind}:${id.key}`}
 						name={self.name}
-						state={turning ? "thinking" : "ready"}
+						state={workingState(turning)}
+						{...(refill !== null ? { refill } : {})}
 						replyQuote={null}
 						onSend={send}
-						onCancel={() => void cancel().catch(() => undefined)}
+						onCancel={() => void interrupt().catch(() => undefined)}
 						onClearReply={() => undefined}
 					/>
 				</>
@@ -708,17 +732,21 @@ export function JobActions({ job, running, onSaid }: { job: ScheduleEntry; runni
 }
 
 /**
- * Where the composer is in a thread a teammate handed over: whose work it is,
- * and the way to the conversation where it is steered.
+ * Above the composer in a thread a teammate handed over: who handed it over,
+ * whether the handoff still stands, as the desk records it, and the way to
+ * that one's conversation.
  */
 function HandoffBar({
 	opener,
 	teammate,
+	ended,
 	people,
 	onTalk,
 }: {
 	opener: { personaId: string; name: string };
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
+	/** The handoff no longer stands: Stop exchange, a revocation or an unlink ended it. */
+	ended: boolean;
 	people: ReadonlyMap<string, Person>;
 	onTalk(): void;
 }) {
@@ -729,7 +757,7 @@ function HandoffBar({
 				<Avatar id={teammate.id} name={teammate.name} size={24} hash={teammate.avatarHash} />
 			</span>
 			<p className="min-w-0 flex-1 text-sm text-ink-3">
-				{opener.name} handed this to {teammate.name}. You can read along.{" "}
+				{opener.name} handed this to {teammate.name}.{ended ? " The handoff has ended." : ""}{" "}
 				<button type="button" className="link-quiet" onClick={onTalk}>
 					Talk to {opener.name} about it ›
 				</button>
@@ -753,7 +781,7 @@ function AnswerField({ thread, name, actionId, onRefused }: { thread: ThreadId; 
 	};
 	return (
 		<div className="handoff-answer">
-			<p className="text-xs text-ink-3">Your answer goes to {name}. The thread goes back to read-only after.</p>
+			<p className="text-xs text-ink-3">Your answer goes to {name} and carries the work on. You can keep talking here after.</p>
 			<input
 				className="field w-full"
 				aria-label={`Answer ${name}`}

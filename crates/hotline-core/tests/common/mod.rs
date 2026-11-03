@@ -113,6 +113,20 @@ pub async fn until(what: &str, mut condition: impl FnMut() -> bool) {
     }
 }
 
+/// A line as a scripted model reads it: without the thread index it opens
+/// with, which quotes other threads' lines (and the `CALL`s and `SAY`s they
+/// were asked) as context, never as this turn's ask.
+#[allow(dead_code, reason = "each test binary uses a different part of common")]
+pub fn asked(text: &str) -> String {
+    match (
+        text.find("(Thread index:"),
+        text.find("The index is over.)"),
+    ) {
+        (Some(start), Some(end)) if start < end => format!("{}{}", &text[..start], &text[end..]),
+        _ => text.to_string(),
+    }
+}
+
 /// The window's half of the wire, as a harness plays it. Every wait is
 /// bounded.
 #[allow(dead_code, reason = "each test binary uses a different part of common")]
@@ -211,6 +225,30 @@ impl Client {
             }
             self.inbox.push_back(frame);
         }
+    }
+
+    /// The event on subscription `sub` that `wanted` picks, live or in the
+    /// snapshot it was sent, within `ANSWER`. A subscription's snapshot is
+    /// taken after its `ok`, so a line a command wrote just after subscribing
+    /// may be in the snapshot and never sent as an event. A snapshot found
+    /// goes back to the inbox less the event taken, for the next wait to read.
+    pub async fn live_or_snapshot(&mut self, sub: i64, wanted: impl Fn(&Value) -> bool) -> Value {
+        let mut frame = self
+            .next_where(ANSWER, |frame| {
+                frame["sub"] == sub
+                    && (wanted(&frame["event"])
+                        || frame["snapshot"]
+                            .as_array()
+                            .is_some_and(|events| events.iter().any(&wanted)))
+            })
+            .await;
+        let Some(events) = frame["snapshot"].as_array_mut() else {
+            return frame["event"].clone();
+        };
+        let at = events.iter().position(&wanted).unwrap();
+        let event = events.remove(at);
+        self.inbox.push_front(frame);
+        event
     }
 
     /// The last dozen frames that arrived unwanted, newest last and each cut

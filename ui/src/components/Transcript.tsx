@@ -422,7 +422,7 @@ export function Transcript({
 			    easing it would reflow every row for the length of the ease.
 			    Subagents at the composer's corner keep the same room. */}
 			<div
-				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null || cornered ? "pb-14" : "pb-6"}`}
+				className={`tape-column mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null || cornered ? "pb-14" : "pb-6"}`}
 			>
 				{/* Scrolling up loads these on its own; the key is for a window
 				    whose loaded lines are too short to scroll. */}

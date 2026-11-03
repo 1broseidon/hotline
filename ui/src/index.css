@@ -1713,6 +1713,16 @@
 		 * (WAKE_BLINK) lands as it surfaces. */
 		animation: wake 650ms 200ms cubic-bezier(0.33, 1, 0.68, 1) both;
 	}
+	/* A thread with no composer under it, a subagent's run beside the
+	 * conversation, has the card stand where a composer would: centred on
+	 * the conversation's composer row (pb-4 under a 40px pill), not 8px
+	 * under it. */
+	.dock-page:not(:has(.composer)) .ambient-card {
+		margin-bottom: 20px;
+	}
+	.dock-page:not(:has(.composer)) .tape-column.pb-14 {
+		padding-bottom: 64px;
+	}
 	/* Settle, then sink: 300 + 480ms, SLEEP_MS in components/transcript/hooks.ts. */
 	.ambient-card[data-sleeping] {
 		pointer-events: none;

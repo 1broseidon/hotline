@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261103e">
+<link rel="stylesheet" href="/page.css?v=20261103f">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -56,11 +56,11 @@
     <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
     <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
   </div>
-  <p class="fine">Free. Version <span data-version>0.46.0</span>, <span data-size="mac">42 MB</span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
+  <p class="fine">Free. Version <span data-version>0.47.0</span><span data-size-wrap>, <span data-size="mac">42 MB</span></span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
   <figure class="stage">
     <div class="shot stage-desk"><picture><source media="(max-width: 40rem)" srcset="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1"><img src="/screens/hero-desk.webp" width="1332" height="605" alt="The Hotline desk: five teammates in the rail, Goldie’s thread with the card Allow Goldie to ask Kit to work, and the work she handed to Quill, Kit and Huck." fetchpriority="high" decoding="async"></picture></div>
     <div class="shot stage-phone"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="(max-width: 40rem) 92vw, 300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." fetchpriority="high" decoding="async"></div>
-    <figcaption class="caption">Goldie’s thread on the desk and the phone: a grant she asked for, then work handed to Quill, Kit and Huck.</figcaption>
+    <figcaption class="caption">Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck.</figcaption>
   </figure>
 </section>
 
@@ -82,7 +82,7 @@
     <li class="proof">
       <figure class="shot shot--piece"><img src="/screens/f-model.webp" width="368" height="402" alt="Lin’s menu: OpenRouter with an API key, effort set to High, Gemini 4 Argon chosen above LFM, Muse Wonder, Claude Haiku 5.5 and Mistral Large 4, and Change agent." loading="lazy" decoding="async"></figure>
       <h3>Ran a different model on each teammate.</h3>
-      <p>Lin runs Gemini 4 Argon through OpenRouter, picked from its own menu.</p>
+      <p>Lin runs Gemini 4 Argon through OpenRouter, from its own menu.</p>
     </li>
     <li class="proof">
       <figure class="shot shot--piece"><img src="/screens/f-switch.webp" width="320" height="256" alt="Lin’s settings: Whole machine, Background work and Collaboration switches, then under Computer the switch A computer of its own." loading="lazy" decoding="async"></figure>
@@ -150,7 +150,7 @@
     <div class="dl-main">
       <h2 id="dl-h" class="sign"><svg class="toad toad--sign" viewBox="4 8 56 40" aria-hidden="true"><g class="g-all"><g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g><g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g><g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g><g class="g-pupils"><rect x="14.5" y="28" width="11" height="4" rx="2"/><rect x="38.5" y="28" width="11" height="4" rx="2"/></g><g class="g-hand" opacity="0"><path class="g-receiver" d=""/></g><path class="g-line" d="" opacity="0"/></g></svg>Run me on your machine.</h2>
       <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
-      <p class="fine">Version <span data-version>0.46.0</span>. Then <a href="/docs/phone/">pair the iPhone app</a> (beta).</p>
+      <p class="fine">Version <span data-version>0.47.0</span>. Then <a href="/docs/phone/">pair the iPhone app</a> (beta).</p>
     </div>
     <table class="builds">
       <caption class="visually-hidden">Every build of the latest release, with its size</caption>
@@ -160,7 +160,9 @@
         <tr><th scope="row">Windows</th><td><a data-dl="win" href="https://github.com/1broseidon/hotline/releases/latest">Installer</a></td><td class="num" data-size="win">28 MB</td></tr>
         <tr><th scope="row">Linux</th><td><a data-dl="deb" href="https://github.com/1broseidon/hotline/releases/latest">.deb</a> or <a data-dl="rpm" href="https://github.com/1broseidon/hotline/releases/latest">.rpm</a></td><td class="num" data-size="deb">53 MB</td></tr>
         <tr><th scope="row">Linux</th><td><a data-dl="linux" href="https://github.com/1broseidon/hotline/releases/latest">AppImage</a></td><td class="num" data-size="linux">126 MB</td></tr>
-        <tr><th scope="row">Server</th><td><a data-dl="server" href="https://github.com/1broseidon/hotline/releases/latest">Headless</a></td><td class="num" data-size="server">44 MB</td></tr>
+        <tr data-row="debArm" hidden><th scope="row">Linux ARM</th><td><a data-dl="debArm" href="https://github.com/1broseidon/hotline/releases/latest">.deb</a> or <a data-dl="rpmArm" href="https://github.com/1broseidon/hotline/releases/latest">.rpm</a></td><td class="num" data-size="debArm"></td></tr>
+        <tr data-row="linuxArm" hidden><th scope="row">Linux ARM</th><td><a data-dl="linuxArm" href="https://github.com/1broseidon/hotline/releases/latest">AppImage</a></td><td class="num" data-size="linuxArm"></td></tr>
+        <tr><th scope="row">Server</th><td><a data-dl="server" href="https://github.com/1broseidon/hotline/releases/latest">x86_64</a> or <a data-dl="serverArm" href="https://github.com/1broseidon/hotline/releases/latest">ARM</a></td><td class="num" data-size="server">44 MB</td></tr>
       </tbody>
     </table>
   </div>
@@ -195,7 +197,8 @@ const ua = navigator.userAgent, onPhone = /iPhone|iPad|iPod|Android/.test(ua);
 // The download keys point at the release page until the latest release's own
 // assets are known; then each key links straight to its file, with its size.
 (async () => {
-  const want = { mac: /macos_aarch64\.dmg$/, macIntel: /macos_x86_64\.dmg$/, win: /windows_x86_64-setup\.exe$/, linux: /linux_x86_64\.AppImage$/, deb: /\.deb$/, rpm: /\.rpm$/, server: /^hotline-server.*linux_x86_64\.tar\.gz$/ };
+  // Every pattern names its architecture, so an ARM file can never answer for an x86 one.
+  const want = { mac: /macos_aarch64\.dmg$/, macIntel: /macos_x86_64\.dmg$/, win: /windows_x86_64-setup\.exe$/, linux: /linux_x86_64\.AppImage$/, deb: /linux_x86_64\.deb$/, rpm: /linux_x86_64\.rpm$/, debArm: /linux_aarch64\.deb$/, rpmArm: /linux_aarch64\.rpm$/, linuxArm: /linux_aarch64\.AppImage$/, server: /^hotline-server.*linux_x86_64\.tar\.gz$/, serverArm: /^hotline-server.*linux_aarch64\.tar\.gz$/ };
   try {
     const r = await fetch("https://api.github.com/repos/1broseidon/hotline/releases/latest", { headers: { accept: "application/vnd.github+json" } });
     if (!r.ok) return;
@@ -203,8 +206,9 @@ const ua = navigator.userAgent, onPhone = /iPhone|iPad|iPod|Android/.test(ua);
     for (const [key, re] of Object.entries(want)) {
       const asset = (rel.assets || []).find((a) => re.test(a.name));
       if (!asset) continue;
+      document.querySelectorAll(`[data-row="${key}"]`).forEach((el) => { el.hidden = false; });
       document.querySelectorAll(`[data-dl="${key}"]`).forEach((el) => { el.href = asset.browser_download_url; });
-      document.querySelectorAll(`[data-size="${key}"]`).forEach((el) => { el.textContent = `${Math.round(asset.size / 1e6)} MB`; });
+      document.querySelectorAll(`[data-size="${key}"]`).forEach((el) => { el.textContent = `${Math.round(asset.size / 1e6)} MB`; const w = el.closest("[data-size-wrap]"); if (w) w.hidden = false; });
     }
     if (rel.tag_name) document.querySelectorAll("[data-version]").forEach((el) => { el.textContent = rel.tag_name.replace(/^desktop-v/, ""); });
   } catch (e) {}
@@ -227,7 +231,10 @@ const ua = navigator.userAgent, onPhone = /iPhone|iPad|iPod|Android/.test(ua);
   const names = { mac: "macOS", win: "Windows", linux: "Linux" };
   const p = /Windows/.test(ua) ? "win" : /Linux|X11/.test(ua) && !/Android/.test(ua) ? "linux" : "mac";
   document.querySelectorAll("[data-dl-auto]").forEach((a) => { a.dataset.dl = p; a.textContent = `Download for ${names[p]}`; });
-  document.querySelectorAll(".hero [data-size]").forEach((s) => { s.dataset.size = p === "linux" ? "deb" : p; });
+  const arm = p === "linux" && /aarch64|arm64|armv8/i.test(ua);
+  // On Linux the button is the AppImage, which runs anywhere; its size beside it is the same file's.
+  if (arm) document.querySelectorAll("[data-dl-auto]").forEach((a) => { a.dataset.dl = "linuxArm"; });
+  document.querySelectorAll(".hero [data-size]").forEach((s) => { s.dataset.size = arm ? "linuxArm" : p; if (arm) { s.textContent = ""; s.closest("[data-size-wrap]").hidden = true; } });
   const others = (keys) => keys.map((k) => `<a data-dl="${k}" href="${REL}">${names[k]}</a>`).join(", ");
   document.querySelectorAll("[data-also]").forEach((s) => { s.innerHTML = others(Object.keys(names).filter((k) => k !== p)); });
   if (p === "win") document.querySelectorAll("[data-cmd]").forEach((c) => { const line = "irm https://hotline.dev/install.ps1 | iex"; c.querySelector("[data-cmd-text]").textContent = line; c.dataset.copy = line; });

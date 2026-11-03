@@ -1300,7 +1300,12 @@ avatar?: Avatar,
  * available member, who routes it onward. Distinct labels ARE the teams;
  * an empty label is the unteamed default.
  */
-team?: string, backendId: string, cwd: string, 
+team?: string, 
+/**
+ * The colour of this teammate's bubbles, one of [`BUBBLES`] by name.
+ * Absent is the grey every teammate answers in (decision-43).
+ */
+bubble?: string, backendId: string, cwd: string, 
 /**
  * How far Hotline Agent's tools reach. Absent means the working directory.
  */

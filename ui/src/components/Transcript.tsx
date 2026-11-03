@@ -649,7 +649,7 @@ const Row = memo(function Row({
                 const heard = spoken?.trim() ? spoken : event.text;
                 return <>
                     <p className="said-name">{ownerName}</p>
-                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} run={run} reactions={worn}
+                    <AgentSay personaId={personaId} event={{ ...written, text: heard }} run={run} reactions={worn} bubble={people?.get(personaId)?.bubble}
                         {...(onReply !== undefined ? { onReply } : {})} {...(onReact !== undefined ? { onReact } : {})}
                         {...(onOpenThread !== undefined ? { onOpenThread } : {})} />
                     {heard !== event.text && <details className="my-2 text-sm text-ink-3">
@@ -671,6 +671,7 @@ const Row = memo(function Row({
 					event={event}
 					run={run}
 					reactions={worn}
+					bubble={people?.get(personaId)?.bubble}
 					{...(onReply !== undefined ? { onReply } : {})}
 					{...(onReact !== undefined ? { onReact } : {})}
 				/>

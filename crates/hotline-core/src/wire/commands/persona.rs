@@ -82,6 +82,7 @@ pub(crate) fn drafted_persona(
         goal: given(draft.goal).unwrap_or_default(),
         avatar: None,
         team: given(draft.team),
+        bubble: None,
         backend_id,
         cwd,
         // The workspace is the wall unless the draft asked for the machine,
@@ -453,6 +454,16 @@ pub(super) fn update_persona(
     let previous = living(log, id)?;
     if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
         return Err("A picture can only be cleared here, with `avatar: null`.".into());
+    }
+    if let Some(bubble) = patch.get("bubble").filter(|bubble| !bubble.is_null())
+        && !bubble
+            .as_str()
+            .is_some_and(|name| hotline_contract::BUBBLES.contains(&name))
+    {
+        return Err(format!(
+            "A bubble is grey (null) or one of {}.",
+            hotline_contract::BUBBLES.join(", ")
+        ));
     }
     let mut record = json!(previous);
     let fields = record

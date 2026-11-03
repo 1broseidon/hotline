@@ -601,6 +601,7 @@ pub(crate) fn persona(id: &str) -> Persona {
         goal: "Keep the harbour running.".to_string(),
         avatar: None,
         team: None,
+        bubble: None,
         backend_id: "hotline".to_string(),
         cwd: std::env::temp_dir().to_string_lossy().to_string(),
         reach: Some(Reach::Machine),

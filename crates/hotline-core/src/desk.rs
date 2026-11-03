@@ -1657,6 +1657,7 @@ mod tests {
             goal: "Keep the revocation test deterministic.".to_string(),
             avatar: None,
             team: None,
+            bubble: None,
             backend_id: "hotline".to_string(),
             cwd: root.join(id).to_string_lossy().into_owned(),
             reach: Some(Reach::Workspace),

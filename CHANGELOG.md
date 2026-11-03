@@ -15,6 +15,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   selections. It is the room's, so every window on the desk draws it; light
   or dark stays each window's own. Mint is the default and nothing changes
   until you pick another.
+- A teammate's bubble can take a colour of its own: a Bubble row in its
+  settings offers Grey, the default, and six soft tints from the faces'
+  hues, its own face's first. Only that teammate's replies change, in its
+  chat, its calls and the answers it gives where it is looped in.
 
 ### Changed
 

@@ -54,11 +54,14 @@ export function AgentSay({
 	event,
 	run,
 	reactions,
+	bubble,
 	onReply,
 	onReact,
     onOpenThread,
 }: {
 	personaId: string;
+	/** The colour the person gave this teammate's bubbles; grey when none. */
+	bubble?: string | undefined;
     onOpenThread?(open: { thread: ThreadId; title?: string }): void;
 	event: Extract<TranscriptEvent, { kind: "agent" }>;
 	run: Run;
@@ -82,6 +85,7 @@ export function AgentSay({
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: the bubble is text; focus is there so R replies and the menu key opens its menu. */}
 			<div
 				className={`speech said-them ${runClass(run)}`}
+				data-bubble={bubble}
 				tabIndex={onReply === undefined ? undefined : 0}
 				onContextMenu={(click) => bubbleMenu(click, actions)}
 				onKeyDown={(key) => {

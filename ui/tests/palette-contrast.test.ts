@@ -155,3 +155,9 @@ test("the mint swatch's block draws the palette's own mint, so the default looks
 	for (const [token, value] of both) expect({ token, value }).toEqual({ token, value: dark.get(token)! });
 	for (const [token, value] of lightOnly) expect({ token, value }).toEqual({ token, value: light.get(token)! });
 });
+
+test("a teammate's bubble colour keeps its words at 12:1 or more in both palettes", () => {
+	for (const name of ["lime", "green", "teal", "blue", "violet", "pink"])
+		for (const [mode, palette] of [["dark", dark], ["light", light]] as const)
+			expect({ name, mode, words: ratio(palette, "ink", `bubble-${name}`) >= 12 }).toEqual({ name, mode, words: true });
+});

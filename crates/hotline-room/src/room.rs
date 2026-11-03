@@ -765,6 +765,7 @@ mod tests {
             goal: "Keep the harbour running.".to_string(),
             avatar: None,
             team: None,
+            bubble: None,
             backend_id: "hotline".to_string(),
             cwd: "/tmp/harbour".to_string(),
             reach: None,

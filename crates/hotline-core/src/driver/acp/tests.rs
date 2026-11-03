@@ -50,6 +50,7 @@ pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona
         goal: "Keep the harbour running.".to_string(),
         avatar: None,
         team: None,
+        bubble: None,
         backend_id: "cursor".to_string(),
         cwd: cwd.to_string(),
         reach: None,

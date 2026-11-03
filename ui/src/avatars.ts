@@ -13,24 +13,24 @@ const readOverWire: AvatarRead = (personaId, hash, offset) => wire.command("avat
  */
 const pictures = new Map<string, Promise<string>>();
 
-/** A colleague a line names: what to call them, and their picture's hash when they have one. */
-export type Person = { name: string; hash?: string | undefined };
+/** A colleague a line names: what to call them, their picture's hash and their bubble's colour when they have one. */
+export type Person = { name: string; hash?: string | undefined; bubble?: string | undefined };
 
 /** Every teammate by id, for lines that name a colleague rather than the teammate whose tape it is. */
-export function peopleOf(roster: readonly { persona: { id: string; name: string; avatar?: { hash: string } | undefined } }[]): ReadonlyMap<string, Person> {
-	return new Map(roster.map((entry) => [entry.persona.id, { name: entry.persona.name, hash: entry.persona.avatar?.hash }]));
+export function peopleOf(roster: readonly { persona: { id: string; name: string; avatar?: { hash: string } | undefined; bubble?: string | undefined } }[]): ReadonlyMap<string, Person> {
+	return new Map(roster.map((entry) => [entry.persona.id, { name: entry.persona.name, hash: entry.persona.avatar?.hash, bubble: entry.persona.bubble }]));
 }
 
 /**
- * `peopleOf`, rebuilt only when a name or a picture changes. A roster event
+ * `peopleOf`, rebuilt only when a name, a picture or a bubble changes. A roster event
  * hands over a new array for every state flicker; keyed on what the map holds,
  * the rows that read it are not asked to draw again.
  */
 export function usePeople(roster: Parameters<typeof peopleOf>[0]): ReadonlyMap<string, Person> {
 	const latest = useRef(roster);
 	latest.current = roster;
-	const key = roster.map((entry) => `${entry.persona.id}\u0000${entry.persona.name}\u0000${entry.persona.avatar?.hash ?? ""}`).join("\u0001");
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the key is the roster's names and pictures, which peopleOf reads through latest.
+	const key = roster.map((entry) => `${entry.persona.id}\u0000${entry.persona.name}\u0000${entry.persona.avatar?.hash ?? ""}\u0000${entry.persona.bubble ?? ""}`).join("\u0001");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the key is the roster's names, pictures and bubbles, which peopleOf reads through latest.
 	return useMemo(() => peopleOf(latest.current), [key]);
 }
 

@@ -132,6 +132,7 @@ mod tests {
             goal: String::new(),
             avatar: None,
             team: None,
+            bubble: None,
             backend_id: "hotline".to_string(),
             cwd: format!("/tmp/{id}"),
             reach: None,

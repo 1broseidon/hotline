@@ -1125,6 +1125,7 @@ fn test_persona(id: &str) -> crate::contract::Persona {
         goal: String::new(),
         avatar: None,
         team: None,
+        bubble: None,
         backend_id: "hotline".to_string(),
         cwd: "/".to_string(),
         reach: Some(crate::contract::Reach::Machine),

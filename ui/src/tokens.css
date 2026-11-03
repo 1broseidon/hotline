@@ -80,6 +80,14 @@
 	--said-me: oklch(78.7% 0.128 163);
 	--said-me-ink: oklch(24% 0.044 165);
 	--said-them: oklch(22% 0.008 250);
+	/* A teammate's bubble when the person gave it a colour (decision-43): the
+	 * faces' hues but gold, a soft tint that keeps its words at 13:1. */
+	--bubble-lime: oklch(25% 0.035 113);
+	--bubble-green: oklch(25% 0.035 156);
+	--bubble-teal: oklch(25% 0.035 199);
+	--bubble-blue: oklch(25% 0.035 242);
+	--bubble-violet: oklch(25% 0.035 285);
+	--bubble-pink: oklch(25% 0.035 328);
 
 	--warn: oklch(80% 0.14 80);
 	/* Waiting on the person, as words and an outline: the same amber everywhere it asks. */
@@ -186,6 +194,12 @@
 	--said-me: oklch(70% 0.13 163);
 	--said-me-ink: oklch(24% 0.044 165);
 	--said-them: oklch(93.5% 0.005 250);
+	--bubble-lime: oklch(93% 0.03 113);
+	--bubble-green: oklch(93% 0.03 156);
+	--bubble-teal: oklch(93% 0.03 199);
+	--bubble-blue: oklch(93% 0.03 242);
+	--bubble-violet: oklch(93% 0.03 285);
+	--bubble-pink: oklch(93% 0.03 328);
 
 	--warn: oklch(64% 0.15 75);
 	/* Darker as words on a light card, so small text keeps its contrast. */
@@ -328,6 +342,39 @@
 	--said-me: oklch(70% 0.13 355);
 	--on-accent: oklch(24% 0.044 355);
 	--said-me-ink: oklch(24% 0.044 355);
+}
+
+/* A teammate's bubble colour by name, on its bubbles and on its swatch;
+ * grey is the bubble every teammate has until the person picks another. The
+ * tint is soft, so a swatch draws its hue as strong as a face's (--bubble-mark),
+ * and the bubble takes the tint. */
+[data-bubble="grey"] {
+	--bubble: var(--said-them);
+	--bubble-mark: oklch(var(--face-l) 0.01 250);
+}
+[data-bubble="lime"] {
+	--bubble: var(--bubble-lime);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 113);
+}
+[data-bubble="green"] {
+	--bubble: var(--bubble-green);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 156);
+}
+[data-bubble="teal"] {
+	--bubble: var(--bubble-teal);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 199);
+}
+[data-bubble="blue"] {
+	--bubble: var(--bubble-blue);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 242);
+}
+[data-bubble="violet"] {
+	--bubble: var(--bubble-violet);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 285);
+}
+[data-bubble="pink"] {
+	--bubble: var(--bubble-pink);
+	--bubble-mark: oklch(var(--face-l) var(--face-c) 328);
 }
 
 /* A hairline is one device pixel, not one CSS pixel. */

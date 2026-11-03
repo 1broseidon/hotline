@@ -13,15 +13,23 @@
 <meta property="og:description" content="Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.">
 <meta property="og:url" content="https://hotline.dev/">
 <meta property="og:image" content="https://hotline.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Hotline toad on a call, and the line Hi, I’m hotline.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Hotline: an open-source personal agent ecosystem">
 <meta name="twitter:description" content="Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.">
 <meta name="twitter:image" content="https://hotline.dev/og.png">
-<meta name="theme-color" content="#0a0c0f">
+<meta name="twitter:image:alt" content="The Hotline toad on a call, and the line Hi, I’m hotline.">
+<meta name="theme-color" content="#06080b">
+<meta name="color-scheme" content="dark">
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script>document.documentElement.classList.add("js")</script>
-<link rel="stylesheet" href="/page.css?v=r9">
+<link rel="preload" href="/tokens.css" as="style">
+<link rel="preload" href="/base.css" as="style">
+<link rel="stylesheet" href="/page.css?v=20261103">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -46,12 +54,12 @@
   <p class="lead">I’m an open-source personal agent ecosystem. I work with my teammates, have my own computer, and run on the subscriptions you already pay for.</p>
   <div class="hero-act">
     <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
-    <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" aria-label="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
+    <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
   </div>
   <p class="fine">Free. Version <span data-version>0.46.0</span>, <span data-size="mac">42 MB</span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
   <figure class="stage">
-    <div class="shot stage-desk"><img src="/screens/hero-desk.webp" width="1332" height="605" alt="The Hotline desk: five teammates in the rail, Goldie’s thread with the card Allow Goldie to ask Kit to work, and the work she handed to Quill, Kit and Huck." fetchpriority="high" decoding="async"></div>
-    <div class="shot stage-phone"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="(max-width: 40rem) 92vw, 300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." decoding="async"></div>
+    <div class="shot stage-desk"><picture><source media="(max-width: 40rem)" srcset="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1"><img src="/screens/hero-desk.webp" width="1332" height="605" alt="The Hotline desk: five teammates in the rail, Goldie’s thread with the card Allow Goldie to ask Kit to work, and the work she handed to Quill, Kit and Huck." fetchpriority="high" decoding="async"></picture></div>
+    <div class="shot stage-phone"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="(max-width: 40rem) 92vw, 300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." fetchpriority="high" decoding="async"></div>
     <figcaption class="caption">Goldie’s thread on the desk and the phone: a grant she asked for, then work handed to Quill, Kit and Huck.</figcaption>
   </figure>
 </section>
@@ -93,7 +101,7 @@
     </div>
     <figure class="shot shot--clip">
       <button class="clip-toggle" type="button" data-clip-toggle aria-controls="run" hidden>Pause</button>
-      <video id="run" width="1440" height="810" poster="/screens/computer-run.webp" autoplay muted loop playsinline preload="metadata" aria-label="A teammate’s computer running the job it was handed: the shell shows the job start, four pages render, and the job ends with exit 0.">
+      <video id="run" width="1440" height="810" poster="/screens/computer-run.webp" autoplay muted loop playsinline controls preload="metadata" aria-label="A teammate’s computer running the job it was handed: the shell shows the job start, four pages render, and the job ends with exit 0.">
         <source src="/screens/computer-run.mp4" type="video/mp4">
         <source src="/screens/computer-run.webm" type="video/webm">
       </video>
@@ -249,6 +257,7 @@ document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("clic
   const v = document.getElementById("run"), b = document.querySelector("[data-clip-toggle]"); if (!v) return;
   let held = reduce;
   const show = () => { if (b) b.textContent = v.paused ? "Play" : "Pause"; };
+  v.removeAttribute("controls");
   if (b) { b.hidden = false; b.addEventListener("click", () => { held = !v.paused; if (held) v.pause(); else v.play().catch(() => {}); }); }
   v.addEventListener("play", show); v.addEventListener("pause", show);
   if (reduce) { v.removeAttribute("autoplay"); v.pause(); }
@@ -259,7 +268,7 @@ document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("clic
 
 // The headline tries a few names, the kind you might give it, then says its own.
 // Scrolling ends the typing at once: the name is needed for what follows.
-const heroToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--hero")) : { talk() {}, hangUp() {} };
+const heroToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--hero")) : { talk() {}, hangUp() {}, turn() {} };
 const mastToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--mast")) : { turn() {} };
 const brand = document.querySelector(".mast .brand");
 if (brand) { brand.addEventListener("pointerenter", () => mastToad.turn()); brand.addEventListener("focus", () => mastToad.turn()); }
@@ -274,20 +283,22 @@ const typing = (() => {
   const h1 = el.closest("h1"), names = el.dataset.names.split("|"), own = names[names.length - 1];
   let done = false;
   const finish = () => { if (done) return; done = true; el.textContent = own; h1.classList.remove("is-typing", "is-guess"); h1.classList.add("is-done"); heroToad.hangUp(); };
+  const toad = document.querySelector(".toad--hero");
+  if (toad) toad.addEventListener("pointerenter", () => { if (h1.classList.contains("is-own") || done) heroToad.turn(); });
   if (reduce) { finish(); return { finish }; }
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   (async () => {
     h1.classList.add("is-typing", "is-guess"); el.textContent = "";
     heroToad.talk();
-    await wait(500);
+    await wait(400);
     for (let i = 0; i < names.length && !done; i++) {
       const last = i === names.length - 1;
       h1.classList.toggle("is-guess", !last);
-      for (const ch of names[i]) { if (done) return; el.textContent += ch; await wait(85 + Math.random() * 40); }
+      for (const ch of names[i]) { if (done) return; el.textContent += ch; await wait(70 + Math.random() * 30); }
       if (last) break;
-      await wait(1000);
-      while (el.textContent && !done) { el.textContent = el.textContent.slice(0, -1); await wait(45); }
-      await wait(260);
+      await wait(800);
+      while (el.textContent && !done) { el.textContent = el.textContent.slice(0, -1); await wait(35); }
+      await wait(220);
     }
     if (done) return;
     h1.classList.add("is-own"); heroToad.hangUp();

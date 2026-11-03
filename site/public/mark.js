@@ -4,6 +4,7 @@
 //   talk()    lifts the handset and keeps talking down the line until told to stop
 //   hangUp()  reels the line in, drops the handset on the cradle and winks
 //   turn()    one whole turn: thinking, reading, searching, editing, running, the reply, the hang-up
+//   still()   one frame of one phase, held
 window.hotlineMark = (() => {
   // receiver.ts: the brow, the small drawing the working glyph moves.
   const G = { gap: 3.4, thick: 3.8, lips: 156, sag: 0 };
@@ -85,7 +86,7 @@ window.hotlineMark = (() => {
   const TURN_LEN = TURN.reduce((a, [, d]) => a + d, 0), LANDED = REEL + DROP + CLUNK + WINK + 0.1;
 
   return (svg) => {
-    if (!svg) return { talk() {}, hangUp() {}, turn() {} };
+    if (!svg) return { talk() {}, hangUp() {}, turn() {}, still() {} };
     const set = (sel, name, v) => svg.querySelector(sel).setAttribute(name, v);
     set(".g-receiver", "d", receiverPath(G));
     // At rest the toad sits alone, as the app's own chrome wears it; the handset is only in hand at work.
@@ -105,7 +106,7 @@ window.hotlineMark = (() => {
     };
     const rest = () => { hand = false; paint({ ...REST }, { lift: 0, tilt: 0, hx: 0 }, null); };
     rest();
-    if (reduce) return { talk() {}, hangUp() {}, turn() {} };
+    if (reduce) return { talk() {}, hangUp() {}, turn() {}, still() {} };
 
     const held = { lift: 0, tilt: 0, hx: 0 };
     let entry = { ...held }, spoken = 0, current = null, blinkAt = -1, nextBlink = 0.7;
@@ -160,6 +161,8 @@ window.hotlineMark = (() => {
     return {
       talk() { landing = false; if (!timer) run(null); const from = now(); script = (c) => ["writing", c - from]; if (!timer) tick(); },
       hangUp() { if (!timer || landing) return; landing = true; const from = now(); script = (c) => (c - from < LANDED ? ["landed", c - from] : null); },
+      // One frame of one phase, held: for a card, a test, a still.
+      still(phase, t) { if (timer) { clearTimeout(timer); timer = 0; } script = null; draw(phase, t, t, 0.05); },
       turn() {
         if (timer) return;
         run((c) => { if (c >= TURN_LEN) return null; let acc = 0; for (const [p, d] of TURN) { if (c < acc + d) return [p, c - acc]; acc += d; } return null; });

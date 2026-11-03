@@ -6,9 +6,9 @@ substitute a system grotesque for a webfont that has not arrived — every
 measurement moves and nothing says so — and embedding removes both the network
 and the file:// question.
 
-The geometry below is the original Toad card's, measured off it. The wordmark
-is a different word now, so its width is expected to differ; everything else is
-held in place.
+The geometry below was measured off the card the page's own first screen
+makes: the toad on a call, the line it says, the owner's sentence. A change to
+og.html or to mark.js's talking pose moves a box, and this says so.
 """
 import base64
 import pathlib
@@ -19,13 +19,16 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 OUT = HERE.parent / "public" / "og.png"
 
-# Ink boxes the render has to land on: x, y, width, height. None where the
-# word itself changed and only the left edge and baseline still mean anything.
+# Ink boxes the render has to land on: x, y, width, height, measured off the
+# card as first rendered on 2026-11-03. The toad is held on one frame of its
+# talking pose, so its line and body are two bands; the sentence wraps to two.
 EXPECTED = [
-    ("mark", 96, 196, 150, 77),
-    ("wordmark", 96, 315, None, 67),
-    ("subtitle", 96, 417, 520, 27),
-    ("footer", 96, 554, None, 15),
+    ("line", 107, 139, 128, 23),
+    ("toad", 96, 176, 150, 76),
+    ("headline", 96, 307, 557, 79),
+    ("sentence 1", 97, 425, 934, 27),
+    ("sentence 2", 98, 464, 908, 27),
+    ("footer", 98, 550, 102, 16),
 ]
 
 
@@ -86,7 +89,7 @@ def main() -> int:
     found = bands(OUT)
     ok = True
     print(f"{OUT}")
-    for (name, ex, ey, ew, eh), (x, y, w, h) in zip(EXPECTED, found + [(0, 0, 0, 0)] * 4):
+    for (name, ex, ey, ew, eh), (x, y, w, h) in zip(EXPECTED, found + [(0, 0, 0, 0)] * len(EXPECTED)):
         notes = []
         if x != ex:
             notes.append(f"left {x} want {ex}")

@@ -3,6 +3,10 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
   Cache-Control: public, max-age=600
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+/screens/*
+  Cache-Control: public, max-age=86400
 /favicon.svg
   Cache-Control: public, max-age=86400
 /og.png

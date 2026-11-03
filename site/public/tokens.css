@@ -18,6 +18,7 @@
   /* The toad's green: the mark, the name it says, the caret and the shell prompt. Nothing else. */
   --color-accent: oklch(76% 0.17 142); --color-accent-ink: oklch(16% 0.03 142); --color-focus: oklch(76% 0.17 142);
   --font-display: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; --font-outlier: var(--font-body);
+  --radius-device: 30px; --color-shadow: oklch(6% 0.01 250 / 0.7); --shadow-lift: 0 30px 60px -18px var(--color-shadow), 0 0 0 1px oklch(30% 0.01 250 / 0.9);
   --radius-card: 14px; --radius-control: 10px; --radius-pill: 999px; --rule-hair: 1px; --shadow-card: none;
   --tracking-display: -0.025em;
 }

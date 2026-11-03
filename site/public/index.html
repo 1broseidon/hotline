@@ -21,7 +21,7 @@
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script>document.documentElement.classList.add("js")</script>
-<link rel="stylesheet" href="/page.css?v=r5">
+<link rel="stylesheet" href="/page.css?v=r9">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -49,13 +49,11 @@
     <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" aria-label="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
   </div>
   <p class="fine">Free. Version <span data-version>0.46.0</span>, <span data-size="mac">42 MB</span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
-  <figure class="shot shot--hero">
-    <picture>
-      <source media="(max-width: 40rem)" srcset="/screens/hero-desk-phone.webp" width="700" height="525">
-      <img src="/screens/hero-desk.webp" width="1332" height="605" alt="The Hotline desk: five teammates in the rail, Goldie’s thread with the card Allow Goldie to ask Kit to work, and the work she handed to Quill, Kit and Huck." fetchpriority="high" decoding="async">
-    </picture>
+  <figure class="stage">
+    <div class="shot stage-desk"><img src="/screens/hero-desk.webp" width="1332" height="605" alt="The Hotline desk: five teammates in the rail, Goldie’s thread with the card Allow Goldie to ask Kit to work, and the work she handed to Quill, Kit and Huck." fetchpriority="high" decoding="async"></div>
+    <div class="shot stage-phone"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="(max-width: 40rem) 92vw, 300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." decoding="async"></div>
+    <figcaption class="caption">Goldie’s thread on the desk and the phone: a grant she asked for, then work handed to Quill, Kit and Huck.</figcaption>
   </figure>
-  <p class="caption">Goldie’s room on the desk: a grant she asked for first, then the work handed to Quill, Kit and Huck.</p>
 </section>
 
 <div class="container"><div class="runs">
@@ -87,21 +85,24 @@
 </section>
 
 <section class="section container" aria-labelledby="computer-h">
-  <div class="split">
-    <h2 id="computer-h">My own computer, in a window you can watch.</h2>
-    <p class="split-p">A Linux desktop in a container on your machine: a screen, a browser, a shell. I run jobs there and sign in with keys you grant. When I need you, take the mouse.</p>
+  <div class="media">
+    <div class="media-text">
+      <h2 id="computer-h">My own computer, in a window you can watch.</h2>
+      <p class="split-p">A Linux desktop in a container on your machine: a screen, a browser, a shell. I run jobs there and sign in with keys you grant. When I need you, take the mouse.</p>
+      <p class="caption">Eight seconds of a job, as the desk shows it. Docker, Podman or Apple container.</p>
+    </div>
+    <figure class="shot shot--clip">
+      <button class="clip-toggle" type="button" data-clip-toggle aria-controls="run" hidden>Pause</button>
+      <video id="run" width="1440" height="810" poster="/screens/computer-run.webp" autoplay muted loop playsinline preload="metadata" aria-label="A teammate’s computer running the job it was handed: the shell shows the job start, four pages render, and the job ends with exit 0.">
+        <source src="/screens/computer-run.mp4" type="video/mp4">
+        <source src="/screens/computer-run.webm" type="video/webm">
+      </video>
+    </figure>
   </div>
-  <figure class="shot shot--clip">
-    <button class="clip-toggle" type="button" data-clip-toggle aria-controls="run" hidden>Pause</button>
-    <video id="run" width="1440" height="810" poster="/screens/computer-run.webp" autoplay muted loop playsinline preload="metadata" aria-label="A teammate’s computer running the job it was handed: the shell shows the job start, four pages render, and the job ends with exit 0.">
-      <source src="/screens/computer-run.mp4" type="video/mp4">
-      <source src="/screens/computer-run.webm" type="video/webm">
-    </video>
-  </figure>
-  <p class="caption">Eight seconds of a job, as the desk shows it. Docker, Podman or Apple container.</p>
 </section>
 
 <section class="section container" aria-labelledby="trust-h">
+  <div class="duo">
   <h2 id="trust-h">Nothing sits between us.</h2>
   <dl class="facts">
     <div><dt>No account</dt><dd>You never sign up. You pay your model provider and nobody else.</dd></div>
@@ -109,6 +110,7 @@
     <div><dt>Your data stays put</dt><dd>Every transcript and file I make stays on your disk.</dd></div>
     <div><dt>Signed for macOS</dt><dd>Notarized by Apple, so I open without a warning.</dd></div>
   </dl>
+  </div>
 </section>
 
 <section class="section container" aria-labelledby="src-h">
@@ -138,7 +140,7 @@
 <section class="section section--download container" id="download" aria-labelledby="dl-h">
   <div class="dl">
     <div class="dl-main">
-      <h2 id="dl-h">Run me on your machine.</h2>
+      <h2 id="dl-h" class="sign"><svg class="toad toad--sign" viewBox="4 8 56 40" aria-hidden="true"><g class="g-all"><g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g><g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g><g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g><g class="g-pupils"><rect x="14.5" y="28" width="11" height="4" rx="2"/><rect x="38.5" y="28" width="11" height="4" rx="2"/></g><g class="g-hand" opacity="0"><path class="g-receiver" d=""/></g><path class="g-line" d="" opacity="0"/></g></svg>Run me on your machine.</h2>
       <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
       <p class="fine">Version <span data-version>0.46.0</span>. Then <a href="/docs/phone/">pair the iPhone app</a> (beta).</p>
     </div>
@@ -261,6 +263,10 @@ const heroToad = window.hotlineMark ? window.hotlineMark(document.querySelector(
 const mastToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--mast")) : { turn() {} };
 const brand = document.querySelector(".mast .brand");
 if (brand) { brand.addEventListener("pointerenter", () => mastToad.turn()); brand.addEventListener("focus", () => mastToad.turn()); }
+// The toad signs off at the download, and plays a whole turn for whoever points at it.
+const signToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--sign")) : { turn() {} };
+const sign = document.querySelector(".sign");
+if (sign) sign.addEventListener("pointerenter", () => signToad.turn());
 
 // The toad on the headline talks the whole time the names are typed, and hangs up on its own.
 const typing = (() => {

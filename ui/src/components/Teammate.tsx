@@ -7,7 +7,7 @@ import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
-import { bubbleChoices, bubbleOf } from "../bubbles";
+import { bubbleChoices, bubbleOf, ownBubble } from "../bubbles";
 import { Swatches } from "../ui/Swatches";
 import { MAX_PINS } from "../pins";
 import { voiceLabel } from "../useFor";
@@ -247,11 +247,11 @@ export function Teammate({
 						<div className="group-row">
 							<RowText title="Bubble" />
 							<Swatches
-								value={bubbleOf(persona.bubble)}
+								value={bubbleOf(persona.bubble, persona.id)}
 								choices={bubbleChoices(persona.id)}
 								label="Bubble"
 								attribute="data-bubble"
-								onChange={(bubble) => save({ bubble: bubble === "grey" ? null : bubble } as unknown as Partial<Persona>)}
+								onChange={(bubble) => save({ bubble: bubble === ownBubble(persona.id) ? null : bubble } as unknown as Partial<Persona>)}
 							/>
 						</div>
 						<div className="group-row">

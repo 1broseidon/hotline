@@ -1302,8 +1302,9 @@ avatar?: Avatar,
  */
 team?: string, 
 /**
- * The colour of this teammate's bubbles, one of [`BUBBLES`] by name.
- * Absent is the grey every teammate answers in (decision-43).
+ * The colour of this teammate's bubbles, one of [`BUBBLES`] or `grey`
+ * by name. Absent is the teammate's own face hue, or grey for a gold
+ * face (decision-43); `grey` is grey by choice.
  */
 bubble?: string, backendId: string, cwd: string, 
 /**

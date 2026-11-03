@@ -78,7 +78,8 @@ afterEach(async () => {
 });
 
 const { AgentSay } = await import("../src/components/transcript/Bubbles");
-const { bubbleChoices } = await import("../src/bubbles");
+const { bubbleChoices, ownBubble } = await import("../src/bubbles");
+const { peopleOf } = await import("../src/avatars");
 const { faceHue } = await import("../src/ui/Avatar");
 
 async function mount(who: Persona) {
@@ -92,9 +93,10 @@ async function mount(who: Persona) {
 const swatches = () => [...container.querySelectorAll<HTMLButtonElement>('fieldset[aria-label="Bubble"] .swatch')];
 const pressed = () => swatches().filter((one) => one.getAttribute("aria-pressed") === "true").map((one) => one.title);
 const FACES = ["gold", "lime", "green", "teal", "blue", "violet", "pink"];
+const NAMED: Record<string, string> = { lime: "Lime", green: "Green", teal: "Teal", blue: "Blue", violet: "Violet", pink: "Pink" };
 
 describe("a teammate's bubble", () => {
-	test("is grey until picked, offered as grey, its own face hue, then the rest, never gold", async () => {
+	test("is its own face hue until picked, offered as grey, its own face hue, then the rest, never gold", async () => {
 		await mount(persona);
 		const names = swatches().map((one) => one.dataset["bubble"]);
 		const own = FACES[faceHue("ada")]!;
@@ -102,26 +104,36 @@ describe("a teammate's bubble", () => {
 		if (own !== "gold") expect(names[1]).toBe(own);
 		expect([...names].sort()).toEqual(["blue", "green", "grey", "lime", "pink", "teal", "violet"]);
 		expect(swatches().every((one) => one.title !== "" && one.title === one.getAttribute("aria-label"))).toBe(true);
-		expect(pressed()).toEqual(["Grey"]);
+		expect(pressed()).toEqual([own === "gold" ? "Grey" : NAMED[own]!]);
 	});
 
-	test("shows the colour it was given, and a name this window doesn't know as grey", async () => {
-		await mount({ ...persona, bubble: "teal" });
-		expect(pressed()).toEqual(["Teal"]);
+	test("shows the colour it was given, and a name this window doesn't know as its own", async () => {
+		await mount({ ...persona, bubble: "grey" });
+		expect(pressed()).toEqual(["Grey"]);
 		await act(async () => root.unmount());
 		root = (await import("react-dom/client")).createRoot(container);
 		await mount({ ...persona, bubble: "gold" });
-		expect(pressed()).toEqual(["Grey"]);
+		expect(pressed()).toEqual([NAMED[ownBubble("ada")]!]);
 	});
 
-	test("picking a colour saves it on the teammate, and grey clears it", async () => {
-		await mount({ ...persona, bubble: "teal" });
-		await act(async () => swatches().find((one) => one.dataset["bubble"] === "violet")!.click());
+	test("picking a colour saves it on the teammate, grey included, and its own clears it", async () => {
+		const other = bubbleChoices("ada").find((one) => one.id !== "grey" && one.id !== ownBubble("ada"))!.id;
+		await mount({ ...persona, bubble: other });
 		await act(async () => swatches().find((one) => one.dataset["bubble"] === "grey")!.click());
+		await act(async () => swatches().find((one) => one.dataset["bubble"] === ownBubble("ada"))!.click());
 		expect(calls.filter((call) => call.cmd === "persona.update").map((call) => call.params)).toEqual([
-			{ id: "ada", patch: { bubble: "violet" } },
+			{ id: "ada", patch: { bubble: "grey" } },
 			{ id: "ada", patch: { bubble: null } },
 		]);
+	});
+
+	test("a teammate answers in its own face hue until picked, and a gold face in plain grey", () => {
+		let gold = "a";
+		while (faceHue(gold) !== 0) gold += "a";
+		const people = peopleOf([{ persona: { id: "ada", name: "Ada" } }, { persona: { id: gold, name: "Gil" } }, { persona: { id: "bo", name: "Bo", bubble: "grey" } }]);
+		expect(people.get("ada")!.bubble).toBe(ownBubble("ada") === "grey" ? undefined : ownBubble("ada"));
+		expect(people.get(gold)!.bubble).toBeUndefined();
+		expect(people.get("bo")!.bubble).toBeUndefined();
 	});
 
 	test("a teammate whose face is gold is offered grey and the six in hue order", () => {

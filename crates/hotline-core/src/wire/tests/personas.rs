@@ -93,7 +93,7 @@ async fn a_patch_is_folded_over_the_teammate_and_the_whole_record_is_written_aga
 }
 
 #[tokio::test]
-async fn a_teammates_bubble_is_one_of_the_named_colours_and_null_puts_grey_back() {
+async fn a_teammates_bubble_is_one_of_the_named_colours_or_grey_and_null_puts_its_own_back() {
     let (_root, log, port) = door("bubble");
     let mut socket = desk(port).await;
     let ada = create(&mut socket, 1, "Ada").await;
@@ -121,11 +121,19 @@ async fn a_teammates_bubble_is_one_of_the_named_colours_and_null_puts_grey_back(
 
     ask(
         &mut socket,
-        json!({ "id": 4, "cmd": "persona.update", "params": { "id": id, "patch": { "bubble": null } } }),
+        json!({ "id": 4, "cmd": "persona.update", "params": { "id": id, "patch": { "bubble": "grey" } } }),
     )
     .await;
     let grey = heard(&mut socket).await["result"].clone();
-    assert!(grey.get("bubble").is_none(), "{grey}");
+    assert_eq!(grey["bubble"], "grey");
+
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "persona.update", "params": { "id": id, "patch": { "bubble": null } } }),
+    )
+    .await;
+    let own = heard(&mut socket).await["result"].clone();
+    assert!(own.get("bubble").is_none(), "{own}");
 }
 
 #[tokio::test]

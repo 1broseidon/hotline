@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { type Bubble, bubbleOf } from "./bubbles";
 import type { FileChunk } from "./generated/contract";
 import { wire } from "./wire";
 
@@ -13,12 +14,17 @@ const readOverWire: AvatarRead = (personaId, hash, offset) => wire.command("avat
  */
 const pictures = new Map<string, Promise<string>>();
 
-/** A colleague a line names: what to call them, their picture's hash and their bubble's colour when they have one. */
+/** A colleague a line names: what to call them, their picture's hash and their bubble's colour unless it is grey. */
 export type Person = { name: string; hash?: string | undefined; bubble?: string | undefined };
 
 /** Every teammate by id, for lines that name a colleague rather than the teammate whose tape it is. */
 export function peopleOf(roster: readonly { persona: { id: string; name: string; avatar?: { hash: string } | undefined; bubble?: string | undefined } }[]): ReadonlyMap<string, Person> {
-	return new Map(roster.map((entry) => [entry.persona.id, { name: entry.persona.name, hash: entry.persona.avatar?.hash, bubble: entry.persona.bubble }]));
+	return new Map(roster.map((entry) => [entry.persona.id, { name: entry.persona.name, hash: entry.persona.avatar?.hash, bubble: tinted(bubbleOf(entry.persona.bubble, entry.persona.id)) }]));
+}
+
+/** A grey bubble is a plain one, drawn without a colour of its own. */
+function tinted(bubble: Bubble): Bubble | undefined {
+	return bubble === "grey" ? undefined : bubble;
 }
 
 /**

@@ -72,8 +72,9 @@ pub struct Persona {
     /// an empty label is the unteamed default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
-    /// The colour of this teammate's bubbles, one of [`BUBBLES`] by name.
-    /// Absent is the grey every teammate answers in (decision-43).
+    /// The colour of this teammate's bubbles, one of [`BUBBLES`] or `grey`
+    /// by name. Absent is the teammate's own face hue, or grey for a gold
+    /// face (decision-43); `grey` is grey by choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bubble: Option<String>,
     pub backend_id: String,

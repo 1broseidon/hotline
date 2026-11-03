@@ -458,10 +458,10 @@ pub(super) fn update_persona(
     if let Some(bubble) = patch.get("bubble").filter(|bubble| !bubble.is_null())
         && !bubble
             .as_str()
-            .is_some_and(|name| hotline_contract::BUBBLES.contains(&name))
+            .is_some_and(|name| name == "grey" || hotline_contract::BUBBLES.contains(&name))
     {
         return Err(format!(
-            "A bubble is grey (null) or one of {}.",
+            "A bubble is its face's own (null), grey or one of {}.",
             hotline_contract::BUBBLES.join(", ")
         ));
     }

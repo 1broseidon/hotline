@@ -3554,30 +3554,43 @@
 	}
 	/* Round colour keys: the accent, a teammate's bubble. The one chosen is
 	 * ringed in the ink, a gap of the plane between, so the ring reads on any
-	 * colour in either palette. */
+	 * colour in either palette. The ring is the key's border and the colour a
+	 * disc inset inside it, both from the one box at whole pixels, so they
+	 * share a centre; spread shadows round apart and set the ring off it.
+	 * The keys sit edge to edge, their rings' room the gap between colours,
+	 * and the row gives that room back at its end so the last colour lines up. */
 	.swatches {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 8px;
+		margin-right: -4px;
 	}
 	.swatch {
-		width: 20px;
-		height: 20px;
+		--swatch-mark: var(--accent);
+		position: relative;
+		box-sizing: border-box;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 2px solid transparent;
 		border-radius: 50%;
-		background: var(--accent);
+		transition: border-color var(--dur-press) var(--ease-out);
+	}
+	.swatch::before {
+		content: "";
+		position: absolute;
+		inset: 2px;
+		border-radius: 50%;
+		background: var(--swatch-mark);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
-		transition: box-shadow var(--dur-press) var(--ease-out);
 	}
 	.swatch[data-bubble] {
-		background: var(--bubble-mark);
+		--swatch-mark: var(--bubble-mark);
 	}
-	.swatch:hover {
+	.swatch:hover::before {
 		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
 	}
 	.swatch[data-on] {
-		box-shadow:
-			0 0 0 2px var(--raised),
-			0 0 0 3.5px var(--ink-2);
+		border-color: var(--ink-2);
 	}
 	/* The form's own keys: the system's buttons, a step taller as a form's footer is. */
 	.nt-submit,

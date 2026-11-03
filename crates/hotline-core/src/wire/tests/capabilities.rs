@@ -436,6 +436,36 @@ async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
 }
 
 #[tokio::test]
+async fn the_accent_is_a_preset_by_name_and_clearing_it_puts_mint_back() {
+    let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    async fn patch(handle: &Arc<dyn RoomHandle>, log: &Log, id: u64, patch: Value) -> Value {
+        remote_control_answer(
+            Seat::Owner,
+            handle,
+            log,
+            &Parts::default(),
+            json!({"id": id, "cmd": "settings.update", "params": {"patch": patch}}),
+        )
+        .await
+    }
+    let update = |id: u64, change: Value| patch(&handle, &log, id, change);
+
+    let set = update(1, json!({"accent": "orchid"})).await;
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(set["result"]["accent"], "orchid");
+
+    let refused = update(2, json!({"accent": "amber"})).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(update(3, json!({})).await["result"]["accent"], "orchid");
+
+    let cleared = update(4, json!({"accent": null})).await;
+    assert_eq!(cleared["ok"], true, "{cleared}");
+    assert!(cleared["result"].get("accent").is_none(), "{cleared}");
+}
+
+#[tokio::test]
 async fn image_and_spending_settings_are_typed_validated_and_resettable() {
     let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
     let root = tempfile::tempdir().unwrap();

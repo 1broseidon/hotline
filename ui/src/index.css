@@ -56,7 +56,7 @@
 	:focus-visible {
 		outline: none;
 	}
-	:where(.control, .rail-row, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control):focus-visible {
+	:where(.control, .rail-row, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control, .swatch):focus-visible {
 		background-color: var(--fill-hover);
 	}
 
@@ -3548,6 +3548,33 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
+	}
+	/* Round colour keys: the accent, a teammate's bubble. The one chosen is
+	 * ringed in the ink, a gap of the plane between, so the ring reads on any
+	 * colour in either palette. */
+	.swatches {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.swatch {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		transition: box-shadow var(--dur-press) var(--ease-out);
+	}
+	.swatch[data-bubble] {
+		background: var(--bubble);
+	}
+	.swatch:hover {
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+	}
+	.swatch[data-on] {
+		box-shadow:
+			0 0 0 2px var(--raised),
+			0 0 0 3.5px var(--ink-2);
 	}
 	/* The form's own keys: the system's buttons, a step taller as a form's footer is. */
 	.nt-submit,

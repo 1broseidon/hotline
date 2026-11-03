@@ -112,3 +112,46 @@ describe("dark mode", () => {
 			for (const plane of ["canvas", "raised"]) expect(ratio(dark, ink, plane)).toBeGreaterThanOrEqual(4.5);
 	});
 });
+
+// Every accent preset (decision-42) re-values only the accent's shades, and holds
+// the same ratios the mint does, in both palettes.
+const presets = ["mint", "teal", "sky", "iris", "orchid", "rose"];
+const accentTokens = ["accent", "accent-hover", "on-accent", "accent-soft", "accent-ink", "said-me", "said-me-ink"];
+
+function preset(name: string): { dark: Map<string, string>; light: Map<string, string>; touched: string[] } {
+	const both = block(`[data-accent="${name}"]`);
+	const lightOnly = block(`:root[data-theme="light"][data-accent="${name}"]`);
+	return {
+		dark: new Map([...dark, ...both]),
+		light: new Map([...light, ...both, ...lightOnly]),
+		touched: [...both.keys(), ...lightOnly.keys()],
+	};
+}
+
+describe("accent presets", () => {
+	test("change only the accent's shades, never a surface, an ink, amber, red or a face", () => {
+		for (const name of presets) for (const token of preset(name).touched) expect({ name, token, accent: accentTokens.includes(token) }).toEqual({ name, token, accent: true });
+	});
+
+	test("hold words on the fill and accent words at 4.5:1 in both palettes", () => {
+		for (const name of presets) {
+			const { dark: d, light: l } = preset(name);
+			for (const [mode, palette] of [["dark", d], ["light", l]] as const) {
+				expect({ name, mode, onFill: ratio(palette, "on-accent", "accent") >= 4.5 }).toEqual({ name, mode, onFill: true });
+				expect({ name, mode, bubble: ratio(palette, "said-me-ink", "said-me") >= 4.5 }).toEqual({ name, mode, bubble: true });
+				for (const plane of ["canvas", "raised"]) expect({ name, mode, plane, words: ratio(palette, "accent-ink", plane) >= 4.5 }).toEqual({ name, mode, plane, words: true });
+			}
+		}
+	});
+
+	test("stand off the light canvas at 2:1 or more, as the mint does", () => {
+		for (const name of presets) expect({ name, fill: ratio(preset(name).light, "accent", "canvas") >= 2 }).toEqual({ name, fill: true });
+	});
+});
+
+test("the mint swatch's block draws the palette's own mint, so the default looks the same either way", () => {
+	const both = block(`[data-accent="mint"]`);
+	const lightOnly = block(`:root[data-theme="light"][data-accent="mint"]`);
+	for (const [token, value] of both) expect({ token, value }).toEqual({ token, value: dark.get(token)! });
+	for (const [token, value] of lightOnly) expect({ token, value }).toEqual({ token, value: light.get(token)! });
+});

@@ -209,6 +209,127 @@
 	--scrim: oklch(20% 0.01 250 / 0.28);
 }
 
+/* Accent presets (decision-42). Each re-values only the accent's shades, from
+ * one hue at the lightness and chroma the mint uses in each palette, with
+ * chroma pulled in where the hue would leave sRGB. Surfaces, inks, amber, red
+ * and faces never change. theme.ts sets data-accent on <html> from the room's
+ * choice; a swatch sets it on itself, so it draws its own preset whatever the
+ * window's is. Mint's block repeats the palette's own values for that. */
+[data-accent="mint"] {
+	--accent: oklch(78.7% 0.128 163);
+	--accent-hover: oklch(83.7% 0.101 165);
+	--on-accent: oklch(24% 0.044 165);
+	--accent-soft: oklch(78.7% 0.128 163 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 163);
+	--said-me: oklch(78.7% 0.128 163);
+	--said-me-ink: oklch(24% 0.044 165);
+}
+:root[data-theme="light"] [data-accent="mint"],
+:root[data-theme="light"][data-accent="mint"] {
+	--accent: oklch(70% 0.13 163);
+	--accent-hover: oklch(66% 0.13 163);
+	--accent-soft: oklch(70% 0.13 163 / 0.2);
+	--accent-ink: oklch(50% 0.1 165);
+	--said-me: oklch(70% 0.13 163);
+	--on-accent: oklch(24% 0.044 165);
+	--said-me-ink: oklch(24% 0.044 165);
+}
+[data-accent="teal"] {
+	--accent: oklch(78.7% 0.128 195);
+	--accent-hover: oklch(83.7% 0.101 195);
+	--on-accent: oklch(24% 0.042 195);
+	--accent-soft: oklch(78.7% 0.128 195 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 195);
+	--said-me: oklch(78.7% 0.128 195);
+	--said-me-ink: oklch(24% 0.042 195);
+}
+:root[data-theme="light"] [data-accent="teal"],
+:root[data-theme="light"][data-accent="teal"] {
+	--accent: oklch(70% 0.118 195);
+	--accent-hover: oklch(66% 0.112 195);
+	--accent-soft: oklch(70% 0.118 195 / 0.2);
+	--accent-ink: oklch(50% 0.084 195);
+	--said-me: oklch(70% 0.118 195);
+	--on-accent: oklch(24% 0.042 195);
+	--said-me-ink: oklch(24% 0.042 195);
+}
+[data-accent="sky"] {
+	--accent: oklch(78.7% 0.12 240);
+	--accent-hover: oklch(83.7% 0.089 240);
+	--on-accent: oklch(24% 0.044 240);
+	--accent-soft: oklch(78.7% 0.12 240 / 0.16);
+	--accent-ink: oklch(78.7% 0.12 240);
+	--said-me: oklch(78.7% 0.12 240);
+	--said-me-ink: oklch(24% 0.044 240);
+}
+:root[data-theme="light"] [data-accent="sky"],
+:root[data-theme="light"][data-accent="sky"] {
+	--accent: oklch(70% 0.13 240);
+	--accent-hover: oklch(66% 0.13 240);
+	--accent-soft: oklch(70% 0.13 240 / 0.2);
+	--accent-ink: oklch(50% 0.1 240);
+	--said-me: oklch(70% 0.13 240);
+	--on-accent: oklch(24% 0.044 240);
+	--said-me-ink: oklch(24% 0.044 240);
+}
+[data-accent="iris"] {
+	--accent: oklch(78.7% 0.108 280);
+	--accent-hover: oklch(83.7% 0.081 280);
+	--on-accent: oklch(24% 0.044 280);
+	--accent-soft: oklch(78.7% 0.108 280 / 0.16);
+	--accent-ink: oklch(78.7% 0.108 280);
+	--said-me: oklch(78.7% 0.108 280);
+	--said-me-ink: oklch(24% 0.044 280);
+}
+:root[data-theme="light"] [data-accent="iris"],
+:root[data-theme="light"][data-accent="iris"] {
+	--accent: oklch(70% 0.13 280);
+	--accent-hover: oklch(66% 0.13 280);
+	--accent-soft: oklch(70% 0.13 280 / 0.2);
+	--accent-ink: oklch(50% 0.1 280);
+	--said-me: oklch(70% 0.13 280);
+	--on-accent: oklch(24% 0.044 280);
+	--said-me-ink: oklch(24% 0.044 280);
+}
+[data-accent="orchid"] {
+	--accent: oklch(78.7% 0.128 320);
+	--accent-hover: oklch(83.7% 0.101 320);
+	--on-accent: oklch(24% 0.044 320);
+	--accent-soft: oklch(78.7% 0.128 320 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 320);
+	--said-me: oklch(78.7% 0.128 320);
+	--said-me-ink: oklch(24% 0.044 320);
+}
+:root[data-theme="light"] [data-accent="orchid"],
+:root[data-theme="light"][data-accent="orchid"] {
+	--accent: oklch(70% 0.13 320);
+	--accent-hover: oklch(66% 0.13 320);
+	--accent-soft: oklch(70% 0.13 320 / 0.2);
+	--accent-ink: oklch(50% 0.1 320);
+	--said-me: oklch(70% 0.13 320);
+	--on-accent: oklch(24% 0.044 320);
+	--said-me-ink: oklch(24% 0.044 320);
+}
+[data-accent="rose"] {
+	--accent: oklch(78.7% 0.128 355);
+	--accent-hover: oklch(83.7% 0.101 355);
+	--on-accent: oklch(24% 0.044 355);
+	--accent-soft: oklch(78.7% 0.128 355 / 0.16);
+	--accent-ink: oklch(78.7% 0.128 355);
+	--said-me: oklch(78.7% 0.128 355);
+	--said-me-ink: oklch(24% 0.044 355);
+}
+:root[data-theme="light"] [data-accent="rose"],
+:root[data-theme="light"][data-accent="rose"] {
+	--accent: oklch(70% 0.13 355);
+	--accent-hover: oklch(66% 0.13 355);
+	--accent-soft: oklch(70% 0.13 355 / 0.2);
+	--accent-ink: oklch(50% 0.1 355);
+	--said-me: oklch(70% 0.13 355);
+	--on-accent: oklch(24% 0.044 355);
+	--said-me-ink: oklch(24% 0.044 355);
+}
+
 /* A hairline is one device pixel, not one CSS pixel. */
 @media (min-resolution: 2dppx) {
 	:root {

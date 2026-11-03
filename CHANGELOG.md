@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- An accent of your own: Settings › Appearance › Accent picks one of six
+  colours (Mint, Teal, Sky, Iris, Orchid, Rose) for your bubble, keys and
+  selections. It is the room's, so every window on the desk draws it; light
+  or dark stays each window's own. Mint is the default and nothing changes
+  until you pick another.
+
+### Changed
+
+- Light mode reads better on white. The small grey timings and hints meet
+  WCAG AA, fields, setting groups and the composer show their edges again,
+  a teammate's bubble sits a shade deeper, and the mint is a little deeper
+  so your bubble and accent keys stand off the page. Dark is unchanged.
+
 ## [0.46.0] - 2026-11-02
 
 ### Added

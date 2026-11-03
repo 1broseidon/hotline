@@ -227,6 +227,8 @@ export function Settings({
 						<GeneralSection
 							personName={settings.personName}
 							onPersonName={(name) => patch({ personName: name })}
+							accent={settings.accent}
+							onAccent={(accent) => patch({ accent: accent === "mint" ? null : accent })}
 							idleHours={settings.chapterIdleHours}
 							defaultBackendId={settings.defaultBackendId}
 							defaultModelId={settings.defaultModelId}

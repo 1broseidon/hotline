@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A Claude Code subagent's run shows the prompt it was given once. The
+  adapter can send it twice, once under a stand-in id and again under its
+  call's, and the run showed both.
+- In a subagent's run beside the conversation, the pill saying what it is
+  working on stands level with the conversation's composer instead of a
+  little below it.
+
 ## [0.47.0] - 2026-11-03
 
 ### Added

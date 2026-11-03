@@ -5166,7 +5166,22 @@
 	.md td {
 		padding: 6px 12px;
 		text-align: left;
+		vertical-align: top;
 		border-bottom: var(--hairline) solid var(--line);
+		/* A bubble breaks its text anywhere so a long word can't push it
+		 * wide, and a table reads each break as room to give up: its columns
+		 * shrank to a letter. A cell breaks between words, so a column is as
+		 * narrow as its longest word, and a table wider than its bubble
+		 * scrolls across instead. */
+		overflow-wrap: break-word;
+	}
+	.md th {
+		vertical-align: bottom;
+	}
+	/* A bubble with a table in it may take the whole column, so the table has
+	 * the room to lay its columns out before it has to scroll. */
+	.speech:has(.md-table) {
+		max-width: 100%;
 	}
 	.md th:first-child,
 	.md td:first-child {

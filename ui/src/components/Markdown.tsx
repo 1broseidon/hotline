@@ -108,7 +108,7 @@ const COMPONENTS: Components = {
 	},
 
 	table: ({ children }) => (
-		<div className="overflow-x-auto">
+		<div className="md-table overflow-x-auto">
 			<table>{children}</table>
 		</div>
 	),

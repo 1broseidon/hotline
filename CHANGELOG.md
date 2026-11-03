@@ -15,10 +15,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   selections. It is the room's, so every window on the desk draws it; light
   or dark stays each window's own. Mint is the default and nothing changes
   until you pick another.
-- A teammate's bubble can take a colour of its own: a Bubble row in its
-  settings offers Grey, the default, and six soft tints from the faces'
-  hues, its own face's first. Only that teammate's replies change, in its
-  chat, its calls and the answers it gives where it is looped in.
+- A teammate's bubble takes a colour of its own: a soft tint of its face's
+  hue, or grey when its face is gold. A Bubble row in its settings offers
+  Grey and the six tints to change it. Only that teammate's replies change,
+  in its chat, its calls and the answers it gives where it is looped in.
 
 ### Changed
 
@@ -26,6 +26,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   WCAG AA, fields, setting groups and the composer show their edges again,
   a teammate's bubble sits a shade deeper, and the mint is a little deeper
   so your bubble and accent keys stand off the page. Dark is unchanged.
+
+### Fixed
+
+- The ring on a chosen colour key sits centred around it; it was drawn a
+  touch off to one side.
+- A table in a teammate's reply lays out in readable columns. A column used
+  to shrink until its words broke a letter to a line; now a column is as
+  narrow as its longest word, a bubble with a table may take the whole
+  column, and a table wider than that scrolls across.
 
 ## [0.46.0] - 2026-11-02
 

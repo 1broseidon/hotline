@@ -39,6 +39,11 @@ pub enum AvatarBy {
 // Teammates
 // ---------------------------------------------------------------------------
 
+/// The colours a teammate's bubbles may take, by name: the faces' hues
+/// (ui/src/ui/Avatar.tsx) but gold, whose tint sits beside the amber of a card
+/// waiting on you. ui/src/tokens.css draws each as `--bubble-<name>`.
+pub const BUBBLES: [&str; 6] = ["lime", "green", "teal", "blue", "violet", "pink"];
+
 /// A Hotline teammate. Four axes make up an identity:
 ///   - Identity   : `goal`, materialised as AGENTS.md inside `cwd`
 ///   - Workspace  : `cwd`, passed to session/new
@@ -67,6 +72,11 @@ pub struct Persona {
     /// an empty label is the unteamed default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    /// The colour of this teammate's bubbles, one of [`BUBBLES`] or `grey`
+    /// by name. Absent is the teammate's own face hue, or grey for a gold
+    /// face (decision-43); `grey` is grey by choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bubble: Option<String>,
     pub backend_id: String,
     pub cwd: String,
     /// How far Hotline Agent's tools reach. Absent means the working directory.

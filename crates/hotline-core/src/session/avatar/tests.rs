@@ -27,6 +27,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
         goal: "Keep the harbour running".into(),
         avatar: None,
         team: None,
+        bubble: None,
         backend_id: "hotline".into(),
         cwd: workspace.to_string_lossy().into_owned(),
         reach: None,

@@ -58,6 +58,12 @@ fn defaults() -> Map<String, Value> {
     settings
 }
 
+/// The person's accent (decision-42), a room setting so every window and the
+/// phone draw the same one. Unset is mint, the default; the names are the
+/// presets ui/src/tokens.css draws.
+pub const ACCENT: &str = "accent";
+pub const ACCENTS: [&str; 6] = ["mint", "teal", "sky", "iris", "orchid", "rose"];
+
 pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     if key == "personName" {
         let name = value.as_str().ok_or("Your name must be text.")?.trim();
@@ -68,6 +74,20 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     }
     if key == "webSearch" {
         return hotline_websearch::normalize_setting(value);
+    }
+    if key == ACCENT {
+        let accent = value
+            .as_str()
+            .ok_or("The accent must be one of the presets' names.")?;
+        return ACCENTS
+            .contains(&accent)
+            .then(|| json!(accent))
+            .ok_or_else(|| {
+                format!(
+                    "{accent} is not an accent. Choose one of {}.",
+                    ACCENTS.join(", ")
+                )
+            });
     }
     if matches!(key, "images" | "spending" | "cookieOffers") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
@@ -745,6 +765,7 @@ mod tests {
             goal: "Keep the harbour running.".to_string(),
             avatar: None,
             team: None,
+            bubble: None,
             backend_id: "hotline".to_string(),
             cwd: "/tmp/harbour".to_string(),
             reach: None,
@@ -859,6 +880,25 @@ mod tests {
             vec!["b".to_string(), "a".to_string()]
         );
         assert_eq!(settled_pins(None, &team), [] as [String; 0]);
+    }
+
+    #[test]
+    fn an_accent_is_one_of_the_presets_by_name() {
+        for accent in ACCENTS {
+            assert_eq!(
+                normalize_setting(ACCENT, &json!(accent)).unwrap(),
+                json!(accent)
+            );
+        }
+        for bad in [
+            json!("amber"),
+            json!("Mint"),
+            json!(""),
+            json!(3),
+            json!(null),
+        ] {
+            assert!(normalize_setting(ACCENT, &bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

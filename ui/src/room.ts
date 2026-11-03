@@ -153,9 +153,20 @@ export function usePersonName(): string {
 	return stringSetting(useRoom(pickSettings).get("personName"), "");
 }
 
+/**
+ * The person's accent as the room keeps it, or undefined until the room has
+ * answered, so a window keeps the one it opened in rather than flashing mint.
+ */
+export function useAccent(): string | undefined {
+	const ready = useRoom(pickReadEpoch).ready;
+	const accent = stringSetting(useRoom(pickSettings).get("accent"), "mint");
+	return ready ? accent : undefined;
+}
+
 /** The room's settings over their defaults. */
 export function useRoomSettings(): {
 	personName: string;
+	accent: string;
 	chapterIdleHours: number;
 	defaultBackendId: string;
 	defaultModelId: string | null;
@@ -173,6 +184,7 @@ export function useRoomSettings(): {
 
 	return {
 		personName: stringSetting(events.get("personName"), ""),
+		accent: stringSetting(events.get("accent"), "mint"),
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),

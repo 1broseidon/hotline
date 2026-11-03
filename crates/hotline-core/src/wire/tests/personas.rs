@@ -93,6 +93,50 @@ async fn a_patch_is_folded_over_the_teammate_and_the_whole_record_is_written_aga
 }
 
 #[tokio::test]
+async fn a_teammates_bubble_is_one_of_the_named_colours_or_grey_and_null_puts_its_own_back() {
+    let (_root, log, port) = door("bubble");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+    assert!(ada.get("bubble").is_none(), "{ada}");
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "persona.update", "params": { "id": id, "patch": { "bubble": "violet" } } }),
+    )
+    .await;
+    let violet = heard(&mut socket).await["result"].clone();
+    assert_eq!(violet["bubble"], "violet");
+    assert_eq!(json!(room::roster(&log))[0]["bubble"], "violet");
+
+    // Gold is a face's hue but not a bubble's: it sits beside a waiting card's amber.
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "persona.update", "params": { "id": id, "patch": { "bubble": "gold" } } }),
+    )
+    .await;
+    let refused = heard(&mut socket).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(json!(room::roster(&log))[0]["bubble"], "violet");
+
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "persona.update", "params": { "id": id, "patch": { "bubble": "grey" } } }),
+    )
+    .await;
+    let grey = heard(&mut socket).await["result"].clone();
+    assert_eq!(grey["bubble"], "grey");
+
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "persona.update", "params": { "id": id, "patch": { "bubble": null } } }),
+    )
+    .await;
+    let own = heard(&mut socket).await["result"].clone();
+    assert!(own.get("bubble").is_none(), "{own}");
+}
+
+#[tokio::test]
 async fn a_setting_is_one_event_per_key_and_null_puts_the_default_back() {
     let (_root, log, port) = door("settings");
     let mut socket = desk(port).await;

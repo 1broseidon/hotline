@@ -7,6 +7,8 @@ import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { useRoomRead } from "../roomReads";
 import { useRoomSettings } from "../room";
+import { bubbleChoices, bubbleOf, ownBubble } from "../bubbles";
+import { Swatches } from "../ui/Swatches";
 import { MAX_PINS } from "../pins";
 import { voiceLabel } from "../useFor";
 import { Avatar } from "../ui/Avatar";
@@ -242,6 +244,16 @@ export function Teammate({
 							</div>
 						</div>
 						<VoiceRow persona={persona} disabled={busy} onSave={save} />
+						<div className="group-row">
+							<RowText title="Bubble" />
+							<Swatches
+								value={bubbleOf(persona.bubble, persona.id)}
+								choices={bubbleChoices(persona.id)}
+								label="Bubble"
+								attribute="data-bubble"
+								onChange={(bubble) => save({ bubble: bubble === ownBubble(persona.id) ? null : bubble } as unknown as Partial<Persona>)}
+							/>
+						</div>
 						<div className="group-row">
 							{/* On the lead's own sheet the row and its key say it; elsewhere it names who leads. */}
 							<RowText title="Team lead" {...(lead ? {} : { value: leader?.name ?? "none" })} />

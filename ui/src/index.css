@@ -56,7 +56,7 @@
 	:focus-visible {
 		outline: none;
 	}
-	:where(.control, .rail-row, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control):focus-visible {
+	:where(.control, .rail-row, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control, .swatch):focus-visible {
 		background-color: var(--fill-hover);
 	}
 
@@ -1555,6 +1555,9 @@
 	.said-them {
 		width: fit-content;
 		background: var(--said-them);
+	}
+	.said-them[data-bubble] {
+		background: var(--bubble);
 	}
 	/* Inside a run from one speaker the corners that face each other
 	 * tighten, so three lines from one side read as one block of speech
@@ -3549,6 +3552,46 @@
 		flex-wrap: wrap;
 		gap: 6px;
 	}
+	/* Round colour keys: the accent, a teammate's bubble. The one chosen is
+	 * ringed in the ink, a gap of the plane between, so the ring reads on any
+	 * colour in either palette. The ring is the key's border and the colour a
+	 * disc inset inside it, both from the one box at whole pixels, so they
+	 * share a centre; spread shadows round apart and set the ring off it.
+	 * The keys sit edge to edge, their rings' room the gap between colours,
+	 * and the row gives that room back at its end so the last colour lines up. */
+	.swatches {
+		display: flex;
+		flex-wrap: wrap;
+		margin-right: -4px;
+	}
+	.swatch {
+		--swatch-mark: var(--accent);
+		position: relative;
+		box-sizing: border-box;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 2px solid transparent;
+		border-radius: 50%;
+		transition: border-color var(--dur-press) var(--ease-out);
+	}
+	.swatch::before {
+		content: "";
+		position: absolute;
+		inset: 2px;
+		border-radius: 50%;
+		background: var(--swatch-mark);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+	}
+	.swatch[data-bubble] {
+		--swatch-mark: var(--bubble-mark);
+	}
+	.swatch:hover::before {
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+	}
+	.swatch[data-on] {
+		border-color: var(--ink-2);
+	}
 	/* The form's own keys: the system's buttons, a step taller as a form's footer is. */
 	.nt-submit,
 	.nt-submit ~ .control,
@@ -5123,7 +5166,22 @@
 	.md td {
 		padding: 6px 12px;
 		text-align: left;
+		vertical-align: top;
 		border-bottom: var(--hairline) solid var(--line);
+		/* A bubble breaks its text anywhere so a long word can't push it
+		 * wide, and a table reads each break as room to give up: its columns
+		 * shrank to a letter. A cell breaks between words, so a column is as
+		 * narrow as its longest word, and a table wider than its bubble
+		 * scrolls across instead. */
+		overflow-wrap: break-word;
+	}
+	.md th {
+		vertical-align: bottom;
+	}
+	/* A bubble with a table in it may take the whole column, so the table has
+	 * the room to lay its columns out before it has to scroll. */
+	.speech:has(.md-table) {
+		max-width: 100%;
 	}
 	.md th:first-child,
 	.md td:first-child {

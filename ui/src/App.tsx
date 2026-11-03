@@ -22,7 +22,8 @@ import { LeadPrompt } from "./components/LeadPrompt";
 import { confirmRemove, listenToastClicks, platform, setBadge, watchWindowShape } from "./native";
 import { watchLooking } from "./looking";
 import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
-import { useModelsRevision, useRoomJobs } from "./room";
+import { useAccent, useModelsRevision, useRoomJobs } from "./room";
+import { applyAccent } from "./accent";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 import { activeDeskId, useActiveDesk, useDesks, wireFor } from "./desks";
@@ -73,6 +74,11 @@ export function App() {
 		if (rosterLoaded) keepRoster(activeDeskId() ?? "", roster);
 	}, [roster, rosterLoaded]);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
+	/* The accent is the room's, so this desk's choice draws the window. */
+	const accent = useAccent();
+	useEffect(() => {
+		if (accent !== undefined) applyAccent(accent);
+	}, [accent]);
 	const {
 		selectedId,
 		setSelectedId,

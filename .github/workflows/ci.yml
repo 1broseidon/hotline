@@ -27,6 +27,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Every test binary and example links the whole workspace, and with full
+  # debug info each is hundreds of megabytes: on 2026-11-03 a hosted Linux
+  # runner ran out of disk mid-build. Line tables keep a panic's file and line,
+  # which is all a red run is read for.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   check:
@@ -100,7 +105,10 @@ jobs:
 
       - name: Test on ${{ runner.os }}
         shell: bash
-        run: cargo test --workspace --locked
+        run: |
+          cargo test --workspace --locked
+          # The disk left once everything is built, so a shrinking margin shows before it runs out.
+          df -h .
 
       - name: Check the window on this operating system
         shell: bash

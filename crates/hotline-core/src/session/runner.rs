@@ -463,7 +463,7 @@ impl Room {
                         &TranscriptEvent::User {
                             id: new_id(),
                             ts: running.started,
-                            text: task,
+                            text: task.clone(),
                             attachments: None,
                             reactions: None,
                             reply_to: None,
@@ -480,13 +480,22 @@ impl Room {
                         running,
                         voice: narration::Voice::new(),
                         in_flight: HashMap::new(),
+                        told: Some(task.trim().to_string()).filter(|task| !task.is_empty()),
                     },
                 );
             }
             SubagentReport::Told { child, text } => {
-                let Some(run) = runs.get(&child) else {
+                let Some(run) = runs.get_mut(&child) else {
                     return;
                 };
+                // Claude's adapter can send a subagent's prompt twice, once
+                // under a stand-in id and again under its call's: the same
+                // words with nothing between them are one message.
+                let words = text.trim().to_string();
+                if run.told.as_deref() == Some(words.as_str()) {
+                    return;
+                }
+                run.told = Some(words);
                 self.threads().write(
                     &ThreadId::run(&run.running.run_id),
                     persona_id,
@@ -510,6 +519,7 @@ impl Room {
                 };
                 for update in run.voice.step(update) {
                     for event in event_of(update, &mut run.in_flight, false, false) {
+                        run.told = None;
                         self.threads().write(
                             &ThreadId::run(&run.running.run_id),
                             persona_id,
@@ -692,6 +702,9 @@ struct HarnessRun {
     running: Running,
     voice: narration::Voice,
     in_flight: HashMap<String, PendingTool>,
+    /// The words the run was last told, until it does anything: a second
+    /// telling of them before then is the same message said again.
+    told: Option<String>,
 }
 
 /// A teammate's subagents, as its managed jobs start them.

@@ -76,7 +76,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the idle sweep leaves one a thread or job is using; a computer left
   running by the last desk is idled.
 - Where files carried between teammates landed is written with `/` on
-  Windows too, and a computer's bind source on Windows is a plain path
+  Windows too.
+- On Windows, a teammate's computer starts with a plain bind path and mounts
+  a granted folder despite its drive letter's colon, and a field that saves
+  as you leave it keeps what you typed when it leaves the screen instead
   (#211, thanks to gt0wn).
 - `async-executor` is 1.14.1, as 1.14.0 was yanked.
 

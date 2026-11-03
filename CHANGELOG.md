@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- The desktop app for ARM Linux. Each release carries
+  `hotline_<version>_linux_aarch64` AppImage, deb and rpm builds beside the
+  x86_64 ones, the install script picks the one for your machine, and an
+  ARM install updates itself like any other.
+
 ## [0.47.0] - 2026-11-03
 
 ### Added

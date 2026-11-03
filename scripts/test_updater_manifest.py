@@ -16,13 +16,16 @@ class ManifestTests(unittest.TestCase):
 
     def test_every_installer_has_its_own_architecture_and_package(self):
         data = manifest(self.root, "0.6.0", "1Broseidon/hotline", "Release notes")
-        self.assertEqual(len(data["platforms"]), 6)
+        self.assertEqual(len(data["platforms"]), 9)
         windows = data["platforms"]["windows-x86_64-nsis"]
         self.assertTrue(windows["url"].endswith("windows_x86_64-setup.exe"))
         deb = data["platforms"]["linux-x86_64-deb"]
         self.assertTrue(deb["url"].endswith(".deb"))
         self.assertIn("/desktop-v0.6.0/", deb["url"])
         self.assertNotIn("linux-x86_64", data["platforms"])
+        arm = data["platforms"]["linux-aarch64-rpm"]
+        self.assertTrue(arm["url"].endswith("_linux_aarch64.rpm"))
+        self.assertNotIn("linux-aarch64", data["platforms"])
         self.assertEqual(data["notes"], "Release notes")
 
     def test_long_notes_end_on_a_whole_line_under_the_desktops_limit(self):
@@ -39,9 +42,12 @@ class ManifestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Missing signature"):
                 manifest(self.root, "0.6.0", "1Broseidon/hotline", "")
             signature.write_text("fixture signature")
-        (self.root / "hotline_0.6.0_linux_x86_64.deb").unlink()
-        with self.assertRaisesRegex(ValueError, "Missing update package"):
-            manifest(self.root, "0.6.0", "1Broseidon/hotline", "")
+        for suffix in PACKAGES.values():
+            package = self.root / f"hotline_0.6.0_{suffix}"
+            package.unlink()
+            with self.assertRaisesRegex(ValueError, "Missing update package"):
+                manifest(self.root, "0.6.0", "1Broseidon/hotline", "")
+            package.write_bytes(b"fixture package")
 
     def test_prereleases_and_invalid_versions_are_refused(self):
         for version in ["0.6.0-beta.1", "v0.6.0", "0.6", "00.6.0", "../0.6.0"]:

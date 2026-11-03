@@ -14,7 +14,13 @@
 .num { font-variant-numeric: tabular-nums; }
 
 /* Masthead: the toad alone at rest; the name joins it once the headline has risen. */
-.mast { position: sticky; top: 0; z-index: var(--z-sticky-nav); background: color-mix(in oklab, var(--color-paper) 84%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+/* At rest the bar is not there: no ground, no edge, only its links. It comes in with the name:
+   the ground and the hairline rise with the same progress as the toad's flight (--morph, 0 to 1),
+   so nothing cuts across the headline mid-move, and once the name has docked whatever passes
+   beneath meets a frosted edge instead of being sliced. Without script it is simply solid. */
+.mast { position: sticky; top: 0; z-index: var(--z-sticky-nav); border-bottom: var(--rule-hair) solid color-mix(in oklab, var(--color-rule) calc(var(--morph, 0) * 100%), transparent); background: color-mix(in oklab, var(--color-paper) calc(var(--morph, 0) * 94%), transparent); }
+.mast.is-moving, .mast.is-docked { -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); }
+html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(--color-rule); }
 .mast-in { display: flex; align-items: center; justify-content: space-between; height: var(--mast-h); }
 .brand { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--color-ink); text-decoration: none; }
 /* The toad: one drawing, in the masthead and on the headline. */
@@ -33,12 +39,13 @@
 
 .mast-nav { position: relative; display: flex; align-items: center; gap: var(--space-lg); }
 .mast-links { display: flex; align-items: center; gap: var(--space-lg); transition: transform var(--dur-long) var(--ease-out); }
-.mast-links a { color: var(--color-ink-2); text-decoration: none; transition: color var(--dur-micro) var(--ease-out); }
+.mast-links a { color: var(--color-ink-2); font-size: var(--text-sm); text-decoration: none; transition: color var(--dur-micro) var(--ease-out); }
 .mast-links a:hover { color: var(--color-ink); }
 .gh { position: relative; display: inline-flex; align-items: center; gap: var(--space-xs); height: 40px; font-size: var(--text-sm); font-weight: 600; }
 .gh::before { content: ""; position: absolute; inset: 0 calc(-1 * var(--space-xs)); }
-.gh svg { width: 28px; height: 28px; fill: currentColor; }
-.btn--nav { height: 40px; padding: 0 var(--space-md); font-size: var(--text-sm); }
+/* The mark at the word's own optical size, so Docs and GitHub read as a pair. */
+.gh svg { width: 22px; height: 22px; fill: currentColor; }
+.mast .btn--nav { height: 40px; padding: 0 var(--space-md); font-size: var(--text-sm); }
 .js .btn--nav { position: absolute; right: 0; top: 50%; opacity: 0; visibility: hidden; transform: translateY(-50%) translateY(calc(-1 * var(--space-2xs))); transition: opacity var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out), visibility 0s linear var(--dur-short); }
 .js .mast.is-past .btn--nav { opacity: 1; visibility: visible; transform: translateY(-50%); transition: opacity var(--dur-short) var(--ease-out) 80ms, transform var(--dur-short) var(--ease-out) 80ms, visibility 0s; }
 .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-lg)))); }
@@ -186,7 +193,6 @@
 @media (max-width: 40rem) {
   .mast-nav, .mast-links { gap: var(--space-md); }
   .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-md)))); }
-  .mast-links a { font-size: var(--text-sm); }
   .hero { padding-top: var(--space-lg); }
   .hero-act .btn { width: 100%; }
   .stage { aspect-ratio: auto; }

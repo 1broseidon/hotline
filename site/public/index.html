@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261103">
+<link rel="stylesheet" href="/page.css?v=20261103e">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -347,6 +347,7 @@ const typing = (() => {
     });
     document.documentElement.style.setProperty("--morph", e.toFixed(4));
     mast.classList.toggle("is-docked", p >= 1);
+    mast.classList.toggle("is-moving", p > 0 && p < 1);
     h1.classList.toggle("is-morphing", p > 0);
   };
   let raf = 0;

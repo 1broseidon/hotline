@@ -121,7 +121,7 @@ pub async fn browser_bar_take(
 /// Back, forward or reload from the bar, or a typed address: only while the
 /// person has the page.
 #[tauri::command]
-pub fn browser_bar_go(
+pub async fn browser_bar_go(
     app: AppHandle,
     desk: DeskState<'_>,
     persona_id: String,
@@ -148,7 +148,7 @@ pub fn browser_bar_go(
                 let url = tauri::Url::parse(typed)
                     .or_else(|_| tauri::Url::parse(&format!("https://{typed}")))
                     .map_err(|_| "That is not a web address.".to_string())?;
-                browsers.person_go(&persona_id, &url)
+                browsers.person_go(&persona_id, &url).await
             }
             _ => Err("Nothing to go to.".into()),
         }
@@ -206,6 +206,9 @@ mod native {
     /// How long a move through history is waited for: one served from the
     /// back-forward cache, or within the page, loads nothing.
     const STEP_WAIT: Duration = Duration::from_secs(5);
+    /// How long a load may still finish after asking its address directly
+    /// failed, before the browser says it did not open.
+    const UNREACHED_GRACE: Duration = Duration::from_millis(1500);
     const SCRIPT_WAIT: Duration = Duration::from_secs(15);
     /// The page's size: a common laptop viewport.
     const WIDTH: f64 = 1280.0;
@@ -371,13 +374,22 @@ mod native {
                 .map_err(|error| error.to_string())
         }
 
-        pub(crate) fn person_go(&self, persona_id: &str, url: &Url) -> Result<(), String> {
+        pub(crate) async fn person_go(&self, persona_id: &str, url: &Url) -> Result<(), String> {
             if !self.gate.admits(persona_id, url) {
                 return Err("That address is not a web page, or is on this computer or your network: ask the teammate to open it, so you are asked first.".into());
             }
+            let tab = self
+                .tab(persona_id)
+                .ok_or("That teammate's browser has no page open.")?;
+            tab.loads.send_modify(|loads| loads.blocked = None);
+            let receiver = tab.loads.subscribe();
+            let before = receiver.borrow().finished;
             self.window(persona_id)?
                 .navigate(url.clone())
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?;
+            self.settle_or_say(persona_id, url, receiver, before)
+                .await
+                .map(|_| ())
         }
 
         /// Makes the teammate's window on `url`: Hotline's bar above the
@@ -521,6 +533,44 @@ mod native {
             Ok(tab)
         }
 
+        /// [`Native::settle`] on a load of `url`, raced against asking the
+        /// address directly. WebKit drops a load it could not start, a
+        /// certificate it refuses among them, without a word, and the page
+        /// stays on the one before; when the direct ask fails and the load
+        /// has not finished a moment later, the answer says why instead.
+        async fn settle_or_say(
+            &self,
+            persona_id: &str,
+            url: &Url,
+            loads: watch::Receiver<Loads>,
+            before: u64,
+        ) -> Result<bool, String> {
+            let settling = self.settle(loads, before, LOAD_WAIT);
+            tokio::pin!(settling);
+            let probe = hotline_core::browser::unreachable_reason(url.clone());
+            tokio::pin!(probe);
+            tokio::select! {
+                loaded = &mut settling => loaded,
+                reason = &mut probe => match reason {
+                    None => settling.await,
+                    Some(reason) => match tokio::time::timeout(UNREACHED_GRACE, &mut settling).await {
+                        Ok(Ok(true)) => Ok(true),
+                        Ok(Err(blocked)) => Err(blocked),
+                        Ok(Ok(false)) | Err(_) => {
+                            let address = hotline_core::browser::origin_key(url)
+                                .unwrap_or_else(|| url.to_string());
+                            let still = self
+                                .current(persona_id)
+                                .filter(|page| page != "about:blank")
+                                .map(|page| format!(" The browser is still on {page}."))
+                                .unwrap_or_default();
+                            Err(format!("{address} did not open: {reason}.{still}"))
+                        }
+                    },
+                },
+            }
+        }
+
         /// Waits for the next load to finish after `before`, or a refused one.
         async fn settle(
             &self,
@@ -651,7 +701,9 @@ mod native {
                 }
                 None => (self.make(persona_id, url)?.loads.subscribe(), 0),
             };
-            let loaded = self.settle(receiver, before, LOAD_WAIT).await?;
+            let loaded = self
+                .settle_or_say(persona_id, url, receiver, before)
+                .await?;
             self.page(persona_id, loaded).await
         }
 

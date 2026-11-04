@@ -1,10 +1,10 @@
-/* Hallmark · shape: Introduction, then the room at work · genre: modern-minimal · theme: custom · job: try · idea: "The page introduces itself the way a teammate would: by name, in the first person, then shows the room at work." · vibe: "dark desk, one green toad, plain facts"
- * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · hero: the toad on the headline talking while it types its name, the owner's sentence, one download and its install line, then Goldie's thread twice, the desk window with the phone over its empty side; asked, the desk plays the room at work · nav: empty at rest, the toad and its name dock into it on scroll, Docs and the GitHub mark, a Download that arrives once the hero's has gone · footer: one hairline row, the toad and name, four links, the licence · imagery: the product, real captures · signature: the toad and its name gliding up from the headline into the masthead · copy: verbatim (hero sentence, the owner's words)
+/* Hallmark · redesign: full · shape: Introduction, then the room at work · genre: modern-minimal · theme: brand (Hotline's own: the window's dark ground, Plex Sans, the toad's green) · job: try · idea: "The page introduces itself the way a teammate would: by name, in the first person, then shows the room at work." · vibe: "dark desk, one green mark, plain facts, one grid"
+ * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · mono: the system's own · grid: twelve columns; every band is a hairline, its head on 1 to 5 and its material on 6 to 12 · hero: the name typed, the owner's sentence, one download beside its install line, then the desk full width from the film, the phone on 10 to 12 hanging below it · nav: the toad alone at rest, on the call while the name types; the name docks beside it on scroll; Docs, the GitHub mark, a Download once the hero's has gone · footer: one hairline row on the same grid · imagery: the product, real captures; the hero a full frame of the desk film · signature: the name gliding up from the headline to sit beside the toad in the masthead · copy: verbatim (the owner's words) except one caption, reworded to match its new picture
  * axes: dark/grotesk-sans/chromatic-green · posture: restrained · contrast: pass · fold: pass · v2.0.0 */
-/* Hallmark · pre-emit critique: P4 H5 E4 S5 R4 V4 · weakest: E, the desk captures are 1x; cropped to their native size so they never scale up, recaptured at 2x when the desk can be shot */
-/* Hallmark · waive 38iii · the name hotline in the toad's green, once, in the hero · it is the product saying its own name, the same green as the mark it docks beside */
-/* Hallmark · waive 77 · the open-source section is three commands beside a list of three reasons · the code panel fits its three lines; stretched to the list it was an empty box */
-/* Hallmark · finish-review: subagent · 7 findings · 4 resolved (18 pause control, terminal fit, echoes, the trust section in the first person) 3 unresolved (hero pane mostly empty, padding round the two small captures, the clip's empty panel: all 1x material, recapture at 2x) · gap: none */
+/* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V3 · weakest: V, a redesign keeps the page's order and its brand by request; the composition is what moved: one grid, the mark at mark size, the desk at full frame */
+/* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread on desk and phone: the fixes you approve, handed to Kit and Huck, then her report." · the hero's desk is now the film's frame, which shows the fixes, not the grant */
+/* Hallmark · waive 28b · the desk film plays only inside the dialog, opened by hand, preload none · a poster would be fetched for a film most visitors never open */
+/* Hallmark · dropped .toad--hero, .toad--sign, .sign · the toad is the mark, in the masthead and the footer; at headline size it read as a sticker */
 @import url("./tokens.css");
 @import url("./base.css");
 
@@ -13,17 +13,23 @@
 .skip:focus-visible { top: var(--space-md); }
 .num { font-variant-numeric: tabular-nums; }
 
+/* The grid: twelve columns, one gap. Every band puts its head on 1 to 5 and its material on 6 to 12,
+   so whatever sits on the right starts on the same line all the way down the page. */
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); }
+.col-l { grid-column: 1 / 6; }
+.col-r { grid-column: 6 / -1; }
+
 /* Masthead: the toad alone at rest; the name joins it once the headline has risen. */
-/* At rest the bar is not there: no ground, no edge, only its links. It comes in with the name:
-   the ground and the hairline rise with the same progress as the toad's flight (--morph, 0 to 1),
-   so nothing cuts across the headline mid-move, and once the name has docked whatever passes
-   beneath meets a frosted edge instead of being sliced. Without script it is simply solid. */
+/* At rest the bar has no ground and no edge, only the mark and its links. The ground and the hairline
+   rise with the same progress as the name's flight (--morph, 0 to 1), so nothing cuts across the
+   headline mid-move, and once the name has docked whatever passes beneath meets a frosted edge.
+   Without script it is simply solid. */
 .mast { position: sticky; top: 0; z-index: var(--z-sticky-nav); border-bottom: var(--rule-hair) solid color-mix(in oklab, var(--color-rule) calc(var(--morph, 0) * 100%), transparent); background: color-mix(in oklab, var(--color-paper) calc(var(--morph, 0) * 94%), transparent); }
 .mast.is-moving, .mast.is-docked { -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); }
 html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(--color-rule); }
 .mast-in { display: flex; align-items: center; justify-content: space-between; height: var(--mast-h); }
 .brand { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--color-ink); text-decoration: none; }
-/* The toad: one drawing, in the masthead and on the headline. */
+/* The toad: one drawing, at the size the window's own chrome wears it. */
 .toad { overflow: visible; color: var(--color-accent); }
 .toad .g-all, .toad .g-body, .toad .g-eyeL, .toad .g-eyeR, .toad .g-hand { fill: currentColor; }
 .toad .g-pupils { fill: var(--color-paper); }
@@ -31,11 +37,9 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .toad .g-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .toad .g-hand { transition: opacity var(--dur-short) var(--ease-out); }
 .toad--mast { width: 34px; height: 24px; }
-.brand-word { font-weight: 600; font-size: var(--text-lg); line-height: normal; letter-spacing: var(--tracking-display); }
-.js .mast .brand { visibility: hidden; }
-.js .mast.is-docked .brand { visibility: visible; }
-.js .mast .brand-word, .js .mast .toad--mast { opacity: 0; transition: opacity var(--dur-micro) linear; }
-.js .mast.is-docked .brand-word, .js .mast.is-docked .toad--mast { opacity: 1; }
+.brand-word { font-weight: 600; font-size: var(--text-lg); line-height: normal; letter-spacing: var(--tracking-section); }
+.js .mast .brand-word { opacity: 0; transition: opacity var(--dur-micro) linear; }
+.js .mast.is-docked .brand-word { opacity: 1; }
 
 .mast-nav { position: relative; display: flex; align-items: center; gap: var(--space-lg); }
 .mast-links { display: flex; align-items: center; gap: var(--space-lg); transition: transform var(--dur-long) var(--ease-out); }
@@ -44,138 +48,147 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .gh { position: relative; display: inline-flex; align-items: center; gap: var(--space-xs); height: 40px; font-size: var(--text-sm); font-weight: 600; }
 .gh::before { content: ""; position: absolute; inset: 0 calc(-1 * var(--space-xs)); }
 /* The mark at the word's own optical size, so Docs and GitHub read as a pair. */
-.gh svg { width: 22px; height: 22px; fill: currentColor; }
+.gh svg { width: 20px; height: 20px; fill: currentColor; }
 .mast .btn--nav { height: 40px; padding: 0 var(--space-md); font-size: var(--text-sm); }
 .js .btn--nav { position: absolute; right: 0; top: 50%; opacity: 0; visibility: hidden; transform: translateY(-50%) translateY(calc(-1 * var(--space-2xs))); transition: opacity var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out), visibility 0s linear var(--dur-short); }
 .js .mast.is-past .btn--nav { opacity: 1; visibility: visible; transform: translateY(-50%); transition: opacity var(--dur-short) var(--ease-out) 80ms, transform var(--dur-short) var(--ease-out) 80ms, visibility 0s; }
 .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-lg)))); }
 
-/* The toad and its name in flight between the headline and the masthead. */
-.morph { position: fixed; left: 0; top: 0; z-index: calc(var(--z-sticky-nav) + 1); transform-origin: 0 0; font-weight: 600; line-height: normal; white-space: nowrap; pointer-events: none; will-change: transform; color: color-mix(in oklab, var(--color-ink) calc(var(--morph, 0) * 100%), var(--color-accent)); }
-.morph--toad { display: block; color: var(--color-accent); }
+/* The name in flight between the headline and the masthead. */
+.morph { position: fixed; left: 0; top: 0; z-index: calc(var(--z-sticky-nav) + 1); transform-origin: 0 0; font-weight: 600; line-height: normal; white-space: nowrap; pointer-events: none; will-change: transform; color: var(--color-ink); }
 
 /* Hero: it says its name, says what it is, and offers itself. */
-.hero { padding-top: var(--space-xl); }
-.hero h1 { font-size: min(var(--text-display), 9vw); line-height: 1.05; letter-spacing: var(--tracking-display); font-weight: 600; white-space: nowrap; }
-.hello .name, .hello .stop { color: var(--color-accent); }
+.hero { padding-top: var(--space-2xl); }
+.hero-text { max-width: 44rem; }
+.hero h1 { font-size: var(--text-display); line-height: 1.04; letter-spacing: var(--tracking-display); font-weight: 600; white-space: nowrap; }
 .hello .name { line-height: normal; }
-.hero h1.is-guess .name { color: var(--color-ink); }
 .js .hero h1:not(.is-done):not(.is-own) .stop { display: none; }
-.hero h1.is-morphing .name, .hero h1.is-morphing .toad--hero { visibility: hidden; }
-.toad--hero { display: inline-block; width: 1.4em; height: 1em; margin-right: 0.24em; vertical-align: baseline; }
+.hero h1.is-morphing .name { visibility: hidden; }
 .hello .hi, .hello .stop { opacity: calc(1 - var(--morph, 0) * 1.6); }
-.caret { display: inline-block; width: 0.07em; height: 0.8em; margin-left: 0.05em; vertical-align: -0.04em; background: var(--color-accent); opacity: 0; }
+.caret { display: inline-block; width: 0.06em; height: 0.78em; margin-left: 0.06em; vertical-align: -0.04em; background: var(--color-accent); opacity: 0; }
 .is-typing .caret { opacity: 1; animation: caret 1s steps(1) infinite; }
 .is-done .caret { opacity: 0; transition: opacity var(--dur-long) var(--ease-out); }
 @keyframes caret { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .is-typing .caret { animation: none; } .is-done .caret { transition: none; } }
 
-.lead { margin-top: var(--space-lg); font-size: var(--text-lead); line-height: 1.45; color: var(--color-ink-2); max-width: 48ch; }
-.hero-act { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-xl); margin-top: var(--space-xl); }
-.cmd { display: inline-flex; align-items: center; gap: var(--space-xs); min-width: 0; max-width: 100%; height: 52px; padding: 0; border: 0; border-radius: var(--radius-control); background: none; color: var(--color-ink-2); font-size: var(--text-sm); cursor: pointer; }
-.cmd code { font: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; transition: color var(--dur-micro) var(--ease-out); }
-.cmd-label { margin-left: var(--space-2xs); font-size: var(--text-xs); color: var(--color-muted); transition: color var(--dur-micro) var(--ease-out); }
-.cmd:hover code, .cmd:hover .cmd-label { color: var(--color-ink); }
-.cmd:active code { color: var(--color-accent); }
-.cmd:focus-visible { outline-offset: var(--space-2xs); }
+.lead { margin-top: var(--space-lg); font-size: var(--text-lead); line-height: 1.5; color: var(--color-ink-2); max-width: 46ch; }
+.hero-act { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-top: var(--space-xl); }
+/* The install line sits beside the download as its equal: the same height, set as the command it is. */
+.cmd { display: inline-flex; align-items: center; gap: var(--space-sm); min-width: 0; max-width: 100%; height: 52px; padding: 0 var(--space-sm) 0 var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-2); color: var(--color-ink-2); font-family: var(--font-mono); font-size: var(--text-xs); cursor: pointer; transition: border-color var(--dur-micro) var(--ease-out); }
+.cmd code { font: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; color: var(--color-ink); }
+.cmd-label { margin-left: var(--space-xs); padding-left: var(--space-sm); border-left: var(--rule-hair) solid var(--color-rule); font-family: var(--font-body); font-size: var(--text-xs); font-weight: 600; color: var(--color-muted); transition: color var(--dur-micro) var(--ease-out); }
+.cmd:hover { border-color: var(--color-muted); }
+.cmd:hover .cmd-label { color: var(--color-ink); }
+.cmd:active { background: var(--color-paper-3); }
 .prompt { color: var(--color-accent); user-select: none; }
 .fine { margin-top: var(--space-md); font-size: var(--text-sm); color: var(--color-muted); }
 .fine a { color: var(--color-ink-2); }
 .fine a:hover { color: var(--color-ink); }
 
-/* Pictures: the product at its own pixels, in a hairline and a soft corner. */
+/* Pictures: the product, in a hairline and a soft corner. */
 .shot { margin: 0; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; background: var(--color-paper-2); }
 .shot img, .shot video { width: 100%; height: 100%; object-fit: cover; object-position: 0 0; }
-/* The stage: Goldie's thread twice, the desk window and, over its empty side, the phone. */
-.stage { position: relative; margin: var(--space-xl) 0 0; aspect-ratio: 2.1 / 1; }
-.stage-desk { position: absolute; left: 0; top: 0; width: 86%; aspect-ratio: 2.2 / 1; }
-/* Asked, the still dims and offers the film; the film then plays in its place. */
-.watch { position: absolute; inset: 0; z-index: var(--z-raised); display: flex; align-items: center; justify-content: center; gap: var(--space-sm); border: 0; padding: 0; background: color-mix(in oklab, var(--color-paper) 0%, transparent); color: var(--color-ink); font-weight: 600; font-size: var(--text-lg); cursor: pointer; opacity: 0; transition: opacity var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out); }
-.watch:hover, .watch:focus-visible { opacity: 1; background: color-mix(in oklab, var(--color-paper) 62%, transparent); }
-.watch:focus-visible { outline-offset: calc(-1 * var(--space-xs)); }
-.watch:active { background: color-mix(in oklab, var(--color-paper) 72%, transparent); }
-.watch-play { position: relative; width: 44px; height: 44px; border-radius: var(--radius-pill); background: var(--color-ink); }
-.watch-play::after { content: ""; position: absolute; left: 17px; top: 13px; border-style: solid; border-width: 9px 0 9px 14px; border-color: transparent transparent transparent var(--color-paper); }
+
+/* The stage, on the grid: the desk (the rail and the thread) across all twelve columns, the phone on
+   10 to 12 sharing its right edge. The phone hangs below the desk by half its own width, which keeps
+   its top under the reply it would otherwise cover at every width; the stage's padding makes room
+   for the hang. Both are fractions of the width, so the picture holds its proportions everywhere. */
+.stage { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); margin: var(--space-2xl) 0 0; padding-bottom: 6%; }
+.stage-desk { position: relative; grid-column: 1 / -1; grid-row: 1; aspect-ratio: 1528 / 1080; }
+.stage-phone { position: relative; z-index: var(--z-raised); grid-column: 10 / -1; grid-row: 1; align-self: end; margin-bottom: -48%; aspect-ratio: 603 / 975; border: 0; border-radius: var(--radius-device); box-shadow: var(--shadow-lift); }
+.stage .caption { grid-column: 1 / 9; grid-row: 2; margin-top: var(--space-md); }
+/* The whole desk is the control; its label sits on it at rest, and the film plays over the page. */
+.watch { position: absolute; inset: 0; z-index: var(--z-raised); display: flex; align-items: flex-end; justify-content: flex-start; padding: var(--space-xs); border: 0; border-radius: inherit; background: none; color: var(--color-ink); cursor: pointer; }
+/* The ring goes on the label, which the phone never covers. */
+.watch:focus-visible { outline: none; }
+.watch:focus-visible .watch-chip { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.watch-chip { display: inline-flex; align-items: center; gap: var(--space-sm); height: 48px; padding: 0 var(--space-lg) 0 var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-pill); background: color-mix(in oklab, var(--color-paper) 82%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-weight: 600; font-size: var(--text-sm); transition: background-color var(--dur-micro) var(--ease-out); }
+.watch:hover .watch-chip { background: var(--color-paper-3); }
+.watch:active .watch-chip { background: var(--color-paper-2); }
+.watch-play { position: relative; width: 36px; height: 36px; border-radius: var(--radius-pill); background: var(--color-ink); }
+.watch-play::after { content: ""; position: absolute; left: 14px; top: 11px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent var(--color-paper); }
 /* The film opens over the whole page: the page dims behind it, the desk plays large. */
 .film { position: fixed; inset: 0; z-index: var(--z-modal); display: grid; place-items: center; padding: var(--space-2xl) var(--gutter); background: color-mix(in oklab, var(--color-paper) 90%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .film[hidden] { display: none; }
-.film-frame { width: min(100%, 1440px, calc((100dvh - 2 * var(--space-2xl)) * 16 / 9)); aspect-ratio: 16 / 9; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; background: var(--color-paper-2); box-shadow: var(--shadow-lift); }
+.film-frame { width: min(100%, 1440px, calc((100dvh - 2 * var(--space-2xl)) * 16 / 9)); aspect-ratio: 16 / 9; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; background: var(--color-paper-2); }
 .film-frame video { width: 100%; height: 100%; display: block; cursor: pointer; }
 .film-close { position: absolute; top: var(--space-md); right: var(--space-md); height: 44px; padding: 0 var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-2); color: var(--color-ink); font-weight: 600; font-size: var(--text-sm); cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out); }
 .film-close:hover { background: var(--color-paper-3); }
 .film-close:active { background: var(--color-paper-2); }
 html.is-film { overflow: hidden; }
-.stage-phone { position: absolute; right: 0; bottom: 0; width: 25%; aspect-ratio: 603 / 975; border: 0; border-radius: var(--radius-device); box-shadow: var(--shadow-lift); }
-.stage .caption { position: absolute; left: 0; top: calc(86% / 2.2 * 2.1 + var(--space-sm)); max-width: 56%; margin: 0; }
+.caption { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); max-width: 60ch; }
+
+/* Bands: a hairline, then the head on the left and its material on the right. */
+/* The hairline is drawn inside the gutters, so it spans exactly the twelve columns it heads. */
+.band, .section, .foot-in { background: linear-gradient(var(--color-rule), var(--color-rule)) var(--gutter) 0 / calc(100% - 2 * var(--gutter)) var(--rule-hair) no-repeat; }
+.band { margin-top: var(--space-3xl); padding-top: var(--space-lg); }
+.section { margin-top: var(--section-gap); padding-top: var(--space-xl); }
+.section h2 { font-size: var(--text-section); line-height: 1.1; letter-spacing: var(--tracking-section); font-weight: 600; max-width: 14ch; }
+.sec-p { font-size: var(--text-lead); line-height: 1.5; color: var(--color-ink-2); max-width: 44ch; }
+
+/* What it runs on: the names in four even columns, so they line up instead of spreading. */
+.runs { align-items: baseline; }
+.runs-h { font-size: var(--text-sm); color: var(--color-muted); max-width: 26ch; }
+.runs-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-sm) var(--gap-columns); font-weight: 600; font-size: var(--text-lg); letter-spacing: -0.01em; color: var(--color-ink-2); }
+
+/* Three mornings' work: the whole window, then two pieces of it on two equal trays. */
+.proofs { list-style: none; margin: var(--space-2xl) 0 0; padding: 0; row-gap: var(--space-2xl); }
+.proof { grid-column: span 6; min-width: 0; }
+.proof--wide { grid-column: 1 / -1; }
+.proof h3 { margin-top: var(--space-lg); font-size: var(--text-title); line-height: 1.3; font-weight: 600; }
+.proof p { margin-top: var(--space-xs); color: var(--color-ink-2); max-width: 52ch; }
 .shot--window { aspect-ratio: 2 / 1; }
-/* The two pieces sit on one shelf at their own pixels, centred on one line, so their titles line up. */
-.shot--piece { display: flex; align-items: center; height: 402px; border: 0; border-radius: 0; background: none; overflow: visible; }
-.shot--piece img { width: auto; height: auto; max-width: 100%; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); }
-/* The computer: its words beside the clip, the clip cropped to the browser it drives. */
-.media { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-xl) var(--space-2xl); align-items: center; }
-.media-text .split-p { margin-top: var(--space-lg); }
+/* The pieces are small captures; each sits on its own tray at its own pixels, never enlarged. */
+.shot--piece { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; padding: var(--space-lg); }
+.shot--piece img { width: auto; height: auto; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); }
+/* A capture that starts mid-list fades in from the top, as a list does when it scrolls. */
+.shot--piece img.fade-top { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; -webkit-mask-image: linear-gradient(to bottom, transparent, var(--color-ink) var(--space-xl)); mask-image: linear-gradient(to bottom, transparent, var(--color-ink) var(--space-xl)); }
+
+/* The computer: its words on the left, the clip cropped to the browser it drives on the right. */
+.media-text .sec-p { margin-top: var(--space-lg); }
 .media-text .caption { margin-top: var(--space-lg); }
 .shot--clip { position: relative; aspect-ratio: 1.16 / 1; }
 .clip-toggle { position: absolute; right: var(--space-md); bottom: var(--space-md); z-index: var(--z-raised); height: 44px; padding: 0 var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: color-mix(in oklab, var(--color-paper) 86%, transparent); color: var(--color-ink); font-size: var(--text-sm); font-weight: 600; cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out); }
 .clip-toggle:hover { background: var(--color-paper-3); }
 .clip-toggle:active { background: var(--color-paper-2); }
 .clip-toggle:disabled { color: var(--color-muted); cursor: not-allowed; }
-.caption { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); }
-
-/* What it runs on: the names, set plain on one rule. */
-.runs { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-md) var(--space-2xl); margin-top: var(--space-3xl); padding-block: var(--space-lg); border-block: var(--rule-hair) solid var(--color-rule); }
-.runs-h { font-size: var(--text-sm); color: var(--color-muted); max-width: 24ch; }
-.runs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-sm) var(--space-lg); font-weight: 600; font-size: var(--text-lg); letter-spacing: -0.01em; color: var(--color-ink-2); }
-
-/* Sections */
-.section { margin-top: var(--section-gap); }
-.section h2 { font-size: var(--text-section); line-height: 1.08; letter-spacing: -0.02em; font-weight: 600; max-width: 18ch; }
-.split { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-lg) var(--space-2xl); align-items: end; }
-.split-p { font-size: var(--text-lead); line-height: 1.45; color: var(--color-ink-2); max-width: 46ch; }
-
-/* Three mornings' work: the whole window first, then two pieces of it. */
-.proofs { list-style: none; margin: var(--space-2xl) 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2xl) var(--gap-columns); }
-.proof--wide { grid-column: 1 / -1; }
-.proof h3 { margin-top: var(--space-lg); font-size: var(--text-title); line-height: 1.3; font-weight: 600; }
-.proof p { margin-top: var(--space-xs); color: var(--color-ink-2); max-width: 52ch; }
 
 /* Facts: four, a rule over each. */
-.duo { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-xl) var(--space-2xl); align-items: start; }
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-xl) var(--gap-columns); margin: 0; }
 .facts > div { padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--color-rule); }
 .facts dt { font-weight: 600; }
 .facts dd { margin: var(--space-xs) 0 0; color: var(--color-ink-2); }
 
-/* Open source: the three lines that run it, and why to read it. */
-.src { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-xl) var(--space-2xl); margin-top: var(--space-2xl); align-items: start; }
-.code { display: flex; flex-direction: column; margin: 0; }
-.code pre { margin: 0; padding: var(--space-xl); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); font: inherit; font-size: var(--text-md); line-height: 2; color: var(--color-ink); overflow-x: auto; }
+/* Open source: the head and its sentence, then the three lines that run it beside why to read it. */
+.src { row-gap: var(--space-2xl); }
+.code { margin: 0; min-width: 0; }
+.code pre { margin: 0; padding: var(--space-lg); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 2.1; color: var(--color-ink); overflow-x: auto; }
 .code code { font: inherit; }
-.cursor { display: inline-block; width: 0.55em; height: 1.1em; vertical-align: -0.2em; background: var(--color-ink-2); }
-.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-md); }
+.cursor { display: inline-block; width: 0.6em; height: 1.15em; vertical-align: -0.2em; background: var(--color-ink-2); }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-columns); }
 .reasons li { padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--color-rule); color: var(--color-ink-2); }
-.reasons strong { display: block; font-weight: 600; color: var(--color-ink); }
+.reasons strong { display: block; margin-bottom: var(--space-xs); font-weight: 600; color: var(--color-ink); }
 .links { display: flex; flex-wrap: wrap; gap: var(--space-sm) var(--space-lg); margin-top: var(--space-xl); }
 .more { font-weight: 600; color: var(--color-ink); text-decoration-color: var(--color-muted); text-underline-offset: 0.22em; transition: text-decoration-color var(--dur-micro) var(--ease-out); }
 .more:hover { text-decoration-color: var(--color-ink); }
 
-/* Download: the one button, every build with its size, the three install lines. */
-.section--download { margin-top: var(--section-gap-l); }
-.dl { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-xl) var(--space-2xl); align-items: start; }
-.dl-main .btn { margin-top: var(--space-xl); }
-/* The toad signs off as it opened: the same lockup, at the size of the head. */
-.toad--sign { display: block; width: 1.4em; height: 1em; margin-bottom: var(--space-md); }
+/* Download: the one button and the three install lines on the left, every build with its size on the right. */
+.dl-main > .btn { margin-top: var(--space-xl); }
 .builds { width: 100%; border-collapse: collapse; }
-.builds tr { border-top: var(--rule-hair) solid var(--color-rule); }
+.builds tr { border-bottom: var(--rule-hair) solid var(--color-rule); }
+.builds tr:first-child { border-top: var(--rule-hair) solid var(--color-rule); }
 .builds th, .builds td { padding: var(--space-sm) 0; text-align: left; font-weight: 400; color: var(--color-ink-2); }
-.builds th { width: 6.5em; font-weight: 600; color: var(--color-ink); }
-.builds td a { color: var(--color-ink); }
+.builds th { width: 7.5em; font-weight: 600; color: var(--color-ink); }
+.builds td a { color: var(--color-ink); text-decoration-color: var(--color-muted); text-underline-offset: 0.22em; }
+.builds td a:hover { text-decoration-color: var(--color-ink); }
 .builds td.num { text-align: right; color: var(--color-muted); }
-.lines { display: grid; gap: var(--space-sm); margin: var(--space-2xl) 0 0; }
-.lines > div { display: grid; grid-template-columns: 9em minmax(0, 1fr); gap: var(--space-md); align-items: center; }
-.lines dt { font-size: var(--text-sm); color: var(--color-muted); }
-.lines dd { margin: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-2); }
-.lines code { font: inherit; font-size: var(--text-sm); color: var(--color-ink-2); overflow-wrap: anywhere; }
+/* The install lines run under both columns on the same grid: the system on the left, the command on the right,
+   shown whole and wrapped where it must, never cut: it is read before it is run. */
+.lines { grid-column: 1 / -1; display: grid; gap: var(--space-md); margin: var(--space-2xl) 0 0; }
+.lines > div { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); align-items: center; }
+.lines dt { grid-column: 1 / 6; font-size: var(--text-sm); color: var(--color-muted); }
+.lines dd { grid-column: 6 / -1; min-width: 0; margin: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); min-height: 52px; padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-2); }
+.lines code { min-width: 0; padding-block: var(--space-xs); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink); overflow-wrap: anywhere; }
 
 /* Controls: one filled button, one quiet one, text links. */
 .btn { display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 var(--space-lg); border: 0; border-radius: var(--radius-control); background: var(--color-ink); color: var(--color-paper); font-weight: 600; font-size: var(--text-md); text-decoration: none; white-space: nowrap; cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out); }
@@ -186,43 +199,52 @@ html.is-film { overflow: hidden; }
 .btn--quiet:hover { background: color-mix(in oklab, var(--color-paper-3) 80%, var(--color-ink)); }
 @media (prefers-reduced-motion: reduce) { .btn:active { transform: none; } .mast-links, .js .btn--nav { transition: none; } }
 
-/* Footer: one row under a hairline. */
-.foot { margin-top: var(--section-gap); border-top: var(--rule-hair) solid var(--color-rule); }
-.foot-in { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-md) var(--space-xl); padding-top: var(--space-xl); padding-bottom: var(--space-2xl); font-size: var(--text-sm); color: var(--color-muted); }
-.brand--foot { gap: var(--space-xs); font-weight: 600; font-size: var(--text-md); }
+/* Footer: under a hairline, on the same grid: the mark on the left; the links and the licence where every right column starts. */
+.foot { margin-top: var(--section-gap); }
+.foot-in { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); row-gap: var(--space-md); align-items: center; padding-top: var(--space-xl); padding-bottom: var(--space-2xl); font-size: var(--text-sm); color: var(--color-muted); }
+.brand--foot { grid-column: 1 / 6; justify-self: start; gap: var(--space-xs); font-weight: 600; font-size: var(--text-md); }
 .brand--foot svg { width: 26px; height: 18px; }
 .f-body { fill: var(--color-accent); }
 .f-pupils { fill: var(--color-paper); }
-.foot-nav { display: flex; flex-wrap: wrap; gap: var(--space-lg); }
+.foot-nav { grid-column: 6 / -1; display: flex; flex-wrap: wrap; gap: var(--space-lg); }
 .foot-nav a { color: var(--color-ink-2); text-decoration: none; transition: color var(--dur-micro) var(--ease-out); }
 .foot-nav a:hover { color: var(--color-ink); }
-.foot small { margin-left: auto; font-size: inherit; }
+.foot small { grid-column: 6 / -1; font-size: inherit; }
 
+/* Tablet: the bands stack, the picture rows keep their columns. */
 @media (max-width: 60rem) {
   :root { --mast-h: 64px; }
-  .split, .src, .dl, .media, .duo { grid-template-columns: minmax(0, 1fr); align-items: start; }
-  .runs { grid-template-columns: minmax(0, 1fr); }
-  .runs-list { justify-content: flex-start; }
-  .proofs { gap: var(--space-xl) var(--gap-columns); }
-  .foot small { margin-left: 0; flex-basis: 100%; }
+  .col-l, .col-r { grid-column: 1 / -1; }
+  .grid:not(.proofs) { row-gap: var(--space-xl); }
+  .grid.runs { row-gap: var(--space-md); }
+  .lines { margin-top: var(--space-md); }
+  .lines > div { row-gap: var(--space-xs); }
+  .lines dt, .lines dd { grid-column: 1 / -1; }
+  .reasons { grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
+  .foot-in { grid-template-columns: minmax(0, 1fr); }
+  .brand--foot, .foot-nav, .foot small { grid-column: 1 / -1; }
 }
+/* Phone: one column; the hero is the phone shot, and the desk stays home. */
 @media (max-width: 40rem) {
   .mast-nav, .mast-links { gap: var(--space-md); }
+  .mast .btn--nav { height: 36px; padding: 0 var(--space-sm); }
   .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-md)))); }
-  .hero { padding-top: var(--space-lg); }
-  .hero-act .btn { width: 100%; }
-  .stage { aspect-ratio: auto; }
-  .stage-desk { display: none; }
-  .stage-phone { position: static; width: 100%; aspect-ratio: 4 / 5; border-radius: var(--radius-device); }
-  .stage-phone img { object-position: 50% 0; }
-  .stage .caption { position: static; max-width: none; margin-top: var(--space-sm); }
-  .shot--piece { height: auto; }
-  .runs { margin-top: var(--space-2xl); }
-  .runs-list { font-size: var(--text-md); gap: var(--space-xs) var(--space-md); }
-  .proofs { grid-template-columns: minmax(0, 1fr); }
-  .shot--window { aspect-ratio: 4 / 3; }
+  .hero { padding-top: var(--space-xl); }
+  .hero-act .btn, .hero-act .cmd, .dl-main > .btn { width: 100%; }
+  .stage { display: block; margin-top: var(--space-xl); padding-bottom: 0; }
+  .stage-desk, .stage .caption { display: none; }
+  /* On a phone the hero is the phone: Goldie's thread at the size it is read, below its own status bar, fading where the capture ends. */
+  .stage-phone { margin: 0; aspect-ratio: 904 / 1344; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); box-shadow: none; }
+  .stage-phone img { -webkit-mask-image: linear-gradient(to top, transparent, var(--color-ink) var(--space-2xl)); mask-image: linear-gradient(to top, transparent, var(--color-ink) var(--space-2xl)); }
+  .band { margin-top: var(--space-2xl); }
+  .runs-list { grid-template-columns: repeat(2, minmax(0, 1fr)); font-size: var(--text-md); }
+  .proofs { row-gap: var(--space-xl); }
+  .proof { grid-column: 1 / -1; }
+  .shot--window { aspect-ratio: 480 / 534; }
+  /* The pieces drop their trays and take the width, so their text stays at its own size. */
+  .shot--piece { display: block; aspect-ratio: auto; padding: 0; border: 0; background: none; }
+  .shot--piece img { width: 100%; }
   .facts { grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); }
-  .code pre { padding: var(--space-md); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .lines > div { grid-template-columns: minmax(0, 1fr); gap: var(--space-2xs); }
+  .code pre { padding: var(--space-md); white-space: pre-wrap; overflow-wrap: anywhere; }
   .builds th { width: 5.5em; }
 }

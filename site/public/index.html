@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261103m">
+<link rel="stylesheet" href="/page.css?v=20261104b">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -50,35 +50,41 @@
 <main id="main">
 
 <section class="hero container" aria-labelledby="hero-h">
-  <h1 id="hero-h" aria-label="Hi, I’m Hotline."><span class="hello" aria-hidden="true"><svg class="toad toad--hero" viewBox="4 8 56 40" aria-hidden="true"><g class="g-all"><g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g><g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g><g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g><g class="g-pupils"><rect x="14.5" y="28" width="11" height="4" rx="2"/><rect x="38.5" y="28" width="11" height="4" rx="2"/></g><g class="g-hand" opacity="0"><path class="g-receiver" d=""/></g><path class="g-line" d="" opacity="0"/></g></svg><span class="hi">Hi, I’m </span><span class="name" data-names="Goldie|June|Jarvis|hotline">hotline</span><span class="stop">.</span><span class="caret"></span></span></h1>
-  <p class="lead">I’m an open-source personal agent ecosystem. I work with my teammates, have my own computer, and run on the subscriptions you already pay for.</p>
-  <div class="hero-act">
-    <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
-    <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
+  <div class="hero-text">
+    <h1 id="hero-h" aria-label="Hi, I’m Hotline."><span class="hello" aria-hidden="true"><span class="hi">Hi, I’m </span><span class="name" data-names="Goldie|June|Jarvis|hotline">hotline</span><span class="stop">.</span><span class="caret"></span></span></h1>
+    <p class="lead">I’m an open-source personal agent ecosystem. I work with my teammates, have my own computer, and run on the subscriptions you already pay for.</p>
+    <div class="hero-act">
+      <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
+      <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
+    </div>
+    <p class="fine">Free. Version <span data-version>0.47.0</span><span data-size-wrap>, <span data-size="mac">42 MB</span></span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
   </div>
-  <p class="fine">Free. Version <span data-version>0.47.0</span><span data-size-wrap>, <span data-size="mac">42 MB</span></span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
   <figure class="stage">
     <div class="shot stage-desk">
-      <picture><source media="(max-width: 40rem)" srcset="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1"><img src="/screens/hero-desk.webp?v=2" width="1332" height="605" alt="The Hotline desk: five teammates in the rail, Goldie’s thread with the card Allow Goldie to ask Kit to work, and the work she handed to Quill, Kit and Huck." fetchpriority="high" decoding="async"></picture>
-      <button class="watch" type="button" data-watch hidden><span class="watch-play" aria-hidden="true"></span>Watch the desk in action</button>
+      <picture><source media="(max-width: 40rem)" srcset="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1"><img src="/screens/desk-room.webp" width="1528" height="1080" alt="The Hotline desk: six teammates in the rail, Goldie’s thread with what is left on the Ember &amp; Oak page, the reply handing Kit the first three fixes, and Goldie sending them on." fetchpriority="high" decoding="async"></picture>
+      <button class="watch" type="button" data-watch hidden><span class="watch-chip"><span class="watch-play" aria-hidden="true"></span>Watch the desk in action</span></button>
     </div>
-    <div class="shot stage-phone"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="(max-width: 40rem) 92vw, 300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." fetchpriority="high" decoding="async"></div>
-    <figcaption class="caption">Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck.</figcaption>
+    <div class="shot stage-phone"><picture><source media="(max-width: 40rem)" srcset="/screens/phone-goldie-m.webp" width="904" height="1344"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." decoding="async"></picture></div>
+    <figcaption class="caption">Goldie’s thread on desk and phone: the fixes you approve, handed to Kit and Huck, then her report.</figcaption>
   </figure>
 </section>
 
-<div class="container"><div class="runs">
-  <p class="runs-h">Each of my teammates can run on any of these.</p>
-  <ul class="runs-list">
-    <li>Claude Code</li><li>Codex</li><li>opencode</li><li>Anthropic</li><li>OpenAI</li><li>Google</li><li>OpenRouter</li><li>Ollama</li>
-  </ul>
-</div></div>
+<section class="band container" aria-label="What my teammates run on">
+  <div class="grid runs">
+    <p class="col-l runs-h">Each of my teammates can run on any of these.</p>
+    <ul class="col-r runs-list">
+      <li>Claude Code</li><li>Codex</li><li>opencode</li><li>Anthropic</li><li>OpenAI</li><li>Google</li><li>OpenRouter</li><li>Ollama</li>
+    </ul>
+  </div>
+</section>
 
 <section class="section container" aria-labelledby="proof-h">
-  <h2 id="proof-h">Three things I did this morning.</h2>
-  <ul class="proofs">
+  <div class="grid">
+    <h2 id="proof-h" class="col-l">Three things I did this morning.</h2>
+  </div>
+  <ul class="grid proofs">
     <li class="proof proof--wide">
-      <figure class="shot shot--window"><picture><source media="(max-width: 40rem)" srcset="/screens/f-window-phone.webp" width="620" height="465"><img src="/screens/f-window.webp" width="1248" height="624" alt="The Hotline window: Ada and Lin in the rail, the handoff line to Lin, and Ada’s report that Lin put the CLI, the test suite and a sample dataset in their workspace." loading="lazy" decoding="async"></picture></figure>
+      <figure class="shot shot--window"><picture><source media="(max-width: 40rem)" srcset="/screens/f-window-thread.webp" width="480" height="534"><img src="/screens/f-window.webp" width="1248" height="624" alt="The Hotline window: Ada and Lin in the rail, the handoff line to Lin, and Ada’s report that Lin put the CLI, the test suite and a sample dataset in their workspace." loading="lazy" decoding="async"></picture></figure>
       <h3>Built a CLI with tests, and reported back.</h3>
       <p>One message to Ada. She handed it to Lin, Lin wrote the code, and the 17 tests pass.</p>
     </li>
@@ -88,7 +94,7 @@
       <p>Lin runs Gemini 4 Argon through OpenRouter, from its own menu.</p>
     </li>
     <li class="proof">
-      <figure class="shot shot--piece"><img src="/screens/f-switch.webp" width="320" height="256" alt="Lin’s settings: Whole machine, Background work and Collaboration switches, then under Computer the switch A computer of its own." loading="lazy" decoding="async"></figure>
+      <figure class="shot shot--piece"><img class="fade-top" src="/screens/f-switch.webp" width="320" height="256" alt="Lin’s settings: Whole machine, Background work and Collaboration switches, then under Computer the switch A computer of its own." loading="lazy" decoding="async"></figure>
       <h3>Gave a teammate a computer with one switch.</h3>
       <p>Its own folder, its own permissions and, when you flip it, its own desktop.</p>
     </li>
@@ -96,13 +102,13 @@
 </section>
 
 <section class="section container" aria-labelledby="computer-h">
-  <div class="media">
-    <div class="media-text">
+  <div class="grid">
+    <div class="col-l media-text">
       <h2 id="computer-h">My own computer, in a window you can watch.</h2>
-      <p class="split-p">A Linux desktop in a container on your machine: a screen, a browser, a shell. I run jobs there and sign in with keys you grant. When I need you, take the mouse.</p>
+      <p class="sec-p">A Linux desktop in a container on your machine: a screen, a browser, a shell. I run jobs there and sign in with keys you grant. When I need you, take the mouse.</p>
       <p class="caption">Eight seconds of a job, as the desk shows it. Docker, Podman or Apple container.</p>
     </div>
-    <figure class="shot shot--clip">
+    <figure class="col-r shot shot--clip">
       <button class="clip-toggle" type="button" data-clip-toggle="run" aria-controls="run" hidden>Pause</button>
       <video id="run" width="1440" height="810" poster="/screens/computer-run.webp" autoplay muted loop playsinline controls preload="metadata" aria-label="A teammate’s computer running the job it was handed: the shell shows the job start, four pages render, and the job ends with exit 0.">
         <source src="/screens/computer-run.mp4" type="video/mp4">
@@ -113,31 +119,29 @@
 </section>
 
 <section class="section container" aria-labelledby="trust-h">
-  <div class="duo">
-  <h2 id="trust-h">Nothing sits between us.</h2>
-  <dl class="facts">
-    <div><dt>No account</dt><dd>You never sign up. You pay your model provider and nobody else.</dd></div>
-    <div><dt>Your keys, your keychain</dt><dd>I keep API keys in your system’s own credential store.</dd></div>
-    <div><dt>Your data stays put</dt><dd>Every transcript and file I make stays on your disk.</dd></div>
-    <div><dt>Signed for macOS</dt><dd>Notarized by Apple, so I open without a warning.</dd></div>
-  </dl>
+  <div class="grid">
+    <h2 id="trust-h" class="col-l">Nothing sits between us.</h2>
+    <dl class="col-r facts">
+      <div><dt>No account</dt><dd>You never sign up. You pay your model provider and nobody else.</dd></div>
+      <div><dt>Your keys, your keychain</dt><dd>I keep API keys in your system’s own credential store.</dd></div>
+      <div><dt>Your data stays put</dt><dd>Every transcript and file I make stays on your disk.</dd></div>
+      <div><dt>Signed for macOS</dt><dd>Notarized by Apple, so I open without a warning.</dd></div>
+    </dl>
   </div>
 </section>
 
 <section class="section container" aria-labelledby="src-h">
-  <div class="split">
-    <h2 id="src-h">Open source, every line of me.</h2>
-    <p class="split-p">Rust, with a Tauri shell around a web UI. MIT or Apache-2.0, your choice. Fork me, change me, ship your own.</p>
-  </div>
-  <div class="src">
-    <figure class="code">
+  <div class="grid src">
+    <h2 id="src-h" class="col-l">Open source, every line of me.</h2>
+    <p class="col-r sec-p">Rust, with a Tauri shell around a web UI. MIT or Apache-2.0, your choice. Fork me, change me, ship your own.</p>
+    <figure class="col-l code">
       <pre><code><span class="prompt" aria-hidden="true">$ </span>git clone https://github.com/1broseidon/hotline
 <span class="prompt" aria-hidden="true">$ </span>cd hotline
 <span class="prompt" aria-hidden="true">$ </span>make dev
 <span class="prompt" aria-hidden="true">$ </span><span class="cursor" aria-hidden="true"></span></code></pre>
       <figcaption class="caption">From a fresh clone to a running desk.</figcaption>
     </figure>
-    <div class="src-side">
+    <div class="col-r src-side">
       <ul class="reasons">
         <li><strong>Read how I work.</strong> The design, the wire and the log are written down in the repository.</li>
         <li><strong>Change what you like.</strong> A teammate, a model, the whole window.</li>
@@ -148,13 +152,14 @@
   </div>
 </section>
 
-<section class="section section--download container" id="download" aria-labelledby="dl-h">
-  <div class="dl">
-    <div class="dl-main">
-      <h2 id="dl-h" class="sign"><svg class="toad toad--sign" viewBox="4 8 56 40" aria-hidden="true"><g class="g-all"><g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g><g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g><g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g><g class="g-pupils"><rect x="14.5" y="28" width="11" height="4" rx="2"/><rect x="38.5" y="28" width="11" height="4" rx="2"/></g><g class="g-hand" opacity="0"><path class="g-receiver" d=""/></g><path class="g-line" d="" opacity="0"/></g></svg>Run me on your machine.</h2>
+<section class="section container" id="download" aria-labelledby="dl-h">
+  <div class="grid">
+    <div class="col-l dl-main">
+      <h2 id="dl-h">Run me on your machine.</h2>
       <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
       <p class="fine">Version <span data-version>0.47.0</span>. Then <a href="/docs/phone/">pair the iPhone app</a> (beta).</p>
     </div>
+    <div class="col-r">
     <table class="builds">
       <caption class="visually-hidden">Every build of the latest release, with its size</caption>
       <tbody>
@@ -168,12 +173,13 @@
         <tr><th scope="row">Server</th><td><a data-dl="server" href="https://github.com/1broseidon/hotline/releases/latest">x86_64</a> or <a data-dl="serverArm" href="https://github.com/1broseidon/hotline/releases/latest">ARM</a></td><td class="num" data-size="server">44 MB</td></tr>
       </tbody>
     </table>
-  </div>
-  <dl class="lines">
+    </div>
+    <dl class="lines">
     <div><dt>macOS and Linux</dt><dd><code>curl -fsSL https://hotline.dev/install | sh</code><button class="btn btn--quiet" type="button" data-copy="curl -fsSL https://hotline.dev/install | sh">Copy</button></dd></div>
     <div><dt>Windows</dt><dd><code>irm https://hotline.dev/install.ps1 | iex</code><button class="btn btn--quiet" type="button" data-copy="irm https://hotline.dev/install.ps1 | iex">Copy</button></dd></div>
     <div><dt>Server</dt><dd><code>curl -fsSL https://hotline.dev/install | sh -s -- --server</code><button class="btn btn--quiet" type="button" data-copy="curl -fsSL https://hotline.dev/install | sh -s -- --server">Copy</button></dd></div>
-  </dl>
+    </dl>
+  </div>
 </section>
 
 </main>
@@ -191,7 +197,7 @@
   </div>
 </footer>
 
-  <div class="film" data-film role="dialog" aria-modal="true" aria-label="The desk in action" hidden>
+<div class="film" data-film role="dialog" aria-modal="true" aria-label="The desk in action" hidden>
         <div class="film-frame"><video id="desk" width="1920" height="1080" playsinline preload="none" aria-label="The Hotline desk at work: one message to Goldie, her ask to let Huck and Quill work, the work handed to each, Kit’s check, the fixes sent back, and Goldie’s report with the finished launch post."><source src="/screens/desk-film.mp4?v=3" type="video/mp4"><source src="/screens/desk-film.webm?v=3" type="video/webm"></video></div>
         <button class="film-close" type="button" data-film-close>Close</button>
       </div>
@@ -282,32 +288,25 @@ document.querySelectorAll("video#run").forEach((v) => {
 
 // The headline tries a few names, the kind you might give it, then says its own.
 // Scrolling ends the typing at once: the name is needed for what follows.
-const heroToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--hero")) : { talk() {}, hangUp() {}, turn() {} };
-const mastToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--mast")) : { turn() {} };
+// The toad is the masthead's mark, at the size the window wears it: it stays on the call
+// while the names are typed, hangs up on its own, and plays a whole turn for whoever points at it.
+const toad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--mast")) : { talk() {}, hangUp() {}, turn() {} };
 const brand = document.querySelector(".mast .brand");
-if (brand) { brand.addEventListener("pointerenter", () => mastToad.turn()); brand.addEventListener("focus", () => mastToad.turn()); }
-// The toad signs off at the download, and plays a whole turn for whoever points at it.
-const signToad = window.hotlineMark ? window.hotlineMark(document.querySelector(".toad--sign")) : { turn() {} };
-const sign = document.querySelector(".sign");
-if (sign) sign.addEventListener("pointerenter", () => signToad.turn());
+if (brand) { brand.addEventListener("pointerenter", () => toad.turn()); brand.addEventListener("focus", () => toad.turn()); }
 
-// The toad on the headline talks the whole time the names are typed, and hangs up on its own.
 const typing = (() => {
   const el = document.querySelector(".hero .name"); if (!el) return { finish() {} };
   const h1 = el.closest("h1"), names = el.dataset.names.split("|"), own = names[names.length - 1];
   let done = false;
-  const finish = () => { if (done) return; done = true; el.textContent = own; h1.classList.remove("is-typing", "is-guess"); h1.classList.add("is-done"); heroToad.hangUp(); };
-  const toad = document.querySelector(".toad--hero");
-  if (toad) toad.addEventListener("pointerenter", () => { if (h1.classList.contains("is-own") || done) heroToad.turn(); });
+  const finish = () => { if (done) return; done = true; el.textContent = own; h1.classList.remove("is-typing"); h1.classList.add("is-done"); toad.hangUp(); };
   if (reduce) { finish(); return { finish }; }
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   (async () => {
-    h1.classList.add("is-typing", "is-guess"); el.textContent = "";
-    heroToad.talk();
+    h1.classList.add("is-typing"); el.textContent = "";
+    toad.talk();
     await wait(400);
     for (let i = 0; i < names.length && !done; i++) {
       const last = i === names.length - 1;
-      h1.classList.toggle("is-guess", !last);
       for (const ch of names[i]) { if (done) return; el.textContent += ch; await wait(70 + Math.random() * 30); }
       if (last) break;
       await wait(800);
@@ -315,34 +314,29 @@ const typing = (() => {
       await wait(220);
     }
     if (done) return;
-    h1.classList.add("is-own"); heroToad.hangUp();
+    h1.classList.add("is-own"); toad.hangUp();
     await wait(2400); finish();
   })();
   return { finish };
 })();
 
-// The toad and its name are the masthead's title. As the page scrolls they
-// rise and shrink into the masthead together, and the masthead keeps them.
+// The name is the masthead's title. As the page scrolls it rises and shrinks
+// from the headline into the masthead, beside the toad, and the masthead keeps it.
 (() => {
   const mast = document.querySelector(".mast"), h1 = document.querySelector(".hero h1");
-  const pairs = [[".hero .name", ".mast .brand-word"], [".toad--hero", ".toad--mast"]].map(([a, b]) => ({ from: document.querySelector(a), to: document.querySelector(b) }));
-  if (!mast || !h1 || pairs.some((p) => !p.from || !p.to)) return;
-  pairs[0].ghost = Object.assign(document.createElement("span"), { className: "morph morph--word", textContent: pairs[0].to.textContent });
-  pairs[1].ghost = pairs[1].to.cloneNode(true); pairs[1].ghost.setAttribute("class", "toad morph morph--toad");
-  pairs.forEach((p) => { p.ghost.setAttribute("aria-hidden", "true"); p.ghost.hidden = true; document.body.appendChild(p.ghost); });
-  let d = 1, last = -1;
+  const from = document.querySelector(".hero .name"), to = document.querySelector(".mast .brand-word");
+  if (!mast || !h1 || !from || !to) return;
+  const ghost = Object.assign(document.createElement("span"), { className: "morph", textContent: to.textContent });
+  ghost.setAttribute("aria-hidden", "true"); ghost.hidden = true; document.body.appendChild(ghost);
+  let d = 1, last = -1, x0 = 0, y0 = 0, x1 = 0, y1 = 0, k = 1;
   const measure = () => {
-    const s = scrollY, cs = getComputedStyle(h1);
-    pairs.forEach((p) => {
-      const a = p.from.getBoundingClientRect(), b = p.to.getBoundingClientRect();
-      // the word scales by type size (its width changes while it is typed); the toad by its drawn width
-      const k = p.ghost.tagName === "SPAN" ? parseFloat(getComputedStyle(p.to).fontSize) / parseFloat(cs.fontSize) : b.width / a.width;
-      Object.assign(p, { x0: a.left, y0: a.top + s, x1: b.left, y1: b.top, k });
-      if (p.ghost.tagName === "SPAN") { p.ghost.style.fontSize = cs.fontSize; p.ghost.style.letterSpacing = cs.letterSpacing; }
-      else { p.ghost.style.width = `${a.width}px`; p.ghost.style.height = `${a.height}px`; }
-    });
+    const s = scrollY, cs = getComputedStyle(h1), a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+    // The word scales by type size: its width changes while it is typed.
+    k = parseFloat(getComputedStyle(to).fontSize) / parseFloat(cs.fontSize);
+    x0 = a.left; y0 = a.top + s; x1 = b.left; y1 = b.top;
+    ghost.style.fontSize = cs.fontSize; ghost.style.letterSpacing = cs.letterSpacing;
     // At least a third of a screen of scroll, so a quick flick still shows the move.
-    d = Math.max(pairs[0].y0 - pairs[0].y1, Math.min(320, innerHeight * 0.35));
+    d = Math.max(y0 - y1, Math.min(320, innerHeight * 0.35));
     last = -1; frame();
   };
   const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
@@ -353,12 +347,10 @@ const typing = (() => {
     if (p > 0) typing.finish();
     if (p === last) return; last = p;
     const e = ease(p);
-    pairs.forEach((q) => {
-      const yNow = Math.max(q.y0 - s, q.y1); // never above the bar it is heading for
-      const x = q.x0 + (q.x1 - q.x0) * e, y = yNow + (q.y1 - yNow) * e, k = 1 + (q.k - 1) * e;
-      q.ghost.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
-      q.ghost.hidden = p <= 0 || p >= 1;
-    });
+    const yNow = Math.max(y0 - s, y1); // never above the bar it is heading for
+    const x = x0 + (x1 - x0) * e, y = yNow + (y1 - yNow) * e, scale = 1 + (k - 1) * e;
+    ghost.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    ghost.hidden = p <= 0 || p >= 1;
     document.documentElement.style.setProperty("--morph", e.toFixed(4));
     mast.classList.toggle("is-docked", p >= 1);
     mast.classList.toggle("is-moving", p > 0 && p < 1);

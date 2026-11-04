@@ -27,7 +27,6 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   quote has a plain edge; a GitHub `[!WARNING]` or `[!CAUTION]` alert is an
   amber callout with its label, and `[!NOTE]`, `[!TIP]` and `[!IMPORTANT]`
   are labelled callouts.
-
 - A link's card puts the site first, then the title and two lines of what
   the page is, with its picture beside them only when it has a real one.
   The desk fetches that picture, and every site icon, once over https,

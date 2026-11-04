@@ -1,8 +1,8 @@
 /* Hallmark · redesign: full · shape: Introduction, then the room at work · genre: modern-minimal · theme: brand (Hotline's own: the window's dark ground, Plex Sans, the toad's green) · job: try · idea: "The page introduces itself the way a teammate would: by name, in the first person, then shows the room at work." · vibe: "dark desk, one green mark, plain facts, one grid"
- * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · mono: the system's own · grid: twelve columns; every band is a hairline, its head on 1 to 5 and its material on 6 to 12 · hero: the name typed, the owner's sentence, one download beside its install line, then the desk window full width, the phone on 10 to 12 hanging below it · nav: the toad alone at rest, on the call while the name types; the name docks beside it on scroll; Docs, the GitHub mark, a Download once the hero's has gone · footer: one hairline row on the same grid · imagery: the product, real captures, the whole windows in the Mac's chrome; no film · signature: the name gliding up from the headline to sit beside the toad in the masthead · copy: verbatim (the owner's words) except one caption, reworded to match its new picture
+ * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · mono: the system's own · grid: twelve columns; every band is a hairline, its head on 1 to 5 and its material on 6 to 12 · hero: the name typed, the owner's sentence, one download beside its install line, then the desk window full width; a phone gets the words alone · nav: the toad alone at rest, on the call while the name types; the name docks beside it on scroll; Docs, the GitHub mark, a Download once the hero's has gone · footer: one hairline row on the same grid · imagery: the product, real captures, the whole windows in the Mac's chrome; no film · signature: the name gliding up from the headline to sit beside the toad in the masthead · copy: verbatim (the owner's words) except one caption, reworded to match its new picture
  * axes: dark/grotesk-sans/chromatic-green · posture: restrained · contrast: pass · fold: pass · v2.0.0 */
 /* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V3 · weakest: V, a redesign keeps the page's order and its brand by request; the composition is what moved: one grid, the mark at mark size, the desk at full frame */
-/* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread on desk and phone: the fixes you approve, handed to Kit and Huck, then her report." · the hero's desk shows the fixes, not the grant */
+/* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread: you say yes, she hands Kit the fixes, then checks the page on her own computer." · the hero is now the desk alone, which shows the go-ahead, the handoff and the check, not the grant */
 /* By the owner's request, against Hallmark's floor (47a, a drawn OS window): the page is screenshots only, each whole window in the Mac's chrome. The chrome is drawn around real captures (the desk from the dev build, the browser's own bar over the page Kit built, the computer's own screen), with the lights where the app seats them: 12px, centred on the 40px strip. */
 /* Hallmark · waive 2b · asked for by the owner · the gold is a light that crosses a copy of the owner's sentence once as the name lands, 1.3s, then the copy is gone; the sentence itself is always solid ink, and what stays is three green highlights, not gradient text and never runs with reduced motion */
 /* Hallmark · dropped .toad--hero, .toad--sign, .sign · the toad is the mark, in the masthead and the footer; at headline size it read as a sticker */
@@ -118,13 +118,9 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .window { margin: 0; filter: var(--shadow-window); }
 .window img { display: block; width: 100%; height: auto; }
 
-/* The stage, on the grid: the desk (the rail and the thread) across all twelve columns, the phone on
-   10 to 12 sharing its right edge. The phone hangs below the desk by half its own width, which keeps
-   its top under the reply it would otherwise cover at every width; the stage's padding makes room
-   for the hang. Both are fractions of the width, so the picture holds its proportions everywhere. */
-.stage { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); margin: var(--space-2xl) 0 0; padding-bottom: 6%; }
-.stage-desk { position: relative; grid-column: 1 / -1; grid-row: 1; aspect-ratio: 2304 / 1440; }
-.stage-phone { position: relative; z-index: var(--z-raised); grid-column: 10 / -1; grid-row: 1; align-self: end; margin-bottom: -48%; aspect-ratio: 603 / 975; border: 0; border-radius: var(--radius-device); box-shadow: var(--shadow-lift); }
+/* The stage: the desk window across all twelve columns, its caption under it on 1 to 8. */
+.stage { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); margin: var(--space-2xl) 0 0; }
+.stage-desk { position: relative; grid-column: 1 / -1; grid-row: 1; aspect-ratio: 2304 / 1575; }
 .stage .caption { grid-column: 1 / 9; grid-row: 2; margin-top: var(--space-md); }
 .caption { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); max-width: 60ch; }
 
@@ -141,18 +137,15 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .runs-h { font-size: var(--text-sm); color: var(--color-muted); max-width: 26ch; }
 .runs-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-sm) var(--gap-columns); font-weight: 600; font-size: var(--text-lg); letter-spacing: -0.01em; color: var(--color-ink-2); }
 
-/* Three mornings' work: the whole window, then two pieces of it on two equal trays. */
+/* Three mornings' work: a whole window, then two pieces of one on two equal trays. */
 .proofs { list-style: none; margin: var(--space-2xl) 0 0; padding: 0; row-gap: var(--space-2xl); }
 .proof { grid-column: span 6; min-width: 0; }
 .proof--wide { grid-column: 1 / -1; }
 .proof h3 { margin-top: var(--space-lg); font-size: var(--text-title); line-height: 1.3; font-weight: 600; }
 .proof p { margin-top: var(--space-xs); color: var(--color-ink-2); max-width: 52ch; }
-.shot--window { aspect-ratio: 2 / 1; }
 /* The pieces are small captures; each sits on its own tray at its own pixels, never enlarged. */
 .shot--piece { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; padding: var(--space-lg); }
 .shot--piece img { width: auto; height: auto; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); }
-/* A capture that starts mid-list fades in from the top, as a list does when it scrolls. */
-.shot--piece img.fade-top { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; -webkit-mask-image: linear-gradient(to bottom, transparent, var(--color-ink) var(--space-xl)); mask-image: linear-gradient(to bottom, transparent, var(--color-ink) var(--space-xl)); }
 
 /* Browser or desktop: the words and the switch on the left, the window it picks on the right.
    Both windows share one cell, so the band keeps the taller one's height and nothing moves
@@ -252,16 +245,12 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
   .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-md)))); }
   .hero { padding-top: var(--space-xl); }
   .hero-act .btn, .hero-act .cmd, .dl-main > .btn { width: 100%; }
-  .stage { display: block; margin-top: var(--space-xl); padding-bottom: 0; }
-  .stage-desk, .stage .caption { display: none; }
-  /* On a phone the hero is the phone: Goldie's thread at the size it is read, below its own status bar, fading where the capture ends. */
-  .stage-phone { margin: 0; aspect-ratio: 904 / 1344; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); box-shadow: none; }
-  .stage-phone img { -webkit-mask-image: linear-gradient(to top, transparent, var(--color-ink) var(--space-2xl)); mask-image: linear-gradient(to top, transparent, var(--color-ink) var(--space-2xl)); }
+  /* On a phone the desk would be too small to read, so the hero is its words and its button. */
+  .stage { display: none; }
   .band { margin-top: var(--space-2xl); }
   .runs-list { grid-template-columns: repeat(2, minmax(0, 1fr)); font-size: var(--text-md); }
   .proofs { row-gap: var(--space-xl); }
   .proof { grid-column: 1 / -1; }
-  .shot--window { aspect-ratio: 480 / 534; }
   /* The pieces drop their trays and take the width, so their text stays at its own size. */
   .shot--piece { display: block; aspect-ratio: auto; padding: 0; border: 0; background: none; }
   .shot--piece img { width: 100%; }

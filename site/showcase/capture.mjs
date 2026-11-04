@@ -140,7 +140,7 @@ function stop(desk) {
 
 // The window asks the shell for its desks and a handful of window facts. It
 // is told it runs on a Mac, so its title strip leaves the lights their room.
-function standInShell({ origin, token }) {
+function standInShell({ origin, token, voice }) {
 	let next = 0;
 	const desks = [{ id: "local", name: "This computer", kind: "local", origin, token }];
 	window.__hotlineDesks = desks;
@@ -149,6 +149,7 @@ function standInShell({ origin, token }) {
 		metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
 		invoke: async (command) => {
 			if (command === "desk_list") return desks;
+			if (command === "speech_capability") return { available: voice };
 			if (String(command).startsWith("plugin:event|listen")) return next++;
 			return null;
 		},
@@ -162,12 +163,38 @@ function standInShell({ origin, token }) {
 async function shoot(browser, ui, door, shot) {
 	const [width, height] = shot.window;
 	const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, colorScheme: "dark" });
-	await context.addInitScript(standInShell, { origin: `http://127.0.0.1:${door.port}`, token: door.token });
+	await context.addInitScript(standInShell, { origin: `http://127.0.0.1:${door.port}`, token: door.token, voice: shot.voice === true });
 	const page = await context.newPage();
+	// The window's socket runs through here when a shot needs the room shown as it is rather than
+	// as the copy has it. `voice` shows the controls a desk with a voice provider shows (the mic,
+	// the call key beside it, the call key in the rail): the copy has no provider keys, so the shell
+	// says this Mac hears speech and the desk's answer to voice.status is given here. `computer`
+	// shows each teammate's computer switched on as the room has it, where the copy turned it off.
+	if (shot.voice || shot.computer) {
+		await page.routeWebSocket(`ws://127.0.0.1:${door.port}/**`, (socket) => {
+			const desk = socket.connectToServer();
+			socket.onMessage((message) => {
+				const frame = JSON.parse(String(message));
+				if (!shot.voice || frame.cmd !== "voice.status") return desk.send(message);
+				socket.send(JSON.stringify({ id: frame.id, ok: true, result: { available: true, directAvailable: true, capabilities: ["voiceDirectCalls"] } }));
+			});
+			desk.onMessage((message) => {
+				socket.send(shot.computer ? String(message).replace(/("computer":\{[^{}]*?"enabled":)false/g, "$1true") : message);
+			});
+		});
+	}
 	await page.goto(ui);
-	await page.getByText(shot.teammate, { exact: true }).first().click();
-	// Long enough for the tape to fold and the session's model to arrive.
+	// The rail names each teammate in its key's label ("Goldie, team lead", "Kit, unread"), which
+	// holds at a width where the rail is avatars alone.
+	await page.locator(`[aria-label="${shot.teammate}"], [aria-label^="${shot.teammate}, "]`).first().click();
+	// The tape folds, then the session's model arrives: its key reads "Goldie: Opus · High" once
+	// the agent has said what it runs, and only the bare model id before that.
 	await page.waitForTimeout(3000);
+	await page
+		.locator(`button[aria-label^="${shot.teammate}: "][aria-label*="·"]`)
+		.first()
+		.waitFor({ timeout: 30_000 })
+		.catch(() => console.log(`${shot.teammate}'s model had not arrived; the capture shows its id.`));
 	await page.evaluate((fromEnd) => {
 		const tapes = [...document.querySelectorAll(".scroller")].sort((a, b) => b.scrollHeight - a.scrollHeight);
 		tapes[0].scrollTop = tapes[0].scrollHeight - tapes[0].clientHeight - fromEnd;
@@ -177,11 +204,25 @@ async function shoot(browser, ui, door, shot) {
 		await page.getByText(shot.open, { exact: false }).first().click();
 		await page.waitForTimeout(2500);
 	}
-	// It shows only because the tape is scrolled back; the mouse goes where it hovers nothing.
-	await page.addStyleTag({ content: 'button[aria-label="Jump to the latest"] { visibility: hidden !important; }' });
+	// Then whatever the shot opens, in order: a menu, an entry in it, a panel.
+	for (const step of shot.clicks ?? []) {
+		await (step.text ? page.getByText(step.text, { exact: true }) : page.locator(step.selector)).first().click();
+		await page.waitForTimeout(1500);
+	}
+	// It shows only because the tape is scrolled back; the mouse goes where it hovers nothing. A shot
+	// may hide more by name: a key whose content the copy cannot load, such as a model whose
+	// provider key stayed in the room's vault.
+	const hidden = ['button[aria-label="Jump to the latest"]', ...(shot.hide ?? [])];
+	await page.addStyleTag({ content: `${hidden.join(", ")} { visibility: hidden !important; }` });
 	await page.mouse.move(width / 2, height - 20);
 	await page.waitForTimeout(400);
-	const capture = await page.screenshot();
+	// A piece of the window, such as a menu, is cut to the element and left unframed.
+	let clip;
+	if (shot.clip) {
+		const box = await page.locator(shot.clip.selector).first().boundingBox();
+		clip = { x: box.x + (shot.clip.left ?? 0), y: box.y + (shot.clip.top ?? 0), width: shot.clip.width ?? box.width, height: shot.clip.height ?? box.height };
+	}
+	const capture = await page.screenshot(clip ? { clip } : {});
 	await context.close();
 	return capture;
 }
@@ -300,7 +341,9 @@ async function main() {
 				const framed =
 					shot.kind === "browser"
 						? await frame(browser, await shootBrowser(browser, ui, roomSource, shot), 1280, `${shot.teammate}'s browser`, 2)
-						: await frame(browser, [{ png: await shoot(browser, ui, door, shot), height: shot.window[1] }], shot.window[0], "", 2);
+						: shot.clip
+							? await shoot(browser, ui, door, shot)
+							: await frame(browser, [{ png: await shoot(browser, ui, door, shot), height: shot.window[1] }], shot.window[0], "", 2);
 				write(framed, out, shot.width);
 				console.log(`captured ${path.relative(REPO, out)}`);
 			}

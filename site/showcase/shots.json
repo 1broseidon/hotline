@@ -4,10 +4,68 @@
     {
       "out": "../public/screens/desk-window.webp",
       "teammate": "Goldie",
-      "window": [1440, 900],
-      "fromEnd": 540,
-      "open": "The email and roast fields are a single line",
+      "window": [1200, 820],
+      "fromEnd": 620,
+      "voice": true,
       "width": 2304
+    },
+    {
+      "out": "../public/screens/proof-schedule.webp",
+      "teammate": "Timo",
+      "window": [1200, 600],
+      "fromEnd": 0,
+      "voice": true,
+      "hide": [
+        "button[aria-label^=\"Timo: \"]"
+      ],
+      "width": 2304
+    },
+    {
+      "out": "../public/screens/proof-schedule-phone.webp",
+      "teammate": "Timo",
+      "window": [400, 700],
+      "fromEnd": 0,
+      "voice": true,
+      "hide": [
+        "button[aria-label^=\"Timo: \"]"
+      ]
+    },
+    {
+      "out": "../public/screens/proof-model.webp",
+      "teammate": "Kit",
+      "window": [1200, 820],
+      "fromEnd": 0,
+      "clicks": [
+        {
+          "selector": "button[aria-label^=\"Kit: \"]"
+        }
+      ],
+      "clip": {
+        "selector": ".model-menu",
+        "height": 395
+      }
+    },
+    {
+      "out": "../public/screens/proof-computer.webp",
+      "teammate": "Goldie",
+      "window": [1200, 820],
+      "fromEnd": 0,
+      "computer": true,
+      "clicks": [
+        {
+          "selector": "button[aria-label^=\"Goldie: \"]"
+        },
+        {
+          "text": "Settings"
+        }
+      ],
+      "clip": {
+        "selector": "body",
+        "left": 885,
+        "top": 400,
+        "width": 312,
+        "height": 360
+      }
     },
     {
       "kind": "browser",

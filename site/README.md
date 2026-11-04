@@ -37,8 +37,22 @@ teammate works in the temporary directory and has no computer, because a
 teammate's container is named for the teammate and the copy's would be the
 room's own. The copy's desk is stopped and the directory removed when the
 shots are done. A shot names the teammate, the window size, how far back from
-the end of the tape it scrolls (`fromEnd`, in CSS pixels), the text of a
-thread line to open beside it, and the width it is written at.
+the end of the tape it scrolls (`fromEnd`, in CSS pixels), and the width it is
+written at. It may also name:
+
+- `open`, the text of a thread line to open beside the tape;
+- `clicks`, what to press next, in order (a menu by its key's label, an entry
+  in it by its text);
+- `clip`, an element to cut the shot to, with offsets, which leaves it a piece
+  without a window frame;
+- `hide`, keys to leave out, such as a model whose provider key stayed in the
+  room's vault;
+- `computer`, to show each teammate's computer switched on as the room has it,
+  where the copy turned it off;
+- `voice`, to show the voice controls (the mic, the call key beside it and the
+  call key in the rail). The copy has no voice provider, so these are a stand-in:
+  the script answers the window's `voice.status` itself and says this Mac hears
+  speech.
 
 A shot of `"kind": "browser"` is a teammate's desk browser as its pane shows
 it: macOS's 28px title bar, Hotline's bar (the window's own `browser.html`,

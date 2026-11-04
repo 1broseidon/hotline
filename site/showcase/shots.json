@@ -8,6 +8,15 @@
       "fromEnd": 540,
       "open": "The email and roast fields are a single line",
       "width": 2304
+    },
+    {
+      "kind": "browser",
+      "out": "../public/screens/browser-window.webp",
+      "teammate": "Kit",
+      "url": "http://127.0.0.1:8000/",
+      "title": "Ember & Oak",
+      "page": "workspaces/435e51a4-dc94-46f0-9114-b8838e785705/ember-and-oak/index.html",
+      "width": 1600
     }
   ]
 }

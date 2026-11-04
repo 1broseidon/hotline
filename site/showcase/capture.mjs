@@ -20,7 +20,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright-core";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -186,13 +186,47 @@ async function shoot(browser, ui, door, shot) {
 	return capture;
 }
 
-// A Mac window around a capture: rounded corners, a hairline edge and the
-// traffic lights. Without a title the lights sit on the page's own 40px strip,
-// 12px in, where Hotline's main window seats them (crates/hotline-app/src/lights.rs);
-// with one they sit on a standard title bar above the capture.
-async function frame(browser, capture, width, height, title, scale) {
-	const bar = title ? 32 : 0;
-	const centre = title ? 16 : 20;
+// A teammate's desk browser as its pane shows it: Hotline's bar (the window's
+// own browser.html, told whose browser it is and where) over the page, 1280 by
+// 800 as the desk browser opens it. The page is a file in the room, a site a
+// teammate made, opened where it lies.
+async function shootBrowser(browser, ui, roomSource, shot) {
+	const state = { name: shot.teammate, url: shot.url, title: shot.title, taken: false };
+	const bar = await browser.newContext({ viewport: { width: 1280, height: 44 }, deviceScaleFactor: 2, colorScheme: "dark" });
+	await bar.addInitScript((answer) => {
+		window.__TAURI_INTERNALS__ = {
+			metadata: { currentWindow: { label: "bar" }, currentWebview: { windowLabel: "bar", label: "bar" } },
+			invoke: async (command) => (command === "browser_bar_state" ? answer : null),
+			transformCallback: () => 0,
+		};
+	}, state);
+	const barPage = await bar.newPage();
+	await barPage.goto(new URL("browser.html", ui).href);
+	await barPage.waitForTimeout(1500);
+	const barPng = await barPage.screenshot();
+	await bar.close();
+
+	const site = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+	const sitePage = await site.newPage();
+	await sitePage.goto(pathToFileURL(path.join(roomSource, shot.page)).href);
+	await sitePage.waitForTimeout(1000);
+	const sitePng = await sitePage.screenshot();
+	await site.close();
+	return [
+		{ png: barPng, height: 44 },
+		{ png: sitePng, height: 800 },
+	];
+}
+
+// A Mac window around captures stacked top to bottom: rounded corners, a
+// hairline edge and the traffic lights. Without a title the lights sit on the
+// page's own 40px strip, 12px in, where Hotline's main window seats them
+// (crates/hotline-app/src/lights.rs); with one they sit on macOS's own 28px
+// title bar, dark as Hotline sets it (crates/hotline-app/src/browser.rs).
+async function frame(browser, parts, width, title, scale) {
+	const bar = title ? 28 : 0;
+	const height = bar + parts.reduce((sum, part) => sum + part.height, 0);
+	const centre = title ? 14 : 20;
 	const lights = [
 		["#ff5f57", "#e0443e"],
 		["#febc2e", "#d89e24"],
@@ -201,15 +235,18 @@ async function frame(browser, capture, width, height, title, scale) {
 		.map(([fill, edge], i) => `<i style="position:absolute;left:${13 + i * 20}px;top:${centre - 6}px;width:12px;height:12px;border-radius:50%;background:${fill};box-shadow:inset 0 0 0 .5px ${edge}"></i>`)
 		.join("");
 	const titleBar = title
-		? `<div style="height:${bar}px;background:#1c1c1f;border-bottom:1px solid #000;display:grid;place-items:center;font:600 13px -apple-system,system-ui,sans-serif;color:#a1a1a6">${title}</div>`
+		? `<div style="height:${bar}px;background:#1c1c1f;display:grid;place-items:center;font:600 13px -apple-system,system-ui,sans-serif;color:#a1a1a6">${title}</div>`
 		: "";
-	const page = await browser.newPage({ viewport: { width, height: height + bar }, deviceScaleFactor: scale });
+	const images = parts
+		.map((part) => `<img src="data:image/png;base64,${part.png.toString("base64")}" style="display:block;width:${width}px;height:${part.height}px">`)
+		.join("");
+	const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: scale });
 	await page.setContent(`<body style="margin:0;background:transparent">
-<div style="position:relative;width:${width}px;height:${height + bar}px;border-radius:12px;overflow:hidden;background:#0d0e11">
-${titleBar}<img src="data:image/png;base64,${capture.toString("base64")}" style="display:block;width:${width}px;height:${height}px">${lights}
+<div style="position:relative;width:${width}px;height:${height}px;border-radius:12px;overflow:hidden;background:#0d0e11">
+${titleBar}${images}${lights}
 <div style="position:absolute;inset:0;border-radius:12px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.13)"></div>
 </div></body>`);
-	const framed = await page.screenshot({ omitBackground: true, clip: { x: 0, y: 0, width, height: height + bar } });
+	const framed = await page.screenshot({ omitBackground: true, clip: { x: 0, y: 0, width, height } });
 	await page.close();
 	return framed;
 }
@@ -244,7 +281,7 @@ async function main() {
 		if (plain[0] === "frame") {
 			const [, image, out] = plain;
 			const { png, width, height } = imageSize(image);
-			write(await frame(browser, png, width, height, named.title ?? "", 1), path.resolve(out));
+			write(await frame(browser, [{ png, height }], width, named.title ?? "", 1), path.resolve(out));
 			console.log(`framed ${out}`);
 			return;
 		}
@@ -254,14 +291,17 @@ async function main() {
 		await fetch(ui).catch(() => {
 			throw new Error(`Nothing serves the window at ${ui}: run \`make dev\` (or \`bun run dev\` in ui/), or pass --ui.`);
 		});
-		const { copy, room } = copyRoom(path.resolve(named.room ?? path.join(REPO, ".hotline-dev")), Date.parse(cut));
+		const roomSource = path.resolve(named.room ?? path.join(REPO, ".hotline-dev"));
+		const { copy, room } = copyRoom(roomSource, Date.parse(cut));
 		const { desk, door } = await serve(path.resolve(named.hotline ?? path.join(REPO, "target/debug/hotline")), room);
 		try {
 			for (const shot of shots) {
-				const capture = await shoot(browser, ui, door, shot);
-				const [width, height] = shot.window;
 				const out = path.resolve(HERE, shot.out);
-				write(await frame(browser, capture, width, height, "", 2), out, shot.width);
+				const framed =
+					shot.kind === "browser"
+						? await frame(browser, await shootBrowser(browser, ui, roomSource, shot), 1280, `${shot.teammate}'s browser`, 2)
+						: await frame(browser, [{ png: await shoot(browser, ui, door, shot), height: shot.window[1] }], shot.window[0], "", 2);
+				write(framed, out, shot.width);
 				console.log(`captured ${path.relative(REPO, out)}`);
 			}
 		} finally {

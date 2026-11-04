@@ -40,11 +40,17 @@ shots are done. A shot names the teammate, the window size, how far back from
 the end of the tape it scrolls (`fromEnd`, in CSS pixels), the text of a
 thread line to open beside it, and the width it is written at.
 
+A shot of `"kind": "browser"` is a teammate's desk browser as its pane shows
+it: macOS's 28px title bar, Hotline's bar (the window's own `browser.html`,
+told the teammate, the address and that the teammate is driving) and the page
+at 1280 by 800, as the desk browser opens it. The page is a file in the room,
+named by `page`, such as a site a teammate built in its workspace.
+
 A still that is not the desk, such as a teammate's computer, is framed with a
 title bar instead:
 
 ```bash
-node capture.mjs frame computer.png ../public/screens/computer-window.webp --title "Goldie’s computer"
+node capture.mjs frame computer.png ../public/screens/computer-window.webp --title "Goldie's computer"
 ```
 
 The computer still on the page is `public/screens/computer-run.webp` from

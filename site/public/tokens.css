@@ -15,8 +15,13 @@
   --color-paper: oklch(13.5% 0.007 250); --color-paper-2: oklch(17% 0.008 250); --color-paper-3: oklch(22% 0.009 250);
   --color-ink: oklch(95% 0.004 250); --color-ink-2: oklch(76% 0.008 250); --color-muted: oklch(62% 0.01 250);
   --color-rule: oklch(27% 0.01 250);
-  /* The toad's green: the mark, the caret and the shell prompt. Nothing else. */
+  /* The toad's green: the mark, the caret, the shell prompt and the highlights in the owner's sentence. Nothing else. */
   --color-accent: oklch(76% 0.17 142); --color-accent-ink: oklch(16% 0.03 142); --color-focus: oklch(76% 0.17 142);
+  /* The same green as a highlighter's wash, under what the owner's sentence promises. Mixed into
+     the ground rather than see-through, so the slanted pieces can overlap without a seam. */
+  --color-mark: color-mix(in oklab, var(--color-accent) 26%, var(--color-paper));
+  /* Gold: the light that crosses the owner's sentence when the name lands. Nowhere else. */
+  --color-gold: oklch(80% 0.14 85); --color-gold-hi: oklch(94% 0.08 92);
   --font-display: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; --font-outlier: var(--font-body);
   /* Commands are set as commands: the system's own monospace, no extra download. */
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;

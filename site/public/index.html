@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261104c">
+<link rel="stylesheet" href="/page.css?v=20261104l">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -52,7 +52,7 @@
 <section class="hero container" aria-labelledby="hero-h">
   <div class="hero-text">
     <h1 id="hero-h" aria-label="Hi, I’m Hotline."><span class="hello" aria-hidden="true"><span class="hi">Hi, I’m </span><span class="name" data-names="Goldie|June|Jarvis|hotline">hotline</span><span class="stop">.</span><span class="caret"></span></span></h1>
-    <p class="lead">I’m an open-source personal agent ecosystem. I work with my teammates, have my own computer, and run on the subscriptions you already pay for.</p>
+    <p class="lead">I’m an <mark><span>open-source</span></mark> personal agent ecosystem. I work with my teammates, have <mark><span>my </span><span>own </span><span>computer</span></mark>, and run on the subscriptions you <mark><span>already </span><span>pay </span><span>for</span></mark>.</p>
     <div class="hero-act">
       <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
       <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
@@ -100,14 +100,26 @@
   </ul>
 </section>
 
-<section class="section container" aria-labelledby="computer-h">
+<section class="section container" aria-labelledby="reach-h">
   <div class="grid">
     <div class="col-l media-text">
-      <h2 id="computer-h">My own computer, in a window you can watch.</h2>
-      <p class="sec-p">A Linux desktop in a container on your machine: a screen, a browser, a shell. I run jobs there and sign in with keys you grant. When I need you, take the mouse.</p>
-      <p class="caption">Goldie’s computer, rendering the Ember &amp; Oak page at four widths. Docker, Podman or Apple container.</p>
+      <h2 id="reach-h" class="lines-2"><span>A browser of my own,</span> <span>or a whole desktop.</span></h2>
+      <p class="sec-p">Every teammate comes with a browser for quick work: read a page, check a fix, sign in with a key you grant. For heavier jobs, one switch gives me a Linux desktop instead. Either way, you can watch or take the mouse.</p>
+      <div class="pick" role="tablist" aria-label="What a teammate works in" data-pick hidden>
+        <button type="button" role="tab" id="pick-browser" aria-controls="reach-browser" aria-selected="true">Browser</button>
+        <button type="button" role="tab" id="pick-desktop" aria-controls="reach-desktop" aria-selected="false" tabindex="-1">Desktop</button>
+      </div>
     </div>
-    <figure class="col-r window"><img src="/screens/computer-window.webp" width="1440" height="842" alt="The window onto Goldie’s computer: Chromium showing the Ember &amp; Oak page, and beside it the Observer following the job that renders the page at four widths." loading="lazy" decoding="async"></figure>
+    <div class="col-r reach" data-reach>
+      <figure class="reach-one" id="reach-browser" role="tabpanel" aria-labelledby="pick-browser">
+        <div class="window"><img src="/screens/browser-window.webp" width="1600" height="1090" alt="Kit’s browser: Hotline’s bar says Kit is driving, with Take control beside the address, over the Ember &amp; Oak page Kit built." loading="lazy" decoding="async"></div>
+        <figcaption class="caption">Built in. Kit drives its browser while you watch, until you take control.</figcaption>
+      </figure>
+      <figure class="reach-one" id="reach-desktop" role="tabpanel" aria-labelledby="pick-desktop">
+        <div class="window"><img src="/screens/computer-window.webp" width="1440" height="838" alt="The window onto Goldie’s desktop: Chromium showing the Ember &amp; Oak page, and beside it the Observer following the job that renders the page at four widths." loading="lazy" decoding="async"></div>
+        <figcaption class="caption">Goldie’s desktop, rendering the same page at four widths. Docker, Podman or Apple container.</figcaption>
+      </figure>
+    </div>
   </div>
 </section>
 
@@ -271,9 +283,12 @@ if (brand) { brand.addEventListener("pointerenter", () => toad.turn()); brand.ad
 const typing = (() => {
   const el = document.querySelector(".hero .name"); if (!el) return { finish() {} };
   const h1 = el.closest("h1"), names = el.dataset.names.split("|"), own = names[names.length - 1];
+  const lead = document.querySelector(".hero .lead");
   let done = false;
-  const finish = () => { if (done) return; done = true; el.textContent = own; h1.classList.remove("is-typing"); h1.classList.add("is-done"); toad.hangUp(); };
+  // The highlights wait for the light; however the typing ends, they are there after.
+  const finish = () => { if (done) return; done = true; el.textContent = own; h1.classList.remove("is-typing"); h1.classList.add("is-done"); toad.hangUp(); if (lead) lead.classList.remove("is-waiting"); };
   if (reduce) { finish(); return { finish }; }
+  if (lead) lead.classList.add("is-waiting");
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   (async () => {
     h1.classList.add("is-typing"); el.textContent = "";
@@ -289,8 +304,33 @@ const typing = (() => {
     }
     if (done) return;
     h1.classList.add("is-own"); toad.hangUp();
+    // The light is a flourish: if this browser cannot play it, the highlights are simply there.
+    if (lead) { try { shimmer(); } catch (e) { lead.classList.remove("is-waiting"); } }
     await wait(2400); finish();
   })();
+  // The name has landed: a band of gold crosses the sentence under it once, at 45 degrees, and
+  // lays the green highlights down as it goes. The band's bright core reaches a point (x, y) of the
+  // paragraph at duration * (1/4 + (x + y) / 2(w + h)) (see .lead.is-shimmer::after), so each word's
+  // highlight starts as the core reaches its left edge and its end stays under the core. Word by
+  // word, so a phrase that wraps on a phone is laid down line by line as the light reaches it.
+  function shimmer() {
+    lead.dataset.shine = lead.textContent;
+    lead.addEventListener("animationend", () => lead.classList.remove("is-shimmer"), { once: true });
+    lead.classList.add("is-shimmer");
+    const box = lead.getBoundingClientRect();
+    const duration = parseFloat(getComputedStyle(lead, "::after").animationDuration) * 1000;
+    const at = (x, y) => duration * (0.25 + (x - box.left + y - box.top) / (2 * (box.width + box.height)));
+    // The words brighten from the sentence's ink to full ink as their highlight arrives.
+    const dim = getComputedStyle(lead).color;
+    lead.classList.remove("is-waiting");
+    for (const word of lead.querySelectorAll("mark > span")) {
+      const r = word.getBoundingClientRect(), start = Math.max(0, at(r.left, r.top + r.height / 2)), bright = getComputedStyle(word).color;
+      const timing = { delay: start, duration: Math.max(1, at(r.right, r.top + r.height / 2) - start), easing: "linear", fill: "backwards" };
+      // The slanted piece is revealed from its left, so it keeps its slant while it grows.
+      word.animate([{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0 0 0)" }], { ...timing, pseudoElement: "::before" });
+      word.animate([{ color: dim }, { color: bright }], timing);
+    }
+  }
   return { finish };
 })();
 
@@ -335,6 +375,26 @@ const typing = (() => {
   addEventListener("resize", () => { const s = scrollY; scrollTo(0, 0); measure(); scrollTo(0, s); });
   if (document.fonts) document.fonts.ready.then(measure);
   measure();
+})();
+
+// A teammate works in a browser or a desktop: the switch shows one window at a time, in one
+// place, so the page does not move. Without the script both windows show, one above the other.
+(() => {
+  const pick = document.querySelector("[data-pick]"), reach = document.querySelector("[data-reach]"); if (!pick || !reach) return;
+  const tabs = [...pick.querySelectorAll("[role=tab]")];
+  const show = (tab, focus) => {
+    tabs.forEach((t) => { const on = t === tab; t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1; });
+    reach.dataset.shown = tab.id.replace("pick-", "");
+    if (focus) tab.focus();
+  };
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", () => show(tab, false));
+    tab.addEventListener("keydown", (e) => {
+      const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0; if (!step) return;
+      e.preventDefault(); show(tabs[(i + step + tabs.length) % tabs.length], true);
+    });
+  });
+  pick.hidden = false; show(tabs[0], false);
 })();
 
 // The masthead's Download arrives once the hero's own has scrolled away, so the two never compete.

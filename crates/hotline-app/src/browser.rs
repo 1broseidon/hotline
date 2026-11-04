@@ -228,6 +228,10 @@ mod native {
         /// The teammate's name, for the pane's title.
         name: Mutex<String>,
         loads: watch::Sender<Loads>,
+        /// The address the page last finished loading or was read at, kept
+        /// here because wry's own `url()` panics on a page that has none
+        /// yet, as one whose first load was refused.
+        shown: Mutex<String>,
     }
 
     /// What the bar above the page shows.
@@ -346,14 +350,18 @@ mod native {
             let tab = self
                 .tab(persona_id)
                 .ok_or("That teammate's browser has closed.")?;
-            let page = self.window(persona_id)?;
+            self.window(persona_id)?;
             Ok(BarState {
                 name: tab
                     .name
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .clone(),
-                url: page.url().map(|url| url.to_string()).unwrap_or_default(),
+                url: tab
+                    .shown
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone(),
                 title: String::new(),
                 taken,
             })
@@ -404,6 +412,7 @@ mod native {
                 bar: bar_label.clone(),
                 name: Mutex::new(String::from("A teammate")),
                 loads,
+                shown: Mutex::new(String::new()),
             });
             let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
             // Nothing loads until the page's rule list is attached.
@@ -435,6 +444,8 @@ mod native {
                 {
                     PageLoadEvent::Started => tab.loads.send_modify(|loads| loads.started += 1),
                     PageLoadEvent::Finished => {
+                        *tab.shown.lock().unwrap_or_else(PoisonError::into_inner) =
+                            payload.url().to_string();
                         tab.loads.send_modify(|loads| loads.finished += 1);
                     }
                 }
@@ -636,6 +647,12 @@ mod native {
 
         async fn page(&self, persona_id: &str, loaded: bool) -> Result<Page, String> {
             let read = self.script(persona_id, PAGE_INFO).await?;
+            if let Some(tab) = self.tab(persona_id) {
+                tab.shown
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone_from(&read.url);
+            }
             Ok(Page {
                 url: read.url,
                 title: read.title,
@@ -839,10 +856,13 @@ mod native {
         }
 
         fn current(&self, persona_id: &str) -> Option<String> {
-            self.window(persona_id)
-                .ok()
-                .and_then(|window| window.url().ok())
-                .map(|url| url.to_string())
+            let tab = self.tab(persona_id)?;
+            let shown = tab
+                .shown
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            (!shown.is_empty()).then_some(shown)
         }
 
         async fn lend_cookies(

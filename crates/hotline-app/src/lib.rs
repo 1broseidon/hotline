@@ -26,6 +26,7 @@ mod lights;
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod browser;
 mod chat_window;
 mod desks;
 mod files;
@@ -460,6 +461,7 @@ fn start() -> Result<(), String> {
     let desk = booted
         .desk
         .expect("a desk that is not served always opens its room");
+    let browser_desk = desk.clone();
     let remote = booted.remote;
     let token = booted.token;
     let port = booted.port;
@@ -569,6 +571,7 @@ fn start() -> Result<(), String> {
         .manage(std::sync::Arc::new(transfer::Transfers::default()))
         .setup(move |app| {
             desks.attach(app.handle().clone());
+            browser::install(app.handle(), &browser_desk, port);
             #[cfg(target_os = "macos")]
             {
                 install_menu(app)?;

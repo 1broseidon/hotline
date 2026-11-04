@@ -91,6 +91,7 @@ mod secrets;
 mod sides;
 mod start;
 pub(crate) use sides::preview_line;
+pub(crate) mod browser;
 mod stopping;
 mod threads;
 mod turns;
@@ -809,6 +810,13 @@ pub struct Room {
     /// How much of each harness login's plan is used, by backend id
     /// (`session/plan.rs`).
     plans: plan::Plans,
+    /// The desktop app's web views, one per teammate without a computer,
+    /// once the app installs them (`session/browser.rs`).
+    browser: std::sync::RwLock<Option<Arc<dyn crate::browser::DeskBrowser>>>,
+    /// Which local addresses each teammate's browser may load.
+    browser_gate: Arc<crate::browser::Gate>,
+    /// Guard cards waiting for the person, by request id.
+    browser_waits: Mutex<HashMap<String, browser::BrowserWait>>,
 }
 
 impl Room {
@@ -944,6 +952,9 @@ impl Room {
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
             plans,
+            browser: std::sync::RwLock::new(None),
+            browser_gate: Arc::default(),
+            browser_waits: Mutex::default(),
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();

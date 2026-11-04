@@ -807,6 +807,48 @@ from the phone itself; this setting does not reach it.
 | With link previews off the desk answers nothing and contacts no site; on again, it does | `wire/tests/settings.rs` `with_link_previews_off_the_desk_fetches_nothing` |
 | The window draws a picture or icon only from the desk's bytes, no tile without one, asks once per site, and asks for none with previews off; Settings shows the switch | `ui/tests/link-previews.test.tsx` |
 
+## A teammate's browser
+
+A teammate with no computer gets the `browser` tool: a WebKit view the
+desktop app keeps for it in a hidden window (`crates/hotline-app/src/browser.rs`),
+driven by the core (`crates/hotline-core/src/browser.rs`,
+`session/browser.rs`). Phase one reads only: navigate, text, links,
+screenshot, back, forward, reload. It is macOS only; a desk with no window
+(`hotline serve`) and the other platforms install none, and no teammate is
+offered it. A teammate with a computer keeps its computer's browser, and a
+subagent run or a voice front is not offered either.
+
+- **Local addresses ask the person.** A link that names, or resolves to,
+  loopback, a private range, link-local, carrier-grade NAT or unique-local
+  IPv6 raises a permission card on the teammate's chat: "Kit wants to open
+  localhost:2322 in its browser", with the page it was on. Allow holds for
+  that teammate and that host and port until the desk stops; Always allow is
+  a `browser_local_allowed` event in the room; Deny refuses the call. An
+  answer is for one teammate and one host and port.
+- **The desk's own ports never open.** The Door's port, the dev window's dev
+  server, Ollama's 11434 and every running computer's published port are
+  refused without a card, so no answer can open them.
+- **The page cannot steer around the guard.** WebKit asks the core's `Gate`
+  before every top-level load, the agent's and the page's own, and refuses a
+  local address nobody allowed, and anything that is not http, https or
+  `about:blank`. A page that opens a window gets the same view instead,
+  through the same check. Downloads are refused.
+- **Its storage is its own.** Each teammate's view has its own web data
+  store, so its cookies and sign-ins are neither Hotline's window's nor
+  another teammate's.
+- **The page cannot reach the shell.** No capability names the browser's
+  windows, so a page in one reaches no command. The desk reads the page with
+  scripts in a content world of its own, which the page's scripts cannot
+  see or change, and a password field's value is never read.
+- **What a page says is data.** The tool's description says so, as
+  `web_search`'s does.
+
+Known limits in phase one: a public name that resolves to a local address is
+caught when the agent navigates to it, not when a page redirects there on
+its own (the gate checks names, not resolutions, on the main thread), and
+subresources a public page loads from a local address are not yet blocked.
+Phase two adds a content rule list for both.
+
 ## The regression matrix
 
 Each row is one thing that must stay true, and the test that proves it

@@ -1,0 +1,467 @@
+//! Each teammate's own browser on the desk: a web view in a window of its own,
+//! hidden while the teammate works in it, that the core drives through
+//! [`DeskBrowser`] (`hotline_core::browser`). It is macOS only for now: WebKit
+//! answers a script run in a content world of the desk's own, out of the
+//! page's sight, and draws a snapshot of itself; the other platforms' web
+//! views get the same seam later. Elsewhere nothing is installed and no
+//! teammate is offered the tool.
+//!
+//! What it may load is the core's [`Gate`]: every top-level load, the
+//! agent's and the page's own, is asked first, so a page cannot send the
+//! browser to a local address the person has not allowed. A window is never
+//! opened for a page, and downloads are refused. Each teammate's cookies
+//! and sign-ins live in a web data store of its own, apart from Hotline's
+//! window and every other teammate's. No capability names these windows, so
+//! a page in one reaches none of the shell's commands.
+
+use hotline_core::desk::Desk;
+use tauri::AppHandle;
+
+/// Installs the browser on this desk, where the platform has one. The
+/// Door's port and, in development, the window's own dev server, are the
+/// ports it never opens.
+pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
+    let mut never = vec![door_port];
+    if let Some(port) = app
+        .config()
+        .build
+        .dev_url
+        .as_ref()
+        .filter(|_| tauri::is_dev())
+        .and_then(tauri::Url::port_or_known_default)
+    {
+        never.push(port);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let native = std::sync::Arc::new(native::Native::new(app.clone(), desk.browser_gate()));
+        desk.install_browser(native, &never);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (desk, never);
+}
+
+#[cfg(target_os = "macos")]
+mod native {
+    use async_trait::async_trait;
+    use hotline_core::browser::{DeskBrowser, Gate, Page, Reading, Step};
+    use serde::Deserialize;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, PoisonError};
+    use std::time::Duration;
+    use tauri::utils::config::BackgroundThrottlingPolicy;
+    use tauri::webview::{NewWindowResponse, PageLoadEvent};
+    use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+    use tokio::sync::{oneshot, watch};
+
+    const READ_TEXT: &str = include_str!("browser/read_text.js");
+    const READ_LINKS: &str = include_str!("browser/read_links.js");
+    const PAGE_INFO: &str =
+        "return JSON.stringify({ title: document.title, url: location.href, text: '' });";
+    /// How long a load is waited for before the call answers that the page
+    /// is still loading.
+    const LOAD_WAIT: Duration = Duration::from_secs(20);
+    /// How long a move through history is waited for: one served from the
+    /// back-forward cache, or within the page, loads nothing.
+    const STEP_WAIT: Duration = Duration::from_secs(5);
+    const SCRIPT_WAIT: Duration = Duration::from_secs(15);
+    /// The browser's size: a common laptop viewport.
+    const WIDTH: f64 = 1280.0;
+    const HEIGHT: f64 = 800.0;
+
+    /// One teammate's browser: its window's label and its loads so far.
+    struct Tab {
+        label: String,
+        loads: watch::Sender<Loads>,
+    }
+
+    #[derive(Clone, Default)]
+    struct Loads {
+        finished: u64,
+        /// The last load the gate refused, since the call that cleared it.
+        blocked: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct Read {
+        title: String,
+        url: String,
+        text: String,
+    }
+
+    pub(super) struct Native {
+        app: AppHandle,
+        gate: Arc<Gate>,
+        tabs: Mutex<HashMap<String, Arc<Tab>>>,
+    }
+
+    /// A window label is letters, digits and `-`, so the teammate's id is
+    /// written in hex.
+    fn label_of(persona_id: &str) -> String {
+        let hex: String = persona_id
+            .bytes()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("browser-{hex}")
+    }
+
+    impl Native {
+        pub(super) fn new(app: AppHandle, gate: Arc<Gate>) -> Self {
+            Self {
+                app,
+                gate,
+                tabs: Mutex::default(),
+            }
+        }
+
+        fn tab(&self, persona_id: &str) -> Option<Arc<Tab>> {
+            let tabs = self.tabs.lock().unwrap_or_else(PoisonError::into_inner);
+            tabs.get(persona_id)
+                .filter(|tab| self.app.get_webview_window(&tab.label).is_some())
+                .cloned()
+        }
+
+        fn window(&self, persona_id: &str) -> Result<WebviewWindow, String> {
+            self.tab(persona_id)
+                .and_then(|tab| self.app.get_webview_window(&tab.label))
+                .ok_or_else(|| "Your browser has no page open yet: navigate to one first.".into())
+        }
+
+        /// Makes the teammate's window on `url`, hidden unless
+        /// `HOTLINE_BROWSER_SHOW` is set, which development uses to watch it.
+        fn make(&self, persona_id: &str, url: &Url) -> Result<Arc<Tab>, String> {
+            let label = label_of(persona_id);
+            let (loads, _) = watch::channel(Loads::default());
+            let tab = Arc::new(Tab {
+                label: label.clone(),
+                loads,
+            });
+            let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
+            let navigating = {
+                let gate = self.gate.clone();
+                let persona = persona_id.to_string();
+                let tab = tab.clone();
+                move |url: &Url| {
+                    let admitted = gate.admits(&persona, url);
+                    if !admitted {
+                        tab.loads
+                            .send_modify(|loads| loads.blocked = Some(url.to_string()));
+                    }
+                    admitted
+                }
+            };
+            let loaded = {
+                let tab = tab.clone();
+                move |_: WebviewWindow, payload: tauri::webview::PageLoadPayload<'_>| {
+                    if payload.event() == PageLoadEvent::Finished {
+                        tab.loads.send_modify(|loads| loads.finished += 1);
+                    }
+                }
+            };
+            // A page that opens a window gets the same view instead, if the
+            // gate lets it load there.
+            let popup = {
+                let app = self.app.clone();
+                let label = label.clone();
+                move |url: Url, _| {
+                    let app = app.clone();
+                    let label = label.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(window) = app.get_webview_window(&label) {
+                            let _ = window.navigate(url);
+                        }
+                    });
+                    NewWindowResponse::Deny
+                }
+            };
+            WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::External(url.clone()))
+                .title("Hotline browser")
+                .inner_size(WIDTH, HEIGHT)
+                .visible(show)
+                .focused(false)
+                .background_throttling(BackgroundThrottlingPolicy::Disabled)
+                .data_store_identifier(hotline_core::browser::store_id(persona_id))
+                .on_navigation(navigating)
+                .on_new_window(popup)
+                .on_download(|_, _| false)
+                .on_page_load(loaded)
+                .build()
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            self.tabs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(persona_id.to_string(), tab.clone());
+            Ok(tab)
+        }
+
+        /// Waits for the next load to finish after `before`, or a refused one.
+        async fn settle(
+            &self,
+            mut loads: watch::Receiver<Loads>,
+            before: u64,
+            wait: Duration,
+        ) -> Result<bool, String> {
+            let settled = tokio::time::timeout(wait, async {
+                loop {
+                    {
+                        let now = loads.borrow_and_update();
+                        if let Some(blocked) = &now.blocked {
+                            return Err(blocked.clone());
+                        }
+                        if now.finished > before {
+                            return Ok(());
+                        }
+                    }
+                    if loads.changed().await.is_err() {
+                        return Ok(());
+                    }
+                }
+            })
+            .await;
+            match settled {
+                Ok(Ok(())) => Ok(true),
+                Ok(Err(blocked)) => Err(format!(
+                    "The page went on to {blocked}, which your browser may not open: a local address the person has not allowed, or not a web page."
+                )),
+                Err(_) => Ok(false),
+            }
+        }
+
+        async fn script(&self, persona_id: &str, body: &'static str) -> Result<Read, String> {
+            let window = self.window(persona_id)?;
+            let (sender, answer) = oneshot::channel();
+            let sender = Arc::new(Mutex::new(Some(sender)));
+            window
+                .with_webview(move |view| apple::call(view.inner(), body, sender))
+                .map_err(|error| error.to_string())?;
+            let json = tokio::time::timeout(SCRIPT_WAIT, answer)
+                .await
+                .map_err(|_| "The page did not answer in time.".to_string())?
+                .map_err(|_| "The page closed before it answered.".to_string())??;
+            serde_json::from_str(&json)
+                .map_err(|error| format!("The page's answer was unreadable: {error}"))
+        }
+
+        async fn page(&self, persona_id: &str, loaded: bool) -> Result<Page, String> {
+            let read = self.script(persona_id, PAGE_INFO).await?;
+            Ok(Page {
+                url: read.url,
+                title: read.title,
+                loaded,
+            })
+        }
+    }
+
+    #[async_trait]
+    impl DeskBrowser for Native {
+        async fn open(&self, persona_id: &str, url: &Url) -> Result<Page, String> {
+            let (receiver, before) = match self.tab(persona_id) {
+                Some(tab) => {
+                    tab.loads.send_modify(|loads| loads.blocked = None);
+                    let receiver = tab.loads.subscribe();
+                    let before = receiver.borrow().finished;
+                    self.window(persona_id)?
+                        .navigate(url.clone())
+                        .map_err(|error| error.to_string())?;
+                    (receiver, before)
+                }
+                None => (self.make(persona_id, url)?.loads.subscribe(), 0),
+            };
+            let loaded = self.settle(receiver, before, LOAD_WAIT).await?;
+            self.page(persona_id, loaded).await
+        }
+
+        async fn step(&self, persona_id: &str, step: Step) -> Result<Page, String> {
+            let tab = self
+                .tab(persona_id)
+                .ok_or("Your browser has no page open yet: navigate to one first.")?;
+            tab.loads.send_modify(|loads| loads.blocked = None);
+            let receiver = tab.loads.subscribe();
+            let before = receiver.borrow().finished;
+            let window = self.window(persona_id)?;
+            window
+                .with_webview(move |view| apple::step(view.inner(), step))
+                .map_err(|error| error.to_string())?;
+            let wait = if step == Step::Reload {
+                LOAD_WAIT
+            } else {
+                STEP_WAIT
+            };
+            let loaded = self.settle(receiver, before, wait).await?;
+            // A history move served from the cache loads nothing and is
+            // still done.
+            self.page(persona_id, loaded || step != Step::Reload).await
+        }
+
+        async fn read(&self, persona_id: &str, reading: Reading) -> Result<String, String> {
+            let body = match reading {
+                Reading::Text => READ_TEXT,
+                Reading::Links => READ_LINKS,
+            };
+            let read = self.script(persona_id, body).await?;
+            let text = if read.text.trim().is_empty() {
+                "(The page has no readable text.)".to_string()
+            } else {
+                read.text
+            };
+            Ok(format!(
+                "Page: {}\nURL: {}\n\n{text}",
+                read.title.trim(),
+                read.url
+            ))
+        }
+
+        async fn screenshot(&self, persona_id: &str) -> Result<Vec<u8>, String> {
+            let window = self.window(persona_id)?;
+            let (sender, answer) = oneshot::channel();
+            let sender = Arc::new(Mutex::new(Some(sender)));
+            window
+                .with_webview(move |view| apple::snapshot(view.inner(), sender))
+                .map_err(|error| error.to_string())?;
+            tokio::time::timeout(SCRIPT_WAIT, answer)
+                .await
+                .map_err(|_| "The page could not be drawn in time.".to_string())?
+                .map_err(|_| "The page closed before it was drawn.".to_string())?
+        }
+
+        fn current(&self, persona_id: &str) -> Option<String> {
+            self.window(persona_id)
+                .ok()
+                .and_then(|window| window.url().ok())
+                .map(|url| url.to_string())
+        }
+    }
+
+    /// WebKit itself, on the main thread `with_webview` runs on.
+    mod apple {
+        use super::Step;
+        use block2::RcBlock;
+        use objc2::MainThreadMarker;
+        use objc2::runtime::AnyObject;
+        use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+        use objc2_foundation::{NSDictionary, NSError, NSString};
+        use objc2_web_kit::{WKContentWorld, WKWebView};
+        use std::ffi::c_void;
+        use std::sync::{Arc, Mutex, PoisonError};
+        use tokio::sync::oneshot;
+
+        /// The content world the desk's scripts run in: the page's own
+        /// scripts never see its variables, and it never sees theirs.
+        const WORLD: &str = "hotline-desk-browser";
+
+        type Reply<T> = Arc<Mutex<Option<oneshot::Sender<Result<T, String>>>>>;
+
+        fn send<T>(reply: &Reply<T>, answer: Result<T, String>) {
+            if let Some(sender) = reply.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                let _ = sender.send(answer);
+            }
+        }
+
+        fn said(error: *mut NSError) -> String {
+            // SAFETY: WebKit hands a valid NSError or null.
+            unsafe { error.as_ref() }.map_or_else(
+                || "WebKit gave no reason.".into(),
+                |error| error.localizedDescription().to_string(),
+            )
+        }
+
+        /// The web view `with_webview` hands over, as WebKit's type.
+        ///
+        /// SAFETY: the caller is `with_webview`'s closure, on the main
+        /// thread, where `view` is the live `WKWebView` of a Tauri window.
+        unsafe fn view<'a>(view: *mut c_void) -> &'a WKWebView {
+            // SAFETY: as the function's own contract above.
+            unsafe { &*view.cast::<WKWebView>() }
+        }
+
+        /// Runs `body` as an async function in the desk's content world and
+        /// answers its string.
+        pub(super) fn call(view_ptr: *mut c_void, body: &str, reply: Reply<String>) {
+            let Some(main) = MainThreadMarker::new() else {
+                return send(
+                    &reply,
+                    Err("The browser was asked off the main thread.".into()),
+                );
+            };
+            // SAFETY: see `view`.
+            let view = unsafe { view(view_ptr) };
+            // SAFETY: a named world is retained by WebKit while it exists.
+            let world = unsafe { WKContentWorld::worldWithName(&NSString::from_str(WORLD), main) };
+            let body = NSString::from_str(body);
+            let done = RcBlock::new(move |result: *mut AnyObject, error: *mut NSError| {
+                if !error.is_null() {
+                    return send(&reply, Err(said(error)));
+                }
+                // SAFETY: WebKit hands the script's value or null.
+                let answer = unsafe { result.as_ref() }
+                    .and_then(|value| value.downcast_ref::<NSString>())
+                    .map(ToString::to_string)
+                    .ok_or_else(|| "The page answered nothing.".to_string());
+                send(&reply, answer);
+            });
+            // SAFETY: no arguments, the main frame, and a block that lives
+            // as long as WebKit keeps it.
+            unsafe {
+                view.callAsyncJavaScript_arguments_inFrame_inContentWorld_completionHandler(
+                    &body,
+                    None,
+                    None,
+                    &world,
+                    Some(&done),
+                );
+            }
+        }
+
+        pub(super) fn step(view_ptr: *mut c_void, step: Step) {
+            // SAFETY: see `view`.
+            let view = unsafe { view(view_ptr) };
+            // SAFETY: plain WebKit navigation on its own thread.
+            unsafe {
+                match step {
+                    Step::Back => {
+                        let _ = view.goBack();
+                    }
+                    Step::Forward => {
+                        let _ = view.goForward();
+                    }
+                    Step::Reload => {
+                        let _ = view.reload();
+                    }
+                }
+            }
+        }
+
+        /// The visible page as a PNG.
+        pub(super) fn snapshot(view_ptr: *mut c_void, reply: Reply<Vec<u8>>) {
+            // SAFETY: see `view`.
+            let view = unsafe { view(view_ptr) };
+            let done = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
+                // SAFETY: WebKit hands a valid image or null.
+                let answer = match unsafe { image.as_ref() } {
+                    Some(image) => png(image),
+                    None => Err(said(error)),
+                };
+                send(&reply, answer);
+            });
+            // SAFETY: the default configuration is the visible viewport.
+            unsafe { view.takeSnapshotWithConfiguration_completionHandler(None, &done) };
+        }
+
+        fn png(image: &NSImage) -> Result<Vec<u8>, String> {
+            let tiff = image
+                .TIFFRepresentation()
+                .ok_or("The page's picture could not be read.")?;
+            let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)
+                .ok_or("The page's picture could not be read.")?;
+            // SAFETY: an empty property dictionary is valid for PNG.
+            let png = unsafe {
+                bitmap.representationUsingType_properties(
+                    NSBitmapImageFileType::PNG,
+                    &NSDictionary::new(),
+                )
+            }
+            .ok_or("The page's picture could not be made a PNG.")?;
+            Ok(png.to_vec())
+        }
+    }
+}

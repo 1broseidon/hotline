@@ -7,6 +7,7 @@
 //! window, a phone or another desk.
 
 pub mod boot;
+pub mod browser;
 mod capabilities;
 pub mod computer;
 pub use hotline_contract as contract;

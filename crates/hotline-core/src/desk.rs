@@ -150,6 +150,21 @@ impl Desk {
     }
 
     /// Opens the log, the vault and the room over one data directory.
+    /// Puts the desktop app's browser in the room, for teammates with no
+    /// computer, and names the desk's own ports its guard never opens.
+    pub fn install_browser(
+        &self,
+        browser: Arc<dyn crate::browser::DeskBrowser>,
+        never_ports: &[u16],
+    ) {
+        self.room.install_browser(browser, never_ports);
+    }
+
+    /// The guard the app's browser asks before every top-level load.
+    pub fn browser_gate(&self) -> Arc<crate::browser::Gate> {
+        self.room.browser_gate()
+    }
+
     pub fn open(root: &Path) -> io::Result<Desk> {
         Self::open_with_store(root, crate::vault::default_store())
     }

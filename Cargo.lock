@@ -4217,13 +4217,16 @@ dependencies = [
 name = "hotline-app"
 version = "0.47.0"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
  "block2",
  "futures-util",
  "hotline-core",
  "objc2",
+ "objc2-app-kit",
  "objc2-foundation",
  "objc2-user-notifications",
+ "objc2-web-kit",
  "rand 0.9.5",
  "semver",
  "serde",

@@ -69,6 +69,10 @@ impl Room {
             return Ok(());
         }
 
+        if request_id.starts_with(browser::BROWSER_REQUEST_PREFIX) {
+            return self.answer_browser_card(persona_id, request_id, option_id);
+        }
+
         if let Some(TranscriptEvent::Permission {
             from: Some(from), ..
         }) = self.permission_card(persona_id, request_id)

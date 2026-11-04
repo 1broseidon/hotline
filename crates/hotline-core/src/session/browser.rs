@@ -358,6 +358,9 @@ impl Room {
             .and_then(Value::as_str)
             .ok_or("browser needs an `action`.")?;
         let reads = matches!(action, "text" | "links" | "screenshot");
+        if let Ok(persona) = self.persona(persona_id) {
+            browser.name_teammate(persona_id, &persona.name);
+        }
         if !reads && self.browser_phase(persona_id) == Some(BrowserPhase::Person) {
             return Err(TAKEN.into());
         }

@@ -241,6 +241,9 @@ pub trait DeskBrowser: Send + Sync {
     fn needs(&self, _persona_id: &str) -> Option<String> {
         None
     }
+    /// The teammate's name, as its pointer over the page is tagged; the
+    /// core says it before each call.
+    fn name_teammate(&self, _persona_id: &str, _name: &str) {}
     /// Puts the person's cookies for one site, lent on a cookie offer, into
     /// the teammate's own web storage. Each is `{name, value, domain, path,
     /// expires, httpOnly, secure, sameSite}`; the values go to WebKit and

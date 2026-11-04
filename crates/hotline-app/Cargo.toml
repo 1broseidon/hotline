@@ -77,7 +77,11 @@ objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSDic
 # the desk's own, a snapshot of the page, and cookies lent into its store.
 async-trait = "0.1.92"
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration", "WKNavigation", "WKScriptMessage", "WKScriptMessageHandlerWithReply", "WKSecurityOrigin", "WKUserContentController", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKHTTPCookieStore", "WKNavigationDelegate"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSResponder", "NSView", "NSEvent", "NSGraphicsContext", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSResponder", "NSView", "NSEvent", "NSGraphicsContext", "NSWindow", "NSFont", "objc2-quartz-core"] }
+# A teammate's hands over its page (`browser/native/hands.rs`).
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-foundation", "objc2-core-graphics", "CALayer", "CAShapeLayer", "CATextLayer", "CATransaction", "CAAnimation", "CAMediaTiming", "CAMediaTimingFunction"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGPath", "CGColor", "CGAffineTransform"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
 objc2-user-notifications = { version = "0.3", features = [
     "UNUserNotificationCenter",
     "UNNotificationRequest",

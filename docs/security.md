@@ -859,6 +859,11 @@ subagent run or a voice front is not offered either.
   leaf, for that teammate and that host and port, until the desk stops; a
   different certificate on the same site is refused again. The address
   bar's lock turns amber on a page let through this way.
+- **Its hands are drawn outside the page.** The teammate's pointer, its
+  name and its click ring are Core Animation layers in a clear native view
+  over the page (`hotline-app/src/browser/native/hands.rs`), not elements
+  in the page's document, so a page cannot read, move or hide them, and the
+  view is never hit: the person's clicks go past it as before.
 - **Its storage is its own.** Each teammate's view has its own web data
   store, so its cookies and sign-ins are neither Hotline's window's nor
   another teammate's. The person's own sign-ins reach it only on a host-cookie

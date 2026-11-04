@@ -14,6 +14,8 @@ struct Fake {
     /// Set by a load of `expired.example`, which fails as a refused
     /// certificate does.
     needs: StdMutex<Option<String>>,
+    /// The names the core tagged the teammate's pointer with.
+    named: StdMutex<Vec<String>>,
 }
 
 #[async_trait::async_trait]
@@ -71,6 +73,9 @@ impl DeskBrowser for Fake {
     }
     fn needs(&self, _persona_id: &str) -> Option<String> {
         self.needs.lock().unwrap().clone()
+    }
+    fn name_teammate(&self, _persona_id: &str, name: &str) {
+        self.named.lock().unwrap().push(name.to_string());
     }
 }
 
@@ -257,6 +262,17 @@ async fn always_allow_is_kept_in_the_room() {
         gate.granted("ada", "127.0.0.1:5173"),
         "and read back on the next run"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_browser_tags_the_teammates_pointer_with_its_name() {
+    let (room, fake) = with_browser("browser-named", &[]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    let name = ada().name;
+    assert_eq!(*fake.named.lock().unwrap(), [name]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

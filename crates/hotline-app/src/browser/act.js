@@ -64,7 +64,14 @@ const run = async () => {
       el.scrollIntoView({ block: "center", behavior: "instant" });
       return { note: `Scrolled to ${describe(el)}.` };
     }
-    window.scrollBy({ top: A.dy || window.innerHeight * 0.8, behavior: "instant" });
+    // Smoothly, so the person watching sees the page move.
+    window.scrollBy({ top: A.dy || window.innerHeight * 0.8, behavior: "smooth" });
+    let last = window.scrollY;
+    for (let i = 0; i < 16; i++) {
+      await wait(50);
+      if (window.scrollY === last) break;
+      last = window.scrollY;
+    }
     const end = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
     return { note: end ? "At the bottom of the page." : "Scrolled." };
   }

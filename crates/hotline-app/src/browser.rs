@@ -215,6 +215,7 @@ mod native {
     use tokio::sync::{oneshot, watch};
 
     mod guard;
+    mod hands;
     mod trust;
 
     const WALK: &str = include_str!("browser/walk.js");
@@ -224,6 +225,9 @@ mod native {
     );
     const READ_LINKS: &str = include_str!("browser/read_links.js");
     const ACT: &str = include_str!("browser/act.js");
+    const LOCATE: &str = include_str!("browser/locate.js");
+    /// How long after its last move the teammate's pointer fades.
+    const HANDS_IDLE: Duration = Duration::from_secs(4);
     /// Whether the last native click or hover reached the page.
     const ARRIVED: &str = "return JSON.stringify(globalThis.__hotlineArrived !== false);";
     /// The click the page's own script makes, when a native one did not
@@ -267,6 +271,8 @@ mod native {
         shown: Mutex<String>,
         /// Certificates its loads offered, and the last one refused.
         seen: trust::Seen,
+        /// Counts the pointer's moves, so it fades only after the last.
+        moves: std::sync::atomic::AtomicU64,
     }
 
     /// What the bar above the page shows.
@@ -304,6 +310,20 @@ mod native {
         }
     }
 
+    /// A point in the page's viewport, in CSS pixels, with the viewport's
+    /// height, as act.js and locate.js answer it.
+    #[derive(Deserialize)]
+    struct Spot {
+        x: f64,
+        y: f64,
+        height: f64,
+    }
+
+    #[derive(Deserialize)]
+    struct Located {
+        point: Option<Spot>,
+    }
+
     #[derive(Deserialize)]
     struct Read {
         title: String,
@@ -316,6 +336,8 @@ mod native {
         gate: Arc<Gate>,
         tabs: Mutex<HashMap<String, Arc<Tab>>>,
         exceptions: Arc<trust::Exceptions>,
+        /// Each teammate's name, as its pointer is tagged.
+        names: Mutex<HashMap<String, String>>,
     }
 
     /// A label is letters, digits and `-`, so the teammate's id is written
@@ -351,7 +373,10 @@ mod native {
                 size.width,
                 (size.height - TITLE - BAR).max(1.0),
             ));
-            let _ = page.with_webview(|view| apple::shield_follow(view.inner()));
+            let _ = page.with_webview(|view| {
+                apple::shield_follow(view.inner());
+                hands::follow(view.inner());
+            });
         }
     }
 
@@ -362,6 +387,7 @@ mod native {
                 gate,
                 tabs: Mutex::default(),
                 exceptions: Arc::default(),
+                names: Mutex::default(),
             }
         }
 
@@ -458,7 +484,13 @@ mod native {
         /// keeps a watcher's clicks off the page goes or comes back.
         pub(crate) fn shield(&self, persona_id: &str, on: bool) -> Result<(), String> {
             self.window(persona_id)?
-                .with_webview(move |view| apple::shield(view.inner(), on))
+                .with_webview(move |view| {
+                    apple::shield(view.inner(), on);
+                    // The person driving has their own pointer.
+                    if !on {
+                        hands::hide(view.inner());
+                    }
+                })
                 .map_err(|error| error.to_string())
         }
 
@@ -501,6 +533,7 @@ mod native {
                 loads,
                 shown: Mutex::new(String::new()),
                 seen: trust::Seen::default(),
+                moves: std::sync::atomic::AtomicU64::new(0),
             });
             let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
             // Nothing loads until the desk's delegate is in front of wry's.
@@ -640,6 +673,69 @@ mod native {
                 .unwrap_or_else(PoisonError::into_inner)
                 .insert(persona_id.to_string(), tab.clone());
             Ok(tab)
+        }
+
+        /// Before an act the person can watch: brings its element into view
+        /// and moves the teammate's pointer onto it, then waits for it to
+        /// arrive. Answers whether the pointer is there; an act goes on
+        /// either way.
+        async fn reach(&self, persona_id: &str, tab: &Arc<Tab>, act: &Act, args: &str) -> bool {
+            let watched = matches!(
+                act,
+                Act::Click { .. }
+                    | Act::Check { .. }
+                    | Act::Hover { .. }
+                    | Act::Fill { .. }
+                    | Act::Select { .. }
+                    | Act::Scroll { .. }
+            );
+            if !watched {
+                return false;
+            }
+            let Ok(answer) = self
+                .run(persona_id, format!("const A = {args};\n{WALK}\n{LOCATE}"))
+                .await
+            else {
+                return false;
+            };
+            let Ok(Located {
+                point: Some(Spot { x, y, height }),
+            }) = serde_json::from_str(&answer)
+            else {
+                return false;
+            };
+            let who = self.name_of(persona_id);
+            let Ok(page) = self.window(persona_id) else {
+                return false;
+            };
+            if page
+                .with_webview(move |view| hands::point(view.inner(), x, y, height, &who))
+                .is_err()
+            {
+                return false;
+            }
+            let moves = tab.moves.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            let (app, label, still) = (self.app.clone(), tab.page.clone(), tab.clone());
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(HANDS_IDLE).await;
+                if still.moves.load(std::sync::atomic::Ordering::SeqCst) == moves
+                    && let Some(page) = app.get_webview(&label)
+                {
+                    let _ = page.with_webview(|view| hands::hide(view.inner()));
+                }
+            });
+            tokio::time::sleep(Duration::from_secs_f64(hands::MOVE_SECONDS)).await;
+            true
+        }
+
+        /// The teammate's name for its pointer's tag.
+        fn name_of(&self, persona_id: &str) -> String {
+            self.names
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(persona_id)
+                .cloned()
+                .unwrap_or_else(|| "A teammate".into())
         }
 
         /// Waits for the next load to finish after `before`, or a refused one.
@@ -846,6 +942,8 @@ mod native {
                 (loads.started, loads.finished)
             };
             let args = act_args(act);
+            // The person watching sees the pointer reach the element first.
+            let seen = self.reach(persona_id, &tab, act, &args).await;
             let body = format!("const A = {args};\n{WALK}\n{ACT}");
             #[derive(Deserialize)]
             struct Point {
@@ -866,6 +964,12 @@ mod native {
             }
             match (act, answer.point) {
                 (Act::Click { .. } | Act::Check { .. }, Some(point)) => {
+                    let (x, y, height) = (point.x, point.y, point.height);
+                    if seen {
+                        let _ = self
+                            .window(persona_id)?
+                            .with_webview(move |view| hands::ring(view.inner(), x, y, height));
+                    }
                     self.input(
                         persona_id,
                         apple::Input::Click(point.x, point.y, point.height),
@@ -938,6 +1042,13 @@ mod native {
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone();
             (!shown.is_empty()).then_some(shown)
+        }
+
+        fn name_teammate(&self, persona_id: &str, name: &str) {
+            self.names
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(persona_id.to_string(), name.to_string());
         }
 
         fn needs(&self, persona_id: &str) -> Option<String> {

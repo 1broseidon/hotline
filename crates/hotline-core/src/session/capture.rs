@@ -381,12 +381,10 @@ impl Room {
 
     fn grant_captured_secret(&self, persona_id: &str, name: &str) -> Result<(), String> {
         let mut persona = self.persona(persona_id)?;
-        let computer = persona
-            .computer
-            .as_mut()
-            .filter(|c| c.enabled)
-            .ok_or("The computer grant ended.")?;
-        let granted = computer.secrets.get_or_insert_default();
+        if !persona.computer.as_ref().is_some_and(|c| c.enabled) {
+            return Err("The computer grant ended.".into());
+        }
+        let granted = persona.secrets.get_or_insert_default();
         if !granted.iter().any(|n| n == name) {
             granted.push(name.into());
             granted.sort();

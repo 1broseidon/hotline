@@ -145,7 +145,7 @@ pub(super) async fn view(
                         }
                         continue;
                     }
-                    let Ok(persona) = serde_json::from_value::<Persona>(event) else {
+                    let Ok(persona) = Persona::from_record(&event) else {
                         continue;
                     };
                     watch(&log, &persona.id, &dirty, &mut watched);

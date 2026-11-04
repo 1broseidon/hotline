@@ -595,7 +595,6 @@ mod tests {
             memory: None,
             pids: None,
             mounts: None,
-            secrets: None,
         });
         ada
     }

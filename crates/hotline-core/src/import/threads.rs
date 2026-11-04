@@ -153,6 +153,7 @@ mod tests {
             web_search_policy: None,
             folders: None,
             computer: None,
+            secrets: None,
             voice: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,

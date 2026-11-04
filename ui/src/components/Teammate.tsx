@@ -21,6 +21,7 @@ import { Schedules } from "./Schedules";
 import type { ThreadRef } from "./Transcript";
 import { ComputerRows } from "./teammate/ComputerRows";
 import { McpRows, SkillRows } from "./teammate/GrantRows";
+import { SecretRows } from "./teammate/SecretRows";
 import { BACKGROUND_ABOUT, FoldRow, InfoKey, MACHINE_ABOUT, NESTED, RowText, SwitchRow } from "./teammate/rows";
 import { Threads } from "./teammate/Threads";
 import { ToolLedger } from "./teammate/ToolLedger";
@@ -40,7 +41,7 @@ export { BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT, SwitchRow } from "./te
  * It runs from authority to equipment to outcome: the grants that widen
  * what it may do without you — reach, background work, who may hand it
  * work — each with an info key for the risk; then what it is given, a
- * computer and MCP servers; last, what actually attached at the last
+ * computer, the secrets it may use and MCP servers; last, what actually attached at the last
  * start, with the failures always out. A row's second line is a value or
  * nothing; anything with more to it opens in place, indented under its
  * row. Schedules and threads follow the same shape. Removing is
@@ -369,6 +370,14 @@ export function Teammate({
 							/>
 						</div>
 					</section>
+
+					<SecretRows
+						personaId={persona.id}
+						granted={persona.secrets ?? []}
+						computer={persona.computer?.enabled === true}
+						disabled={busy}
+						onChange={(secrets) => save({ secrets })}
+					/>
 
 					{/* What it is given to work with, and what actually attached at the last start. */}
 					<section>

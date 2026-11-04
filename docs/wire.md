@@ -297,7 +297,7 @@ site, the origin, the account the site named — and tells the phones, and
 `secrets.passkey.answer` is the person's answer to that card, from the
 desk or the phone. Approved, the browser makes it, and the look that finds
 the credential minted stores it under `name`, ticks `name` on that
-teammate's `persona.computer.secrets`, hands the computer its set, ends
+teammate's `persona.secrets`, hands the computer its set, ends
 the arming and writes a notice on the teammate's tape, whatever pane is
 open — the passkey is made from the teammate's screen, or by the teammate,
 so no pane's poll is running at that moment. Denied, the site hears no and
@@ -312,7 +312,9 @@ subscription or room event ever carries a value or a private key. All but
 `answer` require an owner or local desk seat; `answer` is one answer to one request the
 person armed for at the desk, so the phone may give it, as it may answer a
 permission card. Which teammate may use which secret is
-`persona.computer.secrets` through `persona.update`; a change to a stored
+`persona.secrets` through `persona.update`, the teammate's own grant and
+not its computer's (a patch still spelling it `computer.secrets`, as an
+older client does, is read the same way); a change to a stored
 secret also hands every running computer the set its teammate is granted
 now, so a rotation or a revocation lands without a restart (see
 [security.md](security.md)).

@@ -7,7 +7,6 @@ import { wire } from "../../wire";
 import { CookieLends } from "../CookieLends";
 import { CookieImport, CookieImports } from "../CookieImport";
 import { PasskeyArm } from "../PasskeyArm";
-import { ComputerSecrets } from "../Secrets";
 import { PathField } from "../PathField";
 import { COMPUTER_ABOUT, FoldRow, InfoKey, NESTED, RowText, SwitchRow } from "./rows";
 
@@ -23,7 +22,7 @@ const UPDATE_ABOUT =
 const LIMITS_ABOUT = "Blank is 1024 processes; 0 is unlimited. A parallel build needs more.";
 
 /** The settings without one of them, so blank means absent on the wire rather than an empty string. */
-function without(computer: PersonaComputer, key: "image" | "memory" | "cpus" | "pids" | "mounts" | "secrets"): PersonaComputer {
+function without(computer: PersonaComputer, key: "image" | "memory" | "cpus" | "pids" | "mounts"): PersonaComputer {
 	const next = { ...computer };
 	delete next[key];
 	return next;
@@ -31,14 +30,14 @@ function without(computer: PersonaComputer, key: "image" | "memory" | "cpus" | "
 
 /**
  * The teammate's computer: the switch, and under it, while there is a
- * desktop to speak of, three folds. Desktop carries the machine's state and
+ * desktop to speak of, two folds. Desktop carries the machine's state and
  * opens to what is done with it — Stop, Remove, Update — and what the
  * container is built with: image, memory, process limit, the host folders
  * bound in. Memory and CPUs reach a computer when it is made, so the pane
  * says so, and offers a restart while the running one has others. Browser is what its browser signs in with: the cookies brought
  * over from the person's own browsers, and the passkeys made for the
- * teammate under an arming started here. Secrets is the stored names, one
- * tick each. Every change spreads the settings it does not touch, so
+ * teammate under an arming started here. The secrets it uses are the
+ * teammate's, in their own section. Every change spreads the settings it does not touch, so
  * flipping the switch never drops a mount. Blank fields are absent on the
  * wire, which is the default; a value the runtime rejects surfaces as a
  * start failure, not here. The status is a peek every few seconds while
@@ -62,7 +61,6 @@ export function ComputerRows({
 	const current: PersonaComputer = computer ?? { enabled: false };
 	const enabled = current.enabled;
 	const mounts = current.mounts ?? [];
-	const granted = current.secrets ?? [];
 	const [image, setImage] = useState(current.image ?? "");
 	const [memory, setMemory] = useState(() => memoryMb(current.memory));
 	const [cpus, setCpus] = useState<number | null>(current.cpus ?? null);
@@ -71,7 +69,6 @@ export function ComputerRows({
 	const [status, setStatus] = useState<ComputerStatus | null>(null);
 	const [openDesktop, setOpenDesktop] = useState(false);
 	const [openBrowser, setOpenBrowser] = useState(false);
-	const [openSecrets, setOpenSecrets] = useState(false);
 	const [adding, setAdding] = useState(false);
 	const [importing, setImporting] = useState(false);
 	const [importsVersion, setImportsVersion] = useState(0);
@@ -121,7 +118,6 @@ export function ComputerRows({
 	useEffect(() => {
 		setOpenDesktop(false);
 		setOpenBrowser(false);
-		setOpenSecrets(false);
 		setAdding(false);
 		setImporting(false);
 		let gone = false;
@@ -436,19 +432,6 @@ export function ComputerRows({
 							<CookieImports personaId={personaId} disabled={disabled} refresh={importsVersion} />
 							<PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />
 						</>
-					)}
-					<FoldRow
-						title="Secrets"
-						value={granted.length === 0 ? "none ticked" : `${granted.length} ticked`}
-						open={openSecrets}
-						onToggle={() => setOpenSecrets((was) => !was)}
-					/>
-					{openSecrets && (
-						<ComputerSecrets
-							granted={granted}
-							disabled={disabled}
-							onChange={(next) => onChange(next.length === 0 ? without(current, "secrets") : { ...current, secrets: next })}
-						/>
 					)}
 				</>
 			)}

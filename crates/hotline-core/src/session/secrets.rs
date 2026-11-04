@@ -14,11 +14,7 @@ impl Room {
         let watch = self.use_watch(&persona.id);
         let watch = watch.lock().await;
         let notice = |text: String| eprintln!("{}: {text}", persona.name);
-        let granted: Vec<String> = persona
-            .computer
-            .as_ref()
-            .and_then(|computer| computer.secrets.clone())
-            .unwrap_or_default();
+        let granted: Vec<String> = persona.secrets.clone().unwrap_or_default();
         let (mut values, missing) = match &self.vault {
             Some(vault) => match vault.shared_secret_values(&granted) {
                 Ok(read) => read,
@@ -668,13 +664,10 @@ impl Room {
             .set_shared(&arming.name, credential)
             .map_err(|error| error.to_string())?;
         let mut persona = self.persona(persona_id)?;
-        if let Some(computer) = persona.computer.as_mut() {
-            let mut granted = computer.secrets.take().unwrap_or_default();
-            if !granted.contains(&arming.name) {
-                granted.push(arming.name.clone());
-                granted.sort();
-            }
-            computer.secrets = Some(granted);
+        let granted = persona.secrets.get_or_insert_default();
+        if !granted.contains(&arming.name) {
+            granted.push(arming.name.clone());
+            granted.sort();
         }
         persona.updated_at = now_ms();
         room::append_persona(&self.log, &persona)?;

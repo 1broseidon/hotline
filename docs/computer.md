@@ -140,7 +140,7 @@ workspace as the `hotline-computer` skill (see [design.md](design.md), section
 7). `computer.status` reports that release, and when it differs from the one
 the teammate's computer would be created on now, the release it would get
 as `available`. The same start hands the computer the secrets the teammate
-is granted (`persona.computer.secrets`, read from the vault), and so does
+is granted (`persona.secrets`, the teammate's own grant, read from the vault), and so does
 every reattach and every change to a stored value while the computer is
 running; a stopped one gets the current set at its next start. Mounts are
 different: they are bind mounts fixed when the container is created, so a

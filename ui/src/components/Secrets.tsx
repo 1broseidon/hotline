@@ -473,13 +473,13 @@ function LoginForm({
 }
 
 /**
- * On a teammate, under its computer's Secrets fold: the stored names, one tick each. A
+ * On a teammate, under its own Secrets: the stored names, one tick each. A
  * tick is the grant — nothing is ticked until the person ticks it — and a
  * name the keychain no longer has stays in the list with a warning until
  * it is unticked, so a stale grant is seen rather than silently dropped.
  * Unticking a passkey is one of the three ways to take it back.
  */
-export function ComputerSecrets({
+export function TeammateSecrets({
 	granted,
 	disabled,
 	onChange,
@@ -514,7 +514,7 @@ export function ComputerSecrets({
 	return (
 		<div className={`${NESTED} flex-col items-stretch gap-1.5 py-3`}>
 			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-				Stored under Settings → Secrets. Tick what this computer may use; a passkey made for this teammate is ticked by itself.
+				Stored under Settings → Secrets. Tick what this teammate may use; a passkey made for it is ticked by itself.
 			</span>
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
 			{note !== null && <Refusal {...note} />}

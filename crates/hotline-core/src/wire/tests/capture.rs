@@ -17,7 +17,6 @@ async fn capture_phone_answer_settles_both_seats_once_and_other_value_commands_a
         pids: None,
         image: None,
         mounts: None,
-        secrets: None,
     });
     enrol(&log, &ada);
     let vault = Arc::new(
@@ -90,13 +89,7 @@ async fn capture_phone_answer_settles_both_seats_once_and_other_value_commands_a
     }
     assert_eq!(vault.shared_secrets().unwrap().len(), 1);
     assert_eq!(
-        crate::room::roster(&log)[0]
-            .computer
-            .as_ref()
-            .unwrap()
-            .secrets
-            .as_ref()
-            .unwrap(),
+        crate::room::roster(&log)[0].secrets.as_ref().unwrap(),
         &vec!["GITHUB_LOGIN".to_string()]
     );
 }

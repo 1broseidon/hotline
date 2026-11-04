@@ -34,10 +34,10 @@ impl Room {
         let Ok(persona) = self.persona(persona) else {
             return Vec::new();
         };
-        let Some(computer) = persona.computer.filter(|c| c.enabled) else {
+        if !persona.computer.is_some_and(|c| c.enabled) {
             return Vec::new();
-        };
-        let granted = computer.secrets.unwrap_or_default();
+        }
+        let granted = persona.secrets.unwrap_or_default();
         self.stored_secrets()
             .into_iter()
             .filter(|s| s.r#use == SecretUse::Ask && granted.contains(&s.name))
@@ -105,8 +105,7 @@ impl Room {
                 let names: Vec<_> = self
                     .persona(persona)
                     .ok()
-                    .and_then(|p| p.computer)
-                    .and_then(|c| c.secrets)
+                    .and_then(|p| p.secrets)
                     .unwrap_or_default();
                 if let Some(vault) = &self.vault
                     && let Ok((mut values, _)) = vault.shared_secret_values(&names)

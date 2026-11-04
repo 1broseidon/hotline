@@ -745,7 +745,6 @@ async fn a_computer_that_cannot_start_leaves_the_teammate_answering_without_one(
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     enrol(&log, &ada);
     let agents = Fake::new(Scripted::new(spoken_turn()));

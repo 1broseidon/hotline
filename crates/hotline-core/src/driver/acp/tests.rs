@@ -71,6 +71,7 @@ pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona
         web_search_policy: None,
         folders: None,
         computer: None,
+        secrets: None,
         voice: None,
         session_checkpoints: checkpoints,
         last_session_id: None,

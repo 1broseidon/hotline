@@ -106,6 +106,7 @@ pub(crate) fn drafted_persona(
         allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: draft.computer,
+        secrets: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
@@ -295,7 +296,6 @@ pub(super) async fn mobile_persona_computer(
         cpus: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     if let Some(enabled) = enabled {
         computer.enabled = enabled;
@@ -436,7 +436,7 @@ async fn apply_persona_update_locked(
     drop(held);
     if reattaches {
         room.reattach(id).await?;
-    } else if patch.get("computer").is_some() {
+    } else if patch.get("computer").is_some() || patch.get("secrets").is_some() {
         room.computer_settings_changed(id).await;
     }
     Ok(updated)
@@ -478,7 +478,7 @@ pub(super) fn update_persona(
     fields.insert("id".into(), Value::from(id));
     fields.insert("updatedAt".into(), Value::from(now()));
 
-    let mut updated: Persona = serde_json::from_value(record)
+    let mut updated = Persona::from_record(&record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
     // Checked here, before anything is revoked or written, so a refused
     // folder leaves the teammate exactly as it was.
@@ -504,8 +504,8 @@ pub(super) fn update_persona(
 
 /// Whether this update restarts a live session. The computer's own
 /// settings do not, short of turning it on or off: its limits, mounts and
-/// image take effect when the container is next made, and its secrets are
-/// handed to it where it runs. A turn in flight is not cut short for them.
+/// image take effect when the container is next made, and the teammate's
+/// secrets are handed to it where it runs. A turn in flight is not cut short for them.
 fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Persona) -> bool {
     let enabled = |persona: &Persona| {
         persona

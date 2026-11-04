@@ -624,6 +624,7 @@ pub(crate) fn persona(id: &str) -> Persona {
         web_search_policy: None,
         folders: None,
         computer: None,
+        secrets: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
@@ -862,7 +863,6 @@ async fn computer_room(
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     enrol(&log, &ada);
     let agents = Fake::new(Scripted::new(Vec::new()));
@@ -932,7 +932,7 @@ pub(crate) async fn secret_use_room(
         )
         .unwrap();
     let mut persona = fixture.room.persona("ada").unwrap();
-    persona.computer.as_mut().unwrap().secrets = Some(vec![
+    persona.secrets = Some(vec![
         "GH_PASSKEY".into(),
         "OTHER_KEY".into(),
         "HN_LOGIN".into(),

@@ -1399,6 +1399,17 @@ webSearchPolicy?: WebSearchPolicy,
  */
 computer?: PersonaComputer, 
 /**
+ * The stored secrets this teammate is granted, by name (see
+ * [`SharedSecret`](crate::SharedSecret)): the teammate's, used by
+ * whichever shell and browser it has. The value never leaves the vault
+ * except on its way to that machine, which redacts it from what it
+ * answers the agent. Absent means none: a teammate nobody granted
+ * anything is handed nothing. A record from before secrets were the
+ * teammate's own kept them on its computer; [`Persona::from_record`]
+ * reads them from there.
+ */
+secrets?: Array<string>, 
+/**
  * The voice this teammate speaks in on a direct call, as picked from the
  * desk's speaking model. It applies only while the desk still speaks
  * with that provider and model; otherwise the desk's own voice is used.
@@ -1448,16 +1459,7 @@ pids?: number,
  * Host folders bound into the desktop besides the workspace, so a
  * teammate can read a checkout it has to test without cloning it.
  */
-mounts?: Array<ComputerMount>, 
-/**
- * The stored secrets this computer's shell gets as environment
- * variables, by name (see [`SharedSecret`]). The value never leaves the
- * vault except on its way to this machine, and the computer redacts it
- * from what it answers the agent. Absent means none: a record from
- * before this field, or a teammate nobody granted anything, is handed
- * nothing.
- */
-secrets?: Array<string>, };
+mounts?: Array<ComputerMount>, };
 
 /**
  * What the new-teammate form fills in. Everything but the name has a default

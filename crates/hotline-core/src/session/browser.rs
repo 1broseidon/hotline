@@ -701,6 +701,30 @@ impl Room {
         let _ = self.info_changes.send(self.info(persona_id));
     }
 
+    /// The person typed `url` into the teammate's browser bar with control:
+    /// a local address is theirs to open, so it is allowed for that teammate
+    /// and that host and port, as Allow on a card would, with no card. The
+    /// desk's own ports stay shut, to the person too: whatever page is left
+    /// open there, the teammate reads.
+    pub async fn browser_person_opens(
+        &self,
+        persona_id: &str,
+        url: &url::Url,
+    ) -> Result<(), String> {
+        if !desk_browser::reaches_local(url).await {
+            return Ok(());
+        }
+        let origin = desk_browser::origin_key(url).ok_or("That address has no host and port.")?;
+        let port = url.port_or_known_default().unwrap_or(0);
+        if self.browser_gate.never(port) || self.computers.live_ports().contains(&port) {
+            return Err(format!(
+                "{origin} is one of Hotline's own ports, which a teammate's browser never opens."
+            ));
+        }
+        self.browser_gate.allow(persona_id, &origin);
+        Ok(())
+    }
+
     /// The person moved the teammate's browser from its pane: the PIP
     /// follows, as it does the teammate's moves.
     pub async fn browser_person_moved(&self, persona_id: &str) {

@@ -826,7 +826,10 @@ subagent run or a voice front is not offered either.
   localhost:2322 in its browser", with the page it was on. Allow holds for
   that teammate and that host and port until the desk stops; Always allow is
   a `browser_local_allowed` event in the room; Deny refuses the call. An
-  answer is for one teammate and one host and port.
+  answer is for one teammate and one host and port. An address the person types into
+  the pane's bar while they have control is their answer already: it opens
+  with no card and is allowed as Allow would, for that teammate and that
+  host and port; only the desk's own ports stay shut to them too.
 - **The desk's own ports never open.** The Door's port, the dev window's dev
   server, Ollama's 11434 and every running computer's published port are
   refused without a card, so no answer can open them.

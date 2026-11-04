@@ -293,6 +293,30 @@ async fn a_load_that_fails_for_the_person_still_moves_the_pip_and_marks_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_local_address_the_person_types_opens_without_a_card_but_not_the_desks_own() {
+    let (room, fake) = with_browser("browser-person-local", &[4000]);
+    let local = url::Url::parse("http://localhost:2322/").unwrap();
+    room.browser_person_opens("ada", &local).await.unwrap();
+    let opened = tools(&room)
+        .call(BROWSER, &navigate("http://localhost:2322/"))
+        .await
+        .unwrap();
+    assert!(opened.contains("Page: Example Domain"), "{opened}");
+    assert_eq!(*fake.opened.lock().unwrap(), ["http://localhost:2322/"]);
+    assert!(
+        !tape(&room, "ada")
+            .iter()
+            .any(|event| event["kind"] == "permission"),
+        "what the person typed asks nobody"
+    );
+    let own = url::Url::parse("http://localhost:4000/").unwrap();
+    let refused = room.browser_person_opens("ada", &own).await.unwrap_err();
+    assert!(refused.contains("Hotline's own ports"), "{refused}");
+    let public = url::Url::parse("https://example.com/").unwrap();
+    room.browser_person_opens("ada", &public).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_desks_own_ports_never_open_and_never_ask() {
     let (room, fake) = with_browser("browser-never", &[4000]);
     for link in ["http://localhost:4000/", "http://127.0.0.1:11434/api/tags"] {

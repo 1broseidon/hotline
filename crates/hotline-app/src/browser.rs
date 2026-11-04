@@ -177,6 +177,7 @@ pub async fn browser_bar_go(
                 let url = tauri::Url::parse(typed)
                     .or_else(|_| tauri::Url::parse(&format!("https://{typed}")))
                     .map_err(|_| "That is not a web address.".to_string())?;
+                desk.browser_person_opens(&persona_id, &url).await?;
                 let went = browsers.person_go(&persona_id, &url).await;
                 desk.browser_person_moved(&persona_id).await;
                 went
@@ -467,7 +468,7 @@ mod native {
 
         pub(crate) async fn person_go(&self, persona_id: &str, url: &Url) -> Result<(), String> {
             if !self.gate.admits(persona_id, url) {
-                return Err("That address is not a web page, or is on this computer or your network: ask the teammate to open it, so you are asked first.".into());
+                return Err("That address is not a web page.".into());
             }
             let tab = self
                 .tab(persona_id)

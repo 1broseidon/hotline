@@ -27,8 +27,7 @@ body {
 	align-items: center;
 	gap: 6px;
 	height: 44px;
-	/* The window's traffic lights sit on the bar's left. */
-	padding: 0 8px 0 80px;
+	padding: 0 8px 0 12px;
 	box-sizing: border-box;
 	border-bottom: 1px solid var(--rule);
 }
@@ -41,9 +40,6 @@ body {
 	margin-right: 2px;
 	border-right: 1px solid var(--rule);
 	color: var(--ink);
-}
-.who .sub {
-	color: var(--muted);
 }
 .dot {
 	width: 8px;

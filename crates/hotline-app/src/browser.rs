@@ -205,6 +205,9 @@ mod native {
     const HEIGHT: f64 = 800.0;
     /// Hotline's bar above the page in the browser pane.
     const BAR: f64 = 44.0;
+    /// The window's own title bar above it: the traffic lights, the title
+    /// and the place the person drags the window by, all macOS's.
+    const TITLE: f64 = 28.0;
 
     /// One teammate's browser: its window, the page and the bar in it, who
     /// is driving, and its loads so far.
@@ -272,12 +275,15 @@ mod native {
         };
         let size = size.to_logical::<f64>(scale);
         if let Some(bar) = app.get_webview(&tab.bar) {
-            let _ = bar.set_position(LogicalPosition::new(0.0, 0.0));
+            let _ = bar.set_position(LogicalPosition::new(0.0, TITLE));
             let _ = bar.set_size(LogicalSize::new(size.width, BAR));
         }
         if let Some(page) = app.get_webview(&tab.page) {
-            let _ = page.set_position(LogicalPosition::new(0.0, BAR));
-            let _ = page.set_size(LogicalSize::new(size.width, (size.height - BAR).max(1.0)));
+            let _ = page.set_position(LogicalPosition::new(0.0, TITLE + BAR));
+            let _ = page.set_size(LogicalSize::new(
+                size.width,
+                (size.height - TITLE - BAR).max(1.0),
+            ));
             let _ = page.with_webview(|view| apple::shield_follow(view.inner()));
         }
     }
@@ -421,13 +427,14 @@ mod native {
                     NewWindowResponse::Deny
                 }
             };
-            // The bar is the window's title bar: the traffic lights sit on
-            // it, as on Hotline's own window.
+            // Nothing covers the top strip, so it stays the window's own
+            // title bar, dark like the bar below it.
             let window = WindowBuilder::new(&self.app, &window_label)
                 .title("Hotline browser")
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .inner_size(WIDTH, HEIGHT + BAR)
+                .theme(Some(tauri::Theme::Dark))
+                .background_color(tauri::window::Color(28, 28, 31, 255))
+                .inner_size(WIDTH, TITLE + BAR + HEIGHT)
                 .min_inner_size(480.0, 320.0)
                 .visible(show)
                 .focused(false)
@@ -443,7 +450,7 @@ mod native {
             window
                 .add_child(
                     page,
-                    LogicalPosition::new(0.0, BAR),
+                    LogicalPosition::new(0.0, TITLE + BAR),
                     LogicalSize::new(WIDTH, HEIGHT),
                 )
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
@@ -455,7 +462,7 @@ mod native {
             window
                 .add_child(
                     bar,
-                    LogicalPosition::new(0.0, 0.0),
+                    LogicalPosition::new(0.0, TITLE),
                     LogicalSize::new(WIDTH, BAR),
                 )
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;

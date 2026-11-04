@@ -6,7 +6,6 @@
     "browser-*-bar"
   ],
   "permissions": [
-    "browser-bar-commands",
-    "core:window:allow-start-dragging"
+    "browser-bar-commands"
   ]
 }

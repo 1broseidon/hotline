@@ -12,7 +12,6 @@ import { invoke } from "@tauri-apps/api/core";
 
 const persona = new URLSearchParams(location.hash.slice(1)).get("persona") ?? "";
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const who = element("who");
 const status = element("status");
 const url = element<HTMLInputElement>("url");
 const lock = element("lock");
@@ -33,7 +32,6 @@ function say(message: string | null) {
 function draw(state: BarState) {
 	taken = state.taken;
 	document.body.classList.toggle("yours", taken);
-	who.textContent = `${state.name}'s browser`;
 	document.title = state.title ? `${state.name}: ${state.title}` : `${state.name}'s browser`;
 	status.textContent = taken ? "You have control" : `${state.name} is driving`;
 	take.textContent = taken ? "Give it back" : "Take control";

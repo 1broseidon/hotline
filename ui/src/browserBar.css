@@ -20,7 +20,11 @@ body {
 	background: var(--fill);
 	font: 13px system-ui, -apple-system, "Segoe UI", sans-serif;
 	color: var(--ink-2);
+	/* Chrome, not a page: nothing in the bar selects or shows a text cursor,
+	 * as in a native app's toolbar. */
+	-webkit-user-select: none;
 	user-select: none;
+	cursor: default;
 }
 #bar {
 	display: flex;
@@ -130,6 +134,9 @@ body.yours button.primary {
 }
 #url[readonly] {
 	color: var(--ink-2);
+	-webkit-user-select: none;
+	user-select: none;
+	pointer-events: none;
 }
 .error {
 	color: var(--warn);

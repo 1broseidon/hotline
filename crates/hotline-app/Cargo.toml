@@ -72,11 +72,11 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSDictionary", "NSError", "NSValue", "NSObject", "NSGeometry", "NSData", "NSProcessInfo"] }
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSDictionary", "NSError", "NSValue", "NSObject", "NSGeometry", "NSData", "NSProcessInfo", "NSArray", "NSDate", "NSHTTPCookie", "NSUUID"] }
 # A teammate's desk browser (`browser.rs`): scripts in a content world of
-# the desk's own, and a snapshot of the page.
+# the desk's own, a snapshot of the page, and cookies lent into its store.
 async-trait = "0.1.92"
-objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration", "WKNavigation"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration", "WKNavigation", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKHTTPCookieStore"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSResponder", "NSView", "NSEvent", "NSGraphicsContext", "NSWindow"] }
 objc2-user-notifications = { version = "0.3", features = [
     "UNUserNotificationCenter",

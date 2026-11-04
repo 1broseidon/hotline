@@ -428,7 +428,7 @@ export function ComputerRows({
 									Bring over browser cookies
 								</button>
 							)}
-							<CookieLends personaId={personaId} disabled={disabled} />
+							<CookieLends personaId={personaId} deskBrowser={false} disabled={disabled} />
 							<CookieImports personaId={personaId} disabled={disabled} refresh={importsVersion} />
 							<PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />
 						</>

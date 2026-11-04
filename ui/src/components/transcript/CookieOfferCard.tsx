@@ -106,7 +106,9 @@ export function CookieOfferCard({
 							declined: "Not now",
 							never: "Never for this site · Undo in Settings → Secrets",
 							expired: "Offer expired",
-							removed: "Sign-in removed from the computer",
+							removed: offer.deskBrowser
+								? "Sign-in removed from its browser"
+								: "Sign-in removed from the computer",
 						}[offer.status]
 					}
 				</p>

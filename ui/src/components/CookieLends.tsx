@@ -3,12 +3,18 @@ import type { CookieOffer, TranscriptEvent } from "../generated/contract";
 import { wire } from "../wire";
 import { CookieOfferCard } from "./transcript/CookieOfferCard";
 
-/** The tape keeps lends across restart; the pane lists even those offscreen in chat. */
+/**
+ * The tape keeps lends across restart; the pane lists even those offscreen in
+ * chat. A lend into the teammate's computer is listed with the computer, one
+ * into its desk browser's own storage with its secrets: `deskBrowser` picks.
+ */
 export function CookieLends({
 	personaId,
+	deskBrowser,
 	disabled,
 }: {
 	personaId: string;
+	deskBrowser: boolean;
 	disabled: boolean;
 }) {
 	const [offers, setOffers] = useState<CookieOffer[]>([]);
@@ -50,7 +56,9 @@ export function CookieLends({
 		<>
 			{offers
 				.filter(
-					(offer) => offer.status === "lent" || offer.status === "unconfirmed",
+					(offer) =>
+						(offer.status === "lent" || offer.status === "unconfirmed") &&
+						(offer.deskBrowser === true) === deskBrowser,
 				)
 				.map((offer) => (
 					<CookieOfferCard

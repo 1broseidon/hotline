@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CookieLends } from "../CookieLends";
 import { TeammateSecrets } from "../Secrets";
 import { FoldRow } from "./rows";
 
@@ -7,14 +8,18 @@ import { FoldRow } from "./rows";
  * grant is the teammate's, and whichever shell and browser it has uses it.
  * One fold, closed until asked, because opening it reads the keychain's
  * list. Without a computer nothing uses the ticks yet, and the section
- * says so rather than let a tick look like it did something.
+ * says so rather than let a tick look like it did something. In the fold,
+ * below the ticks, the person's sign-ins lent into the teammate's desk
+ * browser, each with Remove.
  */
 export function SecretRows({
+	personaId,
 	granted,
 	computer,
 	disabled,
 	onChange,
 }: {
+	personaId: string;
 	granted: string[];
 	computer: boolean;
 	disabled: boolean;
@@ -27,7 +32,12 @@ export function SecretRows({
 			<h3 className="label">Secrets</h3>
 			<div className="grouped">
 				<FoldRow title="Granted" value={granted.length === 0 ? "none ticked" : `${granted.length} ticked`} open={open} onToggle={() => setOpen((was) => !was)} />
-				{open && <TeammateSecrets granted={granted} disabled={disabled} onChange={onChange} />}
+				{open && (
+					<>
+						<TeammateSecrets granted={granted} disabled={disabled} onChange={onChange} />
+						<CookieLends personaId={personaId} deskBrowser disabled={disabled} />
+					</>
+				)}
 			</div>
 			{!computer && granted.length > 0 && <p className="group-hint">Its computer's shell and browser use these. It has no computer, so nothing does yet.</p>}
 		</section>

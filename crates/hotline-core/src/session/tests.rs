@@ -954,6 +954,26 @@ pub(crate) async fn cookie_offer_room(
     (fixture, profiles)
 }
 
+/// A teammate with no computer and the desk's browser, its session live,
+/// and the person's Firefox signed in to porkbun.com. The browser is on no
+/// page until the test puts it on one.
+#[cfg(unix)]
+pub(crate) async fn desk_browser_cookie_room(
+    name: &str,
+    browser: Arc<dyn crate::browser::DeskBrowser>,
+) -> (Arc<Room>, tempfile::TempDir) {
+    let profiles = tempfile::tempdir().unwrap();
+    let room = room(name, Fake::new(Scripted::new(Vec::new())));
+    *lock(&room.cookie_candidates) =
+        vec![crate::computer::cookies::lending::tests::candidate_fixture(
+            profiles.path(),
+            true,
+        )];
+    room.install_browser(browser, &[]);
+    room.start("ada").await.unwrap();
+    (room, profiles)
+}
+
 #[cfg(unix)]
 pub(crate) async fn cookie_offer_room_with_candidates(
     name: &str,

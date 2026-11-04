@@ -624,7 +624,12 @@ importedAt: number, sites: Array<CookieSite>, };
 /**
  * A host-cookie offer carries metadata only, including after settlement.
  */
-export type CookieOffer = { id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, };
+export type CookieOffer = { id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, 
+/**
+ * The lend is for the teammate's desk browser, its own web storage on
+ * the desk, rather than its computer; Remove takes it back from there.
+ */
+deskBrowser?: boolean, };
 
 export type CookieOfferAnswer = "use" | "not_now" | "never";
 
@@ -2619,7 +2624,12 @@ existing: Array<string>,
 /**
  * The first answer armed a passkey; only its site's approval remains.
  */
-armed: boolean, } | { "kind": "cookie_offer", id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, } | { "kind": "secret_use_ask", id: string, ts: number, useId: string, secret: string, secretKind: CaptureKind, site: string, path: string, teammate: string, askedAt: number, expiresAt: number, status: SecretUseStatus, } | { "kind": "passkey_ask", 
+armed: boolean, } | { "kind": "cookie_offer", id: string, ts: number, teammate: string, site: string, browserName: string, profileName: string, login: string, status: CookieOfferStatus, 
+/**
+ * The lend is for the teammate's desk browser, its own web storage on
+ * the desk, rather than its computer; Remove takes it back from there.
+ */
+deskBrowser?: boolean, } | { "kind": "secret_use_ask", id: string, ts: number, useId: string, secret: string, secretKind: CaptureKind, site: string, path: string, teammate: string, askedAt: number, expiresAt: number, status: SecretUseStatus, } | { "kind": "passkey_ask", 
 /**
  * The call that raised this card in the home chat.
  */

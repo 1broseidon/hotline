@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261104v">
+<link rel="stylesheet" href="/page.css?v=20261104y">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -141,32 +141,12 @@
 
 
 <section class="section container" id="download" aria-labelledby="dl-h">
-  <div class="grid">
-    <div class="col-l dl-main">
-      <h2 id="dl-h">Run me on your machine.</h2>
-      <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
-      <p class="fine">Version <span data-version>0.47.0</span>. Then <a href="/docs/phone/">pair the iPhone app</a> (beta).</p>
-    </div>
-    <div class="col-r">
-    <table class="builds">
-      <caption class="visually-hidden">Every build of the latest release, with its size</caption>
-      <tbody>
-        <tr><th scope="row">macOS</th><td><a data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Apple silicon</a></td><td class="num" data-size="mac">42 MB</td></tr>
-        <tr><th scope="row">macOS</th><td><a data-dl="macIntel" href="https://github.com/1broseidon/hotline/releases/latest">Intel</a></td><td class="num" data-size="macIntel">46 MB</td></tr>
-        <tr><th scope="row">Windows</th><td><a data-dl="win" href="https://github.com/1broseidon/hotline/releases/latest">Installer</a></td><td class="num" data-size="win">28 MB</td></tr>
-        <tr><th scope="row">Linux</th><td><a data-dl="deb" href="https://github.com/1broseidon/hotline/releases/latest">.deb</a> or <a data-dl="rpm" href="https://github.com/1broseidon/hotline/releases/latest">.rpm</a></td><td class="num" data-size="deb">53 MB</td></tr>
-        <tr><th scope="row">Linux</th><td><a data-dl="linux" href="https://github.com/1broseidon/hotline/releases/latest">AppImage</a></td><td class="num" data-size="linux">126 MB</td></tr>
-        <tr data-row="debArm" hidden><th scope="row">Linux ARM</th><td><a data-dl="debArm" href="https://github.com/1broseidon/hotline/releases/latest">.deb</a> or <a data-dl="rpmArm" href="https://github.com/1broseidon/hotline/releases/latest">.rpm</a></td><td class="num" data-size="debArm"></td></tr>
-        <tr data-row="linuxArm" hidden><th scope="row">Linux ARM</th><td><a data-dl="linuxArm" href="https://github.com/1broseidon/hotline/releases/latest">AppImage</a></td><td class="num" data-size="linuxArm"></td></tr>
-        <tr><th scope="row">Server</th><td><a data-dl="server" href="https://github.com/1broseidon/hotline/releases/latest">x86_64</a> or <a data-dl="serverArm" href="https://github.com/1broseidon/hotline/releases/latest">ARM</a></td><td class="num" data-size="server">44 MB</td></tr>
-      </tbody>
-    </table>
-    </div>
-    <dl class="lines">
-    <div><dt>macOS and Linux</dt><dd><code>curl -fsSL https://hotline.dev/install | sh</code><button class="btn btn--quiet" type="button" data-copy="curl -fsSL https://hotline.dev/install | sh">Copy</button></dd></div>
-    <div><dt>Windows</dt><dd><code>irm https://hotline.dev/install.ps1 | iex</code><button class="btn btn--quiet" type="button" data-copy="irm https://hotline.dev/install.ps1 | iex">Copy</button></dd></div>
-    <div><dt>Server</dt><dd><code>curl -fsSL https://hotline.dev/install | sh -s -- --server</code><button class="btn btn--quiet" type="button" data-copy="curl -fsSL https://hotline.dev/install | sh -s -- --server">Copy</button></dd></div>
-    </dl>
+  <div class="dl">
+    <h2 id="dl-h">Run me on your machine.</h2>
+    <a class="btn" data-dl-auto data-dl="mac" href="https://github.com/1broseidon/hotline/releases/latest">Download for macOS</a>
+    <button class="cmd" type="button" data-cmd data-copy="curl -fsSL https://hotline.dev/install | sh" title="Copy the install command"><span class="prompt" aria-hidden="true">$</span><code data-cmd-text>curl -fsSL https://hotline.dev/install | sh</code><span class="cmd-label" data-copy-label>Copy</span></button>
+    <p class="fine">Version <span data-version>0.47.0</span>. <a href="https://github.com/1broseidon/hotline/releases/latest">Every build is on GitHub</a>. For a server, <a href="/docs/server/">the docs</a>.</p>
+    <p class="fine phones"><a href="https://testflight.apple.com/join/wwK11AS7">iPhone, in beta on TestFlight</a><span class="soon">Android APK, coming soon</span></p>
   </div>
 </section>
 

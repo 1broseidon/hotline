@@ -196,23 +196,16 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .facts dt { font-weight: 600; }
 .facts dd { margin: var(--space-xs) 0 0; color: var(--color-ink-2); }
 
-/* Download: the one button and the three install lines on the left, every build with its size on the right. */
-.dl-main > .btn { margin-top: var(--space-xl); }
-.builds { width: 100%; border-collapse: collapse; }
-.builds tr { border-bottom: var(--rule-hair) solid var(--color-rule); }
-.builds tr:first-child { border-top: var(--rule-hair) solid var(--color-rule); }
-.builds th, .builds td { padding: var(--space-sm) 0; text-align: left; font-weight: 400; color: var(--color-ink-2); }
-.builds th { width: 7.5em; font-weight: 600; color: var(--color-ink); }
-.builds td a { color: var(--color-ink); text-decoration-color: var(--color-muted); text-underline-offset: 0.22em; }
-.builds td a:hover { text-decoration-color: var(--color-ink); }
-.builds td.num { text-align: right; color: var(--color-muted); }
-/* The install lines run under both columns on the same grid: the system on the left, the command on the right,
-   shown whole and wrapped where it must, never cut: it is read before it is run. */
-.lines { grid-column: 1 / -1; display: grid; gap: var(--space-md); margin: var(--space-2xl) 0 0; }
-.lines > div { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); align-items: center; }
-.lines dt { grid-column: 1 / 6; font-size: var(--text-sm); color: var(--color-muted); }
-.lines dd { grid-column: 6 / -1; min-width: 0; margin: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); min-height: 52px; padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-2); }
-.lines code { min-width: 0; padding-block: var(--space-xs); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink); overflow-wrap: anywhere; }
+/* Download: one centred column, the page's only centred group. The head, the one button, the
+   install line, a line that points at GitHub for every build and at the docs for a server, then
+   the phone, smaller still. */
+.dl { display: grid; justify-items: center; gap: var(--space-md); max-width: 40rem; margin: 0 auto; text-align: center; }
+.dl h2 { margin-inline: auto; margin-bottom: var(--space-sm); }
+.dl .cmd { display: flex; }
+.dl .fine { margin: 0; }
+/* The phone, a step quieter than the line above: the beta as a link, Android as words that are not one yet. */
+.phones { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-xs) var(--space-lg); }
+.phones .soon { color: var(--color-muted); opacity: 0.6; }
 
 /* Controls: one filled button, one quiet one, text links. */
 .btn { display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 var(--space-lg); border: 0; border-radius: var(--radius-control); background: var(--color-ink); color: var(--color-paper); font-weight: 600; font-size: var(--text-md); text-decoration: none; white-space: nowrap; cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out); }
@@ -244,9 +237,6 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
   .col-l, .col-r { grid-column: 1 / -1; }
   .grid:not(.proofs) { row-gap: var(--space-xl); }
   .grid.runs { row-gap: var(--space-md); }
-  .lines { margin-top: var(--space-md); }
-  .lines > div { row-gap: var(--space-xs); }
-  .lines dt, .lines dd { grid-column: 1 / -1; }
   .foot-in { grid-template-columns: minmax(0, 1fr); }
   .brand--foot, .foot-nav, .foot small { grid-column: 1 / -1; }
 }
@@ -256,7 +246,7 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
   .mast .btn--nav { height: 36px; padding: 0 var(--space-sm); }
   .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-md)))); }
   .hero { padding-top: var(--space-xl); }
-  .hero-act .btn, .hero-act .cmd, .dl-main > .btn { width: 100%; }
+  .hero-act .btn, .hero-act .cmd, .dl .btn, .dl .cmd { width: 100%; }
   /* On a phone the desk would be too small to read, so the hero is its words and its button. */
   .stage { display: none; }
   .band { margin-top: var(--space-2xl); }
@@ -267,5 +257,4 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
   .shot--piece { display: block; aspect-ratio: auto; padding: 0; border: 0; background: none; }
   .shot--piece img { width: 100%; }
   .facts > div { grid-column: 1 / -1; }
-  .builds th { width: 5.5em; }
 }

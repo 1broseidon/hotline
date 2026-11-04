@@ -10,6 +10,13 @@ release at load time, so a release needs no change here.
 make site-deploy   # from the repo root: builds the docs, deploys Worker `hotline-site`
 ```
 
+## Marks
+
+`public/marks/` holds the five majors' marks beside their names on the page,
+copied from the window's own (`ui/src/assets/marks/`, from thesvg, MIT).
+Each is its owner's trademark, used only to name the provider it stands for,
+at the size the window draws it.
+
 ## Captures
 
 The desk on the page is captured by `showcase/capture.mjs`, at 2x on any

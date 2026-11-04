@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261104n">
+<link rel="stylesheet" href="/page.css?v=20261104u">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -69,10 +69,18 @@
 
 <section class="band container" aria-label="What my teammates run on">
   <div class="grid runs">
-    <p class="col-l runs-h">Each of my teammates can run on any of these.</p>
-    <ul class="col-r runs-list">
-      <li>Claude Code</li><li>Codex</li><li>opencode</li><li>Anthropic</li><li>OpenAI</li><li>Google</li><li>OpenRouter</li><li>Ollama</li>
+    <p class="col-l runs-h">Bring your subscription, your coding tool, or both.</p>
+    <ul class="col-r majors">
+      <li><strong><img class="mark" src="/marks/claude.svg" alt="" width="16" height="16">Anthropic</strong><span>Claude Code</span><span>or your API key</span></li>
+      <li><strong><i class="mark mark--mono mark-openai"></i>OpenAI</strong><span>Codex</span><span>or ChatGPT</span></li>
+      <li><strong><img class="mark" src="/marks/google.svg" alt="" width="16" height="16">Google</strong><span>Antigravity</span><span>or your API key</span></li>
+      <li><strong><i class="mark mark--mono mark-xai"></i>xAI</strong><span>Grok Build, Cursor</span><span>or SuperGrok</span></li>
+      <li><strong><i class="mark mark--mono mark-ollama"></i>Ollama</strong><span>Local models</span><span>or Ollama Cloud</span></li>
     </ul>
+    <div class="col-r also">
+      <span class="also-label">Also</span>
+      <div class="ticker"><ul class="ticker-row"><li>Gemini CLI</li><li>opencode</li><li>Muse Code</li><li>OpenRouter</li><li>GitHub Copilot</li><li>Mistral</li><li>DeepSeek</li><li>Groq</li><li>Z.AI</li><li>any server that speaks the OpenAI API</li></ul><ul class="ticker-row" aria-hidden="true"><li>Gemini CLI</li><li>opencode</li><li>Muse Code</li><li>OpenRouter</li><li>GitHub Copilot</li><li>Mistral</li><li>DeepSeek</li><li>Groq</li><li>Z.AI</li><li>any server that speaks the OpenAI API</li></ul></div>
+    </div>
   </div>
 </section>
 
@@ -124,7 +132,7 @@
 
 <section class="section container" aria-labelledby="trust-h">
   <div class="grid">
-    <h2 id="trust-h" class="col-l">Nothing sits between us.</h2>
+    <h2 id="trust-h" class="col-l">Your machine, your keys, your data.</h2>
     <dl class="col-r facts">
       <div><dt>No account</dt><dd>You never sign up. You pay your model provider and nobody else.</dd></div>
       <div><dt>Your keys, your keychain</dt><dd>I keep API keys in your system’s own credential store.</dd></div>
@@ -136,8 +144,8 @@
 
 <section class="section container" aria-labelledby="src-h">
   <div class="grid src">
-    <h2 id="src-h" class="col-l">Open source, every line of me.</h2>
-    <p class="col-r sec-p">Rust, with a Tauri shell around a web UI. MIT or Apache-2.0, your choice. Fork me, change me, ship your own.</p>
+    <h2 id="src-h" class="col-l lines-2"><span>Open source,</span> <span>MIT or Apache-2.0.</span></h2>
+    <p class="col-r sec-p">Rust, with a Tauri shell around a web UI. Fork me, change me, ship your own.</p>
     <figure class="col-l code">
       <pre><code><span class="prompt" aria-hidden="true">$ </span>git clone https://github.com/1broseidon/hotline
 <span class="prompt" aria-hidden="true">$ </span>cd hotline

@@ -8,6 +8,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Settings › General › Link previews. Off, the desk contacts no site an
+  agent linked to, and no link card, picture or site icon is drawn.
+
 ### Changed
 
 - What a message carries sits on one sheet in its bubble. A table has a head
@@ -22,6 +27,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   quote has a plain edge; a GitHub `[!WARNING]` or `[!CAUTION]` alert is an
   amber callout with its label, and `[!NOTE]`, `[!TIP]` and `[!IMPORTANT]`
   are labelled callouts.
+
+- A link's card puts the site first, then the title and two lines of what
+  the page is, with its picture beside them only when it has a real one.
+  The desk fetches that picture, and every site icon, once over https,
+  never from a local address, and keeps it; the window no longer asks the
+  site itself. A site without an icon shows none instead of its initial.
 
 ### Fixed
 

@@ -160,6 +160,8 @@ type Results = {
 	"websearch.set_enabled": WebSearchStatus;
 	"websearch.set_key": WebSearchStatus;
 	"link.preview": LinkPreview | null;
+	/** A site's icon as a `data:` URL the desk fetched and keeps. */
+	"link.icon": string | null;
 	ping: null;
 	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;

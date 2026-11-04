@@ -749,6 +749,64 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   run left running by a dead process is settled as cancelled at startup.
   There is no per-teammate subagent configuration to widen any of this.
 
+## Link previews
+
+When an agent writes a link in a message, the desk contacts that site to
+read the page's title, its picture and the site's icon, so the window can
+draw a card. It contacts it only over https, never a local or private
+address, and keeps what it read, so each page, picture and icon is fetched
+once. Turn it off in Settings › General › Link previews: the desk then
+contacts no site for a preview, and the window draws no card, picture or
+icon.
+
+This is the desk's own reach, not a teammate's: no tool or grant changes,
+and the agent that wrote the link chooses only which address the desk is
+asked about. What holds it (`link_preview.rs`):
+
+- **One way out.** The page, its picture and the icon
+  (`https://<site>/favicon.ico`, the site a bare host) are each asked for
+  through one `fetch`: https only, a host that is not this machine or this
+  network by its name or its address (`fetchable`), every hop of a redirect
+  held to the same, at most five. Every name is resolved through a
+  resolver that refuses it unless each address it gives is out on the
+  internet, so a public name that points inward, on the first ask or a
+  later one, is never connected to. No proxy is used, since a proxy would
+  resolve the name itself.
+- **Bounded.** A page is given 6 s and read only to its `</head>` (2 MB at
+  most); a picture or an icon 4 s. A picture over 3 MB or an icon over
+  64 KB is no picture: never a cut-off one.
+- **Bytes, not addresses.** The window never asks a site for anything. A
+  picture is decoded on the desk (two decoders at a time, the limits every
+  picture is held to), shrunk to at most 320 px and handed over as a JPEG
+  `data:` URL on the card; an icon is handed over as the site sent it only
+  when its first bytes are an ICO, PNG, JPEG, GIF or WebP. The window draws
+  only a `data:image/` source, so a card from an older desk that names a
+  picture's address draws no picture.
+- **Kept once.** Cards (with their pictures) and icons are each kept in
+  memory, the 300 most recent, so a picture asked for twice is fetched
+  once and two asks at once share one fetch. A page or icon with nothing
+  to show is asked again only after six hours. Nothing is written to disk;
+  a restart reads again.
+- **Nothing to show is nothing.** A failure, a timeout or a refusal gives
+  no card, no picture and no icon: no placeholder tile, no letter.
+- **Off is off.** `linkPreviews` is a room setting, on unless the person
+  turns it off. Off, `link.preview` and `link.icon` answer `null` before
+  anything is read, cached or resolved.
+
+Residual: what is read is public by construction, but the site learns the
+desk's address and that someone linked it, as a browser opening the link
+would. The phone draws its own cards and reads the page and its picture
+from the phone itself; this setting does not reach it.
+
+| Boundary | Proof |
+| --- | --- |
+| Only https on the internet is read; a name that resolves inward is never connected to | `link_preview.rs` `only_https_on_the_internet_is_read`, `a_name_that_resolves_inward_is_never_connected_to` |
+| A picture or icon over http, on this network, or at anything but a bare host is never asked for | `link_preview.rs` `a_picture_or_icon_over_http_or_on_this_network_is_never_asked_for`, `a_picture_over_http_is_no_picture` |
+| A picture asked for twice, or twice at once, is fetched once; the cache forgets its oldest past its bound | `link_preview.rs` `a_picture_asked_twice_is_fetched_once`, `the_cache_forgets_its_oldest_past_its_bound` |
+| A body over its cap is no picture; an icon is kept only when its bytes are a picture | `link_preview.rs` `a_body_over_its_cap_is_nothing`, `an_icon_is_kept_only_when_its_bytes_are_a_picture` |
+| With link previews off the desk answers nothing and contacts no site; on again, it does | `wire/tests/settings.rs` `with_link_previews_off_the_desk_fetches_nothing` |
+| The window draws a picture or icon only from the desk's bytes, no tile without one, asks once per site, and asks for none with previews off; Settings shows the switch | `ui/tests/link-previews.test.tsx` |
+
 ## The regression matrix
 
 Each row is one thing that must stay true, and the test that proves it

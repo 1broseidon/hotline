@@ -2885,12 +2885,6 @@
 		background: oklch(97% 0.004 250);
 		object-fit: contain;
 	}
-	.favicon-letter {
-		font-weight: 600;
-		line-height: 1;
-		color: var(--ink-2);
-		background: var(--pressed);
-	}
 	.favicons {
 		display: inline-flex;
 		flex-shrink: 0;
@@ -4930,57 +4924,75 @@
 		margin: 0.6em 0;
 	}
 
-	/* A link's card, under the bubble that wrote the link: the page's picture,
-	 * its title and where it lives, the way the phone draws one. */
+	/* A link's card, under the bubble that wrote the link: where the page
+	 * lives, its title, two lines of what it is, and its picture beside them
+	 * only when it has a real one (docs/design/inline-premium.html, row 06). */
 	.link-card {
-		display: flex;
-		flex-direction: column;
-		width: 300px;
-		max-width: 78%;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 12px;
+		width: 360px;
+		max-width: 86%;
 		margin-top: 4px;
-		overflow: hidden;
-		border-radius: var(--radius-bubble);
-		background: var(--said-them);
+		padding: 11px 11px 11px 13px;
+		border-radius: var(--radius-group);
+		background: var(--raised);
+		box-shadow: inset 0 0 0 1px var(--line);
 		color: var(--ink);
 		text-decoration: none;
-		transition: background var(--dur-press) var(--ease-out);
+		transition: box-shadow var(--dur-press) var(--ease-out);
 	}
 	.link-card:hover {
-		background: var(--pop);
+		box-shadow: inset 0 0 0 1px var(--line-strong);
+	}
+	.link-card-pictured {
+		grid-template-columns: minmax(0, 1fr) 92px;
 	}
 	.link-card-mine {
 		align-self: flex-end;
 	}
-	.link-card-picture {
-		display: block;
-		width: 100%;
-		aspect-ratio: 1.91;
-		object-fit: cover;
-		background: var(--raised);
-	}
 	.link-card-words {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		padding: 8px 12px 10px;
+		min-width: 0;
+	}
+	.link-card-site {
+		overflow: hidden;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		white-space: nowrap;
+		text-overflow: ellipsis;
 	}
 	.link-card-title {
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
+		margin: 3px 0 2px;
+		font-size: var(--text-read);
+		line-height: var(--text-lg--line-height);
 		font-weight: 600;
 	}
-	.link-card-site {
+	.link-card-description {
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		color: var(--ink-3);
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		color: var(--ink-2);
+	}
+	.link-card-picture {
+		display: block;
+		width: 92px;
+		height: 100%;
+		min-height: 64px;
+		max-height: 92px;
+		object-fit: cover;
+		border-radius: var(--radius-card);
+		outline: 1px solid var(--line);
+		outline-offset: -1px;
 	}
 	/* Anything pressed to open in the viewer. */
 	.picture-open {

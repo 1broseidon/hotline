@@ -43,6 +43,8 @@ async function mount(personName: string) {
 				defaultBackendId="hotline"
 				defaultModelId={null}
 				onIdleHours={() => {}}
+				linkPreviews
+				onLinkPreviews={() => {}}
 				onBackend={() => {}}
 				onDefaultModel={() => {}}
 				onProviders={undefined}

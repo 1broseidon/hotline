@@ -42,11 +42,13 @@ use serde_json::{Map, Value, json};
 /// follow you into this morning. `enabledModels` is empty: a provider nobody
 /// has filtered shows every model, because a missing filter is not an empty
 /// one. `defaultModelId` and `lastModelId` stay out of this map: a desk that
-/// has never named a model has no preference, not an empty string.
+/// has never named a model has no preference, not an empty string. Link
+/// previews are on until the person turns them off.
 fn defaults() -> Map<String, Value> {
     let mut settings = Map::new();
     settings.insert("defaultBackendId".into(), Value::from("hotline"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
+    settings.insert(LINK_PREVIEWS.into(), Value::Bool(true));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
     settings.insert(
@@ -64,6 +66,19 @@ fn defaults() -> Map<String, Value> {
 pub const ACCENT: &str = "accent";
 pub const ACCENTS: [&str; 6] = ["mint", "teal", "sky", "iris", "orchid", "rose"];
 
+/// Whether the desk reads the pages agents link to for a card, and fetches
+/// their pictures and site icons. Off, the desk contacts no site for a
+/// preview at all.
+pub const LINK_PREVIEWS: &str = "linkPreviews";
+
+/// The `linkPreviews` setting: on unless the person turned it off.
+pub fn link_previews(log: &Log) -> bool {
+    settings(log)
+        .get(LINK_PREVIEWS)
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
 pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     if key == "personName" {
         let name = value.as_str().ok_or("Your name must be text.")?.trim();
@@ -74,6 +89,12 @@ pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     }
     if key == "webSearch" {
         return hotline_websearch::normalize_setting(value);
+    }
+    if key == LINK_PREVIEWS {
+        return value
+            .as_bool()
+            .map(Value::Bool)
+            .ok_or_else(|| "Link previews are on or off: true or false.".to_string());
     }
     if key == ACCENT {
         let accent = value
@@ -962,7 +983,10 @@ mod tests {
         assert_eq!(settings(&log)["defaultBackendId"], "hotline");
         assert_eq!(settings(&log)["chapterIdleHours"], 8);
         assert_eq!(settings(&log)["enabledModels"], json!({}));
+        assert!(link_previews(&log));
 
+        append(&log, &setting(LINK_PREVIEWS, Value::Bool(false)));
+        assert!(!link_previews(&log));
         append(&log, &setting("chapterIdleHours", Value::from(2)));
         append(&log, &setting("theme", Value::from("dark")));
         assert_eq!(settings(&log)["chapterIdleHours"], 2);

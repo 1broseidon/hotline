@@ -168,8 +168,8 @@ the field a fold discriminates on and the one a reader of the raw file
 looks for first.
 
 A setting nobody has set is the default: `defaultBackendId` is `"hotline"`
-(Hotline Agent), `chapterIdleHours` is `8`, and `mcpServers` is an empty
-list.
+(Hotline Agent), `chapterIdleHours` is `8`, `linkPreviews` is `true`, and
+`mcpServers` is an empty list.
 
 ### `persona`
 

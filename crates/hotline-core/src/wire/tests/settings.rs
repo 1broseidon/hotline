@@ -456,3 +456,83 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
     .await;
     assert_eq!(bad["ok"], false, "{bad}");
 }
+
+/// Link previews are a room setting, on by default. Off, the desk answers
+/// every card and icon with nothing and contacts no site for one; on again,
+/// the same asks reach the site. (In tests the desk contacts no site at
+/// all; `link_preview::contacted` is what it would have asked.)
+#[tokio::test]
+async fn with_link_previews_off_the_desk_fetches_nothing() {
+    let (_root, log, port) = door("link-previews-off");
+    let mut socket = desk(port).await;
+    let page = "https://1.2.3.4/link-previews-off";
+    let icon_at = "https://1.2.3.5/favicon.ico";
+    assert!(room::link_previews(&log), "on until turned off");
+
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "settings.update", "params": { "patch": { "linkPreviews": false } } }),
+    )
+    .await;
+    let off = answered(&mut socket, 1).await;
+    assert_eq!(off["result"]["linkPreviews"], false, "{off}");
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "link.preview", "params": { "url": page } }),
+    )
+    .await;
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "link.icon", "params": { "site": "1.2.3.5" } }),
+    )
+    .await;
+    let card = answered(&mut socket, 2).await;
+    let icon = answered(&mut socket, 3).await;
+    assert_eq!(
+        (card["ok"].clone(), card["result"].clone()),
+        (json!(true), Value::Null),
+        "{card}"
+    );
+    assert_eq!(
+        (icon["ok"].clone(), icon["result"].clone()),
+        (json!(true), Value::Null),
+        "{icon}"
+    );
+    assert!(!crate::link_preview::contacted(page));
+    assert!(!crate::link_preview::contacted(icon_at));
+
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "settings.update", "params": { "patch": { "linkPreviews": "no" } } }),
+    )
+    .await;
+    assert_eq!(
+        answered(&mut socket, 4).await["ok"],
+        false,
+        "only true or false"
+    );
+
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "settings.update", "params": { "patch": { "linkPreviews": null } } }),
+    )
+    .await;
+    assert_eq!(
+        answered(&mut socket, 5).await["result"]["linkPreviews"],
+        true
+    );
+    ask(
+        &mut socket,
+        json!({ "id": 6, "cmd": "link.preview", "params": { "url": page } }),
+    )
+    .await;
+    ask(
+        &mut socket,
+        json!({ "id": 7, "cmd": "link.icon", "params": { "site": "1.2.3.5" } }),
+    )
+    .await;
+    answered(&mut socket, 6).await;
+    answered(&mut socket, 7).await;
+    assert!(crate::link_preview::contacted(page));
+    assert!(crate::link_preview::contacted(icon_at));
+}

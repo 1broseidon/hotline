@@ -24,9 +24,10 @@ use std::net::IpAddr;
 use std::sync::{PoisonError, RwLock};
 use url::{Host, Url};
 
-/// The most a page's text or links may be before the answer is cut, in
-/// characters. A page longer than this says where it was cut.
-pub const READ_LIMIT: usize = 60_000;
+/// The most one answer of a page's text or links may be, in characters: a
+/// longer page comes in parts, each asked for by number. Kept under where
+/// an agent's harness moves a long tool answer out to a file.
+pub const READ_LIMIT: usize = 20_000;
 
 /// Ollama's own port. A teammate's browser has no business with the
 /// desk's model server, whatever the person answers.

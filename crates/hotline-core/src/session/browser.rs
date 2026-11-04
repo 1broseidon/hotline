@@ -185,16 +185,57 @@ fn page_line(page: &Page) -> String {
     format!("Page: {title}\nURL: {}{loading}", page.url)
 }
 
-/// Cuts a read to [`desk_browser::READ_LIMIT`] characters, saying so.
-fn capped(text: String) -> String {
-    match text.char_indices().nth(desk_browser::READ_LIMIT) {
-        Some((cut, _)) => format!(
-            "{}\n\n[Cut at {} characters: the page goes on.]",
-            &text[..cut],
-            desk_browser::READ_LIMIT
-        ),
-        None => text,
+/// One part of a read, `part` from 1, of at most
+/// [`desk_browser::READ_LIMIT`] characters each, cut between lines (a line
+/// longer than a part is cut inside it). A read that fits is answered
+/// whole; a longer one says which part this is and how to ask for the next.
+fn part_of(text: &str, part: usize) -> Result<String, String> {
+    let limit = desk_browser::READ_LIMIT;
+    let mut parts: Vec<String> = vec![String::new()];
+    for line in text.split_inclusive('\n') {
+        let mut line = line;
+        while !line.is_empty() {
+            let last = parts.last_mut().expect("one part at least");
+            let room = limit.saturating_sub(last.chars().count());
+            let length = line.chars().count();
+            if length <= room {
+                last.push_str(line);
+                break;
+            }
+            if !last.is_empty() && length <= limit {
+                parts.push(String::new());
+                continue;
+            }
+            let cut = line
+                .char_indices()
+                .nth(room.max(1))
+                .map_or(line.len(), |(at, _)| at);
+            last.push_str(&line[..cut]);
+            line = &line[cut..];
+            parts.push(String::new());
+        }
     }
+    parts.retain(|part| !part.is_empty());
+    let count = parts.len().max(1);
+    if part == 0 || part > count {
+        return Err(format!(
+            "This page has {count} part{}: ask for part 1 to {count}.",
+            if count == 1 { "" } else { "s" }
+        ));
+    }
+    let body = parts.get(part - 1).cloned().unwrap_or_default();
+    if count == 1 {
+        return Ok(body);
+    }
+    let next = if part < count {
+        format!(" Read part {} with `part: {}`.", part + 1, part + 1)
+    } else {
+        " That is the end of the page.".to_string()
+    };
+    Ok(format!(
+        "[Part {part} of {count} of a long page.{next}]\n\n{}",
+        body.trim_end()
+    ))
 }
 
 /// An act's arguments, checked before the page is touched.
@@ -424,14 +465,19 @@ impl Room {
                 let page = browser.step(persona_id, step).await?;
                 Ok(BrowserAnswer::Text(page_line(&page)))
             }
-            "text" => Ok(BrowserAnswer::Text(capped(self.redacted(
-                persona_id,
-                browser.read(persona_id, Reading::Text).await?,
-            )))),
-            "links" => Ok(BrowserAnswer::Text(capped(self.redacted(
-                persona_id,
-                browser.read(persona_id, Reading::Links).await?,
-            )))),
+            "text" | "links" => {
+                let reading = if action == "text" {
+                    Reading::Text
+                } else {
+                    Reading::Links
+                };
+                let part = arguments
+                    .get("part")
+                    .and_then(Value::as_u64)
+                    .map_or(1, |part| usize::try_from(part).unwrap_or(usize::MAX));
+                let read = self.redacted(persona_id, browser.read(persona_id, reading).await?);
+                Ok(BrowserAnswer::Text(part_of(&read, part)?))
+            }
             "click_ref" | "fill" | "select" | "check" | "hover" | "press" | "scroll"
             | "wait_for" => {
                 let act = act_of(action, arguments)?;
@@ -937,6 +983,62 @@ impl Room {
                 decision: Some(decision.to_string()),
                 decided_option_name: Some(option_name.to_string()),
             },
+        );
+    }
+}
+
+#[cfg(test)]
+mod parts {
+    use super::part_of;
+    use crate::browser::READ_LIMIT;
+
+    #[test]
+    fn a_short_page_is_one_answer_and_a_long_one_comes_in_parts_cut_between_lines() {
+        assert_eq!(part_of("Page: A\nhello\n", 1).unwrap(), "Page: A\nhello\n");
+        assert!(part_of("Page: A\n", 2).unwrap_err().contains("1 part"));
+
+        let line = format!("{}\n", "x".repeat(99));
+        let page = line.repeat(READ_LIMIT / 100 * 2 + 10);
+        let first = part_of(&page, 1).unwrap();
+        assert!(
+            first.starts_with("[Part 1 of 3 of a long page. Read part 2 with `part: 2`.]"),
+            "{}",
+            &first[..80]
+        );
+        assert!(first.chars().count() <= READ_LIMIT + 100);
+        let body = first.split_once("\n\n").unwrap().1;
+        assert!(
+            body.lines().all(|line| line.len() == 99),
+            "cut between lines"
+        );
+        let last = part_of(&page, 3).unwrap();
+        assert!(last.contains("That is the end of the page."));
+        let whole: usize = (1..=3)
+            .map(|part| {
+                part_of(&page, part)
+                    .unwrap()
+                    .split_once("\n\n")
+                    .unwrap()
+                    .1
+                    .lines()
+                    .count()
+            })
+            .sum();
+        assert_eq!(whole, page.lines().count(), "every line is in some part");
+        assert!(part_of(&page, 4).unwrap_err().contains("3 parts"));
+
+        let huge = "y".repeat(READ_LIMIT * 2 + 5);
+        assert_eq!(
+            (1..=3)
+                .map(|part| part_of(&huge, part)
+                    .unwrap()
+                    .split_once("\n\n")
+                    .unwrap()
+                    .1
+                    .len())
+                .sum::<usize>(),
+            huge.len(),
+            "a line longer than a part is cut inside it"
         );
     }
 }

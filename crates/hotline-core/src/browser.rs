@@ -221,6 +221,15 @@ pub struct Acted {
     pub note: Option<String>,
 }
 
+/// The whole page as `screenshot` with `full_page` looks at it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FullPage {
+    /// PNGs from the top of the page down, one viewport tall each.
+    pub pictures: Vec<Vec<u8>>,
+    /// The page goes on below the last picture.
+    pub more: bool,
+}
+
 /// The desktop app's web views, one per teammate, driven by the core.
 #[async_trait]
 pub trait DeskBrowser: Send + Sync {
@@ -234,6 +243,15 @@ pub trait DeskBrowser: Send + Sync {
     async fn act(&self, persona_id: &str, act: &Act) -> Result<Acted, String>;
     /// The visible part of the page as a PNG.
     async fn screenshot(&self, persona_id: &str) -> Result<Vec<u8>, String>;
+    /// The page from the top, a viewport at a time, as at most `most`
+    /// pictures, with its scroll put back where it was. A browser that
+    /// cannot scroll and look answers the visible part alone.
+    async fn full_page(&self, persona_id: &str, _most: usize) -> Result<FullPage, String> {
+        Ok(FullPage {
+            pictures: vec![self.screenshot(persona_id).await?],
+            more: false,
+        })
+    }
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
     /// What the teammate's browser waits on the person for, in a few words

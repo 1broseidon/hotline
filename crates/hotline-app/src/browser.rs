@@ -177,6 +177,8 @@ mod native {
     };
     use tokio::sync::{oneshot, watch};
 
+    mod guard;
+
     const WALK: &str = include_str!("browser/walk.js");
     const READ_TEXT: &str = concat!(
         include_str!("browser/walk.js"),
@@ -387,13 +389,22 @@ mod native {
                 loads,
             });
             let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
+            // Nothing loads until the page's rule list is attached.
+            let guarded = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let navigating = {
+                let app = self.app.clone();
                 let gate = self.gate.clone();
                 let persona = persona_id.to_string();
                 let tab = tab.clone();
+                let guarded = guarded.clone();
                 move |url: &Url| {
+                    if !guarded.load(std::sync::atomic::Ordering::Acquire) {
+                        return false;
+                    }
                     let admitted = gate.admits(&persona, url);
-                    if !admitted {
+                    if admitted {
+                        guard::check_landing(&app, &gate, &persona, &tab, url);
+                    } else {
                         tab.loads
                             .send_modify(|loads| loads.blocked = Some(url.to_string()));
                     }
@@ -440,7 +451,8 @@ mod native {
                 .focused(false)
                 .build()
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
-            let page = WebviewBuilder::new(&page_label, WebviewUrl::External(url.clone()))
+            let blank = Url::parse("about:blank").map_err(|error| error.to_string())?;
+            let page = WebviewBuilder::new(&page_label, WebviewUrl::External(blank))
                 .background_throttling(BackgroundThrottlingPolicy::Disabled)
                 .data_store_identifier(hotline_core::browser::store_id(persona_id))
                 .on_navigation(navigating)
@@ -454,6 +466,17 @@ mod native {
                     LogicalSize::new(WIDTH, HEIGHT),
                 )
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            {
+                let (url, address, tab) = (url.clone(), url.to_string(), tab.clone());
+                let refused = move || {
+                    tab.loads.send_modify(|loads| loads.blocked = Some(address));
+                };
+                self.app
+                    .get_webview(&page_label)
+                    .ok_or("Your browser could not be opened.")?
+                    .with_webview(move |view| guard::attach(view.inner(), url, guarded, refused))
+                    .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            }
             let hash = format!("persona={}", urlencode(persona_id));
             let bar = WebviewBuilder::new(
                 &bar_label,

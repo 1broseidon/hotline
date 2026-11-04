@@ -835,6 +835,23 @@ subagent run or a voice front is not offered either.
   local address nobody allowed, and anything that is not http, https or
   `about:blank`. A page that opens a window gets the same view instead,
   through the same check. Downloads are refused.
+- **A public name pointed inward is stopped.** Once the gate lets a
+  top-level load through by its name, the desk resolves the name off the
+  main thread (`Gate::admits_landing`); a local address the person has not
+  allowed for that teammate and that host and port stops the load, blanks
+  the page if it already showed, and refuses the call that was waiting on
+  it. WebKit resolves the name itself in parallel, so the first request of
+  such a load may already have gone out; the page is not left to be read.
+- **A public page loads nothing local.** Every teammate's page carries a
+  WebKit content rule list (`hotline-app/src/browser/native/guard.rs`)
+  that blocks each load a page makes (a script, a picture, a frame, a
+  fetch, a WebSocket) to localhost, `.localhost`, `.local`, loopback, the
+  private ranges, link-local, carrier-grade NAT or unique-local IPv6,
+  unless the page on top is itself on one, which only the person's answer
+  lets it be. The list reads names, as WebKit cannot resolve them for it:
+  a public name pointed inward is caught as a page, not as a picture or
+  script on one. The page loads nothing until the list is attached: it is
+  made on `about:blank` with every load refused, then sent on.
 - **Its storage is its own.** Each teammate's view has its own web data
   store, so its cookies and sign-ins are neither Hotline's window's nor
   another teammate's.
@@ -876,12 +893,6 @@ subagent run or a voice front is not offered either.
   last JPEG the desk took after a teammate's move; the phone seat may read it,
   as it reads the conversation the page came up in.
 
-Known limits in phase one: a public name that resolves to a local address is
-caught when the agent navigates to it, not when a page redirects there on
-its own (the gate checks names, not resolutions, on the main thread), and
-subresources a public page loads from a local address are not yet blocked.
-Phase two adds a content rule list for both.
-
 ## The regression matrix
 
 Each row is one thing that must stay true, and the test that proves it
@@ -910,6 +921,7 @@ extend; when a change adds a boundary, it adds a row.
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
 | Revocation evicts cached logins and retained Copilot transports refuse the next request; ChatGPT delete revokes each stored token once and deletes locally even if the provider fails | `providers/rig_login/tests/revoke.rs` `rig_revoke_copilot_retained_transport_stops_on_its_next_request`, `rig_revoke_chatgpt_forgets_retained_tokens_and_refuses_a_new_lookup`, `rig_revoke_a_refresh_in_flight_cannot_restore_the_login`; `tests/desk/logins.rs` `rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails` | Provider revocation is best effort; already dispatched requests can finish |
+| A teammate's browser loads a local address only as a page the person allowed: a redirect to a public name that resolves inward is refused unless that host and port were allowed for that teammate, never on the desk's own ports; a public page's loads to any local host are blocked by name, and a page on one is spared | `hotline-core/src/browser.rs` `the_gate_admits_public_pages_and_only_the_local_ones_allowed`, `a_redirect_to_a_public_name_that_resolves_locally_is_refused_unless_allowed`; `hotline-app/src/browser/native/guard.rs` `the_rules_name_every_local_host_and_no_public_one`, `each_rule_spares_a_page_on_a_local_host` | macOS for the second; WebKit's own blocking is checked by hand |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |

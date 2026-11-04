@@ -22,5 +22,7 @@
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
   --radius-device: 30px; --color-shadow: oklch(6% 0.01 250 / 0.7); --shadow-lift: 0 30px 60px -18px var(--color-shadow), 0 0 0 1px oklch(30% 0.01 250 / 0.9);
   --radius-card: 12px; --radius-control: 10px; --radius-pill: 999px; --rule-hair: 1px; --shadow-card: none;
+  /* A window's cast shadow, as a filter so it follows the corners drawn in the capture. */
+  --shadow-window: drop-shadow(0 24px 40px var(--color-shadow));
   --tracking-display: -0.03em; --tracking-section: -0.022em;
 }

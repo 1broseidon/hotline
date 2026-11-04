@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261104b">
+<link rel="stylesheet" href="/page.css?v=20261104c">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -60,9 +60,8 @@
     <p class="fine">Free. Version <span data-version>0.47.0</span><span data-size-wrap>, <span data-size="mac">42 MB</span></span>. Also for <span data-also>Windows, Linux</span>, <a href="/docs/server/">a server</a> and <a href="/docs/phone/">iPhone</a> (beta).</p>
   </div>
   <figure class="stage">
-    <div class="shot stage-desk">
-      <picture><source media="(max-width: 40rem)" srcset="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1"><img src="/screens/desk-room.webp" width="1528" height="1080" alt="The Hotline desk: six teammates in the rail, Goldie’s thread with what is left on the Ember &amp; Oak page, the reply handing Kit the first three fixes, and Goldie sending them on." fetchpriority="high" decoding="async"></picture>
-      <button class="watch" type="button" data-watch hidden><span class="watch-chip"><span class="watch-play" aria-hidden="true"></span>Watch the desk in action</span></button>
+    <div class="window stage-desk">
+      <picture><source media="(max-width: 40rem)" srcset="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1"><img src="/screens/desk-window.webp" width="2304" height="1440" alt="The Hotline window: six teammates in the rail; in Goldie’s thread, the go-ahead to hand Kit three fixes, her note that they are sent, Kit reporting back, and the page on her computer at 390 and 320px; beside it, Kit’s thread with the four changes Kit made." fetchpriority="high" decoding="async"></picture>
     </div>
     <div class="shot stage-phone"><picture><source media="(max-width: 40rem)" srcset="/screens/phone-goldie-m.webp" width="904" height="1344"><img src="/screens/phone-goldie.webp" srcset="/screens/phone-goldie.webp 603w, /screens/phone-goldie-l.webp 904w" sizes="300px" width="603" height="975" alt="The same thread on the phone: Kit’s four fixes, Huck applying them, and Goldie’s report that the site is done and nothing is blocking." decoding="async"></picture></div>
     <figcaption class="caption">Goldie’s thread on desk and phone: the fixes you approve, handed to Kit and Huck, then her report.</figcaption>
@@ -106,15 +105,9 @@
     <div class="col-l media-text">
       <h2 id="computer-h">My own computer, in a window you can watch.</h2>
       <p class="sec-p">A Linux desktop in a container on your machine: a screen, a browser, a shell. I run jobs there and sign in with keys you grant. When I need you, take the mouse.</p>
-      <p class="caption">Eight seconds of a job, as the desk shows it. Docker, Podman or Apple container.</p>
+      <p class="caption">Goldie’s computer, rendering the Ember &amp; Oak page at four widths. Docker, Podman or Apple container.</p>
     </div>
-    <figure class="col-r shot shot--clip">
-      <button class="clip-toggle" type="button" data-clip-toggle="run" aria-controls="run" hidden>Pause</button>
-      <video id="run" width="1440" height="810" poster="/screens/computer-run.webp" autoplay muted loop playsinline controls preload="metadata" aria-label="A teammate’s computer running the job it was handed: the shell shows the job start, four pages render, and the job ends with exit 0.">
-        <source src="/screens/computer-run.mp4" type="video/mp4">
-        <source src="/screens/computer-run.webm" type="video/webm">
-      </video>
-    </figure>
+    <figure class="col-r window"><img src="/screens/computer-window.webp" width="1440" height="842" alt="The window onto Goldie’s computer: Chromium showing the Ember &amp; Oak page, and beside it the Observer following the job that renders the page at four widths." loading="lazy" decoding="async"></figure>
   </div>
 </section>
 
@@ -197,10 +190,6 @@
   </div>
 </footer>
 
-<div class="film" data-film role="dialog" aria-modal="true" aria-label="The desk in action" hidden>
-        <div class="film-frame"><video id="desk" width="1920" height="1080" playsinline preload="none" aria-label="The Hotline desk at work: one message to Goldie, her ask to let Huck and Quill work, the work handed to each, Kit’s check, the fixes sent back, and Goldie’s report with the finished launch post."><source src="/screens/desk-film.mp4?v=3" type="video/mp4"><source src="/screens/desk-film.webm?v=3" type="video/webm"></video></div>
-        <button class="film-close" type="button" data-film-close>Close</button>
-      </div>
 <script src="/mark.js"></script>
 <script>
 const REPO = "https://github.com/1broseidon/hotline", REL = `${REPO}/releases/latest`;
@@ -270,21 +259,6 @@ document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("clic
   const label = b.querySelector("[data-copy-label]") || b;
   try { await navigator.clipboard.writeText(b.dataset.copy); label.textContent = "Copied"; setTimeout(() => { label.textContent = "Copy"; }, 1600); } catch (e) {}
 }));
-
-// Each film plays only while it is on screen, never for someone who asked for less
-// motion, and the visitor can stop or start it at any time.
-document.querySelectorAll("video#run").forEach((v) => {
-  const b = document.querySelector(`[data-clip-toggle][aria-controls="${v.id}"]`);
-  let held = reduce;
-  const show = () => { if (b) b.textContent = v.paused ? "Play" : "Pause"; };
-  v.removeAttribute("controls");
-  if (b) { b.hidden = false; b.addEventListener("click", () => { held = !v.paused; if (held) v.pause(); else v.play().catch(() => {}); }); }
-  v.addEventListener("play", show); v.addEventListener("pause", show);
-  if (reduce) { v.removeAttribute("autoplay"); v.pause(); }
-  show();
-  if (!("IntersectionObserver" in window)) return;
-  new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting && !held) v.play().catch(() => {}); else if (!e.isIntersecting) v.pause(); }), { threshold: 0.25 }).observe(v);
-});
 
 // The headline tries a few names, the kind you might give it, then says its own.
 // Scrolling ends the typing at once: the name is needed for what follows.
@@ -361,21 +335,6 @@ const typing = (() => {
   addEventListener("resize", () => { const s = scrollY; scrollTo(0, 0); measure(); scrollTo(0, s); });
   if (document.fonts) document.fonts.ready.then(measure);
   measure();
-})();
-
-// The desk at rest is the still; asked, it dims and plays the room at work in its place.
-(() => {
-  const w = document.querySelector("[data-watch]"), f = document.querySelector("[data-film]"); if (!w || !f) return;
-  const v = f.querySelector("video");
-  w.hidden = false;
-  const open = () => { f.hidden = false; document.documentElement.classList.add("is-film"); v.currentTime = 0; v.play().catch(() => {}); f.querySelector("[data-film-close]").focus({ preventScroll: true }); };
-  const close = () => { v.pause(); f.hidden = true; document.documentElement.classList.remove("is-film"); w.focus({ preventScroll: true }); };
-  f.addEventListener("click", (e) => { if (e.target === f) close(); });
-  w.addEventListener("click", open);
-  f.querySelector("[data-film-close]").addEventListener("click", close);
-  v.addEventListener("ended", close);
-  v.addEventListener("click", () => (v.paused ? v.play() : v.pause()));
-  addEventListener("keydown", (e) => { if (e.key === "Escape" && !f.hidden) close(); });
 })();
 
 // The masthead's Download arrives once the hero's own has scrolled away, so the two never compete.

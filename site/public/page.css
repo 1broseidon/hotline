@@ -1,9 +1,9 @@
 /* Hallmark · redesign: full · shape: Introduction, then the room at work · genre: modern-minimal · theme: brand (Hotline's own: the window's dark ground, Plex Sans, the toad's green) · job: try · idea: "The page introduces itself the way a teammate would: by name, in the first person, then shows the room at work." · vibe: "dark desk, one green mark, plain facts, one grid"
- * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · mono: the system's own · grid: twelve columns; every band is a hairline, its head on 1 to 5 and its material on 6 to 12 · hero: the name typed, the owner's sentence, one download beside its install line, then the desk full width from the film, the phone on 10 to 12 hanging below it · nav: the toad alone at rest, on the call while the name types; the name docks beside it on scroll; Docs, the GitHub mark, a Download once the hero's has gone · footer: one hairline row on the same grid · imagery: the product, real captures; the hero a full frame of the desk film · signature: the name gliding up from the headline to sit beside the toad in the masthead · copy: verbatim (the owner's words) except one caption, reworded to match its new picture
+ * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · mono: the system's own · grid: twelve columns; every band is a hairline, its head on 1 to 5 and its material on 6 to 12 · hero: the name typed, the owner's sentence, one download beside its install line, then the desk window full width, the phone on 10 to 12 hanging below it · nav: the toad alone at rest, on the call while the name types; the name docks beside it on scroll; Docs, the GitHub mark, a Download once the hero's has gone · footer: one hairline row on the same grid · imagery: the product, real captures, the whole windows in the Mac's chrome; no film · signature: the name gliding up from the headline to sit beside the toad in the masthead · copy: verbatim (the owner's words) except one caption, reworded to match its new picture
  * axes: dark/grotesk-sans/chromatic-green · posture: restrained · contrast: pass · fold: pass · v2.0.0 */
 /* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V3 · weakest: V, a redesign keeps the page's order and its brand by request; the composition is what moved: one grid, the mark at mark size, the desk at full frame */
-/* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread on desk and phone: the fixes you approve, handed to Kit and Huck, then her report." · the hero's desk is now the film's frame, which shows the fixes, not the grant */
-/* Hallmark · waive 28b · the desk film plays only inside the dialog, opened by hand, preload none · a poster would be fetched for a film most visitors never open */
+/* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread on desk and phone: the fixes you approve, handed to Kit and Huck, then her report." · the hero's desk shows the fixes, not the grant */
+/* By the owner's request, against Hallmark's floor (47a, a drawn OS window): the page is screenshots only, each whole window in the Mac's chrome. The chrome is drawn around real captures (the desk from the dev build, the computer's own screen), with the lights where the app seats them: 12px, centred on the 40px strip. */
 /* Hallmark · dropped .toad--hero, .toad--sign, .sign · the toad is the mark, in the masthead and the footer; at headline size it read as a sticker */
 @import url("./tokens.css");
 @import url("./base.css");
@@ -87,35 +87,20 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 
 /* Pictures: the product, in a hairline and a soft corner. */
 .shot { margin: 0; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; background: var(--color-paper-2); }
-.shot img, .shot video { width: 100%; height: 100%; object-fit: cover; object-position: 0 0; }
+.shot img { width: 100%; height: 100%; object-fit: cover; object-position: 0 0; }
+/* A whole window is shown as the Mac draws it: the capture carries its own corners, edge and
+   lights, so the page adds no frame, only the shadow a window casts, following its corners. */
+.window { margin: 0; filter: var(--shadow-window); }
+.window img { display: block; width: 100%; height: auto; }
 
 /* The stage, on the grid: the desk (the rail and the thread) across all twelve columns, the phone on
    10 to 12 sharing its right edge. The phone hangs below the desk by half its own width, which keeps
    its top under the reply it would otherwise cover at every width; the stage's padding makes room
    for the hang. Both are fractions of the width, so the picture holds its proportions everywhere. */
 .stage { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); margin: var(--space-2xl) 0 0; padding-bottom: 6%; }
-.stage-desk { position: relative; grid-column: 1 / -1; grid-row: 1; aspect-ratio: 1528 / 1080; }
+.stage-desk { position: relative; grid-column: 1 / -1; grid-row: 1; aspect-ratio: 2304 / 1440; }
 .stage-phone { position: relative; z-index: var(--z-raised); grid-column: 10 / -1; grid-row: 1; align-self: end; margin-bottom: -48%; aspect-ratio: 603 / 975; border: 0; border-radius: var(--radius-device); box-shadow: var(--shadow-lift); }
 .stage .caption { grid-column: 1 / 9; grid-row: 2; margin-top: var(--space-md); }
-/* The whole desk is the control; its label sits on it at rest, and the film plays over the page. */
-.watch { position: absolute; inset: 0; z-index: var(--z-raised); display: flex; align-items: flex-end; justify-content: flex-start; padding: var(--space-xs); border: 0; border-radius: inherit; background: none; color: var(--color-ink); cursor: pointer; }
-/* The ring goes on the label, which the phone never covers. */
-.watch:focus-visible { outline: none; }
-.watch:focus-visible .watch-chip { outline: 2px solid var(--color-focus); outline-offset: 2px; }
-.watch-chip { display: inline-flex; align-items: center; gap: var(--space-sm); height: 48px; padding: 0 var(--space-lg) 0 var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-pill); background: color-mix(in oklab, var(--color-paper) 82%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-weight: 600; font-size: var(--text-sm); transition: background-color var(--dur-micro) var(--ease-out); }
-.watch:hover .watch-chip { background: var(--color-paper-3); }
-.watch:active .watch-chip { background: var(--color-paper-2); }
-.watch-play { position: relative; width: 36px; height: 36px; border-radius: var(--radius-pill); background: var(--color-ink); }
-.watch-play::after { content: ""; position: absolute; left: 14px; top: 11px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent var(--color-paper); }
-/* The film opens over the whole page: the page dims behind it, the desk plays large. */
-.film { position: fixed; inset: 0; z-index: var(--z-modal); display: grid; place-items: center; padding: var(--space-2xl) var(--gutter); background: color-mix(in oklab, var(--color-paper) 90%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-.film[hidden] { display: none; }
-.film-frame { width: min(100%, 1440px, calc((100dvh - 2 * var(--space-2xl)) * 16 / 9)); aspect-ratio: 16 / 9; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; background: var(--color-paper-2); }
-.film-frame video { width: 100%; height: 100%; display: block; cursor: pointer; }
-.film-close { position: absolute; top: var(--space-md); right: var(--space-md); height: 44px; padding: 0 var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-2); color: var(--color-ink); font-weight: 600; font-size: var(--text-sm); cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out); }
-.film-close:hover { background: var(--color-paper-3); }
-.film-close:active { background: var(--color-paper-2); }
-html.is-film { overflow: hidden; }
 .caption { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); max-width: 60ch; }
 
 /* Bands: a hairline, then the head on the left and its material on the right. */
@@ -144,14 +129,9 @@ html.is-film { overflow: hidden; }
 /* A capture that starts mid-list fades in from the top, as a list does when it scrolls. */
 .shot--piece img.fade-top { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; -webkit-mask-image: linear-gradient(to bottom, transparent, var(--color-ink) var(--space-xl)); mask-image: linear-gradient(to bottom, transparent, var(--color-ink) var(--space-xl)); }
 
-/* The computer: its words on the left, the clip cropped to the browser it drives on the right. */
+/* The computer: its words on the left, the window onto it on the right. */
 .media-text .sec-p { margin-top: var(--space-lg); }
 .media-text .caption { margin-top: var(--space-lg); }
-.shot--clip { position: relative; aspect-ratio: 1.16 / 1; }
-.clip-toggle { position: absolute; right: var(--space-md); bottom: var(--space-md); z-index: var(--z-raised); height: 44px; padding: 0 var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: color-mix(in oklab, var(--color-paper) 86%, transparent); color: var(--color-ink); font-size: var(--text-sm); font-weight: 600; cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out); }
-.clip-toggle:hover { background: var(--color-paper-3); }
-.clip-toggle:active { background: var(--color-paper-2); }
-.clip-toggle:disabled { color: var(--color-muted); cursor: not-allowed; }
 
 /* Facts: four, a rule over each. */
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-xl) var(--gap-columns); margin: 0; }

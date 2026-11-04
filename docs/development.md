@@ -112,7 +112,7 @@ crates/hotline-core/src/
   computer/                  runtime detection and one container per teammate
   voice/                     the room's CallRoom implementation and the vault's engine glue
   imagegen/                  making images over whichever connected provider the owner has
-  link_preview.rs            a link's card, read from the page's head
+  link_preview.rs            a link's card, picture and site icon, each fetched once and kept
   desk.rs                    the room, vault and log behind the wire
   boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
   wire/                      the door: seats, commands, subscriptions, the phone and relay doors

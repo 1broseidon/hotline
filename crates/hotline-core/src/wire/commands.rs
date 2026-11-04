@@ -76,7 +76,8 @@ pub(crate) async fn run(
             web_search_status(log, room)
         }
         Command::Ping {} => Ok(Value::Null),
-        Command::LinkPreview { url } => Ok(json!(crate::link_preview::preview(&url).await)),
+        Command::LinkPreview { url } => Ok(json!(crate::link_preview::preview(log, &url).await)),
+        Command::LinkIcon { site } => Ok(json!(crate::link_preview::icon(log, &site).await)),
         Command::CapabilitiesOptions {} => room
             .capability_options()
             .await

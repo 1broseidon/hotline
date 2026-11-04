@@ -170,7 +170,8 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `file.read` | `{personaId, eventId, index?, offset?, size?}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64, from `offset` (0 when absent); `next` is where the next part starts, absent at the end. `index` is which of the message's attachments, the first when absent. `size` asks for a picture at most that many px on its longer side (48 to 1600), as a JPEG the desk makes once and keeps, rather than the file itself; a file that is not a picture is refused |
 | `avatar.read` | `{personaId, hash, offset?, size?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG; with `size`, a copy at most that many px wide, still a PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. The desk, owner and phone seats may all read one |
 | `avatar.generate` | `{personaId}` | none, once the drawing has started; the picture is drawn from the teammate's name and goal by the room's image provider, within the Images budget, and the roster carries it when it lands (`drawing` until then). Refused at once when no provider can draw or the person chose the current picture |
-| `link.preview` | `{url}` | `LinkPreview` `{url, title, site, image?}`, the card for a link written in a message, read by the desk; JSON `null` when the page has none or is not one the desk will read. Answered off the read loop, so it holds up nothing behind it |
+| `link.preview` | `{url}` | `LinkPreview` `{url, title, site, description?, image?}`, the card for a link written in a message, read by the desk: `site` is the page's address, with the site's own name after a `·` when it adds one; `image` is the page's picture as a `data:` URL the desk fetched once, shrank and keeps, so the window never asks the site. JSON `null` when the page has none, is not one the desk will read, or `linkPreviews` is off. Answered off the read loop, so it holds up nothing behind it |
+| `link.icon` | `{site}` | a site's icon (`https://<site>/favicon.ico`) as a `data:` URL the desk fetched once and keeps; JSON `null` when it has none, `site` is not a bare host, or `linkPreviews` is off. Answered off the read loop |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
@@ -454,6 +455,9 @@ the patch. A patch that names `mcpServers` invalidates all main and peer
 sessions before persistence and reattaches live main sessions afterward.
 Policy updates are serialized across client sockets. One failed restart
 does not prevent the remaining teammates from applying the change.
+`linkPreviews` is `true` unless the person turned link previews off;
+`false` makes `link.preview` and `link.icon` answer `null` without the desk
+contacting any site ([security.md](security.md#link-previews)).
 `computerRuntime` is the user's pick of `"docker"`, `"podman"` or
 `"container"`; absent means the first available runtime. `computerImage`
 is the room's default image, under a teammate's own. Neither reattaches

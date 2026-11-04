@@ -406,9 +406,15 @@ pub enum Command {
         key: Option<String>,
     },
     /// The card for a link written in a message, read by the desk; `null`
-    /// when the page has none or is not one the desk will read.
+    /// when the page has none, is not one the desk will read, or link
+    /// previews are off.
     #[serde(rename = "link.preview")]
     LinkPreview { url: String },
+    /// A site's icon (`https://<site>/favicon.ico`), fetched once by the
+    /// desk and answered as a `data:` URL; `null` when it has none, is not
+    /// one the desk will read, or link previews are off.
+    #[serde(rename = "link.icon")]
+    LinkIcon { site: String },
     /// Nothing but proof the link is alive both ways: answered `null`. A
     /// phone that named `lean` sends one every so often, and a lean socket
     /// that has heard nothing at all for the wire's idle limit is

@@ -4228,6 +4228,7 @@ dependencies = [
  "objc2-user-notifications",
  "objc2-web-kit",
  "rand 0.9.5",
+ "regex",
  "semver",
  "serde",
  "serde_json",

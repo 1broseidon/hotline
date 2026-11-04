@@ -10,7 +10,8 @@
 //! allowed that host and port for that teammate, on a card that says who
 //! wants to open what. The desk's own ports are never offered. A page a
 //! public site sends the browser to on its own is held to the same answers
-//! by [`Gate::admits`], which the app asks before every top-level load.
+//! by [`Gate::admits`], which the app asks before every top-level load, and
+//! by [`Gate::admits_landing`], which it asks once the load's name resolved.
 
 use crate::log::{Log, StreamId};
 use async_trait::async_trait;
@@ -382,9 +383,38 @@ impl Gate {
             "http" | "https" => {}
             _ => return false,
         }
-        if !names_local(url) {
+        !names_local(url) || self.allowed_local(persona_id, url)
+    }
+
+    /// Whether a page the gate admitted by its name may go on loading, now
+    /// its name is resolved. The app asks this off the main thread after
+    /// every top-level load it let through, so a public name pointed at
+    /// this machine, which a page redirects to on its own, is stopped
+    /// unless the person allowed that host and port. A name that does not
+    /// resolve is let be: the browser fails to load it.
+    pub async fn admits_landing(&self, persona_id: &str, url: &Url) -> bool {
+        let (Some(Host::Domain(domain)), Some(port)) = (url.host(), url.port_or_known_default())
+        else {
+            return true;
+        };
+        if names_local(url) || !matches!(url.scheme(), "http" | "https") {
             return true;
         }
+        let addresses: Vec<IpAddr> = match tokio::net::lookup_host((domain, port)).await {
+            Ok(addresses) => addresses.map(|address| address.ip()).collect(),
+            Err(_) => return true,
+        };
+        self.admits_resolved(persona_id, url, &addresses)
+    }
+
+    /// [`Gate::admits_landing`]'s answer once `url`'s name gave `addresses`.
+    fn admits_resolved(&self, persona_id: &str, url: &Url, addresses: &[IpAddr]) -> bool {
+        !addresses.iter().any(|ip| is_local_ip(*ip)) || self.allowed_local(persona_id, url)
+    }
+
+    /// Whether the person allowed `url`'s host and port for this teammate,
+    /// and it is not a port the guard never offers.
+    fn allowed_local(&self, persona_id: &str, url: &Url) -> bool {
         let Some(port) = url.port_or_known_default() else {
             return false;
         };
@@ -498,6 +528,44 @@ mod tests {
         assert!(
             !gate.admits("kit", &url("http://localhost:4000/")),
             "a never port stays shut whatever was answered"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_redirect_to_a_public_name_that_resolves_locally_is_refused_unless_allowed() {
+        let gate = Gate::default();
+        gate.never.write().unwrap().insert(4000);
+        let loopback = ["127.0.0.1".parse().unwrap()];
+        let public = ["93.184.215.14".parse().unwrap()];
+        let inward = url("http://inward.example:2322/admin");
+        assert!(gate.admits("kit", &inward), "its name alone looks public");
+        assert!(!gate.admits_resolved("kit", &inward, &loopback));
+        assert!(gate.admits_resolved("kit", &inward, &public));
+        assert!(
+            !gate.admits_resolved("kit", &inward, &[public[0], loopback[0]]),
+            "one local address among public ones is local"
+        );
+        gate.allow("kit", "inward.example:2322");
+        assert!(gate.admits_resolved("kit", &inward, &loopback));
+        assert!(
+            !gate.admits_resolved("goldie", &inward, &loopback),
+            "one teammate's answer is not another's"
+        );
+        gate.allow("kit", "inward.example:4000");
+        assert!(
+            !gate.admits_resolved("kit", &url("http://inward.example:4000/"), &loopback),
+            "a never port stays shut whatever was answered"
+        );
+        // What the gate already decided by name, and a name that does not
+        // resolve, are let be; the browser fails to load the latter.
+        assert!(gate.admits_landing("kit", &url("about:blank")).await);
+        assert!(
+            gate.admits_landing("kit", &url("http://localhost:2322/"))
+                .await
+        );
+        assert!(
+            gate.admits_landing("kit", &url("https://nothing.invalid/"))
+                .await
         );
     }
 

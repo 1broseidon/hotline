@@ -491,6 +491,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         awaiting_subagents: false,
         processes: Vec::new(),
         plan_usage: None,
+        browser: None,
     }
 }
 
@@ -817,6 +818,8 @@ pub struct Room {
     browser_gate: Arc<crate::browser::Gate>,
     /// Guard cards waiting for the person, by request id.
     browser_waits: Mutex<HashMap<String, browser::BrowserWait>>,
+    /// Each teammate's desk browser as the PIP shows it, and its snapshot.
+    browser_views: Mutex<HashMap<String, browser::Viewed>>,
 }
 
 impl Room {
@@ -955,6 +958,7 @@ impl Room {
             browser: std::sync::RwLock::new(None),
             browser_gate: Arc::default(),
             browser_waits: Mutex::default(),
+            browser_views: Mutex::default(),
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
@@ -1071,6 +1075,7 @@ impl Room {
         for processes in self.sides.processes(persona_id) {
             info.processes.extend(processes.listed());
         }
+        info.browser = self.browser_view(persona_id);
         info
     }
 

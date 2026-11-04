@@ -843,6 +843,22 @@ subagent run or a voice front is not offered either.
 - **What a page says is data.** The tool's description says so, as
   `web_search`'s does.
 
+- **The pane.** The PIP's click opens the teammate's browser in a window of
+  its own: Hotline's bar (`ui/browser.html`) above the page, as two web views.
+  The `browser-bar` capability names only the bar's web view
+  (`browser-*-bar`), and reaches only `browser_bar_state`, `browser_bar_take`
+  and `browser_bar_go` and window dragging; the page's web view is named by
+  no capability. While the teammate drives, a clear view over the page takes
+  the watcher's clicks, so watching never moves the page. Take control sets
+  the teammate's browser to the person (`browser.take`); until Give it back,
+  the teammate may read the page but every move it asks for is refused. The
+  bar's own back, forward, reload and address act only while the person has
+  it, and its address goes through the same gate: a local address is opened
+  by the teammate asking, so the card is raised.
+- **The PIP and the phone see snapshots.** `browser.snapshot` answers the
+  last JPEG the desk took after a teammate's move; the phone seat may read it,
+  as it reads the conversation the page came up in.
+
 Known limits in phase one: a public name that resolves to a local address is
 caught when the agent navigates to it, not when a page redirects there on
 its own (the gate checks names, not resolutions, on the main thread), and

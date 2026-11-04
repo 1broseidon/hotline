@@ -34,11 +34,130 @@ pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
     }
     #[cfg(target_os = "macos")]
     {
+        use tauri::Manager;
         let native = std::sync::Arc::new(native::Native::new(app.clone(), desk.browser_gate()));
-        desk.install_browser(native, &never);
+        desk.install_browser(native.clone(), &never);
+        app.manage(native);
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (desk, never);
+}
+
+#[cfg(target_os = "macos")]
+type Browsers<'a> = tauri::State<'a, std::sync::Arc<native::Native>>;
+type DeskState<'a> = tauri::State<'a, std::sync::Arc<Desk>>;
+
+#[cfg(not(target_os = "macos"))]
+const NOT_HERE: &str = "The desk browser is not built for this platform yet.";
+
+/// The PIP's click: the teammate's browser pane, opened over the desk.
+#[tauri::command]
+pub fn browser_pane_open(app: AppHandle, persona_id: String, name: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        app.state::<std::sync::Arc<native::Native>>()
+            .open_pane(&persona_id, &name)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, persona_id, name);
+        Err(NOT_HERE.into())
+    }
+}
+
+/// What the pane's bar shows: whose browser, the page, and whether the
+/// person has it.
+#[tauri::command]
+pub fn browser_bar_state(
+    app: AppHandle,
+    desk: DeskState<'_>,
+    persona_id: String,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        let view = desk.browser_now(&persona_id);
+        let taken = view
+            .as_ref()
+            .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
+        let mut state = serde_json::to_value(
+            app.state::<std::sync::Arc<native::Native>>()
+                .bar_state(&persona_id, taken)?,
+        )
+        .map_err(|error| error.to_string())?;
+        state["title"] = view.map(|view| view.title).unwrap_or_default().into();
+        Ok(state)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, desk, persona_id);
+        Err(NOT_HERE.into())
+    }
+}
+
+/// Take over (`taken`) or Hand back, from the pane's bar.
+#[tauri::command]
+pub async fn browser_bar_take(
+    app: AppHandle,
+    desk: DeskState<'_>,
+    persona_id: String,
+    taken: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        desk.take_browser(&persona_id, taken).await?;
+        let browsers: Browsers<'_> = app.state();
+        browsers.shield(&persona_id, !taken)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, desk, persona_id, taken);
+        Err(NOT_HERE.into())
+    }
+}
+
+/// Back, forward or reload from the bar, or a typed address: only while the
+/// person has the page.
+#[tauri::command]
+pub fn browser_bar_go(
+    app: AppHandle,
+    desk: DeskState<'_>,
+    persona_id: String,
+    step: Option<String>,
+    url: Option<String>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use hotline_core::browser::Step;
+        use tauri::Manager;
+        let taken = desk
+            .browser_now(&persona_id)
+            .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
+        if !taken {
+            return Err("Take over first: the teammate is driving.".into());
+        }
+        let browsers: Browsers<'_> = app.state();
+        match (step.as_deref(), url) {
+            (Some("back"), _) => browsers.person_step(&persona_id, Step::Back),
+            (Some("forward"), _) => browsers.person_step(&persona_id, Step::Forward),
+            (Some("reload"), _) => browsers.person_step(&persona_id, Step::Reload),
+            (_, Some(url)) => {
+                let typed = url.trim();
+                let url = tauri::Url::parse(typed)
+                    .or_else(|_| tauri::Url::parse(&format!("https://{typed}")))
+                    .map_err(|_| "That is not a web address.".to_string())?;
+                browsers.person_go(&persona_id, &url)
+            }
+            _ => Err("Nothing to go to.".into()),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, desk, persona_id, step, url);
+        Err(NOT_HERE.into())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -50,8 +169,12 @@ mod native {
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::Duration;
     use tauri::utils::config::BackgroundThrottlingPolicy;
+    use tauri::webview::WebviewBuilder;
     use tauri::webview::{NewWindowResponse, PageLoadEvent};
-    use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+    use tauri::window::WindowBuilder;
+    use tauri::{
+        AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl, WindowEvent,
+    };
     use tokio::sync::{oneshot, watch};
 
     const WALK: &str = include_str!("browser/walk.js");
@@ -77,14 +200,31 @@ mod native {
     /// back-forward cache, or within the page, loads nothing.
     const STEP_WAIT: Duration = Duration::from_secs(5);
     const SCRIPT_WAIT: Duration = Duration::from_secs(15);
-    /// The browser's size: a common laptop viewport.
+    /// The page's size: a common laptop viewport.
     const WIDTH: f64 = 1280.0;
     const HEIGHT: f64 = 800.0;
+    /// Hotline's bar above the page in the browser pane.
+    const BAR: f64 = 44.0;
 
-    /// One teammate's browser: its window's label and its loads so far.
+    /// One teammate's browser: its window, the page and the bar in it, who
+    /// is driving, and its loads so far.
     struct Tab {
-        label: String,
+        window: String,
+        page: String,
+        bar: String,
+        /// The teammate's name, for the pane's title.
+        name: Mutex<String>,
         loads: watch::Sender<Loads>,
+    }
+
+    /// What the bar above the page shows.
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(crate) struct BarState {
+        name: String,
+        url: String,
+        title: String,
+        taken: bool,
     }
 
     #[derive(Clone, Default)]
@@ -108,14 +248,38 @@ mod native {
         tabs: Mutex<HashMap<String, Arc<Tab>>>,
     }
 
-    /// A window label is letters, digits and `-`, so the teammate's id is
-    /// written in hex.
-    fn label_of(persona_id: &str) -> String {
+    /// A label is letters, digits and `-`, so the teammate's id is written
+    /// in hex: the window, the page in it and Hotline's bar above the page.
+    fn labels_of(persona_id: &str) -> (String, String, String) {
         let hex: String = persona_id
             .bytes()
             .map(|byte| format!("{byte:02x}"))
             .collect();
-        format!("browser-{hex}")
+        (
+            format!("browser-{hex}"),
+            format!("browser-{hex}-page"),
+            format!("browser-{hex}-bar"),
+        )
+    }
+
+    /// Lays the bar and the page out in the window's current size.
+    fn lay_out(app: &AppHandle, tab: &Tab) {
+        let Some(window) = app.get_window(&tab.window) else {
+            return;
+        };
+        let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) else {
+            return;
+        };
+        let size = size.to_logical::<f64>(scale);
+        if let Some(bar) = app.get_webview(&tab.bar) {
+            let _ = bar.set_position(LogicalPosition::new(0.0, 0.0));
+            let _ = bar.set_size(LogicalSize::new(size.width, BAR));
+        }
+        if let Some(page) = app.get_webview(&tab.page) {
+            let _ = page.set_position(LogicalPosition::new(0.0, BAR));
+            let _ = page.set_size(LogicalSize::new(size.width, (size.height - BAR).max(1.0)));
+            let _ = page.with_webview(|view| apple::shield_follow(view.inner()));
+        }
     }
 
     impl Native {
@@ -130,23 +294,90 @@ mod native {
         fn tab(&self, persona_id: &str) -> Option<Arc<Tab>> {
             let tabs = self.tabs.lock().unwrap_or_else(PoisonError::into_inner);
             tabs.get(persona_id)
-                .filter(|tab| self.app.get_webview_window(&tab.label).is_some())
+                .filter(|tab| self.app.get_webview(&tab.page).is_some())
                 .cloned()
         }
 
-        fn window(&self, persona_id: &str) -> Result<WebviewWindow, String> {
+        /// The teammate's page.
+        fn window(&self, persona_id: &str) -> Result<Webview, String> {
             self.tab(persona_id)
-                .and_then(|tab| self.app.get_webview_window(&tab.label))
+                .and_then(|tab| self.app.get_webview(&tab.page))
                 .ok_or_else(|| "Your browser has no page open yet: navigate to one first.".into())
         }
 
-        /// Makes the teammate's window on `url`, hidden unless
-        /// `HOTLINE_BROWSER_SHOW` is set, which development uses to watch it.
+        /// Opens the teammate's browser pane: the window made visible over
+        /// the desk, watching. `name` titles it.
+        pub(crate) fn open_pane(&self, persona_id: &str, name: &str) -> Result<(), String> {
+            let tab = self
+                .tab(persona_id)
+                .ok_or("That teammate's browser has no page open.")?;
+            *tab.name.lock().unwrap_or_else(PoisonError::into_inner) = name.to_string();
+            let window = self
+                .app
+                .get_window(&tab.window)
+                .ok_or("That teammate's browser has closed.")?;
+            let _ = window.set_title(&format!("{name}'s browser"));
+            lay_out(&self.app, &tab);
+            self.window(persona_id)?
+                .with_webview(|view| apple::reveal(view.inner()))
+                .map_err(|error| error.to_string())?;
+            let _ = window.set_focus();
+            Ok(())
+        }
+
+        /// What the pane's bar shows now.
+        pub(crate) fn bar_state(&self, persona_id: &str, taken: bool) -> Result<BarState, String> {
+            let tab = self
+                .tab(persona_id)
+                .ok_or("That teammate's browser has closed.")?;
+            let page = self.window(persona_id)?;
+            Ok(BarState {
+                name: tab
+                    .name
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone(),
+                url: page.url().map(|url| url.to_string()).unwrap_or_default(),
+                title: String::new(),
+                taken,
+            })
+        }
+
+        /// The person took the page over or handed it back: the shield that
+        /// keeps a watcher's clicks off the page goes or comes back.
+        pub(crate) fn shield(&self, persona_id: &str, on: bool) -> Result<(), String> {
+            self.window(persona_id)?
+                .with_webview(move |view| apple::shield(view.inner(), on))
+                .map_err(|error| error.to_string())
+        }
+
+        /// The person's own move, from the bar, while they have the page.
+        pub(crate) fn person_step(&self, persona_id: &str, step: Step) -> Result<(), String> {
+            self.window(persona_id)?
+                .with_webview(move |view| apple::step(view.inner(), step))
+                .map_err(|error| error.to_string())
+        }
+
+        pub(crate) fn person_go(&self, persona_id: &str, url: &Url) -> Result<(), String> {
+            if !self.gate.admits(persona_id, url) {
+                return Err("That address is not a web page, or is on this computer or your network: ask the teammate to open it, so you are asked first.".into());
+            }
+            self.window(persona_id)?
+                .navigate(url.clone())
+                .map_err(|error| error.to_string())
+        }
+
+        /// Makes the teammate's window on `url`: Hotline's bar above the
+        /// page, hidden until the person opens the pane, or always shown
+        /// when `HOTLINE_BROWSER_SHOW` is set, which development uses.
         fn make(&self, persona_id: &str, url: &Url) -> Result<Arc<Tab>, String> {
-            let label = label_of(persona_id);
+            let (window_label, page_label, bar_label) = labels_of(persona_id);
             let (loads, _) = watch::channel(Loads::default());
             let tab = Arc::new(Tab {
-                label: label.clone(),
+                window: window_label.clone(),
+                page: page_label.clone(),
+                bar: bar_label.clone(),
+                name: Mutex::new(String::from("A teammate")),
                 loads,
             });
             let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
@@ -165,7 +396,7 @@ mod native {
             };
             let loaded = {
                 let tab = tab.clone();
-                move |_: WebviewWindow, payload: tauri::webview::PageLoadPayload<'_>| match payload
+                move |_: Webview, payload: tauri::webview::PageLoadPayload<'_>| match payload
                     .event()
                 {
                     PageLoadEvent::Started => tab.loads.send_modify(|loads| loads.started += 1),
@@ -178,31 +409,74 @@ mod native {
             // gate lets it load there.
             let popup = {
                 let app = self.app.clone();
-                let label = label.clone();
+                let page_label = page_label.clone();
                 move |url: Url, _| {
                     let app = app.clone();
-                    let label = label.clone();
+                    let page_label = page_label.clone();
                     tauri::async_runtime::spawn(async move {
-                        if let Some(window) = app.get_webview_window(&label) {
-                            let _ = window.navigate(url);
+                        if let Some(page) = app.get_webview(&page_label) {
+                            let _ = page.navigate(url);
                         }
                     });
                     NewWindowResponse::Deny
                 }
             };
-            WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::External(url.clone()))
+            // The bar is the window's title bar: the traffic lights sit on
+            // it, as on Hotline's own window.
+            let window = WindowBuilder::new(&self.app, &window_label)
                 .title("Hotline browser")
-                .inner_size(WIDTH, HEIGHT)
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .inner_size(WIDTH, HEIGHT + BAR)
+                .min_inner_size(480.0, 320.0)
                 .visible(show)
                 .focused(false)
+                .build()
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            let page = WebviewBuilder::new(&page_label, WebviewUrl::External(url.clone()))
                 .background_throttling(BackgroundThrottlingPolicy::Disabled)
                 .data_store_identifier(hotline_core::browser::store_id(persona_id))
                 .on_navigation(navigating)
                 .on_new_window(popup)
                 .on_download(|_, _| false)
-                .on_page_load(loaded)
-                .build()
+                .on_page_load(loaded);
+            window
+                .add_child(
+                    page,
+                    LogicalPosition::new(0.0, BAR),
+                    LogicalSize::new(WIDTH, HEIGHT),
+                )
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            let hash = format!("persona={}", urlencode(persona_id));
+            let bar = WebviewBuilder::new(
+                &bar_label,
+                WebviewUrl::App(format!("browser.html#{hash}").into()),
+            );
+            window
+                .add_child(
+                    bar,
+                    LogicalPosition::new(0.0, 0.0),
+                    LogicalSize::new(WIDTH, BAR),
+                )
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            {
+                let app = self.app.clone();
+                let tab = tab.clone();
+                window.on_window_event(move |event| match event {
+                    WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                        lay_out(&app, &tab);
+                    }
+                    // Closing the pane hides it: the teammate's browser goes
+                    // on in the background.
+                    WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        if let Some(page) = app.get_webview(&tab.page) {
+                            let _ = page.with_webview(|view| apple::conceal(view.inner()));
+                        }
+                    }
+                    _ => {}
+                });
+            }
             self.tabs
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
@@ -283,6 +557,19 @@ mod native {
         }
     }
 
+    /// A teammate's id as it goes in the bar's address, which only ever
+    /// carries ids Hotline made.
+    fn urlencode(text: &str) -> String {
+        text.bytes()
+            .map(|byte| match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
+                    (byte as char).to_string()
+                }
+                other => format!("%{other:02X}"),
+            })
+            .collect()
+    }
+
     /// The act as act.js reads it.
     fn act_args(act: &Act) -> String {
         let value = match act {
@@ -357,6 +644,7 @@ mod native {
             let body = match reading {
                 Reading::Text => READ_TEXT,
                 Reading::Links => READ_LINKS,
+                Reading::Title => return Ok(self.script(persona_id, PAGE_INFO).await?.title),
             };
             let read = self.script(persona_id, body).await?;
             let text = if read.text.trim().is_empty() {
@@ -473,11 +761,11 @@ mod native {
     mod apple {
         use super::Step;
         use block2::RcBlock;
-        use objc2::MainThreadMarker;
         use objc2::runtime::AnyObject;
+        use objc2::{MainThreadMarker, MainThreadOnly};
         use objc2_app_kit::{
             NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType,
-            NSImage, NSWindow, NSWindowCollectionBehavior,
+            NSImage, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowOrderingMode,
         };
         use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSString};
         use objc2_web_kit::{WKContentWorld, WKWebView};
@@ -631,6 +919,89 @@ mod native {
                     | NSWindowCollectionBehavior::FullScreenAuxiliary,
             );
             window.orderBack(None);
+        }
+
+        /// Hides the pane again, as `cloak` keeps a never-shown one: the
+        /// teammate's browser goes on behind everything, invisible.
+        pub(super) fn conceal(view_ptr: *mut c_void) {
+            // SAFETY: see `view`.
+            let view = unsafe { view(view_ptr) };
+            if let Some(window) = view.window() {
+                window.setAlphaValue(0.0);
+                window.setIgnoresMouseEvents(true);
+                window.setCollectionBehavior(
+                    NSWindowCollectionBehavior::Transient
+                        | NSWindowCollectionBehavior::IgnoresCycle
+                        | NSWindowCollectionBehavior::FullScreenAuxiliary,
+                );
+                window.orderBack(None);
+            }
+        }
+
+        /// Shows the pane: the window opaque, in front, taking the person's
+        /// clicks, and the page shielded until they take it over.
+        pub(super) fn reveal(view_ptr: *mut c_void) {
+            // SAFETY: see `view`.
+            let page = unsafe { view(view_ptr) };
+            if let Some(window) = page.window() {
+                window.setAlphaValue(1.0);
+                window.setIgnoresMouseEvents(false);
+                window.setCollectionBehavior(NSWindowCollectionBehavior::Default);
+                window.makeKeyAndOrderFront(None);
+            }
+            shield(view_ptr, true);
+        }
+
+        thread_local! {
+            /// The shield over each page a watcher sees, by its web view.
+            static SHIELDS: std::cell::RefCell<std::collections::HashMap<usize, objc2::rc::Retained<NSView>>> =
+                std::cell::RefCell::default();
+        }
+
+        /// A clear view over the page that takes a watcher's clicks and
+        /// scrolls, so watching never drives the page. The desk's own input
+        /// goes to the page directly and is not stopped by it.
+        pub(super) fn shield(view_ptr: *mut c_void, on: bool) {
+            let Some(main) = MainThreadMarker::new() else {
+                return;
+            };
+            // SAFETY: see `view`.
+            let page = unsafe { view(view_ptr) };
+            SHIELDS.with(|shields| {
+                let mut shields = shields.borrow_mut();
+                let key = view_ptr as usize;
+                if !on {
+                    if let Some(shield) = shields.remove(&key) {
+                        shield.removeFromSuperview();
+                    }
+                    return;
+                }
+                if shields.contains_key(&key) {
+                    return;
+                }
+                // SAFETY: the page's own superview, on the main thread.
+                let Some(parent) = (unsafe { page.superview() }) else {
+                    return;
+                };
+                let shield = NSView::initWithFrame(NSView::alloc(main), page.frame());
+                parent.addSubview_positioned_relativeTo(
+                    &shield,
+                    NSWindowOrderingMode::Above,
+                    Some(page),
+                );
+                shields.insert(key, shield);
+            });
+        }
+
+        /// Keeps a page's shield over it after the window is resized.
+        pub(super) fn shield_follow(view_ptr: *mut c_void) {
+            // SAFETY: see `view`.
+            let page = unsafe { view(view_ptr) };
+            SHIELDS.with(|shields| {
+                if let Some(shield) = shields.borrow().get(&(view_ptr as usize)) {
+                    shield.setFrame(page.frame());
+                }
+            });
         }
 
         pub(super) fn input(view_ptr: *mut c_void, input: &Input) {

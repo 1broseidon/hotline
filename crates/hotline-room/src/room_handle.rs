@@ -553,6 +553,14 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         persona_id: &str,
     ) -> Result<hotline_contract::ComputerStatus, String>;
+    /// The last picture of a teammate's desk browser, when it has one.
+    fn browser_snapshot(&self, _persona_id: &str) -> Option<hotline_contract::BrowserSnapshot> {
+        None
+    }
+    /// The person takes a teammate's desk browser over, or hands it back.
+    async fn browser_take(&self, _persona_id: &str, _taken: bool) -> Result<(), String> {
+        Err("This desk has no browser.".to_string())
+    }
     /// Brings a teammate's computer up with its session. A room with no
     /// computers under it has nothing to start.
     async fn computer_start(&self, _persona_id: &str) -> Result<(), String> {

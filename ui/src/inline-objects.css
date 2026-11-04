@@ -403,3 +403,24 @@
 		margin-top: 0.6em;
 	}
 }
+
+/* A teammate's desk browser in the corner of its conversation (BrowserPip). */
+.browser-pip-dot {
+	width: 7px;
+	height: 7px;
+	flex: none;
+	border-radius: 50%;
+	background: var(--color-ink-4, #6b6b70);
+}
+.browser-pip-dot.live {
+	background: #86d69c;
+	animation: browser-pip-pulse 1.6s ease-in-out infinite;
+}
+.browser-pip-dot.yours {
+	background: #7fc4f0;
+}
+@keyframes browser-pip-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}

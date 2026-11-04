@@ -533,6 +533,10 @@ fn start() -> Result<(), String> {
         speech::speech_cancel,
         lights::window_title,
         chat_window::chat_window,
+        browser::browser_pane_open,
+        browser::browser_bar_state,
+        browser::browser_bar_take,
+        browser::browser_bar_go,
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -565,6 +569,10 @@ fn start() -> Result<(), String> {
         speech::speech_cancel,
         lights::window_title,
         chat_window::chat_window,
+        browser::browser_pane_open,
+        browser::browser_bar_state,
+        browser::browser_bar_take,
+        browser::browser_bar_go,
     ]);
     builder
         .manage(desks.clone())

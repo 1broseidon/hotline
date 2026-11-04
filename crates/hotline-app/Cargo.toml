@@ -30,7 +30,9 @@ tauri-build = { version = "2", features = [] }
 serde_json.workspace = true
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# `unstable` for the desk browser's window, which holds two web views: Hotline's
+# bar and the page (`browser.rs`).
+tauri = { version = "2", features = ["tray-icon", "image-png", "unstable"] }
 tauri-plugin-clipboard-manager = "=2.3.3"
 tauri-plugin-dialog = "=2.7.3"
 tauri-plugin-opener = "=2.5.5"

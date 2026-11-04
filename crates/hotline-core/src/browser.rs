@@ -56,6 +56,8 @@ pub enum Reading {
     Text,
     /// Every link on the page, with its text and where it goes.
     Links,
+    /// The page's title alone.
+    Title,
 }
 
 /// One act on the page, on a ref from the latest text read where it needs

@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browser-bar",
+  "description": "Hotline's own bar above a teammate's desk browser, never the page below it: the page's web view is not named by any capability.",
+  "webviews": [
+    "browser-*-bar"
+  ],
+  "permissions": [
+    "browser-bar-commands",
+    "core:window:allow-start-dragging"
+  ]
+}

@@ -165,6 +165,17 @@ impl Desk {
         self.room.browser_gate()
     }
 
+    /// A teammate's desk browser as the pane's bar shows it.
+    pub fn browser_now(&self, persona_id: &str) -> Option<crate::contract::BrowserView> {
+        self.room.browser_view(persona_id)
+    }
+
+    /// The person takes a teammate's desk browser over from its pane, or
+    /// hands it back.
+    pub async fn take_browser(&self, persona_id: &str, taken: bool) -> Result<(), String> {
+        self.room.browser_take(persona_id, taken).await
+    }
+
     pub fn open(root: &Path) -> io::Result<Desk> {
         Self::open_with_store(root, crate::vault::default_store())
     }
@@ -1188,6 +1199,14 @@ impl RoomHandle for Desk {
 
     async fn computer_releases_check(&self) -> crate::contract::ComputerReleases {
         self.room.computer_releases_check().await
+    }
+
+    fn browser_snapshot(&self, persona_id: &str) -> Option<crate::contract::BrowserSnapshot> {
+        self.room.browser_snapshot(persona_id)
+    }
+
+    async fn browser_take(&self, persona_id: &str, taken: bool) -> Result<(), String> {
+        self.room.browser_take(persona_id, taken).await
     }
 
     async fn computer_status(

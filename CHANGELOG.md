@@ -15,7 +15,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   hidden window, without a container or MCP server. A page on this computer
   or the local network opens only after you allow that address and port for
   that teammate (Allow, Always allow or Deny); Hotline's own ports never
-  open.
+  open. It clicks, types, selects and presses keys as a person would, and
+  while it works a picture of the page sits in the corner of the
+  conversation: click it to watch in its own window, Take control, and Give
+  it back.
 - Settings › General › Link previews. Off, the desk contacts no site an
   agent linked to, and no link card, picture or site icon is drawn.
 

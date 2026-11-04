@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::browser::{self as desk_browser, Act, DeskBrowser, Gate, Page, Reading, Step};
-use crate::contract::PermissionOption;
+use crate::contract::{BrowserPhase, BrowserSnapshot, BrowserView, PermissionOption};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::sync::PoisonError;
 use tokio::sync::oneshot;
@@ -13,6 +13,40 @@ pub(super) const BROWSER_REQUEST_PREFIX: &str = "browser:";
 const ALLOW: &str = "allow";
 const ALLOW_ALWAYS: &str = "allow_always";
 const DENY: &str = "deny";
+
+/// The widest snapshot the PIP and the phone are sent.
+const SNAPSHOT_WIDTH: u32 = 960;
+
+/// What the person is told the teammate's acts answer while they have its
+/// browser.
+const TAKEN: &str = "The person has taken over your browser and is using it now. Wait for them to hand it back: you can still read the page with text, links and screenshot, but navigating and acting wait until then.";
+
+/// A teammate's desk browser as the room shows it.
+#[derive(Clone)]
+pub(crate) struct Viewed {
+    view: BrowserView,
+    jpeg: Option<Vec<u8>>,
+}
+
+/// A PNG of the page as a JPEG at most [`SNAPSHOT_WIDTH`] wide.
+fn snapshot_jpeg(png: &[u8]) -> Option<Vec<u8>> {
+    let image = image::load_from_memory(png).ok()?;
+    let image = if image.width() > SNAPSHOT_WIDTH {
+        let height = image.height() * SNAPSHOT_WIDTH / image.width();
+        image.resize(
+            SNAPSHOT_WIDTH,
+            height,
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        image
+    };
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 72)
+        .encode_image(&image.to_rgb8())
+        .ok()?;
+    Some(jpeg)
+}
 
 /// What a browser call answers: words, or a picture of the page.
 pub(crate) enum BrowserAnswer {
@@ -239,6 +273,26 @@ impl Room {
             .get("action")
             .and_then(Value::as_str)
             .ok_or("browser needs an `action`.")?;
+        let reads = matches!(action, "text" | "links" | "screenshot");
+        if !reads && self.browser_phase(persona_id) == Some(BrowserPhase::Person) {
+            return Err(TAKEN.into());
+        }
+        let answer = self
+            .browser_do(persona_id, action, arguments, browser.as_ref())
+            .await?;
+        if !reads {
+            self.browser_moved(persona_id, browser.as_ref()).await;
+        }
+        Ok(answer)
+    }
+
+    async fn browser_do(
+        &self,
+        persona_id: &str,
+        action: &str,
+        arguments: &Value,
+        browser: &dyn DeskBrowser,
+    ) -> Result<BrowserAnswer, String> {
         match action {
             "navigate" => {
                 let link = arguments
@@ -250,7 +304,7 @@ impl Room {
                     .ok()
                     .filter(|url| matches!(url.scheme(), "http" | "https"))
                     .ok_or("navigate needs a full http or https link.")?;
-                self.guard_local(persona_id, &url, browser.as_ref()).await?;
+                self.guard_local(persona_id, &url, browser).await?;
                 let page = browser.open(persona_id, &url).await?;
                 Ok(BrowserAnswer::Text(page_line(&page)))
             }
@@ -289,6 +343,93 @@ impl Room {
                 "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
             )),
         }
+    }
+
+    fn browser_phase(&self, persona_id: &str) -> Option<BrowserPhase> {
+        lock(&self.browser_views)
+            .get(persona_id)
+            .map(|viewed| viewed.view.phase)
+    }
+
+    /// The teammate's browser as its session info carries it.
+    pub fn browser_view(&self, persona_id: &str) -> Option<BrowserView> {
+        lock(&self.browser_views)
+            .get(persona_id)
+            .map(|viewed| viewed.view.clone())
+    }
+
+    /// The last snapshot of the teammate's browser, for the PIP and phone.
+    pub fn browser_snapshot(&self, persona_id: &str) -> Option<BrowserSnapshot> {
+        let views = lock(&self.browser_views);
+        let viewed = views.get(persona_id)?;
+        Some(BrowserSnapshot {
+            jpeg: STANDARD.encode(viewed.jpeg.as_ref()?),
+            at: viewed.view.snapshot_at?,
+            url: viewed.view.url.clone(),
+            title: viewed.view.title.clone(),
+        })
+    }
+
+    /// After the teammate moved its browser: where it is now, and a fresh
+    /// snapshot, told to whoever watches the teammate's session.
+    async fn browser_moved(&self, persona_id: &str, browser: &dyn DeskBrowser) {
+        let png = browser.screenshot(persona_id).await.ok();
+        let title = browser
+            .read(persona_id, Reading::Title)
+            .await
+            .unwrap_or_default();
+        let url = browser.current(persona_id).unwrap_or_default();
+        let jpeg = png.as_deref().and_then(snapshot_jpeg);
+        let now = now_ms();
+        {
+            let mut views = lock(&self.browser_views);
+            let phase = views
+                .get(persona_id)
+                .map_or(BrowserPhase::Teammate, |viewed| viewed.view.phase);
+            let old = views.remove(persona_id);
+            let (jpeg, snapshot_at) = match jpeg {
+                Some(jpeg) => (Some(jpeg), Some(now)),
+                None => old
+                    .map(|old| (old.jpeg, old.view.snapshot_at))
+                    .unwrap_or_default(),
+            };
+            views.insert(
+                persona_id.to_string(),
+                Viewed {
+                    view: BrowserView {
+                        phase,
+                        url,
+                        title,
+                        active_at: now,
+                        snapshot_at,
+                    },
+                    jpeg,
+                },
+            );
+        }
+        let _ = self.info_changes.send(self.info(persona_id));
+    }
+
+    /// The person takes the teammate's browser over, or hands it back.
+    pub async fn browser_take(&self, persona_id: &str, taken: bool) -> Result<(), String> {
+        let browser = self.desk_browser().ok_or("This desk has no browser.")?;
+        if browser.current(persona_id).is_none() {
+            return Err("That teammate's browser has no page open.".into());
+        }
+        {
+            let mut views = lock(&self.browser_views);
+            let Some(viewed) = views.get_mut(persona_id) else {
+                return Err("That teammate's browser has no page open.".into());
+            };
+            viewed.view.phase = if taken {
+                BrowserPhase::Person
+            } else {
+                BrowserPhase::Teammate
+            };
+        }
+        // What the person did while they had it is the page now.
+        self.browser_moved(persona_id, browser.as_ref()).await;
+        Ok(())
     }
 
     /// Lets a local address through only once the person allowed its host

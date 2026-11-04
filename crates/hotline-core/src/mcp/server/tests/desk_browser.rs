@@ -34,6 +34,7 @@ impl DeskBrowser for Fake {
         Ok(match reading {
             Reading::Text => "Page: Example Domain\n\n# Example Domain".into(),
             Reading::Links => "- More information -> https://iana.org/".into(),
+            Reading::Title => "Example Domain".into(),
         })
     }
     async fn act(&self, _persona_id: &str, act: &Act) -> Result<Acted, String> {
@@ -388,5 +389,55 @@ async fn acts_reach_the_browser_checked() {
         fake.acts.lock().unwrap().len(),
         6,
         "a refused act touches nothing"
+    );
+}
+
+/// The PIP's state: a move leaves the page and a snapshot on the teammate's
+/// session info, and while the person has the browser the teammate reads
+/// but does not move it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_person_takes_control_and_the_teammate_waits() {
+    let (room, fake) = with_browser("browser-take", &[]);
+    assert!(room.info("ada").browser.is_none(), "no page, no PIP");
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    let view = room.info("ada").browser.expect("a move is on the info");
+    assert_eq!(view.phase, crate::contract::BrowserPhase::Teammate);
+    assert_eq!(view.title, "Example Domain");
+    assert!(view.snapshot_at.is_some());
+    let snapshot = room.browser_snapshot("ada").expect("a picture for the PIP");
+    assert!(snapshot.jpeg.len() > 100, "a JPEG, not nothing");
+
+    room.browser_take("ada", true).await.unwrap();
+    assert_eq!(
+        room.info("ada").browser.unwrap().phase,
+        crate::contract::BrowserPhase::Person
+    );
+    let waiting = tools(&room)
+        .call(BROWSER, &json!({ "action": "click_ref", "ref": "e1" }))
+        .await
+        .unwrap_err();
+    assert!(waiting.contains("taken over your browser"), "{waiting}");
+    let refused = tools(&room)
+        .call(BROWSER, &navigate("https://example.org/"))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("taken over"), "{refused}");
+    tools(&room)
+        .call(BROWSER, &json!({ "action": "text" }))
+        .await
+        .expect("reading goes on while the person has it");
+    assert!(fake.acts.lock().unwrap().is_empty());
+
+    room.browser_take("ada", false).await.unwrap();
+    tools(&room)
+        .call(BROWSER, &json!({ "action": "click_ref", "ref": "e1" }))
+        .await
+        .expect("handed back, the teammate drives again");
+    assert!(
+        room.browser_take("bob", true).await.is_err(),
+        "a browser with no page cannot be taken"
     );
 }

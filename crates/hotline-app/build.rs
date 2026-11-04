@@ -50,6 +50,10 @@ fn main() {
         "speech_cancel",
         "window_title",
         "chat_window",
+        "browser_pane_open",
+        "browser_bar_state",
+        "browser_bar_take",
+        "browser_bar_go",
     ]));
     tauri_build::try_build(attributes).expect("failed to run tauri-build");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {

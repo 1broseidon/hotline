@@ -1,0 +1,144 @@
+/* Hotline's bar above a teammate's desk browser (browserBar.ts): whose
+ * browser, the page, and Take control / Give it back, in the computer
+ * viewer's words and colours, so the two read as one product. */
+:root {
+	--fill: #1c1c1f;
+	--raised: #2b2b30;
+	--rule: #38383d;
+	--ink: #e8e8ea;
+	--ink-2: #aaaaae;
+	--muted: #7d7d82;
+	--you: #7fc4f0;
+	--mint: #86d69c;
+	--warn: #f0c27a;
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--fill);
+	font: 13px system-ui, -apple-system, "Segoe UI", sans-serif;
+	color: var(--ink-2);
+	user-select: none;
+}
+#bar {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 44px;
+	/* The window's traffic lights sit on the bar's left. */
+	padding: 0 8px 0 80px;
+	box-sizing: border-box;
+	border-bottom: 1px solid var(--rule);
+}
+.who {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	white-space: nowrap;
+	padding-right: 8px;
+	margin-right: 2px;
+	border-right: 1px solid var(--rule);
+	color: var(--ink);
+}
+.who .sub {
+	color: var(--muted);
+}
+.dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--mint);
+}
+body.yours .dot {
+	background: var(--you);
+}
+button {
+	font: inherit;
+	color: var(--ink);
+	background: transparent;
+	border: 0;
+	border-radius: 8px;
+	height: 30px;
+	padding: 0 12px;
+	cursor: pointer;
+}
+button:hover:not(:disabled) {
+	background: var(--raised);
+}
+button:disabled {
+	color: var(--muted);
+	cursor: default;
+}
+button.icon {
+	width: 30px;
+	padding: 0;
+	font-size: 18px;
+	line-height: 1;
+}
+button.primary {
+	background: var(--you);
+	color: #0d1a22;
+	font-weight: 600;
+}
+button.primary:hover {
+	background: #9bd2f4;
+}
+body.yours button.primary {
+	background: var(--raised);
+	color: var(--ink);
+	font-weight: 500;
+}
+#where {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 30px;
+	padding: 0 10px;
+	border-radius: 8px;
+	background: var(--raised);
+}
+#lock {
+	font-size: 11px;
+	color: var(--muted);
+}
+#lock {
+	width: 12px;
+	height: 12px;
+	flex: none;
+	background: currentColor;
+	-webkit-mask: none center / contain no-repeat;
+	mask: none center / contain no-repeat;
+}
+#lock.secure {
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.5'/%3E%3Cpath d='M5.5 7V5a2.5 2.5 0 0 1 5 0v2'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.5'/%3E%3Cpath d='M5.5 7V5a2.5 2.5 0 0 1 5 0v2'/%3E%3C/svg%3E");
+}
+#lock.local {
+	color: var(--warn);
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Cpath d='M2.5 8 8 3l5.5 5M4 7v6h8V7'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6'%3E%3Cpath d='M2.5 8 8 3l5.5 5M4 7v6h8V7'/%3E%3C/svg%3E");
+}
+#url {
+	flex: 1;
+	min-width: 0;
+	font: inherit;
+	color: var(--ink);
+	background: transparent;
+	border: 0;
+	outline: none;
+	text-overflow: ellipsis;
+}
+#url[readonly] {
+	color: var(--ink-2);
+}
+.error {
+	color: var(--warn);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 30%;
+}

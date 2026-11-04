@@ -5,13 +5,14 @@
 //! the web view and implements [`DeskBrowser`]. A desk with no window, such
 //! as `hotline serve`, installs none, and no teammate is offered the tool.
 //!
-//! Local addresses are guarded (docs/security.md, "A teammate's browser"):
-//! a page on this machine or the local network opens only once the person
-//! allowed that host and port for that teammate, on a card that says who
-//! wants to open what. The desk's own ports are never offered. A page a
-//! public site sends the browser to on its own is held to the same answers
-//! by [`Gate::admits`], which the app asks before every top-level load, and
-//! by [`Gate::admits_landing`], which it asks once the load's name resolved.
+//! Local addresses are guarded where the teammate asks for them
+//! (docs/security.md, "A teammate's browser"): its `navigate` to a page on
+//! this machine or the local network opens only once the person allowed
+//! that host and port for that teammate, on a card that says who wants to
+//! open what. Once a page is open the browser is a browser: its redirects,
+//! sign-in round trips and the pages it loads go where they go. Only the
+//! desk's own ports never open, by the teammate, the page or the person
+//! ([`Gate::admits`]).
 
 pub mod authenticator;
 
@@ -405,52 +406,21 @@ impl Gate {
         Ok(())
     }
 
-    /// Whether the browser may load `url` as its page. The app asks this
-    /// before every top-level load, the agent's and the page's own, so a
-    /// public page cannot send it to a local address the person has not
-    /// allowed. Only web pages and the blank page load.
-    pub fn admits(&self, persona_id: &str, url: &Url) -> bool {
+    /// Whether the browser may load `url` as its page at all. The app asks
+    /// this before every top-level load: web pages and the blank page load,
+    /// anywhere but the desk's own ports on this machine or the network.
+    /// Which local addresses the teammate may ask for is the `navigate`
+    /// card's question, not this one's.
+    pub fn admits(&self, url: &Url) -> bool {
         match url.scheme() {
             "about" => return url.as_str() == "about:blank",
             "http" | "https" => {}
             _ => return false,
         }
-        !names_local(url) || self.allowed_local(persona_id, url)
-    }
-
-    /// Whether a page the gate admitted by its name may go on loading, now
-    /// its name is resolved. The app asks this off the main thread after
-    /// every top-level load it let through, so a public name pointed at
-    /// this machine, which a page redirects to on its own, is stopped
-    /// unless the person allowed that host and port. A name that does not
-    /// resolve is let be: the browser fails to load it.
-    pub async fn admits_landing(&self, persona_id: &str, url: &Url) -> bool {
-        let (Some(Host::Domain(domain)), Some(port)) = (url.host(), url.port_or_known_default())
-        else {
-            return true;
-        };
-        if names_local(url) || !matches!(url.scheme(), "http" | "https") {
-            return true;
-        }
-        let addresses: Vec<IpAddr> = match tokio::net::lookup_host((domain, port)).await {
-            Ok(addresses) => addresses.map(|address| address.ip()).collect(),
-            Err(_) => return true,
-        };
-        self.admits_resolved(persona_id, url, &addresses)
-    }
-
-    /// [`Gate::admits_landing`]'s answer once `url`'s name gave `addresses`.
-    fn admits_resolved(&self, persona_id: &str, url: &Url, addresses: &[IpAddr]) -> bool {
-        !addresses.iter().any(|ip| is_local_ip(*ip)) || self.allowed_local(persona_id, url)
-    }
-
-    /// Whether the person allowed `url`'s host and port for this teammate,
-    /// and it is not a port the guard never offers.
-    fn allowed_local(&self, persona_id: &str, url: &Url) -> bool {
-        let Some(port) = url.port_or_known_default() else {
-            return false;
-        };
-        !self.never(port) && origin_key(url).is_some_and(|origin| self.granted(persona_id, &origin))
+        !(names_local(url)
+            && url
+                .port_or_known_default()
+                .is_some_and(|port| self.never(port)))
     }
 }
 
@@ -538,67 +508,18 @@ mod tests {
     }
 
     #[test]
-    fn the_gate_admits_public_pages_and_only_the_local_ones_allowed() {
+    fn the_gate_admits_every_web_page_but_the_desks_own_ports() {
         let gate = Gate::default();
         gate.never.write().unwrap().insert(4000);
-        assert!(gate.admits("kit", &url("https://example.com/")));
-        assert!(gate.admits("kit", &url("about:blank")));
-        assert!(!gate.admits("kit", &url("file:///etc/passwd")));
-        assert!(!gate.admits("kit", &url("tauri://localhost/")));
-        assert!(!gate.admits("kit", &url("http://localhost:2322/")));
-        gate.allow("kit", "localhost:2322");
-        assert!(gate.admits("kit", &url("http://localhost:2322/deep/page")));
-        assert!(
-            !gate.admits("goldie", &url("http://localhost:2322/")),
-            "one teammate's answer is not another's"
-        );
-        assert!(
-            !gate.admits("kit", &url("http://localhost:5432/")),
-            "an answer is for one port"
-        );
-        gate.allow("kit", "localhost:4000");
-        assert!(
-            !gate.admits("kit", &url("http://localhost:4000/")),
-            "a never port stays shut whatever was answered"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_redirect_to_a_public_name_that_resolves_locally_is_refused_unless_allowed() {
-        let gate = Gate::default();
-        gate.never.write().unwrap().insert(4000);
-        let loopback = ["127.0.0.1".parse().unwrap()];
-        let public = ["93.184.215.14".parse().unwrap()];
-        let inward = url("http://inward.example:2322/admin");
-        assert!(gate.admits("kit", &inward), "its name alone looks public");
-        assert!(!gate.admits_resolved("kit", &inward, &loopback));
-        assert!(gate.admits_resolved("kit", &inward, &public));
-        assert!(
-            !gate.admits_resolved("kit", &inward, &[public[0], loopback[0]]),
-            "one local address among public ones is local"
-        );
-        gate.allow("kit", "inward.example:2322");
-        assert!(gate.admits_resolved("kit", &inward, &loopback));
-        assert!(
-            !gate.admits_resolved("goldie", &inward, &loopback),
-            "one teammate's answer is not another's"
-        );
-        gate.allow("kit", "inward.example:4000");
-        assert!(
-            !gate.admits_resolved("kit", &url("http://inward.example:4000/"), &loopback),
-            "a never port stays shut whatever was answered"
-        );
-        // What the gate already decided by name, and a name that does not
-        // resolve, are let be; the browser fails to load the latter.
-        assert!(gate.admits_landing("kit", &url("about:blank")).await);
-        assert!(
-            gate.admits_landing("kit", &url("http://localhost:2322/"))
-                .await
-        );
-        assert!(
-            gate.admits_landing("kit", &url("https://nothing.invalid/"))
-                .await
-        );
+        assert!(gate.admits(&url("https://example.com/")));
+        assert!(gate.admits(&url("about:blank")));
+        assert!(gate.admits(&url("http://localhost:2322/")));
+        assert!(gate.admits(&url("https://pm.dfam.example:8443/sso")));
+        assert!(gate.admits(&url("http://192.168.1.20/")));
+        assert!(!gate.admits(&url("http://localhost:4000/")));
+        assert!(!gate.admits(&url("http://127.0.0.1:4000/door")));
+        assert!(!gate.admits(&url("file:///etc/passwd")));
+        assert!(!gate.admits(&url("tauri://localhost/")));
     }
 
     #[test]

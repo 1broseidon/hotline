@@ -467,8 +467,10 @@ mod native {
         }
 
         pub(crate) async fn person_go(&self, persona_id: &str, url: &Url) -> Result<(), String> {
-            if !self.gate.admits(persona_id, url) {
-                return Err("That address is not a web page.".into());
+            if !self.gate.admits(url) {
+                return Err(
+                    "That address is not a web page, or is one of Hotline's own ports.".into(),
+                );
             }
             let tab = self
                 .tab(persona_id)
@@ -498,19 +500,17 @@ mod native {
                 seen: trust::Seen::default(),
             });
             let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
-            // Nothing loads until the page's rule list is attached.
-            let guarded = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            // Nothing loads until the desk's delegate is in front of wry's.
+            let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let navigating = {
-                let app = self.app.clone();
                 let gate = self.gate.clone();
-                let persona = persona_id.to_string();
                 let tab = tab.clone();
-                let guarded = guarded.clone();
+                let started = started.clone();
                 move |url: &Url| {
-                    if !guarded.load(std::sync::atomic::Ordering::Acquire) {
+                    if !started.load(std::sync::atomic::Ordering::Acquire) {
                         return false;
                     }
-                    let admitted = gate.admits(&persona, url);
+                    let admitted = gate.admits(url);
                     if admitted {
                         if url.as_str() != "about:blank" {
                             *tab.seen
@@ -518,7 +518,6 @@ mod native {
                                 .lock()
                                 .unwrap_or_else(PoisonError::into_inner) = url.to_string();
                         }
-                        guard::check_landing(&app, &gate, &persona, &tab, url);
                     } else {
                         tab.loads
                             .send_modify(|loads| loads.blocked = Some(url.to_string()));
@@ -598,14 +597,8 @@ mod native {
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             }
             {
-                let (url, address, tab) = (url.clone(), url.to_string(), tab.clone());
-                let refused = move || {
-                    tab.loads.send_modify(|loads| loads.blocked = Some(address));
-                };
-                self.app
-                    .get_webview(&page_label)
-                    .ok_or("Your browser could not be opened.")?
-                    .with_webview(move |view| guard::attach(view.inner(), url, guarded, refused))
+                let url = url.clone();
+                page.with_webview(move |view| guard::start(view.inner(), url, started))
                     .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             }
             super::passkeys::attach(&page, persona_id);
@@ -659,7 +652,7 @@ mod native {
                         let now = loads.borrow_and_update();
                         if let Some(blocked) = &now.blocked {
                             return Err(format!(
-                                "The page went on to {blocked}, which your browser may not open: a local address the person has not allowed, or not a web page."
+                                "The page went on to {blocked}, which your browser never opens: not a web page, or one of Hotline's own ports."
                             ));
                         }
                         if let Some(failed) = &now.failed {
@@ -891,7 +884,7 @@ mod native {
                 let loads = receiver.borrow();
                 if let Some(blocked) = &loads.blocked {
                     return Err(format!(
-                        "The page tried to go to {blocked}, which your browser may not open. If it is a local address, navigate to it to ask the person."
+                        "The page tried to go to {blocked}, which your browser never opens: not a web page, or one of Hotline's own ports."
                     ));
                 }
                 loads.started > started

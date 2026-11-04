@@ -141,17 +141,17 @@ pub(crate) fn widened(
             if mount_grown {
                 return Some(Widening::Folder);
             }
-            let secrets = was.secrets.unwrap_or_default();
-            if now
-                .secrets
-                .iter()
-                .flatten()
-                .any(|name| !secrets.contains(name))
-            {
-                return Some(Widening::Secret);
-            }
         }
         _ => {}
+    }
+    let secrets = previous.secrets.clone().unwrap_or_default();
+    if updated
+        .secrets
+        .iter()
+        .flatten()
+        .any(|name| !secrets.contains(name))
+    {
+        return Some(Widening::Secret);
     }
     let had = granted(previous, before);
     if !granted(updated, after).is_subset(&had) {

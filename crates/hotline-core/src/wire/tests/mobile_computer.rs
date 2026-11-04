@@ -181,13 +181,13 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
     assert_eq!(enabled["result"]["computer"], json!({"enabled":true}));
     assert_eq!(quiet.reattached(), vec![id.clone()]);
     let full = json!({"enabled":true,"image":"pinned:test","memory":"4g","cpus":2.0,"pids":2048,
-        "mounts":[{"host":"/projects","path":"/work","readonly":true}],"secrets":["TOKEN"]});
+        "mounts":[{"host":"/projects","path":"/work","readonly":true}]});
     let seed = remote_control_answer(
         Seat::Desk,
         &handle,
         &log,
         &Parts::default(),
-        json!({"id":3,"cmd":"persona.update","params":{"id":id,"patch":{"computer":full}}}),
+        json!({"id":3,"cmd":"persona.update","params":{"id":id,"patch":{"computer":full,"secrets":["TOKEN"]}}}),
     )
     .await;
     assert_eq!(seed["ok"], true, "{seed}");
@@ -199,6 +199,7 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
     wanted["memory"] = json!("4608m");
     wanted["cpus"] = json!(1.5);
     assert_eq!(updated["result"]["computer"], wanted);
+    assert_eq!(updated["result"]["secrets"], json!(["TOKEN"]));
     assert!(updated["result"].get("reach").is_none());
     let absent = remote_control_answer(
         Seat::Owner,

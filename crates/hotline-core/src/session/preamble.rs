@@ -40,10 +40,14 @@ pub(crate) fn preamble(
     // that goes looking for one is a model that was not told the computer
     // redacts them.
     let secrets_sentence = match persona
-        .computer
-        .as_ref()
-        .filter(|computer| computer.enabled)
-        .and_then(|computer| computer.secrets.as_deref())
+        .secrets
+        .as_deref()
+        .filter(|_| {
+            persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+        })
         .filter(|names| !names.is_empty())
     {
         Some(names) => {

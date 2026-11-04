@@ -11,12 +11,11 @@ fn passkey_cards(room: &Room, persona_id: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Grants `names` to ada's computer on the room's record, the way
-/// `persona.update` would, without reattaching anything.
+/// Grants `names` to ada on the room's record, the way `persona.update`
+/// would, without reattaching anything.
 fn grant_secrets(room: &Room, names: &[&str]) {
     let mut ada = room.persona("ada").unwrap();
-    let computer = ada.computer.as_mut().unwrap();
-    computer.secrets = Some(names.iter().map(ToString::to_string).collect());
+    ada.secrets = Some(names.iter().map(ToString::to_string).collect());
     enrol(&room.log, &ada);
 }
 
@@ -268,7 +267,7 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
     // Ticked for ada, handed to the computer whole, and the arming ended.
     let ada = room.persona("ada").unwrap();
     assert_eq!(
-        ada.computer.unwrap().secrets.as_deref(),
+        ada.secrets.as_deref(),
         Some(&["GITHUB_PASSKEY".to_string()][..])
     );
     let sets = taken.sets();
@@ -576,12 +575,7 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
     );
     // Ticked, handed whole, the arming ended, and said on the tape.
     assert_eq!(
-        room.persona("ada")
-            .unwrap()
-            .computer
-            .unwrap()
-            .secrets
-            .as_deref(),
+        room.persona("ada").unwrap().secrets.as_deref(),
         Some(&["GITHUB_PASSKEY".to_string()][..])
     );
     let sets = taken.sets();
@@ -646,8 +640,6 @@ async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_exp
     );
     assert!(
         room.persona("ada")
-            .unwrap()
-            .computer
             .unwrap()
             .secrets
             .unwrap_or_default()

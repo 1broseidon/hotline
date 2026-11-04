@@ -30,14 +30,6 @@ pub struct PersonaComputer {
     /// teammate can read a checkout it has to test without cloning it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mounts: Option<Vec<ComputerMount>>,
-    /// The stored secrets this computer's shell gets as environment
-    /// variables, by name (see [`SharedSecret`]). The value never leaves the
-    /// vault except on its way to this machine, and the computer redacts it
-    /// from what it answers the agent. Absent means none: a record from
-    /// before this field, or a teammate nobody granted anything, is handed
-    /// nothing.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub secrets: Option<Vec<String>>,
 }
 
 /// One host folder bound into a teammate's computer.

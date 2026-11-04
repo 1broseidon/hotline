@@ -1,8 +1,9 @@
 use super::*;
 
 /// Turning the computer on or off restarts the teammate, because it gains
-/// or loses the tools. Its limits, mounts and secrets do not: they wait for
-/// the container to be made again, and a turn in flight is not cut short.
+/// or loses the tools. Its limits and mounts do not: they wait for the
+/// container to be made again. Nor do the teammate's secrets, which are
+/// handed to the computer where it runs. A turn in flight is not cut short.
 #[tokio::test]
 async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
     let quiet = Arc::new(Quiet::new());
@@ -24,13 +25,38 @@ async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
     ask(
         &mut socket,
         json!({ "id": 3, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
-            "computer": { "enabled": true, "memory": "8g", "secrets": ["GITHUB_TOKEN"] },
+            "computer": { "enabled": true, "memory": "8g" },
         } } }),
     )
     .await;
     let answer = answered(&mut socket, 3).await;
     assert_eq!(answer["ok"], true, "{answer}");
     assert_eq!(answer["result"]["computer"]["memory"], "8g");
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "secrets": ["GITHUB_TOKEN"],
+        } } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 5).await;
+    assert_eq!(answer["result"]["secrets"], json!(["GITHUB_TOKEN"]));
+    assert_eq!(
+        quiet.computer_changes.lock().unwrap().last(),
+        Some(&ada_id),
+        "the teammate's secrets are handed to whichever computer it has"
+    );
+    // An older client ticks them on the computer; that is the teammate's grant.
+    ask(
+        &mut socket,
+        json!({ "id": 6, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "computer": { "enabled": true, "memory": "8g", "secrets": ["NPM_TOKEN"] },
+        } } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 6).await;
+    assert_eq!(answer["result"]["secrets"], json!(["NPM_TOKEN"]));
+    assert!(answer["result"]["computer"].get("secrets").is_none());
     assert_eq!(
         quiet.reattached(),
         vec![ada_id.clone()],

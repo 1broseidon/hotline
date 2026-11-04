@@ -1146,6 +1146,7 @@ fn test_persona(id: &str) -> crate::contract::Persona {
         web_search_policy: None,
         folders: None,
         computer: None,
+        secrets: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,

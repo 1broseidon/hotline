@@ -48,7 +48,6 @@ fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     let desk = preamble(&ada, Some(Reach::Workspace), None, &[]);
     // Only a folder still on this machine is mounted, so only it is named.
@@ -121,7 +120,6 @@ fn the_preamble_says_who_where_how_far_and_when() {
         memory: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     let desk = preamble(&ada, Some(Reach::Workspace), None, &[]);
     assert!(desk.contains("You have a computer"));

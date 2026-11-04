@@ -92,8 +92,8 @@ fn persona(id: &str, cwd: &str) -> Persona {
             cpus: None,
             pids: None,
             mounts: None,
-            secrets: None,
         }),
+        secrets: None,
         voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
@@ -764,7 +764,6 @@ fn the_image_is_the_teammates_else_the_rooms_else_the_pin() {
         cpus: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     assert_eq!(image_of(&ada, None, None), default_image());
     assert_eq!(image_of(&ada, None, Some("0.5.3")), image_at("0.5.3"));
@@ -779,7 +778,6 @@ fn the_image_is_the_teammates_else_the_rooms_else_the_pin() {
         cpus: None,
         pids: None,
         mounts: None,
-        secrets: None,
     });
     assert_eq!(image_of(&ada, Some("room/image:1"), None), "own/image:2");
 }

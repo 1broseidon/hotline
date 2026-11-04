@@ -300,12 +300,17 @@ fn computer_viewers_can_invoke_only_the_four_viewer_commands() {
     }
 }
 
-/// Hotline's bar above a teammate's desk browser reaches its three
+/// Hotline's bar above a teammate's desk browser reaches its four
 /// commands and nothing else; the page below it, from any origin, reaches
 /// nothing at all, plugins included.
 #[test]
 fn the_browser_bar_reaches_only_its_commands_and_the_page_nothing() {
-    const BAR_COMMANDS: [&str; 3] = ["browser_bar_state", "browser_bar_take", "browser_bar_go"];
+    const BAR_COMMANDS: [&str; 4] = [
+        "browser_bar_state",
+        "browser_bar_take",
+        "browser_bar_go",
+        "browser_bar_trust",
+    ];
     let app = acl_app();
     let bar = window(&app, "browser-6b6974-bar");
     let page = window(&app, "browser-6b6974-page");

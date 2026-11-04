@@ -537,6 +537,7 @@ fn start() -> Result<(), String> {
         browser::browser_bar_state,
         browser::browser_bar_take,
         browser::browser_bar_go,
+        browser::browser_bar_trust,
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -573,6 +574,7 @@ fn start() -> Result<(), String> {
         browser::browser_bar_state,
         browser::browser_bar_take,
         browser::browser_bar_go,
+        browser::browser_bar_trust,
     ]);
     builder
         .manage(desks.clone())

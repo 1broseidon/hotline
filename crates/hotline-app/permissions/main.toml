@@ -36,4 +36,5 @@ permissions = [
   "allow-browser-bar-state",
   "allow-browser-bar-take",
   "allow-browser-bar-go",
+  "allow-browser-bar-trust",
 ]

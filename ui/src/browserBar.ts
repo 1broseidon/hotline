@@ -17,9 +17,21 @@ const url = element<HTMLInputElement>("url");
 const lock = element("lock");
 const take = element<HTMLButtonElement>("take");
 const error = element("error");
+const untrusted = element("untrusted");
+const untrustedLabel = element("untrusted-label");
+const visit = element<HTMLButtonElement>("visit");
 const steps = ["back", "forward", "reload"].map((id) => element<HTMLButtonElement>(id));
 
-type BarState = { name: string; url: string; title: string; taken: boolean };
+type BarState = {
+	name: string;
+	url: string;
+	title: string;
+	taken: boolean;
+	/** "Certificate expired" when the last load was refused for its certificate. */
+	untrusted: string | null;
+	/** The page is on a certificate the person chose to visit anyway. */
+	excepted: boolean;
+};
 let taken = false;
 let editing = false;
 
@@ -37,6 +49,11 @@ function draw(state: BarState) {
 	take.textContent = taken ? "Give it back" : "Take control";
 	url.readOnly = !taken;
 	for (const step of steps) step.disabled = !taken;
+	// Only the person, with control, visits past a refused certificate.
+	untrusted.hidden = !state.untrusted;
+	untrustedLabel.textContent = state.untrusted ?? "";
+	visit.disabled = !taken;
+	visit.title = taken ? "" : "Take control first";
 	if (!editing) url.value = state.url;
 	let host = "";
 	try {
@@ -45,7 +62,9 @@ function draw(state: BarState) {
 		lock.className =
 			host === "localhost" || /^(127\.|10\.|192\.168\.|\[::1\])/.test(host)
 				? "local"
-				: parsed.protocol === "https:"
+				: state.excepted
+					? "excepted"
+					: parsed.protocol === "https:"
 					? "secure"
 					: "";
 	} catch {
@@ -75,6 +94,13 @@ for (const step of steps) {
 		invoke("browser_bar_go", { personaId: persona, step: step.id }).catch((reason) => say(String(reason))),
 	);
 }
+
+visit.addEventListener("click", () => {
+	visit.disabled = true;
+	invoke("browser_bar_trust", { personaId: persona })
+		.catch((reason) => say(String(reason)))
+		.finally(refresh);
+});
 
 url.addEventListener("focus", () => {
 	editing = !url.readOnly;

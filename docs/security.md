@@ -852,6 +852,18 @@ subagent run or a voice front is not offered either.
   a public name pointed inward is caught as a page, not as a picture or
   script on one. The page loads nothing until the list is attached: it is
   made on `about:blank` with every load refused, then sent on.
+- **A certificate WebKit refuses stays refused, but for the person.** The
+  desk puts a navigation delegate of its own in front of wry's on each
+  teammate page (`hotline-app/src/browser/native/trust.rs`). A load that
+  fails to start answers the call with why ("its security certificate has
+  expired") instead of leaving the page before it up. For an expired, not
+  yet valid or untrusted certificate the bar shows the reason and **Visit
+  anyway**, which works only while the person has control
+  (`browser_bar_trust` refuses otherwise) and is not a tool the teammate
+  has. It lets through that one certificate, pinned by the SHA-256 of its
+  leaf, for that teammate and that host and port, until the desk stops; a
+  different certificate on the same site is refused again. The address
+  bar's lock turns amber on a page let through this way.
 - **Its storage is its own.** Each teammate's view has its own web data
   store, so its cookies and sign-ins are neither Hotline's window's nor
   another teammate's. The person's own sign-ins reach it only on a host-cookie
@@ -866,8 +878,8 @@ subagent run or a voice front is not offered either.
 - **The pane.** The PIP's click opens the teammate's browser in a window of
   its own: Hotline's bar (`ui/browser.html`) above the page, as two web views.
   The `browser-bar` capability names only the bar's web view
-  (`browser-*-bar`), and reaches only `browser_bar_state`, `browser_bar_take`
-  and `browser_bar_go` and window dragging; the page's web view is named by
+  (`browser-*-bar`), and reaches only `browser_bar_state`, `browser_bar_take`,
+  `browser_bar_go` and `browser_bar_trust` and window dragging; the page's web view is named by
   no capability. While the teammate drives, a clear view of Hotline's own
   class (`HotlineBrowserShield`) over the page takes the watcher's clicks and
   scrolls and does nothing with them (a plain view would hand them up to the

@@ -54,6 +54,7 @@ fn main() {
         "browser_bar_state",
         "browser_bar_take",
         "browser_bar_go",
+        "browser_bar_trust",
     ]));
     tauri_build::try_build(attributes).expect("failed to run tauri-build");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {

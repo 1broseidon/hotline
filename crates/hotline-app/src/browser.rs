@@ -118,6 +118,33 @@ pub async fn browser_bar_take(
     }
 }
 
+/// Visit anyway, past a certificate the page was refused for: only from the
+/// bar, and only while the person has the page.
+#[tauri::command]
+pub async fn browser_bar_trust(
+    app: AppHandle,
+    desk: DeskState<'_>,
+    persona_id: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        let taken = desk
+            .browser_now(&persona_id)
+            .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
+        if !taken {
+            return Err("Take control first: only you can visit past a certificate.".into());
+        }
+        let browsers: Browsers<'_> = app.state();
+        browsers.visit_anyway(&persona_id).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, desk, persona_id);
+        Err(NOT_HERE.into())
+    }
+}
+
 /// Back, forward or reload from the bar, or a typed address: only while the
 /// person has the page.
 #[tauri::command]
@@ -183,6 +210,7 @@ mod native {
     use tokio::sync::{oneshot, watch};
 
     mod guard;
+    mod trust;
 
     const WALK: &str = include_str!("browser/walk.js");
     const READ_TEXT: &str = concat!(
@@ -206,9 +234,6 @@ mod native {
     /// How long a move through history is waited for: one served from the
     /// back-forward cache, or within the page, loads nothing.
     const STEP_WAIT: Duration = Duration::from_secs(5);
-    /// How long a load may still finish after asking its address directly
-    /// failed, before the browser says it did not open.
-    const UNREACHED_GRACE: Duration = Duration::from_millis(1500);
     const SCRIPT_WAIT: Duration = Duration::from_secs(15);
     /// The page's size: a common laptop viewport.
     const WIDTH: f64 = 1280.0;
@@ -232,6 +257,8 @@ mod native {
         /// here because wry's own `url()` panics on a page that has none
         /// yet, as one whose first load was refused.
         shown: Mutex<String>,
+        /// Certificates its loads offered, and the last one refused.
+        seen: trust::Seen,
     }
 
     /// What the bar above the page shows.
@@ -242,6 +269,11 @@ mod native {
         url: String,
         title: String,
         taken: bool,
+        /// The bar's label for a load refused for its certificate, as
+        /// "Certificate expired", which the person may visit anyway.
+        untrusted: Option<&'static str>,
+        /// The page is on a certificate the person chose to visit anyway.
+        excepted: bool,
     }
 
     #[derive(Clone, Default)]
@@ -250,6 +282,18 @@ mod native {
         finished: u64,
         /// The last load the gate refused, since the call that cleared it.
         blocked: Option<String>,
+        /// Why the last load failed to start, said in full, since the call
+        /// that cleared it.
+        failed: Option<String>,
+    }
+
+    impl Loads {
+        /// A new load from the teammate or the person: nothing refused or
+        /// failed yet.
+        fn fresh(&mut self) {
+            self.blocked = None;
+            self.failed = None;
+        }
     }
 
     #[derive(Deserialize)]
@@ -263,6 +307,7 @@ mod native {
         app: AppHandle,
         gate: Arc<Gate>,
         tabs: Mutex<HashMap<String, Arc<Tab>>>,
+        exceptions: Arc<trust::Exceptions>,
     }
 
     /// A label is letters, digits and `-`, so the teammate's id is written
@@ -308,6 +353,7 @@ mod native {
                 app,
                 gate,
                 tabs: Mutex::default(),
+                exceptions: Arc::default(),
             }
         }
 
@@ -351,20 +397,50 @@ mod native {
                 .tab(persona_id)
                 .ok_or("That teammate's browser has closed.")?;
             self.window(persona_id)?;
+            let shown = tab
+                .shown
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
             Ok(BarState {
                 name: tab
                     .name
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .clone(),
-                url: tab
-                    .shown
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .clone(),
+                url: shown.clone(),
                 title: String::new(),
                 taken,
+                untrusted: tab.seen.untrusted().map(|untrusted| untrusted.label),
+                excepted: tauri::Url::parse(&shown)
+                    .ok()
+                    .as_ref()
+                    .and_then(hotline_core::browser::origin_key)
+                    .is_some_and(|origin| self.exceptions.any_on(persona_id, &origin)),
             })
+        }
+
+        /// Visit anyway, from the bar while the person has control: lets the
+        /// certificate the last load was refused for through, for this
+        /// teammate and that host and port, until the desk stops, and loads
+        /// the page again.
+        pub(crate) async fn visit_anyway(&self, persona_id: &str) -> Result<(), String> {
+            let tab = self
+                .tab(persona_id)
+                .ok_or("That teammate's browser has closed.")?;
+            let untrusted = tab
+                .seen
+                .untrusted()
+                .ok_or("There is no refused certificate to visit past.")?;
+            let fingerprint = untrusted
+                .fingerprint
+                .ok_or("Hotline did not see that site's certificate. Reload and try again.")?;
+            let url = Url::parse(&untrusted.url)
+                .map_err(|_| "That address could not be read.".to_string())?;
+            self.exceptions
+                .add(persona_id, &untrusted.origin, &fingerprint);
+            tab.seen.clear();
+            self.person_go(persona_id, &url).await
         }
 
         /// The person took the page over or handed it back: the shield that
@@ -389,15 +465,13 @@ mod native {
             let tab = self
                 .tab(persona_id)
                 .ok_or("That teammate's browser has no page open.")?;
-            tab.loads.send_modify(|loads| loads.blocked = None);
+            tab.loads.send_modify(Loads::fresh);
             let receiver = tab.loads.subscribe();
             let before = receiver.borrow().finished;
             self.window(persona_id)?
                 .navigate(url.clone())
                 .map_err(|error| error.to_string())?;
-            self.settle_or_say(persona_id, url, receiver, before)
-                .await
-                .map(|_| ())
+            self.settle(receiver, before, LOAD_WAIT).await.map(|_| ())
         }
 
         /// Makes the teammate's window on `url`: Hotline's bar above the
@@ -413,6 +487,7 @@ mod native {
                 name: Mutex::new(String::from("A teammate")),
                 loads,
                 shown: Mutex::new(String::new()),
+                seen: trust::Seen::default(),
             });
             let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
             // Nothing loads until the page's rule list is attached.
@@ -446,6 +521,7 @@ mod native {
                     PageLoadEvent::Finished => {
                         *tab.shown.lock().unwrap_or_else(PoisonError::into_inner) =
                             payload.url().to_string();
+                        tab.seen.clear();
                         tab.loads.send_modify(|loads| loads.finished += 1);
                     }
                 }
@@ -496,6 +572,14 @@ mod native {
                 )
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             {
+                let (persona, tab, exceptions) =
+                    (persona_id.to_string(), tab.clone(), self.exceptions.clone());
+                page.with_webview(move |view| {
+                    trust::attach(view.inner(), persona, tab, exceptions);
+                })
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            }
+            {
                 let (url, address, tab) = (url.clone(), url.to_string(), tab.clone());
                 let refused = move || {
                     tab.loads.send_modify(|loads| loads.blocked = Some(address));
@@ -544,44 +628,6 @@ mod native {
             Ok(tab)
         }
 
-        /// [`Native::settle`] on a load of `url`, raced against asking the
-        /// address directly. WebKit drops a load it could not start, a
-        /// certificate it refuses among them, without a word, and the page
-        /// stays on the one before; when the direct ask fails and the load
-        /// has not finished a moment later, the answer says why instead.
-        async fn settle_or_say(
-            &self,
-            persona_id: &str,
-            url: &Url,
-            loads: watch::Receiver<Loads>,
-            before: u64,
-        ) -> Result<bool, String> {
-            let settling = self.settle(loads, before, LOAD_WAIT);
-            tokio::pin!(settling);
-            let probe = hotline_core::browser::unreachable_reason(url.clone());
-            tokio::pin!(probe);
-            tokio::select! {
-                loaded = &mut settling => loaded,
-                reason = &mut probe => match reason {
-                    None => settling.await,
-                    Some(reason) => match tokio::time::timeout(UNREACHED_GRACE, &mut settling).await {
-                        Ok(Ok(true)) => Ok(true),
-                        Ok(Err(blocked)) => Err(blocked),
-                        Ok(Ok(false)) | Err(_) => {
-                            let address = hotline_core::browser::origin_key(url)
-                                .unwrap_or_else(|| url.to_string());
-                            let still = self
-                                .current(persona_id)
-                                .filter(|page| page != "about:blank")
-                                .map(|page| format!(" The browser is still on {page}."))
-                                .unwrap_or_default();
-                            Err(format!("{address} did not open: {reason}.{still}"))
-                        }
-                    },
-                },
-            }
-        }
-
         /// Waits for the next load to finish after `before`, or a refused one.
         async fn settle(
             &self,
@@ -594,7 +640,12 @@ mod native {
                     {
                         let now = loads.borrow_and_update();
                         if let Some(blocked) = &now.blocked {
-                            return Err(blocked.clone());
+                            return Err(format!(
+                                "The page went on to {blocked}, which your browser may not open: a local address the person has not allowed, or not a web page."
+                            ));
+                        }
+                        if let Some(failed) = &now.failed {
+                            return Err(failed.clone());
                         }
                         if now.finished > before {
                             return Ok(());
@@ -608,9 +659,7 @@ mod native {
             .await;
             match settled {
                 Ok(Ok(())) => Ok(true),
-                Ok(Err(blocked)) => Err(format!(
-                    "The page went on to {blocked}, which your browser may not open: a local address the person has not allowed, or not a web page."
-                )),
+                Ok(Err(said)) => Err(said),
                 Err(_) => Ok(false),
             }
         }
@@ -708,7 +757,7 @@ mod native {
         async fn open(&self, persona_id: &str, url: &Url) -> Result<Page, String> {
             let (receiver, before) = match self.tab(persona_id) {
                 Some(tab) => {
-                    tab.loads.send_modify(|loads| loads.blocked = None);
+                    tab.loads.send_modify(Loads::fresh);
                     let receiver = tab.loads.subscribe();
                     let before = receiver.borrow().finished;
                     self.window(persona_id)?
@@ -718,9 +767,7 @@ mod native {
                 }
                 None => (self.make(persona_id, url)?.loads.subscribe(), 0),
             };
-            let loaded = self
-                .settle_or_say(persona_id, url, receiver, before)
-                .await?;
+            let loaded = self.settle(receiver, before, LOAD_WAIT).await?;
             self.page(persona_id, loaded).await
         }
 
@@ -728,7 +775,7 @@ mod native {
             let tab = self
                 .tab(persona_id)
                 .ok_or("Your browser has no page open yet: navigate to one first.")?;
-            tab.loads.send_modify(|loads| loads.blocked = None);
+            tab.loads.send_modify(Loads::fresh);
             let receiver = tab.loads.subscribe();
             let before = receiver.borrow().finished;
             let window = self.window(persona_id)?;
@@ -769,7 +816,7 @@ mod native {
             let tab = self
                 .tab(persona_id)
                 .ok_or("Your browser has no page open yet: navigate to one first.")?;
-            tab.loads.send_modify(|loads| loads.blocked = None);
+            tab.loads.send_modify(Loads::fresh);
             let receiver = tab.loads.subscribe();
             let (started, finished) = {
                 let loads = receiver.borrow();

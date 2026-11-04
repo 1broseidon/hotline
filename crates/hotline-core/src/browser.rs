@@ -318,64 +318,14 @@ pub async fn reaches_local(url: &Url) -> bool {
     }
 }
 
-/// Why `url` cannot be reached, as a clause for a sentence ("its security
-/// certificate has expired"), or `None` when it answers. WebKit drops a
-/// load it could not start without a word to the desk, and the page stays
-/// on the one before, so the browser asks this alongside every load it
-/// makes and says why instead of leaving the old page up. The request
-/// checks certificates as the system does, so it fails where WebKit does;
-/// only a failure to connect counts, never an HTTP status.
-pub async fn unreachable_reason(url: Url) -> Option<String> {
-    if !matches!(url.scheme(), "http" | "https") {
-        return None;
-    }
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(8))
-        .build()
-        .ok()?;
-    let error = client.head(url).send().await.err()?;
-    Some(reason_of(&error))
-}
-
-/// The clause for a failed connection, read off the error and its sources.
-fn reason_of(error: &reqwest::Error) -> String {
-    let mut text = error.to_string();
-    let mut source = std::error::Error::source(error);
-    while let Some(cause) = source {
-        text.push_str(" / ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    reason_in(&text, error.is_timeout())
-}
-
-/// [`reason_of`] on the error's text, so it can be tested without a server.
-fn reason_in(text: &str, timed_out: bool) -> String {
-    let text = text.to_ascii_lowercase();
-    let reason = if text.contains("expired") {
-        "its security certificate has expired"
-    } else if text.contains("notvalidforname") || text.contains("not valid for name") {
-        "its security certificate is for a different name"
-    } else if text.contains("unknownissuer")
-        || text.contains("self signed")
-        || text.contains("self-signed")
-        || text.contains("not trusted")
-        || text.contains("invalid peer certificate")
-        || text.contains("certificate")
-    {
-        "its security certificate is not trusted"
-    } else if timed_out || text.contains("timed out") {
-        "it did not answer in time"
-    } else if text.contains("dns") || text.contains("failed to lookup") || text.contains("nodename")
-    {
-        "its name does not resolve"
-    } else if text.contains("refused") {
-        "nothing answers on that port"
-    } else {
-        "the connection failed"
-    };
-    reason.to_string()
+/// A certificate's SHA-256, in lowercase hex, as the desk browser pins the
+/// one the person chose to visit anyway.
+pub fn certificate_fingerprint(der: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(der)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// The host and port a guard answer is for, as the card shows it:
@@ -671,62 +621,11 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_connection_says_why_in_words() {
-        let expired = "error sending request / client error (Connect) / invalid peer certificate: certificate expired: verification time 1793, but certificate is not valid after 1790";
+    fn a_certificate_fingerprint_is_its_sha_256() {
         assert_eq!(
-            reason_in(expired, false),
-            "its security certificate has expired"
+            certificate_fingerprint(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        assert_eq!(
-            reason_in("invalid peer certificate: UnknownIssuer", false),
-            "its security certificate is not trusted"
-        );
-        assert_eq!(
-            reason_in("invalid peer certificate: NotValidForName", false),
-            "its security certificate is for a different name"
-        );
-        assert_eq!(
-            reason_in("operation timed out", true),
-            "it did not answer in time"
-        );
-        assert_eq!(
-            reason_in("dns error: failed to lookup address information", false),
-            "its name does not resolve"
-        );
-        assert_eq!(
-            reason_in("tcp connect error: Connection refused (os error 61)", false),
-            "nothing answers on that port"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_page_that_answers_is_reachable_whatever_its_status_and_a_closed_port_is_not() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        tokio::spawn(async move {
-            while let Ok((mut socket, _)) = listener.accept().await {
-                let mut request = [0u8; 1024];
-                let _ = socket.read(&mut request).await;
-                let _ = socket
-                    .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n")
-                    .await;
-            }
-        });
-        assert_eq!(
-            unreachable_reason(url(&format!("http://127.0.0.1:{port}/"))).await,
-            None
-        );
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = closed.local_addr().unwrap().port();
-        drop(closed);
-        assert_eq!(
-            unreachable_reason(url(&format!("http://127.0.0.1:{port}/")))
-                .await
-                .as_deref(),
-            Some("nothing answers on that port")
-        );
-        assert_eq!(unreachable_reason(url("about:blank")).await, None);
     }
 
     #[test]

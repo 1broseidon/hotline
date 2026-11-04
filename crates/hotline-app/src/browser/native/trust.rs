@@ -21,7 +21,7 @@ use objc2::{
     ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel,
 };
 use objc2_foundation::{
-    NSError, NSString, NSURLAuthenticationChallenge, NSURLAuthenticationMethodServerTrust,
+    NSError, NSString, NSURL, NSURLAuthenticationChallenge, NSURLAuthenticationMethodServerTrust,
     NSURLCredential, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{WKNavigation, WKNavigationDelegate, WKWebView};
@@ -79,12 +79,34 @@ pub(super) struct Untrusted {
     pub(super) label: &'static str,
 }
 
+/// A SecTrust the desk keeps, released when dropped.
+struct Kept(*mut SecTrust);
+
+// SAFETY: a SecTrust is a CoreFoundation object, safe to retain, release
+// and evaluate from any thread.
+unsafe impl Send for Kept {}
+
+impl Drop for Kept {
+    fn drop(&mut self) {
+        // SAFETY: retained once when kept.
+        unsafe { CFRelease(self.0.cast()) };
+    }
+}
+
+/// The certificate a host:port last offered.
+struct Offered {
+    fingerprint: String,
+    trust: Kept,
+}
+
 /// What the delegate keeps per page, beside the tab.
 #[derive(Default)]
 pub(super) struct Seen {
-    /// The leaf fingerprint each host:port last offered.
-    certificates: Mutex<HashMap<String, String>>,
+    certificates: Mutex<HashMap<String, Offered>>,
     pub(super) untrusted: Mutex<Option<Untrusted>>,
+    /// The last top-level address the gate let the page go to, for a
+    /// failure whose error does not name it.
+    pub(super) attempted: Mutex<String>,
 }
 
 impl Seen {
@@ -118,6 +140,7 @@ unsafe impl RefEncode for SecTrust {
 #[link(name = "Security", kind = "framework")]
 unsafe extern "C" {
     fn SecTrustCopyCertificateChain(trust: *mut SecTrust) -> *const c_void;
+    fn SecTrustEvaluateWithError(trust: *mut SecTrust, error: *mut *const c_void) -> bool;
     fn SecCertificateCopyData(certificate: *const c_void) -> *const c_void;
 }
 
@@ -128,6 +151,68 @@ unsafe extern "C" {
     fn CFDataGetLength(data: *const c_void) -> isize;
     fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
     fn CFRelease(object: *const c_void);
+    fn CFRetain(object: *const c_void) -> *const c_void;
+    fn CFErrorGetCode(error: *const c_void) -> isize;
+}
+
+/// Why the system refuses `trust`, in words and as the bar's label, by
+/// evaluating it again: WebKit reports an expired certificate as merely
+/// untrusted. Only after a load failed for its certificate.
+fn verdict(trust: *mut SecTrust) -> (&'static str, &'static str) {
+    let mut error: *const c_void = std::ptr::null();
+    // SAFETY: a kept, retained SecTrust; the error is released here.
+    let code = unsafe {
+        if SecTrustEvaluateWithError(trust, &raw mut error) || error.is_null() {
+            0
+        } else {
+            let code = CFErrorGetCode(error);
+            CFRelease(error);
+            code
+        }
+    };
+    refusal(code)
+}
+
+/// [`verdict`] by the Security framework's code.
+fn refusal(code: isize) -> (&'static str, &'static str) {
+    match code {
+        -67818 => (
+            "its security certificate has expired",
+            "Certificate expired",
+        ),
+        -67819 => (
+            "its security certificate is not valid yet",
+            "Certificate not valid yet",
+        ),
+        -67602 => (
+            "its security certificate is for a different name",
+            "Wrong certificate name",
+        ),
+        _ => (
+            "its security certificate is not trusted",
+            "Certificate not trusted",
+        ),
+    }
+}
+
+/// The warning a refused certificate leaves in the page's place.
+fn warning_page(origin: &str, reason: &str) -> String {
+    let escape = |text: &str| {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    format!(
+        r#"<!doctype html><html><head><meta charset="utf-8"><title>Not private</title><style>
+html{{color-scheme:dark}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#16181d;color:#e8e6e1;font:15px/1.5 -apple-system,system-ui,sans-serif}}
+main{{max-width:440px;padding:32px}}h1{{font-size:22px;font-weight:600;margin:0 0 12px;color:#f2c46d}}p{{margin:0 0 10px;color:#b9b6ae}}b{{color:#e8e6e1;font-weight:600}}
+</style></head><body><main><h1>This connection is not private</h1>
+<p><b>{origin}</b> did not open: {reason}.</p>
+<p>The teammate cannot go past this. If you trust this site, take control above and choose Visit anyway.</p></main></body></html>"#,
+        origin = escape(origin),
+        reason = escape(reason),
+    )
 }
 
 /// The leaf certificate's SHA-256, in hex.
@@ -264,7 +349,14 @@ define_class!(
                 .certificates
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .insert(origin.clone(), print.clone());
+                .insert(
+                    origin.clone(),
+                    Offered {
+                        fingerprint: print.clone(),
+                        // SAFETY: retained here, released when dropped.
+                        trust: Kept(unsafe { CFRetain(trust.cast()) }.cast_mut().cast()),
+                    },
+                );
             if !ivars.exceptions.holds(&ivars.persona_id, &origin, &print) {
                 return default();
             }
@@ -284,13 +376,13 @@ define_class!(
                 // SAFETY: wry's delegate answers this itself.
                 unsafe { inner.webView_didFailProvisionalNavigation_withError(web_view, navigation, error) };
             }
-            self.note_failure(error);
+            self.note_failure(web_view, error);
         }
     }
 );
 
 impl TrustDoor {
-    fn note_failure(&self, error: &NSError) {
+    fn note_failure(&self, web_view: &WKWebView, error: &NSError) {
         let domain = error.domain().to_string();
         let Some((reason, label)) = failure(
             &domain,
@@ -299,51 +391,78 @@ impl TrustDoor {
         ) else {
             return;
         };
-        let url = error
-            .userInfo()
-            .objectForKey(&NSString::from_str("NSErrorFailingURLStringKey"))
-            .and_then(|value| value.downcast::<NSString>().ok())
-            .map(|value| value.to_string())
-            .unwrap_or_default();
-        let origin = origin_of(&url).unwrap_or_else(|| url.clone());
         let tab = &self.ivars().tab;
-        let shown = tab
-            .shown
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        let still = if shown.is_empty() || shown == "about:blank" {
-            String::new()
-        } else {
-            format!(" The browser is still on {shown}.")
-        };
-        let past = if label.is_some() {
-            " Only the person can visit it anyway: they open your browser's pane, take control and choose Visit anyway. Ask them if the task needs it; you cannot do it yourself."
-        } else {
-            ""
-        };
-        let message = format!("{origin} did not open: {reason}.{still}{past}");
-        *tab.seen
-            .untrusted
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = label.map(|label| {
-            let fingerprint = tab
-                .seen
-                .certificates
+        let url = failing_url(error).unwrap_or_else(|| {
+            tab.seen
+                .attempted
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .get(&origin)
-                .cloned();
-            Untrusted {
-                url: url.clone(),
+                .clone()
+        });
+        let origin = origin_of(&url).unwrap_or_else(|| url.clone());
+        let message = if label.is_some() {
+            let (reason, label, fingerprint) = {
+                let certificates = tab
+                    .seen
+                    .certificates
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                match certificates.get(&origin) {
+                    Some(offered) => {
+                        let (reason, label) = verdict(offered.trust.0);
+                        (reason.to_string(), label, Some(offered.fingerprint.clone()))
+                    }
+                    None => (reason, label.unwrap_or("Certificate not trusted"), None),
+                }
+            };
+            *tab.seen
+                .untrusted
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(Untrusted {
+                url,
                 origin: origin.clone(),
                 fingerprint,
                 label,
-            }
-        });
+            });
+            let page = warning_page(&origin, &reason);
+            // SAFETY: the page's own web view, on the main thread.
+            let _ = unsafe { web_view.loadHTMLString_baseURL(&NSString::from_str(&page), None) };
+            format!(
+                "{origin} did not open: {reason}. Your browser shows a warning in its place. Only the person can visit it anyway: they open your browser's pane, take control and choose Visit anyway. Ask them if the task needs it; you cannot do it yourself."
+            )
+        } else {
+            let shown = tab
+                .shown
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            let still = if shown.is_empty() || shown == "about:blank" {
+                String::new()
+            } else {
+                format!(" The browser is still on {shown}.")
+            };
+            format!("{origin} did not open: {reason}.{still}")
+        };
         tab.loads
             .send_modify(|loads: &mut Loads| loads.failed = Some(message));
     }
+}
+
+/// The address a failed load was for, as the error names it.
+fn failing_url(error: &NSError) -> Option<String> {
+    let info = error.userInfo();
+    let named = info
+        .objectForKey(&NSString::from_str("NSErrorFailingURLKey"))
+        .and_then(|value| value.downcast::<NSURL>().ok())
+        .and_then(|url| url.absoluteString())
+        .map(|url| url.to_string());
+    named
+        .or_else(|| {
+            info.objectForKey(&NSString::from_str("NSErrorFailingURLStringKey"))
+                .and_then(|value| value.downcast::<NSString>().ok())
+                .map(|value| value.to_string())
+        })
+        .filter(|url| !url.is_empty())
 }
 
 thread_local! {
@@ -416,6 +535,22 @@ mod tests {
             failure("NSPOSIXErrorDomain", 1, "Operation not permitted"),
             Some(("Operation not permitted".into(), None))
         );
+    }
+
+    #[test]
+    fn a_refused_certificate_says_what_the_system_found() {
+        assert_eq!(refusal(-67818).1, "Certificate expired");
+        assert_eq!(refusal(-67602).1, "Wrong certificate name");
+        assert_eq!(refusal(-67843).1, "Certificate not trusted");
+        assert_eq!(refusal(0).1, "Certificate not trusted");
+    }
+
+    #[test]
+    fn the_warning_page_escapes_what_it_names() {
+        let page = warning_page("<x>:443", "a \"b\" & c");
+        assert!(page.contains("&lt;x&gt;:443"));
+        assert!(page.contains("a &quot;b&quot; &amp; c"));
+        assert!(!page.contains("<x>"));
     }
 
     #[test]

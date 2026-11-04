@@ -408,7 +408,10 @@ mod native {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .clone(),
-                url: shown.clone(),
+                url: tab
+                    .seen
+                    .untrusted()
+                    .map_or_else(|| shown.clone(), |untrusted| untrusted.url),
                 title: String::new(),
                 taken,
                 untrusted: tab.seen.untrusted().map(|untrusted| untrusted.label),
@@ -504,6 +507,12 @@ mod native {
                     }
                     let admitted = gate.admits(&persona, url);
                     if admitted {
+                        if url.as_str() != "about:blank" {
+                            *tab.seen
+                                .attempted
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner) = url.to_string();
+                        }
                         guard::check_landing(&app, &gate, &persona, &tab, url);
                     } else {
                         tab.loads
@@ -519,9 +528,13 @@ mod native {
                 {
                     PageLoadEvent::Started => tab.loads.send_modify(|loads| loads.started += 1),
                     PageLoadEvent::Finished => {
+                        // The warning a refused certificate leaves is a blank
+                        // page of the desk's: the refusal stands behind it.
+                        if payload.url().as_str() != "about:blank" {
+                            tab.seen.clear();
+                        }
                         *tab.shown.lock().unwrap_or_else(PoisonError::into_inner) =
                             payload.url().to_string();
-                        tab.seen.clear();
                         tab.loads.send_modify(|loads| loads.finished += 1);
                     }
                 }

@@ -98,3 +98,26 @@ test("a teammate with no computer is told nothing uses its ticks yet", async () 
 	await mount(persona);
 	expect(section("Secrets")?.textContent).not.toContain("nothing does yet");
 });
+
+test("on the Mac app, a teammate with no computer arms its desk browser for a passkey under Secrets", async () => {
+	const shell = window as unknown as { __hotlineDesk?: { platform: string } };
+	shell.__hotlineDesk = { platform: "macos" };
+	restores.push(() => delete shell.__hotlineDesk);
+	await mount({ ...persona, computer: { enabled: false } });
+	const secrets = section("Secrets");
+	if (!secrets) throw new Error("No Secrets section");
+	expect(secrets.textContent).toContain("signs in with these passkeys");
+	expect(secrets.textContent).not.toContain("nothing does yet");
+	const add = [...secrets.querySelectorAll("button")].find((node) => node.textContent?.includes("Add a passkey"));
+	if (!add) throw new Error("No Add a passkey");
+	await act(async () => add.click());
+	expect(secrets.textContent).toContain("Arm the browser");
+	expect(secrets.textContent).not.toContain("starts Ada's computer");
+
+	await act(async () => root.render(null));
+	await mount(persona);
+	expect(
+		[...(section("Secrets")?.querySelectorAll("button") ?? [])].some((node) => node.textContent?.includes("Add a passkey")),
+		"a teammate with a computer arms it under Computer",
+	).toBe(false);
+});

@@ -889,6 +889,40 @@ subagent run or a voice front is not offered either.
   a minute. A text or links read replaces every value of the teammate's
   granted secrets with `[redacted NAME]`, and an act's answer names a field
   by its label, never its value.
+- **Passkeys in the desk browser.** A page's `navigator.credentials.get()`
+  and `create()` are answered by the desk with the teammate's own passkey
+  from the vault, never Apple's. A script in the page's world, in every
+  frame, before the page's own scripts (`browser/passkeys.js`), replaces
+  them with a message to a reply handler (`browser/passkeys.rs`). The
+  handler takes the caller's origin only from WebKit's
+  `frameInfo.securityOrigin` and the page's from the web view's own
+  address, never from the message the page wrote, and hands the call to the
+  core's authenticator (`hotline-core/src/browser/authenticator.rs`, the
+  computer's ported; `session/browser_passkeys.rs`). The core refuses a
+  frame of another site, an insecure origin, and a relying party the origin
+  is not within; signs in with a granted passkey for that relying party
+  only, after the card for an ask-me one (the logins' card: Approve, Allow
+  for 10 minutes, Deny), and the page waits until it is answered. Making
+  one needs the arming from the teammate's pane (`secrets.passkey.register`
+  on a teammate with no computer arms its desk browser for one site for ten
+  minutes) and the person's approval of the `passkey_ask` card the site's
+  request raises; approved, the core mints a P-256 key, stores it in the
+  vault under the armed name, ticks it for the teammate, and only then
+  answers the page; denied, cancelled or run out, the page hears
+  `NotAllowedError` and nothing is kept. Default: no passkey is reachable
+  until one is granted, and nothing is made without an arming. Grant
+  source: the teammate's `secrets`, the arming and the card. Enforcement:
+  the core, outside the model; a revoked grant is read afresh at each call.
+  A private key is made, kept and used in the desk's process only: the page
+  gets a signature or a public key, the agent gets nothing (a page that
+  showed one back would be redacted), and the key's debug form never shows
+  it. Residual risk: whoever drives a page on a passkey's site — the agent
+  included — can sign in with it, as with a login; the agent cannot reach
+  the page's world, but the page itself can call the handler, which is the
+  same as calling `navigator.credentials`; a frame inside a frame of another
+  site that shares the top page's origin is answered as the top page.
+  Conditional (autofill) requests stay pending. The real-site check is by
+  hand (webauthn.io).
 - **The PIP and the phone see snapshots.** `browser.snapshot` answers the
   last JPEG the desk took after a teammate's move; the phone seat may read it,
   as it reads the conversation the page came up in.
@@ -966,6 +1000,7 @@ extend; when a change adds a boundary, it adds a row.
 | A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared/tests.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
 | A computer is handed only what its teammate is granted and what is stored, and a grant a record from before kept on the computer is the teammate's; the tape names what is not; the preamble names what the computer has, by kind; no tape, room event or preamble carries a value; a replaced or deleted value reaches every running computer and no stopped one; a release from before secrets is told apart, and the conversation says nothing; a login travels as one record beside a variable's bare value | `session/tests/computer.rs` `a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen`, `a_changed_secret_is_handed_again_to_every_running_computer`, `a_computer_from_before_secrets_leaves_the_conversation_alone`, `a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites`; `hotline-room/src/room.rs` `secrets_granted_on_a_computer_before_read_as_the_teammates` | Unix for the session tests |
 | A passkey is made only under an arming for one teammate and one site, and only once the person approves the site's request: a bad site or name is refused before the computer is touched, arming starts the computer, the site's request raises a `passkey_ask` card on the tape with the site, origin and account, nothing is stored while the card waits, an answer must name the request, one answer per request, an approval lets the browser mint and the look that finds it made stores it, ticks it for the teammate, hands the computer the set and ends the arming; a denial ends the arming with nothing stored and the card says so; a request that left with its page expires its card and the next request is a new card; a cancel stores nothing and expires a waiting card; the room's own watch does all of this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a release from before passkeys is named | `session/tests/computer.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room`, `a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires` | Unix |
+| In the desk browser, a passkey signs only for the origin WebKit reports for the calling frame, never one the page writes, and never for a frame of another site, plain HTTP or a teammate not granted it; an ask-me passkey waits on the card; one is made only under the pane's arming for its one site and the person's approval, goes to the vault and is ticked for the teammate, and the page gets its public key only | `mcp/server/tests/desk_browser/passkeys.rs` `a_passkey_signs_for_the_origin_webkit_reports_never_the_one_the_page_claims`, `an_ask_me_passkey_holds_on_the_card_until_the_person_answers`, `a_passkey_is_made_only_under_an_arming_for_its_site_and_lands_in_the_vault`; `browser/authenticator.rs` `a_passkey_is_never_offered_to_another_site_or_an_insecure_page`; `hotline-app/src/browser/passkeys.rs` `a_frames_origin_is_built_from_what_webkit_reports` | a real site (webauthn.io): manual in the Mac app |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
 

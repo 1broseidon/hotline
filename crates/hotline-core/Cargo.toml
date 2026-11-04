@@ -95,6 +95,10 @@ sha2 = "0.10"
 hmac = "0.12"
 sha1 = "0.10"
 data-encoding = "2.11"
+# The desk browser's passkeys: P-256 keys made and signed in the core, so a
+# private key never enters the page (`browser/authenticator.rs`). rcgen
+# already brings it.
+ring = "0.17"
 # The pinned desk identity and encrypted v2 frames use the Noise IK pattern.
 snow = "0.10"
 rcgen = "0.14"

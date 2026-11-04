@@ -118,6 +118,9 @@ impl Room {
             .as_ref()
             .is_some_and(|computer| computer.enabled)
         {
+            if capture.is_none() && self.offers_browser(&persona.id) {
+                return Ok(self.arm_desk_browser(name, &persona.id, rp_id));
+            }
             return Err(format!(
                 "{} has no computer to make a passkey in. Turn one on in the teammate's pane first.",
                 persona.name
@@ -152,6 +155,7 @@ impl Room {
             persona.id.clone(),
             PasskeyArming {
                 capture,
+                desk: false,
                 name: name.to_owned(),
                 rp_id: rp_id.to_owned(),
                 expires_at,
@@ -248,6 +252,19 @@ impl Room {
                 PasskeyRegistrationState::Approved
             } else {
                 PasskeyRegistrationState::Armed
+            };
+            return Ok((standing(&arming, state, arming.asked.clone()), true));
+        }
+        if arming.desk {
+            // No computer to ask: the desk's own browser waits on the card.
+            if arming.expires_at <= now_ms() {
+                self.drop_passkey_arming(persona_id);
+                return Ok((idle, false));
+            }
+            let state = match (&arming.asked, arming.answered) {
+                (Some(_), true) => PasskeyRegistrationState::Approved,
+                (Some(_), false) => PasskeyRegistrationState::Asked,
+                (None, _) => PasskeyRegistrationState::Armed,
             };
             return Ok((standing(&arming, state, arming.asked.clone()), true));
         }
@@ -372,7 +389,7 @@ impl Room {
                     }
                 }
                 match self
-                    .store_minted_passkey(persona_id, &arming, &ready, credential)
+                    .store_minted_passkey(persona_id, &arming, Some(&ready), credential)
                     .await
                 {
                     Ok(secret) => {
@@ -451,20 +468,30 @@ impl Room {
                 );
             }
         }
-        let Some(ready) = self.computers.running(persona_id).await else {
-            self.drop_passkey_arming(persona_id);
-            return Err("The computer stopped before the request was answered.".to_string());
-        };
-        match crate::computer::passkeys::answer(&ready, ask_id, approved).await {
-            Ok(_) => {}
-            Err(crate::computer::secrets::Refusal::TooOld) => {
-                return Err(
-                    "The computer is on a release that does not ask before making a passkey."
-                        .to_string(),
-                );
+        if arming.desk {
+            // The page's request waits in the core: the answer goes to it.
+            let waiting = lock(&self.browser_passkey_asks)
+                .remove(persona_id)
+                .ok_or("That passkey request is not waiting any more.")?;
+            if waiting.send(approved).is_err() {
+                return Err("That passkey request is not waiting any more.".to_string());
             }
-            Err(crate::computer::secrets::Refusal::Failed(reason)) => {
-                return Err(format!("The computer could not take the answer. {reason}"));
+        } else {
+            let Some(ready) = self.computers.running(persona_id).await else {
+                self.drop_passkey_arming(persona_id);
+                return Err("The computer stopped before the request was answered.".to_string());
+            };
+            match crate::computer::passkeys::answer(&ready, ask_id, approved).await {
+                Ok(_) => {}
+                Err(crate::computer::secrets::Refusal::TooOld) => {
+                    return Err(
+                        "The computer is on a release that does not ask before making a passkey."
+                            .to_string(),
+                    );
+                }
+                Err(crate::computer::secrets::Refusal::Failed(reason)) => {
+                    return Err(format!("The computer could not take the answer. {reason}"));
+                }
             }
         }
         if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
@@ -492,7 +519,7 @@ impl Room {
 
     /// Raises the card for a site's request on the teammate's tape, and
     /// tells the phones the teammate needs someone.
-    fn raise_passkey_card(
+    pub(super) fn raise_passkey_card(
         &self,
         persona_id: &str,
         arming: &PasskeyArming,
@@ -571,8 +598,10 @@ impl Room {
         }
     }
 
-    /// Lets an arming go, expiring the card it raised if nobody answered.
-    fn drop_passkey_arming(&self, persona_id: &str) {
+    /// Lets an arming go, expiring the card it raised if nobody answered;
+    /// a desk browser's page still waiting on it is refused.
+    pub(super) fn drop_passkey_arming(&self, persona_id: &str) {
+        lock(&self.browser_passkey_asks).remove(persona_id);
         let arming = lock(&self.passkey_armings).remove(persona_id);
         if let Some(arming) = arming {
             self.expire_passkey_card(persona_id, &arming);
@@ -614,12 +643,13 @@ impl Room {
     /// otherwise make in the teammate's pane, made for them since they
     /// asked for this passkey for this teammate — handed to the computer
     /// with the rest of its set, the arming ended, and a line on the tape.
-    /// Answers the record as listed.
-    async fn store_minted_passkey(
+    /// Answers the record as listed. A desk browser's passkey has no
+    /// computer to hand it to or disarm: `ready` is `None`.
+    pub(super) async fn store_minted_passkey(
         self: &Arc<Self>,
         persona_id: &str,
         arming: &PasskeyArming,
-        ready: &crate::computer::Ready,
+        ready: Option<&crate::computer::Ready>,
         mut credential: crate::vault::StoredSecret,
     ) -> Result<crate::contract::SharedSecret, String> {
         let pending = arming
@@ -672,8 +702,12 @@ impl Room {
         persona.updated_at = now_ms();
         room::append_persona(&self.log, &persona)?;
         drop(held);
-        self.hand_secrets(&persona, ready).await;
-        if let Err(error) = crate::computer::passkeys::disarm(ready).await {
+        if let Some(ready) = ready {
+            self.hand_secrets(&persona, ready).await;
+        }
+        if let Some(ready) = ready
+            && let Err(error) = crate::computer::passkeys::disarm(ready).await
+        {
             self.write(
                 persona_id,
                 &TranscriptEvent::Notice {
@@ -765,21 +799,24 @@ pub(super) struct PasskeyCapture {
 #[derive(Clone)]
 pub(super) struct PasskeyArming {
     pub(super) capture: Option<PasskeyCapture>,
-    name: String,
-    rp_id: String,
+    /// Armed in the teammate's desk browser, which has no computer: the
+    /// core makes the passkey itself (`session/browser_passkeys.rs`).
+    pub(super) desk: bool,
+    pub(super) name: String,
+    pub(super) rp_id: String,
     pub(super) expires_at: i64,
     /// The site's request the card on the tape was raised for, once one
     /// was, and whether that card has been answered — by the person, or
     /// by a look that found the computer already past it.
-    asked: Option<crate::contract::PasskeyAsk>,
-    answered: bool,
+    pub(super) asked: Option<crate::contract::PasskeyAsk>,
+    pub(super) answered: bool,
     /// Only the authenticated answer handler sets this; a poll is not consent.
-    operator_approved: bool,
+    pub(super) operator_approved: bool,
     /// A look found it made and is storing it; another look meanwhile
     /// answers `armed` rather than storing it twice.
-    storing: bool,
+    pub(super) storing: bool,
     /// Stored, ticked and handed: answered to the next poll, then let go.
-    stored: Option<crate::contract::SharedSecret>,
+    pub(super) stored: Option<crate::contract::SharedSecret>,
 }
 
 /// How often the room looks at an arming it holds.

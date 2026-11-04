@@ -516,20 +516,22 @@ impl Room {
             }
         };
         if r#use == crate::contract::SecretUse::Ask {
-            self.ask_for_key(persona_id, &persona.name, name, field, &page)
+            let doing = format!("type its {field} on {page}");
+            self.ask_for_key(persona_id, &persona.name, name, &doing, &page)
                 .await?;
         }
         Ok(value)
     }
 
-    /// An ask-me key fills only once the person approves this use, or has
-    /// allowed it on this site for a while.
-    async fn ask_for_key(
+    /// An ask-me key is used only once the person approves this use, or has
+    /// allowed it on this site for a while. `doing` says what the use is:
+    /// "type its password on …", "sign in with it on …".
+    pub(super) async fn ask_for_key(
         &self,
         persona_id: &str,
         persona_name: &str,
         name: &str,
-        field: &str,
+        doing: &str,
         page: &url::Url,
     ) -> Result<(), String> {
         let site = page.origin().ascii_serialization();
@@ -541,7 +543,7 @@ impl Room {
             return Ok(());
         }
         let title = format!(
-            "{persona_name} wants to use {name} on {site}.\n\nIt would type its {field} on {page} in its browser. You never see the value, and neither does {persona_name}."
+            "{persona_name} wants to use {name} on {site}.\n\nIt would {doing} in its browser. You never see the value, and neither does {persona_name}."
         );
         let decision = self
             .ask_in_browser(persona_id, Asking::Use, title)

@@ -13,6 +13,8 @@
 //! by [`Gate::admits`], which the app asks before every top-level load, and
 //! by [`Gate::admits_landing`], which it asks once the load's name resolved.
 
+pub mod authenticator;
+
 use crate::log::{Log, StreamId};
 use async_trait::async_trait;
 use serde_json::{Value, json};

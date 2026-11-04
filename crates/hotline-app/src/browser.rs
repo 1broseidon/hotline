@@ -161,6 +161,9 @@ pub fn browser_bar_go(
 }
 
 #[cfg(target_os = "macos")]
+mod passkeys;
+
+#[cfg(target_os = "macos")]
 mod native {
     use async_trait::async_trait;
     use hotline_core::browser::{Act, Acted, DeskBrowser, Gate, Page, Reading, Step};
@@ -458,8 +461,9 @@ mod native {
                 .on_navigation(navigating)
                 .on_new_window(popup)
                 .on_download(|_, _| false)
-                .on_page_load(loaded);
-            window
+                .on_page_load(loaded)
+                .initialization_script_for_all_frames(super::passkeys::SCRIPT);
+            let page = window
                 .add_child(
                     page,
                     LogicalPosition::new(0.0, TITLE + BAR),
@@ -477,6 +481,7 @@ mod native {
                     .with_webview(move |view| guard::attach(view.inner(), url, guarded, refused))
                     .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             }
+            super::passkeys::attach(&page, persona_id);
             let hash = format!("persona={}", urlencode(persona_id));
             let bar = WebviewBuilder::new(
                 &bar_label,

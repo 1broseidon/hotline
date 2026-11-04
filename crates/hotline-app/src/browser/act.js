@@ -16,21 +16,41 @@ const element = () => {
 // so a password typed into it never comes back.
 const describe = (el) => {
   const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
-  const kind = el instanceof HTMLInputElement ? `${el.type || "text"} field` : field ? "field" : el.tagName.toLowerCase();
+  const kind = el instanceof HTMLInputElement
+    ? `${el.type || "text"} field`
+    : field
+      ? "field"
+      : el instanceof HTMLAnchorElement
+        ? "link"
+        : el.tagName.toLowerCase();
   const name = field ? labelOf(el) : el.innerText || el.getAttribute("aria-label") || el.title || "";
   const text = clean(name).slice(0, 60);
   return `${kind}${text ? ` "${text}"` : ""}`;
 };
 
-// Scrolls the element into the middle of the view and answers its centre,
-// and what is on top there if something else covers it.
+// Whether the element is wholly on screen now. One that is, as a link in a
+// sticky sidebar always is, is never scrolled to: asking the page to bring
+// it to the middle can throw the page somewhere else entirely.
+const shown = (el) => {
+  const r = el.getBoundingClientRect();
+  return (r.width > 0 || r.height > 0) && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
+};
+// Whether any of it is on screen.
+const partly = (el) => {
+  const r = el.getBoundingClientRect();
+  return (r.width > 0 || r.height > 0) && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+};
+
+// Scrolls the element into the middle of the view unless it is on screen
+// already, and answers its centre, and what is on top there if something
+// else covers it.
 const pointAt = (el) => {
   // The desk asks afterwards whether its click reached the page at all.
   globalThis.__hotlineArrived = false;
   document.addEventListener(A.act === "hover" ? "mouseover" : "click", () => {
     globalThis.__hotlineArrived = true;
   }, { capture: true, once: true });
-  el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  if (!shown(el)) el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
   const rect = el.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0) return { error: `${A.ref} is not visible on the page.` };
   const x = rect.left + rect.width / 2;
@@ -61,7 +81,25 @@ const run = async () => {
     if (A.ref) {
       const el = element();
       if (!el) return { error: `${A.ref} is no longer on the page: read it again.` };
-      el.scrollIntoView({ block: "center", behavior: "instant" });
+      // The pointer's look (locate.js) may have brought it here already.
+      const brought = globalThis.__hotlineBrought === A.ref;
+      globalThis.__hotlineBrought = undefined;
+      if (!shown(el)) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        let last = Math.round(el.getBoundingClientRect().top);
+        for (let i = 0; i < 16; i++) {
+          await wait(50);
+          const now = Math.round(el.getBoundingClientRect().top);
+          if (now === last) break;
+          last = now;
+        }
+      } else if (!brought) {
+        const link = el instanceof HTMLAnchorElement ? " To go where it points, click it." : "";
+        return { note: `${describe(el)} is already on screen, so the page did not move.${link}` };
+      }
+      if (!partly(el)) {
+        return { error: `${describe(el)} could not be brought on screen: it may be hidden, or in a fixed or sticky part of the page. Read the page again with text.` };
+      }
       return { note: `Scrolled to ${describe(el)}.` };
     }
     // Smoothly, so the person watching sees the page move.
@@ -98,7 +136,7 @@ const run = async () => {
     if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && !el.isContentEditable) {
       return { error: `${A.ref} is ${describe(el)}, not a field.` };
     }
-    el.scrollIntoView({ block: "center", behavior: "instant" });
+    if (!shown(el)) el.scrollIntoView({ block: "center", behavior: "instant" });
     el.focus();
     if (el.isContentEditable) {
       el.textContent = A.text;

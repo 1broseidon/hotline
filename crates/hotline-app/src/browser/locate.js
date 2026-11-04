@@ -21,6 +21,8 @@ const seen = before.top >= 0 && before.bottom <= innerHeight && before.left >= 0
 if (!seen) {
   el.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
   await still(() => Math.round(el.getBoundingClientRect().top));
+  // A scroll act then says it scrolled, not that it was on screen already.
+  globalThis.__hotlineBrought = A.ref;
 }
 const rect = el.getBoundingClientRect();
 if (rect.width === 0 && rect.height === 0) return JSON.stringify({});

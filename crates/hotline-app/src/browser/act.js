@@ -167,4 +167,4 @@ const run = async () => {
   return { error: `No act ${A.act}.` };
 };
 
-return JSON.stringify(await run());
+return JSON.stringify({ ...(await run()), next: globalThis.__hotlineNext });

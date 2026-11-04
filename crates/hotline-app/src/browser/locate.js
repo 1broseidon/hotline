@@ -13,9 +13,9 @@ const still = async (read) => {
   }
 };
 const middle = { x: innerWidth / 2, y: innerHeight / 2, height: innerHeight };
-if (!A.ref) return JSON.stringify({ point: middle });
+if (!A.ref) return JSON.stringify({ point: middle, next: globalThis.__hotlineNext });
 const el = refs.get(A.ref);
-if (!el || !el.isConnected) return JSON.stringify({});
+if (!el || !el.isConnected) return JSON.stringify({ next: globalThis.__hotlineNext });
 const before = el.getBoundingClientRect();
 const seen = before.top >= 0 && before.bottom <= innerHeight && before.left >= 0 && before.right <= innerWidth;
 if (!seen) {
@@ -25,5 +25,5 @@ if (!seen) {
   globalThis.__hotlineBrought = A.ref;
 }
 const rect = el.getBoundingClientRect();
-if (rect.width === 0 && rect.height === 0) return JSON.stringify({});
-return JSON.stringify({ point: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, height: innerHeight } });
+if (rect.width === 0 && rect.height === 0) return JSON.stringify({ next: globalThis.__hotlineNext });
+return JSON.stringify({ point: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, height: innerHeight }, next: globalThis.__hotlineNext });

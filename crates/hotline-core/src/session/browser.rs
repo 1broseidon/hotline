@@ -441,7 +441,7 @@ impl Room {
                     .map(|note| format!("{note}\n"))
                     .unwrap_or_default();
                 Ok(BrowserAnswer::Text(format!(
-                    "{note}{}\nRead the page again with text to see what changed; refs from before may be stale.",
+                    "{note}{}\nRead the page again with text to see what changed; refs you have still mean the same elements, and one whose element is gone will say so.",
                     page_line(&acted.page)
                 )))
             }

@@ -1,9 +1,8 @@
 // The walk over the page that a text read and every act share, run in the
 // desk's own content world, out of the page's sight. It builds the page as
 // lines a model can read (headings are `#` lines, list items `-` lines) and
-// marks every link and control with a ref, numbered in document order, in
-// `refs`. An act walks again rather than keep refs between calls, so the
-// same page gives the same numbers. A password field never says its value.
+// marks every link and control with its ref in `refs`. An act walks again
+// and finds the same element by the same ref. A password field never says its value.
 const LIMIT = 200;
 const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
 const short = (s) => {
@@ -15,10 +14,22 @@ const quote = (s) => JSON.stringify(short(s));
 const where = (a) =>
   a.origin === location.origin ? a.pathname + a.search + a.hash : a.href;
 
+// A ref is its element's own for as long as the element is on the page: a
+// later read, a scroll or a page that grows around it never renumbers it,
+// and an element that appears gets the next number. The numbering lives in
+// the desk's content world on this page, and a new page goes on from where
+// the last one stopped (`BASE`, which the desk puts in front), so a ref from
+// an older read or another page never lands on some other element: it is
+// not found, and the act says to read again.
+const refIds = (globalThis.__hotlineIds ??= new WeakMap());
+globalThis.__hotlineNext ??= typeof BASE === "number" ? BASE : 0;
 const refs = new Map();
-let count = 0;
 const ref = (el) => {
-  const id = "e" + ++count;
+  let id = refIds.get(el);
+  if (!id) {
+    id = "e" + ++globalThis.__hotlineNext;
+    refIds.set(el, id);
+  }
   refs.set(id, el);
   return id;
 };

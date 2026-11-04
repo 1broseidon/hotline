@@ -274,6 +274,9 @@ mod native {
         seen: trust::Seen,
         /// Counts the pointer's moves, so it fades only after the last.
         moves: std::sync::atomic::AtomicU64,
+        /// The highest ref number any page of this tab has given, so a new
+        /// page's refs go on from it (walk.js's `BASE`).
+        refs_next: std::sync::atomic::AtomicU64,
     }
 
     /// What the bar above the page shows.
@@ -535,6 +538,7 @@ mod native {
                 shown: Mutex::new(String::new()),
                 seen: trust::Seen::default(),
                 moves: std::sync::atomic::AtomicU64::new(0),
+                refs_next: std::sync::atomic::AtomicU64::new(0),
             });
             let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
             // Nothing loads until the desk's delegate is in front of wry's.
@@ -783,6 +787,26 @@ mod native {
 
         /// Runs `body` in the desk's content world and answers its string.
         async fn run(&self, persona_id: &str, body: String) -> Result<String, String> {
+            let tab = self.tab(persona_id);
+            let base = tab.as_ref().map_or(0, |tab| {
+                tab.refs_next.load(std::sync::atomic::Ordering::SeqCst)
+            });
+            let answer = self
+                .run_bare(persona_id, format!("const BASE = {base};\n{body}"))
+                .await?;
+            // A walk says how far its page has numbered refs.
+            if let Some(tab) = tab
+                && let Ok(said) = serde_json::from_str::<serde_json::Value>(&answer)
+                && let Some(next) = said.get("next").and_then(serde_json::Value::as_u64)
+            {
+                tab.refs_next
+                    .fetch_max(next, std::sync::atomic::Ordering::SeqCst);
+            }
+            Ok(answer)
+        }
+
+        /// Runs `body` as it is, in the desk's content world.
+        async fn run_bare(&self, persona_id: &str, body: String) -> Result<String, String> {
             let window = self.window(persona_id)?;
             let (sender, answer) = oneshot::channel();
             let sender = Arc::new(Mutex::new(Some(sender)));

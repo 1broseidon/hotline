@@ -52,14 +52,18 @@ written at. It may also name:
   in it by its text);
 - `clip`, an element to cut the shot to, with offsets, which leaves it a piece
   without a window frame;
-- `hide`, keys to leave out, such as a model whose provider key stayed in the
-  room's vault;
+- `hide`, keys to leave out;
 - `computer`, to show each teammate's computer switched on as the room has it,
   where the copy turned it off;
 - `voice`, to show the voice controls (the mic, the call key beside it and the
   call key in the rail). The copy has no voice provider, so these are a stand-in:
   the script answers the window's `voice.status` itself and says this Mac hears
   speech.
+
+`keys` at the top of `shots.json` names providers that get a placeholder key
+in the copy, so the window names their models from the bundled catalogue
+(Timo's chip reads "Grok 4.7 · High") where the room's real key stayed in its
+vault. Nothing runs on the placeholder: the capture starts no session.
 
 A shot of `"kind": "browser"` is a teammate's desk browser as its pane shows
 it: macOS's 28px title bar, Hotline's bar (the window's own `browser.html`,

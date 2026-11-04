@@ -327,15 +327,22 @@ async function main() {
 			return;
 		}
 
-		const { cut, shots } = JSON.parse(fs.readFileSync(path.join(HERE, "shots.json"), "utf8"));
+		const { cut, keys = [], shots } = JSON.parse(fs.readFileSync(path.join(HERE, "shots.json"), "utf8"));
 		const ui = named.ui ?? "http://localhost:5174/";
 		await fetch(ui).catch(() => {
 			throw new Error(`Nothing serves the window at ${ui}: run \`make dev\` (or \`bun run dev\` in ui/), or pass --ui.`);
 		});
 		const roomSource = path.resolve(named.room ?? path.join(REPO, ".hotline-dev"));
 		const { copy, room } = copyRoom(roomSource, Date.parse(cut));
-		const { desk, door } = await serve(path.resolve(named.hotline ?? path.join(REPO, "target/debug/hotline")), room);
+		const hotline = path.resolve(named.hotline ?? path.join(REPO, "target/debug/hotline"));
+		const { desk, door } = await serve(hotline, room);
 		try {
+			// A provider named in `keys` gets a placeholder key in the copy, so the window names its
+			// models from the bundled catalogue (a teammate's chip reads "Grok 4.7 · High") where the
+			// room's real key stayed in its vault. Nothing runs on it: no session is started here.
+			for (const providerId of keys) {
+				execFileSync(hotline, ["wire", "credential.create", "--data", room], { input: JSON.stringify({ providerId, label: providerId, secret: "placeholder" }) });
+			}
 			for (const shot of shots) {
 				const out = path.resolve(HERE, shot.out);
 				const framed =

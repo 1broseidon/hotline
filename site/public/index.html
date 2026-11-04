@@ -28,7 +28,7 @@
 <script>document.documentElement.classList.add("js")</script>
 <link rel="preload" href="/tokens.css" as="style">
 <link rel="preload" href="/base.css" as="style">
-<link rel="stylesheet" href="/page.css?v=20261104u">
+<link rel="stylesheet" href="/page.css?v=20261104v">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hotline","url":"https://hotline.dev/","description":"An open-source personal agent ecosystem. Your agents work as a team, have their own computer, and run on the subscriptions you already pay for.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/1broseidon/hotline/blob/main/LICENSE-MIT","downloadUrl":"https://github.com/1broseidon/hotline/releases/latest","codeRepository":"https://github.com/1broseidon/hotline","author":{"@type":"Person","name":"George Dikeakos"}}</script>
 </head>
 <body>
@@ -130,39 +130,15 @@
   </div>
 </section>
 
-<section class="section container" aria-labelledby="trust-h">
-  <div class="grid">
-    <h2 id="trust-h" class="col-l">Your machine, your keys, your data.</h2>
-    <dl class="col-r facts">
-      <div><dt>No account</dt><dd>You never sign up. You pay your model provider and nobody else.</dd></div>
-      <div><dt>Your keys, your keychain</dt><dd>I keep API keys in your system’s own credential store.</dd></div>
-      <div><dt>Your data stays put</dt><dd>Every transcript and file I make stays on your disk.</dd></div>
-      <div><dt>Signed for macOS</dt><dd>Notarized by Apple, so I open without a warning.</dd></div>
-    </dl>
-  </div>
+<section class="section container" aria-label="What stays yours">
+  <dl class="grid facts">
+    <div><dt>No account</dt><dd>You never sign up. You pay your model provider and nobody else.</dd></div>
+    <div><dt>Your keys, your keychain</dt><dd>I keep API keys in your system’s own credential store.</dd></div>
+    <div><dt>Your data stays put</dt><dd>Every transcript and file I make stays on your disk.</dd></div>
+    <div><dt>Signed for macOS</dt><dd>Notarized by Apple, so I open without a warning.</dd></div>
+  </dl>
 </section>
 
-<section class="section container" aria-labelledby="src-h">
-  <div class="grid src">
-    <h2 id="src-h" class="col-l lines-2"><span>Open source,</span> <span>MIT or Apache-2.0.</span></h2>
-    <p class="col-r sec-p">Rust, with a Tauri shell around a web UI. Fork me, change me, ship your own.</p>
-    <figure class="col-l code">
-      <pre><code><span class="prompt" aria-hidden="true">$ </span>git clone https://github.com/1broseidon/hotline
-<span class="prompt" aria-hidden="true">$ </span>cd hotline
-<span class="prompt" aria-hidden="true">$ </span>make dev
-<span class="prompt" aria-hidden="true">$ </span><span class="cursor" aria-hidden="true"></span></code></pre>
-      <figcaption class="caption">From a fresh clone to a running desk.</figcaption>
-    </figure>
-    <div class="col-r src-side">
-      <ul class="reasons">
-        <li><strong>Read how I work.</strong> The design, the wire and the log are written down in the repository.</li>
-        <li><strong>Change what you like.</strong> A teammate, a model, the whole window.</li>
-        <li><strong>Built in the open.</strong> Every release comes from a tagged commit on GitHub Actions.</li>
-      </ul>
-      <p class="links"><a class="more" href="https://github.com/1broseidon/hotline">Browse the code</a><a class="more" href="https://github.com/1broseidon/hotline/blob/main/docs/development.md">How to build it</a></p>
-    </div>
-  </div>
-</section>
 
 <section class="section container" id="download" aria-labelledby="dl-h">
   <div class="grid">

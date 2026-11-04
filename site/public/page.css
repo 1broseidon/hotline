@@ -5,6 +5,7 @@
 /* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread: you say yes, she hands Kit the fixes, then checks the page on her own computer." · the hero is now the desk alone, which shows the go-ahead, the handoff and the check, not the grant */
 /* By the owner's request, against Hallmark's floor (47a, a drawn OS window): the page is screenshots only, each whole window in the Mac's chrome. The chrome is drawn around real captures (the desk from the dev build, the browser's own bar over the page Kit built, the computer's own screen), with the lights where the app seats them: 12px, centred on the 40px strip. */
 /* Hallmark · reworded "Nothing sits between us." to "Your machine, your keys, your data." and "Open source, every line of me." to "Open source, MIT or Apache-2.0.", dropping the licence from the sentence under it · by the owner's choice */
+/* Hallmark · dropped the open-source section (its head, the clone lines, the three reasons, Browse the code, How to build it) and the head over the four facts, which are now four cards across the row · by the owner's choice; the footer still says the licence and links the code */
 /* Hallmark · waive 2b · asked for by the owner · the gold is a light that crosses a copy of the owner's sentence once as the name lands, 1.3s, then the copy is gone; the sentence itself is always solid ink, and what stays is three green highlights, not gradient text and never runs with reduced motion */
 /* Hallmark · dropped .toad--hero, .toad--sign, .sign · the toad is the mark, in the masthead and the footer; at headline size it read as a sticker */
 @import url("./tokens.css");
@@ -189,24 +190,11 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .reach[data-shown] > .reach-one { grid-area: 1 / 1; margin: 0; transition: opacity var(--dur-short) var(--ease-out), visibility var(--dur-short); }
 .reach[data-shown="browser"] > #reach-desktop, .reach[data-shown="desktop"] > #reach-browser { opacity: 0; visibility: hidden; }
 
-/* Facts: four, a rule over each. */
-.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-xl) var(--gap-columns); margin: 0; }
-.facts > div { padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--color-rule); }
+/* What stays yours: four cards across the whole row, three columns each, no head over them. */
+.facts { margin: 0; row-gap: var(--gap-columns); }
+.facts > div { grid-column: span 3; min-width: 0; padding: var(--space-lg); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); }
 .facts dt { font-weight: 600; }
 .facts dd { margin: var(--space-xs) 0 0; color: var(--color-ink-2); }
-
-/* Open source: the head and its sentence, then the three lines that run it beside why to read it. */
-.src { row-gap: var(--space-2xl); }
-.code { margin: 0; min-width: 0; }
-.code pre { margin: 0; padding: var(--space-lg); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 2.1; color: var(--color-ink); overflow-x: auto; }
-.code code { font: inherit; }
-.cursor { display: inline-block; width: 0.6em; height: 1.15em; vertical-align: -0.2em; background: var(--color-ink-2); }
-.reasons { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-columns); }
-.reasons li { padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--color-rule); color: var(--color-ink-2); }
-.reasons strong { display: block; margin-bottom: var(--space-xs); font-weight: 600; color: var(--color-ink); }
-.links { display: flex; flex-wrap: wrap; gap: var(--space-sm) var(--space-lg); margin-top: var(--space-xl); }
-.more { font-weight: 600; color: var(--color-ink); text-decoration-color: var(--color-muted); text-underline-offset: 0.22em; transition: text-decoration-color var(--dur-micro) var(--ease-out); }
-.more:hover { text-decoration-color: var(--color-ink); }
 
 /* Download: the one button and the three install lines on the left, every build with its size on the right. */
 .dl-main > .btn { margin-top: var(--space-xl); }
@@ -251,6 +239,7 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 @media (max-width: 76rem) { .majors { grid-column: 1 / -1; gap: var(--space-md) var(--gap-columns); margin-top: var(--space-lg); } .also { grid-column: 1 / -1; } }
 /* Tablet: the bands stack, the picture rows keep their columns. */
 @media (max-width: 60rem) {
+  .facts > div { grid-column: span 6; }
   :root { --mast-h: 64px; }
   .col-l, .col-r { grid-column: 1 / -1; }
   .grid:not(.proofs) { row-gap: var(--space-xl); }
@@ -258,7 +247,6 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
   .lines { margin-top: var(--space-md); }
   .lines > div { row-gap: var(--space-xs); }
   .lines dt, .lines dd { grid-column: 1 / -1; }
-  .reasons { grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
   .foot-in { grid-template-columns: minmax(0, 1fr); }
   .brand--foot, .foot-nav, .foot small { grid-column: 1 / -1; }
 }
@@ -278,7 +266,6 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
   /* The pieces drop their trays and take the width, so their text stays at its own size. */
   .shot--piece { display: block; aspect-ratio: auto; padding: 0; border: 0; background: none; }
   .shot--piece img { width: 100%; }
-  .facts { grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); }
-  .code pre { padding: var(--space-md); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .facts > div { grid-column: 1 / -1; }
   .builds th { width: 5.5em; }
 }

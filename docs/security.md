@@ -850,8 +850,11 @@ subagent run or a voice front is not offered either.
   The `browser-bar` capability names only the bar's web view
   (`browser-*-bar`), and reaches only `browser_bar_state`, `browser_bar_take`
   and `browser_bar_go` and window dragging; the page's web view is named by
-  no capability. While the teammate drives, a clear view over the page takes
-  the watcher's clicks, so watching never moves the page. Take control sets
+  no capability. While the teammate drives, a clear view of Hotline's own
+  class (`HotlineBrowserShield`) over the page takes the watcher's clicks and
+  scrolls and does nothing with them (a plain view would hand them up to the
+  window, which passes them to the page), and the page loses keyboard focus,
+  so watching never moves the page. Take control sets
   the teammate's browser to the person (`browser.take`); until Give it back,
   the teammate may read the page but every move it asks for is refused. The
   bar's own back, forward, reload and address act only while the person has

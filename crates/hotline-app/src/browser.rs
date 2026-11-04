@@ -959,6 +959,41 @@ mod native {
             shield(view_ptr, true);
         }
 
+        objc2::define_class!(
+            /// A clear view that takes a watcher's mouse and scroll and does
+            /// nothing with them. A plain NSView would hand them up to the
+            /// window's own view, which passes them on to the page.
+            #[unsafe(super(NSView))]
+            #[thread_kind = MainThreadOnly]
+            #[name = "HotlineBrowserShield"]
+            struct Shield;
+
+            impl Shield {
+                #[unsafe(method(acceptsFirstMouse:))]
+                fn accepts_first_mouse(&self, _event: Option<&NSEvent>) -> bool {
+                    true
+                }
+                #[unsafe(method(mouseDown:))]
+                fn mouse_down(&self, _event: &NSEvent) {}
+                #[unsafe(method(mouseUp:))]
+                fn mouse_up(&self, _event: &NSEvent) {}
+                #[unsafe(method(mouseDragged:))]
+                fn mouse_dragged(&self, _event: &NSEvent) {}
+                #[unsafe(method(rightMouseDown:))]
+                fn right_mouse_down(&self, _event: &NSEvent) {}
+                #[unsafe(method(rightMouseUp:))]
+                fn right_mouse_up(&self, _event: &NSEvent) {}
+                #[unsafe(method(otherMouseDown:))]
+                fn other_mouse_down(&self, _event: &NSEvent) {}
+                #[unsafe(method(otherMouseUp:))]
+                fn other_mouse_up(&self, _event: &NSEvent) {}
+                #[unsafe(method(scrollWheel:))]
+                fn scroll_wheel(&self, _event: &NSEvent) {}
+                #[unsafe(method(magnifyWithEvent:))]
+                fn magnify(&self, _event: &NSEvent) {}
+            }
+        );
+
         thread_local! {
             /// The shield over each page a watcher sees, by its web view.
             static SHIELDS: std::cell::RefCell<std::collections::HashMap<usize, objc2::rc::Retained<NSView>>> =
@@ -983,6 +1018,10 @@ mod native {
                     }
                     return;
                 }
+                // Watching again: nothing the person types reaches the page.
+                if let Some(window) = page.window() {
+                    window.makeFirstResponder(None);
+                }
                 if shields.contains_key(&key) {
                     return;
                 }
@@ -990,7 +1029,11 @@ mod native {
                 let Some(parent) = (unsafe { page.superview() }) else {
                     return;
                 };
-                let shield = NSView::initWithFrame(NSView::alloc(main), page.frame());
+                let frame = page.frame();
+                // SAFETY: NSView's designated initialiser, on a fresh Shield.
+                let shield: objc2::rc::Retained<Shield> =
+                    unsafe { objc2::msg_send![Shield::alloc(main), initWithFrame: frame] };
+                let shield = objc2::rc::Retained::into_super(shield);
                 parent.addSubview_positioned_relativeTo(
                     &shield,
                     NSWindowOrderingMode::Above,

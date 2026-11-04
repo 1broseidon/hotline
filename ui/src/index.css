@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "./tokens.css";
+/* 0.48 inline elements (epic-32): message objects, then transcript lines. */
+@import "./inline-objects.css";
+@import "./inline-lines.css";
 
 /* ---------------------------------------------------------------------------
  * The window: a well, and panes standing in it.

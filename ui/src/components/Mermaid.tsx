@@ -1,9 +1,9 @@
 import type MermaidApi from "mermaid";
-import { type RefObject, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Viewer } from "../ui/Viewer";
+import { type RefObject, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { OpenInPane, OpenKey, Sheet, SheetKey } from "./Sheet";
 
 /**
- * A ```mermaid block drawn as the diagram it describes.
+ * A ```mermaid block drawn as the diagram it describes, on its sheet.
  *
  * The source comes out of a language model, so the drawing is shown as an
  * `<img>` of the SVG mermaid makes, never put into the page: an SVG loaded as
@@ -19,16 +19,16 @@ import { Viewer } from "../ui/Viewer";
  * within a screen of being seen; one drawn before is shown at once. A block
  * still streaming in is not drawn until its source stops changing, and one
  * that does not parse stays the code it was, with a line saying so. A diagram
- * drawn to fit a bubble is often too small to read, so pressing it opens it in
- * the viewer.
+ * drawn to fit a bubble is often too small to read, so Open (or pressing it)
+ * shows it in the pane at its own size, and Source shows what it was drawn from.
  */
 export function Mermaid({ source }: { source: string }) {
-	const theme = useResolvedTheme();
+	const look = useLook();
 	const [drawn, setDrawn] = useState<{ key: string; url: string } | null>(null);
 	const [failed, setFailed] = useState<string | null>(null);
 	const [showSource, setShowSource] = useState(false);
-	const [open, setOpen] = useState(false);
-	const key = `${theme}\n${source}`;
+	const openInPane = useContext(OpenInPane);
+	const key = `${look}\n${source}`;
 	const block = useRef<HTMLDivElement>(null);
 	const near = useNear(block);
 
@@ -39,7 +39,7 @@ export function Mermaid({ source }: { source: string }) {
 		// characters and most of those prefixes are not diagrams yet. One
 		// already drawn needs no settling.
 		const timer = window.setTimeout(() => {
-			void drawnUrl(source, theme).then(
+			void drawnUrl(source, look).then(
 				(url) => {
 					if (gone) return;
 					setDrawn({ key, url });
@@ -54,39 +54,69 @@ export function Mermaid({ source }: { source: string }) {
 			gone = true;
 			window.clearTimeout(timer);
 		};
-	}, [key, source, theme, near]);
+	}, [key, source, look, near]);
 
 	const current = drawn?.key === key ? drawn : null;
-	if (current === null || showSource) {
-		return (
-			<div ref={block} className="mermaid-block">
-				<pre>
-					<code>{source}</code>
-				</pre>
-				{failed !== null && current === null && (
-					<p className="mermaid-note" title={failed}>
-						Couldn't draw this diagram, so here is its source.
-					</p>
-				)}
-				{current !== null && (
-					<button type="button" className="mermaid-toggle" onClick={() => setShowSource(false)}>
-						Show diagram
+	const object = { kind: "diagram" as const, text: fenced(source) };
+	return (
+		<Sheet
+			kind="diagram"
+			label={`Diagram · ${diagramKind(source)}`}
+			keys={
+				current !== null && (
+					<>
+						<OpenKey object={object} />
+						<SheetKey
+							label="Source"
+							title={showSource ? "Show the diagram" : "Show the source"}
+							pressed={showSource}
+							onClick={() => setShowSource((was) => !was)}
+						/>
+					</>
+				)
+			}
+		>
+			<div ref={block} className="diagram-body">
+				{current === null || showSource ? (
+					<>
+						<pre className="diagram-source">
+							<code>{source}</code>
+						</pre>
+						{failed !== null && current === null && (
+							<p className="mermaid-note" title={failed}>
+								Couldn't draw this diagram, so here is its source.
+							</p>
+						)}
+					</>
+				) : openInPane !== null ? (
+					<button type="button" className="picture-open" title="Open in the pane" onClick={() => openInPane(object)}>
+						<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
 					</button>
+				) : (
+					<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
 				)}
 			</div>
-		);
-	}
-	return (
-		<div ref={block} className="mermaid-block">
-			<button type="button" className="picture-open" title="Open the diagram" onClick={() => setOpen(true)}>
-				<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
-			</button>
-			<button type="button" className="mermaid-toggle" onClick={() => setShowSource(true)}>
-				Show source
-			</button>
-			{open && <Viewer src={current.url} alt="Diagram" onClose={() => setOpen(false)} />}
-		</div>
+		</Sheet>
 	);
+}
+
+/** What kind of diagram the source declares, as its head names it: `sequenceDiagram` is a sequence. */
+function diagramKind(source: string): string {
+	const declared = source
+		.replace(/^---[\s\S]*?\n---\s*\n/, "")
+		.split("\n")
+		.map((line) => line.trim())
+		.find((line) => line !== "" && !line.startsWith("%%"));
+	const word = declared?.split(/\s+/)[0] ?? "";
+	if (word === "graph" || word === "flowchart-elk") return "flowchart";
+	return word.replace(/-v2$/, "").replace(/Diagram(-beta)?$/, "").replace(/-beta$/, "").toLowerCase() || "mermaid";
+}
+
+/** The diagram as a ```mermaid block again, fenced longer than any run of backticks in it. */
+function fenced(source: string): string {
+	const longest = Math.max(2, ...[...source.matchAll(/`+/g)].map((run) => run[0].length));
+	const fence = "`".repeat(longest + 1);
+	return `${fence}mermaid\n${source}\n${fence}`;
 }
 
 const SETTLE_MS = 300;
@@ -119,19 +149,19 @@ const KEPT = 40;
 const diagrams = new Map<string, string>();
 
 /**
- * The URL of a diagram, drawn once per theme and source and kept, so a
- * teammate switched back to shows theirs at once. The least recently shown is
- * let go when there are too many.
+ * The URL of a diagram, drawn once per look (palette and accent) and source
+ * and kept, so a teammate switched back to shows theirs at once. The least
+ * recently shown is let go when there are too many.
  */
-async function drawnUrl(source: string, palette: Palette): Promise<string> {
-	const key = `${palette}\n${source}`;
+async function drawnUrl(source: string, look: string): Promise<string> {
+	const key = `${look}\n${source}`;
 	const known = diagrams.get(key);
 	if (known !== undefined) {
 		diagrams.delete(key);
 		diagrams.set(key, known);
 		return known;
 	}
-	const svg = await draw(source, palette);
+	const svg = await draw(source);
 	const url = diagrams.get(key) ?? URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
 	diagrams.set(key, url);
 	if (diagrams.size > KEPT) {
@@ -141,8 +171,6 @@ async function drawnUrl(source: string, palette: Palette): Promise<string> {
 	}
 	return url;
 }
-
-type Palette = "light" | "dark";
 
 let loading: Promise<typeof MermaidApi> | null = null;
 let drawn = 0;
@@ -179,23 +207,141 @@ function load(): Promise<typeof MermaidApi> {
 /** One render at a time: mermaid keeps global configuration, and the theme is part of it. */
 let queue: Promise<unknown> = Promise.resolve();
 
-function draw(source: string, palette: Palette): Promise<string> {
+function draw(source: string): Promise<string> {
 	const next = queue.then(async () => {
 		const mermaid = await load();
-		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: "strict",
-			htmlLabels: false,
-			theme: palette === "dark" ? "dark" : "neutral",
-			themeVariables: { fontFamily: FONT, background: "transparent" },
-			fontFamily: FONT,
-		});
-		await mermaid.parse(source);
-		const { svg } = await mermaid.render(`mermaid-${++drawn}`, source);
+		const colours = tokenColours();
+		mermaid.initialize(mermaidConfig(colours));
+		const marked = lit(source, colours);
+		await mermaid.parse(marked);
+		const { svg } = await mermaid.render(`mermaid-${++drawn}`, marked);
 		return sized(svg);
 	});
 	queue = next.catch(() => {});
 	return next;
+}
+
+/** The window's tokens a diagram is drawn in, as colours an SVG image and mermaid's colour maths can read. */
+export type DiagramColours = {
+	dark: boolean;
+	ink: string;
+	ink3: string;
+	line: string;
+	lineStrong: string;
+	canvas: string;
+	raised: string;
+	pop: string;
+	accent: string;
+	accentSoft: string;
+};
+
+/**
+ * Mermaid's configuration: its neutral base theme re-valued from the
+ * window's tokens, so a diagram is drawn in the desk's planes and inks in
+ * either palette. Nothing here is the accent: a node is lit only where the
+ * source marks it (`lit`).
+ */
+export function mermaidConfig(colours: DiagramColours) {
+	const { ink, ink3, line, lineStrong, canvas, raised, pop } = colours;
+	return {
+		startOnLoad: false,
+		securityLevel: "strict" as const,
+		htmlLabels: false,
+		theme: "base" as const,
+		darkMode: colours.dark,
+		fontFamily: FONT,
+		themeVariables: {
+			darkMode: colours.dark,
+			background: "transparent",
+			// Nothing in the window rests on a shadow but the composer (ui/design.md).
+			dropShadow: "none",
+			fontFamily: FONT,
+			fontSize: "13px",
+			primaryColor: pop,
+			primaryTextColor: ink,
+			primaryBorderColor: lineStrong,
+			secondaryColor: raised,
+			secondaryTextColor: ink,
+			secondaryBorderColor: lineStrong,
+			tertiaryColor: raised,
+			tertiaryTextColor: ink,
+			tertiaryBorderColor: line,
+			mainBkg: pop,
+			nodeBorder: lineStrong,
+			nodeTextColor: ink,
+			textColor: ink,
+			titleColor: ink,
+			lineColor: ink3,
+			edgeLabelBackground: canvas,
+			clusterBkg: raised,
+			clusterBorder: line,
+			noteBkgColor: raised,
+			noteTextColor: ink,
+			noteBorderColor: line,
+			actorBkg: pop,
+			actorBorder: lineStrong,
+			actorTextColor: ink,
+			actorLineColor: ink3,
+			signalColor: ink3,
+			signalTextColor: ink,
+			labelBoxBkgColor: pop,
+			labelBoxBorderColor: lineStrong,
+			labelTextColor: ink,
+			loopTextColor: ink,
+		},
+	};
+}
+
+/* A `classDef` (other than `default`, which is every node) or a `style` line:
+ * what a source says to mark a node. */
+const MARKING = /^(\s*(?:classDef\s+(?!default\b)[\w,-]+|style\s+[\w,-]+)\s+)\S.*$/gm;
+
+/**
+ * The source with every node it marks lit in the accent, and no other. A
+ * model picks its own colours for a highlighted node, which would clash with
+ * the window's; the marking is what it meant, so the marking is kept and the
+ * colours are the desk's. A diagram that marks nothing is drawn plain.
+ */
+export function lit(source: string, colours: DiagramColours): string {
+	return source.replace(MARKING, (_line, head: string) => `${head}fill:${colours.accentSoft},stroke:${colours.accent},color:${colours.ink}`);
+}
+
+/**
+ * The tokens as hex, read off the window as it is drawn now. Mermaid's colour
+ * maths cannot parse oklch, and a classDef's comma-separated styles cannot
+ * hold an rgba(), so each is painted onto a pixel and read back: #rrggbb, or
+ * #rrggbbaa where the token is translucent.
+ */
+function tokenColours(): DiagramColours {
+	const probe = document.createElement("i");
+	document.body.append(probe);
+	const canvas = document.createElement("canvas");
+	canvas.width = 1;
+	canvas.height = 1;
+	const paint = canvas.getContext("2d", { willReadFrequently: true });
+	const read = (token: string): string => {
+		probe.style.color = `var(--${token})`;
+		if (paint === null) return getComputedStyle(probe).color;
+		paint.clearRect(0, 0, 1, 1);
+		paint.fillStyle = getComputedStyle(probe).color;
+		paint.fillRect(0, 0, 1, 1);
+		const [r = 0, g = 0, b = 0, a = 255] = paint.getImageData(0, 0, 1, 1).data;
+		return `#${[r, g, b, ...(a < 255 ? [a] : [])].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+	};
+	const colours: DiagramColours = {
+		dark: document.documentElement.dataset["theme"] !== "light",
+		ink: read("ink"),
+		ink3: read("ink-3"),
+		line: read("line"),
+		lineStrong: read("line-strong"),
+		canvas: read("canvas"),
+		raised: read("raised"),
+		pop: read("pop"),
+		accent: read("accent"),
+		accentSoft: read("accent-soft"),
+	};
+	probe.remove();
+	return colours;
 }
 
 /** A font the image can reach: it cannot see the window's web fonts, so it measures and draws in the system's. */
@@ -218,14 +364,20 @@ function sized(svg: string): string {
 	return new XMLSerializer().serializeToString(document);
 }
 
-/** The palette actually on screen, which on "System" is the OS's and can change while the window is open. */
-function useResolvedTheme(): Palette {
+/**
+ * The look actually on screen: the palette, which on "System" is the OS's and
+ * can change while the window is open, and the room's accent.
+ */
+function useLook(): string {
 	return useSyncExternalStore(
 		(listener) => {
 			const observer = new MutationObserver(listener);
-			observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+			observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent"] });
 			return () => observer.disconnect();
 		},
-		() => (document.documentElement.dataset["theme"] === "light" ? "light" : "dark"),
+		() => {
+			const { theme, accent } = document.documentElement.dataset;
+			return `${theme === "light" ? "light" : "dark"} ${accent ?? ""}`;
+		},
 	);
 }

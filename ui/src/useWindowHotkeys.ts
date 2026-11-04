@@ -3,6 +3,7 @@ import { chatWindow } from "./chatWindow";
 import { matchChord } from "./chords";
 import type { OpenWork } from "./components/Work";
 import { activeDeskId, allDesks, deskFilter } from "./desks";
+import { dockBack } from "./dock";
 import { hotkeyRegistrar, onHotkey, useHotkeys, useRecording, type HotkeyId, type KeyState } from "./hotkeys";
 import { listenMenu, openLink, showWindow } from "./native";
 import { shownTeam, teamOrder } from "./pins";
@@ -82,9 +83,10 @@ export function useWindowHotkeys({
 					return;
 				}
 				if (dock !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
-					// One step back, then out: a thread to the list, the list to the window.
+					// One step back, then out: an object to what was open, a thread to the list, the list to the window.
 					event.preventDefault();
-					if (dock.open !== null) setDock({ open: null });
+					const back = dockBack(dock);
+					if (back !== null) setDock(back);
 					else closeDock();
 					return;
 				}

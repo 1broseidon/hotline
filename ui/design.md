@@ -268,6 +268,15 @@ transition and animation, and holds the mark still.
   so hover and keyboard focus are the hover fill and nothing rings, and a
   screen reader hears it as "Said on the call" before the words. It is a
   transcript, not speech: no bubble, no plane, no accent.
+- Message objects: a table, a block of code and a diagram sit on one
+  sheet sunk into the bubble (`--sheet`), never a card in a card: a head
+  naming it in the instrument face, quiet keys at its right, the object
+  under it. Table rows are plain, divided by hairlines, with no fill.
+  Code numbers its lines from six up. A quote has a neutral edge; only a
+  warning or caution alert takes the amber. A diagram is drawn in the
+  tokens and lights a node in the accent only where its source marks one.
+  A table or a diagram opens at full width in the right-hand pane, the
+  same component, not a viewer of its own.
 - Needs you: the one card that is a request of the person, live until
   answered. It says what is wanted and offers the answers — Done and
   Decline — and nothing else by default; a note is a quiet affordance
@@ -326,6 +335,9 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-11-03 Message objects take one sheet (0.48, docs/design/inline-premium.html
+  rows 1-5, signed off by The Dude).
 
 - 2026-10-26 Hill climb against Grok Bot, judged by Codex: a card waiting
   on you says Needs you in the accent; a goal rests in a well; states read in

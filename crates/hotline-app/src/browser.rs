@@ -44,7 +44,7 @@ pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
 #[cfg(target_os = "macos")]
 mod native {
     use async_trait::async_trait;
-    use hotline_core::browser::{DeskBrowser, Gate, Page, Reading, Step};
+    use hotline_core::browser::{Act, Acted, DeskBrowser, Gate, Page, Reading, Step};
     use serde::Deserialize;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, PoisonError};
@@ -54,8 +54,20 @@ mod native {
     use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
     use tokio::sync::{oneshot, watch};
 
-    const READ_TEXT: &str = include_str!("browser/read_text.js");
+    const WALK: &str = include_str!("browser/walk.js");
+    const READ_TEXT: &str = concat!(
+        include_str!("browser/walk.js"),
+        include_str!("browser/read_text.js")
+    );
     const READ_LINKS: &str = include_str!("browser/read_links.js");
+    const ACT: &str = include_str!("browser/act.js");
+    /// Whether the last native click or hover reached the page.
+    const ARRIVED: &str = "return JSON.stringify(globalThis.__hotlineArrived !== false);";
+    /// The click the page's own script makes, when a native one did not
+    /// arrive: walk.js goes in front, and `A` names the ref.
+    const CLICK: &str = "const el = refs.get(A.ref); if (el) { el.focus?.(); el.click(); } return JSON.stringify(!!el);";
+    /// How long after an act a load it started is looked for.
+    const ACT_SETTLE: Duration = Duration::from_millis(400);
     const PAGE_INFO: &str =
         "return JSON.stringify({ title: document.title, url: location.href, text: '' });";
     /// How long a load is waited for before the call answers that the page
@@ -77,6 +89,7 @@ mod native {
 
     #[derive(Clone, Default)]
     struct Loads {
+        started: u64,
         finished: u64,
         /// The last load the gate refused, since the call that cleared it.
         blocked: Option<String>,
@@ -152,8 +165,11 @@ mod native {
             };
             let loaded = {
                 let tab = tab.clone();
-                move |_: WebviewWindow, payload: tauri::webview::PageLoadPayload<'_>| {
-                    if payload.event() == PageLoadEvent::Finished {
+                move |_: WebviewWindow, payload: tauri::webview::PageLoadPayload<'_>| match payload
+                    .event()
+                {
+                    PageLoadEvent::Started => tab.loads.send_modify(|loads| loads.started += 1),
+                    PageLoadEvent::Finished => {
                         tab.loads.send_modify(|loads| loads.finished += 1);
                     }
                 }
@@ -228,18 +244,33 @@ mod native {
         }
 
         async fn script(&self, persona_id: &str, body: &'static str) -> Result<Read, String> {
+            let json = self.run(persona_id, body.to_string()).await?;
+            serde_json::from_str(&json)
+                .map_err(|error| format!("The page's answer was unreadable: {error}"))
+        }
+
+        /// Runs `body` in the desk's content world and answers its string.
+        async fn run(&self, persona_id: &str, body: String) -> Result<String, String> {
             let window = self.window(persona_id)?;
             let (sender, answer) = oneshot::channel();
             let sender = Arc::new(Mutex::new(Some(sender)));
             window
-                .with_webview(move |view| apple::call(view.inner(), body, sender))
+                .with_webview(move |view| apple::call(view.inner(), &body, sender))
                 .map_err(|error| error.to_string())?;
-            let json = tokio::time::timeout(SCRIPT_WAIT, answer)
-                .await
-                .map_err(|_| "The page did not answer in time.".to_string())?
-                .map_err(|_| "The page closed before it answered.".to_string())??;
-            serde_json::from_str(&json)
-                .map_err(|error| format!("The page's answer was unreadable: {error}"))
+            tokio::time::timeout(
+                SCRIPT_WAIT + Duration::from_millis(hotline_core::browser::WAIT_LIMIT_MS),
+                answer,
+            )
+            .await
+            .map_err(|_| "The page did not answer in time.".to_string())?
+            .map_err(|_| "The page closed before it answered.".to_string())?
+        }
+
+        /// Sends `input` to the teammate's web view as the person's own.
+        fn input(&self, persona_id: &str, input: apple::Input) -> Result<(), String> {
+            self.window(persona_id)?
+                .with_webview(move |view| apple::input(view.inner(), &input))
+                .map_err(|error| error.to_string())
         }
 
         async fn page(&self, persona_id: &str, loaded: bool) -> Result<Page, String> {
@@ -250,6 +281,35 @@ mod native {
                 loaded,
             })
         }
+    }
+
+    /// The act as act.js reads it.
+    fn act_args(act: &Act) -> String {
+        let value = match act {
+            Act::Click { target } => serde_json::json!({ "act": "click", "ref": target }),
+            Act::Hover { target } => serde_json::json!({ "act": "hover", "ref": target }),
+            Act::Fill { target, text } => {
+                serde_json::json!({ "act": "fill", "ref": target, "text": text })
+            }
+            Act::Select { target, values } => {
+                serde_json::json!({ "act": "select", "ref": target, "values": values })
+            }
+            Act::Check { target, on } => {
+                serde_json::json!({ "act": "check", "ref": target, "on": on })
+            }
+            Act::Press { key } => serde_json::json!({ "act": "press", "key": key }),
+            Act::Scroll { target, dy } => {
+                serde_json::json!({ "act": "scroll", "ref": target, "dy": dy })
+            }
+            Act::WaitFor {
+                text,
+                target,
+                timeout_ms,
+            } => {
+                serde_json::json!({ "act": "wait_for", "find": text, "ref": target, "timeout": timeout_ms })
+            }
+        };
+        value.to_string()
     }
 
     #[async_trait]
@@ -311,6 +371,83 @@ mod native {
             ))
         }
 
+        async fn act(&self, persona_id: &str, act: &Act) -> Result<Acted, String> {
+            let tab = self
+                .tab(persona_id)
+                .ok_or("Your browser has no page open yet: navigate to one first.")?;
+            tab.loads.send_modify(|loads| loads.blocked = None);
+            let receiver = tab.loads.subscribe();
+            let (started, finished) = {
+                let loads = receiver.borrow();
+                (loads.started, loads.finished)
+            };
+            let args = act_args(act);
+            let body = format!("const A = {args};\n{WALK}\n{ACT}");
+            #[derive(Deserialize)]
+            struct Point {
+                x: f64,
+                y: f64,
+                height: f64,
+            }
+            #[derive(Deserialize)]
+            struct Answer {
+                point: Option<Point>,
+                note: Option<String>,
+                error: Option<String>,
+            }
+            let answer: Answer = serde_json::from_str(&self.run(persona_id, body).await?)
+                .map_err(|error| format!("The page's answer was unreadable: {error}"))?;
+            if let Some(error) = answer.error {
+                return Err(error);
+            }
+            match (act, answer.point) {
+                (Act::Click { .. } | Act::Check { .. }, Some(point)) => {
+                    self.input(
+                        persona_id,
+                        apple::Input::Click(point.x, point.y, point.height),
+                    )?;
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    // A click that loaded a page arrived; one that reached
+                    // nothing is made by the page's own script instead.
+                    let navigated = receiver.borrow().started > started;
+                    if !navigated && self.run(persona_id, ARRIVED.into()).await? == "false" {
+                        self.run(persona_id, format!("const A = {args};\n{WALK}\n{CLICK}"))
+                            .await?;
+                    }
+                }
+                (Act::Hover { .. }, Some(point)) => {
+                    self.input(
+                        persona_id,
+                        apple::Input::Hover(point.x, point.y, point.height),
+                    )?;
+                }
+                (Act::Press { key }, _) => {
+                    self.input(persona_id, apple::Input::Key(key.clone()))?;
+                }
+                _ => {}
+            }
+            // A load the act started is waited for, as navigate waits.
+            tokio::time::sleep(ACT_SETTLE).await;
+            let began = {
+                let loads = receiver.borrow();
+                if let Some(blocked) = &loads.blocked {
+                    return Err(format!(
+                        "The page tried to go to {blocked}, which your browser may not open. If it is a local address, navigate to it to ask the person."
+                    ));
+                }
+                loads.started > started
+            };
+            let loaded = if began {
+                self.settle(receiver, finished, LOAD_WAIT).await?
+            } else {
+                true
+            };
+            Ok(Acted {
+                page: self.page(persona_id, loaded).await?,
+                note: answer.note,
+            })
+        }
+
         async fn screenshot(&self, persona_id: &str) -> Result<Vec<u8>, String> {
             let window = self.window(persona_id)?;
             let (sender, answer) = oneshot::channel();
@@ -338,8 +475,11 @@ mod native {
         use block2::RcBlock;
         use objc2::MainThreadMarker;
         use objc2::runtime::AnyObject;
-        use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
-        use objc2_foundation::{NSDictionary, NSError, NSString};
+        use objc2_app_kit::{
+            NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType,
+            NSImage, NSWindow, NSWindowCollectionBehavior,
+        };
+        use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSString};
         use objc2_web_kit::{WKContentWorld, WKWebView};
         use std::ffi::c_void;
         use std::sync::{Arc, Mutex, PoisonError};
@@ -348,6 +488,13 @@ mod native {
         /// The content world the desk's scripts run in: the page's own
         /// scripts never see its variables, and it never sees theirs.
         const WORLD: &str = "hotline-desk-browser";
+
+        thread_local! {
+            /// Held for the app's life: a named world lives only while it is
+            /// retained, and its variables with it.
+            static KEPT: std::cell::OnceCell<objc2::rc::Retained<WKContentWorld>> =
+                const { std::cell::OnceCell::new() };
+        }
 
         type Reply<T> = Arc<Mutex<Option<oneshot::Sender<Result<T, String>>>>>;
 
@@ -385,8 +532,13 @@ mod native {
             };
             // SAFETY: see `view`.
             let view = unsafe { view(view_ptr) };
-            // SAFETY: a named world is retained by WebKit while it exists.
-            let world = unsafe { WKContentWorld::worldWithName(&NSString::from_str(WORLD), main) };
+            let world = KEPT.with(|kept| {
+                kept.get_or_init(|| {
+                    // SAFETY: a named world, retained here for the app's life.
+                    unsafe { WKContentWorld::worldWithName(&NSString::from_str(WORLD), main) }
+                })
+                .clone()
+            });
             let body = NSString::from_str(body);
             let done = RcBlock::new(move |result: *mut AnyObject, error: *mut NSError| {
                 if !error.is_null() {
@@ -426,6 +578,140 @@ mod native {
                     }
                     Step::Reload => {
                         let _ = view.reload();
+                    }
+                }
+            }
+        }
+
+        /// What the desk sends the web view as the person's own input: a
+        /// click or a hover at a point in the page's CSS pixels, with the
+        /// page's viewport height, or one key.
+        pub(super) enum Input {
+            Click(f64, f64, f64),
+            Hover(f64, f64, f64),
+            Key(String),
+        }
+
+        /// A named key as AppKit spells it: its characters, its virtual key
+        /// code and whether Shift is held.
+        fn key_of(key: &str) -> (String, u16, bool) {
+            let function = |code: u32| char::from_u32(code).unwrap_or(' ').to_string();
+            match key {
+                "Enter" => ("\r".into(), 36, false),
+                "Tab" => ("\t".into(), 48, false),
+                "Shift+Tab" => ("\u{19}".into(), 48, true),
+                "Escape" => ("\u{1b}".into(), 53, false),
+                "Backspace" => ("\u{7f}".into(), 51, false),
+                "Delete" => (function(0xF728), 117, false),
+                "Space" => (" ".into(), 49, false),
+                "ArrowUp" => (function(0xF700), 126, false),
+                "ArrowDown" => (function(0xF701), 125, false),
+                "ArrowLeft" => (function(0xF702), 123, false),
+                "ArrowRight" => (function(0xF703), 124, false),
+                "Home" => (function(0xF729), 115, false),
+                "End" => (function(0xF72B), 119, false),
+                "PageUp" => (function(0xF72C), 116, false),
+                "PageDown" => (function(0xF72D), 121, false),
+                other => (other.to_string(), 0, false),
+            }
+        }
+
+        /// Puts a hidden browser window on screen, invisible, at the back and
+        /// out of the person's way: WebKit takes input only in a window that
+        /// is ordered in. Showing the pane makes it opaque again.
+        fn cloak(window: &NSWindow) {
+            if window.isVisible() {
+                return;
+            }
+            window.setAlphaValue(0.0);
+            window.setIgnoresMouseEvents(true);
+            window.setCollectionBehavior(
+                NSWindowCollectionBehavior::Transient
+                    | NSWindowCollectionBehavior::IgnoresCycle
+                    | NSWindowCollectionBehavior::FullScreenAuxiliary,
+            );
+            window.orderBack(None);
+        }
+
+        pub(super) fn input(view_ptr: *mut c_void, input: &Input) {
+            // SAFETY: see `view`.
+            let view = unsafe { view(view_ptr) };
+            let Some(window) = view.window() else {
+                return;
+            };
+            cloak(&window);
+            let number = window.windowNumber();
+            let time = NSProcessInfo::processInfo().systemUptime();
+            // The page's viewport sits below the window's title bar inside
+            // the view, so a point in it is lower in the view by the height
+            // the bar hides.
+            let at = |x: f64, y: f64, viewport: f64| {
+                let height = view.bounds().size.height;
+                let y = y + (height - viewport).max(0.0);
+                let local = NSPoint::new(x, if view.isFlipped() { y } else { height - y });
+                view.convertPoint_toView(local, None)
+            };
+            let mouse = |kind: NSEventType, point: NSPoint| {
+                NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                    kind,
+                    point,
+                    NSEventModifierFlags::empty(),
+                    time,
+                    number,
+                    None,
+                    0,
+                    1,
+                    1.0,
+                )
+            };
+            match input {
+                Input::Click(x, y, viewport) => {
+                    let point = at(*x, *y, *viewport);
+                    if let Some(moved) = mouse(NSEventType::MouseMoved, point) {
+                        view.mouseMoved(&moved);
+                    }
+                    if let (Some(down), Some(up)) = (
+                        mouse(NSEventType::LeftMouseDown, point),
+                        mouse(NSEventType::LeftMouseUp, point),
+                    ) {
+                        view.mouseDown(&down);
+                        view.mouseUp(&up);
+                    }
+                }
+                Input::Hover(x, y, viewport) => {
+                    if let Some(moved) = mouse(NSEventType::MouseMoved, at(*x, *y, *viewport)) {
+                        view.mouseMoved(&moved);
+                    }
+                }
+                Input::Key(key) => {
+                    let (characters, code, shift) = key_of(key);
+                    let flags = if shift {
+                        NSEventModifierFlags::Shift
+                    } else {
+                        NSEventModifierFlags::empty()
+                    };
+                    let characters = NSString::from_str(&characters);
+                    window.makeFirstResponder(Some(view));
+                    for kind in [NSEventType::KeyDown, NSEventType::KeyUp] {
+                        let Some(event) = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                            kind,
+                            NSPoint::new(0.0, 0.0),
+                            flags,
+                            time,
+                            number,
+                            None,
+                            &characters,
+                            &characters,
+                            false,
+                            code,
+                        ) else {
+                            continue;
+                        };
+                        if kind == NSEventType::KeyDown {
+                            view.keyDown(&event);
+                        } else {
+                            view.keyUp(&event);
+                        }
                     }
                 }
             }

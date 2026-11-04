@@ -3,13 +3,14 @@
 //! guard card a local address raises and each answer to it.
 
 use super::*;
-use crate::browser::{DeskBrowser, Page, Reading, Step};
+use crate::browser::{Act, Acted, DeskBrowser, Page, Reading, Step};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
 #[derive(Default)]
 struct Fake {
     opened: StdMutex<Vec<String>>,
+    acts: StdMutex<Vec<Act>>,
 }
 
 #[async_trait::async_trait]
@@ -33,6 +34,17 @@ impl DeskBrowser for Fake {
         Ok(match reading {
             Reading::Text => "Page: Example Domain\n\n# Example Domain".into(),
             Reading::Links => "- More information -> https://iana.org/".into(),
+        })
+    }
+    async fn act(&self, _persona_id: &str, act: &Act) -> Result<Acted, String> {
+        self.acts.lock().unwrap().push(act.clone());
+        Ok(Acted {
+            page: Page {
+                url: "https://example.com/next".into(),
+                title: "Next".into(),
+                loaded: true,
+            },
+            note: Some("Filled.".into()),
         })
     }
     async fn screenshot(&self, _persona_id: &str) -> Result<Vec<u8>, String> {
@@ -297,4 +309,84 @@ async fn send_file_posts_the_browser_page_to_the_person() {
         .await
         .unwrap_err();
     assert!(refused.contains("no desk browser"), "{refused}");
+}
+
+/// Each act reaches the browser in the shape it was asked for, and one
+/// that is malformed never touches the page.
+#[tokio::test(flavor = "multi_thread")]
+async fn acts_reach_the_browser_checked() {
+    let (room, fake) = with_browser("browser-acts", &[]);
+    let call = |arguments: Value| {
+        let tools = tools(&room);
+        async move { tools.call(BROWSER, &arguments).await }
+    };
+    let filled = call(json!({ "action": "fill", "ref": "e3", "text": "QA" }))
+        .await
+        .unwrap();
+    assert!(filled.starts_with("Filled.\nPage: Next"), "{filled}");
+    assert!(filled.contains("Read the page again"), "{filled}");
+    call(json!({ "action": "click_ref", "ref": "e4" }))
+        .await
+        .unwrap();
+    call(json!({ "action": "check", "ref": "e5", "uncheck": true }))
+        .await
+        .unwrap();
+    call(json!({ "action": "select", "ref": "e6", "value": "Blue" }))
+        .await
+        .unwrap();
+    call(json!({ "action": "press", "key": "Enter" }))
+        .await
+        .unwrap();
+    call(json!({ "action": "wait_for", "text": "Saved", "timeout_ms": 90000 }))
+        .await
+        .unwrap();
+    assert_eq!(
+        *fake.acts.lock().unwrap(),
+        [
+            Act::Fill {
+                target: "e3".into(),
+                text: "QA".into()
+            },
+            Act::Click {
+                target: "e4".into()
+            },
+            Act::Check {
+                target: "e5".into(),
+                on: false
+            },
+            Act::Select {
+                target: "e6".into(),
+                values: vec!["Blue".into()]
+            },
+            Act::Press {
+                key: "Enter".into()
+            },
+            Act::WaitFor {
+                text: Some("Saved".into()),
+                target: None,
+                timeout_ms: 15_000
+            },
+        ]
+    );
+    for (arguments, said) in [
+        (json!({ "action": "click_ref" }), "needs the `ref`"),
+        (json!({ "action": "fill", "ref": "e3" }), "needs `text`"),
+        (
+            json!({ "action": "press", "key": "Hyper" }),
+            "press needs a `key`",
+        ),
+        (
+            json!({ "action": "select", "ref": "e6" }),
+            "needs a `value`",
+        ),
+        (json!({ "action": "wait_for" }), "needs `text`"),
+    ] {
+        let refused = call(arguments.clone()).await.unwrap_err();
+        assert!(refused.contains(said), "{arguments}: {refused}");
+    }
+    assert_eq!(
+        fake.acts.lock().unwrap().len(),
+        6,
+        "a refused act touches nothing"
+    );
 }

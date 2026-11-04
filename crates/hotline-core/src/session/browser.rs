@@ -3,7 +3,7 @@
 //! to it. The browser itself is the app's ([`crate::browser::DeskBrowser`]).
 
 use super::*;
-use crate::browser::{self as desk_browser, DeskBrowser, Gate, Page, Reading, Step};
+use crate::browser::{self as desk_browser, Act, DeskBrowser, Gate, Page, Reading, Step};
 use crate::contract::PermissionOption;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::sync::PoisonError;
@@ -101,6 +101,88 @@ fn capped(text: String) -> String {
     }
 }
 
+/// An act's arguments, checked before the page is touched.
+fn act_of(action: &str, arguments: &Value) -> Result<Act, String> {
+    let text = |key: &str| arguments.get(key).and_then(Value::as_str);
+    let target = || {
+        text("ref")
+            .map(str::trim)
+            .filter(|target| !target.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("{action} needs the `ref` of an element from a text read."))
+    };
+    Ok(match action {
+        "click_ref" => Act::Click { target: target()? },
+        "hover" => Act::Hover { target: target()? },
+        "fill" => {
+            if arguments.get("secret").is_some() {
+                return Err("Filling a stored secret in the desk browser is not built yet; ask the person to sign in, or use text for anything that is not a secret.".into());
+            }
+            Act::Fill {
+                target: target()?,
+                text: text("text")
+                    .ok_or("fill needs `text`: an empty string clears the field.")?
+                    .to_string(),
+            }
+        }
+        "select" => {
+            let values: Vec<String> = match (arguments.get("values"), text("value")) {
+                (Some(Value::Array(values)), _) => values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect(),
+                (_, Some(value)) => vec![value.to_string()],
+                _ => Vec::new(),
+            };
+            if values.is_empty() {
+                return Err("select needs a `value`, or `values` for a multiple select.".into());
+            }
+            Act::Select {
+                target: target()?,
+                values,
+            }
+        }
+        "check" => Act::Check {
+            target: target()?,
+            on: arguments.get("uncheck").and_then(Value::as_bool) != Some(true),
+        },
+        "press" => {
+            let key = text("key").map(str::trim).unwrap_or_default();
+            if !(desk_browser::KEYS.contains(&key) || key.chars().count() == 1) {
+                return Err(format!(
+                    "press needs a `key`: one character, or one of {}.",
+                    desk_browser::KEYS.join(", ")
+                ));
+            }
+            Act::Press {
+                key: key.to_string(),
+            }
+        }
+        "scroll" => Act::Scroll {
+            target: text("ref").map(str::to_string),
+            dy: arguments.get("dy").and_then(Value::as_i64),
+        },
+        "wait_for" => {
+            let find = text("text").map(str::to_string);
+            let target = text("ref").map(str::to_string);
+            if find.is_none() && target.is_none() {
+                return Err("wait_for needs `text` to find, or a `ref` to see.".into());
+            }
+            Act::WaitFor {
+                text: find,
+                target,
+                timeout_ms: arguments
+                    .get("timeout_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(10_000)
+                    .min(desk_browser::WAIT_LIMIT_MS),
+            }
+        }
+        other => return Err(format!("No act {other}.")),
+    })
+}
+
 impl Room {
     /// The app's browser, with the desk's own ports the guard never offers.
     pub fn install_browser(&self, browser: Arc<dyn DeskBrowser>, never_ports: &[u16]) {
@@ -187,11 +269,24 @@ impl Room {
             "links" => Ok(BrowserAnswer::Text(capped(
                 browser.read(persona_id, Reading::Links).await?,
             ))),
+            "click_ref" | "fill" | "select" | "check" | "hover" | "press" | "scroll"
+            | "wait_for" => {
+                let act = act_of(action, arguments)?;
+                let acted = browser.act(persona_id, &act).await?;
+                let note = acted
+                    .note
+                    .map(|note| format!("{note}\n"))
+                    .unwrap_or_default();
+                Ok(BrowserAnswer::Text(format!(
+                    "{note}{}\nRead the page again with text to see what changed; refs from before may be stale.",
+                    page_line(&acted.page)
+                )))
+            }
             "screenshot" => Ok(BrowserAnswer::Png(
                 STANDARD.encode(browser.screenshot(persona_id).await?),
             )),
             other => Err(format!(
-                "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, back, forward and reload."
+                "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
             )),
         }
     }

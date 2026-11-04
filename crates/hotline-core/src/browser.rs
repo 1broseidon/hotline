@@ -58,6 +58,77 @@ pub enum Reading {
     Links,
 }
 
+/// One act on the page, on a ref from the latest text read where it needs
+/// one. Refs are the `e12` marks a text read puts on links and controls.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Act {
+    Click {
+        target: String,
+    },
+    /// Types `text` into a field, replacing what it held; empty clears it.
+    Fill {
+        target: String,
+        text: String,
+    },
+    Select {
+        target: String,
+        values: Vec<String>,
+    },
+    Check {
+        target: String,
+        on: bool,
+    },
+    Hover {
+        target: String,
+    },
+    /// One key, by name (`Enter`, `Tab`, `Escape`, `ArrowDown`…) or a single
+    /// character, to whatever has focus.
+    Press {
+        key: String,
+    },
+    /// To a ref, or down the page by `dy` pixels (up when negative), or a
+    /// screenful when neither is given.
+    Scroll {
+        target: Option<String>,
+        dy: Option<i64>,
+    },
+    /// Until `text` is on the page or `target` is visible.
+    WaitFor {
+        text: Option<String>,
+        target: Option<String>,
+        timeout_ms: u64,
+    },
+}
+
+/// The longest a `wait_for` may wait.
+pub const WAIT_LIMIT_MS: u64 = 15_000;
+
+/// The keys `press` knows by name, besides a single character.
+pub const KEYS: [&str; 15] = [
+    "Enter",
+    "Tab",
+    "Escape",
+    "Backspace",
+    "Delete",
+    "Space",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "Shift+Tab",
+];
+
+/// What an act left: the page it is on, and anything worth saying.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Acted {
+    pub page: Page,
+    pub note: Option<String>,
+}
+
 /// The desktop app's web views, one per teammate, driven by the core.
 #[async_trait]
 pub trait DeskBrowser: Send + Sync {
@@ -66,6 +137,9 @@ pub trait DeskBrowser: Send + Sync {
     async fn open(&self, persona_id: &str, url: &Url) -> Result<Page, String>;
     async fn step(&self, persona_id: &str, step: Step) -> Result<Page, String>;
     async fn read(&self, persona_id: &str, reading: Reading) -> Result<String, String>;
+    /// Does `act`, and waits for a load it starts. The core has checked its
+    /// shape; the app checks the ref is still on the page.
+    async fn act(&self, persona_id: &str, act: &Act) -> Result<Acted, String>;
     /// The visible part of the page as a PNG.
     async fn screenshot(&self, persona_id: &str) -> Result<Vec<u8>, String>;
     /// The page the teammate's browser is on, when it has one.

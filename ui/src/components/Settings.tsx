@@ -233,6 +233,8 @@ export function Settings({
 							defaultBackendId={settings.defaultBackendId}
 							defaultModelId={settings.defaultModelId}
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
+							linkPreviews={settings.linkPreviews}
+							onLinkPreviews={(on) => patch({ linkPreviews: on ? null : false })}
 							onBackend={(id) => patch({ defaultBackendId: id })}
 							onDefaultModel={(id) => patch({ defaultModelId: id })}
 							onProviders={onSection === undefined ? undefined : () => onSection("providers")}

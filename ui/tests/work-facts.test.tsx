@@ -192,11 +192,10 @@ describe("the composer's row, in its five states", () => {
 	test("Reading the web: the site, and the icons of the sites read so far", async () => {
 		const button = await row({ activity: { phase: "search", word: "Reading vercel.com", sites: ["nextjs.org", "github.com", "vercel.com"] }, count: 4 });
 		expect(button.querySelector(".composer-work-word")?.textContent).toBe("Reading vercel.com");
-		expect([...button.querySelectorAll("img.favicon")].map((icon) => icon.getAttribute("src"))).toEqual([
-			"https://nextjs.org/favicon.ico",
-			"https://github.com/favicon.ico",
-			"https://vercel.com/favicon.ico",
-		]);
+		// An icon is only what the desk fetched and keeps (tests/link-previews.test.tsx); the
+		// window never asks a site, and with no desk here it has none to draw, nor a stand-in.
+		expect(button.querySelector(".favicons")).toBeNull();
+		expect(button.querySelectorAll("img").length).toBe(0);
 	});
 
 	test("Needs you: amber, with what waits", async () => {

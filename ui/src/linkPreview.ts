@@ -74,3 +74,50 @@ export function fetchPreview(url: string): Promise<LinkPreview | null> {
 	}
 	return pending;
 }
+
+const icons = new Map<string, string | null>();
+const askingIcons = new Map<string, Promise<string | null>>();
+
+/** A site's icon if this window already has its answer; `null` means it has none. */
+export function knownIcon(site: string): string | null | undefined {
+	return icons.get(site.toLowerCase());
+}
+
+/**
+ * A site's icon as a `data:` URL, asked of the desk once per window. The
+ * desk fetched it once and keeps it; the window never asks the site.
+ */
+export function fetchIcon(site: string): Promise<string | null> {
+	const key = site.toLowerCase();
+	const have = icons.get(key);
+	if (have !== undefined) return Promise.resolve(have);
+	let pending = askingIcons.get(key);
+	if (pending === undefined) {
+		pending = wire
+			.command("link.icon", { site: key })
+			.then(
+				(icon) => (typeof icon === "string" && drawable(icon) ? icon : null),
+				() => null,
+			)
+			.then((icon) => {
+				icons.set(key, icon);
+				return icon;
+			})
+			.finally(() => askingIcons.delete(key));
+		askingIcons.set(key, pending);
+	}
+	return pending;
+}
+
+/** Only a picture the desk handed over as bytes is drawn; an address would be a site asked by the window. */
+export function drawable(source: string | undefined): source is string {
+	return source?.startsWith("data:image/") === true;
+}
+
+/** Forgets every card and icon, for tests. */
+export function forgetPreviews() {
+	known.clear();
+	reading.clear();
+	icons.clear();
+	askingIcons.clear();
+}

@@ -163,11 +163,34 @@ export function useAccent(): string | undefined {
 	return ready ? accent : undefined;
 }
 
+/**
+ * Whether the desk reads the pages agents link to, for a card, its picture
+ * and the site's icon: on unless the person turned it off. Undefined until
+ * the room has answered, so a window asks for none before it knows, and
+ * keeps drawing what it has while a reconnect reads the room again. Off,
+ * the window draws none of them and asks the desk for none.
+ */
+export function useLinkPreviews(): boolean | undefined {
+	// A card or an icon can be drawn where no desk is open, which has no room to ask.
+	const deskId = activeDeskId();
+	const room = deskId === null ? null : roomFor(deskId);
+	const read = () => (room === null ? undefined : linkPreviewsOf(room.snapshot()));
+	return useSyncExternalStore(room?.subscribe ?? noRoom, read, read);
+}
+
+const noRoom = () => () => {};
+
+function linkPreviewsOf(state: RoomState): boolean | undefined {
+	const on = booleanSetting(state.settings.get("linkPreviews"), true);
+	return state.readEpoch.ready || !on ? on : undefined;
+}
+
 /** The room's settings over their defaults. */
 export function useRoomSettings(): {
 	personName: string;
 	accent: string;
 	chapterIdleHours: number;
+	linkPreviews: boolean;
 	defaultBackendId: string;
 	defaultModelId: string | null;
 	lastModelId: string | null;
@@ -186,6 +209,7 @@ export function useRoomSettings(): {
 		personName: stringSetting(events.get("personName"), ""),
 		accent: stringSetting(events.get("accent"), "mint"),
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
+		linkPreviews: booleanSetting(events.get("linkPreviews"), true),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),
 		lastModelId: optionalStringSetting(events.get("lastModelId")),
@@ -326,6 +350,11 @@ function cookieOffersSetting(event: RoomItem | undefined): CookieOfferSettings {
 
 function numberSetting(event: RoomItem | undefined, fallback: number): number {
 	if (!event || event.deleted || typeof event.value !== "number") return fallback;
+	return event.value;
+}
+
+function booleanSetting(event: RoomItem | undefined, fallback: boolean): boolean {
+	if (!event || event.deleted || typeof event.value !== "boolean") return fallback;
 	return event.value;
 }
 

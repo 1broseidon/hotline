@@ -1,0 +1,11 @@
+{
+	"name": "hotline-showcase",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"capture": "node capture.mjs"
+	},
+	"dependencies": {
+		"playwright-core": "1.64.1"
+	}
+}

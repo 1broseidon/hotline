@@ -1,0 +1,13 @@
+{
+  "cut": "2026-11-04T11:00:31.592-06:00",
+  "shots": [
+    {
+      "out": "../public/screens/desk-window.webp",
+      "teammate": "Goldie",
+      "window": [1440, 900],
+      "fromEnd": 540,
+      "open": "The email and roast fields are a single line",
+      "width": 2304
+    }
+  ]
+}

@@ -1,15 +1,54 @@
 # hotline.dev
 
 The landing page: one static file, `public/index.html`, shown in still
-captures of the app (each whole window framed in the Mac's own chrome, the
-desk's from a dev build on a copy of a staged room), plus `og.png`, `favicon.svg`, `_headers`, `robots.txt` and
-`sitemap.xml`. The docs are built into `public/docs/` from `../docs-site`
+captures of the app, plus `og.png`, `favicon.svg`, `_headers`, `robots.txt`
+and `sitemap.xml`. The docs are built into `public/docs/` from `../docs-site`
 and are not tracked. Download links resolve against the latest GitHub
 release at load time, so a release needs no change here.
 
 ```bash
 make site-deploy   # from the repo root: builds the docs, deploys Worker `hotline-site`
 ```
+
+## Captures
+
+The desk on the page is captured by `showcase/capture.mjs`, at 2x on any
+display: headless Chromium draws the window at a device scale of 2, so the
+screen in front of you plays no part. Each capture is framed as the Mac draws
+the window: rounded corners, a hairline edge, and the traffic lights where the
+app seats them.
+
+```bash
+make dev                                   # serves the window on :5174; leave it running
+cargo build -p hotline-cli                 # the `hotline` the capture serves the room with
+cd site/showcase && bun install
+node capture.mjs --room ~/path/to/room     # every shot in shots.json, into public/screens/
+```
+
+`--room` defaults to `.hotline-dev`, `--hotline` to `target/debug/hotline`
+and `--ui` to `http://localhost:5174/`. Use a `hotline` and a window from the
+same tree, or the window may refuse the desk. Chromium is Playwright's own:
+`bunx playwright-core install chromium` if it has none.
+
+The room is never opened. The script copies its streams to a temporary
+directory and cuts every tape and thread at `cut` in `shots.json`, so
+whatever happened after the story the page tells stays out. In the copy each
+teammate works in the temporary directory and has no computer, because a
+teammate's container is named for the teammate and the copy's would be the
+room's own. The copy's desk is stopped and the directory removed when the
+shots are done. A shot names the teammate, the window size, how far back from
+the end of the tape it scrolls (`fromEnd`, in CSS pixels), the text of a
+thread line to open beside it, and the width it is written at.
+
+A still that is not the desk, such as a teammate's computer, is framed with a
+title bar instead:
+
+```bash
+node capture.mjs frame computer.png ../public/screens/computer-window.webp --title "Goldie’s computer"
+```
+
+The computer still on the page is `public/screens/computer-run.webp` from
+commit `a0312a70`.
 
 ## Installers
 

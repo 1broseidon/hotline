@@ -363,11 +363,13 @@ impl Room {
         }
         let answer = self
             .browser_do(persona_id, action, arguments, browser.as_ref())
-            .await?;
-        if !reads {
+            .await;
+        // A move that failed still moved the page, to a warning the person
+        // may be needed for: the PIP follows it too, once there is a page.
+        if !reads && (answer.is_ok() || browser.current(persona_id).is_some()) {
             self.browser_moved(persona_id, browser.as_ref()).await;
         }
-        Ok(answer)
+        answer
     }
 
     async fn browser_do(
@@ -666,6 +668,7 @@ impl Room {
             .await
             .unwrap_or_default();
         let url = browser.current(persona_id).unwrap_or_default();
+        let needs = browser.needs(persona_id);
         let jpeg = png.as_deref().and_then(snapshot_jpeg);
         let now = now_ms();
         {
@@ -689,12 +692,24 @@ impl Room {
                         title,
                         active_at: now,
                         snapshot_at,
+                        needs,
                     },
                     jpeg,
                 },
             );
         }
         let _ = self.info_changes.send(self.info(persona_id));
+    }
+
+    /// The person moved the teammate's browser from its pane: the PIP
+    /// follows, as it does the teammate's moves.
+    pub async fn browser_person_moved(&self, persona_id: &str) {
+        let Some(browser) = self.desk_browser() else {
+            return;
+        };
+        if browser.current(persona_id).is_some() {
+            self.browser_moved(persona_id, browser.as_ref()).await;
+        }
     }
 
     /// The person takes the teammate's browser over, or hands it back.

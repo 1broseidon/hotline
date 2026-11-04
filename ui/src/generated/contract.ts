@@ -222,7 +222,13 @@ activeAt: number,
  * When the snapshot `browser.snapshot` answers was taken; absent before
  * the first.
  */
-snapshotAt?: number, };
+snapshotAt?: number, 
+/**
+ * What the browser waits on the person for, in a few words
+ * ("Certificate expired"): the PIP marks it and stays up until it
+ * clears. Absent while nothing does.
+ */
+needs?: string, };
 
 /**
  * What paid use is budgeted under: teammates and the call assistant are

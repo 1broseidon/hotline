@@ -186,6 +186,11 @@ impl Desk {
         self.room.browser_take(persona_id, taken).await
     }
 
+    /// The person moved a teammate's desk browser from its pane.
+    pub async fn browser_person_moved(&self, persona_id: &str) {
+        self.room.browser_person_moved(persona_id).await;
+    }
+
     pub fn open(root: &Path) -> io::Result<Desk> {
         Self::open_with_store(root, crate::vault::default_store())
     }

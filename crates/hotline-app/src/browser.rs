@@ -136,7 +136,9 @@ pub async fn browser_bar_trust(
             return Err("Take control first: only you can visit past a certificate.".into());
         }
         let browsers: Browsers<'_> = app.state();
-        browsers.visit_anyway(&persona_id).await
+        let visited = browsers.visit_anyway(&persona_id).await;
+        desk.browser_person_moved(&persona_id).await;
+        visited
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -175,7 +177,9 @@ pub async fn browser_bar_go(
                 let url = tauri::Url::parse(typed)
                     .or_else(|_| tauri::Url::parse(&format!("https://{typed}")))
                     .map_err(|_| "That is not a web address.".to_string())?;
-                browsers.person_go(&persona_id, &url).await
+                let went = browsers.person_go(&persona_id, &url).await;
+                desk.browser_person_moved(&persona_id).await;
+                went
             }
             _ => Err("Nothing to go to.".into()),
         }
@@ -917,12 +921,24 @@ mod native {
 
         fn current(&self, persona_id: &str) -> Option<String> {
             let tab = self.tab(persona_id)?;
+            // A refused certificate's warning stands for the address it
+            // refused, as the bar shows it.
+            if let Some(untrusted) = tab.seen.untrusted() {
+                return Some(untrusted.url);
+            }
             let shown = tab
                 .shown
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone();
             (!shown.is_empty()).then_some(shown)
+        }
+
+        fn needs(&self, persona_id: &str) -> Option<String> {
+            self.tab(persona_id)?
+                .seen
+                .untrusted()
+                .map(|untrusted| untrusted.label.to_string())
         }
 
         async fn lend_cookies(

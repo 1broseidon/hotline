@@ -11,12 +11,20 @@ use std::time::Duration;
 struct Fake {
     opened: StdMutex<Vec<String>>,
     acts: StdMutex<Vec<Act>>,
+    /// Set by a load of `expired.example`, which fails as a refused
+    /// certificate does.
+    needs: StdMutex<Option<String>>,
 }
 
 #[async_trait::async_trait]
 impl DeskBrowser for Fake {
     async fn open(&self, _persona_id: &str, url: &url::Url) -> Result<Page, String> {
         self.opened.lock().unwrap().push(url.to_string());
+        if url.host_str() == Some("expired.example") {
+            *self.needs.lock().unwrap() = Some("Certificate expired".into());
+            return Err("expired.example:443 did not open: its security certificate has expired. Your browser shows a warning in its place.".into());
+        }
+        *self.needs.lock().unwrap() = None;
         Ok(Page {
             url: url.to_string(),
             title: "Example Domain".into(),
@@ -60,6 +68,9 @@ impl DeskBrowser for Fake {
     }
     fn current(&self, _persona_id: &str) -> Option<String> {
         self.opened.lock().unwrap().last().cloned()
+    }
+    fn needs(&self, _persona_id: &str) -> Option<String> {
+        self.needs.lock().unwrap().clone()
     }
 }
 
@@ -245,6 +256,39 @@ async fn always_allow_is_kept_in_the_room() {
     assert!(
         gate.granted("ada", "127.0.0.1:5173"),
         "and read back on the next run"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_load_that_fails_for_the_person_still_moves_the_pip_and_marks_it() {
+    let (room, _fake) = with_browser("browser-needs", &[]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    let before = room.browser_view("ada").unwrap();
+    assert_eq!(before.needs, None);
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let failed = tools(&room)
+        .call(BROWSER, &navigate("https://expired.example/"))
+        .await
+        .unwrap_err();
+    assert!(failed.contains("certificate has expired"), "{failed}");
+    let after = room.browser_view("ada").unwrap();
+    assert_eq!(after.needs.as_deref(), Some("Certificate expired"));
+    assert_eq!(after.url, "https://expired.example/");
+    assert!(
+        after.active_at > before.active_at,
+        "the PIP is told it moved"
+    );
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    assert_eq!(
+        room.browser_view("ada").unwrap().needs,
+        None,
+        "the mark clears"
     );
 }
 

@@ -235,6 +235,11 @@ pub trait DeskBrowser: Send + Sync {
     async fn screenshot(&self, persona_id: &str) -> Result<Vec<u8>, String>;
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
+    /// What the teammate's browser waits on the person for, in a few words
+    /// ("Certificate expired"), as the PIP marks it; `None` while nothing.
+    fn needs(&self, _persona_id: &str) -> Option<String> {
+        None
+    }
     /// Puts the person's cookies for one site, lent on a cookie offer, into
     /// the teammate's own web storage. Each is `{name, value, domain, path,
     /// expires, httpOnly, secure, sameSite}`; the values go to WebKit and

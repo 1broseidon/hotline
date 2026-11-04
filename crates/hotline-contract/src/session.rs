@@ -96,6 +96,12 @@ pub struct BrowserView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub snapshot_at: Option<i64>,
+    /// What the browser waits on the person for, in a few words
+    /// ("Certificate expired"): the PIP marks it and stays up until it
+    /// clears. Absent while nothing does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub needs: Option<String>,
 }
 
 /// A teammate's desk browser as a picture: a JPEG of the visible page.

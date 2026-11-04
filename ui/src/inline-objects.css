@@ -419,6 +419,32 @@
 .browser-pip-dot.yours {
 	background: #7fc4f0;
 }
+/* Waiting on the person: the Needs-you amber, as an outline and a chip. */
+.browser-pip.needs {
+	border-color: var(--warn-ink);
+}
+.browser-pip-dot.needs {
+	background: var(--warn-ink);
+}
+.browser-pip-needs {
+	position: absolute;
+	left: 8px;
+	top: 8px;
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 8px 3px 6px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--warn-ink);
+	background: color-mix(in oklch, var(--color-raised, #1c1d22) 88%, transparent);
+	border: 1px solid var(--warn-ink);
+}
+.browser-pip-needs svg {
+	width: 12px;
+	height: 12px;
+}
 @keyframes browser-pip-pulse {
 	50% {
 		opacity: 0.35;

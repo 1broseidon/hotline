@@ -239,6 +239,9 @@ mod native {
     /// How long a move through history is waited for: one served from the
     /// back-forward cache, or within the page, loads nothing.
     const STEP_WAIT: Duration = Duration::from_secs(5);
+    /// How often, and how far apart, a read of an empty page looks again.
+    const EMPTY_RETRIES: usize = 4;
+    const EMPTY_WAIT: Duration = Duration::from_millis(500);
     const SCRIPT_WAIT: Duration = Duration::from_secs(15);
     /// The page's size: a common laptop viewport.
     const WIDTH: f64 = 1280.0;
@@ -810,7 +813,16 @@ mod native {
                 Reading::Links => READ_LINKS,
                 Reading::Title => return Ok(self.script(persona_id, PAGE_INFO).await?.title),
             };
-            let read = self.script(persona_id, body).await?;
+            let mut read = self.script(persona_id, body).await?;
+            // A page that draws itself after it loaded (a sign-in app, a
+            // dashboard) is empty for a moment: look again before saying so.
+            for _ in 0..EMPTY_RETRIES {
+                if !read.text.trim().is_empty() {
+                    break;
+                }
+                tokio::time::sleep(EMPTY_WAIT).await;
+                read = self.script(persona_id, body).await?;
+            }
             let text = if read.text.trim().is_empty() {
                 "(The page has no readable text.)".to_string()
             } else {

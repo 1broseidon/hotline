@@ -3,12 +3,11 @@ import type { ToolOutput, ToolStatus } from "../../generated/contract";
 import type { Step } from "../../scheduledRuns";
 import { ChevronDownIcon, ChevronRightIcon } from "../../icons";
 import { joinThoughts, outputText, stepTitle } from "../../stepText";
-import { sitesOf, summaryOf, summaryWords } from "../../turnFacts";
-import { Favicons } from "../Favicon";
+import { durationText, summaryOf, turnTook } from "../../turnFacts";
 
 /**
- * The machinery between two messages, as one caption: a count, closed
- * until you open it. While the agent is still on it there is no caption at
+ * The machinery between two messages, as one pill: how many steps, how many
+ * failed, and how long they took, closed until you open it. While the agent is still on it there is no caption at
  * all — the typing bubble is the caption. In a conversation the caption
  * opens the work in the pane beside it (`onOpen`); in a thread or a run it
  * opens in place, and the live rows show only if you pressed the bubble.
@@ -32,9 +31,8 @@ export const Steps = memo(function Steps({
 	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
 	const summary = useMemo(() => summaryOf(items), [items]);
-	const sites = useMemo(() => sitesOf(items), [items]);
-	// The sites stand for the sources, so the words leave them out.
-	const words = summary.steps === 0 ? { said: "Thought it through", failed: null } : summaryWords(summary, { sources: false });
+	const took = useMemo(() => turnTook(items), [items]);
+	const said = summary.steps === 0 ? "Thought it through" : `${summary.steps} ${summary.steps === 1 ? "step" : "steps"}`;
 
 	return (
 		<div className="my-2">
@@ -45,9 +43,9 @@ export const Steps = memo(function Steps({
 					aria-expanded={inPane ? paneOpen === true : open}
 					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
 				>
-					<Favicons sites={sites} size={16} total={summary.sources} />
-					<span className="truncate">{words.said}</span>
-					{words.failed !== null && <span className="shrink-0 text-danger">· {words.failed}</span>}
+					<span className="truncate">{said}</span>
+					{summary.failed > 0 && <span className="steps-caption-failed">· {summary.failed} failed</span>}
+					{took !== null && <span className="steps-caption-took">{durationText(took)}</span>}
 					{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
 				</button>
 			)}

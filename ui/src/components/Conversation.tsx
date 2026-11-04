@@ -270,7 +270,7 @@ export function Conversation({
 						</button>
 					</div>
 				)}
-				<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} onOpenScreen={openScreen} />
+				<AskCard key={asking.id} ask={asking} personaId={personaId} thread={dmOf(personaId)} ownerName={persona.name} ownerHash={persona.avatar?.hash} onOpenScreen={openScreen} />
 			</div>
 		);
 	// Stable across renders, so the transcript's rows can skip a render while a reply streams.

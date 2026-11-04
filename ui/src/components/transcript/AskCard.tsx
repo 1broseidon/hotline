@@ -76,23 +76,27 @@ export function AskCard({
 	personaId,
 	thread,
 	ownerName,
+	ownerHash,
 	onOpenScreen,
 }: {
 	ask: Ask;
 	personaId: string;
 	thread: ThreadId;
 	ownerName: string;
+	/** The teammate's picture, for the face on the card. */
+	ownerHash?: string | undefined;
 	onOpenScreen?: (() => void) | undefined;
 }) {
+	const who = { id: personaId, name: ownerName, hash: ownerHash };
 	switch (ask.kind) {
 		case "permission":
-			return <Permission thread={thread} event={ask} />;
+			return <Permission thread={thread} event={ask} who={who} />;
 		case "human_action":
-			return <HumanAction thread={thread} event={ask} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
+			return <HumanAction thread={thread} event={ask} who={who} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
 		case "credential_ask":
 			return <CredentialAsk event={ask} teammate={ownerName} />;
 		case "passkey_ask":
-			return <PasskeyAskCard personaId={personaId} event={ask} />;
+			return <PasskeyAskCard personaId={personaId} event={ask} teammate={ownerName} />;
 		case "secret_use_ask":
 			return <SecretUseAsk event={ask} teammate={ownerName} />;
 		case "cookie_offer":

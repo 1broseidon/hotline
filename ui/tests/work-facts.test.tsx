@@ -80,8 +80,6 @@ describe("a turn's work in words and counts", () => {
 		const summary = summaryOf(recorded());
 		expect(summary).toEqual({ steps: 7, sources: 4, files: 2, failed: 1 });
 		expect(summaryWords(summary)).toEqual({ said: "7 steps · 4 sources · 2 files", failed: "1 failed" });
-		// The history line has the sites' icons for its sources.
-		expect(summaryWords(summary, { sources: false }).said).toBe("7 steps · 2 files");
 	});
 
 	test("each line's fact is one the steps recorded: results, lines in and out, tests passed, a time, a timeout", async () => {

@@ -1,3 +1,4 @@
+import { excerptText } from "./excerpt";
 import type { Attachment, TranscriptEvent } from "./generated/contract";
 import { bubbleId, pacedLive } from "./pacing";
 import { wholeBubbles } from "./reveal";
@@ -16,6 +17,7 @@ export type Run = { top: boolean; bottom: boolean };
 
 export function sideOf(block: Block): Side {
 	if (block.kind === "scheduled" || block.kind === "calls") return "other";
+	if (block.kind === "sent") return "them";
 	if (block.kind !== "event") return null;
 	const event = block.event;
 	if (event.kind === "user") return event.scheduled === undefined ? "me" : "other";
@@ -317,10 +319,20 @@ export function foldReactions(events: TranscriptEvent[]): { lines: Set<string>; 
 	return { lines, on };
 }
 
-/** First line of a say, or nothing — a missing or empty original is not a quote. */
+/** How much of a long message a quote reads before it is cut: more than a reply quote's one line can show. */
+const QUOTE_READS = 600;
+
+/**
+ * What a say said, as the quote over a reply shows it: its words with the
+ * Markdown it was written in resolved, never shown, cut to a line's worth;
+ * its files' names when it came without words; nothing when it is empty, as
+ * a missing or empty original is not a quote.
+ */
 export function quotedLine(event: TranscriptEvent): string | undefined {
 	if (event.kind !== "user" && event.kind !== "agent") return undefined;
-	const line = lineOf(event);
+	// An emphasis left open where the read stopped would show its marks.
+	const words = excerptText(event.text.slice(0, QUOTE_READS)).replace(/\*\*|__|`/g, "");
+	const line = words !== "" ? (words.length > 140 ? `${words.slice(0, 140)}…` : words) : lineOf({ text: "", attachments: event.attachments ?? [] });
 	return line.length > 0 ? line : undefined;
 }
 

@@ -1530,15 +1530,10 @@
 		white-space: pre-wrap;
 	}
 	/* What rides inside your bubble takes its ink rather than the canvas's. */
-	.said-me .quote,
 	.said-me .ticks,
 	.said-me a,
 	.said-me code {
 		color: inherit;
-	}
-	.said-me .quote {
-		border-color: currentColor;
-		opacity: 0.75;
 	}
 	.said-me .ticks {
 		opacity: 0.55;
@@ -1599,25 +1594,6 @@
 	}
 	.ticks-read {
 		color: var(--accent-ink);
-	}
-	/* An emoji the other side put on this bubble, hung off its lower corner. */
-	.reactions {
-		position: absolute;
-		bottom: -10px;
-		right: 8px;
-		display: inline-flex;
-		gap: 2px;
-		padding: 1px 6px;
-		border-radius: var(--radius-chip);
-		background: var(--said-them);
-		box-shadow: 0 0 0 2px var(--canvas);
-		font-size: var(--text-xs);
-		line-height: 16px;
-	}
-	.said-them .reactions {
-		right: auto;
-		left: 8px;
-		background: var(--said-me);
 	}
 	/* What a teammate said aloud on a call, above the reply it wrote to be
 	 * read: a transcript in the annotating voice, one line until pressed.
@@ -1811,25 +1787,6 @@
 		stroke-linejoin: round;
 	}
 
-	/* A reply's quote: a bar and a quieter voice above your own line. */
-	.quote {
-		display: block;
-		width: 100%;
-		margin-bottom: 6px;
-		padding: 2px 0 2px 8px;
-		border-left: 2px solid var(--accent);
-		border-radius: 2px;
-		color: var(--ink-2);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		text-align: left;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.quote:hover {
-		background: var(--fill-hover);
-	}
 
 	/* The hover-only Reply beside an agent's words. R answers it from the
 	 * keyboard, so this stays out of the tab order. */
@@ -1888,42 +1845,6 @@
 	.bubble-emoji {
 		font-size: 15px;
 		line-height: 1;
-	}
-
-	/* The machinery between messages, folded to one quiet caption: a count
-	 * at rest, the current step while the agent is on it. It is a reading,
-	 * not speech, and the chevron only shows itself to a hand. */
-	.steps-caption {
-		display: inline-flex;
-		max-width: 100%;
-		min-height: 20px;
-		align-items: center;
-		gap: 6px;
-		margin-left: -6px;
-		padding: 0 6px;
-		border-radius: var(--radius-control);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		letter-spacing: 0.04em;
-		/* It opens the run, so it annotates (ink-3) rather than sits as furniture. */
-		color: var(--ink-3);
-		transition: color var(--dur-press) var(--ease-out), background var(--dur-press) var(--ease-out);
-	}
-	.steps-caption:hover,
-	.steps-caption[aria-expanded="true"] {
-		color: var(--ink-3);
-		background: var(--fill-hover);
-	}
-	.steps-caption > svg {
-		flex-shrink: 0;
-		opacity: 0;
-		transition: opacity var(--dur-press) var(--ease-out);
-	}
-	.steps-caption:hover > svg,
-	.steps-caption:focus-visible > svg,
-	.steps-caption[aria-expanded="true"] > svg {
-		opacity: 1;
 	}
 
 	/* A colleague's answer, a handoff, or a thread still waiting on one:
@@ -2911,9 +2832,6 @@
 		font-weight: 600;
 		color: var(--ink-3);
 	}
-	.steps-caption .favicons + * {
-		margin-left: 2px;
-	}
 	/* What the turn came to, as counts: the instrument voice. */
 	.composer-work[data-done] .composer-work-word,
 	.composer-work[data-done] .composer-work-failed {
@@ -3662,24 +3580,9 @@
 		color: var(--ink);
 	}
 
-	/* A file a teammate sent, under the words it came with: a picture
-	 * drawn at its own shape, anything else a card that names it. */
-	.sent-file {
-		margin-top: 6px;
-	}
-	.sent-file:first-child {
-		margin-top: 0;
-	}
-	.sent-picture {
-		display: block;
-		width: auto;
-		height: auto;
-		max-width: min(24rem, 100%);
-		max-height: 24rem;
-		border-radius: var(--radius-chip);
-	}
-	/* What you sent, over your bubble: pictures as themselves at the phone's
-	 * width, and other files as cards, all on your side. */
+	/* Files a message carried (inline-lines.css draws them): their place
+	 * held while they are read, and what went wrong when one could not be. */
+	/* What you sent rides over your bubble, on your side. */
 	.own-files {
 		display: flex;
 		max-width: 78%;
@@ -3688,63 +3591,9 @@
 		gap: 4px;
 		margin-bottom: 4px;
 	}
-	.own-picture {
-		display: block;
-		width: 240px;
-		max-width: 100%;
-		padding: 0;
-		overflow: hidden;
-		border-radius: var(--radius-bubble);
-		box-shadow: 0 0 0 var(--hairline) var(--line);
-		cursor: zoom-in;
-	}
-	.own-picture img {
-		display: block;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-	.own-file .sent-card {
-		background: var(--raised);
-		border-radius: var(--radius-card);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
-	}
 	.sent-placeholder {
 		width: min(24rem, 100%);
 		background: var(--fill-hover);
-	}
-	.sent-open {
-		display: block;
-		padding: 0;
-		border-radius: var(--radius-chip);
-		cursor: zoom-in;
-	}
-	.sent-caption {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		margin-top: 4px;
-		font-size: var(--text-sm);
-		color: var(--ink-3);
-	}
-	.sent-card {
-		display: flex;
-		min-width: min(16rem, 100%);
-		max-width: 24rem;
-		align-items: center;
-		gap: 8px;
-		padding: 8px;
-		border-radius: var(--radius-chip);
-		background: var(--fill-hover);
-		font-size: var(--text-sm);
-	}
-	.sent-actions {
-		display: inline-flex;
-		flex-shrink: 0;
-		gap: 4px;
-		margin-left: auto;
 	}
 	.sent-missing,
 	.sent-error {
@@ -5304,9 +5153,9 @@
 	padding-inline: 4px;
 }
 /* That skipping clips paint to the row, so the emoji hung off a bubble's
- * lower edge get the room below it inside the row. */
-.said-group:has(> .speech > .reactions) {
-	padding-bottom: 10px;
+ * lower edge, or off files sent alone, get the room below it inside the row. */
+.said-group:has(> .speech > .reactions, > .said-files > .reactions) {
+	padding-bottom: 14px;
 }
 
 @layer components {

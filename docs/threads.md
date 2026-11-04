@@ -674,8 +674,10 @@ has one hook and one view.
   sides or subagents, or a waiting card change, and in between `withLinks` brings
   rows up to what the links say (a thread that closed reads closed at once, one the
   list has not heard of is a row from its link: `rowOfLink`).
-- **Links, not markers.** `Transcript` draws one `link` line for every kind
-  (`linkLine` in `links.ts`) with an Open that opens the thread in the dock; the
+- **Links, not markers.** `Transcript` draws one `link` row for every kind
+  (`LinkRow`, from `linkRow` in `links.ts`: the kind's glyph with a state dot,
+  the title, what came of it; `linkLine` is its accessible name) with an Open
+  that opens the thread in the dock; the
   `side`, `subagent` and `call` cases draw nothing, since a `threads2` socket is
   sent a link even for one written long ago. A `peer` marker and a delivery still
   open the pair they name, in the dock. The subagent chips at the composer's

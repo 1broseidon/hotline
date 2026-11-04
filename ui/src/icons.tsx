@@ -124,6 +124,37 @@ export const FolderIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/* Save a copy: down into a tray. */
+export const SaveIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M8 2.5v8M5 7.5l3 3 3-3M3 12.5h10" />
+	</Icon>
+);
+
+/* A thread: lines of talk, each shorter than the last. */
+export const ThreadIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M3 3.5h10M3 7.5h7M3 11.5h4" />
+	</Icon>
+);
+
+/* A subagent: a branch off the main line of work. */
+export const BranchIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<circle cx="5" cy="5" r="2" />
+		<circle cx="11" cy="11" r="2" />
+		<path d="M5 7v1.5A2.5 2.5 0 0 0 7.5 11H9" />
+	</Icon>
+);
+
+/* A sign-in: what goes to the vault. */
+export const LockIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
+		<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+	</Icon>
+);
+
 export const FileIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<path d="M9 2.5H4.75A1.25 1.25 0 0 0 3.5 3.75v8.5a1.25 1.25 0 0 0 1.25 1.25h6.5a1.25 1.25 0 0 0 1.25-1.25V6z" />

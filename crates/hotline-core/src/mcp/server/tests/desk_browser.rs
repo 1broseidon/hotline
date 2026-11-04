@@ -32,7 +32,10 @@ impl DeskBrowser for Fake {
     }
     async fn read(&self, _persona_id: &str, reading: Reading) -> Result<String, String> {
         Ok(match reading {
-            Reading::Text => "Page: Example Domain\n\n# Example Domain".into(),
+            Reading::Text => {
+                "Page: Example Domain\n\n# Example Domain\nWelcome back, your token is hunter22"
+                    .into()
+            }
             Reading::Links => "- More information -> https://iana.org/".into(),
             Reading::Title => "Example Domain".into(),
         })
@@ -440,4 +443,160 @@ async fn the_person_takes_control_and_the_teammate_waits() {
         room.browser_take("bob", true).await.is_err(),
         "a browser with no page cannot be taken"
     );
+}
+
+/// A room whose vault holds GITHUB, a login for github.com with a code, and
+/// Ada granted it; `ask` stores it as an ask-me key.
+fn with_login(name: &str, ask: bool) -> (Arc<Room>, Arc<Fake>) {
+    use crate::vault::{StoredSecret, Vault};
+    let log = Log::open(scratch(name));
+    let mut ada = ada();
+    ada.secrets = Some(vec!["GITHUB".into()]);
+    write_persona(&log, ada);
+    write_persona(&log, bob());
+    let vault = Arc::new(
+        Vault::open_with_store(
+            log.root(),
+            log.clone(),
+            Arc::new(crate::credentials::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
+    vault
+        .set_shared(
+            "GITHUB",
+            StoredSecret::Login {
+                r#use: crate::contract::SecretUse::Auto,
+                sites: vec!["https://github.com".into()],
+                username: "ada".into(),
+                password: "hunter22".into(),
+                totp: Some("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".into()),
+            },
+        )
+        .unwrap();
+    if ask {
+        vault
+            .set_secret_use("GITHUB", crate::contract::SecretUse::Ask)
+            .unwrap();
+    }
+    let room = Room::new_with_vault(log, Arc::new(NoKeys), vault);
+    let fake = Arc::new(Fake::default());
+    room.install_browser(fake.clone(), &[]);
+    (room, fake)
+}
+
+fn typed(fake: &Fake) -> Vec<String> {
+    fake.acts
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|act| match act {
+            Act::Fill { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_login_fills_on_its_own_site_and_never_comes_back() {
+    let (room, fake) = with_login("browser-login", false);
+    let fill = |secret: &str| json!({ "action": "fill", "ref": "e2", "secret": secret });
+    tools(&room)
+        .call(BROWSER, &navigate("https://github.com/login"))
+        .await
+        .unwrap();
+    let said = tools(&room)
+        .call(BROWSER, &fill("GITHUB.password"))
+        .await
+        .unwrap();
+    assert!(said.contains("Typed GITHUB.password"), "{said}");
+    assert!(
+        !said.contains("hunter22"),
+        "the value never comes back: {said}"
+    );
+    tools(&room)
+        .call(BROWSER, &fill("GITHUB.username"))
+        .await
+        .unwrap();
+    tools(&room)
+        .call(BROWSER, &fill("GITHUB.code"))
+        .await
+        .unwrap();
+    let values = typed(&fake);
+    assert_eq!(&values[..2], ["hunter22", "ada"]);
+    assert!(values[2].len() == 6 && values[2].chars().all(|c| c.is_ascii_digit()));
+
+    let read = tools(&room)
+        .call(BROWSER, &json!({ "action": "text" }))
+        .await
+        .unwrap();
+    assert!(!read.contains("hunter22"), "{read}");
+    assert!(read.contains("[redacted GITHUB]"), "{read}");
+
+    for (secret, said) in [
+        ("NPM.password", "not one of your secrets"),
+        ("GITHUB.pin", "NAME.username"),
+    ] {
+        let refused = tools(&room).call(BROWSER, &fill(secret)).await.unwrap_err();
+        assert!(refused.contains(said), "{secret}: {refused}");
+    }
+    tools(&room)
+        .call(BROWSER, &navigate("https://github.com.evil.dev/login"))
+        .await
+        .unwrap();
+    let refused = tools(&room)
+        .call(BROWSER, &fill("GITHUB.password"))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("Nothing was typed"), "{refused}");
+    assert_eq!(typed(&fake).len(), 3, "a refused fill types nothing");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ask_me_login_waits_for_the_persons_approval() {
+    let (room, fake) = with_login("browser-ask", true);
+    tools(&room)
+        .call(BROWSER, &navigate("https://github.com/login"))
+        .await
+        .unwrap();
+    let asking = {
+        let tools = tools(&room);
+        tokio::spawn(async move {
+            tools
+                .call(
+                    BROWSER,
+                    &json!({ "action": "fill", "ref": "e2", "secret": "GITHUB.password" }),
+                )
+                .await
+        })
+    };
+    let card = guard_card(&room, "ada").await;
+    let title = card["title"].as_str().unwrap();
+    assert!(
+        title.starts_with("Ada wants to use GITHUB on https://github.com."),
+        "{title}"
+    );
+    assert!(!title.contains("hunter22"));
+    assert!(
+        typed(&fake).is_empty(),
+        "nothing is typed before the answer"
+    );
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), "approve")
+        .await
+        .unwrap();
+    asking.await.unwrap().unwrap();
+    assert_eq!(typed(&fake), ["hunter22"]);
+    // The rest of the sign-in fills without asking again.
+    tools(&room)
+        .call(
+            BROWSER,
+            &json!({ "action": "fill", "ref": "e1", "secret": "GITHUB.username" }),
+        )
+        .await
+        .unwrap();
+    let cards = tape(&room, "ada")
+        .iter()
+        .filter(|event| event["kind"] == "permission" && event["decision"].is_null())
+        .count();
+    assert_eq!(cards, 0);
 }

@@ -75,14 +75,14 @@ enum Asking {
     /// To open a local address, by its host and port.
     Local { origin: String },
     /// To use an ask-me key on a site.
-    Use { name: String },
+    Use,
 }
 
 impl Asking {
     fn options(&self) -> Vec<PermissionOption> {
         match self {
             Self::Local { origin } => options(origin),
-            Self::Use { .. } => vec![
+            Self::Use => vec![
                 PermissionOption {
                     option_id: APPROVE.to_string(),
                     name: "Approve".to_string(),
@@ -109,8 +109,8 @@ impl Asking {
             (Self::Local { origin }, ALLOW_ALWAYS) => {
                 Some((Decision::Always, format!("Always allow {origin}")))
             }
-            (Self::Use { .. }, APPROVE) => Some((Decision::Allow, "Approve".into())),
-            (Self::Use { .. }, ALLOW) => Some((Decision::Always, "Allow for 10 minutes".into())),
+            (Self::Use, APPROVE) => Some((Decision::Allow, "Approve".into())),
+            (Self::Use, ALLOW) => Some((Decision::Always, "Allow for 10 minutes".into())),
             (_, DENY) => Some((Decision::Deny, "Deny".into())),
             _ => None,
         }
@@ -203,8 +203,8 @@ fn act_of(action: &str, arguments: &Value) -> Result<Act, String> {
         "click_ref" => Act::Click { target: target()? },
         "hover" => Act::Hover { target: target()? },
         "fill" => {
-            if arguments.get("secret").is_some() {
-                return Err("Filling a stored secret in the desk browser is not built yet; ask the person to sign in, or use text for anything that is not a secret.".into());
+            if arguments.get("text").is_some() && arguments.get("secret").is_some() {
+                return Err("fill takes `text` or `secret`, not both.".into());
             }
             Act::Fill {
                 target: target()?,
@@ -347,6 +347,13 @@ impl Room {
         arguments: &Value,
         browser: &dyn DeskBrowser,
     ) -> Result<BrowserAnswer, String> {
+        if action == "fill"
+            && let Some(secret) = arguments.get("secret").and_then(Value::as_str)
+        {
+            return self
+                .fill_secret(persona_id, secret, arguments, browser)
+                .await;
+        }
         match action {
             "navigate" => {
                 let link = arguments
@@ -371,12 +378,14 @@ impl Room {
                 let page = browser.step(persona_id, step).await?;
                 Ok(BrowserAnswer::Text(page_line(&page)))
             }
-            "text" => Ok(BrowserAnswer::Text(capped(
+            "text" => Ok(BrowserAnswer::Text(capped(self.redacted(
+                persona_id,
                 browser.read(persona_id, Reading::Text).await?,
-            ))),
-            "links" => Ok(BrowserAnswer::Text(capped(
+            )))),
+            "links" => Ok(BrowserAnswer::Text(capped(self.redacted(
+                persona_id,
                 browser.read(persona_id, Reading::Links).await?,
-            ))),
+            )))),
             "click_ref" | "fill" | "select" | "check" | "hover" | "press" | "scroll"
             | "wait_for" => {
                 let act = act_of(action, arguments)?;
@@ -397,6 +406,198 @@ impl Room {
                 "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
             )),
         }
+    }
+
+    /// `fill` with a stored secret: `NAME.username`, `NAME.password` or
+    /// `NAME.code`, typed by the desk on a page of the login's own sites,
+    /// and never in the answer.
+    async fn fill_secret(
+        &self,
+        persona_id: &str,
+        secret: &str,
+        arguments: &Value,
+        browser: &dyn DeskBrowser,
+    ) -> Result<BrowserAnswer, String> {
+        if arguments.get("text").is_some() {
+            return Err("fill takes `text` or `secret`, not both.".into());
+        }
+        let target = arguments
+            .get("ref")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|target| !target.is_empty())
+            .ok_or("fill needs the `ref` of a field from a text read.")?
+            .to_string();
+        let value = self.secret_value(persona_id, secret, browser).await?;
+        let acted = browser
+            .act(
+                persona_id,
+                &Act::Fill {
+                    target,
+                    text: value,
+                },
+            )
+            .await?;
+        Ok(BrowserAnswer::Text(format!(
+            "Typed {secret} into the field; its value is never shown to you.\n{}",
+            page_line(&acted.page)
+        )))
+    }
+
+    /// The value `NAME.field` stands for on the browser's page now, once its
+    /// grant, its sites and, for an ask-me key, the person, allow it.
+    async fn secret_value(
+        &self,
+        persona_id: &str,
+        secret: &str,
+        browser: &dyn DeskBrowser,
+    ) -> Result<String, String> {
+        use crate::vault::StoredSecret;
+        let (name, field) = secret
+            .rsplit_once('.')
+            .filter(|(_, field)| matches!(*field, "username" | "password" | "code"))
+            .ok_or("secret is NAME.username, NAME.password or NAME.code.")?;
+        let persona = self.persona(persona_id)?;
+        if !persona
+            .secrets
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .any(|granted| granted == name)
+        {
+            return Err(format!(
+                "{name} is not one of your secrets. Ask the person to give it to you, or to sign in themselves."
+            ));
+        }
+        let vault = self
+            .vault
+            .as_ref()
+            .ok_or("This desk has no secrets store.")?;
+        let (mut values, _) = vault
+            .shared_secret_values(&[name.to_string()])
+            .map_err(|error| error.to_string())?;
+        let stored = values
+            .remove(name)
+            .ok_or_else(|| format!("{name} is not stored any more."))?;
+        let StoredSecret::Login {
+            r#use,
+            sites,
+            username,
+            password,
+            totp,
+        } = stored
+        else {
+            return Err(match stored {
+                StoredSecret::Passkey { .. } => format!(
+                    "{name} is a passkey: it signs in by itself when the site asks for one."
+                ),
+                _ => format!("{name} is a variable, which goes in a shell, never into a page."),
+            });
+        };
+        let page = browser
+            .current(persona_id)
+            .and_then(|page| url::Url::parse(&page).ok())
+            .ok_or("Your browser has no page open.")?;
+        if !desk_browser::login_fits(&sites, &page) {
+            return Err(format!(
+                "{name} is for {}, and this page is {}. Nothing was typed.",
+                sites.join(", "),
+                page.origin().ascii_serialization()
+            ));
+        }
+        let value = match field {
+            "username" => username,
+            "password" => password,
+            _ => {
+                let seed = totp.ok_or_else(|| format!("{name} has no code."))?;
+                let now = u64::try_from(now_ms() / 1000).unwrap_or_default();
+                desk_browser::totp_code(&seed, now)
+                    .ok_or_else(|| format!("{name}'s code could not be made."))?
+            }
+        };
+        if r#use == crate::contract::SecretUse::Ask {
+            self.ask_for_key(persona_id, &persona.name, name, field, &page)
+                .await?;
+        }
+        Ok(value)
+    }
+
+    /// An ask-me key fills only once the person approves this use, or has
+    /// allowed it on this site for a while.
+    async fn ask_for_key(
+        &self,
+        persona_id: &str,
+        persona_name: &str,
+        name: &str,
+        field: &str,
+        page: &url::Url,
+    ) -> Result<(), String> {
+        let site = page.origin().ascii_serialization();
+        let key = (persona_id.to_string(), name.to_string(), site.clone());
+        if lock(&self.browser_key_allows)
+            .get(&key)
+            .is_some_and(|until| *until > now_ms())
+        {
+            return Ok(());
+        }
+        let title = format!(
+            "{persona_name} wants to use {name} on {site}.\n\nIt would type its {field} on {page} in its browser. You never see the value, and neither does {persona_name}."
+        );
+        let decision = self
+            .ask_in_browser(persona_id, Asking::Use, title)
+            .await
+            .map_err(|()| {
+                format!("Nobody answered the request to use {name}, so it was not typed.")
+            })?;
+        let until = match decision {
+            Decision::Allow => now_ms() + APPROVED_MS,
+            Decision::Always => now_ms() + ALLOWED_MS,
+            Decision::Deny => {
+                return Err(format!(
+                    "The person denied using {name} here. Do not ask again for it in this task."
+                ));
+            }
+        };
+        lock(&self.browser_key_allows).insert(key, until);
+        Ok(())
+    }
+
+    /// `text` with every value of the teammate's granted secrets replaced by
+    /// its name: a page that shows a key or a password back does not hand it
+    /// to the agent.
+    fn redacted(&self, persona_id: &str, text: String) -> String {
+        use crate::vault::StoredSecret;
+        let Some(vault) = &self.vault else {
+            return text;
+        };
+        let names = self
+            .persona(persona_id)
+            .ok()
+            .and_then(|persona| persona.secrets)
+            .unwrap_or_default();
+        if names.is_empty() {
+            return text;
+        }
+        let Ok((values, _)) = vault.shared_secret_values(&names) else {
+            return text;
+        };
+        let mut text = text;
+        for (name, secret) in values {
+            let hidden: Vec<String> = match secret {
+                StoredSecret::Variable { value } => vec![value],
+                StoredSecret::Login { password, totp, .. } => {
+                    std::iter::once(password).chain(totp).collect()
+                }
+                StoredSecret::Passkey { private_key, .. } => vec![private_key],
+            };
+            for value in hidden
+                .into_iter()
+                .filter(|value| value.chars().count() >= 4)
+            {
+                text = text.replace(&value, &format!("[redacted {name}]"));
+            }
+        }
+        text
     }
 
     fn browser_phase(&self, persona_id: &str) -> Option<BrowserPhase> {

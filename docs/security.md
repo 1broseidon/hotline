@@ -857,6 +857,18 @@ subagent run or a voice front is not offered either.
   bar's own back, forward, reload and address act only while the person has
   it, and its address goes through the same gate: a local address is opened
   by the teammate asking, so the card is raised.
+- **Logins in the desk browser.** Secrets are granted to the teammate
+  (`persona.secrets`), not its computer. `browser fill` with `secret`
+  `NAME.username`, `NAME.password` or `NAME.code` is typed by the desk only
+  when the page's origin fits one of the login's sites by the computer's
+  rule (same scheme and port, the host or a subdomain of it), and the
+  answer names the secret, never its value. A variable is never typed into a
+  page, and a passkey is not typed at all. An ask-me login raises a card on
+  the teammate's chat (Approve, Allow for 10 minutes, Deny) and nothing is
+  typed until it is answered; Approve lets the rest of that sign-in fill for
+  a minute. A text or links read replaces every value of the teammate's
+  granted secrets with `[redacted NAME]`, and an act's answer names a field
+  by its label, never its value.
 - **The PIP and the phone see snapshots.** `browser.snapshot` answers the
   last JPEG the desk took after a teammate's move; the phone seat may read it,
   as it reads the conversation the page came up in.

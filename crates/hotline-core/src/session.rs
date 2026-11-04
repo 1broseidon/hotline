@@ -820,6 +820,9 @@ pub struct Room {
     browser_waits: Mutex<HashMap<String, browser::BrowserWait>>,
     /// Each teammate's desk browser as the PIP shows it, and its snapshot.
     browser_views: Mutex<HashMap<String, browser::Viewed>>,
+    /// Until when an ask-me key may fill on a site without asking again,
+    /// by teammate, key and site.
+    browser_key_allows: Mutex<HashMap<(String, String, String), i64>>,
 }
 
 impl Room {
@@ -840,6 +843,31 @@ impl Room {
             acp_start: acp::StartBounds::default(),
         });
         Self::with_agents(log, keys, agents)
+    }
+
+    /// [`Room::new`] with a vault of the test's own, for secrets a teammate
+    /// uses without a computer: its desk browser.
+    #[cfg(test)]
+    pub(crate) fn new_with_vault(
+        log: Log,
+        keys: Arc<dyn ProviderKeys>,
+        vault: Arc<Vault>,
+    ) -> Arc<Self> {
+        let agents = Arc::new(DeskAgents {
+            keys: keys.clone(),
+            root: log.root().to_path_buf(),
+            log: log.clone(),
+            mcp_vault: None,
+            acp_start: acp::StartBounds::default(),
+        });
+        let nowhere = log.root().join("no-runtime");
+        Self::with_agents_computers_and_vault(
+            log,
+            keys,
+            agents,
+            Computer::with_path(nowhere.as_os_str()),
+            Some(vault),
+        )
     }
 
     /// The production room passes its protected vault to both drivers. Tests
@@ -959,6 +987,7 @@ impl Room {
             browser_gate: Arc::default(),
             browser_waits: Mutex::default(),
             browser_views: Mutex::default(),
+            browser_key_allows: Mutex::default(),
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();

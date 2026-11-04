@@ -39,15 +39,14 @@ pub(crate) fn preamble(
     // values it is told it will never see, and told why, because a model
     // that goes looking for one is a model that was not told the computer
     // redacts them.
+    let has_computer = persona
+        .computer
+        .as_ref()
+        .is_some_and(|computer| computer.enabled);
     let secrets_sentence = match persona
         .secrets
         .as_deref()
-        .filter(|_| {
-            persona
-                .computer
-                .as_ref()
-                .is_some_and(|computer| computer.enabled)
-        })
+        .filter(|_| has_computer)
         .filter(|names| !names.is_empty())
     {
         Some(names) => {
@@ -65,7 +64,18 @@ pub(crate) fn preamble(
                 described.join(", ")
             )
         }
-        None => String::new(),
+        // With no computer, the desk's own browser is where a login is used.
+        None => match persona
+            .secrets
+            .as_deref()
+            .filter(|names| !has_computer && !names.is_empty())
+        {
+            Some(names) => format!(
+                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`; it is typed only on that login's own sites, and that refusal is right. You never see a value, and none is ever read back to you. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                names.join(", ")
+            ),
+            None => String::new(),
+        },
     };
     let goal = persona.goal.trim();
     let identity = if goal.is_empty() {

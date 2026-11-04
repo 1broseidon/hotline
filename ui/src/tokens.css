@@ -88,6 +88,17 @@
 	--bubble-blue: oklch(25% 0.035 242);
 	--bubble-violet: oklch(25% 0.035 285);
 	--bubble-pink: oklch(25% 0.035 328);
+	/* An object a message carries (a table, code, a diagram) sits sunk into
+	 * its bubble as one sheet; its head, a callout and an inline code chip
+	 * take the lifted band. Alpha, so they read on grey and on every tint. */
+	--sheet: oklch(0% 0 0 / 0.24);
+	--sheet-head: oklch(100% 0 0 / 0.025);
+	/* Code's colours on a sheet: keyword, string, number, function. A
+	 * comment is ink-3. */
+	--code-keyword: oklch(78% 0.1 300);
+	--code-string: oklch(80% 0.11 150);
+	--code-number: oklch(82% 0.1 75);
+	--code-function: oklch(80% 0.09 230);
 
 	--warn: oklch(80% 0.14 80);
 	/* Waiting on the person, as words and an outline: the same amber everywhere it asks. */
@@ -200,6 +211,13 @@
 	--bubble-blue: oklch(93% 0.03 242);
 	--bubble-violet: oklch(93% 0.03 285);
 	--bubble-pink: oklch(93% 0.03 328);
+	/* Sunk is darker here too; the head is lifted toward white. */
+	--sheet: oklch(20% 0.01 250 / 0.05);
+	--sheet-head: oklch(100% 0 0 / 0.4);
+	--code-keyword: oklch(48% 0.15 300);
+	--code-string: oklch(47% 0.11 150);
+	--code-number: oklch(50% 0.11 60);
+	--code-function: oklch(47% 0.12 245);
 
 	--warn: oklch(64% 0.15 75);
 	/* Darker as words on a light card, so small text keeps its contrast. */

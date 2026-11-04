@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- What a message carries sits on one sheet in its bubble. A table has a head
+  with its size, Open and Copy (as Markdown); its headings are labels, a
+  column of numbers stands right, and its sources are site chips. Code names
+  its language and file, numbers its lines from six up, colours its syntax,
+  and has Wrap and Copy; a long line scrolls instead of being cut. A diagram
+  is drawn in the desk's own colours, lights a node only where its source
+  marks one, and has Open and Source. Open shows a table or a diagram at full
+  width in the pane beside the conversation; Escape or its close goes back.
+- Headings, lists and inline code read better on every bubble colour. A
+  quote has a plain edge; a GitHub `[!WARNING]` or `[!CAUTION]` alert is an
+  amber callout with its label, and `[!NOTE]`, `[!TIP]` and `[!IMPORTANT]`
+  are labelled callouts.
+
 ### Fixed
 
 - A Claude Code subagent's run shows the prompt it was given once. The

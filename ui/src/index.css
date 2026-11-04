@@ -4912,7 +4912,8 @@
 
 	/* ----------------------------------------------------------- markdown
 	 * Not a document: emphasis, code, links, lists and tables survive because
-	 * a person types those into a chat. Headings arrive as bold text. */
+	 * a person types those into a chat. Lists, headings, quotes and the
+	 * objects a message carries are in inline-objects.css. */
 	.md > :first-child {
 		margin-top: 0;
 	}
@@ -4927,76 +4928,6 @@
 	}
 	.md p {
 		margin: 0.6em 0;
-	}
-	.md ul,
-	.md ol {
-		margin: 0.6em 0;
-		padding-left: 1.4em;
-	}
-	.md ul {
-		list-style: disc;
-	}
-	.md ol {
-		list-style: decimal;
-	}
-	.md li {
-		margin: 0.2em 0;
-	}
-	.md li::marker {
-		color: var(--ink-3);
-	}
-	.md code {
-		font-family: var(--font-mono);
-		font-size: 0.86em;
-		background: var(--fill-code);
-		padding: 0.1em 0.35em;
-		border-radius: var(--radius-chip);
-	}
-	.md pre {
-		margin: 0.6em 0;
-		padding: 10px 12px;
-		border-radius: var(--radius-control);
-		background: var(--fill-code);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		overflow-x: auto;
-	}
-	.md pre code {
-		background: none;
-		padding: 0;
-		font-size: inherit;
-	}
-	/* The copy key sits in the block's corner, shown to a pointer over it. */
-	.code-block {
-		position: relative;
-	}
-	.code-block pre {
-		padding-right: 36px;
-	}
-	.code-copy {
-		position: absolute;
-		top: 6px;
-		right: 6px;
-		display: grid;
-		place-items: center;
-		width: 24px;
-		height: 24px;
-		border-radius: var(--radius-control);
-		color: var(--ink-3);
-		opacity: 0;
-		transition: opacity var(--dur-press) var(--ease-out);
-	}
-	.code-block:hover .code-copy,
-	.code-copy:focus-visible {
-		opacity: 1;
-	}
-	.code-copy:hover {
-		background: var(--fill-hover);
-		color: var(--ink);
-	}
-	.code-copy svg {
-		width: 14px;
-		height: 14px;
 	}
 
 	/* A link's card, under the bubble that wrote the link: the page's picture,
@@ -5050,20 +4981,6 @@
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
 		color: var(--ink-3);
-	}
-	.mermaid-block {
-		margin: 0.6em 0;
-	}
-	.mermaid-block pre {
-		margin: 0;
-	}
-	.mermaid-diagram {
-		display: block;
-		max-width: 100%;
-		height: auto;
-		padding: 12px;
-		border-radius: var(--radius-control);
-		background: var(--fill-code);
 	}
 	/* Anything pressed to open in the viewer. */
 	.picture-open {
@@ -5140,25 +5057,6 @@
 		margin: auto;
 		cursor: zoom-out;
 	}
-	.mermaid-note {
-		margin-top: 4px;
-		font-size: var(--text-sm);
-		color: var(--ink-3);
-	}
-	.mermaid-toggle {
-		margin-top: 4px;
-		font-size: var(--text-sm);
-		color: var(--ink-3);
-	}
-	.mermaid-toggle:hover {
-		color: var(--ink-2);
-	}
-	.md blockquote {
-		margin: 0.6em 0;
-		padding-left: 10px;
-		border-left: 2px solid var(--line-strong);
-		color: var(--ink-2);
-	}
 	.md a {
 		color: var(--accent-ink);
 		text-decoration: underline;
@@ -5167,45 +5065,6 @@
 	}
 	.md a:hover {
 		text-decoration-color: var(--accent-ink);
-	}
-	.md table {
-		border-collapse: collapse;
-		font-size: var(--text-md);
-		line-height: var(--text-md--line-height);
-	}
-	/* A table in a bubble is rows on the bubble, not a grid of boxes: a rule
-	 * under the head and between rows, and no walls. */
-	.md th,
-	.md td {
-		padding: 6px 12px;
-		text-align: left;
-		vertical-align: top;
-		border-bottom: var(--hairline) solid var(--line);
-		/* A bubble breaks its text anywhere so a long word can't push it
-		 * wide, and a table reads each break as room to give up: its columns
-		 * shrank to a letter. A cell breaks between words, so a column is as
-		 * narrow as its longest word, and a table wider than its bubble
-		 * scrolls across instead. */
-		overflow-wrap: break-word;
-	}
-	.md th {
-		vertical-align: bottom;
-	}
-	/* A bubble with a table in it may take the whole column, so the table has
-	 * the room to lay its columns out before it has to scroll. */
-	.speech:has(.md-table) {
-		max-width: 100%;
-	}
-	.md th:first-child,
-	.md td:first-child {
-		padding-left: 0;
-	}
-	.md tr:last-child td {
-		border-bottom: none;
-	}
-	.md th {
-		font-weight: 600;
-		color: var(--ink-2);
 	}
 	.md strong {
 		font-weight: 600;
@@ -5252,10 +5111,6 @@
 	.md-doc input[type="checkbox"] {
 		margin-right: 0.4em;
 		vertical-align: -1px;
-	}
-	.md-doc li:has(> input[type="checkbox"]) {
-		list-style: none;
-		margin-left: -1.2em;
 	}
 }
 

@@ -161,3 +161,26 @@ test("a teammate's bubble colour keeps its words at 12:1 or more in both palette
 		for (const [mode, palette] of [["dark", dark], ["light", light]] as const)
 			expect({ name, mode, words: ratio(palette, "ink", `bubble-${name}`) >= 12 }).toEqual({ name, mode, words: true });
 });
+
+// An object in a message is a sheet sunk into its bubble, and a callout is the
+// lifted band on it; both are alpha, so they are checked over every bubble.
+function ratioOver(palette: Map<string, string>, ink: string, layer: string, bubble: string): number {
+	const under = colour(palette, layer, colour(palette, bubble));
+	const [x, y] = [luminance(colour(palette, ink, under)), luminance(under)].sort((m, n) => n - m);
+	return (x! + 0.05) / (y! + 0.05);
+}
+const bubbles = ["said-them", ...["lime", "green", "teal", "blue", "violet", "pink"].map((name) => `bubble-${name}`)];
+
+test("words and code's colours on a sheet hold 4.5:1 on every bubble in both palettes", () => {
+	for (const ink of ["ink", "ink-2", "ink-3", "code-keyword", "code-string", "code-number", "code-function"])
+		for (const bubble of bubbles)
+			for (const [mode, palette] of [["dark", dark], ["light", light]] as const)
+				expect({ ink, bubble, mode, ok: ratioOver(palette, ink, "sheet", bubble) >= 4.5 }).toEqual({ ink, bubble, mode, ok: true });
+});
+
+test("a callout's words and its label hold 4.5:1 on every bubble in both palettes", () => {
+	for (const ink of ["ink-2", "warn-ink"])
+		for (const bubble of bubbles)
+			for (const [mode, palette] of [["dark", dark], ["light", light]] as const)
+				expect({ ink, bubble, mode, ok: ratioOver(palette, ink, "sheet-head", bubble) >= 4.5 }).toEqual({ ink, bubble, mode, ok: true });
+});

@@ -153,7 +153,7 @@ describe("a diagram", () => {
 
 	test("is not drawn until it comes near the view, and is watched against its scroller", async () => {
 		await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={[diagram]} streaming={[]} live={false} focus={null} />));
-		const block = container.querySelector(".mermaid-block");
+		const block = container.querySelector(".diagram-body");
 		expect(block).not.toBeNull();
 		expect(observed.map((one) => one.target)).toEqual([block as Element]);
 		expect(observed[0]?.root).toBe(container.querySelector(".scroller") as Element);

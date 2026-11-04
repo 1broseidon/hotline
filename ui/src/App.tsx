@@ -7,7 +7,8 @@ import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Dock, type DockState } from "./components/Dock";
-import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
+import { clampDock, dockOverlays, loadDockWidth, saveDockWidth, withObject } from "./dock";
+import { OpenInPane, type PaneObject } from "./components/Sheet";
 import { FlushChrome, Titlebar } from "./ui/Titlebar";
 import { CallBar, DeskCallCard, DeskCallKey } from "./components/Call";
 import { TeamSearch } from "./components/Search";
@@ -285,6 +286,14 @@ export function App() {
 		setDock(next);
 	}, [setInspector, setDock]);
 	const closeDock = useCallback(() => setDock(null), [setDock]);
+	/* A table or a diagram from a message opens at full width in the pane. */
+	const openObject = useCallback(
+		(object: PaneObject) => {
+			setInspector(false);
+			setDock((was) => withObject(was, object));
+		},
+		[setInspector, setDock],
+	);
 	const openThread = useCallback((open: ThreadRef) => {
         if (open.thread.kind === "dm") {
             select(open.thread.key);
@@ -596,6 +605,8 @@ export function App() {
 				)}
 				{/* A pane with no conversation has no band of its own to hang the call from. */}
 				{!conversationShown && callBar}
+				{/* Settings stands where the pane would, so nothing in it opens there. */}
+				<OpenInPane.Provider value={pane === "settings" ? null : openObject}>
 				<div className="relative flex min-h-0 min-w-0 flex-1">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
@@ -716,6 +727,7 @@ export function App() {
 					</div>
 				)}
 				</div>
+				</OpenInPane.Provider>
 			</main>
 			</div>
 			)}

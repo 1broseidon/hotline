@@ -252,6 +252,20 @@ export const CopyIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
+/* Open an object a message carries at full width, in the pane beside the conversation. */
+export const ExpandIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M9.5 2.75h3.75V6.5M6.5 13.25H2.75V9.5M13.25 2.75 9 7M2.75 13.25 7 9" />
+	</Icon>
+);
+
+/* Soft-wrap a block of code: a long line folding back under itself. */
+export const WrapIcon = ({ className }: IconProps) => (
+	<Icon className={className}>
+		<path d="M2.75 4h10.5M2.75 8h8.5a2 2 0 0 1 0 4H8m0 0 1.5-1.5M8 12l1.5 1.5M2.75 12h2.5" />
+	</Icon>
+);
+
 /* A face, for the reaction picker: a mark that stands for the emoji, not one of them. */
 export const SmileIcon = ({ className }: IconProps) => (
 	<Icon className={className}>

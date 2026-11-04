@@ -465,20 +465,30 @@ pub(super) fn update_persona(
             hotline_contract::BUBBLES.join(", ")
         ));
     }
+    let mut changes = patch
+        .as_object()
+        .ok_or("A patch is an object of fields to change.")?
+        .clone();
+    // A client from before secrets were the teammate's own ticks them on
+    // the computer; that tick is the teammate's grant.
+    if let Some(names) = changes
+        .get_mut("computer")
+        .and_then(Value::as_object_mut)
+        .and_then(|computer| computer.remove("secrets"))
+    {
+        changes.entry("secrets").or_insert(names);
+    }
     let mut record = json!(previous);
     let fields = record
         .as_object_mut()
         .expect("a teammate serializes as an object");
-    for (key, value) in patch
-        .as_object()
-        .ok_or("A patch is an object of fields to change.")?
-    {
+    for (key, value) in &changes {
         fields.insert(key.clone(), value.clone());
     }
     fields.insert("id".into(), Value::from(id));
     fields.insert("updatedAt".into(), Value::from(now()));
 
-    let mut updated = Persona::from_record(&record)
+    let mut updated: Persona = serde_json::from_value(record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
     // Checked here, before anything is revoked or written, so a refused
     // folder leaves the teammate exactly as it was.

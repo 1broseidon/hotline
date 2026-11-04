@@ -854,7 +854,8 @@ subagent run or a voice front is not offered either.
   made on `about:blank` with every load refused, then sent on.
 - **Its storage is its own.** Each teammate's view has its own web data
   store, so its cookies and sign-ins are neither Hotline's window's nor
-  another teammate's.
+  another teammate's. The person's own sign-ins reach it only on a host-cookie
+  offer they answer Use (below).
 - **The page cannot reach the shell.** No capability names the browser's
   windows, so a page in one reaches no command. The desk reads the page with
   scripts in a content world of its own, which the page's scripts cannot
@@ -2856,6 +2857,16 @@ narrator leaves the written result available without a new spoken pointer.
   started discovery finishes before Off is saved; subsequent automatic polls
   cannot read browser data. Explicit Sites page discovery remains available
   while off, without lending values.
+- **Into the desk browser:** a teammate with no computer and the desk's
+  browser is offered the site its browser's page is on, on the same card with
+  the same Not now, Never and settings; the card carries `deskBrowser`. Use
+  checks that the teammate is still offered the browser and has no computer
+  running, then the app sets the site's cookies in the teammate's own
+  WKWebsiteDataStore (`crates/hotline-app/src/browser/native/cookies.rs`) and
+  the page reloads. Remove deletes every cookie on the site and its
+  subdomains from that store, open or not, and reloads; the lend is listed
+  in the teammate's Secrets section. A teammate given a computer meanwhile
+  sees its pending card expire, and its browser lend can still be removed.
 - **Residual risk:** approval gives the teammate the person's signed-in powers
   on this site. The computer is already a granted sandbox and can read its own
   saved login. Removing the container copy does not invalidate an exfiltrated
@@ -2874,6 +2885,7 @@ narrator leaves the written result available without a new spoken pointer.
 | Not now quiets a site for that teammate for a day, through switches, stops and restarts; persistent per-teammate Never and Settings undo; unknown, wrong and revoked ids cannot read values | `wire/tests/cookie_offers.rs` `not_now_quiets_a_site_for_a_day_but_never_waits_until_settings_undo`, `a_restart_the_person_did_not_ask_for_keeps_the_card_and_its_answer`, `cookie_offer_refuses_unknown_wrong_teammate_and_revoked_cards_before_reading_values` | Unix |
 | Values stay out of public sinks; a real desk restart expires pending offers and retains removal and preference records | `wire/tests/cookie_offers.rs` `cookie_values_never_reach_tape_room_agent_or_wire_sinks`, `failed_delivery_keeps_a_removal_handle_and_never_echoes_a_cookie_in_errors`; `tests/desk/cookie_offers.rs` `cookie_offers_expire_on_real_desk_restart_while_lends_and_per_teammate_never_survive` | Unix for the sink |
 | Off makes no discovery calls and expires pending cards; selected sites alone are eligible; absent lists allow every site and empty lists none | `wire/tests/cookie_offers.rs` `cookie_offers_off_never_discovers_and_expires_pending_cards_with_an_explanation`, `cookie_offers_selected_sites_only_offer_matches_and_expire_deselected_cards`, `cookie_offers_all_sites_offer_any_discovered_site_and_an_empty_list_offers_none` | Unix |
+| The desk browser's site raises one card, Not now quiets it for a day, Use lends only the site into the teammate's browser and reloads, Remove deletes the site from its store; a teammate given a computer cannot accept a browser card | `wire/tests/cookie_offers/desk_browser.rs` `the_site_the_desk_browser_is_on_raises_one_offer_and_not_now_quiets_it_for_a_day`, `use_lends_the_site_into_the_browser_and_reloads_and_remove_takes_it_back`, `an_offer_for_the_browser_expires_once_the_teammate_has_a_computer_instead`; `ui/tests/cookie-offers.test.tsx` | Unix; WebKit's store by hand |
 | Desk and owner write; phone only reads the preference; host-name discovery is explicit, and invalid domains/settings cannot widen offers | `wire/tests/cookie_offers.rs` `cookie_offer_settings_are_owner_written_phone_read_and_site_discovery_is_explicit`, `cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changing_the_setting` | Unix |
 | The preference survives real desk restarts; clearing restores enabled/all sites | `tests/desk/cookie_offers.rs` `cookie_offer_settings_survive_real_desk_restarts_and_clearing_restores_all_sites` | — |
 

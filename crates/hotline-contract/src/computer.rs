@@ -472,6 +472,11 @@ pub struct CookieOffer {
     pub profile_name: String,
     pub login: String,
     pub status: CookieOfferStatus,
+    /// The lend is for the teammate's desk browser, its own web storage on
+    /// the desk, rather than its computer; Remove takes it back from there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub desk_browser: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

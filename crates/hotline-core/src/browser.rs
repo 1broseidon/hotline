@@ -235,7 +235,22 @@ pub trait DeskBrowser: Send + Sync {
     async fn screenshot(&self, persona_id: &str) -> Result<Vec<u8>, String>;
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
+    /// Puts the person's cookies for one site, lent on a cookie offer, into
+    /// the teammate's own web storage. Each is `{name, value, domain, path,
+    /// expires, httpOnly, secure, sameSite}`; the values go to WebKit and
+    /// nowhere else, so an error never repeats one.
+    async fn lend_cookies(&self, _persona_id: &str, _cookies: &[Value]) -> Result<(), String> {
+        Err(NO_COOKIES.into())
+    }
+    /// Deletes every cookie on `site`, a registrable domain, and its
+    /// subdomains from the teammate's web storage, whether or not its
+    /// browser is open.
+    async fn forget_cookies(&self, _persona_id: &str, _site: &str) -> Result<(), String> {
+        Err(NO_COOKIES.into())
+    }
 }
+
+const NO_COOKIES: &str = "This desk browser cannot hold lent cookies.";
 
 /// Whether an address is this machine or the local network: loopback,
 /// private ranges, link-local, carrier-grade NAT, unique-local IPv6 and the

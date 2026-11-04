@@ -644,3 +644,5 @@ async fn cookie_offer_settings_refuse_invalid_domains_and_shapes_without_changin
         json!({"enabled":false})
     );
 }
+
+mod desk_browser;

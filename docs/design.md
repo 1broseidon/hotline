@@ -1411,6 +1411,15 @@ the host. Values pass only to the authenticated computer login door. Not now
 lasts for this session; Never for this site is a per-teammate room record,
 undone with Undo in Settings → Computer → Sites. Voice cannot answer the card.
 
+A teammate with the desk browser instead of a computer is watched the same
+way, with its browser's current page standing in for `/pages`. Its card
+carries `deskBrowser`, so Use lends into, and Remove takes back from, the
+teammate's own WebKit store rather than a computer's login door: the app
+sets each cookie in that store and the page reloads; Remove deletes every
+cookie on the site and its subdomains there, so a cookie the teammate's own
+visits set on the site goes too. Its lends are listed in the teammate's
+Secrets section, a computer's under its Browser fold.
+
 The room's `cookieOffers` setting defaults to `{enabled: true}` on old and
 new desks. An absent `sites` list means all registrable sites; a list means
 only those sites, and an empty list means none. Settings → Computer owns the

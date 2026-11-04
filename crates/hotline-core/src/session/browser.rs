@@ -283,7 +283,7 @@ impl Room {
         self.browser_gate.clone()
     }
 
-    fn desk_browser(&self) -> Option<Arc<dyn DeskBrowser>> {
+    pub(super) fn desk_browser(&self) -> Option<Arc<dyn DeskBrowser>> {
         self.browser
             .read()
             .unwrap_or_else(PoisonError::into_inner)
@@ -300,6 +300,36 @@ impl Room {
                     .as_ref()
                     .is_some_and(|computer| computer.enabled)
             })
+    }
+
+    /// The desk browser, while this teammate is offered it: where a cookie
+    /// lent to the teammate goes.
+    pub(super) fn lending_browser(&self, persona_id: &str) -> Option<Arc<dyn DeskBrowser>> {
+        if self.offers_browser(persona_id) {
+            self.desk_browser()
+        } else {
+            None
+        }
+    }
+
+    /// The site this teammate's desk browser is on, by its registrable
+    /// domain, as a cookie offer names it.
+    pub(super) fn desk_browser_site(&self, persona_id: &str) -> Option<String> {
+        let page = self.lending_browser(persona_id)?.current(persona_id)?;
+        crate::computer::cookies::lending::site_for_origin(&page)
+    }
+
+    /// The page again after cookies were lent or taken back, so it shows the
+    /// sign-in the teammate has now; the PIP follows.
+    pub(super) async fn browser_reload(&self, persona_id: &str) {
+        let Some(browser) = self.desk_browser() else {
+            return;
+        };
+        if browser.current(persona_id).is_some()
+            && browser.step(persona_id, Step::Reload).await.is_ok()
+        {
+            self.browser_moved(persona_id, browser.as_ref()).await;
+        }
     }
 
     /// The page in this teammate's desk browser, as a PNG, for `send_file`.

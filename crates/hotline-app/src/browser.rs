@@ -165,6 +165,8 @@ mod passkeys;
 
 #[cfg(target_os = "macos")]
 mod native {
+    mod cookies;
+
     use async_trait::async_trait;
     use hotline_core::browser::{Act, Acted, DeskBrowser, Gate, Page, Reading, Step};
     use serde::Deserialize;
@@ -789,6 +791,18 @@ mod native {
                 .ok()
                 .and_then(|window| window.url().ok())
                 .map(|url| url.to_string())
+        }
+
+        async fn lend_cookies(
+            &self,
+            persona_id: &str,
+            cookies: &[serde_json::Value],
+        ) -> Result<(), String> {
+            self.lend(persona_id, cookies).await
+        }
+
+        async fn forget_cookies(&self, persona_id: &str, site: &str) -> Result<(), String> {
+            self.forget(persona_id, site).await
         }
     }
 

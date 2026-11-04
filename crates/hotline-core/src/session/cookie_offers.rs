@@ -1,6 +1,10 @@
 //! The core binds the source, site and live lease before publishing an offer.
 //! A saved lend can be removed, but a saved pending card cannot grant access.
+//! A teammate with a computer is offered the sites its computer's pages are
+//! on and borrows into the computer; one with the desk browser instead is
+//! offered the site that browser is on and borrows into its own web storage.
 use super::*;
+use crate::browser::DeskBrowser;
 use crate::computer::{Ready, cookies::lending, login};
 use crate::contract::{
     CookieOffer, CookieOfferAnswer, CookieOfferBlock, CookieOfferSettings, CookieOfferSite,
@@ -10,6 +14,48 @@ use crate::contract::{
 /// How long Not now keeps a site quiet for a teammate, counted from the
 /// offer: the record is on the tape, so a desk restart keeps it too.
 pub(crate) const NOT_NOW_QUIET_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Where a lend goes, and is taken back from.
+enum Sink {
+    Computer(Ready),
+    Desk(Arc<dyn DeskBrowser>),
+}
+
+impl Sink {
+    async fn put(
+        &self,
+        persona: &str,
+        card: &CookieOffer,
+        cookies: Vec<Value>,
+    ) -> Result<(), String> {
+        match self {
+            Self::Computer(ready) => {
+                let saved = serde_json::json!({"name":card.login,"browser":card.browser_name,"created_at":chrono::Utc::now().to_rfc3339(),"cookies":cookies,"storage":{}});
+                login::deliver(ready, &card.login, &saved).await
+            }
+            Self::Desk(browser) => browser.lend_cookies(persona, &cookies).await,
+        }
+    }
+
+    async fn take_back(&self, persona: &str, card: &CookieOffer) -> Result<(), String> {
+        match self {
+            Self::Computer(ready) => {
+                login::forget(ready, &card.login, std::slice::from_ref(&card.site))
+                    .await
+                    .map(|_| ())
+            }
+            Self::Desk(browser) => browser.forget_cookies(persona, &card.site).await,
+        }
+    }
+
+    /// Where the copy is, as the person is told it was removed.
+    fn place(&self) -> &'static str {
+        match self {
+            Self::Computer(_) => "container",
+            Self::Desk(_) => "browser",
+        }
+    }
+}
 
 #[derive(Default)]
 pub(super) struct CookieWatch {
@@ -75,10 +121,17 @@ impl Room {
         let Some(capability) = watch.capability.clone().filter(CapabilityLease::is_current) else {
             return;
         };
-        let Some(ready) = ready else { return };
-        let Ok(sites) = lending::pages(&ready).await else {
-            return;
+        let sites = match &ready {
+            Some(ready) => match lending::pages(ready).await {
+                Ok(sites) => sites,
+                Err(()) => return,
+            },
+            None => match self.desk_browser_site(persona) {
+                Some(site) => vec![site],
+                None => return,
+            },
         };
+        let desk_browser = ready.is_none();
         let sites: Vec<_> = sites
             .into_iter()
             .filter(|site| settings.allows(site) && !watch.seen.contains(site))
@@ -158,6 +211,7 @@ impl Room {
                 browser_name: source.browser_name().into(),
                 profile_name: source.profile_name().into(),
                 status: CookieOfferStatus::Pending,
+                desk_browser,
             };
             if self.write_cookie_offer(&card).is_err() {
                 continue;
@@ -358,7 +412,7 @@ impl Room {
             .capability
             .clone()
             .ok_or("This cookie offer expired.")?;
-        let ready = watch.ready.clone().ok_or("This cookie offer expired.")?;
+        let ready = watch.ready.clone();
         let (card, source) = watch
             .cards
             .get_mut(id)
@@ -366,13 +420,12 @@ impl Room {
         if card.status != CookieOfferStatus::Pending {
             return Err("This cookie offer was already answered.".into());
         }
-        if !capability.is_current()
-            || self.computers.running(persona).await.as_ref() != Some(&ready)
-        {
+        let sink = self.cookie_sink(persona, card, ready.as_ref()).await;
+        let Some(sink) = sink.filter(|_| capability.is_current()) else {
             card.status = CookieOfferStatus::Expired;
             self.write_cookie_offer(card)?;
             return Err("This cookie offer expired.".into());
-        }
+        };
         match answer {
             CookieOfferAnswer::NotNow => card.status = CookieOfferStatus::Declined,
             CookieOfferAnswer::Never => {
@@ -386,13 +439,16 @@ impl Room {
             CookieOfferAnswer::Use => {
                 let cookies = source.read(&card.site).await?;
                 capability.check()?;
-                if self.computers.running(persona).await.as_ref() != Some(&ready) {
+                if self
+                    .cookie_sink(persona, card, ready.as_ref())
+                    .await
+                    .is_none()
+                {
                     return Err("This computer changed; the cookie offer expired.".into());
                 }
                 if cookies.is_empty() {
                     return Err("This browser no longer has live cookies for the site.".into());
                 }
-                let saved = serde_json::json!({"name":card.login,"browser":card.browser_name,"created_at":chrono::Utc::now().to_rfc3339(),"cookies":cookies,"storage":{}});
                 // Neither browser nor computer error bodies are trusted sinks:
                 // either endpoint could echo a value it was handed.
                 // Save the removal handle before any bytes leave: after a
@@ -402,30 +458,30 @@ impl Room {
                     card.status = CookieOfferStatus::Pending;
                     return Err(error);
                 }
-                let delivered = login::deliver(&ready, &card.login, &saved).await;
+                let delivered = sink.put(persona, card, cookies).await;
+                let place = sink.place();
                 if delivered.is_err() || !capability.is_current() {
-                    if login::forget(&ready, &card.login, std::slice::from_ref(&card.site))
-                        .await
-                        .is_ok()
-                    {
+                    if sink.take_back(persona, card).await.is_ok() {
                         card.status = if capability.is_current() {
                             CookieOfferStatus::Pending
                         } else {
                             CookieOfferStatus::Expired
                         };
                         self.write_cookie_offer(card)?;
-                        return Err(
-                            "Could not lend the cookies. The container copy was removed.".into(),
-                        );
+                        return Err(format!(
+                            "Could not lend the cookies. The {place} copy was removed."
+                        ));
                     }
-                    return Err("Sign-in could not be confirmed. Use Remove to take the container copy back.".into());
+                    return Err(format!(
+                        "Sign-in could not be confirmed. Use Remove to take the {place} copy back."
+                    ));
                 }
                 card.status = CookieOfferStatus::Lent;
             }
         }
         if let Err(error) = self.write_cookie_offer(card) {
             if card.status == CookieOfferStatus::Lent {
-                let _ = login::forget(&ready, &card.login, std::slice::from_ref(&card.site)).await;
+                let _ = sink.take_back(persona, card).await;
                 // The durable record is still unconfirmed and removable.
                 card.status = CookieOfferStatus::Unconfirmed;
             }
@@ -435,9 +491,31 @@ impl Room {
         drop(held_watch);
         drop(policy_guard);
         if card.status == CookieOfferStatus::Lent {
+            if card.desk_browser {
+                self.browser_reload(persona).await;
+            }
             self.tell_cookie_outcome(&card, false).await;
         }
         Ok(())
+    }
+
+    /// Where an answered card's cookies go now: the computer the card was
+    /// offered for, still running, or the desk browser the teammate is still
+    /// offered with no computer running. Anything else expires the card.
+    async fn cookie_sink(
+        &self,
+        persona: &str,
+        card: &CookieOffer,
+        ready: Option<&Ready>,
+    ) -> Option<Sink> {
+        if self.computers.running(persona).await.as_ref() != ready {
+            return None;
+        }
+        match ready {
+            Some(ready) if !card.desk_browser => Some(Sink::Computer(ready.clone())),
+            None if card.desk_browser => self.lending_browser(persona).map(Sink::Desk),
+            _ => None,
+        }
     }
 
     pub async fn computer_cookie_remove(
@@ -469,21 +547,33 @@ impl Room {
             })
             .ok_or("This cookie lend is no longer present.")?;
         let teammate = self.persona(persona)?;
-        if !teammate.computer.as_ref().is_some_and(|c| c.enabled) {
-            return Err("Enable the teammate's computer to remove this lend.".into());
+        if card.desk_browser {
+            // The teammate's web storage outlives its browser and a computer
+            // it was given since, so the lend is taken back from either way.
+            let browser = self
+                .desk_browser()
+                .ok_or("Open Hotline's window to remove this lend from the teammate's browser.")?;
+            Sink::Desk(browser)
+                .take_back(persona, &card)
+                .await
+                .map_err(|_| "The teammate's browser could not remove this lend. Retry.")?;
+        } else {
+            if !teammate.computer.as_ref().is_some_and(|c| c.enabled) {
+                return Err("Enable the teammate's computer to remove this lend.".into());
+            }
+            let settings = room::settings(&self.log);
+            let ready = self
+                .computers
+                .ensure_running(
+                    &teammate,
+                    &teammate.cwd,
+                    crate::computer::preferred_runtime(&settings),
+                    crate::computer::preferred_image(&settings).as_deref(),
+                    self.pull_reporter(persona),
+                )
+                .await?;
+            Sink::Computer(ready).take_back(persona, &card).await.map_err(|_| "The computer could not remove this lend. Check that it is up to date, then retry.")?;
         }
-        let settings = room::settings(&self.log);
-        let ready = self
-            .computers
-            .ensure_running(
-                &teammate,
-                &teammate.cwd,
-                crate::computer::preferred_runtime(&settings),
-                crate::computer::preferred_image(&settings).as_deref(),
-                self.pull_reporter(persona),
-            )
-            .await?;
-        login::forget(&ready, &card.login, std::slice::from_ref(&card.site)).await.map_err(|_| "The computer could not remove this lend. Check that it is up to date, then retry.")?;
         card.status = CookieOfferStatus::Removed;
         self.write_cookie_offer(&card)?;
         if let Some((live, _)) = watch.cookies.cards.get_mut(id) {
@@ -491,21 +581,31 @@ impl Room {
         }
         drop(watch);
         drop(policy_guard);
+        if card.desk_browser {
+            self.browser_reload(persona).await;
+        }
         self.tell_cookie_outcome(&card, true).await;
         Ok(())
     }
 
     async fn tell_cookie_outcome(self: &Arc<Self>, card: &CookieOffer, removed: bool) {
-        let text = if removed {
-            format!(
+        let text = match (removed, card.desk_browser) {
+            (true, false) => format!(
                 "The person took back the session on {} from {}. Its cookies were removed from your computer. Stop using that sign-in.",
                 card.site, card.browser_name
-            )
-        } else {
-            format!(
+            ),
+            (true, true) => format!(
+                "The person took back the session on {} from {}. Its cookies were removed from your browser, and the page reloaded. Stop using that sign-in.",
+                card.site, card.browser_name
+            ),
+            (false, false) => format!(
                 "The person lent their {} cookies for {}. Your computer is signed in as them; you may reload the page.",
                 card.browser_name, card.site
-            )
+            ),
+            (false, true) => format!(
+                "The person lent their {} cookies for {}. Your browser is signed in as them, and the page reloaded: read it again.",
+                card.browser_name, card.site
+            ),
         };
         let id = format!("{}:{}", card.id, if removed { "removed" } else { "lent" });
         let _ = self

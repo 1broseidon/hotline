@@ -309,8 +309,11 @@ pub(super) fn watch(room: Weak<Room>) {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let Some(room) = room.upgrade() else { return };
             let mut personas: HashSet<String> = lock(&room.secret_uses).keys().cloned().collect();
+            // A teammate without a computer has the desk browser, when the
+            // desk has one, and is offered cookies for the site it is on.
+            let desk_browser = room.desk_browser().is_some();
             for persona in room::roster(&room.log) {
-                if persona.computer.as_ref().is_some_and(|c| c.enabled) {
+                if desk_browser || persona.computer.as_ref().is_some_and(|c| c.enabled) {
                     personas.insert(persona.id);
                 }
             }

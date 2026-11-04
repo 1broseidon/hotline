@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { isDesktop, platform } from "../../native";
+import { CookieLends } from "../CookieLends";
 import { PasskeyArm } from "../PasskeyArm";
 import { TeammateSecrets } from "../Secrets";
 import { FoldRow } from "./rows";
@@ -11,7 +12,9 @@ import { FoldRow } from "./rows";
  * list. Without a computer, the desk's own browser (the Mac app's) types
  * its logins and signs in with its passkeys, and a passkey for it is made
  * here; with neither, nothing uses the ticks yet, and the section says so
- * rather than let a tick look like it did something.
+ * rather than let a tick look like it did something. In the fold, below
+ * the ticks, the person's sign-ins lent into the teammate's desk browser,
+ * each with Remove.
  */
 export function SecretRows({
 	personaId,
@@ -38,7 +41,12 @@ export function SecretRows({
 			<h3 className="label">Secrets</h3>
 			<div className="grouped">
 				<FoldRow title="Granted" value={granted.length === 0 ? "none ticked" : `${granted.length} ticked`} open={open} onToggle={() => setOpen((was) => !was)} />
-				{open && <TeammateSecrets granted={granted} disabled={disabled} onChange={onChange} />}
+				{open && (
+					<>
+						<TeammateSecrets granted={granted} disabled={disabled} onChange={onChange} />
+						<CookieLends personaId={personaId} deskBrowser disabled={disabled} />
+					</>
+				)}
 				{deskBrowser && <PasskeyArm personaId={personaId} teammate={teammate} desk disabled={disabled} onStored={stored} />}
 			</div>
 			{deskBrowser && granted.length > 0 && <p className="group-hint">Its browser types these logins and signs in with these passkeys. A variable needs a computer's shell.</p>}

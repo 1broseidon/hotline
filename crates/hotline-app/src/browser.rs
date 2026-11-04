@@ -214,6 +214,7 @@ mod native {
     };
     use tokio::sync::{oneshot, watch};
 
+    mod full_page;
     mod guard;
     mod hands;
     mod trust;
@@ -1027,6 +1028,14 @@ mod native {
                 .await
                 .map_err(|_| "The page could not be drawn in time.".to_string())?
                 .map_err(|_| "The page closed before it was drawn.".to_string())?
+        }
+
+        async fn full_page(
+            &self,
+            persona_id: &str,
+            most: usize,
+        ) -> Result<hotline_core::browser::FullPage, String> {
+            full_page::look(self, persona_id, most).await
         }
 
         fn current(&self, persona_id: &str) -> Option<String> {

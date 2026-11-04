@@ -19,7 +19,7 @@ const SNAPSHOT_WIDTH: u32 = 960;
 
 /// What the person is told the teammate's acts answer while they have its
 /// browser.
-const TAKEN: &str = "The person has taken over your browser and is using it now. Wait for them to hand it back: you can still read the page with text, links and screenshot, but navigating and acting wait until then.";
+const TAKEN: &str = "The person has taken over your browser and is using it now. Wait for them to hand it back: you can still read the page with text, links and screenshot, but navigating, acting and a full-page screenshot, which scrolls, wait until then.";
 
 /// A teammate's desk browser as the room shows it.
 #[derive(Clone)]
@@ -48,10 +48,18 @@ fn snapshot_jpeg(png: &[u8]) -> Option<Vec<u8>> {
     Some(jpeg)
 }
 
-/// What a browser call answers: words, or a picture of the page.
+/// The most pictures a full-page look answers: enough for most articles,
+/// few enough that one call stays a glance.
+const FULL_PAGE_PICTURES: usize = 4;
+
+/// What a browser call answers: words, or pictures of the page, top first.
 pub(crate) enum BrowserAnswer {
     Text(String),
-    Png(String),
+    /// Base64 PNGs, and whether the page goes on below the last.
+    Pictures {
+        pngs: Vec<String>,
+        more: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -357,7 +365,10 @@ impl Room {
             .get("action")
             .and_then(Value::as_str)
             .ok_or("browser needs an `action`.")?;
-        let reads = matches!(action, "text" | "links" | "screenshot");
+        // A full-page look scrolls the page, so it waits, as an act does,
+        // while the person is using it.
+        let full_page = arguments.get("full_page").and_then(Value::as_bool) == Some(true);
+        let reads = matches!(action, "text" | "links") || (action == "screenshot" && !full_page);
         if let Ok(persona) = self.persona(persona_id) {
             browser.name_teammate(persona_id, &persona.name);
         }
@@ -434,9 +445,21 @@ impl Room {
                     page_line(&acted.page)
                 )))
             }
-            "screenshot" => Ok(BrowserAnswer::Png(
-                STANDARD.encode(browser.screenshot(persona_id).await?),
-            )),
+            "screenshot" if arguments.get("full_page").and_then(Value::as_bool) == Some(true) => {
+                let page = browser.full_page(persona_id, FULL_PAGE_PICTURES).await?;
+                Ok(BrowserAnswer::Pictures {
+                    pngs: page
+                        .pictures
+                        .iter()
+                        .map(|png| STANDARD.encode(png))
+                        .collect(),
+                    more: page.more,
+                })
+            }
+            "screenshot" => Ok(BrowserAnswer::Pictures {
+                pngs: vec![STANDARD.encode(browser.screenshot(persona_id).await?)],
+                more: false,
+            }),
             other => Err(format!(
                 "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
             )),

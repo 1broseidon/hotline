@@ -3,7 +3,8 @@
 //! guard card a local address raises and each answer to it.
 
 use super::*;
-use crate::browser::{Act, Acted, DeskBrowser, Page, Reading, Step};
+use crate::browser::{Act, Acted, DeskBrowser, FullPage, Page, Reading, Step};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
@@ -16,6 +17,18 @@ struct Fake {
     needs: StdMutex<Option<String>>,
     /// The names the core tagged the teammate's pointer with.
     named: StdMutex<Vec<String>>,
+    /// How many viewports tall the page is, for a full-page look.
+    viewports: StdMutex<u32>,
+}
+
+/// A blank PNG 4 wide and `height` tall, so a picture's height says which
+/// one it is.
+fn png(height: u32) -> Vec<u8> {
+    let mut png = Vec::new();
+    image::RgbImage::new(4, height)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    png
 }
 
 #[async_trait::async_trait]
@@ -62,11 +75,16 @@ impl DeskBrowser for Fake {
         })
     }
     async fn screenshot(&self, _persona_id: &str) -> Result<Vec<u8>, String> {
-        let mut png = Vec::new();
-        image::RgbImage::new(4, 3)
-            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-            .unwrap();
-        Ok(png)
+        Ok(png(3))
+    }
+    /// The page's viewports from the top, the first 1 tall, the second 2.
+    async fn full_page(&self, _persona_id: &str, most: usize) -> Result<FullPage, String> {
+        let viewports = *self.viewports.lock().unwrap();
+        let shown = viewports.min(u32::try_from(most).unwrap());
+        Ok(FullPage {
+            pictures: (1..=shown).map(png).collect(),
+            more: viewports > shown,
+        })
     }
     fn current(&self, _persona_id: &str) -> Option<String> {
         self.opened.lock().unwrap().last().cloned()
@@ -399,6 +417,95 @@ async fn send_file_posts_the_browser_page_to_the_person() {
     assert!(refused.contains("no desk browser"), "{refused}");
 }
 
+/// What a screenshot answers an MCP client: each picture's height, in
+/// order, and the note after them.
+async fn looked(room: &Arc<Room>, arguments: Value) -> (Vec<u32>, String) {
+    let served = serve(tools(room)).await.unwrap();
+    let connected = client()
+        .serve(transport(served.url(), served.token()))
+        .await
+        .unwrap();
+    let called = connected
+        .peer()
+        .call_tool(
+            CallToolRequestParams::new(BROWSER)
+                .with_arguments(arguments.as_object().unwrap().clone()),
+        )
+        .await
+        .unwrap();
+    connected.cancel().await.ok();
+    assert_ne!(called.is_error, Some(true), "{:?}", called.content);
+    let last = called.content.last().and_then(|block| block.as_text());
+    let note = last.map(|text| text.text.clone()).unwrap_or_default();
+    let heights = called
+        .content
+        .iter()
+        .filter_map(|block| block.as_image())
+        .map(|image| {
+            assert_eq!(image.mime_type, "image/png");
+            image::load_from_memory(&STANDARD.decode(&image.data).unwrap())
+                .unwrap()
+                .height()
+        })
+        .collect();
+    assert_eq!(
+        called.content.len(),
+        called
+            .content
+            .iter()
+            .filter(|block| block.as_image().is_some())
+            .count()
+            + 1,
+        "pictures, then one note"
+    );
+    (heights, note)
+}
+
+/// A full-page look answers the page top to bottom, at most four
+/// pictures, and says when the page goes on; a plain screenshot is one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_page_look_answers_the_page_top_to_bottom() {
+    let (room, fake) = with_browser("browser-full-page", &[]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    let full = json!({ "action": "screenshot", "full_page": true });
+
+    *fake.viewports.lock().unwrap() = 3;
+    let (heights, note) = looked(&room, full.clone()).await;
+    assert_eq!(heights, [1, 2, 3]);
+    assert!(note.starts_with("These pictures are yours"), "{note}");
+    assert!(!note.contains("goes on"), "{note}");
+
+    *fake.viewports.lock().unwrap() = 6;
+    let (heights, note) = looked(&room, full.clone()).await;
+    assert_eq!(heights, [1, 2, 3, 4]);
+    assert!(
+        note.ends_with("The page goes on below; scroll and look again."),
+        "{note}"
+    );
+
+    *fake.viewports.lock().unwrap() = 1;
+    let (heights, short) = looked(&room, full).await;
+    assert_eq!(heights, [1]);
+    let (heights, plain) = looked(&room, json!({ "action": "screenshot" })).await;
+    assert_eq!(heights, [3]);
+    assert_eq!(
+        short, plain,
+        "a short page answers as a plain screenshot does"
+    );
+
+    let refused = tools(&room)
+        .call(
+            BROWSER,
+            &json!({ "action": "screenshot", "full_page": true }),
+        )
+        .await
+        .unwrap_err();
+    assert!(refused.contains("cannot be handed a picture"), "{refused}");
+}
+
 /// Each act reaches the browser in the shape it was asked for, and one
 /// that is malformed never touches the page.
 #[tokio::test(flavor = "multi_thread")]
@@ -512,6 +619,14 @@ async fn the_person_takes_control_and_the_teammate_waits() {
         .await
         .unwrap_err();
     assert!(refused.contains("taken over"), "{refused}");
+    let scrolls = tools(&room)
+        .call(
+            BROWSER,
+            &json!({ "action": "screenshot", "full_page": true }),
+        )
+        .await
+        .unwrap_err();
+    assert!(scrolls.contains("taken over"), "{scrolls}");
     tools(&room)
         .call(BROWSER, &json!({ "action": "text" }))
         .await

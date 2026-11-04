@@ -165,6 +165,16 @@ impl Desk {
         self.room.browser_gate()
     }
 
+    /// A page's passkey call in a teammate's desk browser, answered with the
+    /// teammate's own passkey, or the refusal the page hears.
+    pub async fn browser_passkey(
+        &self,
+        persona_id: &str,
+        request: &crate::browser::authenticator::Request,
+    ) -> Result<serde_json::Value, crate::browser::authenticator::Refusal> {
+        self.room.browser_passkey(persona_id, request).await
+    }
+
     /// A teammate's desk browser as the pane's bar shows it.
     pub fn browser_now(&self, persona_id: &str) -> Option<crate::contract::BrowserView> {
         self.room.browser_view(persona_id)

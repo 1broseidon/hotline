@@ -12,6 +12,8 @@
 //! public site sends the browser to on its own is held to the same answers
 //! by [`Gate::admits`], which the app asks before every top-level load.
 
+pub mod authenticator;
+
 use crate::log::{Log, StreamId};
 use async_trait::async_trait;
 use serde_json::{Value, json};

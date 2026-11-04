@@ -600,3 +600,5 @@ async fn an_ask_me_login_waits_for_the_persons_approval() {
         .count();
     assert_eq!(cards, 0);
 }
+
+mod passkeys;

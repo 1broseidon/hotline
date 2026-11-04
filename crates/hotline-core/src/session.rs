@@ -92,6 +92,7 @@ mod sides;
 mod start;
 pub(crate) use sides::preview_line;
 pub(crate) mod browser;
+mod browser_passkeys;
 mod stopping;
 mod threads;
 mod turns;
@@ -823,6 +824,10 @@ pub struct Room {
     /// Until when an ask-me key may fill on a site without asking again,
     /// by teammate, key and site.
     browser_key_allows: Mutex<HashMap<(String, String, String), i64>>,
+    /// A page's request to make a passkey in a teammate's desk browser,
+    /// waiting for the person's answer on its card, by teammate
+    /// (`session/browser_passkeys.rs`).
+    browser_passkey_asks: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
 }
 
 impl Room {
@@ -988,6 +993,7 @@ impl Room {
             browser_waits: Mutex::default(),
             browser_views: Mutex::default(),
             browser_key_allows: Mutex::default(),
+            browser_passkey_asks: Mutex::default(),
         });
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();

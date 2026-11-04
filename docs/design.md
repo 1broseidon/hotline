@@ -456,8 +456,9 @@ are withdrawn. A failed first briefing is not treated as a successful restoratio
 Error cards use sanitized structured details carried inside the existing notice
 text, after a plain-language title and summary. The JSONL event shape, segment
 layout and importer remain byte-compatible; older clients can still read the
-notice. The desktop expands details on demand, including plain-text legacy
-errors. Image normalization and provider research are in [image input](image-input.md).
+notice. The desktop's card leads with what happened in the report's own words,
+the title and summary, or a plain-text legacy error's first line split at its
+colon, and expands the raw details on demand. Image normalization and provider research are in [image input](image-input.md).
 
 The session vocabulary is ACP's: a prompt is content blocks, an update is a
 session update, a permission is a request with options. The in-process

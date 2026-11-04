@@ -33,18 +33,21 @@ test("a call row follows its own turn and then its parked link, and still opens 
 			<Transcript personaId="ada" name="Ada" events={[link]} streaming={[]} live={false} focus={null}
 				workingCalls={workingCalls} onOpenThread={(ref) => opened.push(ref.thread.key)} />,
 		));
-		return container.querySelector("button.rule-line")!;
+		return container.querySelector<HTMLButtonElement>("button.link-row")!;
 	};
-	expect((await draw(["c1"])).textContent).toBe("Release checks · running· Open");
-	expect((await draw(["other-call"])).textContent).toBe("Release checks · open· Open");
+	const said = (row: HTMLButtonElement) => [".link-row-title", ".link-row-kind", ".link-row-outcome", ".link-row-open"].map((part) => row.querySelector(part)?.textContent);
+	expect(said(await draw(["c1"]))).toEqual(["Release checks", "Call", "· Running", "Open ›"]);
+	expect((await draw(["c1"])).querySelector(".link-row-dot")?.getAttribute("data-tone")).toBe("live");
+	expect(said(await draw(["other-call"]))).toEqual(["Release checks", "Call", "· Open", "Open ›"]);
 	link = { ...link, state: "parked" };
 	const parked = await draw([]);
-	expect(parked.textContent).toBe("Release checks · parked· Open");
+	expect(said(parked)).toEqual(["Release checks", "Call", "· Parked", "Open ›"]);
+	expect(parked.querySelector(".link-row-dot")?.getAttribute("data-tone")).toBe("quiet");
 	expect(parked.getAttribute("aria-label")).toBe("Release checks · parked. Open it");
-	await act(async () => (parked as HTMLButtonElement).click());
+	await act(async () => parked.click());
 	expect(opened).toEqual(["c1"]);
 	// A resumed turn can arrive before the rewritten link.
-	expect((await draw(["c1"])).textContent).toBe("Release checks · running· Open");
+	expect(said(await draw(["c1"]))[2]).toBe("· Running");
 });
 
 test("a call thread folds speech updates and opens work results as work", async () => {
@@ -95,7 +98,9 @@ test("call cards link home and home cards name and open their call", async () =>
     await draw("call", true);
     expect(container.textContent).toContain("Settled: Use blue?");
     await draw("dm", true);
-    expect(container.textContent).toContain("Needed you · Yes");
+    // Settled, the card folds to one line: how it ended, what was asked, who asked.
+    expect(container.querySelector(".ask-settled .ask-chip")?.textContent).toBe("Yes");
+    expect(container.querySelector(".ask-settled")?.textContent).toContain("Use blue?");
 });
 
 test("a six-file call result is one compact message with every file's actions and metadata", async () => {
@@ -106,14 +111,16 @@ test("a six-file call result is one compact message with every file's actions an
 	await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={[event]} streaming={[]} live={false} focus={null} />));
 	expect(container.querySelectorAll(".said-group")).toHaveLength(1);
 	expect(container.textContent).toContain("From the call");
-	const files = [...container.querySelectorAll(".sent-card")];
+	expect(container.querySelectorAll(".file-block")).toHaveLength(1);
+	expect(container.querySelector(".file-block-head")?.textContent).toBe("6 files · 48 BSave all");
+	const files = [...container.querySelectorAll(".file-line")];
 	expect(files).toHaveLength(6);
 	for (const [i, file] of files.entries()) {
 		expect(file.textContent).toContain(`note-${i}.txt`);
 		expect(file.textContent).toContain(i % 2 === 0 ? "Created" : "Edited");
 		expect(file.textContent).toContain("8 B");
 		expect([...file.querySelectorAll("button")].map(button => button.textContent)).toContain("Open");
-		expect([...file.querySelectorAll("button")].map(button => button.textContent)).toContain("Save…");
+		expect([...file.querySelectorAll("button")].map(button => button.textContent)).toContain("Save");
 	}
 });
 
@@ -130,7 +137,7 @@ test("every call file opens its own stored bytes as text without executing marku
 		const event: import("../src/generated/contract").TranscriptEvent = { kind: "agent", id: "open-files", ts: 1, text: "6 files", from: { kind: "call", thread: "c1" }, attachments: Array.from({ length: 6 }, (_, i) => ({ kind: "file", name: `note-${i}.txt`, path: `/files/${i}`, created: true, size: 8 })) };
 		await act(async () => root.render(<Transcript personaId="ada" name="Ada" events={[event]} streaming={[]} live={false} focus={null} />));
 		for (let index = 0; index < 6; index++) {
-			const card = container.querySelectorAll(".sent-card")[index]!;
+			const card = container.querySelectorAll(".file-line")[index]!;
 			const open = [...card.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Open")!;
 			await act(async () => open.click());
 			const dialog = document.querySelector('[role="dialog"]')!;

@@ -1,139 +1,164 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Attachment, FileChunk } from "../generated/contract";
-import { FileIcon, FolderIcon } from "../icons";
+import { FolderIcon, SaveIcon } from "../icons";
 import { openSentFile } from "../native";
-import { onServer, openSent, saveSent, showPath } from "../serverFiles";
+import { onServer, openSent, saveSent, showPath, type Sent } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { Viewer } from "../ui/Viewer";
 import { wire } from "../wire";
 import { SentPreview, isMarkdown } from "./SentPreview";
 
+/** One file a message carried: the message, its place in it, and the file. */
+export type SentItem = { eventId: string; index: number; file: Attachment };
+
 /**
- * A file a teammate sent with `send_file`, under the words it came with.
+ * The files that came with one turn, drawn as a messages app draws them:
+ * pictures as themselves, one capped with its name and size under it, or
+ * several in a strip; any other file a one-line row in one block, whose head
+ * counts them, sums their size and saves them all.
  *
- * A picture is drawn in the bubble, read over the wire by its message the
- * way a phone reads it, with its place held at its own shape until it
- * arrives. Anything else is a card that names it. Nothing opens on its own:
- * a picture opens in the window's own viewer when pressed, a PDF in the
- * system's, and any file can be saved where the person chooses or shown in
- * its folder. Where
- * the file came from is on hover. On a desk on a server the file is brought
- * down to open or save it, and its folder is the server's (serverFiles.ts).
+ * A teammate's file is read over the wire by its message, the way a phone
+ * reads it, and nothing opens on its own: a picture opens in the window's own
+ * viewer when pressed, a PDF in the system's, anything else in the window's
+ * preview; any of them can be saved where the person chooses or shown in its
+ * folder. On a desk on a server the file is brought down to open or save it,
+ * and its folder is the server's (serverFiles.ts).
+ *
+ * Yours (`mine`) is read back from the copy the desk kept when it was sent,
+ * at the phone's size, and full size on a press; a file that is not a
+ * picture opens from where it was on this computer, since the desk keeps no
+ * copy of it, so a desk on a server has nothing to open.
  */
-export function SentFile({
-	personaId,
-	eventId,
-	index,
-	file,
-	compact = false,
-}: {
-	personaId: string;
-	eventId: string;
-	index: number;
-	file: Attachment;
-	compact?: boolean;
-}) {
-	const sent = { personaId, eventId, index, file };
+export function SentFiles({ personaId, items, mine = false }: { personaId: string; items: SentItem[]; mine?: boolean }) {
+	const pictures = items.filter((item) => item.file.kind === "image");
+	const files = items.filter((item) => item.file.kind !== "image");
+	return (
+		<>
+			{pictures.length === 1 && <Picture personaId={personaId} item={pictures[0]!} mine={mine} />}
+			{pictures.length > 1 && <PictureStrip personaId={personaId} items={pictures} mine={mine} />}
+			{files.length > 0 && <FileBlock personaId={personaId} items={files} mine={mine} />}
+		</>
+	);
+}
+
+/** "PDF", "HTML", "MD": what kind of file a row is, from its name, in a few letters. */
+function markOf(file: Attachment): string {
+	if (file.mimeType === "application/pdf") return "PDF";
+	if (isMarkdown(file)) return "MD";
+	const dot = file.name.lastIndexOf(".");
+	return dot > 0 && dot < file.name.length - 1 ? file.name.slice(dot + 1, dot + 5).toUpperCase() : "FILE";
+}
+
+/** What a row says at its end: whether the teammate made or changed the file, and its size. */
+function factsOf(file: Attachment): string {
+	const made = file.created === undefined ? undefined : file.created ? "Created" : "Edited";
+	return [made, file.size !== undefined ? sizeText(file.size) : undefined].filter((part) => part !== undefined).join(" · ");
+}
+
+/** What went wrong with the last press, said under the block. */
+function useRefusal(): [string | null, (work: () => Promise<unknown>) => void] {
 	const [error, setError] = useState<string | null>(null);
 	const act = (work: () => Promise<unknown>) => {
 		setError(null);
 		work().catch((failed: unknown) => setError(failed instanceof Error ? failed.message : String(failed)));
 	};
-	const pdf = file.mimeType === "application/pdf";
-	const [viewing, setViewing] = useState(false);
-	const actions = (
-		<span className="sent-actions">
-			{!viewing && (compact || file.kind !== "image") && (
-				<button type="button" className="control btn btn-sm" onClick={() => pdf || file.kind === "image" ? act(() => openSent(sent)) : setViewing(true)}>
-					Open
-				</button>
-			)}
-			<button type="button" className="control btn btn-sm" onClick={() => act(() => saveSent(sent))}>
-				Save…
-			</button>
-			<button
-				type="button"
-				className="control btn btn-sm"
-				title={onServer() ? "Show on the server" : "Show in folder"}
-				aria-label={onServer() ? "Show in its folder on the server" : "Show in folder"}
-				onClick={() => showPath(file.path)}
-			>
-				<FolderIcon />
-			</button>
-		</span>
-	);
-	const refused = error !== null && <p className="sent-error">{error}</p>;
+	return [error, act];
+}
 
-	if (file.kind === "image" && !compact) {
-		return (
-			<figure className="sent-file" title={file.origin}>
-				<SentPicture
-					personaId={personaId}
-					eventId={eventId}
-					index={index}
-					file={file}
-					viewing={viewing}
-					onOpen={() => setViewing(true)}
-					onClose={() => setViewing(false)}
-					actions={actions}
-				/>
-				<figcaption className="sent-caption">
-					<span className="chip-name">{file.name}</span>
-					{actions}
-				</figcaption>
-				{refused}
-			</figure>
-		);
-	}
-	const what = [file.created === undefined ? undefined : file.created ? "Created" : "Edited", pdf ? "PDF" : kindOf(file), file.size !== undefined ? sizeText(file.size) : undefined]
-		.filter((part) => part !== undefined)
-		.join(" · ");
+/**
+ * Files that are not pictures, one row each: a type mark, the name and the
+ * size. A row's keys show where the size was on hover or keyboard focus, so
+ * a column of files reads as a list and not as a form. Several have a head:
+ * how many, their size together, and Save all, which asks where to put each
+ * in turn and stops when a dialog is dismissed.
+ */
+function FileBlock({ personaId, items, mine }: { personaId: string; items: SentItem[]; mine: boolean }) {
+	const [error, act] = useRefusal();
+	const [previewing, setPreviewing] = useState<Sent | null>(null);
+	const sent = (item: SentItem): Sent => ({ personaId, ...item });
+	const sizes = items.map((item) => item.file.size);
+	const total = sizes.every((size) => size !== undefined) ? sizeText(sizes.reduce<number>((sum, size) => sum + size!, 0)) : undefined;
+	const count = `${items.length} files`;
+	const saveAll = async () => {
+		for (const item of items) if ((await saveSent(sent(item))) === null) return;
+	};
 	return (
-		<div className="sent-file" title={file.origin}>
-			{viewing && <SentPreview sent={sent} actions={actions} onClose={() => setViewing(false)} />}
-			<div className="sent-card">
-				<FileIcon className="shrink-0 text-ink-3" />
-				<span className="min-w-0 flex-1">
-					<span className="block truncate">{file.name}</span>
-					<span className="instrument block">{what}</span>
-				</span>
-				{actions}
-			</div>
-			{refused}
-		</div>
+		<section className="file-block" aria-label={items.length === 1 ? items[0]!.file.name : count}>
+			{items.length > 1 && (
+				<div className="file-block-head">
+					<span className="line-label">
+						{count}
+						{total !== undefined && (
+							<>
+								{" · "}
+								<b>{total}</b>
+							</>
+						)}
+					</span>
+					{!mine && (
+						<button type="button" className="line-key" onClick={() => act(saveAll)}>
+							<SaveIcon />
+							Save all
+						</button>
+					)}
+				</div>
+			)}
+			{items.map((item) => (
+				<div key={`${item.eventId}/${item.index}`} className="file-line">
+					<span className="file-mark" aria-hidden="true">
+						{markOf(item.file)}
+					</span>
+					<span className="file-name">{item.file.name}</span>
+					<span className="file-end">
+						<span className="file-size">{factsOf(item.file)}</span>
+						<span className="file-keys">
+							{mine ? (
+								!onServer() && (
+									<button type="button" className="line-key" onClick={() => act(() => openSentFile(item.file.path))}>
+										Open
+									</button>
+								)
+							) : (
+								<>
+									<button
+										type="button"
+										className="line-key"
+										onClick={() =>
+											item.file.mimeType === "application/pdf" ? act(() => openSent(sent(item))) : setPreviewing(sent(item))
+										}
+									>
+										Open
+									</button>
+									<SentKeys sent={sent(item)} act={act} />
+								</>
+							)}
+						</span>
+					</span>
+				</div>
+			))}
+			{error !== null && <p className="sent-error">{error}</p>}
+			{previewing !== null && <SentPreview sent={previewing} actions={<SentKeys sent={previewing} act={act} />} onClose={() => setPreviewing(null)} />}
+		</section>
 	);
 }
 
-/** The picture, at most a column wide; pressed, it opens in the viewer with the same Save and folder actions. */
-function SentPicture({
-	personaId,
-	eventId,
-	index,
-	file,
-	viewing,
-	onOpen,
-	onClose,
-	actions,
-}: {
-	personaId: string;
-	eventId: string;
-	index: number;
-	file: Attachment;
-	viewing: boolean;
-	onOpen(): void;
-	onClose(): void;
-	actions: ReactNode;
-}) {
-	const url = useSentFile(personaId, eventId, index);
-	const shape = file.width !== undefined && file.height !== undefined ? `${file.width} / ${file.height}` : "4 / 3";
-	if (url === null) return <p className="sent-missing">{`${file.name} could not be read.`}</p>;
-	if (url === undefined) return <div className="sent-picture sent-placeholder" style={{ aspectRatio: shape }} />;
+/** Save and Show in folder, on a row and over the viewer. */
+function SentKeys({ sent, act }: { sent: Sent; act: (work: () => Promise<unknown>) => void }) {
 	return (
 		<>
-			<button type="button" className="sent-open picture-open" title="Open full size" onClick={onOpen}>
-				<img className="sent-picture" decoding="async" src={url} alt={file.name} width={file.width} height={file.height} />
+			<button type="button" className="line-key" onClick={() => act(() => saveSent(sent))}>
+				<SaveIcon />
+				Save
 			</button>
-			{viewing && <Viewer src={url} alt={file.name} onClose={onClose} actions={actions} />}
+			<button
+				type="button"
+				className="line-key"
+				title={onServer() ? "Show on the server" : "Show in folder"}
+				aria-label={onServer() ? "Show in its folder on the server" : "Show in folder"}
+				onClick={() => showPath(sent.file.path)}
+			>
+				<FolderIcon />
+			</button>
 		</>
 	);
 }
@@ -141,74 +166,125 @@ function SentPicture({
 /** The longer side a picture you sent is read back at: the phone's size for it. */
 const OWN_PICTURE_EDGE = 1280;
 
+/** A picture's URL to draw it in the conversation: yours at the phone's size, once the desk knows its message. */
+function usePicture(personaId: string, item: SentItem, mine: boolean): string | null | undefined {
+	return useSentFile(personaId, item.eventId, item.index, mine ? OWN_PICTURE_EDGE : undefined, !mine || !item.eventId.startsWith("saying:"));
+}
+
 /**
- * A picture you sent, drawn over your bubble as the phone draws it: read back
- * from the copy the desk kept when it was sent, at the phone's size, and full
- * size on a press. A quiet shape of its size holds the place until it is read
- * (and while the line is still on its way, with no id the desk knows); a
- * message with nothing kept for it, from before the desk kept copies, keeps
- * its chip.
+ * One picture, at most a little over a phone's width and 260px tall, cropped
+ * from the top when it is taller, with its name and size under it. Its place
+ * is held at its own shape until it arrives; pressed, it opens full size.
  */
-export function OwnPicture({ personaId, eventId, index, file }: { personaId: string; eventId: string; index: number; file: Attachment }) {
-	const url = useSentFile(personaId, eventId, index, OWN_PICTURE_EDGE, !eventId.startsWith("saying:"));
+function Picture({ personaId, item, mine }: { personaId: string; item: SentItem; mine: boolean }) {
+	const url = usePicture(personaId, item, mine);
 	const [viewing, setViewing] = useState(false);
-	const ratio = file.width !== undefined && file.height !== undefined ? Math.min(2, Math.max(0.5, file.width / file.height)) : 4 / 3;
-	if (url === null) {
+	const { file } = item;
+	const frame = {
+		aspectRatio: file.width !== undefined && file.height !== undefined ? `${file.width} / ${file.height}` : "4 / 3",
+		...(file.width !== undefined ? { width: `min(${file.width}px, 320px)` } : {}),
+	};
+	if (url === null && mine) {
 		return (
-			<span className="chip max-w-full pr-2" title={file.path}>
+			<span className="chip max-w-full pr-2">
 				<span className="chip-name">{file.name}</span>
 			</span>
 		);
 	}
-	if (url === undefined) return <div className="own-picture sent-placeholder" style={{ aspectRatio: ratio }} />;
+	if (url === null) return <p className="sent-missing">{`${file.name} could not be read.`}</p>;
+	return (
+		<figure className="picture" data-mine={mine || undefined}>
+			{url === undefined ? (
+				<div className="picture-frame sent-placeholder" style={frame} />
+			) : (
+				<button type="button" className="picture-frame picture-open" style={frame} title="Open full size" onClick={() => setViewing(true)}>
+					<img decoding="async" src={url} alt={file.name} />
+				</button>
+			)}
+			<figcaption className="picture-caption">
+				<span className="chip-name">{file.name}</span>
+				{file.size !== undefined && <span className="shrink-0"> · {sizeText(file.size)}</span>}
+			</figcaption>
+			{viewing && url !== undefined && <PictureViewer personaId={personaId} item={item} mine={mine} preview={url} onClose={() => setViewing(false)} />}
+		</figure>
+	);
+}
+
+/** How many pictures a strip shows before its last tile counts the rest. */
+const STRIP = 3;
+
+/**
+ * Several pictures from one turn, side by side in one shape with its outer
+ * corners rounded alike. Past three, the last tile says how many more, and
+ * pressing it lays them all out; any other tile opens its picture full size.
+ */
+function PictureStrip({ personaId, items, mine }: { personaId: string; items: SentItem[]; mine: boolean }) {
+	const [all, setAll] = useState(false);
+	const shown = all ? items : items.slice(0, STRIP);
+	const more = items.length - shown.length;
+	return (
+		<section className="picture-strip" data-tiles={all ? "all" : shown.length} data-mine={mine || undefined} aria-label={`${items.length} pictures`}>
+			{shown.map((item, at) => (
+				<PictureTile
+					key={`${item.eventId}/${item.index}`}
+					personaId={personaId}
+					item={item}
+					mine={mine}
+					{...(at === shown.length - 1 && more > 0 ? { more, onMore: () => setAll(true) } : {})}
+				/>
+			))}
+		</section>
+	);
+}
+
+function PictureTile({ personaId, item, mine, more, onMore }: { personaId: string; item: SentItem; mine: boolean; more?: number; onMore?(): void }) {
+	const url = usePicture(personaId, item, mine);
+	const [viewing, setViewing] = useState(false);
+	const ready = typeof url === "string";
+	// The count of the rest works before its picture arrives; a picture opens once it has.
 	return (
 		<>
-			<button type="button" className="own-picture picture-open" style={{ aspectRatio: ratio }} title="Open full size" onClick={() => setViewing(true)}>
-				<img decoding="async" src={url} alt={file.name} />
+			<button
+				type="button"
+				className={`picture-tile ${ready ? "picture-open" : "sent-placeholder"}`}
+				disabled={more === undefined && !ready}
+				aria-label={more !== undefined ? `Show ${more} more` : url === null ? `${item.file.name} could not be read` : item.file.name}
+				title={more !== undefined ? "Show all" : ready ? "Open full size" : undefined}
+				onClick={() => (onMore !== undefined ? onMore() : setViewing(true))}
+			>
+				{ready && <img decoding="async" src={url} alt="" />}
+				{more !== undefined && (
+					<span className="picture-more">
+						<span>+{more}</span>
+					</span>
+				)}
 			</button>
-			{viewing && <OwnViewer personaId={personaId} eventId={eventId} index={index} file={file} preview={url} onClose={() => setViewing(false)} />}
+			{viewing && ready && <PictureViewer personaId={personaId} item={item} mine={mine} preview={url} onClose={() => setViewing(false)} />}
 		</>
 	);
 }
 
-/** Full size in the viewer, shown at the bubble's size until the whole picture is read. */
-function OwnViewer({ personaId, eventId, index, file, preview, onClose }: { personaId: string; eventId: string; index: number; file: Attachment; preview: string; onClose(): void }) {
-	const full = useSentFile(personaId, eventId, index);
-	return <Viewer src={full ?? preview} alt={file.name} onClose={onClose} />;
-}
-
 /**
- * A file you sent that is not a picture: a card with what it is, as a
- * teammate's file has, opened from where it was on this computer. The desk
- * keeps no copy of it, so a desk on a server has nothing to open.
+ * Full size in the window's viewer. Yours is shown at the bubble's size until
+ * the whole picture is read; a teammate's was read whole, and carries Save and
+ * Show in folder over it.
  */
-export function OwnFile({ file }: { file: Attachment }) {
-	const [error, setError] = useState<string | null>(null);
-	const pdf = file.mimeType === "application/pdf";
-	const what = [pdf ? "PDF" : kindOf(file), file.size !== undefined ? sizeText(file.size) : undefined].filter((part) => part !== undefined).join(" · ");
+function PictureViewer({ personaId, item, mine, preview, onClose }: { personaId: string; item: SentItem; mine: boolean; preview: string; onClose(): void }) {
+	const full = useSentFile(personaId, item.eventId, item.index, undefined, mine);
+	const [error, act] = useRefusal();
+	if (mine) return <Viewer src={full ?? preview} alt={item.file.name} onClose={onClose} />;
 	return (
-		<div className="own-file" title={file.path}>
-			<div className="sent-card">
-				<FileIcon className="shrink-0 text-ink-3" />
-				<span className="min-w-0 flex-1">
-					<span className="block truncate">{file.name}</span>
-					<span className="instrument block">{what}</span>
-				</span>
-				{!onServer() && (
-					<button
-						type="button"
-						className="control btn btn-sm"
-						onClick={() => {
-							setError(null);
-							openSentFile(file.path).catch((failed: unknown) => setError(failed instanceof Error ? failed.message : String(failed)));
-						}}
-					>
-						Open
-					</button>
-				)}
-			</div>
-			{error !== null && <p className="sent-error">{error}</p>}
-		</div>
+		<Viewer
+			src={preview}
+			alt={item.file.name}
+			onClose={onClose}
+			actions={
+				<>
+					<SentKeys sent={{ personaId, ...item }} act={act} />
+					{error !== null && <span className="sent-error">{error}</span>}
+				</>
+			}
+		/>
 	);
 }
 
@@ -286,9 +362,3 @@ async function bytesOf(base64: string): Promise<Uint8Array<ArrayBuffer>> {
 	return new Uint8Array(await response.arrayBuffer());
 }
 
-/** What kind of file a card names, from its name's ending. */
-function kindOf(file: Attachment): string {
-	if (isMarkdown(file)) return "Markdown";
-	const dot = file.name.lastIndexOf(".");
-	return dot > 0 && dot < file.name.length - 1 ? `${file.name.slice(dot + 1).toUpperCase()} file` : "File";
-}

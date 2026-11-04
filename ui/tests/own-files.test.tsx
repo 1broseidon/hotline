@@ -14,20 +14,20 @@ function transcript(events: TranscriptEvent[]): string {
 }
 
 describe("what you send", () => {
-	test("a picture is drawn over your bubble in its own shape, and a document is a card that says what it is", () => {
+	test("a picture is drawn over your bubble in its own shape with its name and size under it, and a document is a row that says what it is", () => {
 		const html = transcript([{ kind: "user", id: "u1", ts: 1, text: "Here's the pass and the itinerary.", attachments: [picture, pdf] }]);
-		expect(html).toContain("own-picture");
-		expect(html).toContain("aspect-ratio:1.3333333333333333");
-		expect(html).toContain("itinerary.pdf");
-		expect(html).toContain("PDF · 30 KB");
-		expect(html).not.toContain(">boarding-pass.png</span>");
+		expect(html).toContain("picture-frame");
+		expect(html).toContain("aspect-ratio:800 / 600");
+		expect(html).toContain('<figcaption class="picture-caption"><span class="chip-name">boarding-pass.png</span><span class="shrink-0"> · 189 KB</span></figcaption>');
+		expect(html).toContain('<span class="file-mark" aria-hidden="true">PDF</span><span class="file-name">itinerary.pdf</span>');
+		expect(html).toContain("30 KB");
 		expect(html.indexOf("own-files")).toBeLessThan(html.indexOf("said-me"));
 		expect(html).toContain("Here&#x27;s the pass and the itinerary.");
 	});
 
 	test("a line of only files has no empty bubble", () => {
 		const html = transcript([{ kind: "user", id: "u2", ts: 1, text: "", attachments: [picture] }]);
-		expect(html).toContain("own-picture");
+		expect(html).toContain("picture-frame");
 		expect(html).not.toContain("said-me");
 	});
 });

@@ -32,8 +32,24 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   The desk fetches that picture, and every site icon, once over https,
   never from a local address, and keeps it; the window no longer asks the
   site itself. A site without an icon shows none instead of its initial.
+- The transcript's lines are drawn as the 0.48 deck has them. A turn's files
+  are one block with a count, their size and Save all, a row a file whose
+  keys show on hover or focus; one picture is capped with its name and size
+  under it, several sit in a strip with a +N tile. A plan shows how far along
+  it is in segments, the steps caption is a pill with the count, the
+  failures and the time taken, and threads, subagents and calls share one
+  row. A permission names who wants to run what, with its answers at one
+  weight; Needs you shows who asks; a sign-in asks with one secure key; and
+  any settled ask folds to one line. Reactions are chips with a count,
+  yours ringed, and a chapter is a labeled pill on its rule.
+
 
 ### Fixed
+
+- A reply's quote names who said it and no longer shows the Markdown it was
+  written in.
+- A failed turn's card leads with what the report said happened, instead of
+  "Turn failed" with the reason hidden under Details.
 
 - A Claude Code subagent's run shows the prompt it was given once. The
   adapter can send it twice, once under a stand-in id and again under its

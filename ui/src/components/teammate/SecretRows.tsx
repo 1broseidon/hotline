@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { TeammateSecrets } from "../Secrets";
 import { FoldRow } from "./rows";
 
@@ -10,24 +10,17 @@ import { FoldRow } from "./rows";
  * says so rather than let a tick look like it did something.
  */
 export function SecretRows({
-	personaId,
 	granted,
 	computer,
 	disabled,
 	onChange,
 }: {
-	personaId: string;
 	granted: string[];
 	computer: boolean;
 	disabled: boolean;
 	onChange(granted: string[]): void;
 }) {
 	const [open, setOpen] = useState(false);
-
-	// Another teammate's pane opens closed.
-	useEffect(() => {
-		setOpen(false);
-	}, [personaId]);
 
 	return (
 		<section>

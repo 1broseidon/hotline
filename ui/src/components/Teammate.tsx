@@ -372,7 +372,6 @@ export function Teammate({
 					</section>
 
 					<SecretRows
-						personaId={persona.id}
 						granted={persona.secrets ?? []}
 						computer={persona.computer?.enabled === true}
 						disabled={busy}

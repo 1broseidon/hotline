@@ -33,7 +33,6 @@ use hotline_contract::{
     ImageSettings, Persona, ScheduleKind, ScheduledJob, SessionCheckpoint, SpendingSettings,
 };
 use hotline_store::log::{Log, StreamId};
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 /// What a setting means before anybody has set it. `hotline` is the built-in Hotline

@@ -51,6 +51,11 @@ export function errorDetails(text: string): { title: string; summary: string; de
     return { ...reportedWords(json === -1 ? text : text.slice(0, json), reported), details };
 }
 
+/** A summary reads as a sentence: "the usage limit…" after a colon becomes "The usage limit…". */
+function sentence(text: string): string {
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** How long a report's head can be and still read as one: "Claude Code stopped", not a sentence cut at a colon. */
 const HEAD_MOST = 60;
 
@@ -64,7 +69,7 @@ function reportedWords(prose: string, reported: unknown): { title: string; summa
     const line = prose.split("\n").map((one) => one.trim()).find((one) => one !== "")?.replace(/[\s:]+$/, "") ?? "";
     const said = line !== "" ? line : (messageIn(reported) ?? "");
     const colon = said.indexOf(": ");
-    if (colon > 0 && colon <= HEAD_MOST) return { title: said.slice(0, colon), summary: said.slice(colon + 2) };
+    if (colon > 0 && colon <= HEAD_MOST) return { title: said.slice(0, colon), summary: sentence(said.slice(colon + 2)) };
     if (said !== "" && said !== "Turn failed") return { title: "Turn failed", summary: said.length > 300 ? `${said.slice(0, 300)}…` : said };
     return { title: "Turn failed", summary: "The whole report is under Details." };
 }

@@ -786,4 +786,8 @@
 		flex-shrink: 0;
 		color: var(--ink-4);
 	}
+	/* The size's leading space would collapse at a flex item's edge: "name · size", not "name· size". */
+	.picture-caption > .shrink-0 {
+		white-space: pre;
+	}
 }

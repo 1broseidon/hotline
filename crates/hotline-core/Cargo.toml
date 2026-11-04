@@ -91,6 +91,10 @@ base64 = "0.22"
 mime_guess = "2.0.5"
 http = "1"
 sha2 = "0.10"
+# A login's six-digit code in a teammate's desk browser (`browser.rs`).
+hmac = "0.12"
+sha1 = "0.10"
+data-encoding = "2.11"
 # The pinned desk identity and encrypted v2 frames use the Noise IK pattern.
 snow = "0.10"
 rcgen = "0.14"

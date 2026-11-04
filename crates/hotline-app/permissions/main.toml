@@ -33,4 +33,7 @@ permissions = [
   "allow-window-title",
   "allow-chat-window",
   "allow-browser-pane-open",
+  "allow-browser-bar-state",
+  "allow-browser-bar-take",
+  "allow-browser-bar-go",
 ]

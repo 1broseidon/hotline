@@ -62,7 +62,8 @@ pub enum Reading {
 
 /// One act on the page, on a ref from the latest text read where it needs
 /// one. Refs are the `e12` marks a text read puts on links and controls.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Its debug form never shows what a fill types: it may be a password.
+#[derive(Clone, PartialEq, Eq)]
 pub enum Act {
     Click {
         target: String,
@@ -100,6 +101,91 @@ pub enum Act {
         target: Option<String>,
         timeout_ms: u64,
     },
+}
+
+impl std::fmt::Debug for Act {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fill { target, .. } => f
+                .debug_struct("Fill")
+                .field("target", target)
+                .finish_non_exhaustive(),
+            Self::Click { target } => f.debug_struct("Click").field("target", target).finish(),
+            Self::Select { target, values } => f
+                .debug_struct("Select")
+                .field("target", target)
+                .field("values", values)
+                .finish(),
+            Self::Check { target, on } => f
+                .debug_struct("Check")
+                .field("target", target)
+                .field("on", on)
+                .finish(),
+            Self::Hover { target } => f.debug_struct("Hover").field("target", target).finish(),
+            Self::Press { key } => f.debug_struct("Press").field("key", key).finish(),
+            Self::Scroll { target, dy } => f
+                .debug_struct("Scroll")
+                .field("target", target)
+                .field("dy", dy)
+                .finish(),
+            Self::WaitFor {
+                text,
+                target,
+                timeout_ms,
+            } => f
+                .debug_struct("WaitFor")
+                .field("text", text)
+                .field("target", target)
+                .field("timeout_ms", timeout_ms)
+                .finish(),
+        }
+    }
+}
+
+/// Whether a login stored for `sites` may be typed on `page`: same scheme
+/// and port as one of its sites, on its host or a subdomain of it, as the
+/// computer decides (docs/security.md). A site is `https://` unless it is
+/// localhost.
+pub fn login_fits(sites: &[String], page: &Url) -> bool {
+    let Some(host) = page.host_str().map(str::to_ascii_lowercase) else {
+        return false;
+    };
+    sites.iter().any(|site| {
+        let Ok(site) = Url::parse(site) else {
+            return false;
+        };
+        let Some(site_host) = site.host_str().map(str::to_ascii_lowercase) else {
+            return false;
+        };
+        site.scheme() == page.scheme()
+            && site.port_or_known_default() == page.port_or_known_default()
+            && (host == site_host || host.ends_with(&format!(".{site_host}")))
+    })
+}
+
+/// The six-digit code a base32 TOTP seed gives at `unix_seconds`
+/// (RFC 6238: SHA-1, 30-second steps).
+pub fn totp_code(seed: &str, unix_seconds: u64) -> Option<String> {
+    use hmac::{Hmac, Mac};
+    let cleaned: String = seed
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '=')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    let key = data_encoding::BASE32_NOPAD
+        .decode(cleaned.as_bytes())
+        .ok()?;
+    let mut mac = Hmac::<sha1::Sha1>::new_from_slice(&key).ok()?;
+    mac.update(&(unix_seconds / 30).to_be_bytes());
+    let digest = mac.finalize().into_bytes();
+    let offset = usize::from(digest[19] & 0x0f);
+    let value = u32::from_be_bytes([
+        digest[offset] & 0x7f,
+        digest[offset + 1],
+        digest[offset + 2],
+        digest[offset + 3],
+    ]);
+    Some(format!("{:06}", value % 1_000_000))
 }
 
 /// The longest a `wait_for` may wait.
@@ -413,6 +499,48 @@ mod tests {
             !gate.admits("kit", &url("http://localhost:4000/")),
             "a never port stays shut whatever was answered"
         );
+    }
+
+    #[test]
+    fn a_login_fits_its_own_sites_and_their_subdomains_only() {
+        let sites = vec![
+            "https://github.com".to_string(),
+            "http://localhost:3000".to_string(),
+        ];
+        assert!(login_fits(&sites, &url("https://github.com/login")));
+        assert!(login_fits(&sites, &url("https://gist.github.com/")));
+        assert!(login_fits(&sites, &url("http://localhost:3000/signin")));
+        assert!(
+            !login_fits(&sites, &url("http://github.com/login")),
+            "scheme"
+        );
+        assert!(
+            !login_fits(&sites, &url("https://github.com.evil.dev/")),
+            "suffix trick"
+        );
+        assert!(
+            !login_fits(&sites, &url("https://evilgithub.com/")),
+            "not a subdomain"
+        );
+        assert!(!login_fits(&sites, &url("http://localhost:3001/")), "port");
+    }
+
+    #[test]
+    fn a_totp_code_is_rfc_6238() {
+        // RFC 6238's SHA-1 test seed, "12345678901234567890", in base32.
+        let seed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        assert_eq!(totp_code(seed, 59).as_deref(), Some("287082"));
+        assert_eq!(totp_code(seed, 1_111_111_109).as_deref(), Some("081804"));
+        assert_eq!(totp_code("not base32!", 59), None);
+    }
+
+    #[test]
+    fn a_fill_never_shows_its_text_in_debug() {
+        let act = Act::Fill {
+            target: "e3".into(),
+            text: "hunter2".into(),
+        };
+        assert!(!format!("{act:?}").contains("hunter2"));
     }
 
     #[test]

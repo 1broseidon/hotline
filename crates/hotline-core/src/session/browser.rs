@@ -64,10 +64,64 @@ enum Decision {
 /// One guard card waiting for the person.
 pub(crate) struct BrowserWait {
     persona_id: String,
-    origin: String,
+    asking: Asking,
     title: String,
     sender: oneshot::Sender<Decision>,
 }
+
+/// What a browser card asks the person.
+#[derive(Clone)]
+enum Asking {
+    /// To open a local address, by its host and port.
+    Local { origin: String },
+    /// To use an ask-me key on a site.
+    Use { name: String },
+}
+
+impl Asking {
+    fn options(&self) -> Vec<PermissionOption> {
+        match self {
+            Self::Local { origin } => options(origin),
+            Self::Use { .. } => vec![
+                PermissionOption {
+                    option_id: APPROVE.to_string(),
+                    name: "Approve".to_string(),
+                    kind: Some("allow_once".to_string()),
+                },
+                PermissionOption {
+                    option_id: ALLOW.to_string(),
+                    name: "Allow for 10 minutes".to_string(),
+                    kind: Some("allow_always".to_string()),
+                },
+                PermissionOption {
+                    option_id: DENY.to_string(),
+                    name: "Deny".to_string(),
+                    kind: Some("reject_once".to_string()),
+                },
+            ],
+        }
+    }
+
+    /// The answer an option id gives, and its name on the decided card.
+    fn decide(&self, option_id: &str) -> Option<(Decision, String)> {
+        match (self, option_id) {
+            (Self::Local { .. }, ALLOW) => Some((Decision::Allow, "Allow".into())),
+            (Self::Local { origin }, ALLOW_ALWAYS) => {
+                Some((Decision::Always, format!("Always allow {origin}")))
+            }
+            (Self::Use { .. }, APPROVE) => Some((Decision::Allow, "Approve".into())),
+            (Self::Use { .. }, ALLOW) => Some((Decision::Always, "Allow for 10 minutes".into())),
+            (_, DENY) => Some((Decision::Deny, "Deny".into())),
+            _ => None,
+        }
+    }
+}
+
+/// How long an approved use lets the rest of its sign-in fill, and how long
+/// "Allow for 10 minutes" lets the key fill on that site.
+const APPROVED_MS: i64 = 60_000;
+const ALLOWED_MS: i64 = 10 * 60_000;
+const APPROVE: &str = "approve";
 
 /// Takes the wait off the room if the asking call goes away first, so the
 /// card says it expired instead of offering an answer nobody hears.
@@ -463,13 +517,46 @@ impl Room {
             "{} wants to open {origin} in its browser.\n\nThat address is on this computer or your local network.{was_on}",
             persona.name
         );
+        let decision = self
+            .ask_in_browser(
+                persona_id,
+                Asking::Local {
+                    origin: origin.clone(),
+                },
+                title,
+            )
+            .await
+            .map_err(|()| {
+                format!("Nobody answered the request to open {origin}, so it was not opened.")
+            })?;
+        match decision {
+            Decision::Allow => {
+                self.browser_gate.allow(persona_id, &origin);
+                Ok(())
+            }
+            Decision::Always => Ok(()),
+            Decision::Deny => Err(format!(
+                "The person denied opening {origin} in your browser. Do not ask again for it in this task."
+            )),
+        }
+    }
+
+    /// Raises a browser card on the teammate's chat and waits for the
+    /// person's answer; an error when it was never answered.
+    async fn ask_in_browser(
+        &self,
+        persona_id: &str,
+        asking: Asking,
+        title: String,
+    ) -> Result<Decision, ()> {
         let request_id = format!("{BROWSER_REQUEST_PREFIX}{}", new_id());
         let (sender, answered) = oneshot::channel();
+        let options = asking.options();
         lock(&self.browser_waits).insert(
             request_id.clone(),
             BrowserWait {
                 persona_id: persona_id.to_string(),
-                origin: origin.clone(),
+                asking,
                 title: title.clone(),
                 sender,
             },
@@ -487,29 +574,14 @@ impl Room {
                 ts: now_ms(),
                 request_id: request_id.clone(),
                 title,
-                options: options(&origin),
+                options,
                 decision: None,
                 decided_option_name: None,
             },
         );
-        let decision = match tokio::time::timeout(HUMAN_DEADLINE, answered).await {
-            Ok(Ok(decision)) => decision,
-            Ok(Err(_)) => return Err("The request to open that page was cancelled.".into()),
-            Err(_) => {
-                return Err(format!(
-                    "Nobody answered the request to open {origin}, so it was not opened."
-                ));
-            }
-        };
-        match decision {
-            Decision::Allow => {
-                self.browser_gate.allow(persona_id, &origin);
-                Ok(())
-            }
-            Decision::Always => Ok(()),
-            Decision::Deny => Err(format!(
-                "The person denied opening {origin} in your browser. Do not ask again for it in this task."
-            )),
+        match tokio::time::timeout(HUMAN_DEADLINE, answered).await {
+            Ok(Ok(decision)) => Ok(decision),
+            _ => Err(()),
         }
     }
 
@@ -528,20 +600,16 @@ impl Room {
             }
         }
         .ok_or("That request is no longer waiting for an answer.")?;
-        let (decision, name) = match option_id {
-            ALLOW => (Decision::Allow, "Allow".to_string()),
-            ALLOW_ALWAYS => (Decision::Always, format!("Always allow {}", wait.origin)),
-            DENY => (Decision::Deny, "Deny".to_string()),
-            _ => {
-                self.write_browser_decision(request_id, &wait, "expired", "Invalid answer");
-                let _ = wait.sender.send(Decision::Deny);
-                return Err("That card has no such answer.".into());
-            }
+        let Some((decision, name)) = wait.asking.decide(option_id) else {
+            self.write_browser_decision(request_id, &wait, "expired", "Invalid answer");
+            let _ = wait.sender.send(Decision::Deny);
+            return Err("That card has no such answer.".into());
         };
         if decision == Decision::Always
-            && let Err(error) =
-                self.browser_gate
-                    .allow_always(&self.log, &wait.persona_id, &wait.origin)
+            && let Asking::Local { origin } = &wait.asking
+            && let Err(error) = self
+                .browser_gate
+                .allow_always(&self.log, &wait.persona_id, origin)
         {
             self.write_browser_decision(request_id, &wait, "expired", "Could not be saved");
             let _ = wait.sender.send(Decision::Deny);
@@ -567,7 +635,7 @@ impl Room {
                 ts: now_ms(),
                 request_id: request_id.to_string(),
                 title: wait.title.clone(),
-                options: options(&wait.origin),
+                options: wait.asking.options(),
                 decision: Some(decision.to_string()),
                 decided_option_name: Some(option_name.to_string()),
             },

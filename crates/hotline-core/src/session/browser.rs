@@ -132,6 +132,17 @@ impl Room {
             })
     }
 
+    /// The page in this teammate's desk browser, as a PNG, for `send_file`.
+    pub(crate) async fn browser_screenshot(&self, persona_id: &str) -> Result<Vec<u8>, String> {
+        if !self.offers_browser(persona_id) {
+            return Err("You have no desk browser, so there is no browser page to send.".into());
+        }
+        self.desk_browser()
+            .ok_or("The desk browser has closed.")?
+            .screenshot(persona_id)
+            .await
+    }
+
     /// One `browser` call.
     pub(crate) async fn browser_call(
         &self,

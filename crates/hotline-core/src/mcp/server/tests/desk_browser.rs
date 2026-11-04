@@ -36,7 +36,11 @@ impl DeskBrowser for Fake {
         })
     }
     async fn screenshot(&self, _persona_id: &str) -> Result<Vec<u8>, String> {
-        Ok(vec![0x89, b'P', b'N', b'G'])
+        let mut png = Vec::new();
+        image::RgbImage::new(4, 3)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        Ok(png)
     }
     fn current(&self, _persona_id: &str) -> Option<String> {
         self.opened.lock().unwrap().last().cloned()
@@ -261,4 +265,36 @@ async fn a_subagent_run_and_a_voice_front_have_no_browser() {
     let mut front = tools(&room);
     front.front = true;
     assert!(!offered(&front));
+}
+
+/// The screenshot a teammate looks at is its own; `send_file` with source
+/// `browser` is how the person sees the page.
+#[tokio::test(flavor = "multi_thread")]
+async fn send_file_posts_the_browser_page_to_the_person() {
+    let (room, _) = with_browser("browser-send", &[]);
+    tools(&room)
+        .call(BROWSER, &navigate("https://example.com/"))
+        .await
+        .unwrap();
+    let sent = tools(&room)
+        .call(
+            SEND_FILE,
+            &json!({ "source": "browser", "caption": "The page." }),
+        )
+        .await
+        .unwrap();
+    assert!(sent.contains("browser"), "{sent}");
+    let posted = tape(&room, "ada")
+        .into_iter()
+        .any(|event| event["kind"] == "agent" && event["text"] == "The page.");
+    assert!(posted, "the page is a message in the chat");
+
+    let mut ada = ada();
+    ada.computer = Some(serde_json::from_value(json!({ "enabled": true })).unwrap());
+    write_persona(room.log(), ada);
+    let refused = tools(&room)
+        .call(SEND_FILE, &json!({ "source": "browser" }))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("no desk browser"), "{refused}");
 }

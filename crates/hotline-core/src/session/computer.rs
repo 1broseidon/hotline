@@ -341,6 +341,7 @@ impl Room {
             ),
         }
         self.hand_secrets(persona, &ready).await;
+        self.cookie_lends_at_computer(&persona.id, &ready).await;
         // The agent is handed a gate in front of the computer, not the
         // computer: the teammate's threads take turns at it.
         let lease = driving.lease.clone();
@@ -641,39 +642,10 @@ impl Room {
             .await
     }
 
-    /// The host browsers the operator could bring cookies from. This reads
-    /// the person's own machine; it is reachable only over the desk seat and
-    /// no agent tool calls it.
-    pub async fn computer_browsers(&self) -> Vec<HostBrowser> {
-        crate::computer::cookies::detect()
-    }
-
-    /// The sites in one host browser profile, with counts, for the picker.
-    /// Domains and counts only; no cookie value is read out.
-    pub async fn computer_cookies_preview(
-        &self,
-        browser_id: &str,
-        profile_id: &str,
-    ) -> Result<Vec<CookieSite>, String> {
-        crate::computer::cookies::preview(browser_id, profile_id).await
-    }
-
-    /// Copies the cookies for the ticked sites from a host browser into the
-    /// teammate's computer, so its browser starts signed in to them, and
-    /// answers with the sites actually imported. The values pass host → desk →
-    /// container and are never written to the tape, the model, or a log.
-    pub async fn computer_cookies_import(
-        &self,
-        persona_id: &str,
-        browser_id: &str,
-        profile_id: &str,
-        domains: &[String],
-    ) -> Result<Vec<CookieSite>, String> {
-        let cookies = crate::computer::cookies::select(browser_id, profile_id, domains).await?;
-        self.deliver_cookies(persona_id, browser_id, profile_id, cookies, None)
-            .await
-    }
-
+    /// A laptop's cookies for a teammate's computer on a desk on a server:
+    /// the window read them from its own browser, and the selection is
+    /// checked before anything starts. The import record it keeps lists
+    /// each site as a row of the teammate's Cookies (`cookie_lends.rs`).
     pub async fn computer_cookies_push(
         &self,
         persona_id: &str,
@@ -691,7 +663,7 @@ impl Room {
             &browser,
             &transfer.profile_id,
             cookies,
-            Some(&format!("{} ({})", transfer.browser_id, transfer.source_id)),
+            &format!("{} ({})", transfer.browser_id, transfer.source_id),
         )
         .await
     }
@@ -702,7 +674,7 @@ impl Room {
         browser_id: &str,
         profile_id: &str,
         cookies: Vec<Value>,
-        source_name: Option<&str>,
+        source_name: &str,
     ) -> Result<Vec<CookieSite>, String> {
         let persona = room::roster(&self.log)
             .into_iter()
@@ -750,31 +722,13 @@ impl Room {
         });
         crate::computer::login::deliver(&ready, &name, &saved).await?;
 
-        // The record the pane lists afterwards: which browser and profile,
-        // when, and the sites. Names are looked up now, while the browser
-        // is still installed to say them; the ids are what the record is
-        // keyed by.
-        let browsers = if source_name.is_none() {
-            self.computer_browsers().await
-        } else {
-            Vec::new()
-        };
-        let browser = browsers.iter().find(|browser| browser.id == browser_id);
+        // The record the pane lists afterwards: which source, when, and the
+        // sites. The ids are what the record is keyed by.
         let import = crate::contract::CookieImport {
             browser_id: browser_id.to_owned(),
-            browser_name: browser.map_or_else(
-                || source_name.unwrap_or(browser_id).to_owned(),
-                |browser| browser.name.clone(),
-            ),
+            browser_name: source_name.to_owned(),
             profile_id: profile_id.to_owned(),
-            profile_name: browser
-                .and_then(|browser| {
-                    browser
-                        .profiles
-                        .iter()
-                        .find(|profile| profile.id == profile_id)
-                })
-                .map_or_else(|| profile_id.to_owned(), |profile| profile.name.clone()),
+            profile_name: profile_id.to_owned(),
             imported_at: now_ms(),
             sites: imported.clone(),
         };
@@ -782,94 +736,6 @@ impl Room {
         room::merge_cookie_import(&mut imports, import);
         room::record_cookie_imports(&self.log, persona_id, &imports)?;
         Ok(imported)
-    }
-
-    /// What has been brought over to `persona_id`'s computer, as recorded
-    /// at each import and trimmed at each forget.
-    pub fn computer_cookies_list(&self, persona_id: &str) -> Vec<crate::contract::CookieImport> {
-        room::cookie_imports(&self.log, persona_id)
-    }
-
-    /// Takes brought-over cookies back out of the teammate's computer: one
-    /// site when `domain` is given, the whole import when not. The domains
-    /// are always named to the computer, so what the browser drops is what
-    /// the record says, whatever the saved login there carries by now. The
-    /// computer has to be up to drop them; a stopped one is started, the
-    /// same as the import did.
-    pub async fn computer_cookies_forget(
-        &self,
-        persona_id: &str,
-        browser_id: &str,
-        profile_id: &str,
-        domain: Option<&str>,
-    ) -> Result<Vec<crate::contract::CookieImport>, String> {
-        let mut imports = room::cookie_imports(&self.log, persona_id);
-        let Some(position) = imports
-            .iter()
-            .position(|import| import.browser_id == browser_id && import.profile_id == profile_id)
-        else {
-            return Err("Nothing from that browser is recorded for this teammate.".to_string());
-        };
-        let domains: Vec<String> = match domain {
-            Some(domain) => {
-                if !imports[position]
-                    .sites
-                    .iter()
-                    .any(|site| site.domain == domain)
-                {
-                    return Err(format!(
-                        "{domain} is not among the sites brought over from {}.",
-                        imports[position].browser_name
-                    ));
-                }
-                vec![domain.to_owned()]
-            }
-            None => imports[position]
-                .sites
-                .iter()
-                .map(|site| site.domain.clone())
-                .collect(),
-        };
-        let persona = self.persona(persona_id)?;
-        if !persona
-            .computer
-            .as_ref()
-            .is_some_and(|computer| computer.enabled)
-        {
-            return Err(format!(
-                "{} has no computer to take them out of.",
-                persona.name
-            ));
-        }
-        let settings = room::settings(&self.log);
-        let prefer = crate::computer::preferred_runtime(&settings);
-        let room_image = crate::computer::preferred_image(&settings);
-        let notice_id = persona.id.clone();
-        let ready = self
-            .computers
-            .ensure_running(
-                &persona,
-                &persona.cwd,
-                prefer,
-                room_image.as_deref(),
-                self.pull_reporter(&notice_id),
-            )
-            .await?;
-        let name = crate::computer::login::name_for(browser_id, profile_id);
-        crate::computer::login::forget(&ready, &name, &domains).await?;
-        match domain {
-            Some(domain) => {
-                imports[position].sites.retain(|site| site.domain != domain);
-                if imports[position].sites.is_empty() {
-                    imports.remove(position);
-                }
-            }
-            None => {
-                imports.remove(position);
-            }
-        }
-        room::record_cookie_imports(&self.log, persona_id, &imports)?;
-        Ok(imports)
     }
 
     pub(super) async fn sweep_computers(&self) {

@@ -209,6 +209,7 @@ impl Room {
                 reported.session_id.filter(|_| !reported.context_restored),
             ),
             indexed: Mutex::new(None),
+            told_cookies: Mutex::new(None),
         });
         {
             let _lifecycle = lock(&self.lifecycle);
@@ -493,6 +494,8 @@ impl Room {
         {
             self.browser_retire(persona_id).await;
         }
+        // The person's shared cookies follow it into the browser it has now.
+        self.cookie_lends_follow(persona_id).await;
         let Some(capability) = capability else {
             return Ok(());
         };

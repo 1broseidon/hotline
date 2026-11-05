@@ -502,6 +502,84 @@ pub enum CookieOfferAnswer {
     Never,
 }
 
+/// One site's cookies the person shared with a teammate, as its pane lists
+/// it: the site, where the cookies came from, and the two choices a share
+/// has. The same row whether the teammate's browser is its desk browser or
+/// its computer's; metadata only, never a value.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieLend {
+    pub id: String,
+    pub teammate: String,
+    /// The registrable site: its cookies and its subdomains' are shared.
+    pub site: String,
+    pub browser_name: String,
+    pub profile_name: String,
+    /// Unix milliseconds the share was made.
+    pub lent_at: i64,
+    /// Copied again whenever the site's cookies in the source change.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub keep_fresh: bool,
+    /// Unix milliseconds the share is taken back by itself; absent, never.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub ends_at: Option<i64>,
+    /// Not in the teammate's browser yet: its computer has not started
+    /// since the share moved there, or its source could not be read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub waiting: bool,
+    /// Brought from a laptop's browser to a desk on a server, so this desk
+    /// cannot read its source again and Keep fresh is not offered.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub from_laptop: bool,
+}
+
+/// When a share ends: a day after it is set, or when it is removed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CookieLendEnds {
+    Day,
+    Never,
+}
+
+/// One browser profile on this machine as a cookie source, and whether the
+/// person lets Hotline read it. Every profile found starts switched on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieSource {
+    pub browser_id: String,
+    pub browser_name: String,
+    pub profile_id: String,
+    pub profile_name: String,
+    pub on: bool,
+}
+
+/// The cookie sources found, and why any installed browser could not be
+/// looked into (macOS without Full Disk Access).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieSources {
+    pub sources: Vec<CookieSource>,
+    pub blocked: Vec<String>,
+}
+
+/// A teammate holding the person's cookies, and for which sites.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieHolder {
+    pub teammate: String,
+    pub name: String,
+    pub sites: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]

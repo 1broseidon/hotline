@@ -514,7 +514,13 @@ fn firefox_profiles(root: &Path) -> Vec<BrowserProfile> {
 /// The browsers on this host that have at least one profile with cookies,
 /// and those the host will not let us look into, so the operator is told why.
 pub fn detect() -> Vec<HostBrowser> {
-    candidates().iter().filter_map(Candidate::listed).collect()
+    listed(&candidates())
+}
+
+/// [`detect`] over the browsers given, as the room asks it of its own
+/// candidates (a test's fixtures among them).
+pub(crate) fn listed(candidates: &[Candidate]) -> Vec<HostBrowser> {
+    candidates.iter().filter_map(Candidate::listed).collect()
 }
 
 fn find(browser_id: &str) -> Result<Candidate, String> {

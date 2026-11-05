@@ -7,8 +7,8 @@ use super::*;
 use crate::browser::DeskBrowser;
 use crate::computer::{Ready, cookies::lending, login};
 use crate::contract::{
-    CookieOffer, CookieOfferAnswer, CookieOfferBlock, CookieOfferSettings, CookieOfferSite,
-    CookieOfferSites, CookieOfferSource, CookieOfferStatus,
+    CookieOffer, CookieOfferAnswer, CookieOfferBlock, CookieOfferSettings, CookieOfferSites,
+    CookieOfferStatus,
 };
 
 /// How long Not now keeps a site quiet for a teammate, counted from the
@@ -223,48 +223,24 @@ impl Room {
         }
     }
 
-    async fn cookie_inventory(&self) -> Result<lending::Inventory, String> {
-        #[cfg(test)]
-        let candidates = lock(&self.cookie_candidates).clone();
+    /// The site names in every switched-on source: a source the person
+    /// switched off in Settings › Secrets is not discovered, nor read.
+    pub(super) async fn cookie_inventory(&self) -> Result<lending::Inventory, String> {
+        let candidates = self.host_candidates();
+        let gate = self.cookie_lending.gate.clone();
         #[cfg(test)]
         let calls = self.cookie_discovery_calls.clone();
         tokio::task::spawn_blocking(move || {
             #[cfg(test)]
             calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            #[cfg(not(test))]
-            let candidates = crate::computer::cookies::candidates();
-            lending::inventory(candidates)
+            lending::inventory(candidates, &gate)
         })
         .await
         .map_err(|_| "Could not discover browser cookie sites.".into())
     }
 
     pub async fn computer_cookie_sites(&self) -> Result<CookieOfferSites, String> {
-        let inventory = self.cookie_inventory().await?;
-        let mut sites: std::collections::BTreeMap<String, Vec<CookieOfferSource>> =
-            std::collections::BTreeMap::new();
-        for (source, found) in inventory.sources {
-            for site in found {
-                sites.entry(site).or_default().push(CookieOfferSource {
-                    browser_name: source.browser_name().into(),
-                    profile_name: source.profile_name().into(),
-                });
-            }
-        }
-        let mut unavailable = inventory.unavailable;
-        unavailable.extend(
-            inventory
-                .refused
-                .iter()
-                .map(|browser| crate::computer::cookies::access_notice(&browser.name, None)),
-        );
-        Ok(CookieOfferSites {
-            sites: sites
-                .into_iter()
-                .map(|(site, sources)| CookieOfferSite { site, sources })
-                .collect(),
-            unavailable,
-        })
+        self.cookie_lendable().await
     }
 
     pub async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
@@ -317,7 +293,7 @@ impl Room {
         Ok(())
     }
 
-    fn write_cookie_offer(&self, offer: &CookieOffer) -> Result<(), String> {
+    pub(super) fn write_cookie_offer(&self, offer: &CookieOffer) -> Result<(), String> {
         self.log
             .append(
                 &StreamId::Tape(offer.teammate.clone()),
@@ -518,77 +494,7 @@ impl Room {
         }
     }
 
-    pub async fn computer_cookie_remove(
-        self: &Arc<Self>,
-        persona: &str,
-        id: &str,
-    ) -> Result<(), String> {
-        let room = self.clone();
-        let (persona, id) = (persona.to_string(), id.to_string());
-        tokio::spawn(async move { room.remove_cookie_offer(&persona, &id).await })
-            .await
-            .map_err(|_| "The cookie removal was interrupted.".to_string())?
-    }
-
-    async fn remove_cookie_offer(self: &Arc<Self>, persona: &str, id: &str) -> Result<(), String> {
-        let updates = self.policy_update_lock();
-        let policy_guard = updates.lock().await;
-        let watch = self.use_watch(persona);
-        let mut watch = watch.lock().await;
-        let mut card = self
-            .computer_cookie_offers(persona)
-            .into_iter()
-            .find(|c| {
-                c.id == id
-                    && matches!(
-                        c.status,
-                        CookieOfferStatus::Lent | CookieOfferStatus::Unconfirmed
-                    )
-            })
-            .ok_or("This cookie lend is no longer present.")?;
-        let teammate = self.persona(persona)?;
-        if card.desk_browser {
-            // The teammate's web storage outlives its browser and a computer
-            // it was given since, so the lend is taken back from either way.
-            let browser = self
-                .desk_browser()
-                .ok_or("Open Hotline's window to remove this lend from the teammate's browser.")?;
-            Sink::Desk(browser)
-                .take_back(persona, &card)
-                .await
-                .map_err(|_| "The teammate's browser could not remove this lend. Retry.")?;
-        } else {
-            if !teammate.computer.as_ref().is_some_and(|c| c.enabled) {
-                return Err("Enable the teammate's computer to remove this lend.".into());
-            }
-            let settings = room::settings(&self.log);
-            let ready = self
-                .computers
-                .ensure_running(
-                    &teammate,
-                    &teammate.cwd,
-                    crate::computer::preferred_runtime(&settings),
-                    crate::computer::preferred_image(&settings).as_deref(),
-                    self.pull_reporter(persona),
-                )
-                .await?;
-            Sink::Computer(ready).take_back(persona, &card).await.map_err(|_| "The computer could not remove this lend. Check that it is up to date, then retry.")?;
-        }
-        card.status = CookieOfferStatus::Removed;
-        self.write_cookie_offer(&card)?;
-        if let Some((live, _)) = watch.cookies.cards.get_mut(id) {
-            *live = card.clone();
-        }
-        drop(watch);
-        drop(policy_guard);
-        if card.desk_browser {
-            self.browser_reload(persona).await;
-        }
-        self.tell_cookie_outcome(&card, true).await;
-        Ok(())
-    }
-
-    async fn tell_cookie_outcome(self: &Arc<Self>, card: &CookieOffer, removed: bool) {
+    pub(super) async fn tell_cookie_outcome(self: &Arc<Self>, card: &CookieOffer, removed: bool) {
         let text = match (removed, card.desk_browser) {
             (true, false) => format!(
                 "The person took back the session on {} from {}. Its cookies were removed from your computer. Stop using that sign-in.",

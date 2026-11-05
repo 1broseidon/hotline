@@ -80,6 +80,7 @@ pub(crate) fn events_of_updates(
 }
 pub(crate) mod capture;
 pub(crate) mod consent;
+mod cookie_lends;
 mod cookie_offers;
 #[cfg(all(test, unix))]
 pub(crate) use cookie_offers::NOT_NOW_QUIET_MS;
@@ -113,7 +114,7 @@ use crate::computer::Computer;
 use crate::contract::ThreadId;
 use crate::contract::{
     Attachment, ChapterClose, Client, ComputerStatus, ConfigChoice, CookieSite, DeliveryCause,
-    DeliveryFrom, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
+    DeliveryFrom, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
     PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, SessionCapabilities,
     SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger, ToolOutput,
     ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
@@ -555,6 +556,9 @@ struct Session {
     /// The thread index this session's agent was last told
     /// (`session/index.rs`). A new chapter is a new session, told it whole.
     indexed: index::Seen,
+    /// The sites this session's agent was last told it holds the person's
+    /// cookies for (`session/cookie_lends.rs`).
+    told_cookies: Mutex<Option<Vec<String>>>,
 }
 
 /// Pacing keeps this ID on the first bubble, while narration needs the full reply.
@@ -792,6 +796,9 @@ pub struct Room {
     pub(crate) cookie_candidates: Mutex<Vec<crate::computer::cookies::Candidate>>,
     #[cfg(test)]
     pub(crate) cookie_discovery_calls: Arc<std::sync::atomic::AtomicUsize>,
+    /// The person's cookies shared with teammates: the sources switched
+    /// off, and what the watch over the shares keeps in memory.
+    cookie_lending: cookie_lends::Lending,
     /// A host permission failure is said once per browser for this desk run,
     /// across teammates and session restarts.
     cookie_access_notices: Mutex<HashSet<String>>,
@@ -982,6 +989,7 @@ impl Room {
             cookie_candidates: Mutex::default(),
             #[cfg(test)]
             cookie_discovery_calls: Arc::default(),
+            cookie_lending: cookie_lends::Lending::default(),
             cookie_access_notices: Mutex::default(),
             captures: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
@@ -998,6 +1006,7 @@ impl Room {
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
         secret_uses::watch(Arc::downgrade(&room));
+        cookie_lends::start(&room);
         // What the person said that was still waiting when the last desk
         // stopped, and what came back to a job that had not heard it yet, is
         // handed on once, now that the room is up.

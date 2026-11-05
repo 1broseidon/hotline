@@ -472,7 +472,9 @@ fn independent(frame: &Value) -> bool {
             | Command::ComputerCapacity {}
             | Command::ComputerReleases {}
             | Command::ComputerReleasesCheck {}
-            | Command::ComputerBrowsersList {}
+            | Command::ComputerCookieSources {}
+            | Command::ComputerCookieLendable {}
+            | Command::ComputerCookieHolders {}
             | Command::ComputerCookieSettings {}
             | Command::ComputerCookieSites {}
             | Command::SecretsList {}

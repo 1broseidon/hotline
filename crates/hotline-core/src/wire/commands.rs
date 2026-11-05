@@ -805,24 +805,45 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
-        Command::ComputerBrowsersList {} => Ok(json!(room.computer_browsers().await)),
-        Command::ComputerCookiesPreview {
-            browser_id,
-            profile_id,
-        } => room
-            .computer_cookies_preview(&browser_id, &profile_id)
-            .await
-            .map(|sites| json!(sites)),
-        Command::ComputerCookiesImport {
+        Command::ComputerCookieLends { persona_id } => {
+            living(log, &persona_id)?;
+            room.cookie_lends(&persona_id)
+                .await
+                .map(|lends| json!(lends))
+        }
+        Command::ComputerCookieLendable {} => {
+            room.cookie_lendable().await.map(|sites| json!(sites))
+        }
+        Command::ComputerCookieLend { persona_id, site } => {
+            living(log, &persona_id)?;
+            room.cookie_lend(&persona_id, &site)
+                .await
+                .map(|lend| json!(lend))
+        }
+        Command::ComputerCookieLendSet {
             persona_id,
-            browser_id,
-            profile_id,
-            domains,
+            id,
+            keep_fresh,
+            ends,
         } => {
             living(log, &persona_id)?;
-            room.computer_cookies_import(&persona_id, &browser_id, &profile_id, &domains)
+            room.cookie_lend_set(&persona_id, &id, keep_fresh, ends)
                 .await
-                .map(|sites| json!(sites))
+                .map(|lend| json!(lend))
+        }
+        Command::ComputerCookieSources {} => {
+            room.cookie_sources().await.map(|sources| json!(sources))
+        }
+        Command::ComputerCookieSourceSet {
+            browser_id,
+            profile_id,
+            on,
+        } => room
+            .cookie_source_set(&browser_id, &profile_id, on)
+            .await
+            .map(|sources| json!(sources)),
+        Command::ComputerCookieHolders {} => {
+            room.cookie_holders().await.map(|holders| json!(holders))
         }
         Command::ComputerCookiesPush {
             persona_id,
@@ -831,21 +852,6 @@ pub(crate) async fn run(
             .computer_cookies_push(&persona_id, transfer)
             .await
             .map(|sites| json!(sites)),
-        Command::ComputerCookiesList { persona_id } => room
-            .computer_cookies_list(&persona_id)
-            .await
-            .map(|imports| json!(imports)),
-        Command::ComputerCookiesForget {
-            persona_id,
-            browser_id,
-            profile_id,
-            domain,
-        } => {
-            living(log, &persona_id)?;
-            room.computer_cookies_forget(&persona_id, &browser_id, &profile_id, domain.as_deref())
-                .await
-                .map(|imports| json!(imports))
-        }
         Command::SecretsCaptureAnswer(answer) => room
             .secrets_capture_answer(answer)
             .await

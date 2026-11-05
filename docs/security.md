@@ -819,8 +819,10 @@ screenshot, back, forward, reload, and the acts (click, hover, fill, select,
 check, press, scroll, wait). It is built on macOS (WKWebView) and Linux
 (WebKitGTK), one code for both but for a small seam of platform calls
 (`browser/native/apple.rs`, `browser/native/linux.rs`); a desk with no window
-(`hotline serve`) and Windows install none, and no teammate there is offered
-it. A teammate with a computer keeps its computer's browser, and a subagent
+(`hotline serve`), a Mac before macOS 14 and Windows install none, and no
+teammate there is offered it or told of it in its preamble
+(`hotline_core::browser::kept_here`, which both the app's install and the
+preamble ask). A teammate with a computer keeps its computer's browser, and a subagent
 run or a voice front is not offered either. Where Linux differs it is said
 below; everything else holds on both.
 
@@ -886,7 +888,36 @@ below; everything else holds on both.
   macOS, and on Linux a WebKitGTK web context of its own on a data
   directory of its own, `desk-browser/<the same hash>` under Hotline's data
   directory, with its cookies in a file there. The person's own sign-ins
-  reach it only on a host-cookie offer they answer Use (below).
+  reach it only on a host-cookie offer they answer Use (below). WebKit keeps
+  a store by id only from macOS 14 (`dataStoreForIdentifier:`): before it,
+  wry would give every page the default store, shared with Hotline's window,
+  every other teammate and any cookies lent to one, and the lending code's
+  call would not exist. So a Mac before 14 keeps no desk browser at all,
+  though Hotline itself runs from macOS 13.
+- **No microphone, camera or other permission.** A page is never given the
+  microphone, the camera, the screen, its location, notifications or the
+  names of its devices, whatever it asks, and WebKit never asks whoever is
+  at the computer (`hotline-app/src/browser/native/asks.rs`). Hotline holds
+  the microphone for its calls, so a page a teammate opened, in a window
+  nobody sees, could otherwise hear the room. On macOS a UI delegate of the
+  desk's own in front of wry's, whose own grants every capture request,
+  answers `requestMediaCapturePermissionForOrigin` with Deny. WebKit's
+  public API on macOS has no delegate call for location or notifications,
+  and neither wry nor the desk adds the private ones, so WebKit does not
+  grant those there (WebKit's default; no test drives it). On Linux WebKitGTK's
+  `permission-request` is answered, and
+  every request denied by name: user media, location, notifications, device
+  info and any other kind.
+- **A file picker is the person's.** A file input opens the file picker
+  only while the person has control of that teammate's browser (the pane's
+  Take control, until Give it back, as the core keeps it). While the
+  teammate drives, the desk cancels it before anything is shown, no file is
+  chosen or uploaded, and the act that made it answers with a refusal that
+  says only the person can choose a file there. wry's own open panel, a
+  modal `NSOpenPanel` on whatever screen the person is at, runs only in the
+  first case, and on Linux WebKitGTK's `run-file-chooser` is cancelled the
+  same way. Residual risk: a file the person picks while they have control
+  goes to that page's site, as in any browser.
 - **Its input is the person's own kind.** A click, a hover and a key reach
   the page as the platform's own events: AppKit's on macOS, GDK events of
   the display's pointer and keyboard sent to the web view on Linux. A click
@@ -1068,6 +1099,7 @@ extend; when a change adds a boundary, it adds a row.
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
 | Revocation evicts cached logins and retained Copilot transports refuse the next request; ChatGPT delete revokes each stored token once and deletes locally even if the provider fails | `providers/rig_login/tests/revoke.rs` `rig_revoke_copilot_retained_transport_stops_on_its_next_request`, `rig_revoke_chatgpt_forgets_retained_tokens_and_refuses_a_new_lookup`, `rig_revoke_a_refresh_in_flight_cannot_restore_the_login`; `tests/desk/logins.rs` `rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails` | Provider revocation is best effort; already dispatched requests can finish |
+| A desk browser page is never granted the microphone, the camera or any other permission it asks for, and is never left to WebKit's own question; its file picker opens only while the person has control, and the teammate's act that made it is refused with that said; a Mac before macOS 14 installs no desk browser and its teammates are not told of one | `hotline-app/src/browser/native/asks.rs` `media_and_every_other_ask_is_always_denied`, `the_file_picker_opens_only_while_the_person_has_control`; `hotline-app/src/browser/native/asks/apple.rs` `the_microphone_and_camera_are_always_denied_never_asked`; `hotline-core/src/browser.rs` `a_desk_browser_is_kept_only_on_macos_14_or_later`; `session/tests/preamble.rs` `the_preamble_says_who_where_how_far_and_when` | the delegate and signal wiring, and a page's real `getUserMedia` and file input, by hand in the Mac app; the Linux side is not run on a Mac |
 | A teammate's `navigate` opens a local address only once the person allowed that host and port for that teammate, never the desk's own ports; once open, the page goes where it goes but never to the desk's own ports or a non-web scheme | `hotline-core/src/browser.rs` `the_gate_admits_every_web_page_but_the_desks_own_ports`; `hotline-core/src/mcp/server/tests/desk_browser.rs` `a_local_page_waits_for_allow_and_then_opens_for_that_teammate_only`, `the_desks_own_ports_never_open_and_never_ask` | WebKit's own asking is checked by hand |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |

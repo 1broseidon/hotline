@@ -3,7 +3,8 @@
 //! container, MCP server or Playwright. The core owns what the agent may ask
 //! of it (the `browser` tool) and which addresses it may load; the app owns
 //! the web view and implements [`DeskBrowser`]. A desk with no window, such
-//! as `hotline serve`, installs none, and no teammate is offered the tool.
+//! as `hotline serve`, a Mac before macOS 14 ([`kept_here`]) and Windows
+//! install none, and no teammate there is offered the tool.
 //!
 //! Local addresses are guarded where the teammate asks for them
 //! (docs/security.md, "A teammate's browser"): its `navigate` to a page on
@@ -456,6 +457,74 @@ pub fn store_id(persona_id: &str) -> [u8; 16] {
     id
 }
 
+/// The oldest macOS whose WebKit keeps a web data store by an id
+/// (`WKWebsiteDataStore dataStoreForIdentifier:`), which is what gives each
+/// teammate's browser a store of its own. Below it every web view would
+/// share the default store, Hotline's own window's, with each other teammate
+/// and with any cookies lent to one, so no desk browser is kept there.
+pub const MACOS_OWN_STORES: u32 = 14;
+
+/// Whether this system keeps a desk browser at all: macOS from
+/// [`MACOS_OWN_STORES`] on, and Linux, where WebKitGTK gives each teammate a
+/// web context on a data directory of its own. Windows has none yet. The app
+/// installs one only where this holds, and a teammate is told it has one only
+/// where it does, so the two never disagree.
+pub fn kept_here() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        static KEPT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *KEPT.get_or_init(|| kept_on_macos(macos_major()))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        true
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+/// [`kept_here`] on macOS, by its major version; an unreadable one keeps
+/// none.
+#[cfg_attr(
+    not(any(target_os = "macos", test)),
+    allow(dead_code, reason = "only macOS asks its version")
+)]
+fn kept_on_macos(major: Option<u32>) -> bool {
+    major.is_some_and(|major| major >= MACOS_OWN_STORES)
+}
+
+/// This Mac's major version, as the kernel reports the product's
+/// (`kern.osproductversion`, "14.5").
+#[cfg(target_os = "macos")]
+fn macos_major() -> Option<u32> {
+    let mut buffer = [0u8; 32];
+    let mut size = buffer.len();
+    // SAFETY: a NUL-terminated name, a buffer of `size` bytes and its size,
+    // which the call writes back as the length it filled.
+    let failed = unsafe {
+        libc::sysctlbyname(
+            c"kern.osproductversion".as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0;
+    if failed {
+        return None;
+    }
+    let version = std::str::from_utf8(&buffer[..size.min(buffer.len())]).ok()?;
+    version
+        .trim_end_matches('\0')
+        .split('.')
+        .next()?
+        .trim()
+        .parse()
+        .ok()
+}
+
 fn allowed_event(persona_id: &str, origin: &str) -> Value {
     json!({
         "kind": ALLOWED,
@@ -471,6 +540,25 @@ mod tests {
 
     fn url(text: &str) -> Url {
         Url::parse(text).unwrap()
+    }
+
+    #[test]
+    fn a_desk_browser_is_kept_only_on_macos_14_or_later() {
+        assert!(!kept_on_macos(None));
+        assert!(!kept_on_macos(Some(12)));
+        assert!(!kept_on_macos(Some(13)));
+        assert!(kept_on_macos(Some(14)));
+        assert!(kept_on_macos(Some(26)));
+        #[cfg(target_os = "macos")]
+        {
+            let major = macos_major().expect("this Mac's version");
+            assert!(major >= 13, "{major}");
+            assert_eq!(kept_here(), major >= MACOS_OWN_STORES);
+        }
+        #[cfg(target_os = "linux")]
+        assert!(kept_here());
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        assert!(!kept_here());
     }
 
     #[test]

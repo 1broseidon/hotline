@@ -114,9 +114,9 @@ fn the_preamble_says_who_where_how_far_and_when() {
     // teammate learns it has one, and that the person can take it over.
     assert!(!child.contains("You have a computer"));
     // With no computer, the desk's own browser is its own, and "open" with no
-    // browser named lands there rather than in the person's. Windows has no
-    // desk browser yet.
-    if cfg!(any(target_os = "macos", target_os = "linux")) {
+    // browser named lands there rather than in the person's. Windows and a
+    // Mac before macOS 14 have no desk browser, and are told of none.
+    if crate::browser::kept_here() {
         assert!(
             child.contains("You have a web browser of your own"),
             "{child}"

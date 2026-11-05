@@ -13,7 +13,8 @@
 //! isolated world, steps through history, hides and shows the pane, puts the
 //! shield over a watched page, sends input as the person's own, and draws a
 //! snapshot; the pointer overlay (`hands`), certificate trust (`trust`), the
-//! first load (`guard`) and lent cookies (`cookies`) have a side for each.
+//! first load (`guard`), lent cookies (`cookies`) and what a page may ask of
+//! the person's computer (`asks`) have a side for each.
 //!
 //! What it may load is the core's [`Gate`]: every top-level load, the
 //! agent's and the page's own, is asked first, so a page cannot send the
@@ -23,6 +24,11 @@
 //! window and every other teammate's: WebKit's store by an id on macOS, a
 //! data directory of its own under Hotline's on Linux. No capability names
 //! these windows, so a page in one reaches none of the shell's commands.
+//! A page is never given the microphone, the camera or any other permission
+//! it asks for, and its file picker opens only while the person has
+//! control. A Mac before macOS 14 keeps no desk browser at all: its WebKit
+//! has no store by id, so every teammate would share Hotline's window's
+//! (`hotline_core::browser::kept_here`).
 //! Passkeys are answered on macOS only: WebKitGTK's UI-process API does not
 //! tell a script message which frame's origin sent it (only a web-process
 //! extension could, and none is built), and the desk takes an origin only
@@ -31,10 +37,15 @@
 use hotline_core::desk::Desk;
 use tauri::AppHandle;
 
-/// Installs the browser on this desk, where the platform has one. The
+/// Installs the browser on this desk, where the system keeps one
+/// (`hotline_core::browser::kept_here`): macOS 14 and later, and Linux.
+/// Elsewhere nothing is installed and no teammate is offered the tool. The
 /// Door's port and, in development, the window's own dev server, are the
 /// ports it never opens.
 pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
+    if !hotline_core::browser::kept_here() {
+        return;
+    }
     let mut never = vec![door_port];
     if let Some(port) = app
         .config()
@@ -61,17 +72,29 @@ pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
 type Browsers<'a> = tauri::State<'a, std::sync::Arc<native::Native>>;
 type DeskState<'a> = tauri::State<'a, std::sync::Arc<Desk>>;
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-const NOT_HERE: &str = "The desk browser is not built for this platform yet.";
+const NOT_HERE: &str = "This desk keeps no browser: it needs macOS 14 or later, or Linux.";
+
+/// The desk's browsers, where it keeps them.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn browsers(app: &AppHandle) -> Result<Browsers<'_>, String> {
+    use tauri::Manager;
+    app.try_state().ok_or_else(|| NOT_HERE.to_string())
+}
+
+/// Whether the person has control of the teammate's browser now, as the
+/// core keeps it: from the pane's Take control until Give it back.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn person_has_it(desk: &Desk, persona_id: &str) -> bool {
+    desk.browser_now(persona_id)
+        .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person)
+}
 
 /// The PIP's click: the teammate's browser pane, opened over the desk.
 #[tauri::command]
 pub fn browser_pane_open(app: AppHandle, persona_id: String, name: String) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        use tauri::Manager;
-        app.state::<std::sync::Arc<native::Native>>()
-            .open_pane(&persona_id, &name)
+        browsers(&app)?.open_pane(&persona_id, &name)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
@@ -90,17 +113,14 @@ pub fn browser_bar_state(
 ) -> Result<serde_json::Value, String> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        use tauri::Manager;
-        let view = desk.browser_now(&persona_id);
-        let taken = view
-            .as_ref()
-            .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
-        let mut state = serde_json::to_value(
-            app.state::<std::sync::Arc<native::Native>>()
-                .bar_state(&persona_id, taken)?,
-        )
-        .map_err(|error| error.to_string())?;
-        state["title"] = view.map(|view| view.title).unwrap_or_default().into();
+        let taken = person_has_it(&desk, &persona_id);
+        let mut state = serde_json::to_value(browsers(&app)?.bar_state(&persona_id, taken)?)
+            .map_err(|error| error.to_string())?;
+        state["title"] = desk
+            .browser_now(&persona_id)
+            .map(|view| view.title)
+            .unwrap_or_default()
+            .into();
         Ok(state)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -120,9 +140,8 @@ pub async fn browser_bar_take(
 ) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        use tauri::Manager;
+        let browsers = browsers(&app)?;
         desk.take_browser(&persona_id, taken).await?;
-        let browsers: Browsers<'_> = app.state();
         browsers.shield(&persona_id, !taken)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -142,14 +161,10 @@ pub async fn browser_bar_trust(
 ) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        use tauri::Manager;
-        let taken = desk
-            .browser_now(&persona_id)
-            .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
-        if !taken {
+        if !person_has_it(&desk, &persona_id) {
             return Err("Take control first: only you can visit past a certificate.".into());
         }
-        let browsers: Browsers<'_> = app.state();
+        let browsers = browsers(&app)?;
         let visited = browsers.visit_anyway(&persona_id).await;
         desk.browser_person_moved(&persona_id).await;
         visited
@@ -174,14 +189,10 @@ pub async fn browser_bar_go(
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use hotline_core::browser::Step;
-        use tauri::Manager;
-        let taken = desk
-            .browser_now(&persona_id)
-            .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
-        if !taken {
+        if !person_has_it(&desk, &persona_id) {
             return Err("Take over first: the teammate is driving.".into());
         }
-        let browsers: Browsers<'_> = app.state();
+        let browsers = browsers(&app)?;
         match (step.as_deref(), url) {
             (Some("back"), _) => browsers.person_step(&persona_id, Step::Back),
             (Some("forward"), _) => browsers.person_step(&persona_id, Step::Forward),
@@ -228,6 +239,7 @@ mod native {
     };
     use tokio::sync::{oneshot, watch};
 
+    mod asks;
     mod full_page;
     mod guard;
     #[cfg(target_os = "macos")]
@@ -362,6 +374,9 @@ mod native {
         /// Why the last load failed to start, said in full, since the call
         /// that cleared it.
         failed: Option<String>,
+        /// The page asked for a file picker while the teammate drove, and
+        /// was refused, since the call that cleared it (`asks`).
+        picker_refused: bool,
     }
 
     impl Loads {
@@ -370,6 +385,7 @@ mod native {
         fn fresh(&mut self) {
             self.blocked = None;
             self.failed = None;
+            self.picker_refused = false;
         }
     }
 
@@ -726,6 +742,18 @@ mod native {
                     (persona_id.to_string(), tab.clone(), self.exceptions.clone());
                 page.with_webview(move |view| {
                     trust::attach(view.inner(), persona, tab, exceptions);
+                })
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            }
+            {
+                // No microphone or camera, ever, and a file picker only while
+                // the person has the page.
+                let (app, persona, tab) = (self.app.clone(), persona_id.to_string(), tab.clone());
+                page.with_webview(move |view| {
+                    asks::attach(view.inner(), tab, move || {
+                        app.try_state::<Arc<hotline_core::desk::Desk>>()
+                            .is_some_and(|desk| super::person_has_it(&desk, &persona))
+                    });
                 })
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             }
@@ -1121,6 +1149,9 @@ mod native {
             tokio::time::sleep(ACT_SETTLE).await;
             let began = {
                 let loads = receiver.borrow();
+                if loads.picker_refused {
+                    return Err(asks::PICKER_REFUSED.into());
+                }
                 if let Some(blocked) = &loads.blocked {
                     return Err(format!(
                         "The page tried to go to {blocked}, which your browser never opens: not a web page, or one of Hotline's own ports."

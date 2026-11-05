@@ -214,7 +214,9 @@ mod native {
     mod cookies;
 
     use async_trait::async_trait;
-    use hotline_core::browser::{Act, Acted, DeskBrowser, Gate, Page, Reading, Step};
+    use hotline_core::browser::{
+        Act, Acted, DeskBrowser, Field, Gate, Page, Reading, Showing, Step,
+    };
     use serde::Deserialize;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, PoisonError};
@@ -253,8 +255,21 @@ mod native {
         include_str!("browser/read_text.js")
     );
     const READ_LINKS: &str = include_str!("browser/read_links.js");
-    const ACT: &str = include_str!("browser/act.js");
+    /// field.js goes in front of act.js: a secret's fill checks its field
+    /// again as it types.
+    const ACT: &str = concat!(
+        include_str!("browser/field.js"),
+        include_str!("browser/act.js")
+    );
     const LOCATE: &str = include_str!("browser/locate.js");
+    /// What a field is, before a secret is typed into it: walk.js goes in
+    /// front, and `A` names the ref.
+    const FIELD: &str = concat!(
+        include_str!("browser/field.js"),
+        "const el = refs.get(A.ref);\n",
+        "return JSON.stringify(el && el.isConnected ? { field: fieldFacts(el), next: globalThis.__hotlineNext } : { error: `${A.ref} is no longer on the page: read it again with text.` });"
+    );
+    const SHOWING: &str = include_str!("browser/showing.js");
     /// How long after its last move the teammate's pointer fades.
     const HANDS_IDLE: Duration = Duration::from_secs(4);
     /// Whether the last native click or hover reached the page.
@@ -789,12 +804,19 @@ mod native {
                     | Act::Check { .. }
                     | Act::Hover { .. }
                     | Act::Fill { .. }
+                    | Act::FillSecret { .. }
                     | Act::Select { .. }
                     | Act::Scroll { .. }
             );
             if !watched {
                 return false;
             }
+            // The pointer needs the ref alone: what a fill types stays out
+            // of the look.
+            let Ok(args) = serde_json::from_str::<serde_json::Value>(args) else {
+                return false;
+            };
+            let args = serde_json::json!({ "act": args["act"], "ref": args["ref"] });
             let Ok(answer) = self
                 .run(persona_id, format!("const A = {args};\n{WALK}\n{LOCATE}"))
                 .await
@@ -963,6 +985,14 @@ mod native {
             Act::Hover { target } => serde_json::json!({ "act": "hover", "ref": target }),
             Act::Fill { target, text } => {
                 serde_json::json!({ "act": "fill", "ref": target, "text": text })
+            }
+            Act::FillSecret {
+                target,
+                text,
+                part,
+                field,
+            } => {
+                serde_json::json!({ "act": "fill_secret", "ref": target, "text": text, "part": part, "field": field })
             }
             Act::Select { target, values } => {
                 serde_json::json!({ "act": "select", "ref": target, "values": values })
@@ -1158,6 +1188,30 @@ mod native {
             most: usize,
         ) -> Result<hotline_core::browser::FullPage, String> {
             full_page::look(self, persona_id, most).await
+        }
+
+        async fn field(&self, persona_id: &str, target: &str) -> Result<Field, String> {
+            #[derive(Deserialize)]
+            struct Answer {
+                field: Option<Field>,
+                error: Option<String>,
+            }
+            let args = serde_json::json!({ "ref": target });
+            let answer: Answer = serde_json::from_str(
+                &self
+                    .run(persona_id, format!("const A = {args};\n{WALK}\n{FIELD}"))
+                    .await?,
+            )
+            .map_err(|error| format!("The page's answer was unreadable: {error}"))?;
+            match (answer.field, answer.error) {
+                (Some(field), _) => Ok(field),
+                (None, error) => Err(error.unwrap_or_else(|| "The page answered nothing.".into())),
+            }
+        }
+
+        async fn showing(&self, persona_id: &str) -> Result<Showing, String> {
+            serde_json::from_str(&self.run(persona_id, SHOWING.to_string()).await?)
+                .map_err(|_| "The page's answer was unreadable.".to_string())
         }
 
         fn current(&self, persona_id: &str) -> Option<String> {

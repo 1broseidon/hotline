@@ -1,7 +1,8 @@
 // The body of an async function the desk runs in its own content world: one
 // act on a ref from the last text read. The desk puts `A` and walk.js in
 // front of it, so `refs` numbers the page as the read did. `A` is:
-// { act, ref, text, values, on, dy, find, timeout }. A click, a check that
+// { act, ref, text, values, on, dy, find, timeout, part, field }; field.js
+// goes in front of it too, for a secret's fill. A click, a check that
 // must change and a hover answer the point to act at, in the view's CSS
 // pixels with the viewport's height, and the desk sends a real mouse event
 // there; the rest act here.
@@ -12,18 +13,22 @@ const element = () => {
   return el;
 };
 
-// How an act names an element: a field by its label, never by its value,
-// so a password typed into it never comes back.
+// How an act names an element: a field, an editable part of the page
+// included, by its label, never by its value or its text, so what was
+// typed into it never comes back.
 const describe = (el) => {
   const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+  const editable = !field && el.isContentEditable;
   const kind = el instanceof HTMLInputElement
     ? `${el.type || "text"} field`
     : field
       ? "field"
-      : el instanceof HTMLAnchorElement
-        ? "link"
-        : el.tagName.toLowerCase();
-  const name = field ? labelOf(el) : el.innerText || el.getAttribute("aria-label") || el.title || "";
+      : editable
+        ? "editable area"
+        : el instanceof HTMLAnchorElement
+          ? "link"
+          : el.tagName.toLowerCase();
+  const name = field || editable ? labelOf(el) : el.innerText || el.getAttribute("aria-label") || el.title || "";
   const text = clean(name).slice(0, 60);
   return `${kind}${text ? ` "${text}"` : ""}`;
 };
@@ -132,6 +137,23 @@ const run = async () => {
   const el = element();
   if (!el) return { error: `${A.ref} is no longer on the page: read it again with text.` };
   if (A.act === "click" || A.act === "hover") return pointAt(el);
+  if (A.act === "fill_secret") {
+    // A login's part goes only into the field the core found fit for it:
+    // an input, never a search box, a password only into a password
+    // field, and only while the field is still what it was then.
+    const facts = fieldFacts(el);
+    const changed = Object.keys(A.field || {}).some((key) => facts[key] !== A.field[key]);
+    if (!A.field || changed) {
+      return { error: `${A.ref} changed since it was checked, so nothing was typed. Read the page again with text.` };
+    }
+    if (!(el instanceof HTMLInputElement) || facts.type === "search" || (A.part === "password" && facts.type !== "password")) {
+      return { error: `${A.ref} is ${describe(el)}, which does not take a login's ${A.part}. Nothing was typed.` };
+    }
+    if (!shown(el)) el.scrollIntoView({ block: "center", behavior: "instant" });
+    el.focus();
+    setValue(el, A.text);
+    return { note: `Typed into ${describe(el)}.` };
+  }
   if (A.act === "fill") {
     if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && !el.isContentEditable) {
       return { error: `${A.ref} is ${describe(el)}, not a field.` };

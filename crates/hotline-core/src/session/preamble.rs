@@ -77,7 +77,7 @@ pub(crate) fn preamble(
             .filter(|names| !has_computer && !names.is_empty())
         {
             Some(names) => format!(
-                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`; it is typed only on that login's own sites, and that refusal is right. You never see a value, and none is ever read back to you. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                "\n\nThe person has given you these secrets, by name: {}. A login is typed for you by your desk browser: on a sign-in form of one of its sites, use `browser` action `fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`, on the ref of the field for that part: a username into the username or email field, a password into the password field, a code into the one-time-code field. It is typed only on that login's own sites and only into such a field, and that refusal is right. You never see a value, and none is ever read back to you: no picture of the page is taken while one shows outside a password field. If you have no `browser` tool, ask the person to sign in themselves. If a task needs a secret you were not given, ask the person for it rather than working around it.",
                 names.join(", ")
             ),
             None => String::new(),

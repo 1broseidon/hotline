@@ -52,18 +52,24 @@ impl Room {
         }
     }
 
-    /// The passkeys `persona_id` is granted, as the vault keeps them.
-    fn granted_passkeys(&self, persona_id: &str) -> Vec<Key> {
+    /// The passkeys `persona_id` is granted, as the vault keeps them, read
+    /// off the async threads, since a keychain read blocks.
+    async fn granted_passkeys(&self, persona_id: &str) -> Vec<Key> {
         let names = self
             .persona(persona_id)
             .ok()
             .and_then(|persona| persona.secrets)
             .unwrap_or_default();
-        let Some(vault) = &self.vault else {
+        let Some(vault) = self.vault.clone() else {
             return Vec::new();
         };
-        vault
-            .shared_secret_values(&names)
+        if names.is_empty() {
+            return Vec::new();
+        }
+        tokio::task::spawn_blocking(move || vault.shared_secret_values(&names))
+            .await
+            .ok()
+            .and_then(Result::ok)
             .map(|(values, _)| values)
             .unwrap_or_default()
             .into_iter()
@@ -78,7 +84,7 @@ impl Room {
         options: &Value,
     ) -> Result<Value, Refusal> {
         let rp_id = authenticator::relying_party(origin, options["rpId"].as_str())?;
-        let keys = self.granted_passkeys(persona_id);
+        let keys = self.granted_passkeys(persona_id).await;
         let key = authenticator::chosen(&rp_id, options, &keys)?;
         if key.r#use == crate::contract::SecretUse::Ask {
             let persona = self
@@ -161,7 +167,7 @@ impl Room {
             })
             .cloned()
             .ok_or_else(not_armed)?;
-        if authenticator::excluded(&creation, &self.granted_passkeys(persona_id)) {
+        if authenticator::excluded(&creation, &self.granted_passkeys(persona_id).await) {
             return Err(refuse(
                 "InvalidStateError",
                 "this teammate already has that passkey",

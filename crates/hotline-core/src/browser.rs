@@ -18,6 +18,7 @@ pub mod authenticator;
 
 use crate::log::{Log, StreamId};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::net::IpAddr;
@@ -78,6 +79,15 @@ pub enum Act {
         target: String,
         text: String,
     },
+    /// Types a login's `part` into a field the core found fit to take it
+    /// ([`Field::takes`]). `field` is what the page said the field was, and
+    /// the page types nothing if the field is no longer that.
+    FillSecret {
+        target: String,
+        text: String,
+        part: LoginPart,
+        field: Field,
+    },
     Select {
         target: String,
         values: Vec<String>,
@@ -114,6 +124,17 @@ impl std::fmt::Debug for Act {
             Self::Fill { target, .. } => f
                 .debug_struct("Fill")
                 .field("target", target)
+                .finish_non_exhaustive(),
+            Self::FillSecret {
+                target,
+                part,
+                field,
+                ..
+            } => f
+                .debug_struct("FillSecret")
+                .field("target", target)
+                .field("part", part)
+                .field("field", field)
                 .finish_non_exhaustive(),
             Self::Click { target } => f.debug_struct("Click").field("target", target).finish(),
             Self::Select { target, values } => f
@@ -166,6 +187,214 @@ pub fn login_fits(sites: &[String], page: &Url) -> bool {
             && site.port_or_known_default() == page.port_or_known_default()
             && (host == site_host || host.ends_with(&format!(".{site_host}")))
     })
+}
+
+/// The part of a login a `fill` with `secret` types: `NAME.username`,
+/// `NAME.password` or `NAME.code`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LoginPart {
+    Username,
+    Password,
+    Code,
+}
+
+impl LoginPart {
+    /// The part a secret's `.field` names.
+    pub fn of(field: &str) -> Option<Self> {
+        match field {
+            "username" => Some(Self::Username),
+            "password" => Some(Self::Password),
+            "code" => Some(Self::Code),
+            _ => None,
+        }
+    }
+
+    /// The fields this part goes into, as a refusal says it.
+    pub fn goes_into(self) -> &'static str {
+        match self {
+            Self::Username => "a username or email field",
+            Self::Password => "a password field",
+            Self::Code => "a one-time-code field or a password field",
+        }
+    }
+}
+
+/// A field on the page as the desk reads it before it types a login's part
+/// into it (`browser/field.js` in the app): the facts [`Field::takes`]
+/// decides on, and the page checks again as it types. Words are
+/// lowercased.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Field {
+    /// `input`, `textarea`, `select`, `editable` for a contenteditable
+    /// element, or another element's tag.
+    pub tag: String,
+    /// An input's type as the browser reads it (`text` when it has none).
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub autocomplete: String,
+    pub inputmode: String,
+    pub role: String,
+    /// Its name, id, label, placeholder and ARIA label, joined.
+    pub words: String,
+    /// It is inside a search landmark or a search form.
+    pub in_search: bool,
+    /// Its form has a password field.
+    pub with_password: bool,
+}
+
+/// What the words of a field say when it asks for a one-time code: one of
+/// these runs of letters, with its separators taken out...
+const CODE_WORDS: [&str; 9] = [
+    "onetime",
+    "totp",
+    "twofactor",
+    "2fa",
+    "passcode",
+    "verification",
+    "verify",
+    "authenticat",
+    "authcode",
+];
+/// ...or a word that is, starts or ends with one of these...
+const CODE_ENDS: [&str; 3] = ["otp", "mfa", "code"];
+/// ...unless it names one of these other codes.
+const NOT_CODE_WORDS: [&str; 15] = [
+    "zip", "postal", "postcode", "promo", "coupon", "discount", "gift", "voucher", "referral",
+    "invite", "country", "area", "card", "cvv", "cvc",
+];
+
+impl Field {
+    /// The purpose its `autocomplete` names, past section, address and
+    /// contact-kind words, `on`, `off` and `webauthn`.
+    fn purpose(&self) -> Option<&str> {
+        self.autocomplete.split_ascii_whitespace().rfind(|token| {
+            !(token.starts_with("section-")
+                || matches!(
+                    *token,
+                    "shipping"
+                        | "billing"
+                        | "home"
+                        | "work"
+                        | "mobile"
+                        | "fax"
+                        | "pager"
+                        | "on"
+                        | "off"
+                        | "webauthn"
+                ))
+        })
+    }
+
+    /// Its words, lowercased, one at a time.
+    fn word_list(&self) -> Vec<String> {
+        self.words
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// A search box: its type or role, a search landmark or form around
+    /// it, or its words (`search`, `q`, `query`).
+    fn search(&self) -> bool {
+        self.kind == "search"
+            || self.role == "searchbox"
+            || self.in_search
+            || self
+                .word_list()
+                .iter()
+                .any(|word| word == "q" || word == "query" || word.contains("search"))
+    }
+
+    /// Its words say it asks for a one-time code.
+    fn named_like_code(&self) -> bool {
+        let flat: String = self.word_list().concat();
+        if NOT_CODE_WORDS.iter().any(|word| flat.contains(word)) {
+            return false;
+        }
+        CODE_WORDS.iter().any(|word| flat.contains(word))
+            || self.word_list().iter().any(|word| {
+                CODE_ENDS
+                    .iter()
+                    .any(|end| word.starts_with(end) || word.ends_with(end))
+            })
+    }
+
+    /// A one-time-code field: a text, tel or number input that says so by
+    /// `autocomplete="one-time-code"`, or, with no other purpose, takes
+    /// digits (`inputmode="numeric"`, or type tel or number) and is named
+    /// or labelled like a code.
+    fn one_time_code(&self) -> bool {
+        if !matches!(self.kind.as_str(), "text" | "tel" | "number") {
+            return false;
+        }
+        match self.purpose() {
+            Some(purpose) => purpose == "one-time-code",
+            None => {
+                (self.inputmode == "numeric" || matches!(self.kind.as_str(), "tel" | "number"))
+                    && self.named_like_code()
+            }
+        }
+    }
+
+    /// A username field: `autocomplete` username or email on a text, email
+    /// or tel input, an email input, or a text input in a form with a
+    /// password field, with no other purpose.
+    fn username(&self) -> bool {
+        match self.purpose() {
+            Some("username" | "email") => matches!(self.kind.as_str(), "text" | "email" | "tel"),
+            Some(_) => false,
+            None => self.kind == "email" || (self.kind == "text" && self.with_password),
+        }
+    }
+
+    /// Whether this field may take `part` of a login. Only an input does,
+    /// never a search box: a password goes into a password field only, a
+    /// code into a one-time-code field or a password field, and a username
+    /// into a username or email field (docs/security.md, "Logins in the
+    /// desk browser").
+    pub fn takes(&self, part: LoginPart) -> bool {
+        if self.tag != "input" || self.search() {
+            return false;
+        }
+        match part {
+            LoginPart::Password => self.kind == "password",
+            LoginPart::Code => self.kind == "password" || self.one_time_code(),
+            LoginPart::Username => self.username(),
+        }
+    }
+
+    /// What it is, as a refusal names it.
+    pub fn what(&self) -> String {
+        match self.tag.as_str() {
+            "input" if self.search() => "a search field".into(),
+            "input" => match self.kind.as_str() {
+                "password" => "a password field".into(),
+                "email" => "an email field".into(),
+                "text" => "a text field".into(),
+                other => format!("a {other} field"),
+            },
+            "textarea" => "a text area".into(),
+            "editable" => "an editable part of the page".into(),
+            "select" => "a select".into(),
+            _ => "not a field".into(),
+        }
+    }
+}
+
+/// What a picture of the page could show, as words: its rendered text, in
+/// open shadow roots and frames of its own origin too, and the value of
+/// every field but a masked password field. The core looks for a secret's
+/// value in it before and after a screenshot. It has no debug form: it may
+/// hold one.
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct Showing {
+    pub text: String,
+    pub fields: Vec<String>,
 }
 
 /// The six-digit code a base32 TOTP seed gives at `unix_seconds`
@@ -252,6 +481,20 @@ pub trait DeskBrowser: Send + Sync {
             pictures: vec![self.screenshot(persona_id).await?],
             more: false,
         })
+    }
+    /// What the field `target`, a ref from the latest text read, is, as a
+    /// login's part is checked against it before it is typed. A browser
+    /// that cannot say types no secret.
+    async fn field(&self, _persona_id: &str, target: &str) -> Result<Field, String> {
+        Err(format!(
+            "This browser cannot tell what {target} is, so it types no secret into it."
+        ))
+    }
+    /// What a picture of the page could show, as words, for the core to
+    /// look for a secret in before it hands one over. A browser that cannot
+    /// say takes no picture while there is a secret to look for.
+    async fn showing(&self, _persona_id: &str) -> Result<Showing, String> {
+        Err("This browser cannot check its page for your secrets, so it takes no picture while you hold any.".into())
     }
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
@@ -583,6 +826,171 @@ mod tests {
         assert_eq!(totp_code(seed, 59).as_deref(), Some("287082"));
         assert_eq!(totp_code(seed, 1_111_111_109).as_deref(), Some("081804"));
         assert_eq!(totp_code("not base32!", 59), None);
+    }
+
+    fn input(kind: &str, autocomplete: &str, words: &str) -> Field {
+        Field {
+            tag: "input".into(),
+            kind: kind.into(),
+            autocomplete: autocomplete.into(),
+            words: words.into(),
+            ..Field::default()
+        }
+    }
+
+    #[test]
+    fn a_login_part_goes_only_into_a_field_made_for_it() {
+        use LoginPart::{Code, Password, Username};
+        let takes = |field: &Field| {
+            [Username, Password, Code]
+                .into_iter()
+                .filter(|part| field.takes(*part))
+                .collect::<Vec<_>>()
+        };
+        let numeric = |kind: &str, words: &str| Field {
+            inputmode: "numeric".into(),
+            ..input(kind, "", words)
+        };
+        let in_form = |field: Field| Field {
+            with_password: true,
+            ..field
+        };
+        for (field, parts, why) in [
+            (
+                input("password", "current-password", "password"),
+                vec![Password, Code],
+                "a password field",
+            ),
+            (input("password", "", ""), vec![Password, Code], "any one"),
+            (
+                input("text", "one-time-code", ""),
+                vec![Code],
+                "autocomplete says one-time code",
+            ),
+            (
+                input("tel", "section-mfa one-time-code", ""),
+                vec![Code],
+                "past a section",
+            ),
+            (numeric("text", "app_otp"), vec![Code], "numeric, named otp"),
+            (
+                numeric("text", "user[otp_attempt]"),
+                vec![Code],
+                "a word starting with otp",
+            ),
+            (
+                numeric("text", "verification code"),
+                vec![Code],
+                "labelled a code",
+            ),
+            (input("tel", "", "totpPin"), vec![Code], "tel, named totp"),
+            (
+                numeric("text", "zip code"),
+                vec![],
+                "a postal code is not one",
+            ),
+            (
+                Field {
+                    inputmode: "numeric".into(),
+                    ..input("text", "postal-code", "code")
+                },
+                vec![],
+                "nor a field whose autocomplete is another purpose",
+            ),
+            (numeric("text", "amount"), vec![], "digits alone"),
+            (
+                input("text", "", "app_otp"),
+                vec![],
+                "a code's name on a field that takes any text",
+            ),
+            (
+                input("text", "username", "login_field"),
+                vec![Username],
+                "autocomplete username",
+            ),
+            (
+                input("text", "username webauthn", ""),
+                vec![Username],
+                "past webauthn",
+            ),
+            (
+                input("email", "", "email"),
+                vec![Username],
+                "an email field",
+            ),
+            (
+                input("tel", "username", "phone"),
+                vec![Username],
+                "a phone number as the username",
+            ),
+            (
+                in_form(input("text", "", "login")),
+                vec![Username],
+                "a text field in a form with a password field",
+            ),
+            (
+                input("text", "", "login"),
+                vec![],
+                "a text field in no sign-in form",
+            ),
+            (
+                in_form(input("text", "street-address", "address")),
+                vec![],
+                "a field for something else in that form",
+            ),
+            (in_form(input("search", "", "")), vec![], "a search field"),
+            (
+                in_form(input("text", "username", "Search or jump to…")),
+                vec![],
+                "worded like search",
+            ),
+            (in_form(input("text", "", "q")), vec![], "named q"),
+            (
+                Field {
+                    in_search: true,
+                    ..input("password", "", "")
+                },
+                vec![],
+                "in a search landmark",
+            ),
+            (
+                Field {
+                    role: "searchbox".into(),
+                    ..input("email", "", "")
+                },
+                vec![],
+                "a searchbox",
+            ),
+            (
+                Field {
+                    tag: "textarea".into(),
+                    ..in_form(input("", "username", ""))
+                },
+                vec![],
+                "a text area",
+            ),
+            (
+                Field {
+                    tag: "editable".into(),
+                    ..in_form(input("", "", ""))
+                },
+                vec![],
+                "an editable part of the page",
+            ),
+        ] {
+            assert_eq!(takes(&field), parts, "{why}: {field:?}");
+        }
+    }
+
+    #[test]
+    fn a_secrets_fill_never_shows_its_text_in_debug() {
+        let act = Act::FillSecret {
+            target: "e3".into(),
+            text: "hunter22".into(),
+            part: LoginPart::Password,
+            field: input("password", "", ""),
+        };
+        assert!(!format!("{act:?}").contains("hunter22"));
     }
 
     #[test]

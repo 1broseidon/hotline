@@ -324,6 +324,11 @@
 		pointer-events: none;
 		user-select: none;
 	}
+	/* A cut table lays each column out at its own width, a row to a line,
+	 * as the phone's card, so its head and first rows show, cut at the edge. */
+	.speech .sheet[data-cut] > .md-table :is(td, th) {
+		white-space: nowrap;
+	}
 	.sheet[data-cut~="tall"] > .md-table {
 		max-height: 176px;
 	}

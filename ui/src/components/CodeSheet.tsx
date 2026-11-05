@@ -37,7 +37,7 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			kind="code"
 			copy={{ text: code, title: "Copy code" }}
 			open={{ kind: "code", text: fence(code, language, file), title }}
-			cut={wide || tall ? { summary: `${lines.length} ${lines.length === 1 ? "line" : "lines"}`, wide, tall } : null}
+			cut={wide || tall ? { summary: summaryOf(lines.length, tall), wide, tall } : null}
 			label={
 				<>
 					{language ?? "Code"}
@@ -72,6 +72,12 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			</pre>
 		</Sheet>
 	);
+}
+
+/** What a cut block says under it: how long it is, or that its lines run past the bubble. */
+function summaryOf(lines: number, tall: boolean): string {
+	if (tall) return `${lines} lines`;
+	return lines === 1 ? "1 long line" : `${lines} lines, some long`;
 }
 
 /** The block as a fence again, so the full view draws it the same way. */

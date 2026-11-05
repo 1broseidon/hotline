@@ -17,9 +17,16 @@
 //! the person's computer (`asks`) have a side for each.
 //!
 //! What it may load is the core's [`Gate`]: every top-level load, the
-//! agent's and the page's own, is asked first, so a page cannot send the
-//! browser to a local address the person has not allowed. A window is never
-//! opened for a page, and downloads are refused. Each teammate's cookies
+//! agent's, the page's own and the person's, is asked first, and a frame
+//! inside the page is asked by the frame's rule, so neither reaches a file,
+//! the shell or one of the desk's own ports. On macOS the trust delegate
+//! tells the two apart; WebKitGTK says not which frame a load is for, so
+//! there every load is judged by the frame's rule. A page's popup (a
+//! sign-in's, say) opens as a hidden window of its own beside the page, in
+//! the same store and with its opener, and the teammate's reads and acts go
+//! to it until it closes back to the page; downloads are refused. Closing a
+//! teammate's browser ([`DeskBrowser::close`]) takes its windows and all
+//! the desk kept for them, and a wipe its web storage. Each teammate's cookies
 //! and sign-ins live in a web data store of its own, apart from Hotline's
 //! window and every other teammate's: WebKit's store by an id on macOS, a
 //! data directory of its own under Hotline's on Linux. No capability names
@@ -41,7 +48,8 @@ use tauri::AppHandle;
 /// (`hotline_core::browser::kept_here`): macOS 14 and later, and Linux.
 /// Elsewhere nothing is installed and no teammate is offered the tool. The
 /// Door's port and, in development, the window's own dev server, are the
-/// ports it never opens.
+/// ports it never opens, with every other port this process listens on and
+/// the running computers', which the core's gate asks at each load.
 pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
     if !hotline_core::browser::kept_here() {
         return;
@@ -230,14 +238,16 @@ mod native {
     };
     use serde::Deserialize;
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::Duration;
     use tauri::utils::config::BackgroundThrottlingPolicy;
-    use tauri::webview::WebviewBuilder;
-    use tauri::webview::{NewWindowResponse, PageLoadEvent};
+    use tauri::webview::{NewWindowFeatures, NewWindowResponse, PageLoadEvent};
+    use tauri::webview::{WebviewBuilder, WebviewWindowBuilder};
     use tauri::window::WindowBuilder;
     use tauri::{
-        AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl, WindowEvent,
+        AppHandle, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl, WebviewWindow,
+        WindowEvent,
     };
     use tokio::sync::{oneshot, watch};
 
@@ -293,6 +303,7 @@ mod native {
     const ACT_SETTLE: Duration = Duration::from_millis(400);
     const PAGE_INFO: &str =
         "return JSON.stringify({ title: document.title, url: location.href, text: '' });";
+    const NO_PAGE: &str = "Your browser has no page open yet: navigate to one first.";
 
     /// The user agent Safari on this Mac sends: WebKit's own frozen prefix
     /// and Safari's version, read from Safari itself. A bare WKWebView sends
@@ -320,6 +331,14 @@ mod native {
             })
             .as_deref()
     }
+    /// How often, and how far apart, a wiped store's removal is tried: WebKit
+    /// refuses while a web view still uses it, and a closed window's go in
+    /// the main loop's next turns.
+    const REMOVE_TRIES: usize = 5;
+    const REMOVE_WAIT: Duration = Duration::from_millis(400);
+    /// What a call is told when the page opened a window, and when it closed.
+    const POPUP_OPENED: &str = "The page opened a window of its own (a sign-in, say): your reads and acts are in it now. When it closes, as a sign-in's does once it is done, you are back on the page that opened it; navigating closes it.";
+    const POPUP_CLOSED: &str = "That window closed: you are back on the page that opened it.";
     /// How long a load is waited for before the call answers that the page
     /// is still loading.
     const LOAD_WAIT: Duration = Duration::from_secs(20);
@@ -362,7 +381,20 @@ mod native {
         moves: std::sync::atomic::AtomicU64,
         /// The highest ref number any page of this tab has given, so a new
         /// page's refs go on from it (walk.js's `BASE`).
-        refs_next: std::sync::atomic::AtomicU64,
+        refs_next: AtomicU64,
+        /// The popup the page opened, by its window's label, while it is
+        /// open: the teammate's reads and acts go to it, as a person's eyes go
+        /// to the window in front, until it closes back to the page.
+        popup: Mutex<Option<String>>,
+        /// Counts the popups, so each window has a label of its own.
+        popups: AtomicU64,
+        /// The address the page itself last finished loading, which `shown`
+        /// goes back to when its popup closes.
+        page_shown: Mutex<String>,
+        /// The pane is open, so a popup shows over it too.
+        watched: AtomicBool,
+        /// The person has the page: a popup that opens comes unshielded.
+        taken: AtomicBool,
     }
 
     /// What the bar above the page shows.
@@ -448,6 +480,296 @@ mod native {
         )
     }
 
+    /// What the web view asks before a load: the gate's answer, and what
+    /// the tab keeps of it. On macOS only the top of the window is asked
+    /// here (the trust delegate judges a frame inside the page by the
+    /// frame's rule); WebKitGTK asks for every frame's load and says not
+    /// which, so there each is judged by the frame's rule, which a page's
+    /// own load meets too.
+    fn navigating(
+        gate: Arc<Gate>,
+        tab: Arc<Tab>,
+        started: Arc<AtomicBool>,
+    ) -> impl Fn(&Url) -> bool + Send + 'static {
+        move |url: &Url| {
+            if !started.load(Ordering::Acquire) {
+                return false;
+            }
+            #[cfg(target_os = "macos")]
+            let admitted = gate.admits(url);
+            #[cfg(target_os = "linux")]
+            let admitted = gate.admits_frame(url);
+            if admitted {
+                if matches!(url.scheme(), "http" | "https") {
+                    *tab.seen
+                        .attempted
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = url.to_string();
+                }
+            } else {
+                tab.loads
+                    .send_modify(|loads| loads.blocked = Some(url.to_string()));
+            }
+            admitted
+        }
+    }
+
+    /// A load started or finished, in the page (`page`) or its popup.
+    fn page_loaded(tab: &Tab, page: bool, event: PageLoadEvent, url: &Url) {
+        match event {
+            PageLoadEvent::Started => tab.loads.send_modify(|loads| loads.started += 1),
+            PageLoadEvent::Finished => {
+                // The warning a refused certificate leaves is a blank page of
+                // the desk's: the refusal stands behind it.
+                if url.as_str() != "about:blank" {
+                    tab.seen.clear();
+                }
+                *tab.shown.lock().unwrap_or_else(PoisonError::into_inner) = url.to_string();
+                if page {
+                    *tab.page_shown
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = url.to_string();
+                }
+                tab.loads.send_modify(|loads| loads.finished += 1);
+            }
+        }
+    }
+
+    /// The tab's popup, while it is open.
+    fn popup_view(app: &AppHandle, tab: &Tab) -> Option<Webview> {
+        let label = tab
+            .popup
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()?;
+        app.get_webview(&label)
+    }
+
+    /// Sends `view` to `url` once WebKit is out of the delegate call that
+    /// asked.
+    fn go_later(view: Webview, url: Url) {
+        tauri::async_runtime::spawn(async move {
+            let _ = view.navigate(url);
+        });
+    }
+
+    /// Lets go of everything the desk put on a page or popup that is closing:
+    /// its shield, seat and hands, and its trust delegate.
+    #[cfg(target_os = "macos")]
+    fn forget_view(view: *mut std::ffi::c_void) {
+        platform::forget(view);
+        hands::forget(view);
+        trust::forget(view);
+    }
+    #[cfg(target_os = "linux")]
+    fn forget_view(view: webkit2gtk::WebView) {
+        platform::forget(view.clone());
+        hands::forget(view.clone());
+        trust::forget(view);
+    }
+
+    /// [`shut_popup`] once WebKit or GTK is out of the callback that asked:
+    /// on the main thread Tauri runs a web view's work and a window's
+    /// destroy at once, and a view must not go inside its own delegate call.
+    fn shut_popup_later(app: &AppHandle, tab: &Arc<Tab>) {
+        let (app, tab) = (app.clone(), tab.clone());
+        tauri::async_runtime::spawn(async move { shut_popup(&app, &tab) });
+    }
+
+    /// Closes the page's popup, if it has one: the desk lets go of what it
+    /// put on it, its window goes, the teammate is back on the page, and a
+    /// call waiting on the popup's load is answered.
+    fn shut_popup(app: &AppHandle, tab: &Tab) {
+        let Some(label) = tab
+            .popup
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        else {
+            return;
+        };
+        if let Some(view) = app.get_webview(&label) {
+            let _ = view.with_webview(|view| forget_view(view.inner()));
+        }
+        if let Some(window) = app.get_window(&label) {
+            let _ = window.destroy();
+        }
+        let page = tab
+            .page_shown
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        *tab.shown.lock().unwrap_or_else(PoisonError::into_inner) = page;
+        tab.loads.send_modify(|loads| loads.finished += 1);
+    }
+
+    /// What a page's web view needs of the desk to open a popup of its own.
+    #[derive(Clone)]
+    struct Opener {
+        app: AppHandle,
+        gate: Arc<Gate>,
+        tab: Arc<Tab>,
+        persona_id: String,
+        exceptions: Arc<trust::Exceptions>,
+    }
+
+    impl Opener {
+        /// A page's `window.open`, or a link it opens in a new window: a
+        /// popup of the teammate's own, so a sign-in that waits on its popup
+        /// keeps its `window.opener` and hears back. One at a time: a second
+        /// goes in the one open. Refused where the gate refuses the page.
+        fn open(&self, url: Url, features: NewWindowFeatures) -> NewWindowResponse<tauri::Wry> {
+            if !self.gate.admits(&url) {
+                self.tab
+                    .loads
+                    .send_modify(|loads| loads.blocked = Some(url.to_string()));
+                return NewWindowResponse::Deny;
+            }
+            if let Some(open) = popup_view(&self.app, &self.tab) {
+                go_later(open, url);
+                return NewWindowResponse::Deny;
+            }
+            match self.make(features) {
+                Ok(window) => NewWindowResponse::Create { window },
+                Err(error) => {
+                    eprintln!("[browser] a popup could not be opened: {error}");
+                    // The page goes there itself, as it did before popups.
+                    if let Some(page) = self.app.get_webview(&self.tab.page) {
+                        go_later(page, url);
+                    }
+                    NewWindowResponse::Deny
+                }
+            }
+        }
+
+        /// The popup's window: hidden, as the page's is, unless the pane is
+        /// open; on WebKit's own configuration for it, so it shares the
+        /// page's store, process and passkey handler, and WebKit loads the
+        /// page's request in it. Its loads are the tab's.
+        fn make(&self, features: NewWindowFeatures) -> Result<WebviewWindow, String> {
+            let number = self.tab.popups.fetch_add(1, Ordering::SeqCst);
+            let label = format!("{}-popup-{number}", self.tab.window);
+            let blank = Url::parse("about:blank").map_err(|error| error.to_string())?;
+            let name = self
+                .tab
+                .name
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            let nested = {
+                let (app, gate, tab) = (self.app.clone(), self.gate.clone(), self.tab.clone());
+                move |url: Url, _| {
+                    if gate.admits(&url)
+                        && let Some(open) = popup_view(&app, &tab)
+                    {
+                        go_later(open, url);
+                    }
+                    NewWindowResponse::Deny
+                }
+            };
+            let loaded = {
+                let tab = self.tab.clone();
+                move |_: WebviewWindow, payload: tauri::webview::PageLoadPayload<'_>| {
+                    page_loaded(&tab, false, payload.event(), payload.url());
+                }
+            };
+            let builder = WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::External(blank))
+                .window_features(features)
+                .title(format!("{name}'s browser"))
+                .visible(false)
+                .focused(false)
+                .background_throttling(BackgroundThrottlingPolicy::Disabled)
+                .on_navigation(navigating(
+                    self.gate.clone(),
+                    self.tab.clone(),
+                    Arc::new(AtomicBool::new(true)),
+                ))
+                .on_new_window(nested)
+                .on_download(|_, _| false)
+                .on_page_load(loaded);
+            #[cfg(target_os = "macos")]
+            let builder = match safari_user_agent() {
+                Some(agent) => builder.user_agent(agent),
+                None => builder,
+            };
+            let window = builder.build().map_err(|error| error.to_string())?;
+            *self
+                .tab
+                .popup
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(label.clone());
+            // WebKitGTK draws and takes input only in a mapped window: the
+            // popup waits offscreen as the page does.
+            #[cfg(target_os = "linux")]
+            window
+                .with_webview(|view| linux::seat(view.inner(), false))
+                .map_err(|error| error.to_string())?;
+            {
+                let (persona, tab, exceptions, gate) = (
+                    self.persona_id.clone(),
+                    self.tab.clone(),
+                    self.exceptions.clone(),
+                    self.gate.clone(),
+                );
+                window
+                    .with_webview(move |view| {
+                        trust::attach(view.inner(), persona, tab, exceptions, gate);
+                    })
+                    .map_err(|error| error.to_string())?;
+            }
+            // Its own `window.close()`, as a sign-in's once it answered.
+            {
+                let (app, tab) = (self.app.clone(), self.tab.clone());
+                window
+                    .with_webview(move |view| {
+                        let closed = move || shut_popup_later(&app, &tab);
+                        #[cfg(target_os = "macos")]
+                        platform::watch_close(view.inner(), Box::new(closed));
+                        #[cfg(target_os = "linux")]
+                        {
+                            use webkit2gtk::WebViewExt;
+                            view.inner().connect_close(move |_| closed());
+                        }
+                    })
+                    .map_err(|error| error.to_string())?;
+            }
+            // No microphone or camera, ever, and a file picker only while the
+            // person has it: a popup is a page of the teammate's like any other.
+            {
+                let (app, persona, tab) =
+                    (self.app.clone(), self.persona_id.clone(), self.tab.clone());
+                window
+                    .with_webview(move |view| {
+                        asks::attach(view.inner(), tab, move || {
+                            app.try_state::<Arc<hotline_core::desk::Desk>>()
+                                .is_some_and(|desk| super::person_has_it(&desk, &persona))
+                        });
+                    })
+                    .map_err(|error| error.to_string())?;
+            }
+            // The person closing it, from its own title bar.
+            {
+                let (app, tab) = (self.app.clone(), self.tab.clone());
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        shut_popup_later(&app, &tab);
+                    }
+                });
+            }
+            if self.tab.watched.load(Ordering::Acquire) {
+                let taken = self.tab.taken.load(Ordering::Acquire);
+                let _ = window.with_webview(move |view| {
+                    platform::reveal(view.inner());
+                    if taken {
+                        platform::shield(view.inner(), false);
+                    }
+                });
+            }
+            Ok(window)
+        }
+    }
+
     /// Lays the bar and the page out in the window's current size.
     fn lay_out(app: &AppHandle, tab: &Tab) {
         let Some(window) = app.get_window(&tab.window) else {
@@ -492,11 +814,69 @@ mod native {
                 .cloned()
         }
 
-        /// The teammate's page.
+        /// The teammate's page in front: its popup while one is open, the
+        /// page otherwise. Reads, acts and pictures go here.
         fn window(&self, persona_id: &str) -> Result<Webview, String> {
+            let tab = self.tab(persona_id).ok_or(NO_PAGE)?;
+            popup_view(&self.app, &tab)
+                .or_else(|| self.app.get_webview(&tab.page))
+                .ok_or_else(|| NO_PAGE.into())
+        }
+
+        /// The teammate's page itself, under any popup.
+        fn page_view(&self, persona_id: &str) -> Result<Webview, String> {
             self.tab(persona_id)
                 .and_then(|tab| self.app.get_webview(&tab.page))
-                .ok_or_else(|| "Your browser has no page open yet: navigate to one first.".into())
+                .ok_or_else(|| NO_PAGE.into())
+        }
+
+        /// Closes the teammate's browser: its popup, its window with the
+        /// page and the bar, and all the desk kept for them; with `wipe`,
+        /// its web storage, emptied through the open page first so what
+        /// WebKit holds in memory goes too, then removed once no web view
+        /// uses it.
+        async fn close_tab(&self, persona_id: &str, wipe: bool) -> Result<(), String> {
+            let emptied = if wipe {
+                self.empty_store(persona_id).await
+            } else {
+                Ok(())
+            };
+            let tab = self
+                .tabs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(persona_id);
+            self.names
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(persona_id);
+            self.exceptions.forget(persona_id);
+            if let Some(tab) = &tab {
+                shut_popup(&self.app, tab);
+                if let Some(page) = self.app.get_webview(&tab.page) {
+                    let _ = page.with_webview(|view| forget_view(view.inner()));
+                }
+                if let Some(window) = self.app.get_window(&tab.window) {
+                    window
+                        .destroy()
+                        .map_err(|error| format!("Its browser did not close: {error}"))?;
+                }
+            }
+            if !wipe {
+                return Ok(());
+            }
+            let mut removed = Ok(());
+            for _ in 0..REMOVE_TRIES {
+                tokio::time::sleep(REMOVE_WAIT).await;
+                removed = self.remove_store(persona_id).await;
+                if removed.is_ok() {
+                    break;
+                }
+            }
+            emptied?;
+            removed.map_err(|error| {
+                format!("Its storage was emptied, but the store itself was not removed: {error}")
+            })
         }
 
         /// Opens the teammate's browser pane: the window made visible over
@@ -512,10 +892,15 @@ mod native {
                 .ok_or("That teammate's browser has closed.")?;
             let _ = window.set_title(&format!("{name}'s browser"));
             lay_out(&self.app, &tab);
-            self.window(persona_id)?
+            tab.watched.store(true, Ordering::Release);
+            self.page_view(persona_id)?
                 .with_webview(|view| platform::reveal(view.inner()))
                 .map_err(|error| error.to_string())?;
             let _ = window.set_focus();
+            // A popup open over the page shows in front of it.
+            if let Some(popup) = popup_view(&self.app, &tab) {
+                let _ = popup.with_webview(|view| platform::reveal(view.inner()));
+            }
             Ok(())
         }
 
@@ -556,6 +941,7 @@ mod native {
         /// teammate and that host and port, until the desk stops, and loads
         /// the page again.
         pub(crate) async fn visit_anyway(&self, persona_id: &str) -> Result<(), String> {
+            // The refused load was the page's in front, a popup's included.
             let tab = self
                 .tab(persona_id)
                 .ok_or("That teammate's browser has closed.")?;
@@ -587,21 +973,26 @@ mod native {
                     .map_err(|_| "The browser closed before it answered.".to_string())??;
             }
             tab.seen.clear();
-            self.person_go(persona_id, &url).await
+            self.go(persona_id, &tab, &url).await
         }
 
         /// The person took the page over or handed it back: the shield that
         /// keeps a watcher's clicks off the page goes or comes back.
         pub(crate) fn shield(&self, persona_id: &str, on: bool) -> Result<(), String> {
-            self.window(persona_id)?
-                .with_webview(move |view| {
+            let tab = self.tab(persona_id).ok_or(NO_PAGE)?;
+            tab.taken.store(!on, Ordering::Release);
+            let views = [self.app.get_webview(&tab.page), popup_view(&self.app, &tab)];
+            for view in views.into_iter().flatten() {
+                view.with_webview(move |view| {
                     platform::shield(view.inner(), on);
                     // The person driving has their own pointer.
                     if !on {
                         hands::hide(view.inner());
                     }
                 })
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?;
+            }
+            Ok(())
         }
 
         /// The person's own move, from the bar, while they have the page.
@@ -611,15 +1002,24 @@ mod native {
                 .map_err(|error| error.to_string())
         }
 
+        /// An address the person typed: the page goes there, leaving a
+        /// popup, as the teammate's own navigate does.
         pub(crate) async fn person_go(&self, persona_id: &str, url: &Url) -> Result<(), String> {
+            let tab = self
+                .tab(persona_id)
+                .ok_or("That teammate's browser has no page open.")?;
+            shut_popup(&self.app, &tab);
+            self.go(persona_id, &tab, url).await
+        }
+
+        /// The page in front goes to `url`, if the gate lets it, and the
+        /// load is waited for.
+        async fn go(&self, persona_id: &str, tab: &Tab, url: &Url) -> Result<(), String> {
             if !self.gate.admits(url) {
                 return Err(
                     "That address is not a web page, or is one of Hotline's own ports.".into(),
                 );
             }
-            let tab = self
-                .tab(persona_id)
-                .ok_or("That teammate's browser has no page open.")?;
             tab.loads.send_modify(Loads::fresh);
             let receiver = tab.loads.subscribe();
             let before = receiver.borrow().finished;
@@ -630,8 +1030,8 @@ mod native {
         }
 
         /// Makes the teammate's window on `url`: Hotline's bar above the
-        /// page, hidden until the person opens the pane, or always shown
-        /// when `HOTLINE_BROWSER_SHOW` is set, which development uses.
+        /// page, hidden until the person opens the pane, or, in a debug
+        /// build only, always shown when `HOTLINE_BROWSER_SHOW` is set.
         fn make(&self, persona_id: &str, url: &Url) -> Result<Arc<Tab>, String> {
             let (window_label, page_label, bar_label) = labels_of(persona_id);
             let (loads, _) = watch::channel(Loads::default());
@@ -643,68 +1043,36 @@ mod native {
                 loads,
                 shown: Mutex::new(String::new()),
                 seen: trust::Seen::default(),
-                moves: std::sync::atomic::AtomicU64::new(0),
-                refs_next: std::sync::atomic::AtomicU64::new(0),
+                moves: AtomicU64::new(0),
+                refs_next: AtomicU64::new(0),
+                popup: Mutex::new(None),
+                popups: AtomicU64::new(0),
+                page_shown: Mutex::new(String::new()),
+                watched: AtomicBool::new(false),
+                taken: AtomicBool::new(false),
             });
-            let show = std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
+            // A development switch: a release build never shows a page the
+            // person did not open.
+            let show = cfg!(debug_assertions) && std::env::var_os("HOTLINE_BROWSER_SHOW").is_some();
             // Nothing loads until the desk's delegate is in front of wry's.
-            let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let navigating = {
-                let gate = self.gate.clone();
-                let tab = tab.clone();
-                let started = started.clone();
-                move |url: &Url| {
-                    if !started.load(std::sync::atomic::Ordering::Acquire) {
-                        return false;
-                    }
-                    let admitted = gate.admits(url);
-                    if admitted {
-                        if url.as_str() != "about:blank" {
-                            *tab.seen
-                                .attempted
-                                .lock()
-                                .unwrap_or_else(PoisonError::into_inner) = url.to_string();
-                        }
-                    } else {
-                        tab.loads
-                            .send_modify(|loads| loads.blocked = Some(url.to_string()));
-                    }
-                    admitted
-                }
-            };
+            let started = Arc::new(AtomicBool::new(false));
+            let navigating = navigating(self.gate.clone(), tab.clone(), started.clone());
             let loaded = {
                 let tab = tab.clone();
-                move |_: Webview, payload: tauri::webview::PageLoadPayload<'_>| match payload
-                    .event()
-                {
-                    PageLoadEvent::Started => tab.loads.send_modify(|loads| loads.started += 1),
-                    PageLoadEvent::Finished => {
-                        // The warning a refused certificate leaves is a blank
-                        // page of the desk's: the refusal stands behind it.
-                        if payload.url().as_str() != "about:blank" {
-                            tab.seen.clear();
-                        }
-                        *tab.shown.lock().unwrap_or_else(PoisonError::into_inner) =
-                            payload.url().to_string();
-                        tab.loads.send_modify(|loads| loads.finished += 1);
-                    }
+                move |_: Webview, payload: tauri::webview::PageLoadPayload<'_>| {
+                    page_loaded(&tab, true, payload.event(), payload.url());
                 }
             };
-            // A page that opens a window gets the same view instead, if the
-            // gate lets it load there.
+            // A page that opens a window gets a popup of its own beside it.
             let popup = {
-                let app = self.app.clone();
-                let page_label = page_label.clone();
-                move |url: Url, _| {
-                    let app = app.clone();
-                    let page_label = page_label.clone();
-                    tauri::async_runtime::spawn(async move {
-                        if let Some(page) = app.get_webview(&page_label) {
-                            let _ = page.navigate(url);
-                        }
-                    });
-                    NewWindowResponse::Deny
-                }
+                let opener = Opener {
+                    app: self.app.clone(),
+                    gate: self.gate.clone(),
+                    tab: tab.clone(),
+                    persona_id: persona_id.to_string(),
+                    exceptions: self.exceptions.clone(),
+                };
+                move |url: Url, features: NewWindowFeatures| opener.open(url, features)
             };
             // Nothing covers the top strip, so it stays the window's own
             // title bar, dark like the bar below it.
@@ -753,10 +1121,14 @@ mod native {
             page.with_webview(move |view| linux::seat(view.inner(), show))
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             {
-                let (persona, tab, exceptions) =
-                    (persona_id.to_string(), tab.clone(), self.exceptions.clone());
+                let (persona, tab, exceptions, gate) = (
+                    persona_id.to_string(),
+                    tab.clone(),
+                    self.exceptions.clone(),
+                    self.gate.clone(),
+                );
                 page.with_webview(move |view| {
-                    trust::attach(view.inner(), persona, tab, exceptions);
+                    trust::attach(view.inner(), persona, tab, exceptions, gate);
                 })
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             }
@@ -799,17 +1171,26 @@ mod native {
             {
                 let app = self.app.clone();
                 let tab = tab.clone();
+                let persona = persona_id.to_string();
                 window.on_window_event(move |event| match event {
                     WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                         lay_out(&app, &tab);
                     }
-                    // Closing the pane hides it: the teammate's browser goes
-                    // on in the background.
+                    // Closing the pane hides it, a popup with it: the
+                    // teammate's browser goes on in the background. The
+                    // person who closes it has let go of the page, so the
+                    // teammate has it back, and its calls no longer wait.
                     WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        if let Some(page) = app.get_webview(&tab.page) {
-                            let _ = page.with_webview(|view| platform::conceal(view.inner()));
+                        tab.watched.store(false, Ordering::Release);
+                        let views = [app.get_webview(&tab.page), popup_view(&app, &tab)];
+                        for view in views.into_iter().flatten() {
+                            let _ = view.with_webview(|view| platform::conceal(view.inner()));
                         }
+                        let (app, persona) = (app.clone(), persona.clone());
+                        tauri::async_runtime::spawn(async move {
+                            hand_back(&app, &persona).await;
+                        });
                     }
                     _ => {}
                 });
@@ -993,6 +1374,21 @@ mod native {
         }
     }
 
+    /// The person closed the pane: if they had the page, the teammate has it
+    /// back, as Hand back would give it, and the shield is on for the next
+    /// time the pane opens.
+    async fn hand_back(app: &AppHandle, persona_id: &str) {
+        let Some(desk) = app.try_state::<Arc<hotline_core::desk::Desk>>() else {
+            return;
+        };
+        let taken = desk
+            .browser_now(persona_id)
+            .is_some_and(|view| view.phase == hotline_core::contract::BrowserPhase::Person);
+        if taken && desk.take_browser(persona_id, false).await.is_ok() {
+            let _ = app.state::<Arc<Native>>().shield(persona_id, true);
+        }
+    }
+
     /// A teammate's id as it goes in the bar's address, which only ever
     /// carries ids Hotline made.
     fn urlencode(text: &str) -> String {
@@ -1048,10 +1444,12 @@ mod native {
         async fn open(&self, persona_id: &str, url: &Url) -> Result<Page, String> {
             let (receiver, before) = match self.tab(persona_id) {
                 Some(tab) => {
+                    // The teammate's own navigate leaves a popup for the page.
+                    shut_popup(&self.app, &tab);
                     tab.loads.send_modify(Loads::fresh);
                     let receiver = tab.loads.subscribe();
                     let before = receiver.borrow().finished;
-                    self.window(persona_id)?
+                    self.page_view(persona_id)?
                         .navigate(url.clone())
                         .map_err(|error| error.to_string())?;
                     (receiver, before)
@@ -1122,6 +1520,11 @@ mod native {
                 let loads = receiver.borrow();
                 (loads.started, loads.finished)
             };
+            let popup_before = tab
+                .popup
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
             let args = act_args(act);
             // The person watching sees the pointer reach the element first.
             let seen = self.reach(persona_id, &tab, act, &args).await;
@@ -1194,9 +1597,25 @@ mod native {
             } else {
                 true
             };
+            // A window the act opened, or closed, is said: the teammate's
+            // next read is somewhere else.
+            let popup_now = tab
+                .popup
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            let moved = match (&popup_before, &popup_now) {
+                (_, Some(now)) if popup_before.as_ref() != Some(now) => Some(POPUP_OPENED),
+                (Some(_), None) => Some(POPUP_CLOSED),
+                _ => None,
+            };
+            let note = match (answer.note, moved) {
+                (Some(note), Some(moved)) => Some(format!("{note}\n{moved}")),
+                (note, moved) => note.or_else(|| moved.map(str::to_string)),
+            };
             Ok(Acted {
                 page: self.page(persona_id, loaded).await?,
-                note: answer.note,
+                note,
             })
         }
 
@@ -1284,6 +1703,10 @@ mod native {
 
         async fn forget_cookies(&self, persona_id: &str, site: &str) -> Result<(), String> {
             self.forget(persona_id, site).await
+        }
+
+        async fn close(&self, persona_id: &str, wipe: bool) -> Result<(), String> {
+            self.close_tab(persona_id, wipe).await
         }
     }
 }

@@ -1,5 +1,6 @@
 //! Cookies the person lent a teammate on a cookie offer, put into the
-//! teammate's own web storage, and taken back on Remove. The core read them
+//! teammate's own web storage, and taken back on Remove; and that storage
+//! wiped whole when the teammate is deleted. The core read them
 //! from the person's browser and hands them here; they go straight to
 //! WebKit's cookie store and are never logged, shown or answered back, so
 //! nothing here derives `Debug` on a value. The store is the open page's,
@@ -78,6 +79,74 @@ impl Native {
         let (reply, answer) = oneshot::channel();
         self.in_store(persona_id, move |store| jar::delete(store, site, reply))?;
         Self::answered(answer).await
+    }
+
+    /// Empties the teammate's web storage of every kind of data, lent
+    /// cookies, its own sign-ins, local storage and cache: through its open
+    /// page's store, so what WebKit holds in memory goes too, or the store
+    /// its id or data directory names.
+    pub(super) async fn empty_store(&self, persona_id: &str) -> Result<(), String> {
+        let (reply, answer) = oneshot::channel();
+        #[cfg(target_os = "macos")]
+        self.in_data(persona_id, move |store| apple::empty(store, reply))?;
+        #[cfg(target_os = "linux")]
+        self.in_store(persona_id, move |store| linux::empty(store, reply))?;
+        Self::answered(answer).await
+    }
+
+    /// Removes the teammate's web storage itself, once no page of it is
+    /// open: WebKit's store by its id on macOS, its data directory on Linux.
+    pub(super) async fn remove_store(&self, persona_id: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let id = hotline_core::browser::store_id(persona_id);
+            let (reply, answer) = oneshot::channel();
+            self.app
+                .run_on_main_thread(move || apple::remove(id, reply))
+                .map_err(|error| error.to_string())?;
+            Self::answered(answer).await
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let directory = super::linux::store_dir(persona_id);
+            let removed = {
+                let directory = directory.clone();
+                tokio::task::spawn_blocking(move || std::fs::remove_dir_all(directory))
+                    .await
+                    .map_err(|error| error.to_string())?
+            };
+            match removed {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    Err(format!("{}: {error}", directory.display()))
+                }
+                _ => Ok(()),
+            }
+        }
+    }
+
+    /// Runs `work` on the main thread with the teammate's whole website
+    /// data store: its open page's, or the one its id names.
+    #[cfg(target_os = "macos")]
+    fn in_data(
+        &self,
+        persona_id: &str,
+        work: impl FnOnce(&apple::Data) + Send + 'static,
+    ) -> Result<(), String> {
+        let ran = if let Ok(page) = self.window(persona_id) {
+            page.with_webview(move |view| {
+                // SAFETY: `with_webview` runs this on the main thread with
+                // the page's live WKWebView.
+                work(&unsafe { apple::page_data(view.inner()) });
+            })
+        } else {
+            let id = hotline_core::browser::store_id(persona_id);
+            self.app.run_on_main_thread(move || {
+                if let Some(store) = apple::data_by_id(id) {
+                    work(&store);
+                }
+            })
+        };
+        ran.map_err(|error| error.to_string())
     }
 
     async fn answered(answer: oneshot::Receiver<Result<(), String>>) -> Result<(), String> {
@@ -165,6 +234,78 @@ mod apple {
         let view = unsafe { &*view.cast::<WKWebView>() };
         // SAFETY: plain WebKit getters on its own thread.
         unsafe { view.configuration().websiteDataStore().httpCookieStore() }
+    }
+
+    /// A teammate's whole website data store.
+    pub(super) type Data = Retained<WKWebsiteDataStore>;
+
+    /// The website data store of a page's web view.
+    ///
+    /// SAFETY: on the main thread, with `view` a live `WKWebView`.
+    pub(super) unsafe fn page_data(view: *mut c_void) -> Data {
+        // SAFETY: as the function's own contract above.
+        let view = unsafe { &*view.cast::<WKWebView>() };
+        // SAFETY: plain WebKit getters on its own thread.
+        unsafe { view.configuration().websiteDataStore() }
+    }
+
+    /// The teammate's persistent data store by its id.
+    pub(super) fn data_by_id(id: [u8; 16]) -> Option<Data> {
+        let main = MainThreadMarker::new()?;
+        // SAFETY: a nonzero id (a hash), on the main thread.
+        Some(unsafe { WKWebsiteDataStore::dataStoreForIdentifier(&NSUUID::from_bytes(id), main) })
+    }
+
+    /// Removes every kind of data from `store`, from all time.
+    pub(super) fn empty(store: &Data, reply: Reply) {
+        let Some(main) = MainThreadMarker::new() else {
+            let _ = reply.send(Err("The browser was asked off the main thread.".into()));
+            return;
+        };
+        let reply = RefCell::new(Some(reply));
+        let done = RcBlock::new(move || {
+            if let Some(reply) = reply.borrow_mut().take() {
+                let _ = reply.send(Ok(()));
+            }
+        });
+        // SAFETY: WebKit's own set of every type and the distant past, on
+        // the main thread, with a block WebKit keeps until it answers.
+        unsafe {
+            store.removeDataOfTypes_modifiedSince_completionHandler(
+                &WKWebsiteDataStore::allWebsiteDataTypes(main),
+                &objc2_foundation::NSDate::distantPast(),
+                &done,
+            );
+        }
+    }
+
+    /// Deletes the persistent store by its id. WebKit refuses while a web
+    /// view still uses it.
+    pub(super) fn remove(id: [u8; 16], reply: Reply) {
+        let Some(main) = MainThreadMarker::new() else {
+            let _ = reply.send(Err("The browser was asked off the main thread.".into()));
+            return;
+        };
+        let reply = RefCell::new(Some(reply));
+        let done = RcBlock::new(move |error: *mut objc2_foundation::NSError| {
+            // SAFETY: WebKit hands a valid NSError or null.
+            let answer = match unsafe { error.as_ref() } {
+                None => Ok(()),
+                Some(error) => Err(error.localizedDescription().to_string()),
+            };
+            if let Some(reply) = reply.borrow_mut().take() {
+                let _ = reply.send(answer);
+            }
+        });
+        // SAFETY: a nonzero id, on the main thread, with a block WebKit
+        // keeps until it answers.
+        unsafe {
+            WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(
+                &NSUUID::from_bytes(id),
+                &done,
+                main,
+            );
+        }
     }
 
     /// The teammate's persistent store by its id, as its page was made with.
@@ -308,6 +449,18 @@ mod linux {
     /// The website data of a page's web view.
     pub(super) fn page_store(view: &WebView) -> Option<Store> {
         view.website_data_manager()
+    }
+
+    /// Removes every kind of data from `store`, from all time.
+    pub(super) fn empty(store: &Store, reply: Reply) {
+        store.clear(
+            WebsiteDataTypes::ALL,
+            webkit2gtk::glib::TimeSpan(0),
+            None::<&Cancellable>,
+            move |cleared| {
+                let _ = reply.send(cleared.map_err(|error| error.to_string()));
+            },
+        );
     }
 
     /// A manager on the teammate's data directory, made as wry makes the

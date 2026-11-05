@@ -773,12 +773,6 @@ pub(crate) async fn run(
                 .map(|snapshot| json!(snapshot))
                 .ok_or_else(|| "That teammate's browser has no picture yet.".to_string())
         }
-        Command::BrowserTake { persona_id, taken } => {
-            living(log, &persona_id)?;
-            room.browser_take(&persona_id, taken)
-                .await
-                .map(|()| Value::Null)
-        }
         Command::ComputerStatus { persona_id } => {
             living(log, &persona_id)?;
             room.computer_status(&persona_id)

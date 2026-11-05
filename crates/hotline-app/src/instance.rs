@@ -54,6 +54,8 @@ pub(crate) enum Claim {
 pub(crate) struct Instance {
     lock: RoomLock,
     wake: Option<TcpListener>,
+    /// The knock's port, which a teammate's desk browser never opens.
+    _held: Option<hotline_core::listening::Held>,
 }
 
 /// Takes the room's lock, or wakes the desk that has it.
@@ -66,7 +68,15 @@ fn claim_within(root: &Path, patience: Duration) -> io::Result<Claim> {
     loop {
         if let Some(lock) = RoomLock::try_take(root)? {
             let wake = listen(root);
-            return Ok(Claim::Held(Instance { lock, wake }));
+            let held = wake
+                .as_ref()
+                .and_then(|listener| listener.local_addr().ok())
+                .map(|address| hotline_core::listening::hold(address.port()));
+            return Ok(Claim::Held(Instance {
+                lock,
+                wake,
+                _held: held,
+            }));
         }
         if wake(root) || Instant::now() >= deadline {
             return Ok(Claim::Elsewhere);
@@ -132,9 +142,14 @@ impl Instance {
     /// back only when it says it did — so a desk that is leaving, whose
     /// window will never come, sends the knock back to wait for its lock.
     pub(crate) fn answer(self, show: impl Fn() -> bool + Send + 'static) {
-        let Instance { lock, wake } = self;
+        let Instance {
+            lock,
+            wake,
+            _held: held,
+        } = self;
         std::thread::spawn(move || {
             let _lock = lock;
+            let _held = held;
             let Some(wake) = wake else {
                 loop {
                     std::thread::park();

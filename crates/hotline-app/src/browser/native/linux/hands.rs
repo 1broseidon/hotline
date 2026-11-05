@@ -299,6 +299,11 @@ pub(super) fn hide(view: WebView) {
     tick(&area, &drawn);
 }
 
+/// Lets go of a closing page's hands: they go with its overlay.
+pub(super) fn forget(view: WebView) {
+    HANDS.with(|hands| hands.borrow_mut().remove(&key(&view)));
+}
+
 /// The overlay keeps the hands over the page whatever the window's size.
 pub(super) fn follow(_view: WebView) {}
 

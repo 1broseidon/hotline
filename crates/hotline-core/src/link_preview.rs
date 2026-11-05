@@ -521,6 +521,13 @@ pub fn parse(html: &str, url: &str, base: &Url) -> Option<(LinkPreview, Option<U
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn url(text: &str) -> Url {
+        Url::parse(text).unwrap()
+    }
 
     #[test]
     fn a_tag_with_a_name_before_its_property_is_read_by_its_property() {
@@ -531,13 +538,6 @@ mod tests {
             picture.map(|picture| picture.to_string()).as_deref(),
             Some("https://qdrant.tech/documentation/quickstart-social-preview.png")
         );
-    }
-    use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    fn url(text: &str) -> Url {
-        Url::parse(text).unwrap()
     }
 
     #[test]

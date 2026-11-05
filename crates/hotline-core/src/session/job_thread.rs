@@ -95,8 +95,15 @@ pub(super) fn job_preamble(
     persona: &Persona,
     reach: Option<Reach>,
     stored: &[SharedSecret],
+    desk_browser: bool,
 ) -> String {
-    super::preamble(persona, reach, Some(job_brief(&persona.name)), stored)
+    super::preamble(
+        persona,
+        reach,
+        Some(job_brief(&persona.name)),
+        stored,
+        desk_browser,
+    )
 }
 
 /// One job's thread while the room holds it: its queue, and its agent while

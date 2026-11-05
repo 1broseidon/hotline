@@ -1,11 +1,20 @@
 //! The macOS side of a teammate page's trust (`trust.rs`): a navigation
 //! delegate of the desk's own goes in front of wry's on each teammate page.
-//! It forwards everything else to wry's, says why a load failed, and
-//! answers WebKit's certificate challenge with the certificate the person
-//! chose to visit anyway, and only that one.
+//! It forwards everything else to wry's, says why a load failed, answers
+//! WebKit's certificate challenge with the certificate the person chose to
+//! visit anyway, and only that one, and judges a frame's load itself.
+//!
+//! wry's navigation handler is asked for every frame's load and is told
+//! only its address, so the gate's page rule would refuse a sign-in's
+//! `about:srcdoc` frame, a payment's `blob:` one, and fail the teammate's
+//! next call for it. Here WebKit says which frame a load is for: the page's
+//! own (and a popup's first load) go on to wry's and the gate's page rule
+//! ([`Gate::admits`]), and a frame inside the page is judged by the frame
+//! rule ([`Gate::admits_frame`]) and never fails a call.
 
 use super::{Exceptions, Tab, Untrusted, failed, origin_of, refused, tell};
 use block2::DynBlock;
+use hotline_core::browser::Gate;
 use objc2::encode::{Encoding, RefEncode};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
@@ -16,7 +25,9 @@ use objc2_foundation::{
     NSError, NSString, NSURL, NSURLAuthenticationChallenge, NSURLAuthenticationMethodServerTrust,
     NSURLCredential, NSURLSessionAuthChallengeDisposition,
 };
-use objc2_web_kit::{WKNavigation, WKNavigationDelegate, WKWebView};
+use objc2_web_kit::{
+    WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKWebView,
+};
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::{Arc, PoisonError};
@@ -176,6 +187,7 @@ pub(super) struct Ivars {
     persona_id: String,
     tab: Arc<Tab>,
     exceptions: Arc<Exceptions>,
+    gate: Arc<Gate>,
 }
 
 define_class!(
@@ -201,6 +213,33 @@ define_class!(
     unsafe impl NSObjectProtocol for TrustDoor {}
 
     unsafe impl WKNavigationDelegate for TrustDoor {
+        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+        fn decide(
+            &self,
+            web_view: &WKWebView,
+            action: &WKNavigationAction,
+            done: &DynBlock<dyn Fn(WKNavigationActionPolicy)>,
+        ) {
+            // SAFETY: WebKit's own action and its frame, read on the main
+            // thread. No target frame is a new window's first load.
+            let top = unsafe { action.targetFrame() }
+                .is_none_or(|frame| unsafe { frame.isMainFrame() });
+            if top {
+                // SAFETY: wry's delegate answers this itself, asking the gate.
+                unsafe {
+                    self.ivars()
+                        .inner
+                        .webView_decidePolicyForNavigationAction_decisionHandler(web_view, action, done);
+                };
+                return;
+            }
+            done.call((if self.frame_admits(action) {
+                WKNavigationActionPolicy::Allow
+            } else {
+                WKNavigationActionPolicy::Cancel
+            },));
+        }
+
         #[unsafe(method(webView:didReceiveAuthenticationChallenge:completionHandler:))]
         fn challenged(
             &self,
@@ -270,6 +309,25 @@ define_class!(
 );
 
 impl TrustDoor {
+    /// Whether a frame inside the page may load what `action` asks: by the
+    /// gate's frame rule, and never as a download, which the page refuses.
+    fn frame_admits(&self, action: &WKNavigationAction) -> bool {
+        // SAFETY: plain getters on WebKit's own action, on the main thread;
+        // `shouldPerformDownload` only where the action answers it (11.3+).
+        let download = unsafe {
+            action.respondsToSelector(sel!(shouldPerformDownload)) && action.shouldPerformDownload()
+        };
+        // SAFETY: as above.
+        let address = unsafe { action.request() }
+            .URL()
+            .and_then(|url| url.absoluteString())
+            .map(|url| url.to_string());
+        !download
+            && address
+                .and_then(|address| tauri::Url::parse(&address).ok())
+                .is_some_and(|url| self.ivars().gate.admits_frame(&url))
+    }
+
     fn note_failure(&self, web_view: &WKWebView, error: &NSError) {
         let domain = error.domain().to_string();
         let Some((reason, label)) = failure(
@@ -342,23 +400,30 @@ fn failing_url(error: &NSError) -> Option<String> {
 
 thread_local! {
     /// WebKit holds a navigation delegate weakly: the desk's are kept here,
-    /// on the main thread, for the app's run.
-    static DOORS: RefCell<Vec<Retained<TrustDoor>>> = const { RefCell::new(Vec::new()) };
+    /// on the main thread, by their web view, until it closes.
+    static DOORS: RefCell<std::collections::HashMap<usize, Retained<TrustDoor>>> =
+        RefCell::default();
+}
+
+/// Lets go of a closing page's delegate.
+pub(in super::super) fn forget(view: *mut c_void) {
+    DOORS.with(|doors| doors.borrow_mut().remove(&(view as usize)));
 }
 
 /// Puts the desk's delegate in front of wry's on a teammate's page.
 pub(in super::super) fn attach(
-    view: *mut c_void,
+    view_ptr: *mut c_void,
     persona_id: String,
     tab: Arc<Tab>,
     exceptions: Arc<Exceptions>,
+    gate: Arc<Gate>,
 ) {
     let Some(main) = MainThreadMarker::new() else {
         return;
     };
     // SAFETY: `with_webview` hands the live WKWebView of the page, on the
     // main thread.
-    let view = unsafe { &*view.cast::<WKWebView>() };
+    let view = unsafe { &*view_ptr.cast::<WKWebView>() };
     // SAFETY: as above.
     let Some(inner) = (unsafe { view.navigationDelegate() }) else {
         return;
@@ -368,12 +433,13 @@ pub(in super::super) fn attach(
         persona_id,
         tab,
         exceptions,
+        gate,
     });
     // SAFETY: allocated with its ivars set; NSObject's init returns it.
     let door: Retained<TrustDoor> = unsafe { msg_send![super(door), init] };
     // SAFETY: the door answers WKNavigationDelegate and forwards the rest.
     unsafe { view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*door))) };
-    DOORS.with(|doors| doors.borrow_mut().push(door));
+    DOORS.with(|doors| doors.borrow_mut().insert(view_ptr as usize, door));
 }
 
 #[cfg(test)]

@@ -1231,10 +1231,6 @@ impl RoomHandle for Desk {
         self.room.browser_snapshot(persona_id)
     }
 
-    async fn browser_take(&self, persona_id: &str, taken: bool) -> Result<(), String> {
-        self.room.browser_take(persona_id, taken).await
-    }
-
     async fn computer_status(
         &self,
         persona_id: &str,

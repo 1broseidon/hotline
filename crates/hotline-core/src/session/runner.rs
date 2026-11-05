@@ -609,8 +609,15 @@ pub(super) fn run_preamble(
     persona: &Persona,
     reach: Option<Reach>,
     stored: &[SharedSecret],
+    desk_browser: bool,
 ) -> String {
-    super::preamble(persona, reach, Some(run_brief(&persona.name)), stored)
+    super::preamble(
+        persona,
+        reach,
+        Some(run_brief(&persona.name)),
+        stored,
+        desk_browser,
+    )
 }
 
 /// The task as the run hears it.

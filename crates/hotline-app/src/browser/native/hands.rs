@@ -340,6 +340,16 @@ pub(super) fn hide(view: *mut c_void) {
     });
 }
 
+/// Takes the hands off a page that is closing.
+pub(super) fn forget(view: *mut c_void) {
+    if MainThreadMarker::new().is_none() {
+        return;
+    }
+    if let Some(hands) = HANDS.with(|hands| hands.borrow_mut().remove(&(view as usize))) {
+        hands.view.removeFromSuperview();
+    }
+}
+
 /// Keeps the hands over the page after the window is resized.
 pub(super) fn follow(view: *mut c_void) {
     // SAFETY: see `page`.

@@ -234,6 +234,22 @@ pub(super) fn shield(view: WebView, on: bool) {
     });
 }
 
+/// Lets go of a page that is closing: it goes back into its window's box,
+/// so it goes with the window, and the offscreen window it waited in is
+/// destroyed. Left parked, the page would outlive its window there.
+pub(super) fn forget(view: WebView) {
+    let Some(seat) = SEATS.with(|seats| seats.borrow_mut().remove(&key(&view))) else {
+        return;
+    };
+    if seat.overlay.parent().as_ref() == Some(seat.parked.upcast_ref()) {
+        seat.parked.remove(&seat.overlay);
+        seat.home.pack_start(&seat.overlay, true, true, 0);
+    }
+    // SAFETY: the desk's own offscreen window, holding nothing now and
+    // referenced by nothing but this seat, which is gone.
+    unsafe { seat.parked.destroy() };
+}
+
 /// The overlay keeps the shield over the page whatever the window's size.
 pub(super) fn shield_follow(_view: WebView) {}
 

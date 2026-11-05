@@ -111,6 +111,7 @@ pub(in super::super) fn attach(
     _persona_id: String,
     tab: Arc<Tab>,
     _exceptions: Arc<Exceptions>,
+    _gate: Arc<hotline_core::browser::Gate>,
 ) {
     {
         let tab = tab.clone();
@@ -183,6 +184,13 @@ pub(in super::super) fn attach(
         // error page of WebKit's in its place.
         true
     });
+}
+
+/// Lets go of what was kept for a page that is closing.
+pub(in super::super) fn forget(view: WebView) {
+    let key = key(&view);
+    FAILED.with(|failed| failed.borrow_mut().remove(&key));
+    OFFERED.with(|offered| offered.borrow_mut().retain(|(view, _), _| *view != key));
 }
 
 /// Visit anyway: lets the certificate this page was refused on `origin`

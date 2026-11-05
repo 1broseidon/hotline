@@ -829,10 +829,6 @@ pub enum Command {
     /// The picture of a teammate's desk browser the PIP and the phone show.
     #[serde(rename = "browser.snapshot")]
     BrowserSnapshot { persona_id: String },
-    /// The person takes a teammate's desk browser over (`taken`), or hands
-    /// it back; while they have it, the teammate's acts wait.
-    #[serde(rename = "browser.take")]
-    BrowserTake { persona_id: String, taken: bool },
     /// Brings the computer up from the teammate's pane, with the session it
     /// serves: a teammate at rest starts, and a running one whose computer was
     /// stopped is attached to it again between turns.

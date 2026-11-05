@@ -721,7 +721,7 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     // machine it cannot drive.
     let mut bob = persona("bob");
     bob.cwd = cwd.to_string_lossy().into_owned();
-    let unheard = preamble(&bob, Some(Reach::Workspace), None, &[]);
+    let unheard = preamble(&bob, Some(Reach::Workspace), None, &[], false);
     assert!(!unheard.contains("hotline-computer"), "{unheard}");
     assert!(unheard.contains("\n- hotline-room: "), "{unheard}");
 

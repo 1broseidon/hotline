@@ -291,13 +291,14 @@ describe("full screen", () => {
 	test("Expand hands the window the table, which the full view draws with the same table and no Expand of its own", async () => {
 		await say(`Here:\n\n${TABLE}`);
 		await act(async () => key("table", "Expand").click());
-		expect(opened).toEqual([{ kind: "table", text: TABLE, title: "Database · License · p50" }]);
+		// Titled by what the message says first, without its colon.
+		expect(opened).toEqual([{ kind: "table", text: TABLE, title: "Here" }]);
 
 		let closed = 0;
 		await act(async () => root.render(<FullView object={opened[0]!} onClose={() => closed++} />));
 		await settle();
 		const view = document.querySelector(".full-view");
-		expect(view?.getAttribute("aria-label")).toBe("Database · License · p50");
+		expect(view?.getAttribute("aria-label")).toBe("Here");
 		expect(view?.querySelectorAll("tbody tr").length).toBe(3);
 		expect([...(view?.querySelectorAll(".sheet-key") ?? [])].map((one) => one.textContent)).toEqual(["Copy", "Copy"]);
 		await act(async () => view!.querySelector<HTMLButtonElement>(".full-view-close")!.click());

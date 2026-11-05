@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { CloseIcon } from "../icons";
 import { Markdown } from "./Markdown";
 import { CopyKey, type FullObject, OpenFull } from "./Sheet";
@@ -14,10 +13,10 @@ function copyText(object: FullObject): string {
 }
 
 /**
- * One object from a message over the whole window: a table, a block of code
+ * One object from a message as a pane of its own: a table, a block of code
  * or a diagram, drawn from its markdown by the same components the bubble
- * used, at the window's width. Escape, the close key or a click outside the
- * object closes it; nothing in it opens another.
+ * used, filling the conversation's place (and the side pane's) until it is
+ * closed, by Escape or its close key. Nothing in it opens another.
  */
 export function FullView({ object, onClose }: { object: FullObject; onClose(): void }) {
 	const close = useRef<HTMLButtonElement>(null);
@@ -32,9 +31,8 @@ export function FullView({ object, onClose }: { object: FullObject; onClose(): v
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, [onClose]);
-	return createPortal(
-		<div className="full-view" role="dialog" aria-modal="true" aria-label={object.title ?? TITLES[object.kind]}>
-			<button type="button" className="full-view-backdrop" aria-label="Close" tabIndex={-1} onClick={onClose} />
+	return (
+		<section className="full-view" aria-label={object.title ?? TITLES[object.kind]}>
 			<div className="full-view-frame" data-kind={object.kind}>
 				<header className="full-view-head">
 					<span className="full-view-title">{object.title ?? TITLES[object.kind]}</span>
@@ -49,7 +47,6 @@ export function FullView({ object, onClose }: { object: FullObject; onClose(): v
 					</OpenFull.Provider>
 				</div>
 			</div>
-		</div>,
-		document.body,
+		</section>
 	);
 }

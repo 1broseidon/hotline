@@ -19,30 +19,29 @@
 	}
 	/* A bubble with an object in it may take the whole column, so a table has
 	 * the room to lay out its columns, and code its lines, before scrolling. */
-	.speech:has(.sheet, .callout) {
+	.speech:has(.sheet) {
 		max-width: calc(100% - 40px);
 	}
 	/* In a bubble a sheet, and a callout, run through the bubble's padding to
 	 * its edges; at its top or its bottom one meets the bubble's corners. */
-	.speech .sheet,
-	.speech .callout {
+	.speech .sheet {
 		margin-inline: -12px;
 		border-radius: 0;
 	}
-	.speech > .md > :is(.sheet, .callout):first-child {
+	.speech > .md > .sheet:first-child {
 		margin-top: -8px;
 		border-top-left-radius: var(--radius-bubble);
 		border-top-right-radius: var(--radius-bubble);
 	}
-	.speech > .md > :is(.sheet, .callout):last-child {
+	.speech > .md > .sheet:last-child {
 		margin-bottom: -8px;
 		border-bottom-left-radius: var(--radius-bubble);
 		border-bottom-right-radius: var(--radius-bubble);
 	}
-	.said-them.said-run-top > .md > :is(.sheet, .callout):first-child {
+	.said-them.said-run-top > .md > .sheet:first-child {
 		border-top-left-radius: var(--radius-chip);
 	}
-	.said-them.said-run-bottom > .md > :is(.sheet, .callout):last-child {
+	.said-them.said-run-bottom > .md > .sheet:last-child {
 		border-bottom-left-radius: var(--radius-chip);
 	}
 	.sheet-head {
@@ -52,11 +51,41 @@
 		gap: 8px;
 		padding: 0 4px 0 12px;
 	}
-	/* A table names nothing: its strip holds only its keys, at the right,
-	 * above the head row and never over it. */
-	.sheet[data-bare] > .sheet-head {
-		height: 26px;
-		justify-content: flex-end;
+	/* In a bubble a sheet's keys stand in the gutter beside it, one above
+	 * another, as the bubble's own actions do: never over its words or its
+	 * head row. Pointing at a sheet shows its keys and hides the bubble's,
+	 * so one toolbar shows at a time. A table names nothing, so it has no
+	 * head at all. */
+	.speech .sheet {
+		overflow: visible;
+	}
+	.speech .sheet[data-bare] > .sheet-head {
+		display: contents;
+	}
+	.speech .sheet-keys {
+		position: absolute;
+		top: 0;
+		left: calc(100% + 4px);
+		z-index: 1;
+		flex-direction: column;
+		gap: 1px;
+		padding: 2px;
+		border-radius: var(--radius-chip);
+		background: var(--pop);
+		box-shadow: var(--top-light), var(--shadow-float);
+		pointer-events: none;
+	}
+	.said-me .sheet-keys {
+		right: calc(100% + 4px);
+		left: auto;
+	}
+	.speech .sheet:hover .sheet-keys,
+	.speech .sheet:focus-within .sheet-keys {
+		pointer-events: auto;
+	}
+	.said-group:has(.sheet:hover, .sheet:focus-within) .bubble-actions {
+		opacity: 0;
+		pointer-events: none;
 	}
 	/* Keys show when the object is pointed at or holds the focus. */
 	.sheet-keys {
@@ -131,10 +160,10 @@
 	}
 	/* Blocks one after another in a bubble touch, a hairline between them,
 	 * rather than leave a strip of the bubble's own colour. */
-	.speech .md > :is(.sheet, .callout):has(+ :is(.sheet, .callout)) {
+	.speech .md > .sheet:has(+ .sheet) {
 		margin-bottom: 0;
 	}
-	.speech .md > :is(.sheet, .callout) + :is(.sheet, .callout) {
+	.speech .md > .sheet + .sheet {
 		margin-top: 0;
 		border-top: var(--hairline) solid var(--line);
 	}
@@ -319,46 +348,29 @@
 	}
 
 	/* ------------------------------------------------------ the full view
-	 * One object over the whole window: a frame as tall as the object needs and at most 1400 wide, over a
-	 * dimmed, blurred window, its title, Copy and close on top. Its sheet
-	 * is the frame itself, so it has no head or band of its own; a diagram
-	 * shows at its own size and scrolls when that is larger. */
+	 * One object as a pane: it takes the conversation's place, edge to edge
+	 * on the window's own canvas, its title, Copy and close in a head as the
+	 * side pane's; a diagram shows at its own size and scrolls when larger. */
 	.full-view {
-		position: fixed;
-		inset: 0;
-		z-index: 80;
-		display: grid;
-		place-items: center;
-		padding: 48px 40px 40px;
-	}
-	.full-view-backdrop {
 		position: absolute;
 		inset: 0;
-		background: oklch(0% 0 0 / 0.55);
-		backdrop-filter: blur(6px);
-		cursor: default;
+		z-index: 30;
+		display: flex;
+		background: var(--canvas);
 	}
 	.full-view-frame {
-		position: relative;
 		display: flex;
-		width: min(1400px, 100%);
-		max-height: 100%;
+		min-width: 0;
+		flex: 1;
 		flex-direction: column;
-		overflow: hidden;
-		border-radius: var(--radius-bubble);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line),
-			0 24px 64px oklch(0% 0 0 / 0.45);
 	}
 	.full-view-head {
 		display: flex;
-		height: 44px;
+		height: 48px;
 		flex-shrink: 0;
 		align-items: center;
 		gap: 4px;
-		padding: 0 8px 0 16px;
+		padding: 0 12px 0 20px;
 		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
 	}
 	.full-view-title {
@@ -385,7 +397,9 @@
 	}
 	.full-view-body {
 		min-height: 0;
+		flex: 1;
 		overflow: auto;
+		padding: 8px 8px 24px;
 		font-size: var(--text-read);
 		line-height: var(--text-read--line-height);
 		color: var(--ink);
@@ -488,8 +502,8 @@
 	 * label; only a warning or a caution takes the amber edge and its mark. */
 	.md blockquote {
 		margin: 0.6em 0;
-		padding: 2px 0 2px 12px;
-		box-shadow: inset 2px 0 0 var(--line-strong);
+		padding: 0;
+		font-style: italic;
 		color: var(--ink-2);
 	}
 	.md blockquote > p {
@@ -505,15 +519,9 @@
 		display: flex;
 		gap: 10px;
 		margin: 0.6em 0;
-		padding: 10px 12px 11px;
-		border-radius: var(--radius-card);
-		background: var(--sheet);
-		box-shadow: inset 2px 0 0 var(--line-strong);
-		color: var(--ink-2);
-	}
-	.callout[data-alert="warning"],
-	.callout[data-alert="caution"] {
+		padding: 2px 0 2px 12px;
 		box-shadow: inset 2px 0 0 var(--warn);
+		color: var(--ink-2);
 	}
 	/* --------------------------------------------------------- flow chain
 	 * A diagram that is only a straight line: its steps as quiet chips with
@@ -522,16 +530,11 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 6px 4px;
+		gap: 2px 8px;
 		margin: 0.6em 0;
 	}
 	.flow-step {
-		padding: 1px 8px 2px;
-		border-radius: var(--radius-control);
-		background: var(--sheet);
-		box-shadow: inset 0 0 0 var(--hairline) var(--line);
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
+		font-weight: 500;
 		color: var(--ink);
 	}
 	.flow-arrow {

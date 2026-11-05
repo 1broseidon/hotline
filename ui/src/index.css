@@ -1824,7 +1824,7 @@
 	/* A bubble as wide as the column keeps a gutter on its open side, and
 	 * its actions stand in it one above another, beside the bubble as on
 	 * every other: never over its words or its table's keys, never cut. */
-	.said-group:has(> .speech .sheet, > .speech .callout) .bubble-actions {
+	.said-group:has(> .speech .sheet) .bubble-actions {
 		top: 0;
 		flex-direction: column;
 	}

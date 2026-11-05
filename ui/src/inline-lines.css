@@ -384,7 +384,7 @@
 		height: 12px;
 		flex-shrink: 0;
 		color: var(--ink-3);
-		opacity: 0;
+		opacity: 0.6;
 		transition: opacity var(--dur-press) var(--ease-out);
 	}
 	.steps-caption:hover > svg,
@@ -693,7 +693,7 @@
 	.ask-settled {
 		display: flex;
 		max-width: 86%;
-		align-items: baseline;
+		align-items: center;
 		gap: 6px;
 		margin: 2px 0;
 		padding: 3px 0;
@@ -810,5 +810,13 @@
 	/* The size's leading space would collapse at a flex item's edge: "name · size", not "name· size". */
 	.picture-caption > .shrink-0 {
 		white-space: pre;
+	}
+}
+
+@layer components {
+	/* The time over a row stands a little apart from it, so it reads as the
+	 * row's time and not as part of the line under it. */
+	.tape-stamp {
+		margin-bottom: 10px;
 	}
 }

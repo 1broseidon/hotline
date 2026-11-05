@@ -192,7 +192,7 @@ const COMPONENTS: Components = {
 				kind="table"
 				keys={
 					<>
-						<ExpandKey object={{ kind: "table", text: markdown, title: names.join(" · ") || "Table" }} />
+						<ExpandKey object={{ kind: "table", text: markdown, title: leadOf(source) ?? (names.join(" · ") || "Table") }} />
 						<CopyKey text={markdown} title="Copy as Markdown" />
 					</>
 				}
@@ -230,6 +230,27 @@ const COMPONENTS: Components = {
 		);
 	},
 };
+
+/**
+ * What a message says first, as a title for an object expanded from it:
+ * its first line of words, without markdown marks or a closing colon; none
+ * when it opens with the object itself.
+ */
+function leadOf(source: string | null | undefined): string | null {
+	const first = source
+		?.split("\n")
+		.map((line) => line.trim())
+		.find((line) => line !== "");
+	if (first === undefined || /^(\||```|~~~|>)/.test(first)) return null;
+	const words = first
+		.replace(/^#+\s*/, "")
+		.replace(/[*_`]/g, "")
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/[:：]\s*$/, "")
+		.trim();
+	if (words === "") return null;
+	return words.length > 90 ? `${words.slice(0, 89)}…` : words;
+}
 
 /**
  * A bare link as its words say it: the site, and its last step when it goes

@@ -194,7 +194,7 @@ describe("a block of code", () => {
 			const long = `echo ${"a".repeat(300)}`;
 			await say(`\`\`\`bash\n${long}\n\`\`\``);
 			expect(sheet("code")?.getAttribute("data-cut")).toBe("wide");
-			expect(cut("code")?.textContent).toBe("1 line");
+			expect(cut("code")?.textContent).toBe("1 long line");
 			expect(sheet("code")!.querySelector("pre")!.textContent).toBe(long);
 		} finally {
 			restore();

@@ -1,7 +1,7 @@
 import type MermaidApi from "mermaid";
-import { type RefObject, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type PointerEvent as ReactPointerEvent, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SourceIcon } from "../icons";
-import { OpenFull, Sheet, SheetKey } from "./Sheet";
+import { Sheet, SheetKey, useOpen } from "./Sheet";
 
 /**
  * A ```mermaid block drawn as the diagram it describes, on its sheet.
@@ -23,12 +23,12 @@ import { OpenFull, Sheet, SheetKey } from "./Sheet";
  * drawn to fit a bubble is often too small to read, so a click on it shows it
  * over the whole window, and Source shows what it was drawn from.
  */
-export function Mermaid({ source }: { source: string }) {
+export function Mermaid({ source, caption }: { source: string; caption?: string | undefined }) {
 	const look = useLook();
 	const [drawn, setDrawn] = useState<{ key: string; url: string } | null>(null);
 	const [failed, setFailed] = useState<string | null>(null);
 	const [showSource, setShowSource] = useState(false);
-	const openFull = useContext(OpenFull);
+	const openFrom = useOpen();
 	const key = `${look}\n${source}`;
 	const block = useRef<HTMLDivElement>(null);
 	const near = useNear(block);
@@ -58,7 +58,7 @@ export function Mermaid({ source }: { source: string }) {
 	}, [key, source, look, near]);
 
 	const current = drawn?.key === key ? drawn : null;
-	const object = { kind: "diagram" as const, text: fenced(source), title: `Diagram · ${diagramKind(source)}` };
+	const object = { kind: "diagram" as const, text: fenced(source), fact: factOf(source), caption };
 	return (
 		<Sheet
 			kind="diagram"
@@ -87,8 +87,8 @@ export function Mermaid({ source }: { source: string }) {
 							</p>
 						)}
 					</>
-				) : openFull !== null ? (
-					<button type="button" className="picture-open" title="Full screen" onClick={() => openFull(object)}>
+				) : openFrom !== null ? (
+					<button type="button" className="picture-open" title="Open" onClick={() => openFrom(object, block.current?.closest<HTMLElement>(".sheet") ?? null)}>
 						<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
 					</button>
 				) : (
@@ -109,6 +109,148 @@ function diagramKind(source: string): string {
 	const word = declared?.split(/\s+/)[0] ?? "";
 	if (word === "graph" || word === "flowchart-elk") return "flowchart";
 	return word.replace(/-v2$/, "").replace(/Diagram(-beta)?$/, "").replace(/-beta$/, "").toLowerCase() || "mermaid";
+}
+
+/** A diagram as the band says it: its kind, as a word ("Flowchart", "Sequence"). */
+export function factOf(source: string): string {
+	const kind = diagramKind(source);
+	return kind.charAt(0).toUpperCase() + kind.slice(1);
+}
+
+/** The mermaid source inside a ```mermaid fence, as `fenced` wrote it. */
+export function unfenced(text: string): string {
+	const lines = text.split("\n");
+	return lines.slice(1, /^`{3,}\s*$/.test(lines.at(-1) ?? "") ? -1 : undefined).join("\n");
+}
+
+/** How far a diagram zooms in and out, and by how much a key steps it. */
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 1.25;
+
+/**
+ * A diagram on the open view's stage: drawn at 1×, centred, and fitted down
+ * only when it is larger than the stage, never up, since an enlarged
+ * diagram's labels read like a toy's. Pinch or ⌘-scroll zooms about the
+ * pointer, a drag pans, a double-click puts it back, and a quiet control at
+ * the stage's bottom right says the scale while the pointer is on it.
+ */
+export function DiagramStage({ source }: { source: string }) {
+	const look = useLook();
+	const [url, setUrl] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
+	const stage = useRef<HTMLDivElement>(null);
+	const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+	const [view, setView] = useState<{ scale: number; x: number; y: number } | null>(null);
+	const drag = useRef<{ x: number; y: number; from: { x: number; y: number } } | null>(null);
+
+	useEffect(() => {
+		let gone = false;
+		void drawnUrl(source, look).then(
+			(drawn) => !gone && setUrl(drawn),
+			() => !gone && setFailed(true),
+		);
+		return () => {
+			gone = true;
+		};
+	}, [source, look]);
+
+	/** The scale that fits the drawing in the stage: 1 when it fits as it is. */
+	const fit = useCallback(() => {
+		const box = stage.current;
+		if (box === null || size === null) return 1;
+		const room = { w: box.clientWidth - 48, h: box.clientHeight - 48 };
+		return Math.min(1, room.w / size.w, room.h / size.h);
+	}, [size]);
+	const reset = useCallback(() => setView({ scale: fit(), x: 0, y: 0 }), [fit]);
+	useLayoutEffect(() => {
+		if (size !== null) reset();
+	}, [size, reset]);
+
+	const zoomTo = (scale: number, about?: { x: number; y: number }) =>
+		setView((was) => {
+			if (was === null) return was;
+			const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
+			if (about === undefined) return { ...was, scale: next };
+			// Keep the point under the pointer where it is.
+			const k = next / was.scale;
+			return { scale: next, x: about.x - (about.x - was.x) * k, y: about.y - (about.y - was.y) * k };
+		});
+
+	// Pinch arrives as a wheel with ctrl held; ⌘ with the wheel zooms too. Not
+	// passive, so the page does not zoom with it.
+	useEffect(() => {
+		const box = stage.current;
+		if (box === null) return;
+		const onWheel = (event: WheelEvent) => {
+			if (!event.ctrlKey && !event.metaKey) return;
+			event.preventDefault();
+			const at = box.getBoundingClientRect();
+			const about = { x: event.clientX - at.left - at.width / 2, y: event.clientY - at.top - at.height / 2 };
+			setView((was) => {
+				if (was === null) return was;
+				const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, was.scale * Math.exp(-event.deltaY / 200)));
+				const k = next / was.scale;
+				return { scale: next, x: about.x - (about.x - was.x) * k, y: about.y - (about.y - was.y) * k };
+			});
+		};
+		box.addEventListener("wheel", onWheel, { passive: false });
+		return () => box.removeEventListener("wheel", onWheel);
+	}, []);
+
+	const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+		if (event.button !== 0 || view === null || (event.target as HTMLElement).closest(".zoom") !== null) return;
+		drag.current = { x: event.clientX, y: event.clientY, from: { x: view.x, y: view.y } };
+		event.currentTarget.setPointerCapture?.(event.pointerId);
+	};
+	const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+		const at = drag.current;
+		if (at === null) return;
+		setView((was) => (was === null ? was : { ...was, x: at.from.x + event.clientX - at.x, y: at.from.y + event.clientY - at.y }));
+	};
+	const onUp = () => {
+		drag.current = null;
+	};
+
+	if (failed) return <p className="mermaid-note">Couldn't draw this diagram.</p>;
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: the stage pans under a drag and zooms under a pinch; its control below does both from the keyboard.
+		<div
+			ref={stage}
+			className="diagram-stage"
+			data-grabbing={drag.current !== null || undefined}
+			onPointerDown={onDown}
+			onPointerMove={onMove}
+			onPointerUp={onUp}
+			onPointerCancel={onUp}
+			onDoubleClick={reset}
+		>
+			{url !== null && (
+				<img
+					className="diagram-stage-drawing"
+					src={url}
+					alt="Diagram"
+					draggable={false}
+					onLoad={(event) => setSize({ w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight })}
+					style={view === null ? { visibility: "hidden" } : { transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+				/>
+			)}
+			{view !== null && (
+				<div className="zoom" role="toolbar" aria-label="Zoom">
+					<button type="button" className="zoom-key" title="Zoom out" aria-label="Zoom out" onClick={() => zoomTo(view.scale / ZOOM_STEP)}>
+						−
+					</button>
+					<span className="zoom-pct instrument">{Math.round(view.scale * 100)}%</span>
+					<button type="button" className="zoom-key" title="Zoom in" aria-label="Zoom in" onClick={() => zoomTo(view.scale * ZOOM_STEP)}>
+						+
+					</button>
+					<button type="button" className="zoom-key zoom-fit" title="Fit" onClick={reset}>
+						Fit
+					</button>
+				</div>
+			)}
+		</div>
+	);
 }
 
 /** The diagram as a ```mermaid block again, fenced longer than any run of backticks in it. */

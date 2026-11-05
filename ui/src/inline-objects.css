@@ -244,7 +244,7 @@
 	/* ----------------------------------------------------------------- code
 	 * Outside a bubble a long line scrolls across under a fade at the right
 	 * edge; in one, code too wide or too long is cut (see the cut, below).
-	 * Numbers sit in a gutter from six lines up. */
+	 * Numbers are the open view's alone. */
 	.code-body {
 		margin: 0;
 		padding: 10px 0 12px;
@@ -272,28 +272,8 @@
 		padding: 0 24px 0 12px;
 		white-space: pre;
 	}
-	.code-body[data-numbered] .code-line {
-		padding-left: 46px;
-	}
-	/* In a bubble code reads as written, with no numbers; the full view,
-	 * where lines are pointed at, keeps them. */
-	.speech .code-body[data-numbered] .code-line {
-		padding-left: 12px;
-	}
-	.speech .code-body[data-numbered] .code-line::before {
-		display: none;
-	}
 	.speech .sheet-head + .code-body {
 		padding-top: 2px;
-	}
-	.code-body[data-numbered] .code-line::before {
-		content: attr(data-n);
-		position: absolute;
-		left: 0;
-		width: 34px;
-		text-align: right;
-		color: var(--ink-4);
-		user-select: none;
 	}
 	.code-keyword {
 		color: var(--code-keyword);
@@ -337,18 +317,40 @@
 		max-height: 172px;
 		padding-bottom: 0;
 	}
-	.sheet[data-cut="wide"] > :is(.md-table, .code-body) {
+	.sheet[data-cut="wide"] > .code-body {
 		mask-image: linear-gradient(to right, black calc(100% - 48px), transparent);
 	}
-	.sheet[data-cut="tall"] > :is(.md-table, .code-body) {
+	.sheet[data-cut="tall"] > .code-body {
 		mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
 	}
-	.sheet[data-cut="wide tall"] > :is(.md-table, .code-body) {
+	.sheet[data-cut="wide tall"] > .code-body {
 		mask-image:
 			linear-gradient(to right, black calc(100% - 48px), transparent),
 			linear-gradient(to bottom, black calc(100% - 40px), transparent);
 		mask-composite: intersect;
 		-webkit-mask-composite: source-in;
+	}
+	/* A cut table's head row is what says whether to open it, so it never
+	 * fades: a layer of its own height keeps it whole, and the body under it
+	 * fades at the edge it goes on past and at the bottom. The head's height
+	 * is measured onto --cut-head (Markdown.tsx). */
+	.sheet[data-cut] > .md-table {
+		--keep-head: linear-gradient(black, black) top / 100% var(--cut-head, 0px) no-repeat;
+		--fade-right: linear-gradient(to right, black calc(100% - 48px), transparent);
+		--fade-bottom: linear-gradient(to bottom, black calc(100% - 40px), transparent);
+	}
+	.sheet[data-cut="wide"] > .md-table {
+		mask: var(--keep-head), var(--fade-right);
+		mask-composite: add;
+		-webkit-mask-composite: source-over;
+	}
+	.sheet[data-cut="tall"] > .md-table {
+		mask-image: var(--fade-bottom);
+	}
+	.sheet[data-cut="wide tall"] > .md-table {
+		mask: var(--keep-head), var(--fade-right), var(--fade-bottom);
+		mask-composite: add, intersect;
+		-webkit-mask-composite: source-over, source-in;
 	}
 	.sheet-cut {
 		display: flex;
@@ -405,102 +407,260 @@
 		color: var(--ink-3);
 	}
 
-	/* ------------------------------------------------------ the full view
-	 * One object as a pane: it takes the conversation's place, edge to edge
-	 * on the window's own canvas, its title, Copy and close in a head as the
-	 * side pane's; a diagram shows at its own size and scrolls when larger. */
+	/* ------------------------------------------------------ the open view
+	 * One object as a pane in the conversation's place, the rail beside it
+	 * (docs/design/open-view.html, B, D, E): the 40px band every pane wears,
+	 * with no line under it, then the caption and the object at its own width
+	 * from the 24px inset. What scrolls fades under the band. */
 	.full-view {
 		position: absolute;
 		inset: 0;
 		z-index: 30;
 		display: flex;
-		background: var(--canvas);
+		flex-direction: column;
+		overflow: clip;
+		border-radius: var(--radius-pane);
 	}
-	.full-view-frame {
+	/* The canvas the view stands on fades in over the conversation while the
+	 * object grows from its sheet; the band and caption come with it. */
+	.full-view-ground {
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: var(--canvas);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	.full-view-ground,
+	.full-view-band,
+	.full-view-caption {
+		transition: opacity var(--dur-open) var(--ease-out);
+	}
+	.full-view-band {
+		position: relative;
+		z-index: 2;
+	}
+	.full-view:is([data-state="opening"], [data-state="closing"]) :is(.full-view-ground, .full-view-band, .full-view-caption) {
+		opacity: 0;
+	}
+	.full-view-object {
+		width: fit-content;
+		max-width: none;
+		transform-origin: 0 0;
+		transition: transform var(--dur-move) var(--ease-out);
+	}
+	/* Nothing to grow from, or reduced motion: the view crossfades whole. */
+	.full-view[data-still] {
+		transition: opacity var(--dur-open) var(--ease-out);
+	}
+	.full-view[data-still]:is([data-state="opening"], [data-state="closing"]) {
+		opacity: 0;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.full-view {
+			transition: opacity var(--dur-open) var(--ease-out);
+		}
+		.full-view:is([data-state="opening"], [data-state="closing"]) {
+			opacity: 0;
+		}
+		.full-view-object {
+			transition: none;
+		}
+	}
+	.full-view-name {
+		margin-left: 4px;
+		font-size: var(--text-md);
+		line-height: 18px;
+		font-weight: 500;
+		color: var(--ink);
+		white-space: nowrap;
+	}
+	.full-view-fact {
+		margin-right: 4px;
+		white-space: nowrap;
+	}
+	/* In the band a key says its word. */
+	.full-view-band .sheet-key {
+		height: 26px;
+		font-size: var(--text-sm);
+	}
+	.full-view-band .sheet-key-word {
+		position: static;
+	}
+	.full-view-scroll {
+		position: relative;
+		display: flex;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+		overflow: auto;
+		mask-image: linear-gradient(to bottom, transparent 0, black 16px, black calc(100% - 24px), transparent);
+	}
+	.full-view-body {
 		display: flex;
 		min-width: 0;
 		flex: 1;
 		flex-direction: column;
-	}
-	.full-view-head {
-		display: flex;
-		height: 48px;
-		flex-shrink: 0;
-		align-items: center;
-		gap: 4px;
-		padding: 0 12px 0 20px;
-		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
-	}
-	.full-view-title {
-		flex: 1;
-		font-size: var(--text-md);
-		font-weight: 600;
+		align-items: flex-start;
+		padding: 12px 24px 40px;
 		color: var(--ink);
 	}
-	.full-view-head .sheet-key-word {
-		position: static;
+	.full-view-caption {
+		max-width: 72ch;
+		margin: 0 0 14px;
+		font-size: var(--text-md);
+		line-height: 18px;
+		color: var(--ink-2);
 	}
-	.full-view-close {
-		display: grid;
-		width: 28px;
-		height: 28px;
-		place-items: center;
-		border-radius: var(--radius-control);
+	.full-view-caption-who {
 		color: var(--ink-3);
 	}
-	.full-view-close:hover,
-	.full-view-close:focus-visible {
-		background: var(--fill-hover);
-		color: var(--ink);
-	}
-	.full-view-body {
-		min-height: 0;
-		flex: 1;
-		overflow: auto;
-		padding: 8px 24px 32px 8px;
+	.full-view-object .md {
 		font-size: var(--text-read);
 		line-height: var(--text-read--line-height);
-		color: var(--ink);
 	}
-	.full-view-body .sheet {
+	.full-view-object .sheet {
 		margin: 0;
+		overflow: visible;
 		border-radius: 0;
 		background: none;
 	}
-	.full-view-body .sheet-head {
+	.full-view-object .sheet-head {
 		display: none;
 	}
-	.full-view-body .code-body {
-		padding: 14px 0 16px;
-		mask-image: none;
+
+	/* A table at its own width: headings and short cells keep to a line, a
+	 * column of sentences wraps at a reading width, the head row stays as the
+	 * rows scroll under it, and the row under the pointer lights. */
+	.full-view-object .md-table {
+		overflow: visible;
 	}
-	.full-view-body .md-table th,
-	.full-view-body .md-table td {
+	.full-view-object .md-table table {
+		width: auto;
+	}
+	.full-view-object .md-table th,
+	.full-view-object .md-table td {
 		padding-inline: 16px;
+		white-space: nowrap;
 	}
-	/* With room, short cells keep to a line and sentences to a reading
-	 * width; every column still fits, and the pane scrolls across only when
-	 * it truly cannot. */
-	.full-view-body .md-table td:not(.wide) {
-		min-width: 12ch;
+	.full-view-object .md-table td.wide {
+		min-width: 24ch;
+		max-width: 44ch;
+		white-space: normal;
 	}
-	.full-view-body .md-table td.wide {
-		min-width: 32ch;
-	}
-	/* The pane's head row stays as the rows scroll under it, so it needs the
-	 * canvas behind it; a bubble's table has no fill on any row. */
-	.full-view-body thead > tr > th {
+	.full-view-object thead > tr > th {
 		position: sticky;
 		top: 0;
 		z-index: 1;
 		background: var(--canvas);
 	}
-
-	.full-view-body .diagram-body {
-		padding: 24px;
+	.full-view-object tbody > tr:hover > td {
+		background: var(--fill-hover);
 	}
-	.full-view-body .mermaid-diagram {
+
+	/* Code at the bubble's size, numbered here and nowhere else, never
+	 * wrapped; the view scrolls across only when a line is longer than it. */
+	.full-view-object .code-body {
+		padding: 6px 0 16px;
+		overflow: visible;
+		mask-image: none;
+	}
+	.full-view-object .code-line {
+		padding-left: 46px;
+	}
+	.full-view-object .code-line::before {
+		content: attr(data-n);
+		position: absolute;
+		left: 0;
+		width: 34px;
+		text-align: right;
+		color: var(--ink-4);
+		user-select: none;
+	}
+	.full-view-object .code-line:hover {
+		background: var(--fill-hover);
+	}
+
+	/* A diagram stands on a stage that fills the view: at 1×, centred, fitted
+	 * down only when larger; it zooms and pans under the hand. */
+	.full-view[data-kind="diagram"] .full-view-scroll {
+		overflow: hidden;
+	}
+	.full-view[data-kind="diagram"] .full-view-object {
+		display: flex;
+		width: 100%;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+	}
+	.full-view[data-kind="diagram"] .full-view-body {
+		padding-bottom: 0;
+	}
+	.full-view-object .diagram-source {
+		padding: 6px 0 16px;
+	}
+	.diagram-stage {
+		position: relative;
+		display: grid;
+		min-height: 0;
+		flex: 1;
+		place-items: center;
+		margin: 0 -24px;
+		overflow: hidden;
+		cursor: grab;
+		touch-action: none;
+	}
+	.diagram-stage[data-grabbing] {
+		cursor: grabbing;
+	}
+	.diagram-stage-drawing {
 		max-width: none;
+		transform-origin: center;
+		user-select: none;
+		pointer-events: none;
+	}
+	.zoom {
+		position: absolute;
+		right: 16px;
+		bottom: 16px;
+		display: inline-flex;
+		align-items: center;
+		gap: 1px;
+		padding: 2px;
+		border-radius: var(--radius-control);
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			var(--shadow-float);
+		opacity: 0;
+		cursor: default;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.diagram-stage:hover .zoom,
+	.zoom:focus-within {
+		opacity: 1;
+	}
+	.zoom-key {
+		display: grid;
+		min-width: 24px;
+		height: 24px;
+		place-items: center;
+		padding: 0 6px;
+		border-radius: var(--radius-control);
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	.zoom-key:hover,
+	.zoom-key:focus-visible {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.zoom-pct {
+		min-width: 44px;
+		padding: 0 6px;
+		text-align: center;
+		color: var(--ink-2);
 	}
 
 	/* ------------------------------------------------- words around objects */

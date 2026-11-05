@@ -1,9 +1,13 @@
-import { useEffect, useRef } from "react";
-import { CloseIcon } from "../icons";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowLeftIcon, SourceIcon } from "../icons";
+import { Avatar } from "../ui/Avatar";
+import { Band } from "../ui/Band";
 import { Markdown } from "./Markdown";
-import { CopyKey, type FullObject, OpenFull } from "./Sheet";
+import { DiagramStage, unfenced } from "./Mermaid";
+import { CopyKey, type FullObject, OpenFull, SheetKey } from "./Sheet";
 
-const TITLES: Record<FullObject["kind"], string> = { table: "Table", code: "Code", diagram: "Diagram" };
+/** The teammate an object came from, as the band shows them. */
+export type Speaker = { id: string; name: string; avatar?: { hash?: string | undefined } | undefined };
 
 /** What Copy takes from an object: a block of code without its fence, else its markdown as written. */
 function copyText(object: FullObject): string {
@@ -12,40 +16,150 @@ function copyText(object: FullObject): string {
 	return lines.slice(1, lines.at(-1)?.startsWith("```") ? -1 : undefined).join("\n");
 }
 
+/** When something was said, as the band says it: just now, 4 min ago, 3 h ago, yesterday, then the date. */
+export function agoOf(at: number, now: number = Date.now()): string {
+	const minutes = Math.round((now - at) / 60_000);
+	if (minutes < 1) return "just now";
+	if (minutes < 60) return `${minutes} min ago`;
+	const hours = Math.round(minutes / 60);
+	if (hours < 24) return `${hours} h ago`;
+	if (hours < 48) return "yesterday";
+	return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** The grow and the fade, as the tokens time them. */
+const GROW_MS = 220;
+
+const reduced = () => typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** The transform that lays `to` over `from`: where it starts growing, and where it goes back to. */
+function over(from: DOMRect, to: DOMRect): string {
+	if (to.width === 0 || to.height === 0) return "";
+	return `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})`;
+}
+
 /**
- * One object from a message as a pane of its own: a table, a block of code
- * or a diagram, drawn from its markdown by the same components the bubble
- * used, filling the conversation's place (and the side pane's) until it is
- * closed, by Escape or its close key. Nothing in it opens another.
+ * One object from a message, open in the conversation's place with the rail
+ * beside it. It wears the band every pane does: ← back (Esc too), the
+ * teammate's face and name and when they said it, and at its right the object
+ * as a fact, a diagram's Source, and Copy. The sentence that introduced it
+ * sits above it as a caption. A table or code is drawn at its own width from
+ * the 24px inset, never stretched; a diagram stands on a stage of its own.
+ *
+ * It grows from the bubble's sheet to its place while the conversation fades
+ * under it, and goes back the same way, the bubble scrolled into view first;
+ * with reduced motion it crossfades. Focus goes back to the sheet it came from.
  */
-export function FullView({ object, onClose }: { object: FullObject; onClose(): void }) {
-	const close = useRef<HTMLButtonElement>(null);
+export function FullView({ object, onClose, who }: { object: FullObject; onClose(): void; who?: ((personaId: string) => Speaker | undefined) | undefined }) {
+	const view = useRef<HTMLElement>(null);
+	const thing = useRef<HTMLDivElement>(null);
+	const back = useRef<HTMLButtonElement>(null);
+	const [state, setState] = useState<"opening" | "open" | "closing">("opening");
+	const [showSource, setShowSource] = useState(false);
+	const speaker = object.from !== undefined ? who?.(object.from.personaId) : undefined;
+	const sheet = object.sheet?.isConnected ? object.sheet : undefined;
+
+	// Opening: the object starts over the bubble's sheet and grows to its place, once.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the grow runs once, from the sheet it opened from.
+	useLayoutEffect(() => {
+		const element = thing.current;
+		const still = reduced();
+		if (element !== null && sheet !== undefined && !still) {
+			element.style.transition = "none";
+			element.style.transform = over(sheet.getBoundingClientRect(), element.getBoundingClientRect());
+			element.getBoundingClientRect();
+			element.style.transition = "";
+			element.style.transform = "";
+		}
+		// The closed look is laid out before it is let go, so the fade runs.
+		view.current?.getBoundingClientRect();
+		const timer = window.setTimeout(() => setState("open"), 0);
+		back.current?.focus({ preventScroll: true });
+		return () => window.clearTimeout(timer);
+	}, []);
+
+	const close = useCallback(() => {
+		if (state === "closing") return;
+		const element = thing.current;
+		const done = () => {
+			onClose();
+			const target = sheet?.querySelector<HTMLElement>(".sheet-cut, .picture-open") ?? sheet;
+			target?.focus({ preventScroll: true });
+		};
+		setState("closing");
+		if (element === null || sheet === undefined || reduced()) {
+			window.setTimeout(done, reduced() ? 130 : 0);
+			return;
+		}
+		// The bubble comes back under the view first, so the object has a place to go.
+		sheet.scrollIntoView({ block: "nearest" });
+		element.style.transform = over(sheet.getBoundingClientRect(), element.getBoundingClientRect());
+		window.setTimeout(done, GROW_MS);
+	}, [state, sheet, onClose]);
+
 	useEffect(() => {
-		close.current?.focus();
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
 			event.preventDefault();
 			event.stopPropagation();
-			onClose();
+			close();
 		};
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
-	}, [onClose]);
+	}, [close]);
+
+	const diagram = object.kind === "diagram";
 	return (
-		<section className="full-view" aria-label={object.title ?? TITLES[object.kind]}>
-			<div className="full-view-frame" data-kind={object.kind}>
-				<header className="full-view-head">
-					<span className="full-view-title">{object.title ?? TITLES[object.kind]}</span>
-					<CopyKey text={copyText(object)} title={object.kind === "code" ? "Copy the code" : "Copy as Markdown"} />
-					<button ref={close} type="button" className="sheet-key" title="Close (Esc)" onClick={onClose}>
-						<CloseIcon />
-						<span className="sheet-key-word">Close</span>
+		<section ref={view} className="full-view" data-state={state} data-kind={object.kind} data-still={sheet === undefined || undefined} aria-label={object.fact}>
+			<div className="full-view-ground" aria-hidden="true" />
+			<div className="full-view-band">
+				<Band>
+					<button ref={back} type="button" className="control btn-icon -ml-1" title="Back (Esc)" aria-label="Back to the conversation" onClick={close}>
+						<ArrowLeftIcon />
 					</button>
-				</header>
+					{speaker !== undefined && (
+						<>
+							<Avatar id={speaker.id} name={speaker.name} size={20} hash={speaker.avatar?.hash} />
+							<span className="full-view-name">{speaker.name}</span>
+						</>
+					)}
+					{object.from !== undefined && <span className="instrument">· {agoOf(object.from.ts)}</span>}
+					<span className="min-w-0 flex-1" />
+					<span className="instrument full-view-fact">{object.fact}</span>
+					{diagram && (
+						<SheetKey
+							icon={<SourceIcon />}
+							label="Source"
+							title={showSource ? "Show the diagram" : "Show the source"}
+							pressed={showSource}
+							onClick={() => setShowSource((was) => !was)}
+						/>
+					)}
+					<CopyKey text={copyText(object)} title={object.kind === "code" ? "Copy the code" : "Copy as Markdown"} />
+				</Band>
+			</div>
+			<div className="full-view-scroll">
 				<div className="full-view-body">
-					<OpenFull.Provider value={null}>
-						<Markdown text={object.text} />
-					</OpenFull.Provider>
+					{object.caption !== undefined && (
+						<p className="full-view-caption">
+							{speaker !== undefined && <span className="full-view-caption-who">{speaker.name}:</span>} {object.caption}
+						</p>
+					)}
+					<div ref={thing} className="full-view-object">
+						{diagram ? (
+							showSource ? (
+								<pre className="diagram-source">
+									<code>{unfenced(object.text)}</code>
+								</pre>
+							) : (
+								<DiagramStage source={unfenced(object.text)} />
+							)
+						) : (
+							<OpenFull.Provider value={null}>
+								<Markdown text={object.text} />
+							</OpenFull.Provider>
+						)}
+					</div>
 				</div>
 			</div>
 		</section>

@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Window } from "happy-dom";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { RemoteSection } from "../src/components/RemoteSection";
-import { replaceDesks } from "../src/desks";
-import { wire } from "../src/wire";
+import type { Root } from "react-dom/client";
 import { installDom } from "./dom";
+
+// React DOM decides whether there is a DOM when it first loads, for every
+// file after this one too: it loads with one in place.
+const boot = installDom();
+const { createRoot } = await import("react-dom/client");
+const { RemoteSection } = await import("../src/components/RemoteSection");
+const { replaceDesks } = await import("../src/desks");
+const { wire } = await import("../src/wire");
+await boot.teardown();
 
 // No desk, sockets, native shell, or real clock: drive the mounted UI at its wire boundary.
 const epoch = 1_800_000_000_000;

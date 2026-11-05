@@ -780,10 +780,14 @@ impl Room {
                 )))
             }
             "viewport" => {
-                let size = crate::browser::viewport_of(
-                    arguments.get("width").and_then(Value::as_u64),
-                    arguments.get("height").and_then(Value::as_u64),
-                )?;
+                let width = arguments.get("width").and_then(Value::as_u64);
+                let size = match arguments.get("size").and_then(Value::as_str) {
+                    Some(named) if width.is_none() => crate::browser::viewport_named(named)?,
+                    _ => crate::browser::viewport_of(
+                        width,
+                        arguments.get("height").and_then(Value::as_u64),
+                    )?,
+                };
                 let page = browser.viewport(persona_id, size).await?;
                 let (width, height) = size.unwrap_or(crate::browser::VIEWPORT);
                 Ok(BrowserAnswer::Text(format!(
@@ -1066,6 +1070,9 @@ impl Room {
             .unwrap_or_default();
         let url = browser.current(persona_id).unwrap_or_default();
         let needs = browser.needs(persona_id);
+        let viewport = browser
+            .size(persona_id)
+            .map(|(width, height)| crate::contract::Viewport { width, height });
         let jpeg = png.as_deref().and_then(snapshot_jpeg);
         let now = now_ms();
         {
@@ -1090,6 +1097,7 @@ impl Room {
                         active_at: now,
                         snapshot_at,
                         needs,
+                        viewport,
                     },
                     jpeg,
                 },

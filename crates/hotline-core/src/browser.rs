@@ -38,6 +38,25 @@ pub const VIEWPORT: (u32, u32) = (1280, 800);
 pub const VIEWPORT_WIDTH: std::ops::RangeInclusive<u32> = 240..=3840;
 pub const VIEWPORT_HEIGHT: std::ops::RangeInclusive<u32> = 240..=2400;
 
+/// The common sizes `viewport` takes by name, so a teammate asks for a
+/// phone or a tablet without knowing any one model's: a phone's 390 by 844,
+/// a tablet's 820 by 1180 (both upright), the desk's own, and a wide screen.
+pub const VIEWPORT_SIZES: [(&str, Option<(u32, u32)>); 4] = [
+    ("phone", Some((390, 844))),
+    ("tablet", Some((820, 1180))),
+    ("desktop", None),
+    ("wide", Some((1920, 1080))),
+];
+
+/// A named size, as `viewport`'s `size` gives it.
+pub fn viewport_named(name: &str) -> Result<Option<(u32, u32)>, String> {
+    VIEWPORT_SIZES
+        .iter()
+        .find(|(named, _)| named.eq_ignore_ascii_case(name.trim()))
+        .map(|(_, size)| *size)
+        .ok_or_else(|| "viewport's size is phone, tablet, desktop or wide.".to_string())
+}
+
 /// The size `viewport` was asked for: `width`, and `height` or the default
 /// height; no width is the desk's own size again. Out of range is said, not
 /// clamped, so the teammate knows what it got.
@@ -532,6 +551,10 @@ pub trait DeskBrowser: Send + Sync {
     /// 390 by 844); `None` puts back the desk's own. Answers the page.
     async fn viewport(&self, _persona_id: &str, _size: Option<(u32, u32)>) -> Result<Page, String> {
         Err("This browser cannot change its size.".into())
+    }
+    /// The size the page was set to with `viewport`, when not the desk's own.
+    fn size(&self, _persona_id: &str) -> Option<(u32, u32)> {
+        None
     }
     /// The page the teammate's browser is on, when it has one.
     fn current(&self, persona_id: &str) -> Option<String>;
@@ -1361,6 +1384,9 @@ mod tests {
         assert_eq!(viewport_of(None, Some(844)), Ok(None));
         assert!(viewport_of(Some(100), None).is_err());
         assert!(viewport_of(Some(390), Some(10_000)).is_err());
+        assert_eq!(viewport_named("Phone"), Ok(Some((390, 844))));
+        assert_eq!(viewport_named("desktop"), Ok(None));
+        assert!(viewport_named("iPhone 15").is_err());
     }
 
     /// An answer taken back stays taken back across a restart, and one given

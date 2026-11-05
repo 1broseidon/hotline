@@ -102,6 +102,19 @@ pub struct BrowserView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub needs: Option<String>,
+    /// The size the teammate set its page to (`viewport`), when not the
+    /// desk's own: the PIP takes its shape and names it (Phone, Tablet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub viewport: Option<Viewport>,
+}
+
+/// A page's size in CSS pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts")]
+pub struct Viewport {
+    pub width: u32,
+    pub height: u32,
 }
 
 /// A teammate's desk browser as a picture: a JPEG of the visible page.

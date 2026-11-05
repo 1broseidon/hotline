@@ -1644,6 +1644,12 @@ mod native {
                 .map_err(|_| "The page closed before it was drawn.".to_string())?
         }
 
+        fn size(&self, persona_id: &str) -> Option<(u32, u32)> {
+            let tab = self.tab(persona_id)?;
+            let asked = *tab.viewport.lock().unwrap_or_else(PoisonError::into_inner);
+            asked.map(|(width, height)| (width as u32, height as u32))
+        }
+
         async fn viewport(
             &self,
             persona_id: &str,

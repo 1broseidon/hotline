@@ -228,7 +228,12 @@ snapshotAt?: number,
  * ("Certificate expired"): the PIP marks it and stays up until it
  * clears. Absent while nothing does.
  */
-needs?: string, };
+needs?: string, 
+/**
+ * The size the teammate set its page to (`viewport`), when not the
+ * desk's own: the PIP takes its shape and names it (Phone, Tablet).
+ */
+viewport?: Viewport, };
 
 /**
  * What paid use is budgeted under: teammates and the call assistant are
@@ -2896,6 +2901,11 @@ export type UploadDestination = { name: string, } | { path: string, };
  * The views the core maintains. One so far.
  */
 export type ViewName = "roster";
+
+/**
+ * A page's size in CSS pixels.
+ */
+export type Viewport = { width: number, height: number, };
 
 export type VoiceBudget = { 
 /**

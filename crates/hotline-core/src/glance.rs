@@ -95,6 +95,15 @@ pub const HOTLINE_TOOLS: &[(&str, Label)] = &[
         ),
     ),
     (
+        "ask_cookies",
+        label(
+            "ask",
+            "Asked you to sign it in",
+            "Asked you {n} times",
+            "Asking you to sign it in",
+        ),
+    ),
+    (
         "request_human",
         label("ask", "Asked you", "Asked you {n} times", "Asking you"),
     ),

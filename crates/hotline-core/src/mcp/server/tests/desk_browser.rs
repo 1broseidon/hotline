@@ -29,6 +29,8 @@ struct Fake {
     acted: StdMutex<Option<Result<Acted, String>>>,
     /// Each close the core asked for: whose, and whether it wiped.
     closed: StdMutex<Vec<(String, bool)>>,
+    /// Each size `viewport` asked for, `None` for the desk's own.
+    sized: StdMutex<Vec<Option<(u32, u32)>>>,
 }
 
 /// A field on a sign-in page.
@@ -99,6 +101,15 @@ impl DeskBrowser for Fake {
             note: Some("Filled.".into()),
         })
     }
+    async fn viewport(&self, _persona_id: &str, size: Option<(u32, u32)>) -> Result<Page, String> {
+        self.sized.lock().unwrap().push(size);
+        Ok(Page {
+            url: "https://example.com/".into(),
+            title: "Example".into(),
+            loaded: true,
+        })
+    }
+
     async fn screenshot(&self, _persona_id: &str) -> Result<Vec<u8>, String> {
         Ok(png(3))
     }
@@ -631,6 +642,33 @@ async fn a_full_page_look_answers_the_page_top_to_bottom() {
         .await
         .unwrap_err();
     assert!(refused.contains("cannot be handed a picture"), "{refused}");
+}
+
+/// A page can be seen at a phone's width: `viewport` sizes it, says the
+/// size it got, goes back to the desk's own without a width, and refuses a
+/// size out of range rather than clamping it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_page_is_sized_to_a_phone_and_back() {
+    let (room, fake) = with_browser("browser-viewport", &[]);
+    let phone = tools(&room)
+        .call(
+            BROWSER,
+            &json!({ "action": "viewport", "width": 390, "height": 844 }),
+        )
+        .await
+        .unwrap();
+    assert!(phone.contains("390 by 844"), "{phone}");
+    let back = tools(&room)
+        .call(BROWSER, &json!({ "action": "viewport" }))
+        .await
+        .unwrap();
+    assert!(back.contains("1280 by 800"), "{back}");
+    let refused = tools(&room)
+        .call(BROWSER, &json!({ "action": "viewport", "width": 40 }))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("from 240 to 3840"), "{refused}");
+    assert_eq!(*fake.sized.lock().unwrap(), [Some((390, 844)), None]);
 }
 
 /// Each act reaches the browser in the shape it was asked for, and one

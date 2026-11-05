@@ -165,6 +165,8 @@ impl Occupant for Session {
             if asides.is_empty() && wired.wake {
                 return Begin::Skip;
             }
+            // Which sites it holds the person's cookies for, when that changed.
+            text = room.with_cookie_news(&session.told_cookies, &session.persona_id, text);
             if let Some(index) = room.thread_index(
                 &session.persona_id,
                 &session.thread(),

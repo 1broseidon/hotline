@@ -10,6 +10,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Cookies in a teammate's Secrets: Add Cookies lists the sites you are
+  signed into across your browsers, read only when you open it, and a press
+  shares that site's cookies with the teammate's browser, its desk browser or
+  its computer alike. Each shared site is a row (From Brave); open it for
+  Keep fresh, which copies the site again when your browser's cookies change,
+  Ends (1 day or Never), and Remove. The teammate is told which sites it holds
+  cookies for at the start of its next turn, never the cookies themselves.
+- Settings › Secrets › Cookie Sources: each browser and profile on this
+  computer with a switch. One switched off is never read, for anything. In
+  Use lists every teammate holding your cookies and opens its pane.
 - A teammate with no computer has a browser of its own on the desk (macOS
   14 and later, Linux and Windows): it opens a page, reads it as text or links, and takes a
   screenshot, in a hidden window, without a container or MCP server. A page on this computer
@@ -22,6 +32,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   field opens a file picker only while you have control. On Windows the
   teammate's pointer isn't drawn over the page, and its browser offers no
   passkeys, yours in Windows Hello included.
+- A teammate asks when it needs to be signed in to a site, with its reason,
+  on one card: Use Cookies shares that site's cookies from your browser
+  (named under it, with a choice when several have it), Sign In takes a
+  username and password in the card, saved to Secrets unless you untick it,
+  and Open Browser opens its browser for you to sign in yourself. The close
+  says Not now, and it won't ask for that site again until you next write
+  to it. The same card serves the desk browser and a computer, and the
+  teammate never sees a cookie or password.
 - SearXNG in Settings › Tools › Web search: your own instance's address,
   and a key if a gateway in front of it wants one, kept in the keychain. Off
   until you set it up and switch it on; then every search asks it beside the
@@ -31,6 +49,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- Shared cookies follow a teammate when its computer is turned on or off:
+  out of one browser and into the other, read again from your browser, with
+  the row unchanged. Bring over browser cookies is gone from Computer; what it
+  brought over is listed as rows under Cookies, and the Computer › Browser
+  fold is gone with it (passkeys are made under Secrets).
+- The desk no longer offers your browser cookies when a teammate's browser
+  visits a site you're signed into; the teammate asks instead. The offers
+  switch, the Sites list and Never for this site are gone from Settings.
 - What a message carries sits on one sheet in its bubble. A table has a head
   with its size, Open and Copy (as Markdown); its headings are labels, a
   column of numbers stands right, and its sources are site chips. Code names

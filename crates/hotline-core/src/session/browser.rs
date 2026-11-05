@@ -545,6 +545,16 @@ impl Room {
         *self.browser.write().unwrap_or_else(PoisonError::into_inner) = Some(browser);
     }
 
+    /// The local addresses this teammate's desk browser may always open.
+    pub fn browser_local_list(&self, persona_id: &str) -> Vec<String> {
+        self.browser_gate.always(&self.log, persona_id)
+    }
+
+    /// Takes an "Always allow" back.
+    pub fn browser_local_remove(&self, persona_id: &str, origin: &str) -> Result<(), String> {
+        self.browser_gate.disallow(&self.log, persona_id, origin)
+    }
+
     /// What the room keeps of a teammate's desk browser, let go: the PIP's
     /// view and picture, the person's short allowances for its keys, a
     /// passkey card it waits on; with `wipe`, the person's answers about
@@ -620,13 +630,6 @@ impl Room {
         } else {
             None
         }
-    }
-
-    /// The site this teammate's desk browser is on, by its registrable
-    /// domain, as a cookie offer names it.
-    pub(super) fn desk_browser_site(&self, persona_id: &str) -> Option<String> {
-        let page = self.lending_browser(persona_id)?.current(persona_id)?;
-        crate::computer::cookies::lending::site_for_origin(&page)
     }
 
     /// The page again after cookies were lent or taken back, so it shows the
@@ -776,6 +779,18 @@ impl Room {
                     page_line(&acted.page)
                 )))
             }
+            "viewport" => {
+                let size = crate::browser::viewport_of(
+                    arguments.get("width").and_then(Value::as_u64),
+                    arguments.get("height").and_then(Value::as_u64),
+                )?;
+                let page = browser.viewport(persona_id, size).await?;
+                let (width, height) = size.unwrap_or(crate::browser::VIEWPORT);
+                Ok(BrowserAnswer::Text(format!(
+                    "The page is {width} by {height} now; screenshots and reads see it at that size.\n{}",
+                    hidden.hide(&page_line(&page))
+                )))
+            }
             "screenshot" if arguments.get("full_page").and_then(Value::as_bool) == Some(true) => {
                 let page = shown_clear(persona_id, browser, hidden, async {
                     browser.full_page(persona_id, FULL_PAGE_PICTURES).await
@@ -801,7 +816,7 @@ impl Room {
                 })
             }
             other => Err(format!(
-                "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
+                "The desk browser has no action '{other}'. It can navigate, text, links, screenshot, viewport, back, forward, reload, click_ref, fill, select, check, hover, press, scroll and wait_for."
             )),
         }
     }

@@ -171,7 +171,7 @@ impl Threads<'_> {
         let mut written = Written::default();
         if matches!(
             event["kind"].as_str(),
-            Some("human_action" | "credential_ask" | "passkey_ask")
+            Some("human_action" | "credential_ask" | "passkey_ask" | "cookie_ask")
         ) && policy.surface.mirror_to_call
             && let Some(voice) = super::lock(&self.room.voice).upgrade()
         {

@@ -209,6 +209,7 @@ impl Room {
                 reported.session_id.filter(|_| !reported.context_restored),
             ),
             indexed: Mutex::new(None),
+            told_cookies: Mutex::new(None),
         });
         {
             let _lifecycle = lock(&self.lifecycle);
@@ -359,7 +360,6 @@ impl Room {
     /// its agent, and nothing is left to answer in them. Its jobs' agents are
     /// let go of too; the jobs go on firing.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
-        *lock(&self.stops).entry(persona_id.to_string()).or_default() += 1;
         self.stop_session(persona_id);
         self.drop_sides(persona_id);
         self.let_go_of_jobs(Some(persona_id));
@@ -493,6 +493,8 @@ impl Room {
         {
             self.browser_retire(persona_id).await;
         }
+        // The person's shared cookies follow it into the browser it has now.
+        self.cookie_lends_follow(persona_id).await;
         let Some(capability) = capability else {
             return Ok(());
         };

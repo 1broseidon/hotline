@@ -86,6 +86,18 @@ pub(super) fn evaluated(answer: &Value) -> Result<String, String> {
         .ok_or_else(|| "The page answered nothing.".to_string())
 }
 
+/// A size in CSS pixels as the physical pixels of a window at `dpi`, as
+/// WebView2's controller bounds are given (96 is 100%); an unreadable DPI
+/// counts as 96.
+pub(super) fn physical(width: u32, height: u32, dpi: u32) -> (i32, i32) {
+    let dpi = if dpi == 0 { 96 } else { dpi };
+    let scale = |css: u32| {
+        let pixels = (u64::from(css) * u64::from(dpi) + 48) / 96;
+        i32::try_from(pixels).unwrap_or(i32::MAX)
+    };
+    (scale(width), scale(height))
+}
+
 /// The protocol's events for a click at a point in the page's viewport, in
 /// CSS pixels: the pointer moves there, presses and lets go.
 pub(super) fn click_events(x: f64, y: f64) -> Vec<Value> {
@@ -364,6 +376,14 @@ mod tests {
             evaluated(&json!({ "result": { "type": "undefined" } })),
             Err("The page answered nothing.".to_string())
         );
+    }
+
+    #[test]
+    fn a_viewport_is_its_css_size_in_the_windows_own_pixels() {
+        assert_eq!(physical(390, 844, 96), (390, 844));
+        assert_eq!(physical(390, 844, 144), (585, 1266));
+        assert_eq!(physical(1280, 800, 120), (1600, 1000));
+        assert_eq!(physical(390, 844, 0), (390, 844));
     }
 
     #[test]

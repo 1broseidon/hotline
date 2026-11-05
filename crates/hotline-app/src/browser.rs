@@ -378,6 +378,9 @@ mod native {
     /// The page's size: a common laptop viewport.
     const WIDTH: f64 = 1280.0;
     const HEIGHT: f64 = 800.0;
+    /// The narrowest the window goes, as its own minimum: a phone-width
+    /// page stands centred in it.
+    const PANE_MIN_WIDTH: f64 = 480.0;
     /// Hotline's bar above the page in the browser pane.
     const BAR: f64 = 44.0;
     /// The window's own title bar above it: the traffic lights, the title
@@ -422,6 +425,9 @@ mod native {
         watched: AtomicBool,
         /// The person has the page: a popup that opens comes unshielded.
         taken: AtomicBool,
+        /// The page's size the teammate asked for (`viewport`), in CSS
+        /// pixels; `None` while it fills its window.
+        viewport: Mutex<Option<(f64, f64)>>,
     }
 
     /// What the bar above the page shows.
@@ -874,11 +880,16 @@ mod native {
             let _ = bar.set_size(LogicalSize::new(size.width, BAR));
         }
         if let Some(page) = app.get_webview(&tab.page) {
-            let _ = page.set_position(LogicalPosition::new(0.0, TITLE + BAR));
-            let _ = page.set_size(LogicalSize::new(
-                size.width,
-                (size.height - TITLE - BAR).max(1.0),
+            // A size the teammate asked for stands centred under the bar;
+            // otherwise the page fills the window.
+            let asked = *tab.viewport.lock().unwrap_or_else(PoisonError::into_inner);
+            let (width, height) =
+                asked.unwrap_or((size.width, (size.height - TITLE - BAR).max(1.0)));
+            let _ = page.set_position(LogicalPosition::new(
+                ((size.width - width) / 2.0).max(0.0),
+                TITLE + BAR,
             ));
+            let _ = page.set_size(LogicalSize::new(width, height));
             let _ = page.with_webview(|view| {
                 platform::shield_follow(view.inner());
                 hands::follow(view.inner());
@@ -1144,6 +1155,7 @@ mod native {
                 page_shown: Mutex::new(String::new()),
                 watched: AtomicBool::new(false),
                 taken: AtomicBool::new(false),
+                viewport: Mutex::new(None),
             });
             // A development switch: a release build never shows a page the
             // person did not open.
@@ -1179,7 +1191,7 @@ mod native {
                 .theme(Some(tauri::Theme::Dark))
                 .background_color(tauri::window::Color(28, 28, 31, 255))
                 .inner_size(WIDTH, TITLE + BAR + HEIGHT)
-                .min_inner_size(480.0, 320.0)
+                .min_inner_size(PANE_MIN_WIDTH, 320.0)
                 .visible(show)
                 .focused(false)
                 .build()
@@ -1744,6 +1756,34 @@ mod native {
                 .await
                 .map_err(|_| "The page could not be drawn in time.".to_string())?
                 .map_err(|_| "The page closed before it was drawn.".to_string())?
+        }
+
+        async fn viewport(
+            &self,
+            persona_id: &str,
+            size: Option<(u32, u32)>,
+        ) -> Result<Page, String> {
+            let tab = self
+                .tab(persona_id)
+                .ok_or("Open a page first with navigate.")?;
+            let asked = size.map(|(width, height)| (f64::from(width), f64::from(height)));
+            *tab.viewport.lock().unwrap_or_else(PoisonError::into_inner) = asked;
+            let (width, height) = asked.unwrap_or((WIDTH, HEIGHT));
+            // The window holds the page under the bar, never narrower than
+            // the bar needs; the page is laid out to the size itself.
+            if let Some(window) = self.app.get_window(&tab.window) {
+                let _ = window.set_size(LogicalSize::new(
+                    width.max(PANE_MIN_WIDTH),
+                    TITLE + BAR + height,
+                ));
+            }
+            lay_out(&self.app, &tab);
+            let page = self.window(persona_id)?;
+            page.with_webview(move |view| platform::fit(view.inner(), size))
+                .map_err(|error| error.to_string())?;
+            // The page reflows at its new width before it is read or pictured.
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            self.page(persona_id, true).await
         }
 
         async fn full_page(

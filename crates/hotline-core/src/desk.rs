@@ -1261,30 +1261,62 @@ impl RoomHandle for Desk {
         self.room.secrets_changed().await;
     }
 
-    async fn computer_browsers(&self) -> Vec<crate::contract::HostBrowser> {
-        self.room.computer_browsers().await
-    }
-
-    async fn computer_cookies_preview(
-        &self,
-        browser_id: &str,
-        profile_id: &str,
-    ) -> Result<Vec<crate::contract::CookieSite>, String> {
-        self.room
-            .computer_cookies_preview(browser_id, profile_id)
-            .await
-    }
-
-    async fn computer_cookies_import(
+    async fn cookie_lends(
         &self,
         persona_id: &str,
+    ) -> Result<Vec<crate::contract::CookieLend>, String> {
+        Ok(self.room.cookie_lends(persona_id))
+    }
+
+    async fn cookie_lendable(&self) -> Result<crate::contract::CookieOfferSites, String> {
+        self.room.cookie_lendable().await
+    }
+
+    async fn cookie_lend(
+        &self,
+        persona_id: &str,
+        site: &str,
+    ) -> Result<crate::contract::CookieLend, String> {
+        self.room.cookie_lend(persona_id, site).await
+    }
+
+    async fn cookie_lend_set(
+        &self,
+        persona_id: &str,
+        id: &str,
+        keep_fresh: Option<bool>,
+        ends: Option<crate::contract::CookieLendEnds>,
+    ) -> Result<crate::contract::CookieLend, String> {
+        self.room
+            .cookie_lend_set(persona_id, id, keep_fresh, ends)
+            .await
+    }
+
+    async fn cookie_sources(&self) -> Result<crate::contract::CookieSources, String> {
+        Ok(self.room.cookie_sources().await)
+    }
+
+    async fn cookie_source_set(
+        &self,
         browser_id: &str,
         profile_id: &str,
-        domains: &[String],
-    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        on: bool,
+    ) -> Result<crate::contract::CookieSources, String> {
         self.room
-            .computer_cookies_import(persona_id, browser_id, profile_id, domains)
+            .cookie_source_set(browser_id, profile_id, on)
             .await
+    }
+
+    async fn cookie_holders(&self) -> Result<Vec<crate::contract::CookieHolder>, String> {
+        Ok(self.room.cookie_holders())
+    }
+
+    async fn browser_local_list(&self, persona_id: &str) -> Result<Vec<String>, String> {
+        Ok(self.room.browser_local_list(persona_id))
+    }
+
+    async fn browser_local_remove(&self, persona_id: &str, origin: &str) -> Result<(), String> {
+        self.room.browser_local_remove(persona_id, origin)
     }
 
     async fn computer_cookies_push(
@@ -1293,25 +1325,6 @@ impl RoomHandle for Desk {
         transfer: crate::contract::CookieTransfer,
     ) -> Result<Vec<crate::contract::CookieSite>, String> {
         self.room.computer_cookies_push(persona_id, transfer).await
-    }
-
-    async fn computer_cookies_list(
-        &self,
-        persona_id: &str,
-    ) -> Result<Vec<crate::contract::CookieImport>, String> {
-        Ok(self.room.computer_cookies_list(persona_id))
-    }
-
-    async fn computer_cookies_forget(
-        &self,
-        persona_id: &str,
-        browser_id: &str,
-        profile_id: &str,
-        domain: Option<&str>,
-    ) -> Result<Vec<crate::contract::CookieImport>, String> {
-        self.room
-            .computer_cookies_forget(persona_id, browser_id, profile_id, domain)
-            .await
     }
 
     fn websearch_keyed(&self) -> std::collections::HashSet<crate::contract::WebSearchProvider> {
@@ -1443,28 +1456,22 @@ impl RoomHandle for Desk {
     async fn computer_cookie_offers(&self, persona: &str) -> Vec<hotline_contract::CookieOffer> {
         self.room.computer_cookie_offers(persona)
     }
-    async fn computer_cookie_blocked(&self) -> Vec<hotline_contract::CookieOfferBlock> {
-        self.room.computer_cookie_blocked()
-    }
     async fn computer_cookie_sites(&self) -> Result<hotline_contract::CookieOfferSites, String> {
         self.room.computer_cookie_sites().await
-    }
-    async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
-        self.room.cookie_offer_settings_changed().await
-    }
-    async fn computer_cookie_reset(&self, persona: &str, site: &str) -> Result<(), String> {
-        self.room.computer_cookie_reset(persona, site).await
     }
     async fn computer_cookie_answer(
         &self,
         persona: &str,
         id: &str,
         answer: hotline_contract::CookieOfferAnswer,
+        source: Option<hotline_contract::CookieOfferSource>,
     ) -> Result<(), String> {
-        self.room.computer_cookie_answer(persona, id, answer).await
+        self.room
+            .computer_cookie_answer(persona, id, answer, source)
+            .await
     }
     async fn computer_cookie_remove(&self, persona: &str, id: &str) -> Result<(), String> {
-        self.room.computer_cookie_remove(persona, id).await
+        self.room.cookie_lend_remove(persona, id).await
     }
 
     async fn secrets_use_answer(

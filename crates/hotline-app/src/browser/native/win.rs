@@ -47,11 +47,12 @@ use webview2_com::{
     CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
     WindowCloseRequestedEventHandler,
 };
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::System::Com::{IStream, STREAM_SEEK_SET};
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
 use windows::Win32::UI::Shell::SHCreateMemStream;
-use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor};
+use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetClientRect};
 use windows::core::{HSTRING, Interface};
 
 /// What `with_webview` hands over: the page's WebView2 controller.
@@ -339,6 +340,40 @@ pub(super) fn shield(view: View, on: bool) {
 
 /// A disabled window stays over the page whatever the window's size.
 pub(super) fn shield_follow(_view: View) {}
+
+/// Sizes the page the teammate asked for (`viewport`), in CSS pixels: the
+/// controller's bounds, which are the page's viewport and what
+/// `CapturePreview` draws, whether or not the window is on screen. The
+/// page's own container is put at that size by `lay_out` (wry's
+/// `set_bounds`, as every resize of the pane does again), so this is the
+/// same size said once more there; for a popup, whose container fills its
+/// window, it is what sizes the page. `None` gives the page its container's
+/// whole size again.
+pub(super) fn fit(view: View, size: Option<(u32, u32)>) {
+    let Some(window) = container(&view) else {
+        return;
+    };
+    let bounds = if let Some((width, height)) = size {
+        // SAFETY: a plain query of the page's own window.
+        let dpi = unsafe { GetDpiForWindow(window) };
+        let (width, height) = edge::physical(width, height, dpi);
+        RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        }
+    } else {
+        let mut whole = RECT::default();
+        // SAFETY: as above, writing the window's client rectangle.
+        if unsafe { GetClientRect(window, &raw mut whole) }.is_err() {
+            return;
+        }
+        whole
+    };
+    // SAFETY: the page's controller, on its own thread.
+    let _ = unsafe { view.SetBounds(bounds) };
+}
 
 /// Calls `closed` when the popup's own script closes it (`window.close()`,
 /// as a sign-in popup does once it has answered its opener). wry's own

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { SecretUse, SharedSecret, SharedSecretKind } from "../generated/contract";
+import type { Persona, SecretUse, SharedSecret, SharedSecretKind } from "../generated/contract";
 import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
 import { Chips } from "../ui/Chips";
@@ -7,6 +7,7 @@ import { Fold } from "../ui/Fold";
 import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
+import { CookieSourcesGroup, CookiesInUse } from "./settings/CookieSettings";
 
 const NESTED = "group-row pl-7";
 /** What the desk asks of a value, said here before the desk has to. */
@@ -53,9 +54,18 @@ function describeShort(secret: SharedSecret, capital = false): string {
  * teammate, removing it here, or deleting it at the site. Every value is
  * written once and never shown again, here or to a teammate. Which teammate
  * gets which is decided on that teammate, under its computer, one tick per
- * name. Every command here is desk-seat only.
+ * name. Under them, the browsers Hotline may read cookies from, and who
+ * holds the person's cookies now. Every command here is desk-seat only.
  */
-export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }) {
+export function SecretsSection({
+	onBack,
+	team = [],
+	onOpenTeammate,
+}: {
+	onBack?: (() => void) | undefined;
+	team?: readonly { id: string; avatar?: Persona["avatar"] }[];
+	onOpenTeammate?: ((personaId: string) => void) | undefined;
+}) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
 	const [refusal, setRefusal] = useState<Refused | null>(null);
 	// Which kind is being added, if one is.
@@ -264,6 +274,8 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 							Kept in your keychain. Allow one for a teammate's computer in that teammate's settings.
 						</p>
 					</section>
+					<CookieSourcesGroup />
+					<CookiesInUse team={team} onOpenTeammate={onOpenTeammate} />
 					{refusal !== null && <Refusal {...refusal} />}
 				</div>
 			</Scroll>

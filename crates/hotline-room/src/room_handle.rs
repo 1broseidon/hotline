@@ -9,6 +9,7 @@ use tokio::sync::broadcast;
 
 /// A room that keeps no links answers a linked desk with this.
 const NOT_LINKED: &str = "This desk is not linked with that one.";
+const NO_COOKIES: &str = "Sharing cookies is unavailable on this room.";
 
 /// How far a harness sign-in has got, as `agent.auth.poll` answers it: the
 /// state, the sign-in's output so far, and why it failed when it did.
@@ -567,30 +568,57 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_update(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_restart(&self, persona_id: &str) -> Result<(), String>;
 
-    /// The host browsers the operator could bring cookies from. Names only.
-    /// Defaults to none: a room without a desk under it offers no host.
-    async fn computer_browsers(&self) -> Vec<hotline_contract::HostBrowser> {
-        Vec::new()
-    }
-    /// The sites in one host browser profile and how many cookies each has.
-    /// Domains and counts only; no value is read out.
-    async fn computer_cookies_preview(
-        &self,
-        _browser_id: &str,
-        _profile_id: &str,
-    ) -> Result<Vec<hotline_contract::CookieSite>, String> {
-        Err("Browser cookie import is unavailable on this room.".to_string())
-    }
-    /// Copies the ticked sites' cookies from a host browser into the
-    /// teammate's computer, and answers with the sites actually imported.
-    async fn computer_cookies_import(
+    /// The person's cookies shared with a teammate, a row a site.
+    async fn cookie_lends(
         &self,
         _persona_id: &str,
+    ) -> Result<Vec<hotline_contract::CookieLend>, String> {
+        Err(NO_COOKIES.into())
+    }
+    /// The sites the person is signed into across the switched-on sources.
+    /// Site names only, read when asked.
+    async fn cookie_lendable(&self) -> Result<hotline_contract::CookieOfferSites, String> {
+        Err(NO_COOKIES.into())
+    }
+    async fn cookie_lend(
+        &self,
+        _persona_id: &str,
+        _site: &str,
+    ) -> Result<hotline_contract::CookieLend, String> {
+        Err(NO_COOKIES.into())
+    }
+    async fn cookie_lend_set(
+        &self,
+        _persona_id: &str,
+        _id: &str,
+        _keep_fresh: Option<bool>,
+        _ends: Option<hotline_contract::CookieLendEnds>,
+    ) -> Result<hotline_contract::CookieLend, String> {
+        Err(NO_COOKIES.into())
+    }
+    /// The browser profiles found here, each switched on or off as a
+    /// cookie source. Reads no cookie store.
+    async fn cookie_sources(&self) -> Result<hotline_contract::CookieSources, String> {
+        Err(NO_COOKIES.into())
+    }
+    async fn cookie_source_set(
+        &self,
         _browser_id: &str,
         _profile_id: &str,
-        _domains: &[String],
-    ) -> Result<Vec<hotline_contract::CookieSite>, String> {
-        Err("Browser cookie import is unavailable on this room.".to_string())
+        _on: bool,
+    ) -> Result<hotline_contract::CookieSources, String> {
+        Err(NO_COOKIES.into())
+    }
+    async fn cookie_holders(&self) -> Result<Vec<hotline_contract::CookieHolder>, String> {
+        Err(NO_COOKIES.into())
+    }
+    /// The local addresses a teammate's desk browser may always open.
+    async fn browser_local_list(&self, _persona_id: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    /// Takes an "Always allow" back.
+    async fn browser_local_remove(&self, _persona_id: &str, _origin: &str) -> Result<(), String> {
+        Err("This desk keeps no browser.".into())
     }
     async fn computer_cookies_push(
         &self,
@@ -599,26 +627,6 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<Vec<hotline_contract::CookieSite>, String> {
         Err("Cookie transfer is unavailable on this room.".into())
     }
-    /// What has been brought over to a teammate's computer, by browser and
-    /// profile, with the sites.
-    async fn computer_cookies_list(
-        &self,
-        _persona_id: &str,
-    ) -> Result<Vec<hotline_contract::CookieImport>, String> {
-        Err("Browser cookie import is unavailable on this room.".to_string())
-    }
-    /// Takes brought-over cookies back out: one site, or the whole import.
-    /// Answers the record as it stands afterwards.
-    async fn computer_cookies_forget(
-        &self,
-        _persona_id: &str,
-        _browser_id: &str,
-        _profile_id: &str,
-        _domain: Option<&str>,
-    ) -> Result<Vec<hotline_contract::CookieImport>, String> {
-        Err("Browser cookie import is unavailable on this room.".to_string())
-    }
-
     /// The web search providers that have a key saved. Never a key.
     fn websearch_keyed(&self) -> std::collections::HashSet<hotline_contract::WebSearchProvider> {
         std::collections::HashSet::new()
@@ -683,26 +691,18 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_cookie_offers(&self, _persona: &str) -> Vec<hotline_contract::CookieOffer> {
         Vec::new()
     }
-    async fn computer_cookie_blocked(&self) -> Vec<hotline_contract::CookieOfferBlock> {
-        Vec::new()
-    }
     async fn computer_cookie_sites(&self) -> Result<hotline_contract::CookieOfferSites, String> {
         Err("Cookie discovery unavailable.".into())
     }
-    /// Called under the policy gate after saving the offer preference.
-    async fn cookie_offer_settings_changed(&self) -> Result<(), String> {
-        Ok(())
-    }
-    async fn computer_cookie_reset(&self, _persona: &str, _site: &str) -> Result<(), String> {
-        Err("Cookie offers unavailable.".into())
-    }
+    /// Answers a teammate's cookie ask: Use Cookies, Open Browser or Not now.
     async fn computer_cookie_answer(
         &self,
         _persona: &str,
         _id: &str,
         _answer: hotline_contract::CookieOfferAnswer,
+        _source: Option<hotline_contract::CookieOfferSource>,
     ) -> Result<(), String> {
-        Err("Cookie offers unavailable.".into())
+        Err("Cookie asks unavailable.".into())
     }
     async fn computer_cookie_remove(&self, _persona: &str, _id: &str) -> Result<(), String> {
         Err("Cookie offers unavailable.".into())

@@ -104,7 +104,6 @@ impl Seat {
                     | Command::SecretsPasskeyAnswer { .. }
                     | Command::SecretsUseAnswer { .. }
                     | Command::ComputerCookieOffers { .. }
-                    | Command::ComputerCookieSettings {}
                     | Command::ComputerCookieAnswer { .. }
                     | Command::ComputerCookieRemove { .. }
                     | Command::SecretsCaptureAnswer(..)

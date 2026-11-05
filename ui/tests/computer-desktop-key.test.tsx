@@ -49,7 +49,7 @@ afterEach(async () => {
 
 const render = (enabled: boolean) =>
 	act(async () => {
-		root.render(<ComputerRows personaId="ada" teammate="Ada" computer={{ enabled }} disabled={false} onChange={() => {}} />);
+		root.render(<ComputerRows personaId="ada" computer={{ enabled }} disabled={false} onChange={() => {}} />);
 	});
 const key = (label: string) => container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
 const fold = () => container.querySelector<HTMLButtonElement>(".fold-row-open");

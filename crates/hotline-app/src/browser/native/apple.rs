@@ -349,6 +349,10 @@ pub(super) fn watch_close(view_ptr: *mut c_void, closed: Box<dyn Fn()>) {
     DOORS.with(|doors| doors.borrow_mut().insert(view_ptr as usize, door));
 }
 
+/// The page's size is its web view's frame, which the window lays out; a
+/// WKWebView needs nothing more.
+pub(super) fn fit(_view_ptr: *mut c_void, _size: Option<(u32, u32)>) {}
+
 /// Keeps a page's shield over it after the window is resized.
 pub(super) fn shield_follow(view_ptr: *mut c_void) {
     // SAFETY: see `view`.

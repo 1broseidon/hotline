@@ -1,4 +1,4 @@
-//! Cookies the person lent a teammate on a cookie offer, put into the
+//! Cookies the person shared with a teammate when it asked, put into the
 //! teammate's own web storage, and taken back on Remove; and that storage
 //! wiped whole when the teammate is deleted. The core read them
 //! from the person's browser and hands them here; they go straight to

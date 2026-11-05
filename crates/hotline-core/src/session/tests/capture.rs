@@ -18,6 +18,7 @@ fn answer(id: &str) -> CredentialAnswer {
         action_id: id.into(),
         name: Some("CHOSEN_LOGIN".into()),
         ask: false,
+        save: None,
         values: Some(CredentialValues {
             username: "capture-user-sentinel".into(),
             password: "capture-password-sentinel".into(),
@@ -186,6 +187,7 @@ async fn capture_decline_expiry_withdrawal_and_revocation_store_nothing() {
                     name: None,
                     values: None,
                     ask: false,
+                    save: None,
                 })
                 .await
                 .unwrap();
@@ -275,6 +277,7 @@ async fn capture_existing_key_is_offered_only_for_its_origin_and_cannot_be_repla
         name: Some("OTHER".into()),
         values: None,
         ask: false,
+        save: None,
     };
     assert!(room.answer_credential(grant.clone()).await.is_err());
     grant.name = Some("OLD".into());
@@ -311,6 +314,7 @@ async fn capture_passkey_keeps_approval_origin_name_and_ask_setting() {
         name: Some("GH_PASSKEY".into()),
         values: None,
         ask: true,
+        save: None,
     })
     .await
     .unwrap();
@@ -376,6 +380,7 @@ async fn capture_passkey_unused_arming_expires_and_call_card_stays_on_the_desk()
         name: Some("GH_PASSKEY".into()),
         values: None,
         ask: false,
+        save: None,
     })
     .await
     .unwrap();
@@ -435,6 +440,7 @@ async fn capture_passkey_refuses_another_origin_and_minting_without_operator_app
             name: Some("GH_PASSKEY".into()),
             values: None,
             ask: false,
+            save: None,
         })
         .await
         .unwrap();
@@ -555,6 +561,7 @@ async fn capture_passkey_denial_is_declined_and_tells_the_agent_why_it_stopped()
         name: Some("GH_PASSKEY".into()),
         values: None,
         ask: false,
+        save: None,
     })
     .await
     .unwrap();

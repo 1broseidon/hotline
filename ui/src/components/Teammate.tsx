@@ -19,6 +19,7 @@ import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
 import { Schedules } from "./Schedules";
 import type { ThreadRef } from "./Transcript";
+import { LocalAddresses } from "./teammate/LocalAddresses";
 import { ComputerRows } from "./teammate/ComputerRows";
 import { McpRows, SkillRows } from "./teammate/GrantRows";
 import { SecretRows } from "./teammate/SecretRows";
@@ -355,6 +356,7 @@ export function Teammate({
 								disabled={busy}
 								onChange={(allowedSenders) => save({ allowedSenders })}
 							/>
+							<LocalAddresses personaId={persona.id} disabled={busy} />
 						</div>
 					</section>
 
@@ -363,7 +365,6 @@ export function Teammate({
 						<div className="grouped">
 							<ComputerRows
 								personaId={persona.id}
-								teammate={persona.name}
 								computer={persona.computer}
 								disabled={busy}
 								onChange={(computer) => save({ computer })}

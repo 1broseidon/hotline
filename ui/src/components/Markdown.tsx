@@ -1,10 +1,11 @@
-import { Children, cloneElement, createContext, isValidElement, memo, type ReactElement, type ReactNode, useContext } from "react";
+import { Children, cloneElement, createContext, isValidElement, memo, type ReactElement, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { WarningIcon } from "../icons";
 import { openLink } from "../native";
 import { CodeSheet, fenceOf } from "./CodeSheet";
 import { Favicon } from "./Favicon";
+import { chainOf, FlowChain } from "./FlowChain";
 import { Mermaid } from "./Mermaid";
 import { CopyKey, ExpandKey, OpenFull, Sheet } from "./Sheet";
 
@@ -127,7 +128,7 @@ const COMPONENTS: Components = {
 				}}
 			>
 				{site !== null && <Favicon site={site} size={14} />}
-				{site !== null && children === href ? site : children}
+				{site !== null && children === href ? site : children === href && href !== undefined ? shortLink(href) : children}
 			</a>
 		);
 	},
@@ -136,7 +137,10 @@ const COMPONENTS: Components = {
 	pre: ({ children, node }) => {
 		const code = codeOf(children, node);
 		if (code === null) return <pre>{children}</pre>;
-		if (code.language === "mermaid") return <Mermaid source={code.text} />;
+		if (code.language === "mermaid") {
+			const steps = chainOf(code.text);
+			return steps === null ? <Mermaid source={code.text} /> : <FlowChain steps={steps} />;
+		}
 		return <CodeSheet code={code.text} {...fenceOf(code.language, code.meta)} />;
 	},
 
@@ -161,24 +165,48 @@ const COMPONENTS: Components = {
 	table: function Table({ children, node }) {
 		const source = useContext(MarkdownSource);
 		const markdown = sourceOf(source, node);
-		const { kinds } = shapeOf(node);
+		const { kinds, names } = shapeOf(node);
+		const scroller = useRef<HTMLDivElement>(null);
+		const [more, setMore] = useState(false);
+		// A table wider than its bubble fades at the edge it scrolls on.
+		useEffect(() => {
+			const box = scroller.current;
+			if (box === null) return;
+			const look = () => setMore(box.scrollLeft + box.clientWidth < box.scrollWidth - 2);
+			look();
+			box.addEventListener("scroll", look, { passive: true });
+			const resized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(look);
+			resized?.observe(box);
+			return () => {
+				box.removeEventListener("scroll", look);
+				resized?.disconnect();
+			};
+		}, []);
 		return (
 			<Sheet
 				kind="table"
 				keys={
 					<>
-						<ExpandKey object={{ kind: "table", text: markdown }} />
+						<ExpandKey object={{ kind: "table", text: markdown, title: names.join(" · ") || "Table" }} />
 						<CopyKey text={markdown} title="Copy as Markdown" />
 					</>
 				}
 			>
-				<div className="md-table">
+				<div ref={scroller} className="md-table" data-more={more || undefined}>
 					<TableColumns.Provider value={kinds}>
 						<table>{children}</table>
 					</TableColumns.Provider>
 				</div>
 			</Sheet>
 		);
+	},
+
+	/* A cell of sources is its chips; the dots or commas written between them
+	 * would wrap onto lines of their own, so the chips' own gap stands in. */
+	td: ({ children, className }) => {
+		const parts = Children.toArray(children);
+		const chips = parts.some((part) => isValidElement(part));
+		return <td className={className}>{chips ? parts.filter((part) => !(typeof part === "string" && /^\s*[·•|,;]\s*$/.test(part))) : children}</td>;
 	},
 
 	/* A column of numbers stands right, so its digits line up; a column of
@@ -197,6 +225,22 @@ const COMPONENTS: Components = {
 		);
 	},
 };
+
+/**
+ * A bare link as its words say it: the site, and its last step when it goes
+ * deeper (`qdrant.tech/…/quickstart`). The whole address is its href.
+ */
+function shortLink(href: string): string {
+	try {
+		const at = new URL(href);
+		const host = at.hostname.replace(/^www\./, "");
+		const steps = at.pathname.split("/").filter(Boolean);
+		if (steps.length === 0) return host;
+		return steps.length === 1 ? `${host}/${steps[0]}` : `${host}/…/${steps.at(-1)}`;
+	} catch {
+		return href;
+	}
+}
 
 /** A link's site, for its chip: only a web page's has one. */
 function siteOf(href: string | undefined): string | null {
@@ -246,7 +290,7 @@ const NUMERIC = /^[~≈<>≤≥±+\-−]?\s*[$€£¥]?\d[\d,.]*\s*(?:[–-]\s*[
 const SENTENCES = 40;
 
 /** Which of a table's columns hold only numbers, or sentences. */
-function shapeOf(node: Element | undefined): { kinds: Map<number, ColumnKind> } {
+function shapeOf(node: Element | undefined): { kinds: Map<number, ColumnKind>; names: string[] } {
 	const part = (tag: string) => node?.children.find((child): child is Element => child.type === "element" && child.tagName === tag);
 	const rowsOf = (section: Element | undefined) => elements(section?.children ?? [], "tr");
 	const head = rowsOf(part("thead"))[0];
@@ -259,7 +303,8 @@ function shapeOf(node: Element | undefined): { kinds: Map<number, ColumnKind> } 
 		if (cells.every((cell) => NUMERIC.test(cell))) kinds.set(column, "num");
 		else if (cells.reduce((sum, cell) => sum + cell.length, 0) / cells.length > SENTENCES) kinds.set(column, "wide");
 	}
-	return { kinds };
+	const names = head === undefined ? [] : elements(head.children, "th").map((cell) => textOf(cell).trim());
+	return { kinds, names };
 }
 
 const elements = (nodes: ElementContent[], tag: string): Element[] =>

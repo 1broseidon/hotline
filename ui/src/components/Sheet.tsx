@@ -7,7 +7,7 @@ import { writeClipboard } from "../native";
  * for the view's title, and its markdown, which the view renders with the
  * same components the bubble did.
  */
-export type FullObject = { kind: "table" | "code" | "diagram"; text: string };
+export type FullObject = { kind: "table" | "code" | "diagram"; text: string; title?: string };
 
 /**
  * How an object in a message opens over the whole window. The window provides
@@ -35,7 +35,7 @@ export function Sheet({ kind, label, keys, children }: { kind: "table" | "code" 
 	);
 }
 
-/** A quiet key on a sheet's head: a glyph and a word; `pressed` when it is a toggle. */
+/** A quiet key on a sheet's head: a glyph, its word kept for a screen reader and the tooltip; `pressed` when it is a toggle. */
 export function SheetKey({
 	icon,
 	label,
@@ -52,7 +52,7 @@ export function SheetKey({
 	return (
 		<button type="button" className="sheet-key" title={title} aria-pressed={pressed} onClick={onClick}>
 			{icon}
-			{label}
+			<span className="sheet-key-word">{label}</span>
 		</button>
 	);
 }

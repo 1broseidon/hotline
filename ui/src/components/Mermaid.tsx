@@ -57,7 +57,7 @@ export function Mermaid({ source }: { source: string }) {
 	}, [key, source, look, near]);
 
 	const current = drawn?.key === key ? drawn : null;
-	const object = { kind: "diagram" as const, text: fenced(source) };
+	const object = { kind: "diagram" as const, text: fenced(source), title: `Diagram · ${diagramKind(source)}` };
 	return (
 		<Sheet
 			kind="diagram"

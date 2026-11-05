@@ -32,7 +32,7 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			keys={
 				<>
 					<SheetKey icon={<WrapIcon />} label="Wrap" title="Wrap long lines" pressed={wrap} onClick={() => setWrap((was) => !was)} />
-					<ExpandKey object={{ kind: "code", text: fence(code, language, file) }} />
+					<ExpandKey object={{ kind: "code", text: fence(code, language, file), title: [language ?? "Code", file].filter(Boolean).join(" · ") }} />
 					<CopyKey text={code} title="Copy the code" />
 				</>
 			}

@@ -4812,6 +4812,9 @@
 		color: var(--ink-3);
 		white-space: nowrap;
 		text-overflow: ellipsis;
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 	.link-card-title {
 		display: -webkit-box;

@@ -1,6 +1,6 @@
 import type MermaidApi from "mermaid";
 import { type RefObject, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { OpenInPane, OpenKey, Sheet, SheetKey } from "./Sheet";
+import { ExpandKey, OpenFull, Sheet, SheetKey } from "./Sheet";
 
 /**
  * A ```mermaid block drawn as the diagram it describes, on its sheet.
@@ -20,14 +20,14 @@ import { OpenInPane, OpenKey, Sheet, SheetKey } from "./Sheet";
  * still streaming in is not drawn until its source stops changing, and one
  * that does not parse stays the code it was, with a line saying so. A diagram
  * drawn to fit a bubble is often too small to read, so Open (or pressing it)
- * shows it in the pane at its own size, and Source shows what it was drawn from.
+ * shows it over the whole window, and Source shows what it was drawn from.
  */
 export function Mermaid({ source }: { source: string }) {
 	const look = useLook();
 	const [drawn, setDrawn] = useState<{ key: string; url: string } | null>(null);
 	const [failed, setFailed] = useState<string | null>(null);
 	const [showSource, setShowSource] = useState(false);
-	const openInPane = useContext(OpenInPane);
+	const openFull = useContext(OpenFull);
 	const key = `${look}\n${source}`;
 	const block = useRef<HTMLDivElement>(null);
 	const near = useNear(block);
@@ -61,11 +61,11 @@ export function Mermaid({ source }: { source: string }) {
 	return (
 		<Sheet
 			kind="diagram"
-			label={`Diagram · ${diagramKind(source)}`}
+			label={diagramKind(source)}
 			keys={
 				current !== null && (
 					<>
-						<OpenKey object={object} />
+						<ExpandKey object={object} />
 						<SheetKey
 							label="Source"
 							title={showSource ? "Show the diagram" : "Show the source"}
@@ -88,8 +88,8 @@ export function Mermaid({ source }: { source: string }) {
 							</p>
 						)}
 					</>
-				) : openInPane !== null ? (
-					<button type="button" className="picture-open" title="Open in the pane" onClick={() => openInPane(object)}>
+				) : openFull !== null ? (
+					<button type="button" className="picture-open" title="Full screen" onClick={() => openFull(object)}>
 						<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
 					</button>
 				) : (

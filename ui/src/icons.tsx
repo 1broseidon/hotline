@@ -131,22 +131,6 @@ export const SaveIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
-/* A thread: lines of talk, each shorter than the last. */
-export const ThreadIcon = ({ className }: IconProps) => (
-	<Icon className={className}>
-		<path d="M3 3.5h10M3 7.5h7M3 11.5h4" />
-	</Icon>
-);
-
-/* A subagent: a branch off the main line of work. */
-export const BranchIcon = ({ className }: IconProps) => (
-	<Icon className={className}>
-		<circle cx="5" cy="5" r="2" />
-		<circle cx="11" cy="11" r="2" />
-		<path d="M5 7v1.5A2.5 2.5 0 0 0 7.5 11H9" />
-	</Icon>
-);
-
 /* A sign-in: what goes to the vault. */
 export const LockIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
@@ -283,7 +267,7 @@ export const CopyIcon = ({ className }: IconProps) => (
 	</Icon>
 );
 
-/* Open an object a message carries at full width, in the pane beside the conversation. */
+/* Expand an object a message carries over the whole window. */
 export const ExpandIcon = ({ className }: IconProps) => (
 	<Icon className={className}>
 		<path d="M9.5 2.75h3.75V6.5M6.5 13.25H2.75V9.5M13.25 2.75 9 7M2.75 13.25 7 9" />

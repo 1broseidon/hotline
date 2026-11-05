@@ -6,7 +6,7 @@ import { openLink } from "../native";
 import { CodeSheet, fenceOf } from "./CodeSheet";
 import { Favicon } from "./Favicon";
 import { Mermaid } from "./Mermaid";
-import { CopyKey, OpenInPane, OpenKey, Sheet } from "./Sheet";
+import { CopyKey, ExpandKey, OpenFull, Sheet } from "./Sheet";
 
 /** The syntax tree's element react-markdown hands a component, and what can stand inside one. */
 type Element = NonNullable<ExtraProps["node"]>;
@@ -21,7 +21,7 @@ type ElementContent = Element["children"][number];
  * one, a step up from the words, because a person would not send you an
  * `<h2>`; images and raw HTML do not survive at all. A table, a block of code
  * and a diagram are objects the message carries, each on one sheet
- * (Sheet.tsx); a table and a diagram open at full width in the pane.
+ * (Sheet.tsx), the width of the bubble, and each expands over the window.
  *
  * Everything here comes out of a language model, so what matters is that no
  * HTML is ever interpreted: `react-markdown` builds React nodes and never
@@ -73,13 +73,13 @@ export function MarkdownDocument({ text }: { text: string }) {
 	return (
 		<MarkdownSource.Provider value={text}>
 			{/* A document is already open at full size, over the window. */}
-			<OpenInPane.Provider value={null}>
+			<OpenFull.Provider value={null}>
 				<article className="md md-doc">
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={DOCUMENT} skipHtml>
 						{text}
 					</ReactMarkdown>
 				</article>
-			</OpenInPane.Provider>
+			</OpenFull.Provider>
 		</MarkdownSource.Provider>
 	);
 }
@@ -161,18 +161,13 @@ const COMPONENTS: Components = {
 	table: function Table({ children, node }) {
 		const source = useContext(MarkdownSource);
 		const markdown = sourceOf(source, node);
-		const { rows, columns, kinds } = shapeOf(node);
+		const { kinds } = shapeOf(node);
 		return (
 			<Sheet
 				kind="table"
-				label={
-					<>
-						Table · <b>{counted(rows, "row")}</b> · {counted(columns, "column")}
-					</>
-				}
 				keys={
 					<>
-						<OpenKey object={{ kind: "table", text: markdown }} />
+						<ExpandKey object={{ kind: "table", text: markdown }} />
 						<CopyKey text={markdown} title="Copy as Markdown" />
 					</>
 				}
@@ -202,8 +197,6 @@ const COMPONENTS: Components = {
 		);
 	},
 };
-
-const counted = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 /** A link's site, for its chip: only a web page's has one. */
 function siteOf(href: string | undefined): string | null {
@@ -252,8 +245,8 @@ const NUMERIC = /^[~≈<>≤≥±+\-−]?\s*[$€£¥]?\d[\d,.]*\s*(?:[–-]\s*[
 /** Past this many characters on average, a column holds sentences. */
 const SENTENCES = 40;
 
-/** How many rows and columns a table has, and which of its columns hold only numbers, or sentences. */
-function shapeOf(node: Element | undefined): { rows: number; columns: number; kinds: Map<number, ColumnKind> } {
+/** Which of a table's columns hold only numbers, or sentences. */
+function shapeOf(node: Element | undefined): { kinds: Map<number, ColumnKind> } {
 	const part = (tag: string) => node?.children.find((child): child is Element => child.type === "element" && child.tagName === tag);
 	const rowsOf = (section: Element | undefined) => elements(section?.children ?? [], "tr");
 	const head = rowsOf(part("thead"))[0];
@@ -266,7 +259,7 @@ function shapeOf(node: Element | undefined): { rows: number; columns: number; ki
 		if (cells.every((cell) => NUMERIC.test(cell))) kinds.set(column, "num");
 		else if (cells.reduce((sum, cell) => sum + cell.length, 0) / cells.length > SENTENCES) kinds.set(column, "wide");
 	}
-	return { rows: body.length, columns, kinds };
+	return { kinds };
 }
 
 const elements = (nodes: ElementContent[], tag: string): Element[] =>

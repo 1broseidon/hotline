@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { highlight } from "../highlight";
 import { WrapIcon } from "../icons";
-import { CopyKey, Sheet, SheetKey } from "./Sheet";
+import { CopyKey, ExpandKey, Sheet, SheetKey } from "./Sheet";
 
 /** Below this many lines a block is read at a glance, and numbers would be furniture. */
 const NUMBERED_FROM = 6;
@@ -32,6 +32,7 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			keys={
 				<>
 					<SheetKey icon={<WrapIcon />} label="Wrap" title="Wrap long lines" pressed={wrap} onClick={() => setWrap((was) => !was)} />
+					<ExpandKey object={{ kind: "code", text: fence(code, language, file) }} />
 					<CopyKey text={code} title="Copy the code" />
 				</>
 			}
@@ -57,6 +58,13 @@ export function CodeSheet({ code, language, file }: { code: string; language: st
 			</pre>
 		</Sheet>
 	);
+}
+
+/** The block as a fence again, so the full view draws it the same way. */
+function fence(code: string, language: string | undefined, file: string | undefined): string {
+	const info = [language ?? "", file !== undefined ? `title="${file}"` : ""].join(" ").trim();
+	const ticks = "`".repeat(Math.max(3, ...[...code.matchAll(/`+/g)].map((run) => run[0].length + 1)));
+	return `${ticks}${info}\n${code}\n${ticks}`;
 }
 
 /**

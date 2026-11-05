@@ -51,7 +51,7 @@ from your desk or your phone.
 
 ## Install
 
-Desktop app on macOS or Linux:
+Desktop app on macOS or Linux (x86_64 or ARM):
 
 ```sh
 curl -fsSL https://hotline.dev/install | sh

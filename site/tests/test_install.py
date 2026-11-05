@@ -141,6 +141,44 @@ main --version 0.26.0 --force --yes
 ''')
         self.assertTrue(any("apt-get install --reinstall -y" in action for action in self.actions()))
 
+    def desktop_on(self, machine, managers):
+        """The real desktop_linux on a stubbed machine; returns the packages it asked for and installed."""
+        self.stub("uname", f'case "$1" in -s) echo Linux;; -m) echo {machine};; esac')
+        for manager in ("apt-get", "dpkg", "dnf", "zypper"):
+            (self.bin / manager).unlink(missing_ok=True)
+        for manager in managers:
+            self.stub(manager, "exit 0")
+        source = INSTALL.read_text()
+        desktop = source[source.index("desktop_linux() {"):source.index("# The address this host")]
+        out = self.run_shell(desktop + '''
+asset() { echo "ASSET $1" >>"$LOG"; touch "$work/$1"; }
+as_root() { printf '%s\\n' "$*" >>"$LOG"; }
+install() { echo "COPY $*" >>"$LOG"; }
+sha256() { echo fixture; }
+work=$(mktemp -d)
+version=0.48.0 force= current=
+desktop_linux
+''', success=machine != "riscv64")
+        return out, self.actions()
+
+    def test_arm_linux_desktop_installs_its_own_architecture(self):
+        for managers, package in [(("apt-get", "dpkg"), "deb"), (("dnf",), "rpm"), (("zypper",), "rpm"), ((), "AppImage")]:
+            with self.subTest(package=package, managers=managers):
+                self.log.unlink(missing_ok=True)
+                _, actions = self.desktop_on("aarch64", managers)
+                self.assertIn(f"ASSET hotline_0.48.0_linux_aarch64.{package}", actions)
+                self.assertTrue(any(f"hotline_0.48.0_linux_aarch64.{package}" in a for a in actions if not a.startswith("ASSET")), actions)
+                self.assertFalse(any("x86_64" in a for a in actions), actions)
+
+    def test_x86_linux_desktop_still_installs_x86_packages(self):
+        _, actions = self.desktop_on("x86_64", ("apt-get", "dpkg"))
+        self.assertIn("ASSET hotline_0.48.0_linux_x86_64.deb", actions)
+
+    def test_unknown_linux_architecture_is_refused_before_any_download(self):
+        out, actions = self.desktop_on("riscv64", ("apt-get", "dpkg"))
+        self.assertIn("no Hotline build for riscv64", out)
+        self.assertEqual(actions, [])
+
     def test_terminal_default_no_declines(self):
         self.server_install()
         self.run_shell('has_tty() { return 0; }; main --server --version 0.26.0')

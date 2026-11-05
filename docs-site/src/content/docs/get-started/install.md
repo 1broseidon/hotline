@@ -31,7 +31,8 @@ Pick the file for your machine:
 | macOS, Apple silicon | `…_macos_aarch64.dmg` |
 | macOS, Intel | `…_macos_x86_64.dmg` |
 | Windows, x86_64 | `…_windows_x86_64-setup.exe` |
-| Linux, x86_64 | `.AppImage`, `.deb` or `.rpm` |
+| Linux, x86_64 | `…_linux_x86_64.AppImage`, `.deb` or `.rpm` |
+| Linux, ARM (aarch64) | `…_linux_aarch64.AppImage`, `.deb` or `.rpm` |
 
 ## macOS
 

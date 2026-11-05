@@ -382,7 +382,7 @@ is six hours old, or on Check now; never from a teammate. A session keeps the ve
 with, so a teammate gets an update at its next start.
 
 The configured targets are macOS aarch64/x86_64 app bundles, Linux x86_64
-AppImage/deb/rpm, and a Windows x86_64 per-user NSIS installer. Explicit manifest keys include the installer suffix, so a
+and aarch64 AppImage/deb/rpm, and a Windows x86_64 per-user NSIS installer. Explicit manifest keys include the installer suffix, so a
 missing deb is an error, never an AppImage fallback. Other packages and
 architectures open the release page instead. Development builds, including
 `make dev`, neither check nor install. Headless tests use Tauri's mock runtime,

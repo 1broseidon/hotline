@@ -457,14 +457,15 @@
 	.full-view-body .md-table th,
 	.full-view-body .md-table td {
 		padding-inline: 16px;
-		white-space: nowrap;
+	}
+	/* With room, short cells keep to a line and sentences to a reading
+	 * width; every column still fits, and the pane scrolls across only when
+	 * it truly cannot. */
+	.full-view-body .md-table td:not(.wide) {
+		min-width: 12ch;
 	}
 	.full-view-body .md-table td.wide {
 		min-width: 32ch;
-		white-space: normal;
-	}
-	.full-view-body .md-table td:has(.site-chip) {
-		white-space: normal;
 	}
 	/* The pane's head row stays as the rows scroll under it, so it needs the
 	 * canvas behind it; a bubble's table has no fill on any row. */
@@ -474,9 +475,7 @@
 		z-index: 1;
 		background: var(--canvas);
 	}
-	.full-view-body .md-table {
-		overflow: visible;
-	}
+
 	.full-view-body .diagram-body {
 		padding: 24px;
 	}

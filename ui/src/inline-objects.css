@@ -27,7 +27,11 @@
 	.speech .sheet {
 		margin-inline: -12px;
 		border-radius: 0;
-		background: color-mix(in oklab, var(--sheet), oklch(0% 0 0) 18%);
+		background: var(--sheet-sunk);
+	}
+	/* Focused from the keyboard, a sheet shows it by its edge. */
+	.speech .sheet:focus-visible {
+		box-shadow: inset 0 0 0 1px var(--line-strong);
 	}
 	.speech > .md > .sheet:first-child {
 		margin-top: -8px;
@@ -829,18 +833,6 @@
 	.callout-words {
 		min-width: 0;
 		flex: 1;
-	}
-	.callout-label {
-		display: block;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		font-weight: 600;
-		color: var(--ink-2);
-		user-select: none;
-	}
-	.callout[data-alert="warning"] .callout-label,
-	.callout[data-alert="caution"] .callout-label {
-		color: var(--warn-ink);
 	}
 	.md .callout-words > p {
 		margin: 0;

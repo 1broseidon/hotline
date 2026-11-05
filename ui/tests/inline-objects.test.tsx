@@ -222,7 +222,7 @@ describe("a table", () => {
 describe("a block of code", () => {
 	test("sits on one sheet whose head names its language and file, with Copy and no Expand or Wrap", async () => {
 		await say("```python setup.py\nfrom qdrant_client import QdrantClient\n```");
-		expect(label("code")).toBe("python · setup.py");
+		expect(label("code")).toBe("Python · setup.py");
 		expect(keys("code").map((one) => one.textContent)).toEqual(["Copy"]);
 		expect(sheet("code")!.querySelector(".code-keyword")?.textContent).toBe("from");
 		expect(cut("code")).toBeNull();
@@ -445,6 +445,27 @@ describe("the open view", () => {
 		expect(view.querySelector(".full-view-caption-who")?.textContent).toBe("Juno:");
 		const bare = await openView(opened[1]!);
 		expect(bare.querySelector(".full-view-caption")).toBeNull();
+	});
+
+	test("puts what it stands in front of out of reach while open, and gives it back on closing", async () => {
+		const restore = tooWide();
+		await say(`Here:\n\n${TABLE}`);
+		await act(async () => cut("table")!.click());
+		restore();
+		const { sheet: _, ...still } = opened[0]!;
+		await act(async () => root.render(null));
+		await act(async () =>
+			root.render(
+				<div>
+					<div className="behind">the conversation</div>
+					<FullView object={still} onClose={() => {}} />
+				</div>,
+			),
+		);
+		const behind = () => container.querySelector<HTMLElement>(".behind")!;
+		expect(behind().inert).toBe(true);
+		await act(async () => root.render(<div><div className="behind">the conversation</div></div>));
+		expect(behind().inert).toBe(false);
 	});
 
 	test("← and Escape go back", async () => {

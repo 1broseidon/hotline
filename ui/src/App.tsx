@@ -291,6 +291,12 @@ export function App() {
 	/* A table, a block of code or a diagram from a message opens over the whole window. */
 	const [full, setFull] = useState<FullObject | null>(null);
 	const closeFull = useCallback(() => setFull(null), []);
+	/* An object open belongs to the conversation it came from: another
+	 * teammate, or a pane in its place, puts it away. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the teammate and the pane are what end it.
+	useEffect(() => {
+		setFull(null);
+	}, [selectedId, pane]);
 	const openThread = useCallback((open: ThreadRef) => {
         if (open.thread.kind === "dm") {
             select(open.thread.key);

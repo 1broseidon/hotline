@@ -131,7 +131,9 @@ export function groupSent(blocks: Block[]): Block[] {
 		(messages) => {
 			const newest = messages[messages.length - 1]!;
 			const files = messages.flatMap((message) => (message.attachments ?? []).map((file, index) => ({ eventId: message.id, index, file })));
-			return { kind: "sent", id: newest.id, ts: newest.ts, messages, files };
+			// Named by its first message, so a file joining the run does not
+			// make it a new row (its pictures read again); dated by its newest.
+			return { kind: "sent", id: messages[0]!.id, ts: newest.ts, messages, files };
 		},
 	);
 }

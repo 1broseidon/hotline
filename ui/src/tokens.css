@@ -92,6 +92,8 @@
 	 * its bubble as one sheet; its head, a callout and an inline code chip
 	 * take the lifted band. Alpha, so they read on grey and on every tint. */
 	--sheet: oklch(0% 0 0 / 0.24);
+	/* The sheet sunk into a bubble, a step below the bubble itself. */
+	--sheet-sunk: color-mix(in oklab, var(--sheet), oklch(0% 0 0) 18%);
 	--sheet-head: oklch(100% 0 0 / 0.025);
 	/* Code's colours on a sheet: keyword, string, number, function. A
 	 * comment is ink-3. */
@@ -213,6 +215,7 @@
 	--bubble-pink: oklch(93% 0.03 328);
 	/* Sunk is darker here too; the head is lifted toward white. */
 	--sheet: oklch(20% 0.01 250 / 0.05);
+	--sheet-sunk: oklch(20% 0.01 250 / 0.08);
 	--sheet-head: oklch(100% 0 0 / 0.4);
 	--code-keyword: oklch(48% 0.15 300);
 	--code-string: oklch(47% 0.11 150);

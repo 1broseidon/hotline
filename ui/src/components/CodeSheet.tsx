@@ -5,7 +5,6 @@ import { Sheet } from "./Sheet";
 /** More lines than this and code is cut in a bubble, however narrow, as on the phone. */
 const INLINE_LINES = 12;
 
-
 /**
  * A block of code on its sheet: the language, and the file when the fence
  * names one, on the head. Code that fits the bubble reads in it whole, and a
@@ -52,7 +51,7 @@ export function CodeSheet({
 			cut={(wide && !single) || tall ? { summary: summaryOf(lines.length, tall), wide, tall } : null}
 			label={
 				<>
-					{language ?? "Code"}
+					{languageName(language)}
 					{file !== undefined && (
 						<>
 							{" · "}

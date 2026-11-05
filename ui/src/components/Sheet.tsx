@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, type FocusEvent, type KeyboardEvent, type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckIcon, CopyIcon, ExpandIcon } from "../icons";
 import { writeClipboard } from "../native";
@@ -54,7 +54,13 @@ export function useOpen(): ((object: FullObject, sheet: HTMLElement | null) => v
  * bubble there is none, and a sheet keeps its keys on its own head.
  */
 export type BlockCopy = { text: string; title: string };
-export type BubbleTools = { node: HTMLElement | null; active: string | null; offer(id: string, top: number, copy?: BlockCopy): void };
+export type BubbleTools = {
+	node: HTMLElement | null;
+	active: string | null;
+	offer(id: string, top: number, copy?: BlockCopy): void;
+	/** The keyboard has left the sheet for somewhere other than the toolbar: the toolbar is the message's again. */
+	release(id: string): void;
+};
 export const BubbleToolbar = createContext<BubbleTools | null>(null);
 
 /**
@@ -99,8 +105,48 @@ export function Sheet({
 	const id = useId();
 	// In a bubble the keys join the bubble's toolbar, one belt, while this
 	// sheet is the one pointed at; elsewhere they stand on its own head.
-	const enter = () => tools?.offer(id, self.current?.offsetTop ?? 0, copy);
+	// What Copy takes is read when it is pressed, not when the pointer came:
+	// a block still streaming in is copied as it stands then.
+	const latest = useRef(copy);
+	latest.current = copy;
+	const live: BlockCopy | undefined =
+		copy === undefined
+			? undefined
+			: {
+					get text() {
+						return latest.current?.text ?? "";
+					},
+					get title() {
+						return latest.current?.title ?? "Copy";
+					},
+				};
+	const enter = () => tools?.offer(id, self.current?.offsetTop ?? 0, live);
 	const pointed = tools?.active === id;
+	// In a bubble the sheet takes the keyboard's focus, since its keys are on
+	// the bubble's toolbar: ⌘C (Ctrl+C) copies it while no words are
+	// selected, and Enter opens a cut one.
+	const keyboard =
+		tools === null
+			? {}
+			: {
+					tabIndex: 0,
+					role: "group",
+					"aria-label": KIND_NAMES[kind],
+					onBlur: (event: FocusEvent<HTMLDivElement>) => {
+						const to = event.relatedTarget as Node | null;
+						if (to === null || (!self.current?.contains(to) && !(to instanceof Element && to.closest(".bubble-actions")))) tools.release(id);
+					},
+					onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+						if (event.target !== event.currentTarget) return;
+						if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c" && latest.current !== undefined && (window.getSelection()?.isCollapsed ?? true)) {
+							event.preventDefault();
+							void writeClipboard(latest.current.text);
+						} else if (event.key === "Enter" && opens !== null) {
+							event.preventDefault();
+							opens();
+						}
+					},
+				};
 	return (
 		<div
 			ref={self}
@@ -109,6 +155,7 @@ export function Sheet({
 			data-bare={label === undefined || undefined}
 			data-cut={opens !== null ? [cut?.wide && "wide", cut?.tall && "tall"].filter(Boolean).join(" ") : undefined}
 			{...(tools !== null ? { onMouseEnter: enter, onFocus: enter } : {})}
+			{...keyboard}
 			{...(opens !== null ? { onClick: opens } : {})}
 		>
 			{(label !== undefined || tools === null) && (
@@ -141,6 +188,9 @@ export function Sheet({
 		</div>
 	);
 }
+
+/** What a sheet is, for a screen reader, when it takes the keyboard's focus in a bubble. */
+const KIND_NAMES: Record<"table" | "code" | "diagram", string> = { table: "Table", code: "Code", diagram: "Diagram" };
 
 /** A quiet key on a sheet's head: a glyph, its word kept for a screen reader and the tooltip; `pressed` when it is a toggle. */
 export function SheetKey({

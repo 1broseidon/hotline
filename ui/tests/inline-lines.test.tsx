@@ -323,8 +323,28 @@ test("a bubble has one toolbar: a table pointed at adds no keys of its own, and 
 	await act(async () => copy().click());
 	expect(copied).toEqual([table]);
 
+	// Copy takes the table as it stands when pressed, not when it was pointed
+	// at: a reply still streaming in grows under the pointer.
+	const grown = `${table}\n| Weaviate | 6 ms |`;
+	await act(async () =>
+		root.render(
+			<OpenFull.Provider value={() => {}}>
+				<Transcript personaId="quill" name="Quill" events={[{ kind: "agent", id: "t", ts: 1, text: `How they stack up:\n\n${grown}` }]} streaming={[]} live={false} focus={null} />
+			</OpenFull.Provider>,
+		),
+	);
+	await act(async () => copy().click());
+	expect(copied.at(-1)).toBe(grown);
+
+	// From the keyboard: the sheet takes the focus, and ⌘C copies it.
+	const focused = container.querySelector<HTMLElement>(".sheet")!;
+	expect(focused.tabIndex).toBe(0);
+	expect(focused.getAttribute("aria-label")).toBe("Table");
+	await act(async () => focused.dispatchEvent(new (window as unknown as { KeyboardEvent: typeof KeyboardEvent }).KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true })));
+	expect(copied.length).toBe(3);
+	expect(copied.at(-1)).toBe(grown);
+
 	const words = container.querySelector<HTMLElement>(".speech .md > p")!;
 	await act(async () => words.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("mouseover", { bubbles: true, relatedTarget: sheet })));
 	expect(more()).toEqual([]);
-	expect(copy().title).toBe("Copied");
 });

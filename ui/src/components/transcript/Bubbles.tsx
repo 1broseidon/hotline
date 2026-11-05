@@ -100,7 +100,12 @@ export function AgentSay({
 	const [slot, setSlot] = useState<HTMLElement | null>(null);
 	const [block, setBlock] = useState<{ id: string; level: number; copy?: BlockCopy } | null>(null);
 	const tools = useMemo(
-		() => ({ node: slot, active: block?.id ?? null, offer: (id: string, level: number, copy?: BlockCopy) => setBlock({ id, level, ...(copy ? { copy } : {}) }) }),
+		() => ({
+			node: slot,
+			active: block?.id ?? null,
+			offer: (id: string, level: number, copy?: BlockCopy) => setBlock({ id, level, ...(copy ? { copy } : {}) }),
+			release: (id: string) => setBlock((was) => (was?.id === id ? null : was)),
+		}),
 		[slot, block?.id],
 	);
 	// Back to the message's own keys once the pointer is on its words again,

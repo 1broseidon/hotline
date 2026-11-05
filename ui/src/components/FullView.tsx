@@ -82,9 +82,24 @@ export function FullView({ object, onClose }: { object: FullObject; onClose(): v
 		window.setTimeout(done, GROW_MS);
 	}, [state, sheet, onClose]);
 
+	// While it is open, what it stands in front of is out of reach: Tab and a
+	// screen reader stay in the view.
+	useEffect(() => {
+		const parent = view.current?.parentElement;
+		if (!parent) return;
+		const covered = [...parent.children].filter((child): child is HTMLElement => child !== view.current && child instanceof HTMLElement && !child.inert);
+		for (const child of covered) child.inert = true;
+		return () => {
+			for (const child of covered) child.inert = false;
+		};
+	}, []);
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
+			// A menu, a search or a dialog over the view takes its own Escape first.
+			const over = document.querySelector('[role="dialog"][aria-modal="true"], [role="menu"]');
+			if (over !== null && !view.current?.contains(over)) return;
 			event.preventDefault();
 			event.stopPropagation();
 			close();

@@ -67,9 +67,8 @@ function placeOf(el: HTMLElement, row: HTMLElement): number {
 	return row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
 }
 
-/** Rows drawn for the first time per frame, and how long after a scroll the drawing waits. */
+/** Rows drawn for the first time per frame. */
 const WARM_ROWS = 12;
-const WARM_AFTER_SCROLL_MS = 0;
 
 /** How near the top a scroll asks for the page above. */
 const EARLIER_SLACK = 600;
@@ -299,29 +298,27 @@ export function Transcript({
 
 	/* Rows skip layout off screen (index.css, .tape-row), and one never laid
 	 * out stands at a 96px guess: scrolled up to, it would grow to its own
-	 * height and shove the rows under the eye. So after a change, while the
-	 * person is not scrolling, the rows not yet laid out are drawn a few at
-	 * a time from the bottom up, and the scroll moves by what those above the
-	 * view grew, so nothing on screen moves. Each keeps its own height from
+	 * height and shove the rows under the eye. So after a change the rows not
+	 * yet laid out are drawn a few at a time from the bottom up, and the
+	 * scroll moves by what those above the view grew, so nothing on screen
+	 * moves. It runs while the person scrolls too: waiting for them to stop
+	 * left a long fling running into rows still at the guess. Each keeps its own height from
 	 * then on. Drawing them all at once would hold up opening a long chapter. */
-	const lastScroll = useRef(0);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: new rows come with new written blocks; the drawing finds them in the DOM.
 	useEffect(() => {
 		const el = scroller.current;
 		if (!el) return;
 		let timer = 0;
 		let frame = 0;
+		let inFlight: HTMLElement[] = [];
 		const warm = () => {
 			timer = 0;
-			if (performance.now() - lastScroll.current < WARM_AFTER_SCROLL_MS) {
-				timer = window.setTimeout(warm, WARM_AFTER_SCROLL_MS);
-				return;
-			}
 			const cold = [...el.querySelectorAll<HTMLElement>(".tape-row:not([data-laid]):not([data-warm])")].slice(-WARM_ROWS).reverse();
 			if (cold.length === 0) return;
 			const top = el.getBoundingClientRect().top;
 			const before = cold.map((row) => row.getBoundingClientRect());
 			for (const row of cold) row.dataset["warm"] = "";
+			inFlight = cold;
 			let grew = 0;
 			cold.forEach((row, index) => {
 				const was = before[index]!;
@@ -338,6 +335,7 @@ export function Transcript({
 						row.dataset["laid"] = "";
 						delete row.dataset["warm"];
 					}
+					inFlight = [];
 					timer = window.setTimeout(warm, 0);
 				});
 			});
@@ -346,6 +344,9 @@ export function Transcript({
 		return () => {
 			window.clearTimeout(timer);
 			cancelAnimationFrame(frame);
+			// A batch cut off between its frames goes back to waiting, rather
+			// than staying drawn for good.
+			for (const row of inFlight) delete row.dataset["warm"];
 		};
 	}, [written]);
 
@@ -397,7 +398,6 @@ export function Transcript({
 		};
 		const onScroll = () => {
 			scrolled = true;
-			if (!pinning.current) lastScroll.current = performance.now();
 			ask();
 		};
 		const onResize = () => {
@@ -521,7 +521,7 @@ export function Transcript({
 						bottom: side !== null && sideAfter(index) === side,
 					};
 					return (
-						<div key={id} data-event-id={id} className="tape-row">
+						<div key={id} data-event-id={id} data-members={block.kind === "sent" ? block.messages.map((message) => message.id).join(" ") : undefined} className="tape-row">
 							{stamp && <p className="rule-line rule-line-plain tape-stamp">{stampText(block_ts(block))}</p>}
 							{block.kind === "scheduled" ? (
 								<ScheduledGroup name={block.name} runs={block.runs} />

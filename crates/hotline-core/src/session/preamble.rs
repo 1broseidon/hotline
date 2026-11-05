@@ -32,9 +32,9 @@ pub(crate) fn preamble(
         } else {
             "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. On connection, read `computer__state` with action `info` and action `guide` to load the skill and environment catalog from that running computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. If an older image does not offer those actions, use its advertised tool schemas. The person can see its screen and take it over at any time. When a page wants a login or passkey, use `request_credential` with its full origin: the secure card on the desk and phone sends values only to the vault and your computer. Never ask for credentials by voice or in chat. For a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
         }
-    } else if cfg!(target_os = "macos") {
+    } else if cfg!(any(target_os = "macos", target_os = "linux")) {
         // With no computer, the desk's own browser is the teammate's (it is
-        // offered while the desktop app runs). Said here, not left to the
+        // offered while the desktop app runs, on macOS and Linux). Said here, not left to the
         // tool listing: an agent whose tools are found by search reads this
         // first, and "open" with no browser named must land in its own.
         "\n\nYou have a web browser of your own on the person's desk, the `browser` tool, while the desktop app is running: it keeps its own sign-ins, the person can watch it and take it over, and it is where you open pages. When the person asks you to open a page or a site without saying whose browser, open it there, in yours, and say it is open in your browser; only their own words for their browser (\"in my browser\", \"in Brave\") mean `open_link`."

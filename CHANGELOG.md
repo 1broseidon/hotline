@@ -10,9 +10,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
-- A teammate with no computer has a browser of its own on the desk (macOS):
-  it opens a page, reads it as text or links, and takes a screenshot, in a
-  hidden window, without a container or MCP server. A page on this computer
+- A teammate with no computer has a browser of its own on the desk (macOS
+  and Linux): it opens a page, reads it as text or links, and takes a
+  screenshot, in a hidden window, without a container or MCP server. A page on this computer
   or the local network opens only after you allow that address and port for
   that teammate (Allow, Always allow or Deny); Hotline's own ports never
   open. It clicks, types, selects and presses keys as a person would, and

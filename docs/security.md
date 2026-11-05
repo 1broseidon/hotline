@@ -814,11 +814,15 @@ from the phone itself; this setting does not reach it.
 A teammate with no computer gets the `browser` tool: a WebKit view the
 desktop app keeps for it in a hidden window (`crates/hotline-app/src/browser.rs`),
 driven by the core (`crates/hotline-core/src/browser.rs`,
-`session/browser.rs`). Phase one reads only: navigate, text, links,
-screenshot, back, forward, reload. It is macOS only; a desk with no window
-(`hotline serve`) and the other platforms install none, and no teammate is
-offered it. A teammate with a computer keeps its computer's browser, and a
-subagent run or a voice front is not offered either.
+`session/browser.rs`): navigate, text, links, screenshot and full-page
+screenshot, back, forward, reload, and the acts (click, hover, fill, select,
+check, press, scroll, wait). It is built on macOS (WKWebView) and Linux
+(WebKitGTK), one code for both but for a small seam of platform calls
+(`browser/native/apple.rs`, `browser/native/linux.rs`); a desk with no window
+(`hotline serve`) and Windows install none, and no teammate there is offered
+it. A teammate with a computer keeps its computer's browser, and a subagent
+run or a voice front is not offered either. Where Linux differs it is said
+below; everything else holds on both.
 
 - **Local addresses ask the person.** A link that names, or resolves to,
   loopback, a private range, link-local, carrier-grade NAT or unique-local
@@ -837,20 +841,25 @@ subagent run or a voice front is not offered either.
   `navigate` question only. The page's own redirects, a sign-in that
   round-trips through an identity provider on the network, and the
   pictures, scripts and frames a page loads go where they go, local or not,
-  as in any browser on this Mac. WebKit still asks the core's `Gate` before
-  every top-level load, which refuses only what is not http, https or
+  as in any browser on this computer. WebKit still asks the core's `Gate`
+  before every top-level load, which refuses only what is not http, https or
   `about:blank`, and the desk's own ports on a local host, the teammate's,
   the page's or the person's. A page that opens a window gets the same view
   instead, through the same check. Downloads are refused. The page starts
-  on `about:blank` with every load refused until the desk's delegate is in
-  place, then is sent on. The cost, by choice: a public page the teammate
+  on `about:blank` with every load refused until the desk listens for its
+  failures (a delegate in front of wry's on macOS, `load-failed` and
+  `load-failed-with-tls-errors` handlers on WebKitGTK), then is sent on.
+  wry asks the gate for a frame's navigation as well as the page's, on both
+  platforms. The cost, by choice: a public page the teammate
   opens can make requests to the local network, as it could in the
   person's own browser; what it gets back stays behind the browser's
   same-origin rules, and the teammate reads only the page it is on.
 - **A certificate WebKit refuses stays refused, but for the person.** The
-  desk puts a navigation delegate of its own in front of wry's on each
-  teammate page (`hotline-app/src/browser/native/trust.rs`). A load that
-  fails to start answers the call with why ("its security certificate has
+  desk listens for a teammate page's failed loads
+  (`hotline-app/src/browser/native/trust.rs`): on macOS a navigation
+  delegate of its own in front of wry's, on Linux WebKitGTK's
+  `load-failed` and `load-failed-with-tls-errors`. A load that fails to
+  start answers the call with why ("its security certificate has
   expired") instead of leaving the page before it up. For an expired, not
   yet valid or untrusted certificate the bar shows the reason and **Visit
   anyway**, which works only while the person has control
@@ -858,20 +867,38 @@ subagent run or a voice front is not offered either.
   has. It lets through that one certificate, pinned by the SHA-256 of its
   leaf, for that teammate and that host and port, until the desk stops; a
   different certificate on the same site is refused again. The address
-  bar's lock turns amber on a page let through this way.
+  bar's lock turns amber on a page let through this way. On Linux the
+  certificate is let through in the teammate's own web context with
+  `webkit_web_context_allow_tls_certificate_for_host`, only if its hash is
+  the one the bar showed; WebKit keeps that in memory for the run, and pins
+  it to the host, so the same certificate on another port of that host is
+  accepted in that teammate's browser too.
 - **Its hands are drawn outside the page.** The teammate's pointer, its
   name and its click ring are Core Animation layers in a clear native view
-  over the page (`hotline-app/src/browser/native/hands.rs`), not elements
-  in the page's document, so a page cannot read, move or hide them, and the
-  view is never hit: the person's clicks go past it as before.
+  over the page (`hotline-app/src/browser/native/hands.rs`), and on Linux
+  cairo drawing in a GTK drawing area of the page's overlay
+  (`browser/native/linux/hands.rs`), not elements in the page's document,
+  so a page cannot read, move or hide them, and the view is never hit: the
+  person's clicks go past it as before.
 - **Its storage is its own.** Each teammate's view has its own web data
   store, so its cookies and sign-ins are neither Hotline's window's nor
-  another teammate's. The person's own sign-ins reach it only on a host-cookie
-  offer they answer Use (below).
+  another teammate's: WebKit's store by an id hashed from the teammate's on
+  macOS, and on Linux a WebKitGTK web context of its own on a data
+  directory of its own, `desk-browser/<the same hash>` under Hotline's data
+  directory, with its cookies in a file there. The person's own sign-ins
+  reach it only on a host-cookie offer they answer Use (below).
+- **Its input is the person's own kind.** A click, a hover and a key reach
+  the page as the platform's own events: AppKit's on macOS, GDK events of
+  the display's pointer and keyboard sent to the web view on Linux. A click
+  the page did not get is made by the page's own script instead. While no
+  one watches, the Linux page waits in an offscreen GTK window, which WebKit
+  counts as shown, so it lays out, draws and takes input at its size without
+  being on any screen or in any window list.
 - **The page cannot reach the shell.** No capability names the browser's
   windows, so a page in one reaches no command. The desk reads the page with
-  scripts in a content world of its own, which the page's scripts cannot
-  see or change, and a password field's value is never read.
+  scripts in a content world of its own (WebKitGTK's named script world on
+  Linux), which the page's scripts cannot see or change, and a password
+  field's value is never read.
 - **What a page says is data.** The tool's description says so, as
   `web_search`'s does.
 
@@ -884,7 +911,8 @@ subagent run or a voice front is not offered either.
   class (`HotlineBrowserShield`) over the page takes the watcher's clicks and
   scrolls and does nothing with them (a plain view would hand them up to the
   window, which passes them to the page), and the page loses keyboard focus,
-  so watching never moves the page. Take control sets
+  so watching never moves the page. On Linux the shield is an input-only GTK
+  event box in the page's overlay that stops the same events. Take control sets
   the teammate's browser to the person (`browser.take`); until Give it back,
   the teammate may read the page but every move it asks for is refused. The
   bar's own back, forward, reload and address act only while the person has
@@ -935,7 +963,12 @@ subagent run or a voice front is not offered either.
   same as calling `navigator.credentials`; a frame inside a frame of another
   site that shares the top page's origin is answered as the top page.
   Conditional (autofill) requests stay pending. The real-site check is by
-  hand (webauthn.io).
+  hand (webauthn.io). **Linux has none of this**: WebKitGTK hands a script
+  message's reply handler no frame and no security origin, so the one rule
+  the handler stands on, an origin from WebKit and never from the page,
+  cannot be kept. The script is not added there, no passkey is reachable
+  from a Linux desk browser, and WebKitGTK itself has no
+  `navigator.credentials` for a site to ask.
 - **The PIP and the phone see snapshots.** `browser.snapshot` answers the
   last JPEG the desk took after a teammate's move; the phone seat may read it,
   as it reads the conversation the page came up in.
@@ -2941,8 +2974,10 @@ narrator leaves the written result available without a new spoken pointer.
   the same Not now, Never and settings; the card carries `deskBrowser`. Use
   checks that the teammate is still offered the browser and has no computer
   running, then the app sets the site's cookies in the teammate's own
-  WKWebsiteDataStore (`crates/hotline-app/src/browser/native/cookies.rs`) and
-  the page reloads. Remove deletes every cookie on the site and its
+  store (`crates/hotline-app/src/browser/native/cookies.rs`): its
+  WKWebsiteDataStore on macOS, its WebKitGTK cookie manager on Linux, or,
+  with its browser not open yet, a data manager on its own data directory,
+  and the page reloads. Remove deletes every cookie on the site and its
   subdomains from that store, open or not, and reloads; the lend is listed
   in the teammate's Secrets section. A teammate given a computer meanwhile
   sees its pending card expire, and its browser lend can still be removed.

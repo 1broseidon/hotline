@@ -1,18 +1,32 @@
 //! Each teammate's own browser on the desk: a web view in a window of its own,
 //! hidden while the teammate works in it, that the core drives through
-//! [`DeskBrowser`] (`hotline_core::browser`). It is macOS only for now: WebKit
-//! answers a script run in a content world of the desk's own, out of the
-//! page's sight, and draws a snapshot of itself; the other platforms' web
-//! views get the same seam later. Elsewhere nothing is installed and no
-//! teammate is offered the tool.
+//! [`DeskBrowser`] (`hotline_core::browser`). It is built on macOS (WKWebView)
+//! and Linux (WebKitGTK): both answer a script run in a world of the desk's
+//! own, out of the page's sight, and draw a snapshot of themselves. Windows
+//! installs nothing yet and no teammate there is offered the tool.
+//!
+//! The tabs, the [`DeskBrowser`] impl, how a load is waited for, a read, an
+//! act and the pane's bar commands are one code for both. Only the calls
+//! that need the platform's web view go through a small seam, `platform`:
+//! `apple` (`browser/native/apple.rs`) on macOS, `linux`
+//! (`browser/native/linux.rs`) on Linux. Each answers a script from its
+//! isolated world, steps through history, hides and shows the pane, puts the
+//! shield over a watched page, sends input as the person's own, and draws a
+//! snapshot; the pointer overlay (`hands`), certificate trust (`trust`), the
+//! first load (`guard`) and lent cookies (`cookies`) have a side for each.
 //!
 //! What it may load is the core's [`Gate`]: every top-level load, the
 //! agent's and the page's own, is asked first, so a page cannot send the
 //! browser to a local address the person has not allowed. A window is never
 //! opened for a page, and downloads are refused. Each teammate's cookies
 //! and sign-ins live in a web data store of its own, apart from Hotline's
-//! window and every other teammate's. No capability names these windows, so
-//! a page in one reaches none of the shell's commands.
+//! window and every other teammate's: WebKit's store by an id on macOS, a
+//! data directory of its own under Hotline's on Linux. No capability names
+//! these windows, so a page in one reaches none of the shell's commands.
+//! Passkeys are answered on macOS only: WebKitGTK's UI-process API does not
+//! tell a script message which frame's origin sent it (only a web-process
+//! extension could, and none is built), and the desk takes an origin only
+//! from the web view, never from the page (`docs/security.md`).
 
 use hotline_core::desk::Desk;
 use tauri::AppHandle;
@@ -32,34 +46,34 @@ pub(crate) fn install(app: &AppHandle, desk: &Desk, door_port: u16) {
     {
         never.push(port);
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use tauri::Manager;
         let native = std::sync::Arc::new(native::Native::new(app.clone(), desk.browser_gate()));
         desk.install_browser(native.clone(), &never);
         app.manage(native);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let _ = (desk, never);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 type Browsers<'a> = tauri::State<'a, std::sync::Arc<native::Native>>;
 type DeskState<'a> = tauri::State<'a, std::sync::Arc<Desk>>;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 const NOT_HERE: &str = "The desk browser is not built for this platform yet.";
 
 /// The PIP's click: the teammate's browser pane, opened over the desk.
 #[tauri::command]
 pub fn browser_pane_open(app: AppHandle, persona_id: String, name: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use tauri::Manager;
         app.state::<std::sync::Arc<native::Native>>()
             .open_pane(&persona_id, &name)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (app, persona_id, name);
         Err(NOT_HERE.into())
@@ -74,7 +88,7 @@ pub fn browser_bar_state(
     desk: DeskState<'_>,
     persona_id: String,
 ) -> Result<serde_json::Value, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use tauri::Manager;
         let view = desk.browser_now(&persona_id);
@@ -89,7 +103,7 @@ pub fn browser_bar_state(
         state["title"] = view.map(|view| view.title).unwrap_or_default().into();
         Ok(state)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (app, desk, persona_id);
         Err(NOT_HERE.into())
@@ -104,14 +118,14 @@ pub async fn browser_bar_take(
     persona_id: String,
     taken: bool,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use tauri::Manager;
         desk.take_browser(&persona_id, taken).await?;
         let browsers: Browsers<'_> = app.state();
         browsers.shield(&persona_id, !taken)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (app, desk, persona_id, taken);
         Err(NOT_HERE.into())
@@ -126,7 +140,7 @@ pub async fn browser_bar_trust(
     desk: DeskState<'_>,
     persona_id: String,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use tauri::Manager;
         let taken = desk
@@ -140,7 +154,7 @@ pub async fn browser_bar_trust(
         desk.browser_person_moved(&persona_id).await;
         visited
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (app, desk, persona_id);
         Err(NOT_HERE.into())
@@ -157,7 +171,7 @@ pub async fn browser_bar_go(
     step: Option<String>,
     url: Option<String>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use hotline_core::browser::Step;
         use tauri::Manager;
@@ -185,7 +199,7 @@ pub async fn browser_bar_go(
             _ => Err("Nothing to go to.".into()),
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (app, desk, persona_id, step, url);
         Err(NOT_HERE.into())
@@ -195,7 +209,7 @@ pub async fn browser_bar_go(
 #[cfg(target_os = "macos")]
 mod passkeys;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod native {
     mod cookies;
 
@@ -216,8 +230,22 @@ mod native {
 
     mod full_page;
     mod guard;
+    #[cfg(target_os = "macos")]
+    mod hands;
+    #[cfg(target_os = "linux")]
+    #[path = "linux/hands.rs"]
     mod hands;
     mod trust;
+
+    #[cfg(target_os = "macos")]
+    mod apple;
+    #[cfg(target_os = "linux")]
+    mod linux;
+    /// The seam: the few calls that need the platform's own web view.
+    #[cfg(target_os = "macos")]
+    use apple as platform;
+    #[cfg(target_os = "linux")]
+    use linux as platform;
 
     const WALK: &str = include_str!("browser/walk.js");
     const READ_TEXT: &str = concat!(
@@ -243,7 +271,11 @@ mod native {
     /// and Safari's version, read from Safari itself. A bare WKWebView sends
     /// the prefix alone, and sites that look for a browser they know (Gmail)
     /// call that an unsupported one. None when Safari cannot be read, and
-    /// then the web view's own goes.
+    /// then the web view's own goes. On Linux the web view's own goes:
+    /// WebKitGTK's standard agent is already Safari's form, on X11 with
+    /// WebKitGTK's own version, the one Epiphany sends, and WebKit's own
+    /// quirks answer the few sites that want more.
+    #[cfg(target_os = "macos")]
     fn safari_user_agent() -> Option<&'static str> {
         static AGENT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
         AGENT
@@ -277,8 +309,12 @@ mod native {
     /// Hotline's bar above the page in the browser pane.
     const BAR: f64 = 44.0;
     /// The window's own title bar above it: the traffic lights, the title
-    /// and the place the person drags the window by, all macOS's.
+    /// and the place the person drags the window by, all macOS's. On Linux
+    /// the window manager draws the title bar outside the window.
+    #[cfg(target_os = "macos")]
     const TITLE: f64 = 28.0;
+    #[cfg(target_os = "linux")]
+    const TITLE: f64 = 0.0;
 
     /// One teammate's browser: its window, the page and the bar in it, who
     /// is driving, and its loads so far.
@@ -401,7 +437,7 @@ mod native {
                 (size.height - TITLE - BAR).max(1.0),
             ));
             let _ = page.with_webview(|view| {
-                apple::shield_follow(view.inner());
+                platform::shield_follow(view.inner());
                 hands::follow(view.inner());
             });
         }
@@ -446,7 +482,7 @@ mod native {
             let _ = window.set_title(&format!("{name}'s browser"));
             lay_out(&self.app, &tab);
             self.window(persona_id)?
-                .with_webview(|view| apple::reveal(view.inner()))
+                .with_webview(|view| platform::reveal(view.inner()))
                 .map_err(|error| error.to_string())?;
             let _ = window.set_focus();
             Ok(())
@@ -503,6 +539,22 @@ mod native {
                 .map_err(|_| "That address could not be read.".to_string())?;
             self.exceptions
                 .add(persona_id, &untrusted.origin, &fingerprint);
+            // WebKitGTK asks nothing at load time: the certificate it refused
+            // is let through in the teammate's own context here, by its hash.
+            #[cfg(target_os = "linux")]
+            {
+                let origin = untrusted.origin.clone();
+                let (sender, answer) = oneshot::channel();
+                self.window(persona_id)?
+                    .with_webview(move |view| {
+                        let _ =
+                            sender.send(trust::let_through(view.inner(), &origin, &fingerprint));
+                    })
+                    .map_err(|error| error.to_string())?;
+                answer
+                    .await
+                    .map_err(|_| "The browser closed before it answered.".to_string())??;
+            }
             tab.seen.clear();
             self.person_go(persona_id, &url).await
         }
@@ -512,7 +564,7 @@ mod native {
         pub(crate) fn shield(&self, persona_id: &str, on: bool) -> Result<(), String> {
             self.window(persona_id)?
                 .with_webview(move |view| {
-                    apple::shield(view.inner(), on);
+                    platform::shield(view.inner(), on);
                     // The person driving has their own pointer.
                     if !on {
                         hands::hide(view.inner());
@@ -524,7 +576,7 @@ mod native {
         /// The person's own move, from the bar, while they have the page.
         pub(crate) fn person_step(&self, persona_id: &str, step: Step) -> Result<(), String> {
             self.window(persona_id)?
-                .with_webview(move |view| apple::step(view.inner(), step))
+                .with_webview(move |view| platform::step(view.inner(), step))
                 .map_err(|error| error.to_string())
         }
 
@@ -625,9 +677,10 @@ mod native {
             };
             // Nothing covers the top strip, so it stays the window's own
             // title bar, dark like the bar below it.
-            let window = WindowBuilder::new(&self.app, &window_label)
-                .title("Hotline browser")
-                .title_bar_style(tauri::TitleBarStyle::Overlay)
+            let window = WindowBuilder::new(&self.app, &window_label).title("Hotline browser");
+            #[cfg(target_os = "macos")]
+            let window = window.title_bar_style(tauri::TitleBarStyle::Overlay);
+            let window = window
                 .theme(Some(tauri::Theme::Dark))
                 .background_color(tauri::window::Color(28, 28, 31, 255))
                 .inner_size(WIDTH, TITLE + BAR + HEIGHT)
@@ -637,23 +690,36 @@ mod native {
                 .build()
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             let blank = Url::parse("about:blank").map_err(|error| error.to_string())?;
-            let mut page = WebviewBuilder::new(&page_label, WebviewUrl::External(blank))
+            let page = WebviewBuilder::new(&page_label, WebviewUrl::External(blank))
                 .background_throttling(BackgroundThrottlingPolicy::Disabled)
-                .data_store_identifier(hotline_core::browser::store_id(persona_id))
                 .on_navigation(navigating)
                 .on_new_window(popup)
                 .on_download(|_, _| false)
-                .on_page_load(loaded)
-                .initialization_script_for_all_frames(super::passkeys::SCRIPT);
-            if let Some(agent) = safari_user_agent() {
-                page = page.user_agent(agent);
-            }
+                .on_page_load(loaded);
+            #[cfg(target_os = "macos")]
+            let page = {
+                let mut page = page
+                    .data_store_identifier(hotline_core::browser::store_id(persona_id))
+                    .initialization_script_for_all_frames(super::passkeys::SCRIPT);
+                if let Some(agent) = safari_user_agent() {
+                    page = page.user_agent(agent);
+                }
+                page
+            };
+            // A web context of its own, on a data directory of its own.
+            #[cfg(target_os = "linux")]
+            let page = page.data_directory(linux::store_dir(persona_id));
             let page = window
                 .add_child(
                     page,
                     LogicalPosition::new(0.0, TITLE + BAR),
                     LogicalSize::new(WIDTH, HEIGHT),
                 )
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            // GTK packs the page in the window's box: it goes in an overlay
+            // of the desk's, kept off screen until the pane opens.
+            #[cfg(target_os = "linux")]
+            page.with_webview(move |view| linux::seat(view.inner(), show))
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             {
                 let (persona, tab, exceptions) =
@@ -668,19 +734,25 @@ mod native {
                 page.with_webview(move |view| guard::start(view.inner(), url, started))
                     .map_err(|error| format!("Your browser could not be opened: {error}"))?;
             }
+            #[cfg(target_os = "macos")]
             super::passkeys::attach(&page, persona_id);
             let hash = format!("persona={}", urlencode(persona_id));
             let bar = WebviewBuilder::new(
                 &bar_label,
                 WebviewUrl::App(format!("browser.html#{hash}").into()),
             );
-            window
+            let bar = window
                 .add_child(
                     bar,
                     LogicalPosition::new(0.0, TITLE),
                     LogicalSize::new(WIDTH, BAR),
                 )
                 .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            #[cfg(target_os = "linux")]
+            bar.with_webview(|view| linux::seat_bar(view.inner(), BAR))
+                .map_err(|error| format!("Your browser could not be opened: {error}"))?;
+            #[cfg(target_os = "macos")]
+            let _ = bar;
             {
                 let app = self.app.clone();
                 let tab = tab.clone();
@@ -693,7 +765,7 @@ mod native {
                     WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         if let Some(page) = app.get_webview(&tab.page) {
-                            let _ = page.with_webview(|view| apple::conceal(view.inner()));
+                            let _ = page.with_webview(|view| platform::conceal(view.inner()));
                         }
                     }
                     _ => {}
@@ -837,7 +909,7 @@ mod native {
             let (sender, answer) = oneshot::channel();
             let sender = Arc::new(Mutex::new(Some(sender)));
             window
-                .with_webview(move |view| apple::call(view.inner(), &body, sender))
+                .with_webview(move |view| platform::call(view.inner(), &body, sender))
                 .map_err(|error| error.to_string())?;
             tokio::time::timeout(
                 SCRIPT_WAIT + Duration::from_millis(hotline_core::browser::WAIT_LIMIT_MS),
@@ -849,9 +921,9 @@ mod native {
         }
 
         /// Sends `input` to the teammate's web view as the person's own.
-        fn input(&self, persona_id: &str, input: apple::Input) -> Result<(), String> {
+        fn input(&self, persona_id: &str, input: platform::Input) -> Result<(), String> {
             self.window(persona_id)?
-                .with_webview(move |view| apple::input(view.inner(), &input))
+                .with_webview(move |view| platform::input(view.inner(), &input))
                 .map_err(|error| error.to_string())
         }
 
@@ -941,7 +1013,7 @@ mod native {
             let before = receiver.borrow().finished;
             let window = self.window(persona_id)?;
             window
-                .with_webview(move |view| apple::step(view.inner(), step))
+                .with_webview(move |view| platform::step(view.inner(), step))
                 .map_err(|error| error.to_string())?;
             let wait = if step == Step::Reload {
                 LOAD_WAIT
@@ -1023,7 +1095,7 @@ mod native {
                     }
                     self.input(
                         persona_id,
-                        apple::Input::Click(point.x, point.y, point.height),
+                        platform::Input::Click(point.x, point.y, point.height),
                     )?;
                     tokio::time::sleep(Duration::from_millis(150)).await;
                     // A click that loaded a page arrived; one that reached
@@ -1037,11 +1109,11 @@ mod native {
                 (Act::Hover { .. }, Some(point)) => {
                     self.input(
                         persona_id,
-                        apple::Input::Hover(point.x, point.y, point.height),
+                        platform::Input::Hover(point.x, point.y, point.height),
                     )?;
                 }
                 (Act::Press { key }, _) => {
-                    self.input(persona_id, apple::Input::Key(key.clone()))?;
+                    self.input(persona_id, platform::Input::Key(key.clone()))?;
                 }
                 _ => {}
             }
@@ -1072,7 +1144,7 @@ mod native {
             let (sender, answer) = oneshot::channel();
             let sender = Arc::new(Mutex::new(Some(sender)));
             window
-                .with_webview(move |view| apple::snapshot(view.inner(), sender))
+                .with_webview(move |view| platform::snapshot(view.inner(), sender))
                 .map_err(|error| error.to_string())?;
             tokio::time::timeout(SCRIPT_WAIT, answer)
                 .await
@@ -1127,414 +1199,6 @@ mod native {
 
         async fn forget_cookies(&self, persona_id: &str, site: &str) -> Result<(), String> {
             self.forget(persona_id, site).await
-        }
-    }
-
-    /// WebKit itself, on the main thread `with_webview` runs on.
-    mod apple {
-        use super::Step;
-        use block2::RcBlock;
-        use objc2::runtime::AnyObject;
-        use objc2::{MainThreadMarker, MainThreadOnly};
-        use objc2_app_kit::{
-            NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType,
-            NSImage, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowOrderingMode,
-        };
-        use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSString};
-        use objc2_web_kit::{WKContentWorld, WKWebView};
-        use std::ffi::c_void;
-        use std::sync::{Arc, Mutex, PoisonError};
-        use tokio::sync::oneshot;
-
-        /// The content world the desk's scripts run in: the page's own
-        /// scripts never see its variables, and it never sees theirs.
-        const WORLD: &str = "hotline-desk-browser";
-
-        thread_local! {
-            /// Held for the app's life: a named world lives only while it is
-            /// retained, and its variables with it.
-            static KEPT: std::cell::OnceCell<objc2::rc::Retained<WKContentWorld>> =
-                const { std::cell::OnceCell::new() };
-        }
-
-        type Reply<T> = Arc<Mutex<Option<oneshot::Sender<Result<T, String>>>>>;
-
-        fn send<T>(reply: &Reply<T>, answer: Result<T, String>) {
-            if let Some(sender) = reply.lock().unwrap_or_else(PoisonError::into_inner).take() {
-                let _ = sender.send(answer);
-            }
-        }
-
-        fn said(error: *mut NSError) -> String {
-            // SAFETY: WebKit hands a valid NSError or null.
-            unsafe { error.as_ref() }.map_or_else(
-                || "WebKit gave no reason.".into(),
-                |error| error.localizedDescription().to_string(),
-            )
-        }
-
-        /// The web view `with_webview` hands over, as WebKit's type.
-        ///
-        /// SAFETY: the caller is `with_webview`'s closure, on the main
-        /// thread, where `view` is the live `WKWebView` of a Tauri window.
-        unsafe fn view<'a>(view: *mut c_void) -> &'a WKWebView {
-            // SAFETY: as the function's own contract above.
-            unsafe { &*view.cast::<WKWebView>() }
-        }
-
-        /// Runs `body` as an async function in the desk's content world and
-        /// answers its string.
-        pub(super) fn call(view_ptr: *mut c_void, body: &str, reply: Reply<String>) {
-            let Some(main) = MainThreadMarker::new() else {
-                return send(
-                    &reply,
-                    Err("The browser was asked off the main thread.".into()),
-                );
-            };
-            // SAFETY: see `view`.
-            let view = unsafe { view(view_ptr) };
-            let world = KEPT.with(|kept| {
-                kept.get_or_init(|| {
-                    // SAFETY: a named world, retained here for the app's life.
-                    unsafe { WKContentWorld::worldWithName(&NSString::from_str(WORLD), main) }
-                })
-                .clone()
-            });
-            let body = NSString::from_str(body);
-            let done = RcBlock::new(move |result: *mut AnyObject, error: *mut NSError| {
-                if !error.is_null() {
-                    return send(&reply, Err(said(error)));
-                }
-                // SAFETY: WebKit hands the script's value or null.
-                let answer = unsafe { result.as_ref() }
-                    .and_then(|value| value.downcast_ref::<NSString>())
-                    .map(ToString::to_string)
-                    .ok_or_else(|| "The page answered nothing.".to_string());
-                send(&reply, answer);
-            });
-            // SAFETY: no arguments, the main frame, and a block that lives
-            // as long as WebKit keeps it.
-            unsafe {
-                view.callAsyncJavaScript_arguments_inFrame_inContentWorld_completionHandler(
-                    &body,
-                    None,
-                    None,
-                    &world,
-                    Some(&done),
-                );
-            }
-        }
-
-        pub(super) fn step(view_ptr: *mut c_void, step: Step) {
-            // SAFETY: see `view`.
-            let view = unsafe { view(view_ptr) };
-            // SAFETY: plain WebKit navigation on its own thread.
-            unsafe {
-                match step {
-                    Step::Back => {
-                        let _ = view.goBack();
-                    }
-                    Step::Forward => {
-                        let _ = view.goForward();
-                    }
-                    Step::Reload => {
-                        let _ = view.reload();
-                    }
-                }
-            }
-        }
-
-        /// What the desk sends the web view as the person's own input: a
-        /// click or a hover at a point in the page's CSS pixels, with the
-        /// page's viewport height, or one key.
-        pub(super) enum Input {
-            Click(f64, f64, f64),
-            Hover(f64, f64, f64),
-            Key(String),
-        }
-
-        /// A named key as AppKit spells it: its characters, its virtual key
-        /// code and whether Shift is held.
-        fn key_of(key: &str) -> (String, u16, bool) {
-            let function = |code: u32| char::from_u32(code).unwrap_or(' ').to_string();
-            match key {
-                "Enter" => ("\r".into(), 36, false),
-                "Tab" => ("\t".into(), 48, false),
-                "Shift+Tab" => ("\u{19}".into(), 48, true),
-                "Escape" => ("\u{1b}".into(), 53, false),
-                "Backspace" => ("\u{7f}".into(), 51, false),
-                "Delete" => (function(0xF728), 117, false),
-                "Space" => (" ".into(), 49, false),
-                "ArrowUp" => (function(0xF700), 126, false),
-                "ArrowDown" => (function(0xF701), 125, false),
-                "ArrowLeft" => (function(0xF702), 123, false),
-                "ArrowRight" => (function(0xF703), 124, false),
-                "Home" => (function(0xF729), 115, false),
-                "End" => (function(0xF72B), 119, false),
-                "PageUp" => (function(0xF72C), 116, false),
-                "PageDown" => (function(0xF72D), 121, false),
-                other => (other.to_string(), 0, false),
-            }
-        }
-
-        /// Puts a hidden browser window on screen, invisible, at the back and
-        /// out of the person's way: WebKit takes input only in a window that
-        /// is ordered in. Showing the pane makes it opaque again.
-        fn cloak(window: &NSWindow) {
-            if window.isVisible() {
-                return;
-            }
-            window.setAlphaValue(0.0);
-            window.setIgnoresMouseEvents(true);
-            window.setCollectionBehavior(
-                NSWindowCollectionBehavior::Transient
-                    | NSWindowCollectionBehavior::IgnoresCycle
-                    | NSWindowCollectionBehavior::FullScreenAuxiliary,
-            );
-            window.orderBack(None);
-        }
-
-        /// Hides the pane again, as `cloak` keeps a never-shown one: the
-        /// teammate's browser goes on behind everything, invisible.
-        pub(super) fn conceal(view_ptr: *mut c_void) {
-            // SAFETY: see `view`.
-            let view = unsafe { view(view_ptr) };
-            if let Some(window) = view.window() {
-                window.setAlphaValue(0.0);
-                window.setIgnoresMouseEvents(true);
-                window.setCollectionBehavior(
-                    NSWindowCollectionBehavior::Transient
-                        | NSWindowCollectionBehavior::IgnoresCycle
-                        | NSWindowCollectionBehavior::FullScreenAuxiliary,
-                );
-                window.orderBack(None);
-            }
-        }
-
-        /// Shows the pane: the window opaque, in front, taking the person's
-        /// clicks, and the page shielded until they take it over.
-        pub(super) fn reveal(view_ptr: *mut c_void) {
-            // SAFETY: see `view`.
-            let page = unsafe { view(view_ptr) };
-            if let Some(window) = page.window() {
-                window.setAlphaValue(1.0);
-                window.setIgnoresMouseEvents(false);
-                window.setCollectionBehavior(NSWindowCollectionBehavior::Default);
-                window.makeKeyAndOrderFront(None);
-            }
-            shield(view_ptr, true);
-        }
-
-        objc2::define_class!(
-            /// A clear view that takes a watcher's mouse and scroll and does
-            /// nothing with them. A plain NSView would hand them up to the
-            /// window's own view, which passes them on to the page.
-            #[unsafe(super(NSView))]
-            #[thread_kind = MainThreadOnly]
-            #[name = "HotlineBrowserShield"]
-            struct Shield;
-
-            impl Shield {
-                #[unsafe(method(acceptsFirstMouse:))]
-                fn accepts_first_mouse(&self, _event: Option<&NSEvent>) -> bool {
-                    true
-                }
-                #[unsafe(method(mouseDown:))]
-                fn mouse_down(&self, _event: &NSEvent) {}
-                #[unsafe(method(mouseUp:))]
-                fn mouse_up(&self, _event: &NSEvent) {}
-                #[unsafe(method(mouseDragged:))]
-                fn mouse_dragged(&self, _event: &NSEvent) {}
-                #[unsafe(method(rightMouseDown:))]
-                fn right_mouse_down(&self, _event: &NSEvent) {}
-                #[unsafe(method(rightMouseUp:))]
-                fn right_mouse_up(&self, _event: &NSEvent) {}
-                #[unsafe(method(otherMouseDown:))]
-                fn other_mouse_down(&self, _event: &NSEvent) {}
-                #[unsafe(method(otherMouseUp:))]
-                fn other_mouse_up(&self, _event: &NSEvent) {}
-                #[unsafe(method(scrollWheel:))]
-                fn scroll_wheel(&self, _event: &NSEvent) {}
-                #[unsafe(method(magnifyWithEvent:))]
-                fn magnify(&self, _event: &NSEvent) {}
-            }
-        );
-
-        thread_local! {
-            /// The shield over each page a watcher sees, by its web view.
-            static SHIELDS: std::cell::RefCell<std::collections::HashMap<usize, objc2::rc::Retained<NSView>>> =
-                std::cell::RefCell::default();
-        }
-
-        /// A clear view over the page that takes a watcher's clicks and
-        /// scrolls, so watching never drives the page. The desk's own input
-        /// goes to the page directly and is not stopped by it.
-        pub(super) fn shield(view_ptr: *mut c_void, on: bool) {
-            let Some(main) = MainThreadMarker::new() else {
-                return;
-            };
-            // SAFETY: see `view`.
-            let page = unsafe { view(view_ptr) };
-            SHIELDS.with(|shields| {
-                let mut shields = shields.borrow_mut();
-                let key = view_ptr as usize;
-                if !on {
-                    if let Some(shield) = shields.remove(&key) {
-                        shield.removeFromSuperview();
-                    }
-                    return;
-                }
-                // Watching again: nothing the person types reaches the page.
-                if let Some(window) = page.window() {
-                    window.makeFirstResponder(None);
-                }
-                if shields.contains_key(&key) {
-                    return;
-                }
-                // SAFETY: the page's own superview, on the main thread.
-                let Some(parent) = (unsafe { page.superview() }) else {
-                    return;
-                };
-                let frame = page.frame();
-                // SAFETY: NSView's designated initialiser, on a fresh Shield.
-                let shield: objc2::rc::Retained<Shield> =
-                    unsafe { objc2::msg_send![Shield::alloc(main), initWithFrame: frame] };
-                let shield = objc2::rc::Retained::into_super(shield);
-                parent.addSubview_positioned_relativeTo(
-                    &shield,
-                    NSWindowOrderingMode::Above,
-                    Some(page),
-                );
-                shields.insert(key, shield);
-            });
-        }
-
-        /// Keeps a page's shield over it after the window is resized.
-        pub(super) fn shield_follow(view_ptr: *mut c_void) {
-            // SAFETY: see `view`.
-            let page = unsafe { view(view_ptr) };
-            SHIELDS.with(|shields| {
-                if let Some(shield) = shields.borrow().get(&(view_ptr as usize)) {
-                    shield.setFrame(page.frame());
-                }
-            });
-        }
-
-        pub(super) fn input(view_ptr: *mut c_void, input: &Input) {
-            // SAFETY: see `view`.
-            let view = unsafe { view(view_ptr) };
-            let Some(window) = view.window() else {
-                return;
-            };
-            cloak(&window);
-            let number = window.windowNumber();
-            let time = NSProcessInfo::processInfo().systemUptime();
-            // The page's viewport sits below the window's title bar inside
-            // the view, so a point in it is lower in the view by the height
-            // the bar hides.
-            let at = |x: f64, y: f64, viewport: f64| {
-                let height = view.bounds().size.height;
-                let y = y + (height - viewport).max(0.0);
-                let local = NSPoint::new(x, if view.isFlipped() { y } else { height - y });
-                view.convertPoint_toView(local, None)
-            };
-            let mouse = |kind: NSEventType, point: NSPoint| {
-                NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
-                    kind,
-                    point,
-                    NSEventModifierFlags::empty(),
-                    time,
-                    number,
-                    None,
-                    0,
-                    1,
-                    1.0,
-                )
-            };
-            match input {
-                Input::Click(x, y, viewport) => {
-                    let point = at(*x, *y, *viewport);
-                    if let Some(moved) = mouse(NSEventType::MouseMoved, point) {
-                        view.mouseMoved(&moved);
-                    }
-                    if let (Some(down), Some(up)) = (
-                        mouse(NSEventType::LeftMouseDown, point),
-                        mouse(NSEventType::LeftMouseUp, point),
-                    ) {
-                        view.mouseDown(&down);
-                        view.mouseUp(&up);
-                    }
-                }
-                Input::Hover(x, y, viewport) => {
-                    if let Some(moved) = mouse(NSEventType::MouseMoved, at(*x, *y, *viewport)) {
-                        view.mouseMoved(&moved);
-                    }
-                }
-                Input::Key(key) => {
-                    let (characters, code, shift) = key_of(key);
-                    let flags = if shift {
-                        NSEventModifierFlags::Shift
-                    } else {
-                        NSEventModifierFlags::empty()
-                    };
-                    let characters = NSString::from_str(&characters);
-                    window.makeFirstResponder(Some(view));
-                    for kind in [NSEventType::KeyDown, NSEventType::KeyUp] {
-                        let Some(event) = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
-                            kind,
-                            NSPoint::new(0.0, 0.0),
-                            flags,
-                            time,
-                            number,
-                            None,
-                            &characters,
-                            &characters,
-                            false,
-                            code,
-                        ) else {
-                            continue;
-                        };
-                        if kind == NSEventType::KeyDown {
-                            view.keyDown(&event);
-                        } else {
-                            view.keyUp(&event);
-                        }
-                    }
-                }
-            }
-        }
-
-        /// The visible page as a PNG.
-        pub(super) fn snapshot(view_ptr: *mut c_void, reply: Reply<Vec<u8>>) {
-            // SAFETY: see `view`.
-            let view = unsafe { view(view_ptr) };
-            let done = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
-                // SAFETY: WebKit hands a valid image or null.
-                let answer = match unsafe { image.as_ref() } {
-                    Some(image) => png(image),
-                    None => Err(said(error)),
-                };
-                send(&reply, answer);
-            });
-            // SAFETY: the default configuration is the visible viewport.
-            unsafe { view.takeSnapshotWithConfiguration_completionHandler(None, &done) };
-        }
-
-        fn png(image: &NSImage) -> Result<Vec<u8>, String> {
-            let tiff = image
-                .TIFFRepresentation()
-                .ok_or("The page's picture could not be read.")?;
-            let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)
-                .ok_or("The page's picture could not be read.")?;
-            // SAFETY: an empty property dictionary is valid for PNG.
-            let png = unsafe {
-                bitmap.representationUsingType_properties(
-                    NSBitmapImageFileType::PNG,
-                    &NSDictionary::new(),
-                )
-            }
-            .ok_or("The page's picture could not be made a PNG.")?;
-            Ok(png.to_vec())
         }
     }
 }

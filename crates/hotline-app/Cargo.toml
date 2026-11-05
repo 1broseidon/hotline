@@ -65,9 +65,17 @@ hotline-core = { path = "../hotline-core" }
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 tauri-plugin-notification = "=2.4.0"
 
-# The window's microphone, for a call with the desk (`allow_microphone`).
+# The window's microphone, for a call with the desk (`allow_microphone`),
+# and a teammate's desk browser (`browser.rs`): scripts in a world of the
+# desk's own, a PNG snapshot, the page's overlay and synthesized input, and
+# cookies lent into its store. The same versions wry and tauri build on.
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+async-trait = "0.1.92"
+gtk = "0.18"
+cairo-rs = { version = "0.18", features = ["png"] }
+soup3 = "0.5"
+javascriptcore-rs = "1.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

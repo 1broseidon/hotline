@@ -3,7 +3,8 @@
 //! from the person's browser and hands them here; they go straight to
 //! WebKit's cookie store and are never logged, shown or answered back, so
 //! nothing here derives `Debug` on a value. The store is the open page's,
-//! or, with the browser closed, the same store found by its id.
+//! or, with the browser closed, the same store found by its id (macOS) or
+//! its data directory (Linux).
 
 use super::{Native, SCRIPT_WAIT};
 use serde_json::Value;
@@ -54,6 +55,11 @@ pub(super) fn on_site(domain: &str, site: &str) -> bool {
 
 type Reply = oneshot::Sender<Result<(), String>>;
 
+#[cfg(target_os = "macos")]
+use apple as jar;
+#[cfg(target_os = "linux")]
+use linux as jar;
+
 impl Native {
     /// Sets the lent cookies in the teammate's store.
     pub(super) async fn lend(&self, persona_id: &str, cookies: &[Value]) -> Result<(), String> {
@@ -62,7 +68,7 @@ impl Native {
             return Err("None of the lent cookies could be read.".into());
         }
         let (reply, answer) = oneshot::channel();
-        self.in_store(persona_id, move |store| apple::set(store, &cookies, reply))?;
+        self.in_store(persona_id, move |store| jar::set(store, &cookies, reply))?;
         Self::answered(answer).await
     }
 
@@ -70,7 +76,7 @@ impl Native {
     pub(super) async fn forget(&self, persona_id: &str, site: &str) -> Result<(), String> {
         let site = site.to_ascii_lowercase();
         let (reply, answer) = oneshot::channel();
-        self.in_store(persona_id, move |store| apple::delete(store, site, reply))?;
+        self.in_store(persona_id, move |store| jar::delete(store, site, reply))?;
         Self::answered(answer).await
     }
 
@@ -83,6 +89,7 @@ impl Native {
 
     /// Runs `work` on the main thread with the teammate's cookie store: its
     /// open page's, or the one its id names when its browser is closed.
+    #[cfg(target_os = "macos")]
     fn in_store(
         &self,
         persona_id: &str,
@@ -104,9 +111,33 @@ impl Native {
         };
         ran.map_err(|error| error.to_string())
     }
+
+    /// Runs `work` on the main thread with the teammate's website data: its
+    /// open page's, or, with its browser closed, a manager of its own on
+    /// the same data directory, dropped when `work` is done with it.
+    #[cfg(target_os = "linux")]
+    fn in_store(
+        &self,
+        persona_id: &str,
+        work: impl FnOnce(&linux::Store) + Send + 'static,
+    ) -> Result<(), String> {
+        let ran = if let Ok(page) = self.window(persona_id) {
+            page.with_webview(move |view| {
+                if let Some(store) = linux::page_store(&view.inner()) {
+                    work(&store);
+                }
+            })
+        } else {
+            let directory = super::linux::store_dir(persona_id);
+            self.app
+                .run_on_main_thread(move || work(&linux::store_in(&directory)))
+        };
+        ran.map_err(|error| error.to_string())
+    }
 }
 
 /// WebKit's cookie store, on the main thread.
+#[cfg(target_os = "macos")]
 mod apple {
     use super::{Cookie, Reply, on_site};
     use block2::RcBlock;
@@ -255,6 +286,186 @@ mod apple {
         });
         // SAFETY: a block WebKit keeps until it is called.
         unsafe { store.getAllCookies(&listed) };
+    }
+}
+
+/// WebKitGTK's website data and its cookie manager, on the main thread.
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::{Cookie, Reply, on_site};
+    use std::cell::{Cell, RefCell};
+    use std::path::Path;
+    use std::rc::Rc;
+    use webkit2gtk::gio::Cancellable;
+    use webkit2gtk::glib::DateTime;
+    use webkit2gtk::{
+        CookieManagerExt, CookiePersistentStorage, WebView, WebViewExt, WebsiteData,
+        WebsiteDataManager, WebsiteDataManagerExt, WebsiteDataManagerExtManual, WebsiteDataTypes,
+    };
+
+    pub(super) type Store = WebsiteDataManager;
+
+    /// The website data of a page's web view.
+    pub(super) fn page_store(view: &WebView) -> Option<Store> {
+        view.website_data_manager()
+    }
+
+    /// A manager on the teammate's data directory, made as wry makes the
+    /// page's own (`WebContextImpl::new`), for a browser not open yet.
+    pub(super) fn store_in(directory: &Path) -> Store {
+        let path = directory.to_string_lossy();
+        let store = WebsiteDataManager::builder()
+            .base_cache_directory(path.as_ref())
+            .base_data_directory(path.as_ref())
+            .build();
+        if let Some(cookies) = store.cookie_manager() {
+            cookies.set_persistent_storage(
+                &directory.join("cookies").to_string_lossy(),
+                CookiePersistentStorage::Text,
+            );
+        }
+        store
+    }
+
+    /// The answer, once, when the last of `count` callbacks has come back;
+    /// an error if any said one.
+    fn countdown(count: usize, reply: Reply) -> impl Fn(Option<String>) + Clone + 'static {
+        let left = Rc::new(Cell::new(count));
+        let failed = Rc::new(RefCell::new(None));
+        let reply = Rc::new(RefCell::new(Some(reply)));
+        move |error: Option<String>| {
+            if let Some(error) = error {
+                failed.borrow_mut().get_or_insert(error);
+            }
+            left.set(left.get().saturating_sub(1));
+            if left.get() == 0
+                && let Some(reply) = reply.borrow_mut().take()
+            {
+                let _ = reply.send(failed.borrow_mut().take().map_or(Ok(()), Err));
+            }
+        }
+    }
+
+    fn made(cookie: &Cookie) -> soup::Cookie {
+        // A max age of -1 is a session cookie, as a lent one with no expiry.
+        let mut made = soup::Cookie::new(
+            &cookie.name,
+            &cookie.value,
+            &cookie.domain,
+            &cookie.path,
+            -1,
+        );
+        if let Some(expires) = cookie
+            .expires
+            .and_then(|expires| DateTime::from_unix_utc(expires as i64).ok())
+        {
+            made.set_expires(&expires);
+        }
+        made.set_secure(cookie.secure);
+        made.set_http_only(cookie.http_only);
+        // `None` and absent send it everywhere, as on macOS.
+        made.set_same_site_policy(match cookie.same_site.as_deref() {
+            Some("Lax") => soup::SameSitePolicy::Lax,
+            Some("Strict") => soup::SameSitePolicy::Strict,
+            _ => soup::SameSitePolicy::None,
+        });
+        made
+    }
+
+    pub(super) fn set(store: &Store, cookies: &[Cookie], reply: Reply) {
+        let Some(manager) = store.cookie_manager() else {
+            let _ = reply.send(Err("WebKit has no cookie store for this browser.".into()));
+            return;
+        };
+        let done = countdown(cookies.len(), reply);
+        for cookie in cookies {
+            let done = done.clone();
+            manager.add_cookie(&mut made(cookie), None::<&Cancellable>, move |added| {
+                done(added.err().map(|error| error.to_string()));
+            });
+        }
+    }
+
+    /// Deletes the cookies on `site` and the sites under it: WebKit's
+    /// records for each site at or under it, and the cookies the site
+    /// itself is sent, when its record is a parent's (`gist.github.com`
+    /// under `github.com`'s).
+    pub(super) fn delete(store: &Store, site: String, reply: Reply) {
+        let Some(manager) = store.cookie_manager() else {
+            let _ = reply.send(Err("WebKit has no cookie store for this browser.".into()));
+            return;
+        };
+        let kept = store.clone();
+        let done = countdown(2, reply);
+        {
+            let (site, done) = (site.clone(), done.clone());
+            store.fetch(
+                WebsiteDataTypes::COOKIES,
+                None::<&Cancellable>,
+                move |listed| {
+                    let all = match listed {
+                        Ok(all) => all,
+                        Err(error) => return done(Some(error.to_string())),
+                    };
+                    let ours: Vec<&WebsiteData> = all
+                        .iter()
+                        .filter(|data| data.name().is_some_and(|name| on_site(&name, &site)))
+                        .collect();
+                    if ours.is_empty() {
+                        return done(None);
+                    }
+                    // `remove` wants a callback it may send anywhere, and the
+                    // countdown lives on this thread: its answer comes back here.
+                    let (sent, back) = tokio::sync::oneshot::channel();
+                    kept.remove(
+                        WebsiteDataTypes::COOKIES,
+                        &ours,
+                        None::<&Cancellable>,
+                        move |removed| {
+                            let _ = sent.send(removed.err().map(|error| error.to_string()));
+                        },
+                    );
+                    webkit2gtk::glib::MainContext::default().spawn_local(async move {
+                        done(back.await.ok().flatten());
+                    });
+                },
+            );
+        }
+        let uri = format!("https://{site}/");
+        let cookies = manager.clone();
+        manager.cookies(&uri, None::<&Cancellable>, move |sent| {
+            let sent = match sent {
+                Ok(sent) => sent,
+                Err(error) => return done(Some(error.to_string())),
+            };
+            let mut ours: Vec<soup::Cookie> = sent
+                .into_iter()
+                .filter_map(|mut cookie| {
+                    // soup reads a cookie's fields through `&mut`.
+                    let on = cookie
+                        .domain()
+                        .is_some_and(|domain| on_site(&domain, &site));
+                    on.then_some(cookie)
+                })
+                .collect();
+            if ours.is_empty() {
+                return done(None);
+            }
+            let each = countdown(ours.len(), {
+                let (reply, answer) = tokio::sync::oneshot::channel();
+                let done = done.clone();
+                webkit2gtk::glib::MainContext::default().spawn_local(async move {
+                    done(answer.await.ok().and_then(Result::err));
+                });
+                reply
+            });
+            for cookie in &mut ours {
+                let each = each.clone();
+                cookies.delete_cookie(cookie, None::<&Cancellable>, move |deleted| {
+                    each(deleted.err().map(|error| error.to_string()));
+                });
+            }
+        });
     }
 }
 

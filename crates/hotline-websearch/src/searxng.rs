@@ -77,15 +77,13 @@ pub fn client() -> reqwest::Client {
         .timeout(super::TOTAL_BUDGET)
         .user_agent(concat!("hotline/", env!("CARGO_PKG_VERSION")))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            let named = attempt.previous().first().and_then(|url| url.host_str());
+            // Only within the instance as it was asked: the same scheme, host
+            // and port, so its key is never sent to another place, nor down
+            // from https to http.
+            let first = attempt.previous().first().cloned();
             if attempt.previous().len() > MAX_REDIRECTS {
                 attempt.stop()
-            } else if named.is_some_and(|host| {
-                attempt
-                    .url()
-                    .host_str()
-                    .is_some_and(|next| next.eq_ignore_ascii_case(host))
-            }) {
+            } else if first.is_some_and(|first| same_origin(&first, attempt.url())) {
                 attempt.follow()
             } else {
                 attempt.stop()
@@ -93,6 +91,16 @@ pub fn client() -> reqwest::Client {
         }))
         .build()
         .unwrap_or_default()
+}
+
+/// Whether a redirect stays at the instance: scheme, host and port alike.
+fn same_origin(first: &url::Url, next: &url::Url) -> bool {
+    first.scheme() == next.scheme()
+        && first.port_or_known_default() == next.port_or_known_default()
+        && match (first.host_str(), next.host_str()) {
+            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+            _ => false,
+        }
 }
 
 pub struct Searxng {
@@ -241,5 +249,36 @@ impl Searcher for Searxng {
                 published: raw.published_date.filter(|at| !at.trim().is_empty()),
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod redirect_tests {
+    use super::same_origin;
+
+    /// A redirect is followed only within the instance: never to another
+    /// host, another port, or down from https to http, where its key would
+    /// go out in the clear.
+    #[test]
+    fn a_redirect_stays_at_the_instance_or_is_not_followed() {
+        let at = |link: &str| url::Url::parse(link).unwrap();
+        let home = at("https://search.example.net/search?q=x");
+        assert!(same_origin(
+            &home,
+            &at("https://SEARCH.example.net/search?q=y")
+        ));
+        assert!(same_origin(
+            &home,
+            &at("https://search.example.net:443/other")
+        ));
+        assert!(!same_origin(&home, &at("http://search.example.net/search")));
+        assert!(!same_origin(
+            &home,
+            &at("https://search.example.net:8443/search")
+        ));
+        assert!(!same_origin(
+            &home,
+            &at("https://elsewhere.example.net/search")
+        ));
     }
 }

@@ -25,9 +25,9 @@ export function SettledAsk({ state, what, command = false, who }: { state: strin
 	return (
 		<p className="ask-settled">
 			<span className="link-row-dot" data-tone={/allow|yes|done|signed|stored|used/i.test(state) ? "done" : /den|refus|fail/i.test(state) ? "failed" : undefined} />
-			<span className="ask-chip">{state}</span>
 			{command ? <code className="ask-settled-what selectable">{what}</code> : <span className="ask-settled-what selectable">{what}</span>}
 			<span className="ask-settled-who">{who}</span>
+			<span className="ask-chip">{state}</span>
 		</p>
 	);
 }

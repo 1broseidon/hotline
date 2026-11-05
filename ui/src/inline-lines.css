@@ -132,7 +132,6 @@
 	}
 	.file-size {
 		padding-right: 6px;
-		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--ink-3);
 		transition: opacity var(--dur-press) var(--ease-out);
@@ -585,7 +584,7 @@
 	.error-line-title {
 		flex-shrink: 0;
 		font-weight: 500;
-		color: var(--danger);
+		color: var(--ink-2);
 	}
 	.error-line-said::before {
 		content: "· ";
@@ -707,11 +706,10 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-weight: 500;
-		color: var(--ink-2);
+		color: var(--ink-3);
 	}
-	.ask-settled-what::before,
-	.ask-settled-who::before {
+	.ask-settled-who::before,
+	.ask-chip::before {
 		content: "· ";
 		font-family: var(--font-sans);
 		color: var(--ink-4);
@@ -722,6 +720,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		color: var(--ink-2);
 	}
 	code.ask-settled-what {
 		font-family: var(--font-mono);
@@ -805,7 +804,7 @@
 	}
 	.chapter-when {
 		flex-shrink: 0;
-		color: var(--ink-4);
+		color: var(--ink-3);
 	}
 	/* The size's leading space would collapse at a flex item's edge: "name · size", not "name· size". */
 	.picture-caption > .shrink-0 {
@@ -817,6 +816,6 @@
 	/* The time over a row stands a little apart from it, so it reads as the
 	 * row's time and not as part of the line under it. */
 	.tape-stamp {
-		margin-bottom: 10px;
+		margin-bottom: 16px;
 	}
 }

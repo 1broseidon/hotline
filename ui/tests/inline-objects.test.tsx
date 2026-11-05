@@ -173,12 +173,13 @@ describe("a quote", () => {
 	});
 
 	for (const [marker, name] of [["WARNING", "Warning"], ["CAUTION", "Caution"]] as const) {
-		test(`marked [!${marker}] is an amber callout with the warning mark and its label`, async () => {
+		test(`marked [!${marker}] is an amber callout with the warning mark, its kind its accessible name`, async () => {
 			await say(`> [!${marker}]\n> A network disk turns the 5 ms p50 into 40.`);
 			const callout = container.querySelector<HTMLElement>(".callout")!;
 			expect(callout.dataset["alert"]).toBe(marker.toLowerCase());
 			expect(callout.querySelector("svg.callout-icon")).not.toBeNull();
-			expect(callout.querySelector(".callout-label")?.textContent).toBe(name);
+			expect(callout.getAttribute("aria-label")).toBe(name);
+			expect(callout.querySelector(".callout-label")).toBeNull();
 			expect(callout.querySelector(".callout-words p")?.textContent).toBe("A network disk turns the 5 ms p50 into 40.");
 			expect(callout.textContent).not.toContain("[!");
 		});

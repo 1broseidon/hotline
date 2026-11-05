@@ -175,15 +175,23 @@
 	.md-table {
 		overflow-x: auto;
 	}
+	/* In a bubble a table wraps its cells to fit, and every column shows;
+	 * only one too narrow even then scrolls, with a fade where it goes on. */
+	.speech .md-table td,
+	.speech .md-table th {
+		min-width: 4.5em;
+		overflow-wrap: break-word;
+	}
 	/* Wider than its bubble: a fade at the edge says the table goes on. */
 	.md-table[data-more] {
 		mask-image: linear-gradient(to right, black calc(100% - 48px), transparent);
 	}
-	.md-table td .site-chip + .site-chip {
-		margin-left: 6px;
+	.md-table td .site-chip {
+		margin: 1px 6px 1px 0;
 	}
 	.md-table table {
 		width: 100%;
+		table-layout: auto;
 		border-collapse: collapse;
 		font-size: var(--text-md);
 		line-height: 19px;
@@ -199,7 +207,6 @@
 	.md-table th {
 		padding: 9px 12px 8px;
 		vertical-align: bottom;
-		white-space: nowrap;
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
 		font-weight: 600;
@@ -280,6 +287,17 @@
 	}
 	.code-body[data-numbered] .code-line {
 		padding-left: 46px;
+	}
+	/* In a bubble code reads as written, with no numbers; the full view,
+	 * where lines are pointed at, keeps them. */
+	.speech .code-body[data-numbered] .code-line {
+		padding-left: 12px;
+	}
+	.speech .code-body[data-numbered] .code-line::before {
+		display: none;
+	}
+	.speech .sheet-head + .code-body {
+		padding-top: 2px;
 	}
 	.code-body[data-numbered] .code-line::before {
 		content: attr(data-n);
@@ -502,8 +520,8 @@
 	 * label; only a warning or a caution takes the amber edge and its mark. */
 	.md blockquote {
 		margin: 0.6em 0;
-		padding: 0;
-		font-style: italic;
+		padding: 0 0 0 12px;
+		box-shadow: inset 2px 0 0 var(--line-strong);
 		color: var(--ink-2);
 	}
 	.md blockquote > p {

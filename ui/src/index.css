@@ -1453,6 +1453,16 @@
 		display: inline-flex;
 		flex-shrink: 0;
 	}
+	/* The ring is a square turned in steps: at a diagonal its box's corners
+	 * stand past the face, which made the list it sits in scrollable for
+	 * that step, and Windows draws a scrollbar for it. Clipped just outside
+	 * the ring, the turn takes no room; the ring itself is never cut. */
+	@supports (overflow-clip-margin: 4px) {
+		.avatar-busy {
+			overflow: clip;
+			overflow-clip-margin: 4px;
+		}
+	}
 	.avatar-ring {
 		position: absolute;
 		inset: -3px;

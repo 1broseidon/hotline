@@ -62,6 +62,15 @@ export { SaidAloud, type ReactTarget, type ReplyTarget } from "./transcript/Bubb
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
 
+/** Where a row stands in the column, the scroll aside. */
+function placeOf(el: HTMLElement, row: HTMLElement): number {
+	return row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+}
+
+/** Rows drawn for the first time per frame, and how long after a scroll the drawing waits. */
+const WARM_ROWS = 12;
+const WARM_AFTER_SCROLL_MS = 0;
+
 /** How near the top a scroll asks for the page above. */
 const EARLIER_SLACK = 600;
 
@@ -244,14 +253,18 @@ export function Transcript({
 	 * column grows upward by exactly what arrived. */
 	const earlierRef = useRef<{ more: boolean; load?: ((through?: string) => Promise<void>) | undefined }>({ more });
 	earlierRef.current = { more, load: onEarlier };
-	const anchor = useRef<{ height: number; top: number; first: string | undefined } | null>(null);
+	const anchor = useRef<{ row: HTMLElement | null; at: number; first: string | undefined } | null>(null);
 	const firstShown = useRef(events[0]?.id);
 	firstShown.current = events[0]?.id;
 	const loadEarlier = useCallback((through?: string) => {
 		const { more, load } = earlierRef.current;
 		const el = scroller.current;
 		if (!more || load === undefined || !el || anchor.current !== null) return;
-		const taken = { height: el.scrollHeight, top: el.scrollTop, first: firstShown.current };
+		// The top row as it stands now: when the page lands above it, the
+		// scroll moves by however far it was pushed down, and by nothing
+		// else, so a scroll made while the page was on its way is kept.
+		const row = el.querySelector<HTMLElement>(".tape-row");
+		const taken = { row, at: row === null ? 0 : placeOf(el, row), first: firstShown.current };
 		anchor.current = taken;
 		void load(through).finally(() => {
 			// The page lands as a render that may not have committed when the
@@ -268,7 +281,12 @@ export function Transcript({
 		const was = anchor.current;
 		if (!el || was === null || events[0]?.id === was.first) return;
 		anchor.current = null;
-		if (!pinned.current) el.scrollTop = was.top + (el.scrollHeight - was.height);
+		if (pinned.current || was.row === null || !was.row.isConnected) return;
+		const pushed = placeOf(el, was.row) - was.at;
+		if (pushed !== 0) {
+			el.scrollTop += pushed;
+			pinning.current = true;
+		}
 	}, [events]);
 	// A search hit or a quoted reply above the window: load back to it, and
 	// the jump lands once it is there.
@@ -278,6 +296,58 @@ export function Transcript({
 	}, [landing, more, events, loadEarlier]);
 	const loadEarlierRef = useRef(loadEarlier);
 	loadEarlierRef.current = loadEarlier;
+
+	/* Rows skip layout off screen (index.css, .tape-row), and one never laid
+	 * out stands at a 96px guess: scrolled up to, it would grow to its own
+	 * height and shove the rows under the eye. So after a change, while the
+	 * person is not scrolling, the rows not yet laid out are drawn a few at
+	 * a time from the bottom up, and the scroll moves by what those above the
+	 * view grew, so nothing on screen moves. Each keeps its own height from
+	 * then on. Drawing them all at once would hold up opening a long chapter. */
+	const lastScroll = useRef(0);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: new rows come with new written blocks; the drawing finds them in the DOM.
+	useEffect(() => {
+		const el = scroller.current;
+		if (!el) return;
+		let timer = 0;
+		let frame = 0;
+		const warm = () => {
+			timer = 0;
+			if (performance.now() - lastScroll.current < WARM_AFTER_SCROLL_MS) {
+				timer = window.setTimeout(warm, WARM_AFTER_SCROLL_MS);
+				return;
+			}
+			const cold = [...el.querySelectorAll<HTMLElement>(".tape-row:not([data-laid]):not([data-warm])")].slice(-WARM_ROWS).reverse();
+			if (cold.length === 0) return;
+			const top = el.getBoundingClientRect().top;
+			const before = cold.map((row) => row.getBoundingClientRect());
+			for (const row of cold) row.dataset["warm"] = "";
+			let grew = 0;
+			cold.forEach((row, index) => {
+				const was = before[index]!;
+				if (was.bottom <= top) grew += row.getBoundingClientRect().height - was.height;
+			});
+			if (grew !== 0 && !pinned.current) {
+				el.scrollTop += grew;
+				pinning.current = true;
+			}
+			// Kept drawn through a frame, so the height it is remembered at is its own.
+			frame = requestAnimationFrame(() => {
+				frame = requestAnimationFrame(() => {
+					for (const row of cold) {
+						row.dataset["laid"] = "";
+						delete row.dataset["warm"];
+					}
+					timer = window.setTimeout(warm, 0);
+				});
+			});
+		};
+		timer = window.setTimeout(warm, 0);
+		return () => {
+			window.clearTimeout(timer);
+			cancelAnimationFrame(frame);
+		};
+	}, [written]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the scroller mounts and unmounts with empty, and the listeners move with it.
 	useEffect(() => {
@@ -327,6 +397,7 @@ export function Transcript({
 		};
 		const onScroll = () => {
 			scrolled = true;
+			if (!pinning.current) lastScroll.current = performance.now();
 			ask();
 		};
 		const onResize = () => {

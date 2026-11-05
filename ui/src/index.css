@@ -5044,15 +5044,24 @@
 /* A row of the conversation that is off screen skips layout and paint until
  * it scrolls into view, keeping the size it last had. A long chapter is
  * hundreds of rows, and without this each word streamed into the last one
- * lays out and paints every one of them again. */
+ * lays out and paints every one of them again. A row never laid out stands
+ * at the 96px guess, so each is drawn once in the background while nobody
+ * scrolls (Transcript.tsx), and keeps its own height from then on. */
 .tape-row {
 	content-visibility: auto;
+	/* Remembered from its first layout on, so the size it keeps while
+	 * skipped is its own. */
 	contain-intrinsic-block-size: auto 96px;
 	/* That skipping clips paint to the row, so a ring drawn outside an edge
 	 * flush with the column (a live card's) gets 4px of row each side to
 	 * paint in, without moving anything. */
 	margin-inline: -4px;
 	padding-inline: 4px;
+}
+/* Drawn once, off screen, so its height is known before it is scrolled to
+ * (Transcript.tsx). */
+.tape-row[data-warm] {
+	content-visibility: visible;
 }
 /* That skipping clips paint to the row, so the emoji hung off a bubble's
  * lower edge, or off files sent alone, get the room below it inside the row. */

@@ -1,12 +1,13 @@
 /* Hallmark · redesign: full · shape: Introduction, then the room at work · genre: modern-minimal · theme: brand (Hotline's own: the window's dark ground, Plex Sans, the toad's green) · job: try · idea: "The page introduces itself the way a teammate would: by name, in the first person, then shows the room at work." · vibe: "dark desk, one green mark, plain facts, one grid"
- * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · mono: the system's own · grid: twelve columns; every band is a hairline, its head on 1 to 5 and its material on 6 to 12 · hero: the name typed, the owner's sentence, one download beside its install line, then the desk window full width; a phone gets the words alone · nav: the toad alone at rest, on the call while the name types; the name docks beside it on scroll; Docs, the GitHub mark, a Download once the hero's has gone · footer: one hairline row on the same grid · imagery: the product, real captures, the whole windows in the Mac's chrome; no film · signature: the name gliding up from the headline to sit beside the toad in the masthead · copy: the owner's words, changed only where a picture changed or the owner asked
+ * paper: oklch(13.5% 0.007 250) · accent: oklch(76% 0.17 142) · display: IBM Plex Sans · body: IBM Plex Sans · mono: the system's own · grid: twelve columns; every band is a hairline, its head on 1 to 5 and its material on 6 to 12 · hero: the name typed, the owner's sentence, one download beside its install line, then the desk window full width; a phone gets the words alone · nav: the toad and the name, there from the first frame, the toad on the call while the headline types; on scroll the headline's name rises into the masthead's; Docs, the GitHub mark, a Download once the hero's has gone · footer: one hairline row on the same grid · imagery: the product, real captures, the whole windows in the Mac's chrome; no film · signature: the name gliding up from the headline to sit beside the toad in the masthead · copy: the owner's words, changed only where a picture changed or the owner asked
  * axes: dark/grotesk-sans/chromatic-green · posture: restrained · contrast: pass · fold: pass · v2.0.0 */
 /* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V3 · weakest: V, a redesign keeps the page's order and its brand by request; the composition is what moved: one grid, the mark at mark size, the desk at full frame */
 /* Hallmark · reworded "Goldie’s thread on desk and phone: a grant she asked for, then work handed to Quill, Kit and Huck." to "Goldie’s thread: you say yes, she hands Kit the fixes, then checks the page on her own computer." · the hero is now the desk alone, which shows the go-ahead, the handoff and the check, not the grant */
 /* By the owner's request, against Hallmark's floor (47a, a drawn OS window): the page is screenshots only, each whole window in the Mac's chrome. The chrome is drawn around real captures (the desk from the dev build, the browser's own bar over the page Kit built, the computer's own screen), with the lights where the app seats them: 12px, centred on the 40px strip. */
-/* Hallmark · reworded "Nothing sits between us." to "Your machine, your keys, your data." and "Open source, every line of me." to "Open source, MIT or Apache-2.0.", dropping the licence from the sentence under it · by the owner's choice */
+/* Hallmark · reworded "Nothing sits between us." to "Your machine, your keys, your data." and "Open source, every line of me." to "Open source, MIT or Apache-2.0.", dropping the licence from the sentence under it · by the owner’s choice; later "Run me on your machine." to "Run hotline now.", in the same green highlight as the hero’s sentence */
 /* Hallmark · dropped the open-source section (its head, the clone lines, the three reasons, Browse the code, How to build it) and the head over the four facts, which are now four cards across the row · by the owner's choice; the footer still says the licence and links the code */
 /* Hallmark · waive 2b · asked for by the owner · the gold is a light that crosses a copy of the owner's sentence once as the name lands, 1.3s, then the copy is gone; the sentence itself is always solid ink, and what stays is three green highlights, not gradient text and never runs with reduced motion */
+/* Hallmark · reworded the lead from "I’m an open-source personal agent ecosystem. I work with my teammates, have my own computer, and run on the subscriptions you already pay for." to "I’m an open-source desktop app. I run a team of AI agents on your own computer, each with a name, a job and a browser of its own, on the subscriptions you already pay for." (and the title, descriptions and share line to match), "Three things I did this morning." to "Three things my team did this morning.", "A browser of my own, or a whole desktop." to "A browser for each, or a whole desktop." · a cold visitor from a text ad must know what this is on the first screen, and "I" is always hotline, its agents always my teammates · by the owner’s choice */
 /* Hallmark · dropped .toad--hero, .toad--sign, .sign · the toad is the mark, in the masthead and the footer; at headline size it read as a sticker */
 @import url("./tokens.css");
 @import url("./base.css");
@@ -22,7 +23,8 @@
 .col-l { grid-column: 1 / 6; }
 .col-r { grid-column: 6 / -1; }
 
-/* Masthead: the toad alone at rest; the name joins it once the headline has risen. */
+/* Masthead: the toad and the name, from the first frame; whoever arrives from an ad that said
+   hotline sees it at once, while the headline tries its names. */
 /* At rest the bar has no ground and no edge, only the mark and its links. The ground and the hairline
    rise with the same progress as the name's flight (--morph, 0 to 1), so nothing cuts across the
    headline mid-move, and once the name has docked whatever passes beneath meets a frosted edge.
@@ -39,10 +41,14 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .toad .g-body, .toad .g-eyeL, .toad .g-eyeR, .toad .g-pupils, .toad .g-receiver { transform-box: fill-box; transform-origin: center; }
 .toad .g-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .toad .g-hand { transition: opacity var(--dur-short) var(--ease-out); }
-.toad--mast { width: 34px; height: 24px; }
+/* The mark's box is the toad's body alone (its top the eyes, its bottom the chin), so centring the
+   box on the word centres the toad; the receiver it lifts on a call rises out of the box. */
+.toad--mast { width: 34px; height: 17px; }
 .brand-word { font-weight: 600; font-size: var(--text-lg); line-height: normal; letter-spacing: var(--tracking-section); }
-.js .mast .brand-word { opacity: 0; transition: opacity var(--dur-micro) linear; }
-.js .mast.is-docked .brand-word { opacity: 1; }
+/* While the headline's name is in flight the masthead's steps aside, so the one that lands is the one
+   that stays. */
+.js .mast .brand-word { transition: opacity var(--dur-micro) linear; }
+.js .mast.is-moving .brand-word { opacity: 0; }
 
 .mast-nav { position: relative; display: flex; align-items: center; gap: var(--space-lg); }
 .mast-links { display: flex; align-items: center; gap: var(--space-lg); transition: transform var(--dur-long) var(--ease-out); }
@@ -83,19 +89,20 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .lead { position: relative; isolation: isolate; }
 .lead.is-shimmer::after { content: attr(data-shine); position: absolute; inset: 0; pointer-events: none; background: linear-gradient(135deg, transparent 42%, var(--color-gold) 47%, var(--color-gold-hi) 50%, var(--color-gold) 53%, transparent 58%) 100% 100% / 300% 300% no-repeat; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.3s linear both; }
 @keyframes shimmer { from { background-position: 100% 100%; } to { background-position: 0 0; } }
-/* What the sentence promises is highlighted in the toad's green, the stroke leaning like italic
-   while the words stay upright: laid down by the light as it passes, there at rest without it.
+/* What the sentence promises, and the last heading, is highlighted in the toad's green, the stroke
+   leaning like italic while the words stay upright: in the hero laid down by the light as it
+   passes, there at rest without it; on the heading there from the start.
    Each word carries its own slanted piece, its space included, behind its text; every piece has
    the same slant and height, so neighbours join along one edge into a single stroke, and a phrase
    that wraps is highlighted on each of its lines. The ends of a phrase reach a little further, so
    the slant clears its first and last letters. */
-.lead mark { background: none; color: inherit; }
-.lead mark > span { position: relative; color: var(--color-ink); }
-.lead mark > span::before { content: ""; position: absolute; z-index: -1; inset: 0.06em 0; background: var(--color-mark); transform: skewX(-12deg); }
-.lead mark > span:first-child::before { left: -0.18em; }
+mark { background: none; color: inherit; }
+mark > span { position: relative; color: var(--color-ink); }
+mark > span::before { content: ""; position: absolute; z-index: -1; inset: 0.06em 0; background: var(--color-mark); transform: skewX(-12deg); }
+mark > span:first-child::before { left: -0.18em; }
 /* Each piece runs a hair under the next, so the joins never show. */
-.lead mark > span:not(:last-child)::before { right: -0.06em; }
-.lead mark > span:last-child::before { right: -0.18em; }
+mark > span:not(:last-child)::before { right: -0.06em; }
+mark > span:last-child::before { right: -0.18em; }
 .lead.is-waiting mark > span { color: inherit; }
 .lead.is-waiting mark > span::before { clip-path: inset(0 100% 0 0); }
 @media (prefers-reduced-motion: reduce) { .lead.is-shimmer::after { content: none; } }
@@ -140,6 +147,7 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
    the right, each with its two routes under its name; the rest drift by in one quiet row under them, paused under the pointer. */
 .runs { align-items: start; }
 .runs-h { font-size: var(--text-lg); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; max-width: 22ch; }
+.runs-sub { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); max-width: 36ch; }
 .majors { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-md) var(--space-lg); }
 .majors strong { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; }
 /* Each major's mark, as the window draws it (ui/src/assets/marks): a one-colour mark is a mask
@@ -150,11 +158,12 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 /* Under each name, two lines every time: the tool, then the subscription or key it stands beside. */
 .majors span { display: block; font-size: var(--text-xs); color: var(--color-muted); white-space: nowrap; }
 .majors strong + span { margin-top: var(--space-2xs); }
-.also { display: flex; align-items: baseline; gap: var(--space-md); margin-top: var(--space-xl); min-width: 0; }
-.also-label { flex: none; font-size: var(--text-sm); color: var(--color-muted); }
+.also { display: flex; margin-top: var(--space-xl); min-width: 0; }
 /* The row starts past the fade on its left, so the first name reads whole; what drifts out fades there. */
-.ticker { display: flex; min-width: 0; overflow: hidden; padding-left: var(--space-md); -webkit-mask-image: linear-gradient(to right, transparent, var(--color-ink) var(--space-md), var(--color-ink) calc(100% - var(--space-xl)), transparent); mask-image: linear-gradient(to right, transparent, var(--color-ink) var(--space-md), var(--color-ink) calc(100% - var(--space-xl)), transparent); }
-.ticker-row { flex: none; display: flex; gap: var(--space-xl); list-style: none; margin: 0; padding: 0 var(--space-xl) 0 0; font-size: var(--text-sm); color: var(--color-ink-2); white-space: nowrap; animation: ticker 48s linear infinite; }
+.ticker { display: flex; min-width: 0; overflow: hidden; padding-left: var(--space-lg); -webkit-mask-image: linear-gradient(to right, transparent, var(--color-ink) var(--space-md), var(--color-ink) calc(100% - var(--space-xl)), transparent); mask-image: linear-gradient(to right, transparent, var(--color-ink) var(--space-md), var(--color-ink) calc(100% - var(--space-xl)), transparent); }
+.ticker-row { flex: none; display: flex; gap: var(--space-sm); list-style: none; margin: 0; padding: 0 var(--space-sm) 0 0; font-size: var(--text-sm); color: var(--color-ink-2); white-space: nowrap; animation: ticker 48s linear infinite; }
+/* Each name in its own faint pill, so the row reads as a set of things and not a sentence. */
+.ticker-row li { padding: var(--space-2xs) var(--space-sm); border: var(--rule-hair) solid var(--color-rule); border-radius: 999px; }
 .ticker:hover .ticker-row { animation-play-state: paused; }
 @keyframes ticker { to { transform: translateX(-100%); } }
 /* Without motion the row is one row that scrolls by hand, its copy gone. */
@@ -220,7 +229,7 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
 .foot { margin-top: var(--section-gap); }
 .foot-in { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap-columns); row-gap: var(--space-md); align-items: center; padding-top: var(--space-xl); padding-bottom: var(--space-2xl); font-size: var(--text-sm); color: var(--color-muted); }
 .brand--foot { grid-column: 1 / 6; justify-self: start; gap: var(--space-xs); font-weight: 600; font-size: var(--text-md); }
-.brand--foot svg { width: 26px; height: 18px; }
+.brand--foot svg { width: 26px; height: 13px; }
 .f-body { fill: var(--color-accent); }
 .f-pupils { fill: var(--color-paper); }
 .foot-nav { grid-column: 6 / -1; display: flex; flex-wrap: wrap; gap: var(--space-lg); }
@@ -247,8 +256,16 @@ html:not(.js) .mast { background: var(--color-paper); border-bottom-color: var(-
   .js .mast.is-past .mast-links { transform: translateX(calc(-1 * (var(--dl-w, 120px) + var(--space-md)))); }
   .hero { padding-top: var(--space-xl); }
   .hero-act .btn, .hero-act .cmd, .dl .btn, .dl .cmd { width: 100%; }
-  /* On a phone the desk would be too small to read, so the hero is its words and its button. */
-  .stage { display: none; }
+  /* On a phone the desk would be too small to read, so the stage is the window at phone width:
+     Goldie's thread alone, captured at that width, not the desk shrunk. */
+  .stage { margin-top: var(--space-lg); }
+  .stage-desk { aspect-ratio: 800 / 1440; }
+  /* The window follows the button, and the line about what a phone can do comes after it, so the
+     picture is the next thing a thumb reaches. */
+  .hero { display: flex; flex-direction: column; padding-top: var(--space-lg); }
+  .hero-text { display: contents; }
+  .stage { order: 1; }
+  .hero .fine { order: 2; }
   .band { margin-top: var(--space-2xl); }
   .majors { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .proofs { row-gap: var(--space-xl); }

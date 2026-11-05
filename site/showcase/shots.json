@@ -7,15 +7,32 @@
     {
       "out": "../public/screens/desk-window.webp",
       "teammate": "Goldie",
-      "window": [1200, 820],
+      "window": [
+        1200,
+        820
+      ],
       "fromEnd": 620,
       "voice": true,
       "width": 2304
     },
     {
+      "out": "../public/screens/desk-phone.webp",
+      "teammate": "Goldie",
+      "window": [
+        400,
+        720
+      ],
+      "fromEnd": 0,
+      "voice": true,
+      "top": "Yes, hand Kit"
+    },
+    {
       "out": "../public/screens/proof-schedule.webp",
       "teammate": "Timo",
-      "window": [1200, 600],
+      "window": [
+        1200,
+        600
+      ],
       "fromEnd": 0,
       "voice": true,
       "width": 2304
@@ -23,29 +40,20 @@
     {
       "out": "../public/screens/proof-schedule-phone.webp",
       "teammate": "Timo",
-      "window": [400, 700],
+      "window": [
+        400,
+        700
+      ],
       "fromEnd": 0,
       "voice": true
     },
     {
-      "out": "../public/screens/proof-model.webp",
-      "teammate": "Kit",
-      "window": [1200, 820],
-      "fromEnd": 0,
-      "clicks": [
-        {
-          "selector": "button[aria-label^=\"Kit: \"]"
-        }
-      ],
-      "clip": {
-        "selector": ".model-menu",
-        "height": 395
-      }
-    },
-    {
       "out": "../public/screens/proof-computer.webp",
       "teammate": "Goldie",
-      "window": [1200, 820],
+      "window": [
+        1200,
+        820
+      ],
       "fromEnd": 0,
       "computer": true,
       "clicks": [
@@ -72,6 +80,62 @@
       "title": "Ember & Oak",
       "page": "workspaces/435e51a4-dc94-46f0-9114-b8838e785705/ember-and-oak/index.html",
       "width": 1600
+    },
+    {
+      "out": "../public/screens/proof-avatar.webp",
+      "teammate": "Goldie",
+      "window": [
+        1200,
+        820
+      ],
+      "fromEnd": 0,
+      "top": "Give yourself a new avatar",
+      "clip": {
+        "selector": "body",
+        "left": 376,
+        "top": 42,
+        "width": 708,
+        "height": 430
+      },
+      "rewrite": [
+        {
+          "find": " from the hotline house avatar but keep it to like poses or looks",
+          "replace": "."
+        }
+      ]
+    },
+    {
+      "out": "../public/screens/proof-call.webp",
+      "teammate": "Goldie",
+      "window": [
+        1200,
+        600
+      ],
+      "fromEnd": 0,
+      "voice": true,
+      "top": "Hotline's voice can run fully locally",
+      "width": 2304,
+      "above": 120,
+      "call": {
+        "phase": "speaking",
+        "seconds": 83
+      }
+    },
+    {
+      "out": "../public/screens/proof-call-phone.webp",
+      "teammate": "Goldie",
+      "window": [
+        400,
+        700
+      ],
+      "fromEnd": 0,
+      "voice": true,
+      "top": "Hotline's voice can run fully locally",
+      "above": 130,
+      "call": {
+        "phase": "speaking",
+        "seconds": 83
+      }
     }
   ]
 }

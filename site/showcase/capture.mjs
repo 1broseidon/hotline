@@ -1,10 +1,11 @@
 // Captures the desk for hotline.dev at 2x, whatever display this machine has,
 // and frames each capture as the Mac draws the window.
 //
-//   node capture.mjs [--room DIR] [--hotline BIN] [--ui URL]
+//   node capture.mjs [--room DIR] [--hotline BIN] [--ui URL] [--only NAME,NAME]
 //   node capture.mjs frame IMAGE OUT [--title TITLE]
 //
-// The first form takes every shot in shots.json. It never opens the room it is
+// The first form takes every shot in shots.json (`--only` names the ones to retake, by
+// their file's name without its extension). It never opens the room it is
 // given: it copies the room's streams to a temporary directory, cuts them at
 // shots.json's `cut` (whatever happened in the room after the story it shows),
 // and serves the copy with `hotline serve`. In the copy every teammate works in
@@ -87,7 +88,9 @@ function copyRoom(source, cutAt) {
 	}
 
 	// The last record of each teammate wins the fold, so one more record each
-	// moves its work into the copy and turns its computer off.
+	// moves its work into the copy and turns its computer off. A teammate whose agent
+	// bypasses its permission prompts is shown accepting edits instead: the page shows
+	// a mode a visitor would pick, not the one the owner runs the room on.
 	const roomFile = path.join(room, "room.jsonl");
 	const teammates = new Map();
 	for (const line of eventLines(roomFile)) {
@@ -99,10 +102,12 @@ function copyRoom(source, cutAt) {
 		.map((teammate) => {
 			const record = { ...teammate, cwd: work };
 			if (record.computer) record.computer = { ...record.computer, enabled: false };
+			if (record.modeId === "bypassPermissions") record.modeId = "acceptEdits";
 			return `${JSON.stringify(record)}\n`;
 		});
 	fs.appendFileSync(roomFile, moved.join(""));
-	return { copy, room };
+	const roster = [...teammates.values()].filter((teammate) => !teammate.deleted).map(({ id, name, avatar }) => ({ id, name, avatarHash: avatar?.hash }));
+	return { copy, room, roster };
 }
 
 async function serve(hotline, room) {
@@ -160,7 +165,7 @@ function standInShell({ origin, token, voice }) {
 	window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
 }
 
-async function shoot(browser, ui, door, shot) {
+async function shoot(browser, ui, door, roster, shot) {
 	const [width, height] = shot.window;
 	const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, colorScheme: "dark" });
 	await context.addInitScript(standInShell, { origin: `http://127.0.0.1:${door.port}`, token: door.token, voice: shot.voice === true });
@@ -190,16 +195,81 @@ async function shoot(browser, ui, door, shot) {
 	// The tape folds, then the session's model arrives: its key reads "Goldie: Opus · High" once
 	// the agent has said what it runs, and only the bare model id before that.
 	await page.waitForTimeout(3000);
+	// `call` shows the teammate on a live call: the window's own Call, started against the dev
+	// server's source with its start stubbed (the copy has no voice provider), set to the phase
+	// named ("speaking", "listening"), its clock at `seconds` of talk, and its loudness driven
+	// so the voice bars and the face's ring are mid-swell when the shot is taken.
+	if (shot.call) {
+		const teammate = roster.find((entry) => entry.name === shot.teammate);
+		const names = Object.fromEntries(roster.map((entry) => [entry.id, entry.name]));
+		await page.evaluate(async ({ teammate, names, phase, seconds }) => {
+			const voice = await import("/src/voice/call.ts");
+			voice.Call.prototype.start = async () => {};
+			const call = await voice.startCall((id) => names[id], { personaId: teammate.id, name: teammate.name, avatarHash: teammate.avatarHash });
+			call.set({ phase, clock: { base: seconds * 1000, since: null } });
+			let t = 0;
+			setInterval(() => {
+				t += 1 / 60;
+				const level = 0.45 + 0.3 * Math.sin(t * 9) + 0.2 * Math.sin(t * 23);
+				for (const listener of call.levels) listener(Math.max(0, Math.min(1, level)));
+			}, 16);
+		}, { teammate, names, phase: shot.call.phase ?? "speaking", seconds: shot.call.seconds ?? 0 });
+		await page.waitForTimeout(1500);
+	}
 	await page
 		.locator(`button[aria-label^="${shot.teammate}: "][aria-label*="·"]`)
 		.first()
 		.waitFor({ timeout: 30_000 })
 		.catch(() => console.log(`${shot.teammate}'s model had not arrived; the capture shows its id.`));
-	await page.evaluate((fromEnd) => {
-		const tapes = [...document.querySelectorAll(".scroller")].sort((a, b) => b.scrollHeight - a.scrollHeight);
-		tapes[0].scrollTop = tapes[0].scrollHeight - tapes[0].clientHeight - fromEnd;
-	}, shot.fromEnd);
-	await page.waitForTimeout(800);
+	// The tape grows as what it shows arrives (a picture at its end loads once it is near), so the
+	// scroll is set twice: the second time against the tape's settled height.
+	for (let pass = 0; pass < 2; pass++) {
+		await page.evaluate((fromEnd) => {
+			const tapes = [...document.querySelectorAll(".scroller")].sort((a, b) => b.scrollHeight - a.scrollHeight);
+			tapes[0].scrollTop = tapes[0].scrollHeight - tapes[0].clientHeight - fromEnd;
+		}, shot.fromEnd);
+		await page.waitForTimeout(800);
+	}
+	// `top` names a line of the tape by its text and puts it at the top of the window (`above`
+	// keeps that many CSS pixels of the tape above it), for a window whose width changes how far
+	// from the end a moment sits. The tape draws its past as it is scrolled back to, so the
+	// search climbs a few screens at a time until the line is there.
+	if (shot.top) {
+		const seat = ({ text, above }) => {
+			const tapes = [...document.querySelectorAll(".scroller")].sort((a, b) => b.scrollHeight - a.scrollHeight);
+			const tape = tapes[0];
+			const line = [...tape.querySelectorAll("p, li, div")].filter((el) => el.textContent.includes(text)).pop();
+			if (!line) {
+				if (tape.scrollTop === 0) return "top";
+				tape.scrollTop = Math.max(0, tape.scrollTop - tape.clientHeight * 3);
+				return "climbing";
+			}
+			tape.scrollTop += line.getBoundingClientRect().top - tape.getBoundingClientRect().top - 12 - above;
+			return "seated";
+		};
+		let state = "climbing";
+		for (let climb = 0; climb < 200 && state === "climbing"; climb++) {
+			state = await page.evaluate(seat, { text: shot.top, above: shot.above ?? 0 });
+			await page.waitForTimeout(state === "seated" ? 800 : 250);
+		}
+		if (state !== "seated") throw new Error(`No line of the tape reads "${shot.top}"`);
+	}
+	// `rewrite` shortens a line of the tape for the page: each entry's `find` is replaced in the
+	// tape's text by its `replace`. It is for the owner's own words, when a shot shows a message
+	// that ran on past the point it makes; a teammate's words are shown as said.
+	for (const { find, replace } of shot.rewrite ?? []) {
+		const hits = await page.evaluate(({ find, replace }) => {
+			const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+			let count = 0;
+			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+				if (!node.nodeValue.includes(find)) continue;
+				node.nodeValue = node.nodeValue.replace(find, replace);
+				count++;
+			}
+			return count;
+		}, { find, replace });
+		if (hits === 0) throw new Error(`Nothing on the tape reads "${find}"`);
+	}
 	if (shot.open) {
 		await page.getByText(shot.open, { exact: false }).first().click();
 		await page.waitForTimeout(2500);
@@ -212,8 +282,11 @@ async function shoot(browser, ui, door, shot) {
 	// It shows only because the tape is scrolled back; the mouse goes where it hovers nothing. A shot
 	// may hide more by name: a key whose content the copy cannot load, such as a model whose
 	// provider key stayed in the room's vault.
-	const hidden = ['button[aria-label="Jump to the latest"]', ...(shot.hide ?? [])];
-	await page.addStyleTag({ content: `${hidden.join(", ")} { visibility: hidden !important; }` });
+	// The copy may be setting a computer up while the shot is taken, a teammate's side thread is a
+	// story of its own, a screen the tape's past links to is not on, and the plan gauge is how much
+	// of the owner's subscription this week has used: none of those keys is the page's.
+	const hidden = ['button[aria-label="Jump to the latest"]', '[role="progressbar"]', '[aria-label^="Side thread:"]', '[aria-label="Open the teammate\'s computer"]', ".plan-gauge", ...(shot.hide ?? [])];
+	await page.addStyleTag({ content: `${hidden.join(", ")} { display: none !important; }` });
 	await page.mouse.move(width / 2, height - 20);
 	await page.waitForTimeout(400);
 	// A piece of the window, such as a menu, is cut to the element and left unframed.
@@ -333,7 +406,7 @@ async function main() {
 			throw new Error(`Nothing serves the window at ${ui}: run \`make dev\` (or \`bun run dev\` in ui/), or pass --ui.`);
 		});
 		const roomSource = path.resolve(named.room ?? path.join(REPO, ".hotline-dev"));
-		const { copy, room } = copyRoom(roomSource, Date.parse(cut));
+		const { copy, room, roster } = copyRoom(roomSource, Date.parse(cut));
 		const hotline = path.resolve(named.hotline ?? path.join(REPO, "target/debug/hotline"));
 		const { desk, door } = await serve(hotline, room);
 		try {
@@ -343,14 +416,16 @@ async function main() {
 			for (const providerId of keys) {
 				execFileSync(hotline, ["wire", "credential.create", "--data", room], { input: JSON.stringify({ providerId, label: providerId, secret: "placeholder" }) });
 			}
+			const only = named.only ? new Set(named.only.split(",")) : null;
 			for (const shot of shots) {
 				const out = path.resolve(HERE, shot.out);
+				if (only && !only.has(path.basename(out, ".webp"))) continue;
 				const framed =
 					shot.kind === "browser"
 						? await frame(browser, await shootBrowser(browser, ui, roomSource, shot), 1280, `${shot.teammate}'s browser`, 2)
 						: shot.clip
-							? await shoot(browser, ui, door, shot)
-							: await frame(browser, [{ png: await shoot(browser, ui, door, shot), height: shot.window[1] }], shot.window[0], "", 2);
+							? await shoot(browser, ui, door, roster, shot)
+							: await frame(browser, [{ png: await shoot(browser, ui, door, roster, shot), height: shot.window[1] }], shot.window[0], "", 2);
 				write(framed, out, shot.width);
 				console.log(`captured ${path.relative(REPO, out)}`);
 			}

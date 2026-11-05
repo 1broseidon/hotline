@@ -30,6 +30,7 @@ make dev                                   # serves the window on :5174; leave i
 cargo build -p hotline-cli                 # the `hotline` the capture serves the room with
 cd site/showcase && bun install
 node capture.mjs --room ~/path/to/room     # every shot in shots.json, into public/screens/
+node capture.mjs --only desk-phone       # one shot again, by its file's name
 ```
 
 `--room` defaults to `.hotline-dev`, `--hotline` to `target/debug/hotline`
@@ -42,11 +43,22 @@ directory and cuts every tape and thread at `cut` in `shots.json`, so
 whatever happened after the story the page tells stays out. In the copy each
 teammate works in the temporary directory and has no computer, because a
 teammate's container is named for the teammate and the copy's would be the
-room's own. The copy's desk is stopped and the directory removed when the
+room's own. A teammate whose agent bypasses its permission prompts is shown
+accepting edits instead. The copy's desk is stopped and the directory removed when the
 shots are done. A shot names the teammate, the window size, how far back from
 the end of the tape it scrolls (`fromEnd`, in CSS pixels), and the width it is
 written at. It may also name:
 
+- `top`, the text of a tape line to put at the top of the window, where the
+  window's width decides how far from the end a moment sits, and `above`, how
+  many CSS pixels of the tape to keep above it;
+- `rewrite`, pairs of `find` and `replace` applied to the tape's text before the
+  shot, to end one of the owner's own messages where it makes its point; a
+  teammate's words are shown as said;
+- `call`, to show the teammate on a live call, in the `phase` named (speaking,
+  listening) with `seconds` of talk on the clock: the window's own call, started
+  from the dev server's source with nothing behind it, its loudness driven so
+  the voice bars are mid-swell;
 - `open`, the text of a thread line to open beside the tape;
 - `clicks`, what to press next, in order (a menu by its key's label, an entry
   in it by its text);

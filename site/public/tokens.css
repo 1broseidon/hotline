@@ -15,7 +15,7 @@
   --color-paper: oklch(13.5% 0.007 250); --color-paper-2: oklch(17% 0.008 250); --color-paper-3: oklch(22% 0.009 250);
   --color-ink: oklch(95% 0.004 250); --color-ink-2: oklch(76% 0.008 250); --color-muted: oklch(62% 0.01 250);
   --color-rule: oklch(27% 0.01 250);
-  /* The toad's green: the mark, the caret, the shell prompt and the highlights in the owner's sentence. Nothing else. */
+  /* The toad's green: the mark, the caret, the shell prompt and the highlights in the owner’s sentence and the last heading. Nothing else. */
   --color-accent: oklch(76% 0.17 142); --color-accent-ink: oklch(16% 0.03 142); --color-focus: oklch(76% 0.17 142);
   /* The same green as a highlighter's wash, under what the owner's sentence promises. Mixed into
      the ground rather than see-through, so the slanted pieces can overlap without a seam. */

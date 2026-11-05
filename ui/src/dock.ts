@@ -1,6 +1,5 @@
 import type { Ability, LinkState, RosterEntry, ScheduleEntry, ThreadId, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import type { DockState } from "./components/Dock";
-import type { PaneObject } from "./components/Sheet";
 import { sideTitle } from "./links";
 
 /**
@@ -14,21 +13,12 @@ export const DOCK_MAX = 560;
 export const DOCK_STEP = 16;
 export const DOCK_KEY = "hotline.dock.size";
 /**
- * Escape in the pane: one step back, then out. An object goes back to what
- * the pane showed before it, a thread to the list, and the list closes.
+ * Escape in the pane: one step back, then out. A thread goes back to the
+ * list, and the list closes.
  */
 export function dockBack(dock: DockState): DockState | null {
-	if (dock.object !== undefined) return dock.object.back;
 	if (dock.open !== null) return { open: null };
 	return null;
-}
-
-/**
- * The pane with an object from a message open in it. Opened over another
- * object it replaces that one, so the way back is never a stack of objects.
- */
-export function withObject(was: DockState | null, object: PaneObject): DockState {
-	return { open: null, object: { ...object, back: was?.object !== undefined ? was.object.back : was } };
 }
 
 /** The narrowest the conversation is left when the pane stands beside it. */

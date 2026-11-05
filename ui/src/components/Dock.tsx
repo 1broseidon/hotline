@@ -41,8 +41,6 @@ import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
 import { isWorking, workingState } from "../activity";
 import { Composer } from "./Composer";
-import { Markdown } from "./Markdown";
-import { OpenInPane, type PaneObject } from "./Sheet";
 import { Transcript, type ThreadRef } from "./Transcript";
 import { WorkPage } from "./Work";
 import { NotedPage } from "./Noted";
@@ -51,15 +49,12 @@ import { LoopIn } from "./LoopIn";
 /**
  * What the right-hand pane shows: the list, one thread open in it, a
  * teammate's turn of work (`work`), opened from the peek at the line pressed,
- * its Noted page (`noted`), which a thread opened from it goes back to, or an
- * object a message carries at full width (`object`), which goes back to
- * whatever the pane showed before it (`back`).
+ * or its Noted page (`noted`), which a thread opened from it goes back to.
  */
 export type DockState = {
 	open: ThreadRef | null;
 	work?: { personaId: string; blockId: string | null; stepId?: string };
 	noted?: true;
-	object?: PaneObject & { back: DockState | null };
 };
 
 /**
@@ -127,18 +122,6 @@ export function Dock({
 	const noted = state.noted === true && entry !== null ? entry : null;
 	const back = noted !== null ? { open: null, noted: true as const } : { open: null };
 
-	if (state.object !== undefined) {
-		const { back } = state.object;
-		return (
-			<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
-				<DockEdge width={width} onWidth={onWidth} />
-				<aside ref={root} className="dock" aria-label={OBJECT_TITLES[state.object.kind]}>
-					<ObjectPage object={state.object} onClose={() => (back === null ? onClose() : onState(back))} />
-				</aside>
-			</div>
-		);
-	}
-
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
@@ -203,32 +186,6 @@ function DockBand({ onClose }: { onClose(): void }) {
 			<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Threads</h2>
 			<PaneClose onClose={onClose} />
 		</Band>
-	);
-}
-
-const OBJECT_TITLES: Record<PaneObject["kind"], string> = { table: "Table", diagram: "Diagram" };
-
-/**
- * A table or a diagram from a message, at the pane's full width: the same
- * markdown drawn by the same components, so it is the same object, only
- * wider. It has no Open key of its own (it is open), and its close goes back
- * to what the pane showed before, as Escape does.
- */
-function ObjectPage({ object, onClose }: { object: PaneObject; onClose(): void }) {
-	return (
-		<section className="dock-page" aria-label={OBJECT_TITLES[object.kind]}>
-			<Band>
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{OBJECT_TITLES[object.kind]}</h2>
-				<PaneClose onClose={onClose} />
-			</Band>
-			<Scroll>
-				<div className="object-page">
-					<OpenInPane.Provider value={null}>
-						<Markdown text={object.text} />
-					</OpenInPane.Provider>
-				</div>
-			</Scroll>
-		</section>
 	);
 }
 

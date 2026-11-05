@@ -146,7 +146,7 @@ test("the steps caption is a pill of the count, the failures and the time the st
 	expect(caption.querySelector(".favicon, .favicons, img")).toBeNull();
 });
 
-test("threads, subagents and calls are one row: a glyph with a state dot, the title, what came of it, and Open", async () => {
+test("threads, subagents and calls are one quiet line: a state dot, the title, the kind, what came of it, and Open, with no glyph", async () => {
 	const opened: string[] = [];
 	await draw(
 		[
@@ -164,7 +164,7 @@ test("threads, subagents and calls are one row: a glyph with a state dot, the ti
 		["Weekly recap", "Call· Parked", "quiet"],
 	]);
 	for (const row of rows) {
-		expect(row.querySelector(".link-row-glyph svg")).not.toBeNull();
+		expect(row.querySelector("svg")).toBeNull();
 		expect(row.querySelector(".link-row-open")?.textContent).toBe("Open ›");
 		await act(async () => row.click());
 	}

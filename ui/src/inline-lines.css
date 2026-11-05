@@ -392,49 +392,31 @@
 	 * glyph with a dot for how it stands, the title, what came of it, Open. */
 	.link-row {
 		display: flex;
-		width: 26rem;
 		max-width: 86%;
 		align-items: center;
-		gap: 12px;
-		margin: 6px 0;
-		padding: 10px 12px;
-		border-radius: var(--radius-bubble);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
+		gap: 8px;
+		margin: 2px 0 2px -6px;
+		padding: 3px 8px 3px 6px;
+		border-radius: var(--radius-control);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
 		text-align: left;
-		transition: box-shadow var(--dur-press) var(--ease-out);
+		transition: background var(--dur-press) var(--ease-out);
 	}
 	.link-row:hover {
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line-strong);
+		background: var(--fill-hover);
 	}
 	.link-row:focus-visible {
 		outline: 2px solid var(--accent);
 		outline-offset: 2px;
 	}
-	.link-row-glyph {
-		position: relative;
-		display: grid;
-		width: 32px;
-		height: 32px;
-		flex-shrink: 0;
-		place-items: center;
-		border-radius: var(--radius-card);
-		background: var(--fill-active);
-		color: var(--ink-2);
-	}
 	.link-row-dot {
-		position: absolute;
-		right: -2px;
-		bottom: -2px;
-		width: 10px;
-		height: 10px;
+		width: 7px;
+		height: 7px;
+		flex-shrink: 0;
 		border-radius: 50%;
 		background: var(--ink-4);
-		box-shadow: 0 0 0 2px var(--raised);
 	}
 	.link-row-dot[data-tone="live"],
 	.link-row-dot[data-tone="done"] {
@@ -446,34 +428,29 @@
 	.link-row-words {
 		display: flex;
 		min-width: 0;
-		flex: 1;
-		flex-direction: column;
-	}
-	.link-row-title {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-read);
-		font-weight: 500;
-		color: var(--ink);
-	}
-	.link-row-sub {
-		display: flex;
 		align-items: baseline;
 		gap: 6px;
 		overflow: hidden;
 		white-space: nowrap;
-		font-size: var(--text-sm);
-		line-height: 18px;
-		color: var(--ink-3);
+	}
+	.link-row-title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-weight: 500;
+		color: var(--ink-2);
+	}
+	.link-row-sub {
+		display: flex;
+		min-width: 0;
+		gap: 4px;
+		overflow: hidden;
 	}
 	.link-row-kind {
 		flex-shrink: 0;
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		font-weight: 500;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
+	}
+	.link-row-kind::before {
+		content: "· ";
 	}
 	.link-row-outcome {
 		min-width: 0;
@@ -482,10 +459,12 @@
 	}
 	.link-row-open {
 		flex-shrink: 0;
-		font-size: var(--text-sm);
-		color: var(--ink-3);
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
 	}
-	.link-row:hover .link-row-open {
+	.link-row:hover .link-row-open,
+	.link-row:focus-visible .link-row-open {
+		opacity: 1;
 		color: var(--ink);
 	}
 

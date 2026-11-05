@@ -1,16 +1,16 @@
 /* What a message carries as an object of its own (docs/design/inline-premium.html rows 1-5): the sheet, tables, code, quotes and alerts, diagrams; and the words around them, headings, lists and inline code. */
 @layer components {
 	/* ------------------------------------------------------------ the sheet
-	 * A table, a block of code and a diagram each sit on one sheet sunk into
-	 * the bubble: a head naming it in the instrument face, its quiet keys at
-	 * the right, and the object under it. The planes are alpha, so the sheet
-	 * reads on grey and on every teammate's tint, light and dark. */
+	 * A table, a block of code and a diagram each sit on one sheet: in a
+	 * bubble, its full width edge to edge, with no border and no card, only a
+	 * quieter band; its keys wait for a hover. The planes are alpha, so the
+	 * sheet reads on grey and on every teammate's tint, light and dark. */
 	.sheet {
-		margin: 0.6em -4px;
+		position: relative;
+		margin: 0.6em 0;
 		overflow: hidden;
 		border-radius: var(--radius-pane);
 		background: var(--sheet);
-		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 		/* A bubble breaks its text anywhere so a long word can't push it wide,
 		 * and a table reads each break as room to give up: its columns shrank
 		 * to a letter. On a sheet words break between words, and what is wider
@@ -22,14 +22,57 @@
 	.speech:has(.sheet) {
 		max-width: 100%;
 	}
+	/* In a bubble a sheet, and a callout, run through the bubble's padding to
+	 * its edges; at its top or its bottom one meets the bubble's corners. */
+	.speech .sheet,
+	.speech .callout {
+		margin-inline: -12px;
+		border-radius: 0;
+	}
+	.speech > .md > :is(.sheet, .callout):first-child {
+		margin-top: -8px;
+		border-top-left-radius: var(--radius-bubble);
+		border-top-right-radius: var(--radius-bubble);
+	}
+	.speech > .md > :is(.sheet, .callout):last-child {
+		margin-bottom: -8px;
+		border-bottom-left-radius: var(--radius-bubble);
+		border-bottom-right-radius: var(--radius-bubble);
+	}
+	.said-them.said-run-top > .md > :is(.sheet, .callout):first-child {
+		border-top-left-radius: var(--radius-chip);
+	}
+	.said-them.said-run-bottom > .md > :is(.sheet, .callout):last-child {
+		border-bottom-left-radius: var(--radius-chip);
+	}
 	.sheet-head {
 		display: flex;
-		height: 32px;
+		height: 28px;
 		align-items: center;
 		gap: 8px;
 		padding: 0 4px 0 12px;
-		background: var(--sheet-head);
-		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
+	}
+	/* A table names nothing: its keys float over its own head row. */
+	.sheet[data-bare] > .sheet-head {
+		position: absolute;
+		top: 3px;
+		right: 0;
+		z-index: 1;
+		height: auto;
+		padding: 0 4px;
+	}
+	.sheet[data-bare] .sheet-keys {
+		border-radius: var(--radius-control);
+		background: var(--raised);
+	}
+	/* Keys show when the object is pointed at or holds the focus. */
+	.sheet-keys {
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.sheet:hover .sheet-keys,
+	.sheet:focus-within .sheet-keys {
+		opacity: 1;
 	}
 	.sheet-label {
 		min-width: 0;
@@ -257,19 +300,95 @@
 		color: var(--ink-3);
 	}
 
-	/* ----------------------------------------------------- open in the pane
-	 * The same object at the pane's full width; a diagram at its own size,
-	 * scrolling across when that is wider than the pane. */
-	.object-page {
-		padding: 4px 12px 16px;
+	/* ------------------------------------------------------ the full view
+	 * One object over the whole window: a frame filling it, at most 1400 wide, over a
+	 * dimmed, blurred window, its title, Copy and close on top. Its sheet
+	 * is the frame itself, so it has no head or band of its own; a diagram
+	 * shows at its own size and scrolls when that is larger. */
+	.full-view {
+		position: fixed;
+		inset: 0;
+		z-index: 80;
+		display: grid;
+		place-items: center;
+		padding: 48px 40px 40px;
+	}
+	.full-view-backdrop {
+		position: absolute;
+		inset: 0;
+		background: oklch(0% 0 0 / 0.55);
+		backdrop-filter: blur(6px);
+		cursor: default;
+	}
+	.full-view-frame {
+		position: relative;
+		display: flex;
+		width: min(1400px, 100%);
+		height: 100%;
+		flex-direction: column;
+		overflow: hidden;
+		border-radius: var(--radius-bubble);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			0 24px 64px oklch(0% 0 0 / 0.45);
+	}
+	.full-view-head {
+		display: flex;
+		height: 44px;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 4px;
+		padding: 0 8px 0 16px;
+		box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--line);
+	}
+	.full-view-title {
+		flex: 1;
+		font-size: var(--text-md);
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.full-view-close {
+		display: grid;
+		width: 28px;
+		height: 28px;
+		place-items: center;
+		border-radius: var(--radius-control);
+		color: var(--ink-3);
+	}
+	.full-view-close:hover,
+	.full-view-close:focus-visible {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.full-view-body {
+		min-height: 0;
+		overflow: auto;
 		font-size: var(--text-read);
 		line-height: var(--text-read--line-height);
 		color: var(--ink);
 	}
-	.object-page .sheet {
+	.full-view-body .sheet {
 		margin: 0;
+		border-radius: 0;
+		background: none;
 	}
-	.object-page .mermaid-diagram {
+	.full-view-body .sheet-head {
+		display: none;
+	}
+	.full-view-body .code-body {
+		padding: 14px 0 16px;
+		mask-image: none;
+	}
+	.full-view-body .md-table th,
+	.full-view-body .md-table td {
+		padding-inline: 16px;
+	}
+	.full-view-body .diagram-body {
+		padding: 24px;
+	}
+	.full-view-body .mermaid-diagram {
 		max-width: none;
 	}
 
@@ -358,19 +477,21 @@
 	.md blockquote > p + p {
 		margin-top: 0.6em;
 	}
+	/* A callout is a band across the bubble, as a sheet is: no edge and no
+	 * card, the label above its words; a warning or a caution takes the
+	 * amber wash and its mark. */
 	.callout {
 		display: flex;
 		gap: 10px;
 		margin: 0.6em 0;
-		padding: 9px 12px;
+		padding: 10px 12px 11px;
 		border-radius: var(--radius-card);
-		background: var(--sheet-head);
-		box-shadow: inset 2px 0 0 var(--line-strong);
+		background: var(--sheet);
 		color: var(--ink-2);
 	}
 	.callout[data-alert="warning"],
 	.callout[data-alert="caution"] {
-		box-shadow: inset 2px 0 0 var(--warn);
+		background: var(--warn-soft);
 	}
 	.callout-icon {
 		flex-shrink: 0;
